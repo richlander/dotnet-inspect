@@ -7,9 +7,10 @@ inspection experience.
 This is a design proposal with an incremental implementation. Target boundaries
 remain **unverified** until their named implementation gates exist. The
 source-neutral contract floor, artifact-session publication, explicit local-file
-snapshot adapter, and package-free local host now have the gates named under
-[Required gates](#required-gates). Current types and remaining target behavior
-are identified explicitly under [Current mismatches](#current-mismatches).
+snapshot adapter, shared local-path admission, and package-free local host now
+have the gates named under [Required gates](#required-gates). Current types and
+remaining target behavior are identified explicitly under
+[Current mismatches](#current-mismatches).
 
 See [inspection-space.md](../inspection-space.md) for workspace and query
 planning, [inspection-layers.md](inspection-layers.md) for consumer layers, and
@@ -979,9 +980,21 @@ but it does not resolve links, normalize case, or mint physical file identity.
 Windows treats extended `\\?\` paths as already normalized and leaves their
 segments unchanged. An extended disk or UNC coordinate is therefore admitted
 only when it is fully qualified and contains no `.` or `..` segment; otherwise
-it is rejected as invalid. Any other non-empty path that cannot be normalized
-is also rejected rather than escaping as a platform exception. Invalid-path
-results carry the requested path and no canonical path.
+it is rejected as invalid. Alternate or mixed-separator device-prefix spellings
+such as `//?/` are classified from their raw caller spelling rather than passed
+through `Path.GetFullPath`, which would erase their namespace and dot-segment
+evidence. Every noncanonical separator spelling of the `\\?\`, `\\.\`, and
+`\??\` namespace signatures is invalid rather than being reinterpreted as an
+ordinary UNC coordinate. That coordinate rule does not reject a valid extended
+link merely because its stored target is relative: the target is resolved
+against the link's parent and normalized before final-target classification,
+with parent traversal bounded by the drive, share, or volume root and without
+rewriting the canonical requested coordinate. Absolute extended targets retain
+their raw substitute namespace and remain subject to the final-target syntax
+rules without this relative-target normalization. Managed link resolution must
+not erase that syntax evidence before classification. Any other non-empty path
+that cannot be normalized is also rejected rather than escaping as a platform
+exception. Invalid-path results carry the requested path and no canonical path.
 
 All local coordinates follow symbolic links and supported link-like reparse
 points to their final target. The same policy preserves existing explicit-file
@@ -1056,9 +1069,23 @@ above. An ordinary drive root such as `C:\` is a supported `Directory`
 coordinate; bounded-directory limits still govern its top-level enumeration.
 An ordinary regular file directly beneath that root, such as `C:\foo.dll`, is a
 supported `RegularFile` coordinate. Neither form is a device coordinate.
-Ordinary filesystem paths are inspected through managed attributes. For a final
-reparse point, a metadata handle opened without following the point queries its
-tag. Classification is tag-semantic rather than based only on the name-surrogate
+Ordinary filesystem paths are inspected component by component through managed
+attributes so an ancestor link is classified rather than followed implicitly
+by the metadata lookup. A metadata handle opened without following each
+reparse point queries its tag. Supported links also read the raw substitute
+name and relative flag from that handle. Relative targets are resolved and
+normalized under the rule above; absolute targets preserve their namespace for
+final-target syntax classification. A stable ancestor or final-component link
+cycle consumes the same bounded traversal budget and is rejected as an
+unsupported entry. A direct-cycle shortcut compares path spellings ordinally;
+it does not case-fold distinct coordinates on a case-sensitive Windows
+directory. Raw reparse parsing requires the returned byte count to equal the
+common header plus `ReparseDataLength`, an even payload with a zero reserved
+field, and aligned substitute-name and print-name ranges contained by the
+declared path buffer. A symbolic-link reparse buffer is supported only when its
+flags are exactly `0` for an absolute target or `SYMLINK_FLAG_RELATIVE` for a
+relative target; reserved flag values are malformed unsupported entries.
+Classification is tag-semantic rather than based only on the name-surrogate
 bit:
 
 - symbolic-link and mount-point tags are supported links, so their final target
@@ -1082,6 +1109,10 @@ Before returning it, the adapter classifies the handle again:
 - non-Windows hosts use `SystemNative_FStat` and require regular-file mode; and
 - Windows requires `GetFileType` to report `FILE_TYPE_DISK` and handle-based
   attributes not to report a directory.
+
+A `FILE_TYPE_UNKNOWN` result with a nonzero captured last error is an admission
+failure, not a kind mismatch. A successful non-disk result remains a rejected
+kind mismatch.
 
 A post-open kind mismatch is rejected and the handle is disposed. The explicit
 file and future directory-entry copy therefore consume the same verified open
@@ -1120,17 +1151,23 @@ contract needs stable device/inode identity and intentionally restricts the
 hosts on which it deduplicates physical files. Local-path admission consumes
 only the normalized mode field and does not mint physical identity. The
 portable gate must run the actual `Stat` and `FStat` imports under 32-bit
-Browser/Wasm as well as NativeAOT. If that gate fails on a supported target, the
-platform design reopens; returning classification-unsupported is an operational
-failure mode, not approval to ship an unsupported-platform degradation.
+Browser/Wasm as well as NativeAOT. It must also preserve unavailable outcomes
+for missing and not-directory errors and rejected outcomes for symbolic-link
+loops under each platform's normalized error values. Browser/Wasm selects only
+its WASI-derived values rather than also accepting colliding Linux errno
+numbers. If that gate fails on a supported target, the platform design reopens;
+returning
+classification-unsupported is an operational failure mode, not approval to ship
+an unsupported-platform degradation.
 
 The implementation is complete when focused gates prove:
 
 - canonicalization, including extended-path segment rejection, expected-kind
   mismatches, requested-path retention when canonicalization fails,
-  final-target link following, dangling links, name-surrogate handling, special
-  and unknown reparse rejection, audited data-bearing reparse treatment, and
-  hard-link non-deduplication have the same semantics for every consuming local
+  final-target link following, relative targets from valid extended links,
+  dangling links, name-surrogate handling, special and unknown reparse
+  rejection, audited data-bearing reparse treatment, and hard-link
+  non-deduplication have the same semantics for every consuming local
   coordinate;
 - stable FIFOs, sockets, devices, and their link aliases are rejected before a
   blocking content open, while an empty regular file remains admissible;
@@ -1138,7 +1175,8 @@ The implementation is complete when focused gates prove:
   cannot reopen the coordinate;
 - unavailable, rejected, failed, and cancellation results remain distinct; and
 - the normalized `Stat` and `FStat` classifier compiles and runs under both
-  NativeAOT and Browser/Wasm, while Windows gates cover disk files,
+  NativeAOT and Browser/Wasm, preserving missing, not-directory, and link-loop
+  outcomes, while Windows gates cover disk files,
   drive-root directories, regular files directly beneath a drive root,
   traversable links, reserved device names, named-pipe coordinates, allowed
   data-bearing reparse tags, every supported special-tag family, and an unknown
@@ -1149,10 +1187,24 @@ These properties are represented by
 `LocalPathAdmission_StableNonRegularEntriesRejectBeforeOpen`,
 `LocalPathAdmission_ConsumerReceivesTheVerifiedOpenGeneration`,
 `LocalPathAdmission_OutcomesAndCancellationRemainDistinct`, and
-`LocalPathAdmission_PlatformClassifiersRemainPortable`. They are unverified
-until those gates exist. The bounded-directory implementation must exercise
-the same contract through its public root and selected-entry outcomes rather
-than adding another classifier.
+`LocalPathAdmission_PlatformClassifiersRemainPortable`. The Windows-specific
+`LocalPathAdmission_WindowsExtendedRelativeLinkTargetIsNormalized`,
+`LocalPathAdmission_WindowsAbsoluteExtendedLinkTargetRetainsSyntaxPolicy`, and
+`LocalPathAdmission_WindowsAncestorLinkLoopIsRejected` gates run in Deep
+Inspect's `platform-test` lane, together with
+`LocalPathAdmission_WindowsCaseDistinctLinkTargetIsNotCycle` and
+`LocalPathAdmission_WindowsGetFileTypeFailureIsFailed` and
+`LocalPathAdmission_WindowsAlternateDevicePrefixIsInvalid`;
+`LocalPathAdmission_WindowsPoliciesAreEnumerated` enforces the closed
+symbolic-link flag and namespace-separator matrices, while
+`LocalPathAdmission_WindowsReparsePayloadBoundsAreClosed` enforces exact raw
+payload sizing and both name ranges. The Browser/Wasm probe also rejects
+colliding Linux errno values. The change-detection suite requires a local-path
+product change to select the Browser/Wasm lane that runs its executable probe.
+Together these gates enforce the shared classifier and explicit-file admission
+contract. The bounded-directory
+implementation must exercise the same contract through its public root and
+selected-entry outcomes rather than adding another classifier.
 
 Admission is sequential and adds no publication, interleaving, or concurrent
 ownership state. A new TLA+ model would duplicate the existing artifact-session
@@ -1377,10 +1429,88 @@ selection succeeds. That host-neutral product result retains:
 - exact package id and version;
 - the requested target framework and the selector's selected framework, when
   either exists;
+- the requested runtime identifier, when one participates in selection;
 - the package content producer key and cache origin;
 - the complete typed `PackageCompileAssetSelection`, including
   `NoCompileAssets`, `NoMatchingTargetFramework`, `EmptyCompileGroup`, and
   `InvalidImplementationAssets`.
+
+Acquisition issues a `PackageRootBinding` from one
+`AcquiredPackagePayload` or `AcquiredPackageSourcePayload`. The immutable
+binding carries the exact `PackageRootRealization`, its authoritative
+`RealizedMemberCoordinate.Package`, a
+`PackageContentGenerationIdentity`, and a
+`PackageRootSelectionIdentity`. The factory validates that the retained
+content and acquisition result name the same producer before selection, then
+creates the Root, snapshots every selection sequence into read-only storage,
+and mints the coordinate and both identities without repeating coordinate
+resolution, content acquisition, or compile-asset selection.
+The acquired payload result has an internal constructor and get-only
+properties, so ordinary consumers cannot forge a coordinate/content pairing
+or replace either half after acquisition issues it.
+
+The content-generation identity is an opaque, credential-free reference token
+owned by `IPackageContent`. Every binding over the same content handle shares
+it. A store may preserve that token across handles to one retained cache
+generation; the Browser and in-memory stores do so. A replacement payload
+must receive a new token, even under the same package/version/producer slot.
+Implementations without a retained-generation registry conservatively receive
+one token per content handle. Equal identities therefore guarantee the same
+retained content generation for the binding lifetime, while unequal
+identities make no claim about byte inequality. The token is deliberately
+process-local and is never serialized or reconstructed from coordinate
+display fields.
+
+The selection identity is also an opaque reference token, minted once for one
+binding after the typed selection has been frozen. Equal identities guarantee
+the same selection status, selected target framework, default asset, and
+ordered available-framework, surface, candidate, and implementation
+sequences. Independently repeated equal selections may receive different
+identities. This conservative equality is sufficient for exact-request
+admission: sharing requires the same retained binding, never a display-field
+reconstruction.
+
+`RealizedMemberCoordinate.Package` is the portable producer-bound acquisition
+request, not immutable-byte identity. Reacquiring it may observe a later
+payload generation published under the same package/version/producer slot.
+The generation token is the authoritative immutable-content proof inside one
+adopting process. For the typed source path, the binding derives package id and
+version from `PackageSourceCoordinate`, producer from the acquired payload,
+and the effective acquisition framework from the requested target only when
+the shared target grammar can represent it; otherwise the framework is absent.
+Absence denotes framework-neutral source acquisition and is distinct from the
+real NuGet target `any`. The binding never derives the coordinate from a
+package-supplied asset folder. The original selection target and typed outcome
+remain on the Root and selection identity. The optional runtime identifier is
+carried exactly and must already be canonical. The resolved multi-source path
+uses its already normalized acquisition framework and runtime identifier even
+when a caller requests a different framework for compile-asset selection. A
+coordinate that cannot pass the existing canonical
+`RealizedMemberCoordinate.Package` grammar fails construction visibly.
+
+The descriptive `PackageRootRealization` constructor remains a compatibility
+surface for callers that already own retained content, but it does not issue a
+binding and is not admissible as exact-request cache identity. The Browser
+adapter is the first adopting path: it retains the acquisition result, asks it
+for a binding, and carries the issued coordinate and identities. Its legacy
+test-only package constructor remains unbound. This adoption is gated by
+`BrowserPackageRealization_ReceivesAcquisitionIssuedCoordinate`; generation
+replacement, selection difference, coordinate coherence, Root-only binding,
+and producer mismatch are gated by
+`PackageContentGenerationIdentity_ExternalBuffersCannotMutateGeneration`,
+`PackageRootGenerationIdentity_ReplacementChangesIdentity`,
+`PackageRootSelectionIdentity_DifferentAssetsChangeIdentity`,
+`PackageRootSelectionIdentity_SelectionSequencesAreImmutable`,
+`RealizedPackageCoordinate_ReacquisitionContractIsCoherent`,
+`PackageRootBinding_RootOnlyOutcomeRemainsValid`, and
+`PackageRootBinding_RejectsProducerMismatch`. Construction control,
+framework-neutral source binding, exclusion of package-controlled framework
+folders, and resolved framework/RID correspondence are gated by
+`PackageRootBinding_AcquiredPayloadsAreConstructionControlled`,
+`PackageRootBinding_UnrequestedFrameworkDoesNotUsePackageFolderAsCoordinate`,
+`PackageRootBinding_UnrepresentableSelectionTargetUsesFrameworkNeutralCoordinate`,
+`PackageRootBinding_ResolvedCoordinatePreservesAcquisitionTargetAndRuntime`,
+and `PackageRootBinding_SourceRuntimeRequiresFramework`.
 
 Compile-library availability is a capability of that Root, not a precondition
 for the Root to exist. The host workspace retains every requested Root.
@@ -1917,12 +2047,22 @@ non-masking disposal, role assignment separate from provenance, and
 owner-bound content references that cannot mix descriptor, registration, role,
 or bytes across artifacts or generations.
 `LocalArtifactSourceTests` enforce pre-registration local snapshots, typed
-missing/limit diagnostics, mutation and deletion resistance, and cancellation
-remaining cancellation. The three named `LocalDirectoryAcquisition_*` gates
-remain unverified. Together they require bounded deterministic top-level
-selection, source-neutral exclusions, atomic empty and failure outcomes,
-directory provenance, immutable batch snapshots, and cancellation
-preservation. Shared local-path admission remains with the
+path-admission outcomes, expected kinds, link handling, pre-open rejection of
+stable non-regular entries, once-opened generation identity, mutation and
+deletion resistance, and cancellation remaining cancellation. The executable
+NativeAOT and Browser/Wasm probes enforce the normalized `Stat`/`FStat` imports
+and the platform-specific missing, not-directory, and link-loop outcome
+mappings. Deep Inspect's Windows `platform-test` execution of
+`LocalPathAdmission_WindowsExtendedRelativeLinkTargetIsNormalized`,
+`LocalPathAdmission_WindowsAbsoluteExtendedLinkTargetRetainsSyntaxPolicy`, and
+`LocalPathAdmission_WindowsAncestorLinkLoopIsRejected` enforces
+extended-coordinate admission through a parent-relative symbolic-link target,
+absolute-target syntax preservation, and rejected ancestor link cycles.
+The three named `LocalDirectoryAcquisition_*` gates remain unverified. Together
+they require bounded deterministic top-level selection, source-neutral
+exclusions, atomic empty and failure outcomes, directory provenance, immutable
+batch snapshots, and cancellation preservation. Shared local-path admission
+remains with the
 [local adapter](#shared-local-path-admission) rather than these directory
 gates.
 `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`

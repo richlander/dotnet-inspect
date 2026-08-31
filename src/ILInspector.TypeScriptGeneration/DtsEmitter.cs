@@ -23,6 +23,7 @@ static class DtsEmitter
         "System.Single",
         "System.Double",
         "System.Decimal",
+        "System.IntPtr",
         "System.Void",
         "System.Nullable`1",
         "System.Threading.Tasks.Task`1",
@@ -39,7 +40,7 @@ static class DtsEmitter
 
     public static string Emit(
         ILInspector.JsExportSurface.JsExportSurface surface,
-        TsBindGenDiagnostics? diagnostics = null)
+        TypeScriptGenerationDiagnostics? diagnostics = null)
     {
         ApiType[] declarationTypes = GetDeclarationTypes(surface);
         ValidateTypeNames(declarationTypes);
@@ -52,9 +53,6 @@ static class DtsEmitter
             surface,
             declarationTypes,
             diagnostics);
-
-        sb.Append(
-            "export declare function initializeEngine(onStatus?: (status: string) => void): Promise<unknown>;\n");
 
         foreach (JsExportFunction function in surface.Functions.OrderBy(f => f.Name, StringComparer.Ordinal))
             EmitFunction(sb, GetFunctionSignature(
@@ -69,7 +67,7 @@ static class DtsEmitter
 
     internal static string EmitWireDeclarations(
         ILInspector.JsExportSurface.JsExportSurface surface,
-        TsBindGenDiagnostics? diagnostics = null,
+        TypeScriptGenerationDiagnostics? diagnostics = null,
         IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null)
     {
         ApiType[] declarationTypes = GetDeclarationTypes(surface);
@@ -89,7 +87,7 @@ static class DtsEmitter
     internal static TypeScriptFunctionSignature GetFunctionSignature(
         ILInspector.JsExportSurface.JsExportSurface surface,
         JsExportFunction function,
-        TsBindGenDiagnostics? diagnostics = null,
+        TypeScriptGenerationDiagnostics? diagnostics = null,
         IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null,
         bool includeRawReturnType = true) =>
         GetFunctionSignature(
@@ -112,7 +110,7 @@ static class DtsEmitter
         StringBuilder sb,
         ILInspector.JsExportSurface.JsExportSurface surface,
         ApiType[] declarationTypes,
-        TsBindGenDiagnostics? diagnostics,
+        TypeScriptGenerationDiagnostics? diagnostics,
         IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null)
     {
         TypeMappingEnvironment typeEnvironment =
@@ -154,17 +152,27 @@ static class DtsEmitter
         ILInspector.JsExportSurface.JsExportSurface surface,
         ApiType[] declarationTypes,
         JsExportFunction function,
-        TsBindGenDiagnostics? diagnostics,
+        TypeScriptGenerationDiagnostics? diagnostics,
         IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null,
         bool includeRawReturnType = true)
     {
         var effectiveDiagnostics =
-            diagnostics ?? new TsBindGenDiagnostics();
+            diagnostics ?? new TypeScriptGenerationDiagnostics();
         TypeMappingEnvironment typeEnvironment =
             CreateKnownTypes(
                 surface,
                 declarationTypes,
                 allocatedTypeNames);
+        bool validDelegateAssociations = TryIndexDelegateParameters(
+            function,
+            out IReadOnlyDictionary<int, JsExportDelegateParameter>
+                delegateParameters);
+        if (!validDelegateAssociations)
+        {
+            effectiveDiagnostics.ReportUnmappedType(
+                $"{function.Name} delegate parameters",
+                "invalid delegate parameter association");
+        }
         IReadOnlyDictionary<string, string> publicReturnTypeNames =
             MappedTypeNames(
                 typeEnvironment,
@@ -223,23 +231,34 @@ static class DtsEmitter
             effectiveDiagnostics.UnmappedTypes.Count
                 == returnDiagnosticsBefore;
         TypeScriptParameterSignature[] parameters =
-        [
-            .. function.Parameters.Select(parameter =>
-                new TypeScriptParameterSignature(
-                    CamelCase.FromPascalCase(parameter.Name),
-                    TsTypeMapper.MapParameterType(
-                        parameter.Type,
-                        typeEnvironment.KnownTypeNames,
-                        effectiveDiagnostics,
-                        $"{function.Name}.{parameter.Name}",
-                        BlockedAliases(
-                            parameter.TypeReferences,
-                            typeEnvironment.KnownTypeNames,
-                            typeEnvironment.KnownTypeIdentities),
-                        MappedTypeNames(
-                            typeEnvironment,
-                            parameter.TypeReferences)))),
-        ];
+            validDelegateAssociations
+                ?
+                [
+                    .. function.Parameters.Select((parameter, index) =>
+                        new TypeScriptParameterSignature(
+                            CamelCase.FromPascalCase(parameter.Name),
+                            TsTypeMapper.MapParameterType(
+                                parameter.Type,
+                                typeEnvironment.KnownTypeNames,
+                                effectiveDiagnostics,
+                                $"{function.Name}.{parameter.Name}",
+                                BlockedAliases(
+                                    parameter.TypeReferences,
+                                    typeEnvironment.KnownTypeNames,
+                                    typeEnvironment.KnownTypeIdentities),
+                                MappedTypeNames(
+                                    typeEnvironment,
+                                    parameter.TypeReferences),
+                                delegateParameters.GetValueOrDefault(index),
+                                typeEnvironment.DelegateMappingContext))),
+                ]
+                :
+                [
+                    .. function.Parameters.Select(parameter =>
+                        new TypeScriptParameterSignature(
+                            CamelCase.FromPascalCase(parameter.Name),
+                            "unknown")),
+                ];
 
         return new TypeScriptFunctionSignature(
             CamelCase.FromPascalCase(function.Name),
@@ -277,6 +296,38 @@ static class DtsEmitter
                         type.FullName,
                         type.DefinitionName)))
             : [];
+        var localTypeKinds = declarationTypes
+            .Select(type => (
+                type.DefinitionName,
+                Kind: type.Kind switch
+                {
+                    "class" or "interface" or "delegate" =>
+                        TsLocalTypeKind.Reference,
+                    "struct" or "enum" =>
+                        TsLocalTypeKind.Value,
+                    _ => (TsLocalTypeKind?)null,
+                }))
+            .Where(item =>
+                item.DefinitionName is not null
+                && item.Kind is not null)
+            .ToDictionary(
+                item => item.DefinitionName!,
+                item => item.Kind!.Value,
+                EqualityComparer<
+                    MetadataTypeDefinitionName>.Default);
+        var delegateMappingContext = new TsDelegateMappingContext(
+            knownTypeNames,
+            localTypeKinds,
+            surface.AssemblyIdentity,
+            declarationTypes
+                .Where(type => type.DefinitionName is not null)
+                .ToDictionary(
+                    type => type.DefinitionName!,
+                    type => AllocatedTypeName(
+                        type,
+                        allocatedTypeNames),
+                    EqualityComparer<
+                        MetadataTypeDefinitionName>.Default));
         var aliases = new Dictionary<string, string>(
             StringComparer.Ordinal);
         foreach (IGrouping<string, ApiType> group in declarationTypes
@@ -316,7 +367,8 @@ static class DtsEmitter
             knownTypeNames,
             knownTypeIdentities,
             aliases,
-            identityNames);
+            identityNames,
+            delegateMappingContext);
     }
 
     static IReadOnlyDictionary<string, string> MappedTypeNames(
@@ -365,7 +417,7 @@ static class DtsEmitter
         StringBuilder sb,
         ApiType enumType,
         string declarationName,
-        TsBindGenDiagnostics? diagnostics)
+        TypeScriptGenerationDiagnostics? diagnostics)
     {
         if (enumType.JsonPropertyNamingPolicy
             == JsonWireNamingPolicy.Unsupported)
@@ -428,7 +480,7 @@ static class DtsEmitter
         JsonWireDirection directions,
         string declarationName,
         TypeMappingEnvironment typeEnvironment,
-        TsBindGenDiagnostics? diagnostics)
+        TypeScriptGenerationDiagnostics? diagnostics)
     {
         JsonWireNamingPolicy namingPolicy = record.JsonPropertyNamingPolicy ?? JsonWireNamingPolicy.None;
         if (namingPolicy == JsonWireNamingPolicy.Unsupported)
@@ -712,15 +764,11 @@ static class DtsEmitter
 
     static void ValidateFunctionNames(IEnumerable<JsExportFunction> functions)
     {
-        var moduleBindings = new HashSet<string>(
-            ["dotnet", "initializeEngine"],
-            StringComparer.Ordinal);
+        var moduleBindings = new HashSet<string>(StringComparer.Ordinal);
         foreach (JsExportFunction function in functions)
         {
             string functionName = CamelCase.FromPascalCase(function.Name);
-            string exportSlotName = functionName + "Export";
             if (!TypeScriptIdentifier.IsStrictModeBindingIdentifier(functionName)
-                || !TypeScriptIdentifier.IsStrictModeBindingIdentifier(exportSlotName)
                 || !IsComposedIdentifierName(function.DeclaringType)
                 || !TypeScriptIdentifier.IsIdentifierName(function.Name))
             {
@@ -729,8 +777,7 @@ static class DtsEmitter
                     "export names must be TypeScript identifiers");
             }
 
-            if (!moduleBindings.Add(functionName)
-                || !moduleBindings.Add(exportSlotName))
+            if (!moduleBindings.Add(functionName))
             {
                 throw new UnsupportedWireContractException(
                     "JS-export function",
@@ -738,9 +785,6 @@ static class DtsEmitter
             }
 
             var parameterNames = new HashSet<string>(StringComparer.Ordinal);
-            bool reservesResult =
-                function.ReturnWireType is not null
-                && TsTypeMapper.IsJsonEnvelopeReturnType(function.ReturnType);
             foreach (ApiParameter parameter in function.Parameters)
             {
                 string parameterName =
@@ -752,13 +796,11 @@ static class DtsEmitter
                         "parameter names must be TypeScript identifiers");
                 }
 
-                if (!parameterNames.Add(parameterName)
-                    || parameterName == exportSlotName
-                    || reservesResult && parameterName == "result")
+                if (!parameterNames.Add(parameterName))
                 {
                     throw new UnsupportedWireContractException(
                         "JS-export parameter",
-                        "parameters collide with generated JavaScript bindings");
+                        "parameters collide in the TypeScript declaration");
                 }
             }
         }
@@ -842,7 +884,7 @@ static class DtsEmitter
 
     static void ReportUnsupportedContextOptions(
         ApiType type,
-        TsBindGenDiagnostics? diagnostics) =>
+        TypeScriptGenerationDiagnostics? diagnostics) =>
         diagnostics?.ReportUnmappedType(
             $"{type.Name} JsonSerializerContext options",
             "unsupported wire-shaping options");
@@ -877,28 +919,28 @@ static class DtsEmitter
 
     static void ReportUnsupportedJsonWireShape(
         string location,
-        TsBindGenDiagnostics? diagnostics) =>
+        TypeScriptGenerationDiagnostics? diagnostics) =>
         diagnostics?.ReportUnmappedType(
             $"{location} JSON wire shape",
             "unsupported wire-shaping attributes or inheritance");
 
     static void ReportDirectionSplitWireShape(
         string location,
-        TsBindGenDiagnostics? diagnostics) =>
+        TypeScriptGenerationDiagnostics? diagnostics) =>
         diagnostics?.ReportUnmappedType(
             $"{location} JSON wire shape",
             "serialization and deserialization member sets differ on a bidirectional type");
 
     static void ReportUnsupportedConstructorBinding(
         string location,
-        TsBindGenDiagnostics? diagnostics) =>
+        TypeScriptGenerationDiagnostics? diagnostics) =>
         diagnostics?.ReportUnmappedType(
             $"{location} JSON wire shape",
             "deserialization without a participating setter requires unmodeled constructor-binding evidence");
 
     static void ReportUnsupportedJsonConverter(
         string location,
-        TsBindGenDiagnostics? diagnostics) =>
+        TypeScriptGenerationDiagnostics? diagnostics) =>
         diagnostics?.ReportUnmappedType(
             location,
             "unsupported custom JsonConverter");
@@ -913,7 +955,8 @@ static class DtsEmitter
         HashSet<string> KnownTypeNames,
         HashSet<ApiTypeReferenceIdentity> KnownTypeIdentities,
         Dictionary<string, string> Aliases,
-        Dictionary<ApiTypeReferenceIdentity, string> IdentityNames);
+        Dictionary<ApiTypeReferenceIdentity, string> IdentityNames,
+        TsDelegateMappingContext DelegateMappingContext);
 
     static void EmitFunction(
         StringBuilder sb,
@@ -929,6 +972,32 @@ static class DtsEmitter
           .Append("): ")
           .Append(signature.PublicReturnType)
           .Append(";\n");
+    }
+
+    static bool TryIndexDelegateParameters(
+        JsExportFunction function,
+        out IReadOnlyDictionary<int, JsExportDelegateParameter>
+            delegateParameters)
+    {
+        var indexed = new Dictionary<int, JsExportDelegateParameter>();
+        foreach (JsExportDelegateParameter parameter
+            in function.DelegateParameters)
+        {
+            if (parameter is null
+                || parameter.ParameterIndex < 0
+                || parameter.ParameterIndex >= function.Parameters.Count
+                || !indexed.TryAdd(
+                    parameter.ParameterIndex,
+                    parameter))
+            {
+                delegateParameters =
+                    new Dictionary<int, JsExportDelegateParameter>();
+                return false;
+            }
+        }
+
+        delegateParameters = indexed;
+        return true;
     }
 
     static IReadOnlySet<string>? BlockedAliases(
@@ -1007,6 +1076,7 @@ static class DtsEmitter
                 or "Single"
                 or "Double"
                 or "Decimal"
+                or "IntPtr"
                 or "Void"
                 or "Nullable`1"
                 or "Task`1"
@@ -1069,6 +1139,7 @@ static class DtsEmitter
             "System.Single" or "Single" => "float",
             "System.Double" or "Double" => "double",
             "System.Decimal" or "Decimal" => "decimal",
+            "System.IntPtr" or "IntPtr" => "nint",
             "System.Void" or "Void" => "void",
             _ => null,
         };

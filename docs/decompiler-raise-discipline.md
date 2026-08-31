@@ -56,26 +56,34 @@ Assert the IR invariant on accepted and declined results.
 
 ### Review evidence
 
-For the real witness, acquire exact base/head `AnnotatedSourceDocument` values
-with `-S "Annotated Source Document"`, save them separately, and pass both
-product documents to `DecompilerHarness --structural-review`. The decompiler
-issuer binds correspondence to the exact document revisions and the exact
-physical method body. It matches only unique product-owned IL-origin evidence,
-then feeds the full-body structural review introduced by #4092 from one
+For the benchmark witness, acquire exact base/head `AnnotatedSourceDocument`
+values with `-S "Annotated Source Document" --json`, save each root document
+separately, and pass both product documents to
+`DecompilerHarness --structural-review`. Use a real corpus method when one
+exists and a compiler-produced fixture otherwise. This acquisition and command
+are required for every output-changing PR; an unavailable result must name the
+exact acquisition, provenance, identity, unsupported, or
+ambiguous-correspondence limit encountered. The decompiler issuer binds
+correspondence to the exact document revisions and the exact physical method
+body. It matches only unique product-owned IL-origin evidence, then feeds the
+full-body structural review introduced by #4092 from one
 `CSharpStructuralDiffDocument` and its derived `CSharpStructuralComparison`.
 Paste its Before/After caret overlays, structural rows, and any correspondence
-gaps verbatim. Add `--json` when the revision-bound diff document itself must be
-retained or replayed; never replace it with caller-authored correspondence.
+gaps verbatim when the claimed change has supported correspondence. Add
+`--json` to the harness command when the revision-bound diff document itself
+must be retained or replayed; never replace it with caller-authored
+correspondence.
 
 Never hand-place carets or recover correspondence from equal ids, coordinates,
 text, labels, or display order. A generated `Partial` status is a decline
 boundary, not qualified proof: state whether the PR's claimed changed structure
-has a unique matched row. When it appears only among unsupported or ambiguous
-gaps, treat any matched rows as incidental and record
-`Not generated — unsupported or ambiguous product correspondence: {detail}`
-for the claimed structural review. The same decline applies when the documents
-predate provenance support or describe different method bodies. Retain the
-standalone Before and After bodies.
+appears in one or more supported generated rows, including `Changed`, `Moved`,
+`Added`, or `Removed`. When it appears only among unsupported or ambiguous gaps,
+treat rows for unrelated changes as incidental and record `Attempted —
+unavailable for the claimed change: {exact result}`. The same decline applies
+when document acquisition fails, the documents predate provenance support, or
+they describe different method bodies. Retain the standalone Before and After
+bodies.
 
 The structural review explains *what changed*; it is not a correctness oracle.
 Keep the independent validity, correctness, compile-back fidelity, and exact
@@ -215,9 +223,9 @@ legitimate *localized* signoff, never a population gate.
   structuring/typing/printer semantics on nodes that carry a **runnable
   `assumes:` predicate**, shown as a before/after on the targeted method(s)
   (the improved example plus a still-flat near miss) — and always as a
-  complement to the corpus evidence, never a replacement. A burndown /
-  invalid-`Full` fix showing the violation gone at that node is the natural
-  "defect is dead" artifact.
+  complement to the corpus evidence, never a replacement. An invalid-`Full` fix
+  showing the violation gone at that node is the natural "defect is dead"
+  artifact.
 - **Never as signoff when** the claim is population-scale (that is the card
   and render A/B's job); when the changed nodes carry no `assumes:` predicate
   (the dump is then purely descriptive — do not dress it up as a gate); or on

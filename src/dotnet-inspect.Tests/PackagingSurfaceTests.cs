@@ -29,7 +29,6 @@ public sealed class PackagingSurfaceTests
         "src/mdi/mdi.csproj",
         "src/runfaster/runfaster.csproj",
         "src/ts-jsexport/ts-jsexport.csproj",
-        "src/tsbindgen/tsbindgen.csproj",
     ];
 
     /// <summary>

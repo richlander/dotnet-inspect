@@ -895,17 +895,25 @@ retrieval rather than multiplying per-row work. Each candidate type-name
 attempt consumes structural-name work, and decode failures also count against
 the decode-failure ceiling. Method projection is validated once per image
 rather than at each projection site: the query admits a reader only after
-confirming that the TypeDef method ranges cover the MethodDef table exactly
-once, and seed and population resolution accept only an image carrying that
-confirmation. A repeated or out-of-range row, a `MethodPtr` table that aliases
-one MethodDef row into two types, and a `MethodList` start past the table --
-which SRM reports as an empty range rather than an error -- are all typed
+confirming that no TypeDef method range reports a negative length and that
+the ranges cover the MethodDef table exactly once, and seed and population
+resolution accept only an image carrying that confirmation. Those two
+requirements bound the underlying `MethodList` column jointly, which is why
+neither is redundant: a negative length is what makes the starts
+non-decreasing, and coverage is what forces the first non-null start to row 1
+and holds every later start within one past the projected table. A null start
+sits outside that chain: ECMA-335 II.22.37 permits it and the reader reports
+its range as length zero rather than as the difference to the next start.
+A repeated or out-of-range row, a `MethodPtr` table
+that aliases one MethodDef row into two types, a descending range, and a
+`MethodList` start past the table -- which SRM reports as an empty or
+negative-length range rather than an error -- are all typed
 metadata failures in the participant role that read the image, instead of
 reaching Analysis as untyped argument errors, being reported as a member
 ambiguity, or returning a success-shaped empty population. The check is a
-single pass over the image's own tables; it is not a claim that every
-malformed image is diagnosed before Analysis. It introduces no network,
-source, Research, Finding, Decompiler, or presentation capability.
+single pass over the image's own tables and reads no raw table bytes; it is not
+a claim that every malformed image is diagnosed before Analysis. It introduces
+no network, source, Research, Finding, Decompiler, or presentation capability.
 `AssemblyContextStructuralCloneRetrievalQueryTests` gates A-vs-A and A-vs-B
 product-result preservation, type and whole-assembly population behavior,
 exact-member, extension-member, and token selection, ambiguity, limit
@@ -917,15 +925,29 @@ repeated-container-attribute, and rejected-TypeSpec-attribute cases gate the
 pre-retrieval work ceilings and visible metadata-failure boundary. Its
 type-name decode-failure case gates the decode-failure ceiling, paired with a
 below-ceiling case that proves isolated malformed neighbors remain tolerable.
-Ten cases gate whole-image method ownership across the type-scoped,
+Fifteen cases gate whole-image method ownership across the type-scoped,
 whole-assembly same-image, whole-assembly cross-image, and member-seed paths,
 covering duplicate, out-of-range, cross-type aliased, and silently empty
 projections, a descending `MethodList` range, an uncovered `MethodPtr` row, and
-metadata declaring no TypeDef rows. An eleventh case gates that a null
+metadata declaring no TypeDef rows. The descending cases pin the check on both
+metadata shapes -- a `MethodPtr`-free image and a reordered `MethodPtr`
+permutation -- and each is rejected at the module row, before any row is
+projected. A further case pushes every start past the end of the projected
+table so the earlier ranges report length zero and enumerate nothing, isolating
+the one path that reaches the end of the derived bound with a negative final
+range. Every fixture in this group pins its per-row range lengths, so the shape
+it claims to exercise is gated rather than asserted in prose. A further case starts
+the column past MethodDef row 1 while every range keeps a non-negative length,
+so it is rejected by coverage alone and pins the half of the ordering proof the
+range-length check cannot supply. A further case carries a null start *after* a
+populated run, which ECMA-335 II.22.37 cannot express because each run is
+delimited by the following start, so the negative length lands on the preceding
+row. Those fifteen are all rejections; a
+sixteenth case gates that a null
 `MethodList`, which ECMA-335 permits and the runtime reader projects as an
-empty run, is accepted rather than reported as malformed. A twelfth gates
+empty run, is accepted rather than reported as malformed. A seventeenth gates
 uniqueness of the exact seed member, which a rejected sibling leaves unproven,
-and a thirteenth gates that matching a candidate leaf charges the
+and an eighteenth gates that matching a candidate leaf charges the
 declaring-chain traversal it performs rather than only the names it compares;
 that case pins its fixture's declaring depth, because a shallow fixture would
 exhaust the same budget while leaving the traversal unexercised.

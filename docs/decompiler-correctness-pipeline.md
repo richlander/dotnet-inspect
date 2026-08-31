@@ -913,7 +913,7 @@ implemented, this ordering can still avoid unnecessary per-method attempts
 because complete whole-module receipts need no escalation.
 
 When repeated skeleton/context fixes only trade compiler diagnostics without
-growing the checkable population, stop the incremental burndown and say the
+growing the checkable population, stop the incremental repair work and say the
 plateau plainly. The next action is either a bounded safety case over the
 checkable rows, or a measurement issue before redesign. The #1318 plateau was
 measured under #1412: the failures are not predominantly unrelated-sibling
@@ -1011,7 +1011,7 @@ reviewer needs to inspect the fight.
 
 ## Using the gauntlet to generate work
 
-When the burndown queue is empty, do not invent rows. Ask which boss is failing:
+When the defect queue is empty, do not invent rows. Ask which boss is failing:
 
 - Entry gate failures become build/test fixes.
 - Shape proof failures become adversarial fixtures or predicate hardening.

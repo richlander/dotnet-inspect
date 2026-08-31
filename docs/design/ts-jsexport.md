@@ -609,41 +609,15 @@ evidence.
 - bundle the generated runtime module with inspect-web's application assets; or
 - provide runtime JSON schema validation.
 
-## Legacy coexistence
+## Legacy retirement
 
-The legacy `tsbindgen` command temporarily remains for inspect-web's current
-generated artifacts. It still has the pre-decision behavior:
-
-- the command, project, and configured package identity are named `tsbindgen`;
-- stdout is a generated `.d.ts` declaration surface;
-- `--emit-js` generates the runtime facade directly as JavaScript;
-- the JavaScript and declaration emitters spell parallel projections that must
-  remain synchronized;
-- the runtime wrapper is untyped JavaScript;
-- `ConfigureHost(string)` is an implicit name-and-signature convention;
-- initialization publishes individual export bindings, invokes
-  `ConfigureHost`, unconditionally awaits `runtime.runMain()`, and then returns
-  the raw export object;
-- `TsTypeMapper` contains `ValueTask` and `ValueTask<T>` branches and unit tests
-  that remain reachable for hand-composed surfaces, although the SDK's
-  JavaScript interop source generator rejects a compiled `[JSExport]`
-  `ValueTask` signature with `SYSLIB1072`;
-- owner-issued return-wire facts cover direct serializer completion and
-  Analysis-authenticated compiler state-machine fields across suspension;
-- `JsExportSurfaceBuilder` authenticates each generated registration's
-  signature hash and preserves the exact dispatch identity as
-  `JsExportFunction.RuntimeDispatchKey`, but the legacy emitter does not
-  consume it; and
-- the legacy emitter traverses declaring-type paths with ordinary property
-  lookup, invokes a bare runtime method name, rejects same-spelling managed
-  operations, and rejects distinct enum or DTO identities with the same simple
-  name instead of allocating distinct public names.
-
-Those behaviors are compatibility inputs, not requirements for
-`ts-jsexport`. Shared host-side mapping and declaration mechanics live in
-`ILInspector.TypeScriptGeneration`; neither executable project references the
-other. Issue #5003 owns switching the current consumer and removing the legacy
-path.
+Issue #5003 ended the temporary legacy coexistence after inspect-web adopted
+the native TypeScript handoff. The `tsbindgen` command, project, package
+identity, direct JavaScript emitter, declaration-only command path, and
+parallel-output generation script are removed. Shared host-side mapping and
+declaration mechanics remain in `ILInspector.TypeScriptGeneration`; the
+inspect-web owner documents its source placement, compiler-derived artifacts,
+startup policy, build ordering, drift gate, and publication path.
 
 ## Migration
 
@@ -674,25 +648,32 @@ The generator implementation performs this migration:
     for an inherited, accessor-backed, absent, or non-callable path;
 11. remove `ValueTask` mapping branches, reject such a hand-composed input
     visibly, and retain the SDK compile-time negative;
-12. allocate deterministic operation, parameter, enum, and DTO names from
+12. retain authenticated synchronous delegate facts, preserve callback
+    parameter order and nullability, and reject Promise-returning delegates
+    rather than inventing a JavaScript async callback contract. `Action`
+    callbacks use `(...args) => undefined`, not `void`, because TypeScript
+    otherwise accepts Promise-returning functions; named callbacks must
+    likewise declare or infer an `undefined` return;
+13. allocate deterministic operation, parameter, enum, and DTO names from
     complete managed identities, route every typed reference through that
     allocation, and preserve parameter order and types instead of rejecting
     legal spelling collisions; and
-13. preserve deterministic output and failure-before-publication behavior.
+14. preserve deterministic output and failure-before-publication behavior.
 
-Steps 9 and 12 are atomic for methods sharing one declaring-type path and
-managed name. Allocating two facade names that both call an ambiguous bare
+Steps 9 and 13 are atomic for methods sharing one declaring-type path and
+managed name. The generator consumes the exact runtime dispatch identity from
+issue #4791; allocating two facade names that both call an ambiguous bare
 runtime key is never an intermediate state.
 
-## Consumer migration residual
+## Consumer integration
 
-Adopting the generated TypeScript in inspect-web is a separate focused effort
-owned by inspect-web. That effort must decide compiler configuration, source
-and derived-artifact placement, application module resolution, Vite
+Inspect-web adopts the generated TypeScript through its separately owned
+consumer build and runtime contract. Its owner decides compiler configuration,
+source and derived-artifact placement, application module resolution, Vite
 externalization, startup policy including `ConfigureHost` and managed
 entry-point invocation, build ordering, availability of the SDK-owned
 `dotnet.d.ts`, stale-output checks, and publication. This document supplies the
-TypeScript module handoff but does not decide those consumer contracts.
+TypeScript module handoff but does not own those consumer contracts.
 
 Issue #4792 records the required real-consumer async canary as independently
 reviewable inspect-web work. This design consumes its end-to-end result without
@@ -704,6 +685,17 @@ that two generated facade modules attach to one consumer-coordinated runtime
 and retain assembly-specific dispatch without turning its fixture assemblies
 into a proposed production-layer split; #4497 remains the owner of any such
 product decision.
+
+Browser callback-lifetime canaries are likewise consumer evidence rather than
+generator ownership. Same-operation callback routing belongs to the managed
+operation bridge in
+[#5094](https://github.com/richlander/dotnet-inspect/issues/5094), worker-epoch
+lifetime belongs to the worker protocol in
+[#5093](https://github.com/richlander/dotnet-inspect/issues/5093), and both
+depend on inspect-web adopting the generated facade under
+[#5003](https://github.com/richlander/dotnet-inspect/issues/5003). A canary
+against the current main-thread handcrafted browser contract would prove a
+superseded placement rather than the intended architecture.
 
 ## Acceptance
 
@@ -717,6 +709,19 @@ issue references below.
   prove that inspect-web's runtime dependency closure contains none of
   `ts-jsexport`, `ILInspector.JsExportSurface`, or
   `ILInspector.TypeScriptGeneration`;
+- `eng/generate-inspect-web-engine-facade.sh --check` regenerates inspect-web's
+  checked-in TypeScript source, compiles its `.js` and `.d.ts` artifacts against
+  the SDK-owned `dotnet.d.ts` from the engine's MSBuild-resolved Browser/Wasm
+  runtime pack with host-independent LF output, and proves all three files are
+  current;
+- `verify-engine-facade-runtime.ts` executes the compiler-derived JavaScript
+  without a `window` global, proves initialization performs no managed
+  operation or entry-point call, and then exercises explicit host
+  configuration, synchronous and asynchronous managed operations, and
+  `runEntryPoint()`;
+- `verify-published-engine-facade.ts` runs the published Browser/Wasm runtime
+  without a `window` global and proves the production facade carries a
+  synchronous build identity and a genuinely awaited package-version query;
 - a set-equality gate proves that supported `[JSExport]` methods and generated
   managed-operation facade functions have exact one-to-one correspondence,
   excluding separately identified `initializeRuntime` and `runEntryPoint`
@@ -746,10 +751,36 @@ issue references below.
   assuming it is the build's only cascading diagnostic, while a hand-composed
   surface test proves the TypeScript mapper also rejects those unsupported
   inputs visibly;
+- compiled synchronous `Action` and `Func` fixtures prove that the owner
+  authenticates the exact generated `Action(...)` and `Function(...)`
+  descriptors, every nested payload descriptor, managed parameter order,
+  supported callback arity, signature hash, and wrapper target before
+  publishing delegate facts;
+- TypeScript mapping tests prove that only those authenticated facts become
+  synchronous function types, preserving callback parameter order,
+  nullability, primitive payload types, and return type after every display
+  type is correlated with its authenticated assembly and type identity.
+  Framework mappings require exact metadata names and generic arity; local
+  mappings require retained resolution origin, complete containing-assembly
+  identity, exact structured metadata definition name, and declaration kind
+  before nullable-reference spelling is accepted. Every delegate fact must
+  associate uniquely with an in-range managed parameter. Authenticated
+  framework payloads retain their framework meaning during rendering even when
+  a local declaration has the same display spelling. Unauthenticated,
+  untrusted-framework, mismatched, unclassified-nullable, malformed-arity,
+  unassociated, over-arity, `Void`-payload, or async-disguising evidence
+  remains a diagnosed `unknown`;
+- an SDK compile-negative fixture requires method-scoped `SYSLIB1072` for a
+  Promise-returning `Func<..., Task<T>>` callback and a callback with more than
+  three parameters without assuming either is the build's only cascading
+  diagnostic;
 - a compiler test resolves the generated runtime import against the
   SDK-owned `dotnet.d.ts`, with no generator-owned ambient or copied substitute,
   rejects an invalid use of the generic runtime API, and proves the
-  assembly-specific `getAssemblyExports()` narrowing;
+  assembly-specific `getAssemblyExports()` narrowing. The compiled fixture
+  includes synchronous `Action` and `Func` exports; valid inline and named
+  `undefined`-returning callbacks compile and execute through the runtime seam,
+  while async and `void`-returning `Action` callbacks fail compilation;
 - a declaration-emission test proves the public facade declaration does not
   expose or import SDK runtime types;
 - a compiler test proves the generated TypeScript emits executable JavaScript

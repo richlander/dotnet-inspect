@@ -30,6 +30,54 @@ public sealed record IntegrationProducerPolicyId
     public override string ToString() => Value;
 }
 
+/// <summary>
+/// One producer-policy declaration retained by a catalog revision without
+/// exposing the descriptor graph to serialization.
+/// </summary>
+public sealed class IntegrationProducerPolicyRevision
+{
+    internal IntegrationProducerPolicyRevision(
+        IntegrationProducerPolicyDescriptor policy)
+    {
+        Id = policy.Id;
+        RelationshipId = policy.RelationshipId;
+        ConceptIds = [.. policy.Concepts.Select(concept => concept.Id)];
+    }
+
+    public IntegrationProducerPolicyId Id { get; }
+    public string RelationshipId { get; }
+    public ImmutableArray<IntegrationConceptId> ConceptIds { get; }
+}
+
+/// <summary>
+/// The stable revision and declaration shape of one configured Integration
+/// catalog.
+/// </summary>
+public sealed class IntegrationConceptCatalogRevision
+{
+    internal IntegrationConceptCatalogRevision(
+        int number,
+        IEnumerable<IntegrationConceptDescriptor> concepts,
+        IEnumerable<IntegrationProducerPolicyDescriptor> producerPolicies)
+    {
+        if (number <= 0)
+            throw new ArgumentOutOfRangeException(nameof(number));
+
+        Number = number;
+        ConceptIds = [.. concepts.Select(concept => concept.Id)];
+        ProducerPolicies =
+        [
+            .. producerPolicies.Select(
+                policy => new IntegrationProducerPolicyRevision(policy)),
+        ];
+    }
+
+    public int Number { get; }
+    public ImmutableArray<IntegrationConceptId> ConceptIds { get; }
+    public ImmutableArray<IntegrationProducerPolicyRevision> ProducerPolicies
+        { get; }
+}
+
 /// <summary>One configured Integration concept in the current product build.</summary>
 public sealed class IntegrationConceptDescriptor
 {
@@ -216,6 +264,10 @@ public static class IntegrationConceptCatalog
                         ReferenceEqualityComparer.Instance)));
         }
 
+        Revision = new IntegrationConceptCatalogRevision(
+            1,
+            Concepts,
+            ProducerPolicies);
         ByLabel = Concepts.ToDictionary(
             concept => concept.DisplayLabel,
             StringComparer.Ordinal);
@@ -242,6 +294,7 @@ public static class IntegrationConceptCatalog
     public static ImmutableArray<IntegrationConceptDescriptor> Concepts { get; }
     public static ImmutableArray<IntegrationProducerPolicyDescriptor>
         ProducerPolicies { get; }
+    public static IntegrationConceptCatalogRevision Revision { get; }
 
     public static bool TryGetByDisplayLabel(
         string displayLabel,

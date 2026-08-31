@@ -5,8 +5,6 @@ using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.JsExportSurface.PublishabilityFixtures;
 using ILInspector.Metadata;
-using tsbindgen;
-
 namespace ILInspector.JsExportSurface.Tests;
 
 public sealed class TypeScriptFacadeEmitterTests
@@ -98,6 +96,228 @@ public sealed class TypeScriptFacadeEmitterTests
             StringComparison.Ordinal);
         Assert.Contains(
             "}\n\nexport async function getWidgetAsync",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_ProjectsAuthenticatedSynchronousDelegateFacts()
+    {
+        var function = new JsExportFunction
+        {
+            DeclaringType = "Fixture.Exports",
+            Name = "Observe",
+            RuntimeDispatchKey = "Observe.-42",
+            ReturnType = "void",
+            Parameters =
+            [
+                new ApiParameter
+                {
+                    Name = "Callback",
+                    Type = "System.Action<int>",
+                },
+            ],
+            DelegateParameters =
+            [
+                new JsExportDelegateParameter
+                {
+                    ParameterIndex = 0,
+                    Kind = JsExportDelegateKind.Action,
+                    ParameterTypes =
+                    [
+                        TypeRef.CoreLib("System", "Int32"),
+                    ],
+                },
+            ],
+        };
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = new ApiAssemblyIdentity(
+                    "Fixture",
+                    new Version(1, 0, 0, 0),
+                    culture: null,
+                    publicKeyToken: null),
+                Functions = [function],
+            };
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule);
+
+        Assert.Contains(
+            """
+            readonly "Observe.-42": (callback: (arg0: number) => undefined) => void;
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export function observe(callback: (arg0: number) => undefined): void {
+              return $requireManagedExports()["Fixture"]["Exports"]["Observe.-42"](callback);
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_DoesNotRebindAuthenticatedDelegatePayloadThroughLocalAlias()
+    {
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+        var assembly = new ApiAssemblyIdentity(
+            "Fixture",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: null);
+        var localDateTime = new ApiType
+        {
+            Namespace = "System",
+            Name = "DateTime",
+            Kind = "class",
+        };
+        var function = new JsExportFunction
+        {
+            DeclaringType = "Fixture.Exports",
+            Name = "Observe",
+            RuntimeDispatchKey = "Observe.-42",
+            ReturnType = "void",
+            Parameters =
+            [
+                new ApiParameter
+                {
+                    Name = "Callback",
+                    Type = "System.Action<System.DateTime>",
+                    TypeReferences =
+                    [
+                        new ApiTypeReferenceIdentity(
+                            assembly,
+                            "System.DateTime"),
+                    ],
+                },
+            ],
+            DelegateParameters =
+            [
+                new JsExportDelegateParameter
+                {
+                    ParameterIndex = 0,
+                    Kind = JsExportDelegateKind.Action,
+                    ParameterTypes =
+                    [
+                        TypeRef.CoreLib("System", "DateTime"),
+                    ],
+                },
+            ],
+        };
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = assembly,
+                Functions = [function],
+                Records = [localDateTime],
+            };
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule,
+            diagnostics);
+
+        Assert.Contains(
+            """
+            readonly "Observe.-42": (callback: (arg0: unknown) => undefined) => void;
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function observe("
+                + "callback: (arg0: unknown) => undefined): void",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+                diagnostic.Location == "Observe.Callback");
+    }
+
+    [Fact]
+    public void Emit_PreservesAllocatedLocalDelegateTypeWithIntrinsicSpelling()
+    {
+        var assembly = new ApiAssemblyIdentity(
+            "Fixture",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: null);
+        MetadataTypeDefinitionName definitionName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Mine",
+                    System.Collections.Immutable.ImmutableArray.Create(
+                        "IntPtr")))
+                .Name;
+        var identity = new AssemblyReferenceIdentity(
+            assembly.Name,
+            assembly.Version,
+            assembly.Culture,
+            assembly.PublicKeyToken);
+        var localIntPtr = new ApiType
+        {
+            Namespace = "Mine",
+            Name = "IntPtr",
+            Kind = "class",
+            DefinitionName = definitionName,
+        };
+        var function = new JsExportFunction
+        {
+            DeclaringType = "Fixture.Exports",
+            Name = "Observe",
+            RuntimeDispatchKey = "Observe.-42",
+            ReturnType = "void",
+            Parameters =
+            [
+                new ApiParameter
+                {
+                    Name = "Callback",
+                    Type = "System.Action<Mine.IntPtr>",
+                },
+            ],
+            DelegateParameters =
+            [
+                new JsExportDelegateParameter
+                {
+                    ParameterIndex = 0,
+                    Kind = JsExportDelegateKind.Action,
+                    ParameterTypes =
+                    [
+                        TypeRef.Definition(
+                            assembly.Name,
+                            "Mine",
+                            "IntPtr",
+                            new ResolvableTypeReference(
+                                new TypeReferenceOrigin.AssemblyReference(
+                                    identity),
+                                definitionName)),
+                    ],
+                },
+            ],
+        };
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = assembly,
+                Functions = [function],
+                Records = [localIntPtr],
+            };
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule);
+
+        Assert.Contains(
+            "export interface IntPtr {",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "callback: (arg0: IntPtr) => undefined",
             source,
             StringComparison.Ordinal);
     }
@@ -428,7 +648,7 @@ public sealed class TypeScriptFacadeEmitterTests
     [Fact]
     public void Emit_ReportsRejectedAsyncEnvelopeWithoutThrowing()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var dto = new ApiType
         {
             Namespace = "Fixture",
