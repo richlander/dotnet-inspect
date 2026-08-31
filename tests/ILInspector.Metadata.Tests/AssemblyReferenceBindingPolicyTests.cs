@@ -142,6 +142,26 @@ public class AssemblyReferenceBindingPolicyTests
     }
 
     [Fact]
+    public void Select_PreservesBindingPolicyIntrinsicSelection()
+    {
+        ResolvedAssemblyReference selected = Descriptor(
+            AssemblyResolutionProvenance.Platform(
+                "platform",
+                frameworkVersion: null,
+                "intrinsic"));
+        var resolver = new RecordingResolverPolicy(
+            _ => AssemblyBindingSelection.Found(selected));
+        var policy = new AssemblyReferenceBindingPolicy(resolver);
+
+        var result = Assert.IsType<AssemblyBindingSelection.Selected>(
+            policy.Select(Request(AssemblyBindingTarget.CoreLibrary())));
+
+        Assert.Same(selected, result.Assembly);
+        Assert.Equal(1, resolver.SelectionCount);
+        Assert.Equal(0, resolver.ResolutionCount);
+    }
+
+    [Fact]
     public void Select_PreservesBindingPolicyShadows()
     {
         ResolvedAssemblyReference selected = Descriptor(
@@ -216,18 +236,107 @@ public class AssemblyReferenceBindingPolicyTests
     }
 
     [Fact]
+    public void ValidateForRequest_RejectsMissForIntrinsicTarget()
+    {
+        AssemblyBindingRequest request =
+            Request(AssemblyBindingTarget.CoreLibrary());
+
+        var rejected = Assert.IsType<AssemblyBindingSelection.Rejected>(
+            AssemblyBindingSelection.ValidateForRequest(
+                request,
+                AssemblyBindingSelection.NameNotOwned()));
+
+        Assert.Equal(
+            AssemblyBindingFailureKind.InvalidPolicyResult,
+            rejected.Failure.Kind);
+    }
+
+    [Fact]
+    public void ValidateForRequest_RejectsNullPolicyResult()
+    {
+        AssemblyBindingRequest request =
+            Request(AssemblyBindingTarget.Reference(Reference));
+
+        var rejected = Assert.IsType<AssemblyBindingSelection.Rejected>(
+            AssemblyBindingSelection.ValidateForRequest(
+                request,
+                selection: null));
+
+        Assert.Equal(
+            AssemblyBindingFailureKind.InvalidPolicyResult,
+            rejected.Failure.Kind);
+    }
+
+    [Fact]
+    public void ValidateForRequest_PreservesNonMissingSelectionKinds()
+    {
+        AssemblyBindingRequest request =
+            Request(AssemblyBindingTarget.Reference(Reference));
+        ResolvedAssemblyReference first = Descriptor(
+            AssemblyResolutionProvenance.Designated("first"));
+        ResolvedAssemblyReference second = Descriptor(
+            AssemblyResolutionProvenance.Designated("second"));
+        AssemblyBindingSelection[] selections =
+        [
+            AssemblyBindingSelection.NameNotOwned(),
+            AssemblyBindingSelection.Found(first),
+            AssemblyBindingSelection.Multiple([first, second]),
+            AssemblyBindingSelection.CannotSelect(
+                new AssemblyBindingFailure(
+                    AssemblyBindingFailureKind.CandidateUnavailable)),
+            AssemblyBindingSelection.Invalid(
+                new AssemblyBindingFailure(
+                    AssemblyBindingFailureKind.InvalidPolicyResult)),
+        ];
+
+        foreach (AssemblyBindingSelection selection in selections)
+        {
+            Assert.Same(
+                selection,
+                AssemblyBindingSelection.ValidateForRequest(
+                    request,
+                    selection));
+        }
+    }
+
+    [Fact]
+    public void StructuredPolicy_ForwardsSelectionBeforeFinalValidation()
+    {
+        AssemblyBindingSelection missing =
+            AssemblyBindingSelection.NameNotOwned();
+        var resolver = new RecordingResolverPolicy(_ => missing);
+        var policy = new AssemblyReferenceBindingPolicy(resolver);
+        AssemblyBindingRequest request =
+            Request(AssemblyBindingTarget.CoreLibrary());
+
+        AssemblyBindingSelection selection = policy.Select(request);
+
+        Assert.Same(missing, selection);
+        var rejected = Assert.IsType<AssemblyBindingSelection.Rejected>(
+            AssemblyBindingSelection.ValidateForRequest(
+                request,
+                selection));
+        Assert.Equal(
+            AssemblyBindingFailureKind.InvalidPolicyResult,
+            rejected.Failure.Kind);
+        Assert.Equal(1, resolver.SelectionCount);
+        Assert.Equal(0, resolver.ResolutionCount);
+    }
+
+    [Fact]
     public void NoResolverAssemblyBindingPolicy_ReportsNoNameOwner()
     {
-        Assert.Equal(
-            AssemblyBindingMissDisposition.NoNameOwner,
+        var missing =
             Assert.IsType<AssemblyBindingSelection.Missing>(
                 NoResolverAssemblyBindingPolicy.Instance.Select(
-                    Request(AssemblyBindingTarget.Reference(Reference))))
-                .Disposition);
+                    Request(AssemblyBindingTarget.Reference(Reference))));
         var unavailable = Assert.IsType<AssemblyBindingSelection.Unavailable>(
             NoResolverAssemblyBindingPolicy.Instance.Select(
                 Request(AssemblyBindingTarget.CoreLibrary())));
 
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NoNameOwner,
+            missing.Disposition);
         Assert.Equal(
             AssemblyBindingFailureKind.UnsupportedScope,
             unavailable.Failure.Kind);
@@ -295,4 +404,5 @@ public class AssemblyReferenceBindingPolicyTests
         public void AdvanceVersion() =>
             Version = new AssemblyBindingPolicyVersion();
     }
+
 }

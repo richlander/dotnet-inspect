@@ -270,6 +270,26 @@ public abstract class AssemblyBindingSelection
     }
 
     /// <summary>
+    /// Validates a policy answer against the original target before a wrapper
+    /// or Metadata adapter interprets it.
+    /// </summary>
+    public static AssemblyBindingSelection ValidateForRequest(
+        AssemblyBindingRequest request,
+        AssemblyBindingSelection? selection)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return selection is null
+            || selection is Missing
+            && request.Target
+                is not AssemblyBindingTarget.AssemblyReference
+            ? Invalid(
+                new AssemblyBindingFailure(
+                    AssemblyBindingFailureKind.InvalidPolicyResult))
+            : selection;
+    }
+
+    /// <summary>
     /// A policy selection containing one descriptor and inactive shadow
     /// evidence.
     /// </summary>
@@ -293,8 +313,13 @@ public abstract class AssemblyBindingSelection
     /// <summary>A policy selection with no matching descriptor.</summary>
     public sealed class Missing : AssemblyBindingSelection
     {
-        internal Missing(AssemblyBindingMissDisposition disposition) =>
+        internal Missing(AssemblyBindingMissDisposition disposition)
+        {
+            if (!Enum.IsDefined(disposition))
+                throw new ArgumentOutOfRangeException(nameof(disposition));
+
             Disposition = disposition;
+        }
 
         public AssemblyBindingMissDisposition Disposition { get; }
     }
@@ -487,8 +512,13 @@ public abstract class AssemblyBindingOutcome
     /// <summary>The policy found no candidate.</summary>
     public sealed class Missing : AssemblyBindingOutcome
     {
-        internal Missing(AssemblyBindingMissDisposition disposition) =>
+        internal Missing(AssemblyBindingMissDisposition disposition)
+        {
+            if (!Enum.IsDefined(disposition))
+                throw new ArgumentOutOfRangeException(nameof(disposition));
+
             Disposition = disposition;
+        }
 
         public AssemblyBindingMissDisposition Disposition { get; }
     }
