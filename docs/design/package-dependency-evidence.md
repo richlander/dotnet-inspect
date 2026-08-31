@@ -99,8 +99,9 @@ identity, and the distinction among selected, no dependency groups, and no
 matching target framework. The evidence query preserves those states; it does
 not turn either absence state into an empty selected group. Its
 `DependencyFrameworkScopeIdentity` never recomputes that selection:
-`SelectedGroupIndex` identifies the exact owner-issued group occurrence, while
-the canonical framework identity serves result comparison.
+`SelectedGroupIndex` identifies the exact owner-issued source occurrence,
+which normalization maps to one logical group. The canonical framework
+identity serves result comparison.
 
 ### Restored project graph
 
@@ -110,7 +111,7 @@ already-acquired `project.assets.json` selection:
 - one owner-issued restored-project selection identity;
 - the selected target framework and optional runtime identifier;
 - admitted root identities;
-- owner-issued declaration-group identities and order;
+- owner-issued logical declaration-group identities and order;
 - project-authored direct dependency observations grouped by their authored
   project target framework;
 - optional resolved coordinates and direct/transitive graph roles; and
@@ -151,7 +152,7 @@ observations by canonical package identity.
 One normalized declared observation states:
 
 - which admitted root made the declaration;
-- which owner-issued declaration-group occurrence contains it;
+- which normalized logical declaration group contains it;
 - the canonical dependency package identity;
 - available declaration target-framework scope;
 - the NuGet version constraint; and
@@ -161,24 +162,44 @@ Canonical package identity, the framework-scope identity defined below, and
 NuGet version semantics are used for joins and equivalence. Display spellings
 are evidence, not identity.
 
-The query emits at most one successful row per root, declaration-group
-occurrence, and dependency identity. Semantically duplicate declarations with
-the same constraint inside one group collapse into that row and retain their
+The query emits at most one successful row per root, logical group, and
+dependency identity. Semantically duplicate declarations with the same
+constraint inside one logical group collapse into that row and retain their
 source occurrence count as provenance. Repeated declarations with conflicting
-constraints inside one group produce a typed conflicting-declaration failure;
-they are not ordered into apparently valid rows.
+constraints inside one logical group produce a typed
+conflicting-declaration failure; they are not ordered into apparently valid
+rows.
 
-Distinct groups remain distinct even when they have equal framework semantics.
-An implicit universal group and an explicit universal group may therefore
-declare the same dependency under different constraints without becoming a
-normalization conflict.
+Every owner-issued declaration-group occurrence contributes to normalized
+evidence. A requested framework selection maps one owner-issued source
+occurrence to its logical group within that complete set; it does not mark
+every group with an equal canonical scope and does not discard unselected
+groups. The result preserves selected, no dependency groups, and no matching
+target framework as separate selection states.
 
-Every owner-issued declaration group becomes normalized evidence. A requested
-framework selection identifies one owner-issued group occurrence within that
-complete set; it does not mark every group with an equal canonical scope and
-does not discard unselected groups. The result preserves selected, no
-dependency groups, and no matching target framework as separate selection
-states.
+### Logical declaration groups
+
+Package manifest parsing may split top-level ungrouped dependencies into
+multiple implicit occurrences when explicit groups are interleaved. Those
+occurrences are one logical implicit universal group. The query coalesces every
+`IsImplicitManifestGroup` occurrence for one root before duplicate collapse,
+conflict detection, row construction, and equivalence. It retains constituent
+source occurrence identities and order as provenance.
+
+If `SelectedGroupIndex` names any constituent implicit occurrence, selection
+maps to the coalesced logical implicit group while retaining the selected source
+occurrence. This is the same logical-universal grouping used by dependency
+resolution; XML interleaving cannot change success, failure, or selected
+declarations.
+
+Each explicit manifest group remains a distinct logical group occurrence even
+when two explicit groups or an explicit and implicit group have equal framework
+semantics. They may therefore declare the same dependency under different
+constraints without becoming a normalization conflict.
+
+Restored-project facts supply their already-logical authored framework groups.
+This query does not merge those groups merely because their declaration sets
+or framework scopes compare equal.
 
 The common projection contains only facts both package manifests and restored
 project graphs can state as declarations. It excludes:
@@ -225,11 +246,23 @@ framework compatibility or claim that a `netstandard2.0` declaration has
 
 The common result therefore supports two explicit projections:
 
-- **Core declaration** — dependency identity and NuGet constraint; and
-- **Scoped declaration** — core declaration plus any/exact framework scope.
+- **Core declaration** — the multiset of each logical group's canonical
+  declaration-set signature with framework scope omitted; and
+- **Scoped declaration** — the multiset of each logical group's canonical
+  declaration-set signature paired with any/exact framework scope.
 
-Scoped comparison is not comparable when either side's authored scope is
-unavailable or unrecognized. Unequal and not comparable are distinct outcomes.
+Core comparison retains logical-group multiplicity and returns equal or
+unequal. Scoped comparison returns:
+
+- **Not comparable** if either outcome contains an unavailable or unrecognized
+  logical-group scope;
+- **Equal** when every scope is comparable and the scoped-signature multisets
+  are equal; or
+- **Unequal** when every scope is comparable and those multisets differ.
+
+Not comparable conservatively dominates any differences visible in the
+comparable subset. Those subset differences may remain diagnostic evidence but
+cannot upgrade the overall scoped result.
 
 ## Additive restored-graph evidence
 
@@ -316,18 +349,17 @@ The comparison:
 
 - uses canonical package identity rather than casing or display spelling;
 - uses NuGet version-constraint semantics rather than raw range text;
-- reports core-declaration equality independently of framework scope;
-- reports scoped equality only when both owner-issued scopes are comparable;
-- distinguishes unequal from not comparable; and
-- compares the multiset of canonicalized group signatures after within-group
-  duplicate collapse;
+- applies the core and scoped aggregate rules above;
+- preserves logical-group multiplicity;
+- distinguishes unequal from not comparable;
 - ignores additive resolution evidence and input provenance.
 
-A group signature contains its framework-scope comparison and canonical
-declaration set. Owner-issued group occurrence identity and order are retained
-in each outcome but excluded from cross-input semantic equality. Selected-group
-equivalence compares the selected group's signature and selection status, not
-the incidental source ordinal.
+A declaration-set signature is the deterministic set of canonical package
+identity and NuGet constraint pairs in one logical group. Logical-group
+identity, constituent source occurrence identity, and group order are retained
+in each outcome but excluded from cross-input semantic equality.
+Selected-group equivalence compares the selected logical group's core or scoped
+signature and selection status, not the incidental source ordinal.
 
 Input-specific evidence is asserted separately. A restored graph may therefore
 be equal under the declared projection while also reporting resolved versions
@@ -336,20 +368,21 @@ and transitive relationships unavailable from the nuspec.
 ## Identity and ordering
 
 Stable evidence identity is constructed from owner-issued root identity,
-owner-issued declaration-group identity, and canonical dependency identity. It
-is independent of presentation labels, rendered row position, and duplicate
+normalized logical-group identity, and canonical dependency identity. It is
+independent of presentation labels, rendered row position, and duplicate
 occurrence count. A conflicting constraint has failure identity rather than
 successful row identity.
 
-The outcome retains admitted-root and declaration-group order supplied by their
-owners and uses a deterministic order within each group:
+The outcome retains admitted-root, logical-group, and constituent source
+occurrence order as provenance and uses a deterministic order within each
+logical group:
 
 1. dependency package identity;
 2. NuGet version-constraint identity.
 
 The equivalence projection compares canonical group signatures as a multiset.
 It does not rely on XML element order, JSON property order, source relevance
-order, owner-issued group order, or serializer behavior.
+order, logical-group order, or serializer behavior.
 
 ## Failure and completion
 
@@ -555,6 +588,10 @@ Implementation must establish:
   typed failure;
 - distinct implicit and explicit universal groups with conflicting constraints
   remaining separate while exact selected-group correspondence is preserved;
+- interleaved and adjacent implicit dependency runs producing the same logical
+  group, conflict outcome, and selected declarations;
+- repeated declaration-set signatures with mixed exact and unavailable scopes
+  producing deterministic not-comparable scoped evidence;
 - a diamond restored graph retaining distinct parent edges and constraints;
 - conflicting supplied owner observations producing typed input-contract
   failure;
