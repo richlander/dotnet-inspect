@@ -291,12 +291,17 @@ kind and malformed-root reason after the discovery builder is discarded.
 When every candidate fails, a resource-budget failure retains its established
 precedence; otherwise a typed unsupported-format or malformed-root failure
 outranks an earlier generic unreadable, no-metadata, or invalid-image failure
-so candidate order cannot erase the admission receipt.
+so candidate order cannot erase the admission receipt. Requesting-origin
+binding projection consults the retained registration failure directly, so a
+resolution-specific budget result does not erase its
+`CandidateOpenFailureKind.ResourceBudget` binding receipt.
 Post-admission SRM validation failures such as an overflowing metadata stream
 count remain ordinary invalid-image outcomes: package role realization retains
 the rejected participant, declaration inventory and Corpus return typed
-failures, and TypeScript commands emit bounded diagnostics rather than an
-unhandled exception.
+failures, path and assembly-set surface classification preserve healthy
+neighbors, Research API comparison records the failed participant without
+retrying it as a module, and TypeScript commands emit bounded diagnostics
+rather than an unhandled exception.
 `MetadataFormatAdmissionTests`,
 `CallerScopeReachabilityPlanTests.Candidate_PreservesUnmappableMetadataDirectory`,
 and `AnalysisIndexCacheAdmissionTests` gate Analysis and Research propagation,

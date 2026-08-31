@@ -59,14 +59,14 @@ public sealed class AssemblySetResolutionSession : IDisposable
                     input.Path,
                     input.Provenance,
                     out string? failure,
-                    out Exception? admissionFailure);
+                    out CandidateOpenFailure? typedFailure);
             if (assembly is null)
             {
                 failures.Add(
                     new AcquisitionFailure(
                         input.Path,
                         failure!,
-                        admissionFailure));
+                        typedFailure));
                 continue;
             }
 
@@ -113,21 +113,21 @@ public sealed class AssemblySetResolutionSession : IDisposable
         foreach (AcquisitionFailure failure
             in _acquisitionFailures)
         {
-            if (failure.AdmissionFailure is { } admissionFailure)
+            if (failure.TypedFailure is { } typedFailure)
             {
                 merged.InspectionFailures.Add(
                     new ApiSurfaceInspectionFailure(
                         "acquire API surface",
                         0,
                         MetadataTypeNameFailureMechanism.Metadata,
-                        admissionFailure.GetType().Name,
-                        admissionFailure.Message)
+                        AcquisitionFailureKind(typedFailure),
+                        typedFailure.Detail)
                     {
                         SourceAssemblyPath = failure.Path,
                     });
                 sink?.Invoke(
                     $"  ! {Path.GetFileName(failure.Path)}: "
-                        + admissionFailure.Message);
+                        + typedFailure.Detail);
                 continue;
             }
 
@@ -235,7 +235,7 @@ public sealed class AssemblySetResolutionSession : IDisposable
         string path,
         AssemblyResolutionProvenance provenance,
         out string? failure,
-        out Exception? admissionFailure)
+        out CandidateOpenFailure? typedFailure)
     {
         try
         {
@@ -246,15 +246,34 @@ public sealed class AssemblySetResolutionSession : IDisposable
             failure = assembly is null
                 ? "The selected file does not contain managed metadata."
                 : null;
-            admissionFailure = null;
+            typedFailure = null;
             return assembly;
         }
-        catch (Exception ex) when (
-            ex is UnsupportedMetadataFormatException
-                or MalformedMetadataRootException)
+        catch (UnsupportedMetadataFormatException ex)
         {
             failure = ex.Message;
-            admissionFailure = ex;
+            typedFailure = new CandidateOpenFailure(
+                CandidateOpenFailureKind.UnsupportedMetadataFormat,
+                ex.Message);
+            return null;
+        }
+        catch (MalformedMetadataRootException ex)
+        {
+            failure = ex.Message;
+            typedFailure = new CandidateOpenFailure(
+                CandidateOpenFailureKind.InvalidImage,
+                ex.Message)
+            {
+                MetadataRootReason = ex.Reason,
+            };
+            return null;
+        }
+        catch (OverflowException)
+        {
+            failure = "The selected assembly metadata is invalid.";
+            typedFailure = new CandidateOpenFailure(
+                CandidateOpenFailureKind.InvalidImage,
+                failure);
             return null;
         }
         catch (Exception ex) when (
@@ -264,15 +283,26 @@ public sealed class AssemblySetResolutionSession : IDisposable
                 or InvalidOperationException
                 or ArgumentException
                 or NotSupportedException
-                or OverflowException
                 or IndexOutOfRangeException)
         {
             failure =
                 "The selected assembly could not be acquired.";
-            admissionFailure = null;
+            typedFailure = null;
             return null;
         }
     }
+
+    static string AcquisitionFailureKind(
+        CandidateOpenFailure failure) =>
+        failure.Kind switch
+        {
+            CandidateOpenFailureKind.UnsupportedMetadataFormat =>
+                nameof(UnsupportedMetadataFormatException),
+            CandidateOpenFailureKind.InvalidImage
+                when failure.MetadataRootReason is not null =>
+                    nameof(MalformedMetadataRootException),
+            _ => failure.Kind.ToString(),
+        };
 
     static AssemblyResolutionProvenance ProvenanceFor(
         AssemblySetEntry entry)
@@ -309,7 +339,7 @@ public sealed class AssemblySetResolutionSession : IDisposable
     sealed record AcquisitionFailure(
         string Path,
         string Detail,
-        Exception? AdmissionFailure);
+        CandidateOpenFailure? TypedFailure);
 
     sealed record Participant(
         string Path,

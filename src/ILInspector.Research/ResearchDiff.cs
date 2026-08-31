@@ -1439,6 +1439,33 @@ public static class ResearchDiff
                     continue;
                 }
             }
+            catch (UnsupportedMetadataFormatException ex)
+            {
+                AddApiSurfaceAcquisitionFailure(
+                    merged,
+                    path,
+                    nameof(UnsupportedMetadataFormatException),
+                    ex.Message);
+                continue;
+            }
+            catch (MalformedMetadataRootException ex)
+            {
+                AddApiSurfaceAcquisitionFailure(
+                    merged,
+                    path,
+                    nameof(MalformedMetadataRootException),
+                    ex.Message);
+                continue;
+            }
+            catch (OverflowException)
+            {
+                AddApiSurfaceAcquisitionFailure(
+                    merged,
+                    path,
+                    CandidateOpenFailureKind.InvalidImage.ToString(),
+                    "The selected assembly metadata is invalid.");
+                continue;
+            }
             catch (Exception ex) when (
                 ex is IOException
                     or UnauthorizedAccessException
@@ -1446,7 +1473,6 @@ public static class ResearchDiff
                     or InvalidOperationException
                     or ArgumentException
                     or NotSupportedException
-                    or OverflowException
                     or IndexOutOfRangeException)
             {
             }
@@ -1513,6 +1539,24 @@ public static class ResearchDiff
             .OrderBy(static type => type.FullName)
             .ToList();
         return merged;
+    }
+
+    static void AddApiSurfaceAcquisitionFailure(
+        ApiSurface surface,
+        string path,
+        string kind,
+        string detail)
+    {
+        surface.InspectionFailures.Add(
+            new ApiSurfaceInspectionFailure(
+                "acquire API surface",
+                0,
+                MetadataTypeNameFailureMechanism.Metadata,
+                kind,
+                detail)
+            {
+                SourceAssemblyPath = path,
+            });
     }
 
     static void MergeSurface(

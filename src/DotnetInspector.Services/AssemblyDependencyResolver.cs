@@ -410,9 +410,22 @@ public sealed partial class AssemblyDependencyResolver :
         ExceptionDispatchInfo? retainedAdmissionFailure,
         AssemblyDescriptorResolution candidate) =>
         retainedKind is null
-        || retainedKind is not CandidateOpenFailureKind.ResourceBudget
-            && retainedAdmissionFailure is null
-            && candidate.AdmissionFailure is not null;
+        || CandidateFailurePrecedence(
+                candidate.FailureKind,
+                candidate.AdmissionFailure)
+            > CandidateFailurePrecedence(
+                retainedKind,
+                retainedAdmissionFailure);
+
+    static int CandidateFailurePrecedence(
+        CandidateOpenFailureKind? kind,
+        ExceptionDispatchInfo? admissionFailure) =>
+        kind switch
+        {
+            CandidateOpenFailureKind.ResourceBudget => 2,
+            _ when admissionFailure is not null => 1,
+            _ => 0,
+        };
 
     AssemblyResolutionAttempt? ResolveDesignatedOverlay(
         IReadOnlyList<ResolvedAssemblyDependency> candidates,

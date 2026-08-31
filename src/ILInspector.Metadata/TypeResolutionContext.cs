@@ -1089,10 +1089,10 @@ public sealed class TypeResolutionContext : IDisposable
                         is TypeResolutionFailure.UnregisteredAssembly
                         ? new AssemblyBindingOutcome.ExpansionRequired(request)
                         : new AssemblyBindingOutcome.Unavailable(
-                            failure
-                                is TypeResolutionFailure.CandidateOpenFailed open
-                                    ? CandidateUnavailableBinding(open.Failure)
-                                    : CandidateUnavailableBinding());
+                            CandidateUnavailableBinding(
+                                ProjectedCandidateFailure(
+                                    request,
+                                    failure)));
                 }
 
                 return _bindings.TryGetValue(
@@ -1117,15 +1117,42 @@ public sealed class TypeResolutionContext : IDisposable
         CandidateOpenFailure? retained,
         CandidateOpenFailure candidate) =>
         retained is null
-        || retained.Kind is not CandidateOpenFailureKind.ResourceBudget
-            && !IsMetadataFormatFailure(retained)
-            && IsMetadataFormatFailure(candidate);
+        || CandidateFailurePrecedence(candidate)
+            > CandidateFailurePrecedence(retained);
+
+    static int CandidateFailurePrecedence(
+        CandidateOpenFailure failure) =>
+        failure.Kind switch
+        {
+            CandidateOpenFailureKind.ResourceBudget => 2,
+            _ when IsMetadataFormatFailure(failure) => 1,
+            _ => 0,
+        };
 
     static bool IsMetadataFormatFailure(
         CandidateOpenFailure failure) =>
         failure.Kind
             is CandidateOpenFailureKind.UnsupportedMetadataFormat
         || failure.MetadataRootReason is not null;
+
+    CandidateOpenFailure? ProjectedCandidateFailure(
+        AssemblyBindingRequest request,
+        TypeResolutionFailure? failure)
+    {
+        if (request.Origin
+                is AssemblyBindingOrigin.RequestingAssembly requesting
+            && _registrationFailures.TryGetValue(
+                requesting.Registration,
+                out CandidateOpenFailure? originFailure))
+        {
+            return originFailure;
+        }
+
+        return failure
+            is TypeResolutionFailure.CandidateOpenFailed candidate
+                ? candidate.Failure
+                : null;
+    }
 
     bool TryProjectRequest(
         TypeResolutionRequest request,

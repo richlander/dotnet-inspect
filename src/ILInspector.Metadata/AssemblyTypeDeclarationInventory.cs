@@ -337,6 +337,13 @@ public static class AssemblySurfaceClassifier
                     CandidateOpenFailureKind.InvalidImage,
                     "The selected assembly is not a valid managed image."));
         }
+        catch (OverflowException)
+        {
+            return new AssemblySurfaceClassificationOutcome.Rejected(
+                new CandidateOpenFailure(
+                    CandidateOpenFailureKind.InvalidImage,
+                    "The selected assembly metadata is invalid."));
+        }
     }
 
     public static AssemblySurfaceClassificationOutcome Classify(

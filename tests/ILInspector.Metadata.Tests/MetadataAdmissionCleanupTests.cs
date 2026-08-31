@@ -335,6 +335,34 @@ public sealed class MetadataAdmissionCleanupTests
     }
 
     [Fact]
+    public void SurfaceClassification_MetadataStreamCountOverflowIsInvalidImage()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"overflow-surface-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(
+            path,
+            BuildOverflowingMetadataStreamCount());
+        try
+        {
+            var rejected =
+                Assert.IsType<AssemblySurfaceClassificationOutcome.Rejected>(
+                    AssemblySurfaceClassifier.Classify(
+                        path,
+                        AssemblyResolutionProvenance.Local(
+                            "format admission test")));
+            Assert.Equal(
+                CandidateOpenFailureKind.InvalidImage,
+                rejected.Failure.Kind);
+            Assert.Null(rejected.Failure.MetadataRootReason);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void AssemblyInspector_CleanupCannotReplaceFormatRejection()
     {
         ThrowingDisposeMemoryStream? opened = null;

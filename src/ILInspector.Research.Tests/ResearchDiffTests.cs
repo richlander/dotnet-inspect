@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -735,6 +736,67 @@ public class ResearchDiffTests
             File.Delete(dependencyPath);
             File.Delete(exactPath);
             File.Delete(equivalentPath);
+        }
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void Compare_Api_PreservesMetadataAcquisitionFailureBesideHealthyInput(
+        int rejection)
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"research-admission-{Guid.NewGuid():N}.dll");
+        string healthyPath = typeof(ResearchDiffTests).Assembly.Location;
+        File.WriteAllBytes(
+            path,
+            rejection switch
+            {
+                0 => MalformedMetadataRoot(),
+                1 => ManagedWindowsMetadata(),
+                2 => OverflowMetadataStreamCount(
+                    File.ReadAllBytes(healthyPath)),
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(rejection)),
+            });
+        try
+        {
+            ResearchComparison comparison = ResearchDiff.Compare(
+                ResearchDiffInput.FromAssemblies(
+                    [path, healthyPath]),
+                ResearchDiffInput.FromAssemblies(
+                    [healthyPath]),
+                new ResearchDiffOptions(
+                    ResearchChangeMechanism.Api));
+
+            ApiDiffInspectionFailure failure = Assert.Single(
+                Assert.IsType<ApiDiff>(comparison.ApiDiff)
+                    .InspectionFailures);
+            Assert.Equal("old", failure.Side);
+            Assert.Equal(path, failure.SourceAssemblyPath);
+            Assert.Equal(
+                rejection switch
+                {
+                    0 => nameof(MalformedMetadataRootException),
+                    1 => nameof(UnsupportedMetadataFormatException),
+                    2 => CandidateOpenFailureKind.InvalidImage.ToString(),
+                    _ => throw new ArgumentOutOfRangeException(
+                        nameof(rejection)),
+                },
+                failure.Kind);
+            if (rejection == 0)
+            {
+                Assert.Contains(
+                    nameof(MetadataRootMalformedReason.InvalidSignature),
+                    failure.Detail,
+                    StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            File.Delete(path);
         }
     }
 
@@ -2415,6 +2477,75 @@ public class ResearchDiffTests
                 methodList:
                     MetadataTokens.MethodDefinitionHandle(1));
         }
+    }
+
+    static byte[] MalformedMetadataRoot()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(ResearchDiffTests).Assembly.Location);
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            image.AsSpan(
+                peReader.PEHeaders.MetadataStartOffset,
+                sizeof(uint)),
+            0);
+        return image;
+    }
+
+    static byte[] ManagedWindowsMetadata()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Unsupported.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Unsupported"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                "WindowsRuntime 1.4;CLR v4.0.30319",
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] OverflowMetadataStreamCount(byte[] image)
+    {
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        int metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            image.AsSpan(metadataStart + 12, sizeof(int)));
+        int streamCountOffset =
+            metadataStart
+            + 16
+            + versionLength
+            + sizeof(ushort);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            image.AsSpan(streamCountOffset, sizeof(ushort)),
+            ushort.MaxValue);
+        return image;
     }
 
     static byte[] BuildResearchDependency(string assemblyName)

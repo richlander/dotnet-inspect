@@ -1887,6 +1887,114 @@ public class AssemblyDependencyResolverTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SelectAndResolve_ResourceBudgetOutranksFormatFailure(
+        bool budgetFirst)
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-budget-precedence-").FullName;
+        try
+        {
+            string rootPackage = Path.Combine(
+                root,
+                "root.package",
+                "1.0.0");
+            string targetDirectory = Path.Combine(
+                rootPackage,
+                "lib",
+                "net8.0");
+            Directory.CreateDirectory(targetDirectory);
+            string targetPath = Path.Combine(targetDirectory, "Root.dll");
+            File.Copy(
+                typeof(AssemblyDependencyResolverTests).Assembly.Location,
+                targetPath);
+
+            string firstId = budgetFirst
+                ? "A.Budget"
+                : "A.Format";
+            string secondId = budgetFirst
+                ? "B.Format"
+                : "B.Budget";
+            File.WriteAllText(
+                Path.Combine(rootPackage, "root.package.nuspec"),
+                $"""
+                <?xml version="1.0" encoding="utf-8"?>
+                <package>
+                  <metadata>
+                    <dependencies>
+                      <group targetFramework="net8.0">
+                        <dependency id="{firstId}" version="1.0.0" />
+                        <dependency id="{secondId}" version="1.0.0" />
+                      </group>
+                    </dependencies>
+                  </metadata>
+                </package>
+                """);
+
+            byte[] formatImage = CreateUnsupportedMetadataImage();
+            int budget = formatImage.Length + 1;
+            foreach ((string id, byte[] image) in new[]
+            {
+                (
+                    budgetFirst ? firstId : secondId,
+                    new byte[budget + 1]),
+                (
+                    budgetFirst ? secondId : firstId,
+                    formatImage),
+            })
+            {
+                string directory = Path.Combine(
+                    root,
+                    id.ToLowerInvariant(),
+                    "1.0.0",
+                    "ref",
+                    "net8.0");
+                Directory.CreateDirectory(directory);
+                File.WriteAllBytes(
+                    Path.Combine(directory, "Shared.dll"),
+                    image);
+            }
+
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(targetPath)
+                {
+                    PackageRoots = [root],
+                    IncludeSiblingAssemblies = false,
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                    SnapshotAssemblyImages = true,
+                    MaxSnapshotImageBytes = budget,
+                });
+            var identity = new AssemblyReferenceIdentity(
+                "Shared",
+                Version: null,
+                Culture: null,
+                PublicKeyToken: null);
+            var unavailable =
+                Assert.IsType<AssemblyBindingSelection.Unavailable>(
+                    resolver.Select(
+                        new AssemblyBindingRequest(
+                            AssemblyBindingTarget.Reference(identity),
+                            AssemblyBindingOrigin.Global(),
+                            AssemblyResolutionScope.Any)));
+
+            Assert.Equal(
+                CandidateOpenFailureKind.ResourceBudget,
+                unavailable.Failure.CandidateFailureKind);
+            Assert.Null(
+                resolver.Resolve(
+                    identity,
+                    AssemblyResolutionScope.Any));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public void Select_RenamedDesignatedOverlayUsesMetadataIdentity()
     {

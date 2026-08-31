@@ -1786,9 +1786,65 @@ public class TypeResolutionContextTests
             Assert.IsType<TypeResolutionFailure.DiscoveryBudgetExceeded>(
                 Assert.IsType<TypeResolutionOutcome.Rejected>(
                     context.Resolve(request)).Failure).Budget);
-        Assert.IsType<AssemblyBindingOutcome.Unavailable>(
-            context.Bind(binding));
+        AssemblyBindingFailure failure =
+            Assert.IsType<AssemblyBindingOutcome.Unavailable>(
+                context.Bind(binding)).Failure;
+        Assert.Equal(
+            CandidateOpenFailureKind.ResourceBudget,
+            failure.CandidateFailureKind);
         Assert.Empty(policy.Requests);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MultipleBindingFailure_ResourceBudgetOutranksFormatFailure(
+        bool budgetFirst)
+    {
+        byte[] ownerImage = BuildAssembly(
+            "Owner",
+            definesType: false);
+        byte[] targetImage = BuildAssembly(
+            "Target",
+            definesType: true);
+        ResolvedAssemblyReference owner = Descriptor(ownerImage);
+        ResolvedAssemblyReference malformed =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(targetImage),
+                path: null,
+                () => new MemoryStream(
+                    MetadataAdmissionCleanupTests
+                        .BuildMalformedMetadataRoot(),
+                    writable: false),
+                AssemblyResolutionProvenance.Local("malformed"));
+        ResolvedAssemblyReference overBudget = Descriptor(targetImage);
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(
+                ReadIdentity(targetImage)),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+        var policy = new RecordingPolicy(
+            _ => AssemblyBindingSelection.Multiple(
+                budgetFirst
+                    ? [overBudget, malformed]
+                    : [malformed, overBudget]));
+        using var catalog = new TypeResolutionCatalog(
+            new TypeResolutionContextOptions { MaxCandidates = 1 });
+        using TypeResolutionContext context =
+            catalog.CreateContext(
+                policy,
+                roots: [malformed, owner, overBudget],
+                bindingRequests: [binding],
+                requests: []);
+
+        AssemblyBindingFailure failure =
+            Assert.IsType<AssemblyBindingOutcome.Unavailable>(
+                context.Bind(binding)).Failure;
+
+        Assert.Equal(
+            CandidateOpenFailureKind.ResourceBudget,
+            failure.CandidateFailureKind);
+        Assert.Null(failure.MetadataRootReason);
     }
 
     [Fact]
