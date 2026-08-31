@@ -1,0 +1,37 @@
+<Project>
+
+  <PropertyGroup>
+    <Configuration Condition="'$(Configuration)' == ''">Release</Configuration>
+    <RepositoryRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</RepositoryRoot>
+    <FixtureProject>$(RepositoryRoot)/src/ILInspector.Decompiler.Fixtures.ClassicAsyncArtifacts/ILInspector.Decompiler.Fixtures.ClassicAsyncArtifacts.csproj</FixtureProject>
+    <ArtifactMatrixRoot Condition="'$(ArtifactMatrixRoot)' == ''">$(RepositoryRoot)/artifacts/classic-async-artifact-matrix/$(RuntimeIdentifier)</ArtifactMatrixRoot>
+    <CommonPublishProperties>Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=true;IsPublishable=true;PublishTrimmed=true;TrimMode=full</CommonPublishProperties>
+  </PropertyGroup>
+
+  <Target Name="Build">
+    <Error
+      Condition="'$(RuntimeIdentifier)' == ''"
+      Text="RuntimeIdentifier is required to publish the classic async artifact matrix." />
+    <MakeDir Directories="$(ArtifactMatrixRoot)" />
+
+    <MSBuild
+      Projects="$(FixtureProject)"
+      Targets="Build"
+      Properties="Configuration=$(Configuration)"
+      RemoveProperties="RuntimeIdentifier"
+      BuildInParallel="false" />
+
+    <MSBuild
+      Projects="$(FixtureProject)"
+      Targets="Restore;Publish"
+      Properties="$(CommonPublishProperties);PreserveClassicAsyncRoles=false;PublishDir=$(ArtifactMatrixRoot)/trimmed/;BaseIntermediateOutputPath=$(ArtifactMatrixRoot)/obj/trimmed/;BaseOutputPath=$(ArtifactMatrixRoot)/bin/trimmed/"
+      BuildInParallel="false" />
+
+    <MSBuild
+      Projects="$(FixtureProject)"
+      Targets="Restore;Publish"
+      Properties="$(CommonPublishProperties);PreserveClassicAsyncRoles=true;PublishDir=$(ArtifactMatrixRoot)/role-preserved-trimmed/;BaseIntermediateOutputPath=$(ArtifactMatrixRoot)/obj/role-preserved-trimmed/;BaseOutputPath=$(ArtifactMatrixRoot)/bin/role-preserved-trimmed/"
+      BuildInParallel="false" />
+  </Target>
+
+</Project>

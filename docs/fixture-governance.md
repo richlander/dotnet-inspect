@@ -22,6 +22,7 @@ Separate projects are justified for these semantic axes:
 | Framework reference | The fixture must reference a trusted framework assembly. |
 | Module attribute | The module-level metadata is the evidence. |
 | Output kind | The fixture must be an executable or otherwise non-library output. |
+| Post-build transformation | Publish, trimming, linking, or another post-build step changes the inspected artifact. |
 | Sidecar asset | A binary is coupled to a trace or other sidecar artifact. |
 | Target framework | The TFM changes emitted references or facade behavior. |
 | Untrusted text | The fixture carries attacker-chosen text, so its build must not contaminate a shared project's expected output. |
