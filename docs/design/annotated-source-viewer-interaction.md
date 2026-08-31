@@ -308,15 +308,17 @@ captures use distinct non-underline treatments such as tint, gutter marks,
 weight, or explicit annotation rows. Hover and focus cannot introduce a
 different action from activation.
 
-An explicit annotation row begins beneath its product-issued source-span start,
-not at a shared left edge. The browser preserves the exact source prefix as
-layout geometry so annotation placement follows the language's visible
-indentation without reconstructing or changing source text. Annotations with
-the same start may share a row; distinct starts remain separately aligned.
+An explicit chip-style annotation row appears immediately before its targeted
+source line and begins at its product-issued source-span start, not at a shared
+left edge. It provides CodeLens-like context for the source that follows. The
+browser preserves the exact source prefix as layout geometry so annotation
+placement follows the language's visible indentation without reconstructing or
+changing source text. Annotations with the same start may share a row; distinct
+starts remain separately aligned.
 
 Caret rows connecting an annotation label to an exact extent are annotation
-geometry, not text-decoration underlines. They appear only for rendered active
-annotations.
+geometry, not text-decoration underlines. Unlike chip-style context, they
+appear after the extent they annotate and only for rendered active annotations.
 
 The complete declaration preceding the body is product-issued C# text. Work
 tracked by [#4852](https://github.com/richlander/dotnet-inspect/issues/4852)

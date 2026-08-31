@@ -311,6 +311,17 @@ function renderSource(context: SourceRenderContext): string {
         const annotationRows =
           groupLineAnnotations(lineAnnotations.get(line.number) ?? []);
         return `
+          ${annotationRows.length
+            ? `<div class="annotated-rows" aria-label="Annotations on line ${line.number}">
+                ${annotationRows.map(row => renderAnnotationRow(
+                  row,
+                  line.start,
+                  model.document.text,
+                  session.surface,
+                  escapeHtml,
+                )).join("")}
+              </div>`
+            : ""}
           <div class="annotated-source-line medium-${line.medium.toLowerCase()}">
             <span class="annotated-line-number">${line.number}</span>
             ${session.surface === "modal"
@@ -339,17 +350,6 @@ function renderSource(context: SourceRenderContext): string {
               ? `<span class="annotated-line-coordinate">UTF-16 ${line.start}..${line.end}</span>`
               : ""}
           </div>
-          ${annotationRows.length
-            ? `<div class="annotated-rows" aria-label="Annotations on line ${line.number}">
-                ${annotationRows.map(row => renderAnnotationRow(
-                  row,
-                  line.start,
-                  model.document.text,
-                  session.surface,
-                  escapeHtml,
-                )).join("")}
-              </div>`
-            : ""}
         `;
       }).join("")}
     </div>`;

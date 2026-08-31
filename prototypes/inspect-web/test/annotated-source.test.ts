@@ -219,6 +219,8 @@ test("embedded reader renders complete C# defaults, source copy, and Explore", (
 test("annotation rows begin at their product-issued source span", () => {
   const html = embeddedHtml();
   const objectStart = sampleDocument.text.indexOf("new object()");
+  const annotation = html.indexOf("annotated-chip-embedded-0-1-CSharp");
+  const source = html.indexOf("new object()");
 
   assert.match(
     html,
@@ -228,6 +230,9 @@ test("annotation rows begin at their product-issued source span", () => {
     html,
     /class="annotated-row-prefix" aria-hidden="true">    return <\/span>\s*<div class="annotated-row-items"/,
   );
+  assert.ok(annotation >= 0);
+  assert.ok(source >= 0);
+  assert.ok(annotation < source);
 });
 
 test("embedded reader renders a product context limitation without rewriting it", () => {

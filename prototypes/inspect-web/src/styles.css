@@ -2280,8 +2280,8 @@ kbd {
 .annotated-source-code[data-annotated-surface="modal"] .annotated-row { grid-template-columns: 4ch 4ch minmax(max-content, 1fr); gap: 10px; }
 .annotated-row-content { display: flex; align-items: stretch; min-width: max-content; }
 .annotated-row-prefix { flex: 0 0 auto; visibility: hidden; white-space: pre; user-select: none; }
-.annotated-row-items { display: flex; align-items: stretch; flex-wrap: wrap; gap: 6px; margin: 2px 0 3px; padding-left: 10px; border-left: 2px solid var(--line-strong); }
-.annotated-row:last-child .annotated-row-items { margin-bottom: 7px; }
+.annotated-row-items { display: flex; align-items: stretch; flex-wrap: wrap; gap: 6px; margin: 2px 0 1px; padding-left: 10px; border-left: 2px solid var(--line-strong); }
+.annotated-row:first-child .annotated-row-items { margin-top: 5px; }
 .annotated-finding-chip,
 .annotated-finding-toggle { display: inline-flex; align-items: center; gap: 8px; border-left: 3px solid var(--accent) !important; border-radius: 3px; font: 11px var(--mono); text-align: left; }
 .annotated-finding-chip { padding: 4px 7px; }

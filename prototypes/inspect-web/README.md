@@ -623,10 +623,10 @@ detail. The modal adds catalog-driven annotation and medium controls,
 product-issued structure, deterministic invocation-preferred source hit
 testing, node selection, and one persistent inspector action for every Finding,
 including unanchored Findings. Annotation rows preserve the product-issued
-source prefix as layout geometry, so each row begins beneath its anchored span
-without flattening the language's visible indentation. Dismissal destroys
-modal-local presentation and annotation state while retaining only an eligible
-embedded Finding primary.
+source prefix as layout geometry, so each CodeLens-like row appears immediately
+before its target line and begins at the anchored span without flattening the
+language's visible indentation. Dismissal destroys modal-local presentation
+and annotation state while retaining only an eligible embedded Finding primary.
 
 `src/annotated-source-session.ts` owns the viewer-local state transitions;
 `src/annotated-source.ts` owns markup, browser hit testing, native drag
