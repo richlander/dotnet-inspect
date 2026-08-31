@@ -74,9 +74,10 @@ structured output. Isolated explicit packages remain node/group context in
 graph and JSON views, but never become empty data rows in the default Markdown
 edge table.
 `OutputModes_UseTheSameWindowedLogicalEdges` gates the same selected logical
-edges across the non-count output modes. Count observes the same preceding
-semantic stages under
-[Section-row shaping](section-row-shaping.md#count-semantics).
+edges across the non-count output modes. The CLI does not compose `--count`
+with `-n`, `--rows`, `--top`, or rendered-line gestures. It counts the complete
+logical cohort after command-owned membership and predicate selection but
+before those CLI windows.
 
 The `graph integrations --json` failure array preserves both presentation and
 typed addressing: each failure carries its rendered target plus
@@ -832,9 +833,11 @@ for exact payload export.
 
 The stable vocabulary is:
 
-- `--count` is a terminal shape reduction over the logical rows surviving every
-  preceding semantic selection stage. One declared row set collapses to a
-  Scalar; multiple sets produce an ordered count Table.
+- `--count` is a terminal shape reduction over the complete logical cohort
+  surviving command-owned membership and predicate selection. The CLI rejects
+  item, absolute-range, ranked, row-address, direction, and rendered-line
+  gestures with `--count`; one declared row set collapses to a Scalar and
+  multiple sets produce an ordered count Table.
 - `-n N` / bare `-N` select the first N declared items per row set after
   filtering and ordering. `--head` names that direction explicitly and
   `--tail` reverses it when the producer can establish a truthful suffix.

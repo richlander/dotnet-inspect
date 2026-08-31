@@ -137,6 +137,20 @@ public static class PackageCommandDefinitions
 
                 case PackageOptionsParser.Success success:
                 {
+                    bool packageLensHandlesRows =
+                        success.Options.ListVersions
+                        || success.Options.ListLayout
+                        || success.Options.ListTfms
+                        || success.Options.ShowContent;
+                    if (!packageLensHandlesRows
+                        && success.Options.PackageArgs.Length > 0
+                        && opts.RejectUnsupportedDocumentJsonRowWindowBeforeAcquisition(
+                            parseResult,
+                            PackageCommand.Name))
+                    {
+                        return 1;
+                    }
+
                     var exitCode = await PackageCommand.ExecuteAsync(success.Options);
 
                     if (exitCode == 0 && success.Options.PackageArgs.Length > 0 && success.Options.PackageLibrary == null && !success.Options.AllLibraries && !success.Options.FormatExplicitlySet && !success.Options.IsRawOutput)

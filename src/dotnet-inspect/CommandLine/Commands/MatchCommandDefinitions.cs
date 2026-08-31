@@ -70,6 +70,13 @@ public static class MatchCommandDefinitions
                 return 1;
             }
 
+            if (opts.RejectUnsupportedDocumentJsonRowWindowBeforeAcquisition(
+                parseResult,
+                MatchCommand.Name))
+            {
+                return 1;
+            }
+
             var options = new MatchOptions
             {
                 LeftSelector = left,

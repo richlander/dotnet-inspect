@@ -213,6 +213,31 @@ public class CommandLineLimitSlice4677Tests
                 ["--json", "JsonSerializer"]));
     }
 
+    [Theory]
+    [InlineData("true")]
+    [InlineData("false")]
+    public void SeparatedPlatformBooleanRemainsOwnedByTheOption(
+        string value)
+    {
+        string[] separated =
+        [
+            "find",
+            "JsonSerializer",
+            "--platform",
+            value,
+            "-n",
+            "1",
+        ];
+
+        Assert.Equal(
+            separated,
+            CommandLineBuilder.PreprocessArgs(separated));
+        Assert.Empty(
+            CommandLineBuilder.CreateRootCommand()
+                .Parse(separated)
+                .Errors);
+    }
+
     [Fact]
     public async Task ImplicitRouterExpandsShorthandAfterSelectingCommand()
     {
@@ -488,6 +513,120 @@ public class CommandLineLimitSlice4677Tests
         Assert.Empty(output);
         Assert.Contains("Document --json item windows", error, StringComparison.Ordinal);
         Assert.DoesNotContain("127.0.0.1", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("package")]
+    [InlineData("library")]
+    [InlineData("type")]
+    [InlineData("member")]
+    [InlineData("match")]
+    [InlineData("diff")]
+    [InlineData("timeline")]
+    public async Task AcquisitionBackedCommandsRejectDocumentJsonWindowsBeforeAcquisition(
+        string command)
+    {
+        const string package = "Does.Not.Exist.4677";
+        string[] target = command switch
+        {
+            "package" => [command, package],
+            "library" => [command, package],
+            "type" => [command, "Missing.Type", "--package", package],
+            "member" => [command, "Missing.Type.Missing", "--package", package],
+            "match" =>
+            [
+                command,
+                "Missing.Type.Left",
+                "Missing.Type.Right",
+                "--package",
+                package,
+            ],
+            "diff" =>
+                [command, "--package", $"{package}@1.0.0..2.0.0"],
+            "timeline" =>
+                [command, $"{package}@1.0.0..2.0.0", "Missing.Type"],
+            _ => throw new ArgumentOutOfRangeException(nameof(command)),
+        };
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(async () =>
+        {
+            string[] args = CommandLineBuilder.PreprocessArgs(
+            [
+                .. target,
+                "--source",
+                "http://127.0.0.1:1/v3/index.json",
+                "--json",
+                "-n",
+                "1",
+                "--tips",
+                "q",
+            ]);
+            return await CommandLineBuilder.CreateRootCommand()
+                .Parse(args)
+                .InvokeAsync();
+        });
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Document --json item windows",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("127.0.0.1", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LibraryRankedJsonPreflightOnlyAllowsPerformanceKinds()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-ranked-json-{Guid.NewGuid():N}.dll");
+
+        async Task<(int Exit, string Output, string Error)> RunAsync(
+            string section) =>
+            await ConsoleCapture.RunAsync(async () =>
+            {
+                string[] args = CommandLineBuilder.PreprocessArgs(
+                [
+                    "library",
+                    missingPath,
+                    "-S",
+                    section,
+                    "--top",
+                    "1",
+                    "--json",
+                    "--tips",
+                    "q",
+                ]);
+                return await CommandLineBuilder.CreateRootCommand()
+                    .Parse(args)
+                    .InvokeAsync();
+            });
+
+        var unsupported = await RunAsync(SectionNames.TopLeverage);
+        var performance = await RunAsync(SectionNames.PerformanceBoxing);
+
+        Assert.Equal(1, unsupported.Exit);
+        Assert.Empty(unsupported.Output);
+        Assert.Contains(
+            "Document --json ranked selections",
+            unsupported.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            missingPath,
+            unsupported.Error,
+            StringComparison.Ordinal);
+
+        Assert.Equal(1, performance.Exit);
+        Assert.Empty(performance.Output);
+        Assert.DoesNotContain(
+            "Document --json ranked selections",
+            performance.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"File not found: {missingPath}",
+            performance.Error,
+            StringComparison.Ordinal);
     }
 
     [Fact]

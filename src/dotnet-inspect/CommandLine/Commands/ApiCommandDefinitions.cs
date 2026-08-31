@@ -114,6 +114,20 @@ public static class ApiCommandDefinitions
 
         typeCommand.SetAction(async (parseResult, ct) =>
         {
+            bool hasTarget =
+                parseResult.GetValue(argsArg) is { Length: > 0 }
+                || !string.IsNullOrEmpty(parseResult.GetValue(packageOption))
+                || !string.IsNullOrEmpty(parseResult.GetValue(assemblyOption))
+                || !string.IsNullOrEmpty(parseResult.GetValue(platformOption))
+                || !string.IsNullOrEmpty(parseResult.GetValue(projectOption));
+            if (hasTarget
+                && opts.RejectUnsupportedDocumentJsonRowWindowBeforeAcquisition(
+                    parseResult,
+                    TypeCommand.Name))
+            {
+                return 1;
+            }
+
             var result = await TypeOptionsParser.ParseAsync(parseResult, opts, commandArgs);
 
             switch (result)
@@ -274,6 +288,20 @@ public static class ApiCommandDefinitions
 
         memberCommand.SetAction(async (parseResult, ct) =>
         {
+            bool hasTarget =
+                parseResult.GetValue(argsArg) is { Length: > 0 }
+                || !string.IsNullOrEmpty(parseResult.GetValue(packageOption))
+                || !string.IsNullOrEmpty(parseResult.GetValue(assemblyOption))
+                || !string.IsNullOrEmpty(parseResult.GetValue(platformOption))
+                || parseResult.GetValue(callerProjectOption) is { Length: > 0 };
+            if (hasTarget
+                && opts.RejectUnsupportedDocumentJsonRowWindowBeforeAcquisition(
+                    parseResult,
+                    MemberCommand.Name))
+            {
+                return 1;
+            }
+
             var result = await MemberOptionsParser.ParseAsync(parseResult, opts, commandArgs);
 
             switch (result)

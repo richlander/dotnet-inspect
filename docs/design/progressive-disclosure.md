@@ -235,11 +235,10 @@ dotnet-inspect package System.Text.Json -n 12
 dotnet-inspect library System.Private.CoreLib -S "Async*" --rows 11..20
 ```
 
-- `--count` reports exact cardinality after the selected candidate set's
-  preceding semantic item/range stages, as defined by
-  [Section-row shaping](section-row-shaping.md#count-semantics). The focused L3
-  design will decide final conflicts involving row addresses or rendered-line
-  windows. An upstream-bounded source may return Count only when it proves
+- `--count` reports exact cardinality for the complete selected and filtered
+  candidate set before CLI item, absolute-range, ranked, row-address,
+  direction, or rendered-line gestures. Those gestures conflict with
+  `--count`. An upstream-bounded source may return Count only when it proves
   exact completion for the logical request; a provider, work, page, time, or
   memory cap is not semantic selection and must remain disclosed rather than
   becoming a corpus total. Bare `package search`'s default provider and merged

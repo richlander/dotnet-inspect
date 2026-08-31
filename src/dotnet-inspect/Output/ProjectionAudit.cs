@@ -101,7 +101,7 @@ public static class ProjectionAudit
             commandName,
             rankedTopRequested: false);
 
-    private static bool RejectUnsupportedDocumentJsonRowWindow(
+    internal static bool RejectUnsupportedDocumentJsonRowWindow(
         RowWindow? rows,
         bool jsonOutput,
         string commandName,

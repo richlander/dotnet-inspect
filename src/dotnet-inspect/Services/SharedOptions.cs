@@ -493,6 +493,43 @@ public class SharedOptions
         return null;
     }
 
+    public bool RejectUnsupportedDocumentJsonRowWindowBeforeAcquisition(
+        ParseResult parseResult,
+        string commandName,
+        bool allowRankedTop = false)
+    {
+        bool Requested(Option<bool> option) =>
+            parseResult.GetResult(option) is not null
+            && parseResult.GetValue(option);
+
+        bool HasValue(Option<string?> option) =>
+            parseResult.GetResult(option) is not null
+            && !string.IsNullOrWhiteSpace(parseResult.GetValue(option));
+
+        if (IsDiscoveryMode(parseResult)
+            || Requested(Count)
+            || Requested(Print)
+            || Requested(Value)
+            || Requested(Urls)
+            || Requested(Paths)
+            || HasValue(Columns)
+            || HasValue(Fields)
+            || allowRankedTop
+                && parseResult.GetResult(PerformanceTriageTop)
+                    is { Implicit: false })
+        {
+            return false;
+        }
+
+        return ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+            ParseRows(parseResult),
+            ResolveFormat(parseResult) == OutputFormat.Json,
+            commandName,
+            rankedTopRequested:
+                parseResult.GetResult(PerformanceTriageTop)
+                    is { Implicit: false });
+    }
+
     /// <summary>
     /// Resolves the <c>--rows</c> data-row window from the parsed spec and direction.
     /// The primary user-facing validation is the parse-time command validator in
@@ -637,6 +674,33 @@ public class SharedOptions
         {
             SelectedKindSections = selectedKindSections,
         };
+    }
+
+    public bool IsPerformanceDocumentJsonRankedSelection(
+        PerformanceTriageOptions options,
+        string[]? select,
+        string[] knownSections,
+        string[]? infoSections,
+        IReadOnlyDictionary<string, string[]>? categories,
+        bool selectDefault,
+        bool autoSelectsPerformanceKinds)
+    {
+        if (!options.Top.HasValue)
+            return false;
+        if (autoSelectsPerformanceKinds)
+            return true;
+
+        var resolvedSelection = ResolveSelectedSections(
+            select,
+            knownSections,
+            infoSections,
+            categories,
+            selectDefault);
+        return resolvedSelection is { Count: > 0 }
+            && resolvedSelection.All(section =>
+                PerformanceKinds.Sections.Contains(
+                    section,
+                    StringComparer.Ordinal));
     }
 
     public string? BuildHumanRowWindowNote(

@@ -23,6 +23,78 @@ namespace DotnetInspector.Tests;
 [Collection("Console")]
 public class OutputFormatterTests
 {
+    [Theory]
+    [InlineData("json", false, "first\n")]
+    [InlineData("jsonl", false, "first\n")]
+    [InlineData("json-array", false, "first\n")]
+    [InlineData("json", true, "third")]
+    [InlineData("jsonl", true, "third")]
+    [InlineData("json-array", true, "third")]
+    public async Task StructuredPrintAppliesRenderedLineWindowBeforeEncoding(
+        string format,
+        bool tail,
+        string expected)
+    {
+        string[] lineArguments = tail
+            ? ["-n", "1", "--tail-lines"]
+            : ["-n", "1", "--lines"];
+        CommandLineBuilder.PreprocessArgs(
+            ["package", "Example", .. lineArguments]);
+        try
+        {
+            var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+                PrintProjectionOutput.Write(
+                    [
+                        new PrintableDocument(
+                            1,
+                            "Docs",
+                            "README",
+                            "README.md",
+                            null,
+                            "first\nsecond\r\nthird")
+                    ],
+                    new PrintProjectionOptions(
+                        Row: null,
+                        JsonOutput: format == "json",
+                        Jsonl: format == "jsonl",
+                        JsonArray: format == "json-array",
+                        Bare: false,
+                        Destination: new ProjectionDestination(null)))));
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var document = JsonDocument.Parse(result.Output);
+            JsonElement printable = format == "json-array"
+                ? document.RootElement[0]
+                : document.RootElement;
+            Assert.Equal(
+                expected,
+                printable.GetProperty("content").GetString());
+        }
+        finally
+        {
+            CommandLineBuilder.PreprocessArgs(["package", "Example"]);
+        }
+    }
+
+    [Theory]
+    [InlineData("first\rsecond\rthird", 2, false, "first\rsecond\r")]
+    [InlineData("first\nsecond\nthird", 2, false, "first\nsecond\n")]
+    [InlineData("first\r\nsecond\r\nthird", 2, false, "first\r\nsecond\r\n")]
+    [InlineData("first\rsecond\nthird\r\nfourth", 2, true, "third\r\nfourth")]
+    public void StructuredLineWindowsRecognizeCrLfAndCrLfPairs(
+        string content,
+        int count,
+        bool tail,
+        string expected)
+    {
+        string actual = tail
+            ? TextLineWindow.Tail(content, count)
+            : TextLineWindow.Head(content, count);
+
+        Assert.Equal(expected, actual);
+    }
+
     /// <summary>
     /// This is the named non-vacuity gate for product-owned artifact framing. It fails when the
     /// count-file writer or printable-document JSONL writer inherits CRLF from the Windows host

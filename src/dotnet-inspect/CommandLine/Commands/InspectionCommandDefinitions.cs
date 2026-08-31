@@ -126,6 +126,13 @@ public static class InspectionCommandDefinitions
                 return 1;
             }
 
+            if (opts.RejectUnsupportedDocumentJsonRowWindowBeforeAcquisition(
+                parseResult,
+                TimelineCommand.Name))
+            {
+                return 1;
+            }
+
             return await TimelineCommand.ExecuteAsync(new TimelineOptions
             {
                 PackageVersionRange = package ?? "",
@@ -257,6 +264,13 @@ public static class InspectionCommandDefinitions
                     return 1;
 
                 case DiffOptionsParser.Success success:
+                    if (opts.RejectUnsupportedDocumentJsonRowWindowBeforeAcquisition(
+                        parseResult,
+                        DiffCommand.Name))
+                    {
+                        return 1;
+                    }
+
                     var exitCode = await DiffCommand.ExecuteAsync(success.Options);
 
                     if (exitCode == 0)
@@ -352,47 +366,6 @@ public static class InspectionCommandDefinitions
             var requestedFramework = parseResult.GetValue(asmFrameworkOption);
             var requestedPlatformVersion = parseResult.GetValue(asmVersionOption);
             NuGetSourceOptions? sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
-
-            if (!string.IsNullOrEmpty(source) && string.IsNullOrEmpty(explicitPlatform) && string.IsNullOrEmpty(explicitPackage))
-            {
-                if (File.Exists(source))
-                    assemblyPath = source;
-                else if (source.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-                    || source.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-                    || source.Contains('/')
-                    || source.Contains('\\'))
-                {
-                    // A non-existent value that looks like a local library path (has a file
-                    // extension or directory separator) is reported as a missing file rather
-                    // than misclassified as a NuGet package. See #1690.
-                    assemblyPath = source;
-                }
-                else if (!source.Contains('@') && PlatformResolver.IsPlatformCandidate(source))
-                {
-                    // Platform-preferred routing for System.*/Microsoft.* bare names
-                    bool verbose = parseResult.GetValue(opts.Verbose);
-                    Action<string>? log = CommandLineHelpers.CreateVerboseLogger(verbose);
-                    var (asmPath, _, _, error) = await PlatformResolver.ResolveAssemblyAsync(
-                        source, HttpClientFactory.Shared, log,
-                        requestedFramework,
-                        platformVersion: requestedPlatformVersion,
-                        useRuntimeAssemblies: true,
-                        sourceOptions: sourceOptions);
-                    if (error == null && asmPath != null)
-                        platformAssembly = source;
-                    else if (!string.IsNullOrEmpty(requestedFramework) || !string.IsNullOrEmpty(requestedPlatformVersion))
-                        platformAssembly = source;
-                    else
-                        packagePath = source;
-                }
-                else
-                    packagePath = source;
-            }
-            else if (!string.IsNullOrEmpty(source) && !string.IsNullOrEmpty(explicitPackage))
-            {
-                assemblyPath = source;
-            }
-
             bool showReferences = parseResult.GetValue(referencesOption);
             bool showDependencies = parseResult.GetValue(dependenciesOption);
 
@@ -433,17 +406,12 @@ public static class InspectionCommandDefinitions
             {
                 select = [.. select ?? [], SectionNames.BodyShapes];
             }
-            // Only surface performance sections from row filters when the user did not select
-            // sections with -S; an explicit selection like -S "Top Leverage" must not silently gain
-            // a second section and break single-section formats (--table/--tsv/--jsonl). When the
-            // filter is a single --triage-shape that maps to one kind section, target that section
-            // directly. Otherwise select the homogeneous performance kind family, not the broader
-            // @Performance category (which also contains Top Leverage and Resource Triage and
-            // therefore cannot render as one tabular stream).
-            if (performanceTriage.HasFilters
+            bool autoSelectsPerformanceKinds =
+                performanceTriage.HasFilters
                 && !bodyKindQuery.HasFilter
                 && !opts.IsDiscoveryMode(parseResult)
-                && !hasExplicitSelect)
+                && !hasExplicitSelect;
+            if (autoSelectsPerformanceKinds)
             {
                 string[] targets = PerformanceKinds.Sections;
                 if (performanceTriage.Shapes is { Length: > 0 })
@@ -461,10 +429,7 @@ public static class InspectionCommandDefinitions
             if (!opts.TryValidateTopRanking(
                     parseResult,
                     select,
-                    autoSelectsRankingSection: performanceTriage.HasFilters
-                                              && !bodyKindQuery.HasFilter
-                                              && !opts.IsDiscoveryMode(parseResult)
-                                              && !hasExplicitSelect,
+                    autoSelectsRankingSection: autoSelectsPerformanceKinds,
                     pipeline.SelectableSectionNames,
                     pipeline.InfoSectionNames,
                     pipeline.GetCategoryMap(),
@@ -474,6 +439,15 @@ public static class InspectionCommandDefinitions
                 CommandError.Write(topRankingError!);
                 return 1;
             }
+            bool performanceDocumentJsonRankedSelection =
+                opts.IsPerformanceDocumentJsonRankedSelection(
+                    performanceTriage,
+                    select,
+                    pipeline.SelectableSectionNames,
+                    pipeline.InfoSectionNames,
+                    pipeline.GetCategoryMap(),
+                    selectDefault,
+                    autoSelectsPerformanceKinds);
             performanceTriage = opts.BindPerformanceTriageToSelectedKindSections(
                 performanceTriage,
                 select,
@@ -481,6 +455,59 @@ public static class InspectionCommandDefinitions
                 pipeline.InfoSectionNames,
                 pipeline.GetCategoryMap(),
                 selectDefault);
+
+            bool hasSource =
+                !string.IsNullOrEmpty(source)
+                || !string.IsNullOrEmpty(explicitPackage)
+                || !string.IsNullOrEmpty(explicitPlatform);
+            if (hasSource
+                && opts.RejectUnsupportedDocumentJsonRowWindowBeforeAcquisition(
+                    parseResult,
+                    "library",
+                    allowRankedTop: performanceDocumentJsonRankedSelection))
+            {
+                return 1;
+            }
+
+            if (!string.IsNullOrEmpty(source) && string.IsNullOrEmpty(explicitPlatform) && string.IsNullOrEmpty(explicitPackage))
+            {
+                if (File.Exists(source))
+                    assemblyPath = source;
+                else if (source.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                    || source.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                    || source.Contains('/')
+                    || source.Contains('\\'))
+                {
+                    // A non-existent value that looks like a local library path (has a file
+                    // extension or directory separator) is reported as a missing file rather
+                    // than misclassified as a NuGet package. See #1690.
+                    assemblyPath = source;
+                }
+                else if (!source.Contains('@') && PlatformResolver.IsPlatformCandidate(source))
+                {
+                    // Platform-preferred routing for System.*/Microsoft.* bare names
+                    bool verbose = parseResult.GetValue(opts.Verbose);
+                    Action<string>? log = CommandLineHelpers.CreateVerboseLogger(verbose);
+                    var (asmPath, _, _, error) = await PlatformResolver.ResolveAssemblyAsync(
+                        source, HttpClientFactory.Shared, log,
+                        requestedFramework,
+                        platformVersion: requestedPlatformVersion,
+                        useRuntimeAssemblies: true,
+                        sourceOptions: sourceOptions);
+                    if (error == null && asmPath != null)
+                        platformAssembly = source;
+                    else if (!string.IsNullOrEmpty(requestedFramework) || !string.IsNullOrEmpty(requestedPlatformVersion))
+                        platformAssembly = source;
+                    else
+                        packagePath = source;
+                }
+                else
+                    packagePath = source;
+            }
+            else if (!string.IsNullOrEmpty(source) && !string.IsNullOrEmpty(explicitPackage))
+            {
+                assemblyPath = source;
+            }
 
             var options = new LibraryOptions
             {

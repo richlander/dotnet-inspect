@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DotnetInspector;
 using DotnetInspector.Models;
 
 namespace DotnetInspector.Output;
@@ -135,8 +136,10 @@ public static class PrintProjectionOutput
             selectedRow.Label,
             selectedRow.Path,
             selectedRow.Url,
-            payload.SelectedContent?.ToString()
-                ?? payload.Content)
+            ClipStructuredContent(
+                payload.SelectedContent?.ToString()
+                    ?? payload.Content,
+                options))
         {
             SelectedContent = payload.SelectedContent
         };
@@ -183,6 +186,22 @@ public static class PrintProjectionOutput
             ProjectionDestinationWriter.WriteSelectedText(destination, selected);
         else
             ProjectionDestinationWriter.WriteRenderedText(destination, output.Content);
+    }
+
+    private static string ClipStructuredContent(
+        string content,
+        PrintProjectionOptions options)
+    {
+        if (!options.JsonOutput && !options.Jsonl && !options.JsonArray)
+            return content;
+
+        if (CommandLineBuilder.HeadLines is int headLines)
+            return TextLineWindow.Head(content, headLines);
+
+        if (CommandLineBuilder.TailLines is int tailLines)
+            return TextLineWindow.Tail(content, tailLines);
+
+        return content;
     }
 }
 

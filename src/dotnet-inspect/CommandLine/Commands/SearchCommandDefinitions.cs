@@ -618,16 +618,8 @@ public static class SearchCommandDefinitions
         SharedOptions opts,
         string commandName)
     {
-        if (parseResult.GetValue(opts.Count)
-            || parseResult.GetValue(opts.Columns) is { Length: > 0 }
-            || parseResult.GetValue(opts.Fields) is { Length: > 0 })
-        {
-            return false;
-        }
-
-        return ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
-            opts.ParseRows(parseResult),
-            opts.ResolveFormat(parseResult) == OutputFormat.Json,
+        return opts.RejectUnsupportedDocumentJsonRowWindowBeforeAcquisition(
+            parseResult,
             commandName);
     }
 }

@@ -320,6 +320,12 @@ render the typed count result but cannot resume row shaping from it.
 
 ## Count semantics
 
+This section defines the typed stage law for compositions that an owning
+surface chooses to expose. The current CLI does not expose `Head`, `Tail`,
+`Window`, or `Top` followed by Count: `output-shapes.md` owns those gesture
+conflicts. Independent adopters may expose the composition and then owe the
+semantics below.
+
 For one row set whose cohort's preceding stages successfully produce logical
 sequence `R`, Count returns the exact non-negative cardinality `|R|`.
 

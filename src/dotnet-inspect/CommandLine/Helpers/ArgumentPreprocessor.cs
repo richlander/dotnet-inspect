@@ -523,6 +523,7 @@ public static class ArgumentPreprocessor
         {
             if (!string.Equals(args[i], "--platform", StringComparison.Ordinal)
                 || args[i + 1].StartsWith("-", StringComparison.Ordinal)
+                || bool.TryParse(args[i + 1], out _)
                 || !ShouldTreatPlatformFollowerAsLibrary(
                     args,
                     commandIndex,
