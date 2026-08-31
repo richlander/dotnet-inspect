@@ -307,7 +307,7 @@ public class DemoCommandTests
     }
 
     [Fact]
-    public async Task Cli_DemoCallGraph_Mermaid_EmitsGraph()
+    public async Task Cli_DemoCallGraph_Mermaid_ReportsIncompleteWorkspaceBinding()
     {
         var (exitCode, output, error) = await RunCliAsync(
             "demo",
@@ -315,7 +315,10 @@ public class DemoCommandTests
             "--mermaid");
 
         Assert.True(exitCode == 0, error + "\n" + output);
-        Assert.Empty(error);
+        Assert.Contains(
+            "Warning: Call graph results are incomplete because",
+            error,
+            StringComparison.Ordinal);
         Assert.Contains("graph TD", output, StringComparison.Ordinal);
         Assert.Contains("TryAddEnumerable", output, StringComparison.Ordinal);
     }
