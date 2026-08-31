@@ -461,12 +461,11 @@ deferring the empty-session decision, a checkpoint diagnostic is the same
 first diagnostic that sealing the same required state under the same
 cancellation observations would produce. Sessions that never call
 supplemental acquisition retain the existing required-add and seal-time
-materialization behavior. Seal applies the documented
-materialize/retained-byte/identity order before retained-content creation; this
-also corrects the previously shadowed duplicate-identity diagnostic without
-changing ordinary required-source behavior. The supplemental model treats this
-correctly derived checkpoint result as an owner input; the implementation gate,
-not that model, proves the simulation.
+materialization behavior for ordinary sources. A duplicate identity now
+reports the documented identity-collision diagnostic instead of an incidental
+materialization failure. The supplemental model treats this correctly derived
+checkpoint result as an owner input; the implementation gate, not that model,
+proves the simulation.
 
 Invocation behavior is closed:
 
