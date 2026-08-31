@@ -1,0 +1,15 @@
+<Project>
+  <Target
+      Name="WriteInspectWebRuntimeAsyncReceipt"
+      BeforeTargets="CoreCompile"
+      Condition="'$(InspectWebRuntimeAsyncReceiptDirectory)' != ''">
+    <Error
+        Condition="$([System.String]::Copy(';$(Features);').Contains(';runtime-async=on;')) != 'True'"
+        Text="$(MSBuildProjectFullPath) compiled without Features=runtime-async=on." />
+    <MakeDir Directories="$(InspectWebRuntimeAsyncReceiptDirectory)" />
+    <WriteLinesToFile
+        File="$(InspectWebRuntimeAsyncReceiptDirectory)/$(MSBuildProjectName).txt"
+        Lines="$(MSBuildProjectFullPath)"
+        Overwrite="true" />
+  </Target>
+</Project>

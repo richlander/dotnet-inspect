@@ -17,13 +17,35 @@ internal static class PromotionWorkflowContract
         "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38";
     private const string UploadArtifactAction =
         "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a";
+    private const string CompilerAsyncDeploymentCheck =
+        """
+        eng/verify-inspect-web-async-deployment.sh \
+          compiler \
+          prototypes/inspect-web/engine/bin/Release/net11.0/InspectWeb.Engine.dll \
+          artifacts/inspect-web-publish/wwwroot \
+          artifacts/inspect-web-publish/async-lowering.json
+        """;
+    private const string RuntimeAsyncDeploymentCheck =
+        """
+        eng/verify-inspect-web-async-deployment.sh \
+          runtime \
+          prototypes/inspect-web/engine/bin/Release/net11.0/InspectWeb.Engine.dll \
+          artifacts/inspect-web-coreclr-publish/wwwroot \
+          artifacts/inspect-web-coreclr-publish/async-lowering.json \
+          artifacts/inspect-web-runtime-async-receipts
+        """;
     private const string DeploymentFilesCheck =
         """
         set -euo pipefail
         site=artifacts/inspect-web-publish/wwwroot
         api=artifacts/inspect-web-publish/api
         index="$site/index.html"
+        receipt=artifacts/inspect-web-publish/async-lowering.json
         test -f "$index"
+        jq -e '.schema == 1 and .method == "InspectionEngine.AsyncLoweringCanary" and .lowering == "compiler" and .result == "inspect-web-async-lowering-ok" and (.publish_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.published_webcil_file | test("^InspectWeb\\.Engine\\.[A-Za-z0-9]+\\.wasm$")) and (.published_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.contract_sha256 | test("^[0-9a-f]{64}$"))' "$receipt" >/dev/null
+        webcil=$(jq -r '.published_webcil_file' "$receipt")
+        test "$(find "$site/_framework" -maxdepth 1 -type f -name 'InspectWeb.Engine.*.wasm' | wc -l)" -eq 1
+        test "$(sha256sum "$site/_framework/$webcil" | awk '{print $1}')" = "$(jq -r '.published_webcil_sha256' "$receipt")"
         test -f "$site/staticwebapp.config.json"
         test -f "$api/host.json"
         test -f "$api/functions.metadata"
@@ -57,7 +79,12 @@ internal static class PromotionWorkflowContract
         site=artifacts/inspect-web-coreclr-publish/wwwroot
         api=artifacts/inspect-web-coreclr-publish/api
         index="$site/index.html"
+        receipt=artifacts/inspect-web-coreclr-publish/async-lowering.json
         test -f "$index"
+        jq -e '.schema == 1 and .method == "InspectionEngine.AsyncLoweringCanary" and .lowering == "runtime" and .result == "inspect-web-async-lowering-ok" and (.publish_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.published_webcil_file | test("^InspectWeb\\.Engine\\.[A-Za-z0-9]+\\.wasm$")) and (.published_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.contract_sha256 | test("^[0-9a-f]{64}$"))' "$receipt" >/dev/null
+        webcil=$(jq -r '.published_webcil_file' "$receipt")
+        test "$(find "$site/_framework" -maxdepth 1 -type f -name 'InspectWeb.Engine.*.wasm' | wc -l)" -eq 1
+        test "$(sha256sum "$site/_framework/$webcil" | awk '{print $1}')" = "$(jq -r '.published_webcil_sha256' "$receipt")"
         test -f "$site/staticwebapp.config.json"
         test -f "$api/host.json"
         test -f "$api/functions.metadata"
@@ -105,12 +132,25 @@ internal static class PromotionWorkflowContract
             ".github",
             "workflows",
             "deploy-inspect-web-coreclr.yml");
+        string asyncVerifierPath = Path.Combine(
+            repository,
+            "eng",
+            "verify-inspect-web-async-deployment.sh");
+        string runtimeAsyncReceiptTargetPath = Path.Combine(
+            repository,
+            "eng",
+            "InspectWebRuntimeAsyncReceipt.targets");
         string promotionWorkflow = File.ReadAllText(promotionPath);
         string stagingWorkflow = File.ReadAllText(stagingPath);
         string coreClrStagingWorkflow = File.ReadAllText(coreClrStagingPath);
+        string asyncVerifier = File.ReadAllText(asyncVerifierPath);
+        string runtimeAsyncReceiptTarget =
+            File.ReadAllText(runtimeAsyncReceiptTargetPath);
         ValidatePromotion(promotionWorkflow);
         ValidateStaging(stagingWorkflow);
         ValidateCoreClrStaging(coreClrStagingWorkflow);
+        ValidateAsyncDeploymentVerifier(asyncVerifier);
+        ValidateRuntimeAsyncReceiptTarget(runtimeAsyncReceiptTarget);
 
         const string trustedCheckout =
             """
@@ -239,6 +279,30 @@ internal static class PromotionWorkflowContract
             "",
             ValidateCoreClrStaging,
             "CoreCLR staging contract accepted classic async lowering.");
+        AssertMutationRejected(
+            stagingWorkflow,
+            "prototypes/inspect-web/engine/bin/Release/net11.0/InspectWeb.Engine.dll",
+            "prototypes/inspect-web/engine/obj/Release/net11.0/linked/InspectWeb.Engine.dll",
+            ValidateStaging,
+            "Staging contract accepted async evidence from the wrong assembly.");
+        AssertMutationRejected(
+            coreClrStagingWorkflow,
+            "prototypes/inspect-web/engine/bin/Release/net11.0/InspectWeb.Engine.dll",
+            "prototypes/inspect-web/engine/obj/Release/net11.0/linked/InspectWeb.Engine.dll",
+            ValidateCoreClrStaging,
+            "CoreCLR staging contract accepted async evidence from the wrong assembly.");
+        AssertMutationRejected(
+            asyncVerifier,
+            "  \"$repo_root/prototypes/inspect-web/scripts/verify-published-engine-facade.ts\" \\\n  \"$site\"\n",
+            "",
+            ValidateAsyncDeploymentVerifier,
+            "Async deployment verifier accepted a skipped browser invocation.");
+        AssertMutationRejected(
+            runtimeAsyncReceiptTarget,
+            "Condition=\"$([System.String]::Copy(';$(Features);').Contains(';runtime-async=on;')) != 'True'\"",
+            "Condition=\"false\"",
+            ValidateRuntimeAsyncReceiptTarget,
+            "Runtime-async receipt target accepted projects without the feature.");
         AssertMutationRejected(
             coreClrStagingWorkflow,
             "            -p:UseMonoRuntime=false \\\n",
@@ -633,7 +697,7 @@ internal static class PromotionWorkflowContract
             {
                 ["DOTNET_CLI_TELEMETRY_OPTOUT"] = "true",
                 ["DOTNET_NOLOGO"] = "true",
-                ["DOTNET_SDK_VERSION"] = "11.0.100-preview.6.26359.118",
+                ["DOTNET_SDK_VERSION"] = "11.0.100-preview.7.26381.103",
             },
             "staging workflow.env");
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "staging workflow");
@@ -655,12 +719,12 @@ internal static class PromotionWorkflowContract
             "jobs.build");
         RequireScalarValue(build, "runs-on", "ubuntu-26.04", "jobs.build");
         YamlSequenceNode buildSteps = GetRequiredSequence(build, "steps", "jobs.build");
-        if (buildSteps.Children.Count != 9)
+        if (buildSteps.Children.Count != 10)
         {
             throw new InvalidOperationException(
                 "Staging build must contain checkout, .NET and Node setup, " +
-                "workload install, frontend build, site and API publish, artifact " +
-                "verification, and artifact upload steps.");
+                "workload install, frontend build, site and API publish, async and " +
+                "artifact verification, and artifact upload steps.");
         }
         YamlMappingNode checkout =
             RequireStep(buildSteps, 0, null, "jobs.build");
@@ -758,23 +822,32 @@ internal static class PromotionWorkflowContract
                 "Staging publish command does not match the trusted contract.");
         }
 
-        ValidateManagedApiPublish(
+        ValidateAsyncDeploymentCheck(
             RequireStep(
                 buildSteps,
                 6,
+                "Verify compiler-async deployment",
+                "jobs.build"),
+            CompilerAsyncDeploymentCheck,
+            "compiler-async deployment verification step");
+
+        ValidateManagedApiPublish(
+            RequireStep(
+                buildSteps,
+                7,
                 "Publish MSDL managed API",
                 "jobs.build"),
             "artifacts/inspect-web-publish/api",
             "staging managed API publish step");
 
         YamlMappingNode buildVerify =
-            RequireStep(buildSteps, 7, "Verify staged site artifact", "jobs.build");
+            RequireStep(buildSteps, 8, "Verify staged site artifact", "jobs.build");
         ValidateDeploymentArtifactVerification(
             buildVerify,
             "staging build artifact verification step");
 
         YamlMappingNode upload =
-            RequireStep(buildSteps, 8, "Upload staged site artifact", "jobs.build");
+            RequireStep(buildSteps, 9, "Upload staged site artifact", "jobs.build");
         RequireExactKeys(
             upload,
             ["name", "uses", "with"],
@@ -963,12 +1036,12 @@ internal static class PromotionWorkflowContract
 
         YamlSequenceNode buildSteps =
             GetRequiredSequence(build, "steps", "CoreCLR jobs.build");
-        if (buildSteps.Children.Count != 9)
+        if (buildSteps.Children.Count != 10)
         {
             throw new InvalidOperationException(
                 "CoreCLR staging build must contain checkout, .NET and Node setup, " +
-                "workload install, frontend build, site and API publish, verification, " +
-                "and artifact upload steps.");
+                "workload install, frontend build, site and API publish, async and " +
+                "artifact verification, and artifact upload steps.");
         }
 
         YamlMappingNode checkout =
@@ -1079,6 +1152,7 @@ internal static class PromotionWorkflowContract
             "CoreCLR staging publish step");
         const string ExpectedPublish =
             """
+            rm -rf artifacts/inspect-web-runtime-async-receipts
             version=$(dotnet msbuild src/dotnet-inspect/dotnet-inspect.csproj -getProperty:VersionPrefix -nologo)
             built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
             dotnet publish \
@@ -1092,7 +1166,9 @@ internal static class PromotionWorkflowContract
               -p:UseMonoRuntime=false \
               -p:WasmBuildNative=false \
               -p:WasmNestedPublishAppDependsOn= \
-              -p:WasmEnableExceptionHandling=true
+              -p:WasmEnableExceptionHandling=true \
+              -p:InspectWebRuntimeAsyncReceiptDirectory="$GITHUB_WORKSPACE/artifacts/inspect-web-runtime-async-receipts" \
+              -p:CustomAfterMicrosoftCommonTargets="$GITHUB_WORKSPACE/eng/InspectWebRuntimeAsyncReceipt.targets"
             """;
         if (GetRequiredScalar(
                 publish,
@@ -1103,10 +1179,19 @@ internal static class PromotionWorkflowContract
                 "CoreCLR staging publish command does not match the trusted contract.");
         }
 
-        ValidateManagedApiPublish(
+        ValidateAsyncDeploymentCheck(
             RequireStep(
                 buildSteps,
                 6,
+                "Verify runtime-async deployment",
+                "CoreCLR jobs.build"),
+            RuntimeAsyncDeploymentCheck,
+            "runtime-async deployment verification step");
+
+        ValidateManagedApiPublish(
+            RequireStep(
+                buildSteps,
+                7,
                 "Publish MSDL managed API",
                 "CoreCLR jobs.build"),
             "artifacts/inspect-web-coreclr-publish/api",
@@ -1115,7 +1200,7 @@ internal static class PromotionWorkflowContract
         YamlMappingNode buildVerify =
             RequireStep(
                 buildSteps,
-                7,
+                8,
                 "Verify CoreCLR site artifact",
                 "CoreCLR jobs.build");
         ValidateCoreClrArtifactVerification(
@@ -1125,7 +1210,7 @@ internal static class PromotionWorkflowContract
         YamlMappingNode upload =
             RequireStep(
                 buildSteps,
-                8,
+                9,
                 "Upload CoreCLR staged site artifact",
                 "CoreCLR jobs.build");
         RequireExactKeys(
@@ -1292,6 +1377,68 @@ internal static class PromotionWorkflowContract
         {
             throw new InvalidOperationException(
                 $"{context} does not match the trusted contract.");
+        }
+    }
+
+    private static void ValidateAsyncDeploymentCheck(
+        YamlMappingNode step,
+        string expected,
+        string context)
+    {
+        RequireExactKeys(step, ["name", "shell", "run"], context);
+        RequireScalarValue(step, "shell", "bash", context);
+        if (GetRequiredScalar(step, "run", context).TrimEnd() != expected)
+        {
+            throw new InvalidOperationException(
+                $"{context} does not match the trusted contract.");
+        }
+    }
+
+    private static void ValidateAsyncDeploymentVerifier(string script)
+    {
+        string[] required =
+        [
+            "\"$repo_root/prototypes/inspect-web/scripts/verify-async-lowering.cs\"",
+            "\"$repo_root/eng/generate-inspect-web-engine-facade.sh\" \\\n  --contract",
+            "\"$repo_root/prototypes/inspect-web/src/inspect-web-engine.d.ts\" \\\n  \"$scratch/inspect-web-engine.d.ts\"",
+            "\"$repo_root/prototypes/inspect-web/scripts/verify-published-engine-facade.ts\" \\\n  \"$site\"",
+            "\"$repo_root/prototypes/inspect-web/scripts/verify-runtime-async-project-graph.ts\"",
+            "published_webcil_file: webcil[0]",
+        ];
+        string[] missing = required
+            .Where(value =>
+                script.Split(value, StringSplitOptions.None).Length != 2)
+            .ToArray();
+        if (missing.Length != 0)
+        {
+            throw new InvalidOperationException(
+                "Inspect-web async deployment verifier does not contain each "
+                + "trusted evidence step exactly once. Missing or duplicate: ["
+                + string.Join(", ", missing)
+                + "].");
+        }
+    }
+
+    private static void ValidateRuntimeAsyncReceiptTarget(string target)
+    {
+        string[] required =
+        [
+            "BeforeTargets=\"CoreCompile\"",
+            "Condition=\"$([System.String]::Copy(';$(Features);').Contains(';runtime-async=on;')) != 'True'\"",
+            "File=\"$(InspectWebRuntimeAsyncReceiptDirectory)/$(MSBuildProjectName).txt\"",
+            "Lines=\"$(MSBuildProjectFullPath)\"",
+        ];
+        string[] missing = required
+            .Where(value =>
+                target.Split(value, StringSplitOptions.None).Length != 2)
+            .ToArray();
+        if (missing.Length != 0)
+        {
+            throw new InvalidOperationException(
+                "Inspect-web runtime-async receipt target does not contain each "
+                + "trusted compile receipt step exactly once. Missing or duplicate: ["
+                + string.Join(", ", missing)
+                + "].");
         }
     }
 

@@ -555,18 +555,37 @@ internal static class DetectionTestSuite
                 "Web generator canary did not select code and web: "
                 + FormatValues(webGenerator));
         }
-        Dictionary<string, string> webGenerationScript = RunDetection(
+        foreach (string webGateInput in new[]
+        {
+            "eng/generate-inspect-web-engine-facade.sh",
+            "eng/verify-inspect-web-async-deployment.sh",
+        })
+        {
+            Dictionary<string, string> webGate = RunDetection(
+                repository,
+                body,
+                "pull_request",
+                webGateInput,
+                outputs);
+            if (webGate["code"] != "false"
+                || webGate["web"] != "true")
+            {
+                throw new InvalidOperationException(
+                    $"Web gate input {webGateInput} did not select only web: "
+                    + FormatValues(webGate));
+            }
+        }
+        Dictionary<string, string> runtimeAsyncReceiptTarget = RunDetection(
             repository,
             body,
             "pull_request",
-            "eng/generate-inspect-web-engine-facade.sh",
+            "eng/InspectWebRuntimeAsyncReceipt.targets",
             outputs);
-        if (webGenerationScript["code"] != "false"
-            || webGenerationScript["web"] != "true")
+        if (runtimeAsyncReceiptTarget["web"] != "true")
         {
             throw new InvalidOperationException(
-                "Web generation-script canary did not select only web: "
-                + FormatValues(webGenerationScript));
+                    "Runtime-async receipt target did not select the web lane: "
+                    + FormatValues(runtimeAsyncReceiptTarget));
         }
         Dictionary<string, string> methodSemanticsProbeRunner = RunDetection(
             repository,
