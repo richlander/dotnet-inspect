@@ -199,12 +199,8 @@ public class FindCommand
             PackageProfileSections.CreateCatalog();
         HashSet<string> includeSections =
             [PackageProfileSections.Packages];
-        SectionQueryPlan sectionPlan =
-            catalog.Sections.PlanQueries(
-                Verbosity.Normal,
-                includeSections);
-        InspectionQueryPlan<PackageProfileQueryContext> queryPlan =
-            catalog.QueryCatalog.Plan(sectionPlan.Queries[0]);
+        CompiledInspectionPlan<PackageProfileQueryContext> queryPlan =
+            catalog.Lens.Plan(Verbosity.Normal, includeSections);
         InspectionQueryResults queryResults =
             await queryPlan.RunAsync(
                 new PackageProfileQueryContext(source, request),

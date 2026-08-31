@@ -415,14 +415,12 @@ public class FindCommandTests
         var source = new CountingPackageSource();
         PackageProfileSectionCatalog catalog =
             PackageProfileSections.CreateCatalog();
-        SectionQueryPlan sectionPlan =
-            catalog.Sections.PlanQueries(
-                Verbosity.Normal,
-                [PackageProfileSections.Packages]);
 
         InspectionQueryResults results =
-            await catalog.QueryCatalog
-                .Plan(sectionPlan.Queries[0])
+            await catalog.Lens
+                .Plan(
+                    Verbosity.Normal,
+                    [PackageProfileSections.Packages])
                 .RunAsync(
                     new PackageProfileQueryContext(
                         source,
@@ -453,14 +451,13 @@ public class FindCommandTests
             dependenciesPerManifest);
         PackageProfileSectionCatalog catalog =
             PackageProfileSections.CreateCatalog();
-        HashSet<InspectionQueryDefinition> requested =
-            catalog.Pipeline.GetRequiredQueries(
-                Verbosity.Normal,
-                [PackageProfileSections.Packages]);
 
         InspectionQueryResults results =
-            await catalog.QueryCatalog.ToBuilder().RunAsync(
-                requested,
+            await catalog.Lens
+                .Plan(
+                    Verbosity.Normal,
+                    [PackageProfileSections.Packages])
+                .RunAsync(
                 new PackageProfileQueryContext(
                     source,
                     new PackagePrefixProfileRequest("Contoso.")),
