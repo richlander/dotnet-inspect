@@ -383,11 +383,10 @@ Release gates:
 | `ClassicInverseAcceptedPopulationIsMeasured` | The implementation changes the accepted compiler-fixture population without an explicit expected delta and per-method review. |
 
 The first five gates need compiler-produced positives plus synthetic close
-negatives. The exact-head PR #5002 reproduction for an effectful condition and
-nested sequential/loop stores is retained as adversarial input evidence:
-`pr5002-round4c-reproductions.patch`, SHA-256
-`554b7f8b9b4057c9e73439dc1f5d8df14d548da0faddfe69cc22d0cf06c01c59`.
-It demonstrates the defect class; it is not itself an implementation gate.
+negatives. The
+[exact-head PR #5002 reproduction reconciliation](https://github.com/richlander/dotnet-inspect/pull/5002#issuecomment-5469908350)
+records the effectful-condition and nested sequential/loop-store evidence. It
+demonstrates the defect class; it is not itself an implementation gate.
 
 An implementation PR also owes the decompiler entry gate, IR invariants,
 changed-method Render A/B, structural review, validity, compile-back fidelity
