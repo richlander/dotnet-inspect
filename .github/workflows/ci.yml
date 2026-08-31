@@ -206,8 +206,8 @@ jobs:
         # devDependency and its helpers are in the bundle.
         run: npm audit --audit-level=info
 
-      - name: Check generated inspect-web-engine surface for drift
-        run: eng/generate-inspect-web-engine-dts.sh --check
+      - name: Check generated inspect-web TypeScript facade for drift
+        run: eng/generate-inspect-web-engine-facade.sh --check
 
       - name: Typecheck generated ts-jsexport facade
         run: eng/test-ts-jsexport-typescript.sh
@@ -235,6 +235,11 @@ jobs:
           index="$site/index.html"
           test -f "$index"
           test -f "$site/staticwebapp.config.json"
+          test -f "$site/inspect-web-engine.js"
+          cmp \
+            prototypes/inspect-web/engine/wwwroot/inspect-web-engine.js \
+            "$site/inspect-web-engine.js"
+          test ! -f "$site/inspect-web-engine.ts"
           # The site is deployed from this artifact, so the headers have to be verified
           # where they ship. The toolchain test pins them in the source file; this checks
           # the copy Azure actually reads. Values are compared exactly rather than by
@@ -270,7 +275,8 @@ jobs:
           for host_only in \
             ILInspector.JsExportSurface \
             ILInspector.TypeScriptGeneration \
-            ts-jsexport; do
+            ts-jsexport \
+            tsbindgen; do
             if find "$site/_framework" -maxdepth 1 -type f \
               -iname "$host_only.*" -print -quit | grep -q .; then
               echo "Host-only generator artifact reached the browser: $host_only" >&2
@@ -280,6 +286,13 @@ jobs:
           import_map_line=$(grep -n -m1 '<script type="importmap">' "$index" | cut -d: -f1)
           module_line=$(grep -n -m1 '<script type="module"' "$index" | cut -d: -f1)
           test "$import_map_line" -lt "$module_line"
+
+      - name: Smoke published engine facade
+        working-directory: prototypes/inspect-web
+        run: >
+          node
+          scripts/verify-published-engine-facade.ts
+          ../../artifacts/inspect-web-publish/wwwroot
 
       - name: Test browser engine
         run: >

@@ -101,7 +101,6 @@
     <Project Path="src/runfaster/runfaster.csproj" />
     <Project Path="src/SourceLinkFetch/SourceLinkFetch.csproj" />
     <Project Path="src/ts-jsexport/ts-jsexport.csproj" />
-    <Project Path="src/tsbindgen/tsbindgen.csproj" />
   </Folder>
   <Folder Name="/src/runfaster.Tests/Fixtures/">
     <Project Path="src/runfaster.Tests/Fixtures/RunFaster.AllocationFixture/RunFaster.AllocationFixture.csproj" />
