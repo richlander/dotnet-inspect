@@ -22,7 +22,7 @@ public class AssemblyReferenceBindingPolicyTests
     }
 
     [Fact]
-    public void Select_SnapshotsResolverAnswer()
+    public void AssemblyReferenceBindingPolicy_NullRemainsUndifferentiated()
     {
         var resolver = new RecordingResolver((_, _) => null);
         var policy = new AssemblyReferenceBindingPolicy(resolver);
@@ -33,8 +33,30 @@ public class AssemblyReferenceBindingPolicyTests
         AssemblyBindingSelection second = policy.Select(equivalentRequest);
 
         Assert.Same(first, second);
-        Assert.IsType<AssemblyBindingSelection.Missing>(first);
+        Assert.Equal(
+            AssemblyBindingMissDisposition.Undifferentiated,
+            Assert.IsType<AssemblyBindingSelection.Missing>(first)
+                .Disposition);
         Assert.Equal(Reference, Assert.Single(resolver.Requests).Identity);
+    }
+
+    [Fact]
+    public void AssemblyBindingMissDisposition_FactoriesExposeClosedArms()
+    {
+        Assert.Equal(
+            AssemblyBindingMissDisposition.Undifferentiated,
+            Assert.IsType<AssemblyBindingSelection.Missing>(
+                AssemblyBindingSelection.NotFound()).Disposition);
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NoNameOwner,
+            Assert.IsType<AssemblyBindingSelection.Missing>(
+                AssemblyBindingSelection.NameNotOwned()).Disposition);
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NameOwnedNoMatch,
+            Assert.IsType<AssemblyBindingSelection.Missing>(
+                AssemblyBindingSelection.NameOwnedButNoMatch()).Disposition);
+        Assert.Empty(
+            typeof(AssemblyBindingSelection.Missing).GetConstructors());
     }
 
     [Fact]
@@ -125,11 +147,14 @@ public class AssemblyReferenceBindingPolicyTests
     }
 
     [Fact]
-    public void NoResolverPolicy_NeverSelectsAnyBindingTarget()
+    public void NoResolverAssemblyBindingPolicy_ReportsNoNameOwner()
     {
-        Assert.IsType<AssemblyBindingSelection.Missing>(
-            NoResolverAssemblyBindingPolicy.Instance.Select(
-                Request(AssemblyBindingTarget.Reference(Reference))));
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NoNameOwner,
+            Assert.IsType<AssemblyBindingSelection.Missing>(
+                NoResolverAssemblyBindingPolicy.Instance.Select(
+                    Request(AssemblyBindingTarget.Reference(Reference))))
+                .Disposition);
         var unavailable = Assert.IsType<AssemblyBindingSelection.Unavailable>(
             NoResolverAssemblyBindingPolicy.Instance.Select(
                 Request(AssemblyBindingTarget.CoreLibrary())));
