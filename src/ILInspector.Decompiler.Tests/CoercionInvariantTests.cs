@@ -92,7 +92,7 @@ public class CoercionInvariantTests
     {
         // A non-constant integer at an enum return: not provably at target, so
         // the invariant flags it; the insertion pass wraps it and the invariant
-        // goes green — the burn-down loop in miniature.
+        // goes green — the repair loop in miniature.
         var function = Function(
             Returning(new LoadArgument(0, "raw", Int32Type)),
             Enum32,

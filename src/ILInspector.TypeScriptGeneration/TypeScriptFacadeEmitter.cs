@@ -33,7 +33,7 @@ internal static class TypeScriptFacadeEmitter
     public static string Emit(
         global::ILInspector.JsExportSurface.JsExportSurface surface,
         string runtimeModule,
-        TsBindGenDiagnostics? diagnostics = null)
+        TypeScriptGenerationDiagnostics? diagnostics = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(runtimeModule);
         string assemblyName = surface.AssemblyIdentity?.Name

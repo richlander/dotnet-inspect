@@ -13,7 +13,7 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>A small, purpose-built [JSExport] surface used as a regression fixture for ILInspector.JsExportSurface and tsbindgen. Not a real product surface.</Description>
+    <Description>A small, purpose-built [JSExport] surface used as a regression fixture for ILInspector.JsExportSurface and TypeScript facade generation. Not a real product surface.</Description>
   </PropertyGroup>
 
 </Project>
