@@ -1423,8 +1423,9 @@ assembly inspection must understand.
 
 #### Package Root realization
 
-An exact acquired package is a `PackageRootRealization` before compile-asset
-selection succeeds. That host-neutral product result retains:
+An exact acquired package is a `PackageRootRealization` regardless of whether
+compile-asset selection succeeds. That host-neutral package-level result
+retains:
 
 - exact package id and version;
 - the requested target framework and the selector's selected framework, when
@@ -1434,6 +1435,17 @@ selection succeeds. That host-neutral product result retains:
 - the complete typed `PackageCompileAssetSelection`, including
   `NoCompileAssets`, `NoMatchingTargetFramework`, `EmptyCompileGroup`, and
   `InvalidImplementationAssets`.
+
+The related identity concepts have distinct jobs:
+
+| Concept | Meaning |
+| --- | --- |
+| `PackageRootRealization` | The in-process package-level selection outcome over already-acquired content. It remains valid for Root-only and unsuccessful selection outcomes and is not by itself a cache or admission identity. |
+| `RealizedMemberCoordinate.Package` | The canonical, portable request that repeats the same package, version, producer, and acquisition target. Unlike a possibly floating `WorkspaceMemberCoordinate`, every identity field has already been resolved. It does not promise the same bytes forever. |
+| `ProducerKey` | The opaque, credential-free identity of the content producer. The acquired content and payload carry this value, and the realized coordinate records the same value as `Producer`. It distinguishes sources but not successive byte generations from one source. |
+| `PackageContentGenerationIdentity` | The process-local identity of one retained immutable content generation. |
+| `PackageRootSelectionIdentity` | The process-local identity of one frozen package-selection occurrence. |
+| `PackageRootBinding` | The acquisition-issued value that joins one Root, realized coordinate, content generation, and frozen selection and proves their correspondence. |
 
 Acquisition issues a `PackageRootBinding` from one
 `AcquiredPackagePayload` or `AcquiredPackageSourcePayload`. The immutable
