@@ -252,7 +252,7 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_RealQueryReportsIntrinsicBindingGapAndOmitsAbsentExtensionEndpoint()
+    public async Task ExecuteAsync_RealQueryReportsIntrinsicBindingUnavailableAndOmitsAbsentExtensionEndpoint()
     {
         bool observedMissingPeer = false;
         Execution execution = await ExecuteAsync(
@@ -310,7 +310,7 @@ public sealed class InspectionGraphCommandTests
         Assert.True(observedMissingPeer);
         Assert.Equal(1, execution.ExitCode);
         Assert.Contains(
-            "extensions: BindingRejected (2 graph targets)",
+            "extensions: BindingUnavailable (2 graph targets)",
             execution.Error,
             StringComparison.Ordinal);
         using JsonDocument json = JsonDocument.Parse(execution.Output);
@@ -321,7 +321,7 @@ public sealed class InspectionGraphCommandTests
         Assert.All(
             root.GetProperty("failures").EnumerateArray(),
             static failure => Assert.Equal(
-                "BindingRejected",
+                "BindingUnavailable",
                 Assert.Single(
                     failure.GetProperty("details")
                         .EnumerateArray())

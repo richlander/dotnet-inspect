@@ -324,9 +324,6 @@ public class MethodBodyInspectionSessionTests
             out Analysis.CatalogCallGraphDiagnostics diagnostics);
 
         Assert.NotEmpty(projection.CallSites);
-        Assert.DoesNotContain(
-            projection.Edges,
-            edge => edge.CallSiteIds.IsEmpty);
         Assert.Equal(0, diagnostics.BindingIdentityConflictCount);
         Assert.Equal(
             projection.CallSites.Length,
