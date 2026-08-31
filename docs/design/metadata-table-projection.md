@@ -278,8 +278,8 @@ dotnet-inspect library My.dll -S "Metadata: TypeRef" --columns Name --tsv
 # Scalar: collapse to a row count
 dotnet-inspect library My.dll -S "Metadata: TypeDef" --count
 
-# Released count syntax; the item-limit implementation changes this to -n 20.
-dotnet-inspect library My.dll -S "Metadata: MethodDef" --rows 20
+# Keep the first 20 declared rows.
+dotnet-inspect library My.dll -S "Metadata: MethodDef" -n 20
 
 # structured, for tooling
 dotnet-inspect library My.dll -S "Metadata: TypeRef" --jsonl

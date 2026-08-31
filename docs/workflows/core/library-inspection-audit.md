@@ -300,7 +300,7 @@ Tips:
 > Goal: See members with unsafe signatures or unsafe calls for security and interop review.
 
 ```bash
-dotnet-inspect library System.Private.CoreLib -S 'Unsafe Members' --rows 3
+dotnet-inspect library System.Private.CoreLib -S 'Unsafe Members' -n 3
 ```
 
 ```expect
@@ -314,7 +314,7 @@ Unsafe call
 > Goal: See native interop methods declared via DllImport/LibraryImport.
 
 ```bash
-dotnet-inspect library --package System.Drawing.Common@10.0.0 -S 'P/Invoke Methods' --rows 3
+dotnet-inspect library --package System.Drawing.Common@10.0.0 -S 'P/Invoke Methods' -n 3
 ```
 
 ```expect

@@ -109,7 +109,6 @@ public static class CountOutput
         var text = result.TrimEnd('\r', '\n') + '\n';
         OutputDestination.Write(
             outputPath,
-            rows,
             writer => writer.Write(text));
     }
 

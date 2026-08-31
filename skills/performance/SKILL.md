@@ -64,8 +64,8 @@ flattens two or more populated kind sections into one table with a leading
 kind's concrete schema without `Kind`; use structured `--json` when the kind
 discriminator must remain explicit. `@Performance` also includes heterogeneous
 sections, so use it for discovery, counts, Markdown, or JSON documents instead.
-`--top` narrows ranked data before rendering; `--rows N` caps rendered rows
-afterward. Common shapes
+`--top` narrows ranked data before rendering; `-n N` applies a positional item
+window, while `--rows RANGE` selects stable absolute row addresses. Common shapes
 include `capturing-delegate`, `box-value-type`,
 `generic-parameter-object-box` (an unconstrained generic value boxed for
 `object.Equals`; it allocates only for value-type instantiations and starts at

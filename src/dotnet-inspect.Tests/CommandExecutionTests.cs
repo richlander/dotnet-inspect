@@ -11784,22 +11784,6 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public void ProjectedJsonRoutingAudit_PackageSearchItemLimitBypassesHostLineWindow()
-    {
-        var searchArgs = CommandLineBuilder.PreprocessArgs(
-            ["package", "-n", "2", "search", "Fixture", "--json"]);
-        var searchResult =
-            CommandLineBuilder.CreateRootCommand().Parse(searchArgs);
-        var packageArgs = CommandLineBuilder.PreprocessArgs(
-            ["package", "Fixture", "-n", "2", "--json"]);
-        var packageResult =
-            CommandLineBuilder.CreateRootCommand().Parse(packageArgs);
-
-        Assert.True(CommandLineBuilder.UsesTypedItemLimit(searchResult));
-        Assert.False(CommandLineBuilder.UsesTypedItemLimit(packageResult));
-    }
-
-    [Fact]
     public async Task ProjectedJsonRoutingAudit_PackageSearchItemLimitWorksAfterSubcommand()
     {
         var (exit, output, error) = await RunPackageSearchFixtureAsync(
@@ -11840,6 +11824,22 @@ public partial class CommandExecutionTests
             "--tail-lines",
             "search", "Fixture",
             "--take", "4");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Single(output.TrimEnd('\n').Split('\n'));
+        Assert.Contains("Fixture.Four", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchTrailingExplicitTailAppliesLineWindow()
+    {
+        var (exit, output, error) = await RunPackageSearchFixtureAsync(
+            "package", "search", "Fixture",
+            "--take", "4",
+            "-n", "1",
+            "--lines",
+            "--tail");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -32448,6 +32448,63 @@ public partial class CommandExecutionTests
                 using var _ = JsonDocument.Parse(
                     Assert.Single(artifact.Split('\n', StringSplitOptions.RemoveEmptyEntries)));
             }
+        }
+        finally
+        {
+            Directory.Delete(projectTempDir, recursive: true);
+            Directory.Delete(packageTempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RenderedLineWindowsApplyToProjectAndPackageFiles()
+    {
+        var (projectPath, projectTempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.LineWindow",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills:
+                [
+                    CompliantProjectSkill(
+                        "skills/line-window/SKILL.md",
+                        "first\nsecond\nthird")
+                ]));
+        var (packagePath, packageTempDir) = CreateLocalReadmePackage(
+            "Test.Package.LineWindow",
+            "README.md",
+            "first\nsecond\nthird");
+
+        try
+        {
+            string projectOutput =
+                Path.Combine(projectTempDir, "project-lines.md");
+            string packageOutput =
+                Path.Combine(packageTempDir, "package-lines.md");
+
+            var project = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Skills",
+                "-n", "1",
+                "--lines",
+                "--out", projectOutput);
+            var package = await RunAppAsync(
+                "package", packagePath,
+                "-n", "1",
+                "--lines",
+                "--out", packageOutput);
+
+            Assert.Equal(0, project.Exit);
+            Assert.Equal(0, package.Exit);
+            Assert.Empty(project.Output);
+            Assert.Empty(package.Output);
+            Assert.Empty(project.Error);
+            Assert.Empty(package.Error);
+            Assert.Single(
+                File.ReadAllText(projectOutput).TrimEnd('\n').Split('\n'));
+            Assert.Single(
+                File.ReadAllText(packageOutput).TrimEnd('\n').Split('\n'));
         }
         finally
         {

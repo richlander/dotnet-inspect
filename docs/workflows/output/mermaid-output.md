@@ -204,7 +204,7 @@ Show the calls into and out of string.IndexOf(char).
 ```
 
 ```bash
-dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --rows 2 --tips q
+dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" -n 2 --tips q
 ```
 
 ```expect
@@ -230,7 +230,7 @@ Show the call paths around string.IndexOf(char) as a tree.
 ```
 
 ```bash
-dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --tree --rows 2 --tips q
+dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --tree -n 2 --tips q
 ```
 
 ```expect
@@ -252,7 +252,7 @@ Show the call graph around string.IndexOf(char) as standalone Mermaid.
 ```
 
 ```bash
-dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --mermaid --rows 2 --tips q
+dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --mermaid -n 2 --tips q
 ```
 
 ```expect
@@ -278,7 +278,7 @@ Show the call graph around string.IndexOf(char) in a Markdown document.
 ```
 
 ```bash
-dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --markdown --mermaid --rows 2 --tips q
+dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --markdown --mermaid -n 2 --tips q
 ```
 
 ```expect
@@ -302,7 +302,7 @@ mermaid-graph
 ### 5e. TSV edge rows
 
 ```bash
-dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --tsv --rows 2 --tips q
+dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --tsv -n 2 --tips q
 ```
 
 ```expect
@@ -324,7 +324,7 @@ from,to
 ### 5f. JSONL edge rows
 
 ```bash
-dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --jsonl --rows 2 --tips q
+dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --jsonl -n 2 --tips q
 ```
 
 ```expect

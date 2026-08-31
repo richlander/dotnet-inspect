@@ -1907,7 +1907,7 @@ public class LibraryCommand
                 options.JsonOutput,
                 options.Jsonl,
                 options.JsonArray,
-                new ProjectionDestination(options.OutputPath, options.Rows)));
+                new ProjectionDestination(options.OutputPath)));
     }
 
     private static async Task<int> WriteLibraryPrintProjectionAsync(LibraryInspection inspection, LibraryOptions options)
@@ -1938,7 +1938,7 @@ public class LibraryCommand
                 options.Jsonl,
                 options.JsonArray,
                 Bare: false,
-                Destination: new ProjectionDestination(options.OutputPath, options.Rows)));
+                Destination: new ProjectionDestination(options.OutputPath)));
     }
 
     private sealed record PrintProjectionResult(IReadOnlyList<PrintableDocument> Documents, string? Error = null);

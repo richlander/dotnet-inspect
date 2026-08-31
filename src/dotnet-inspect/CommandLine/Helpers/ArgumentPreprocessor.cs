@@ -354,9 +354,6 @@ public static class ArgumentPreprocessor
         }
     }
 
-    public static bool HasParsedOption(ParseResult parseResult, string alias)
-        => FindOptionResult(parseResult, alias) is { Implicit: false };
-
     private static OptionResult? FindOptionResult(
         ParseResult parseResult,
         string alias)
@@ -481,18 +478,6 @@ public static class ArgumentPreprocessor
     private static readonly string[] ColumnsAliases = ["--columns"];
     private static readonly string[] FieldsAliases = ["--fields"];
     private static readonly string[] PathAliases = ["--path"];
-    private static readonly HashSet<string> OptionsWithOptionalFollowingValue =
-        new(
-            [
-                "-v", "-T", "--tips",
-                "-S", "-s", "--select", "--section",
-                "-D", "--discover", "--columns", "--fields",
-            ],
-            StringComparer.Ordinal);
-    private static readonly HashSet<string> PackageOptionsWithOptionalFollowingValue =
-        new(
-            ["--path", "--library", "--version", "--versions", "--versions-with-feed"],
-            StringComparer.Ordinal);
     private static readonly string[] AtCategoryOptionAliases = [.. SelectAliases, "-D", "--discover"];
     private static readonly HashSet<string> SearchScopeCommands = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -684,22 +669,6 @@ public static class ArgumentPreprocessor
         }
 
         return false;
-    }
-
-    private static bool TrySkipSeparatedDirectionValue(
-        string[] args,
-        ref int index,
-        int end)
-    {
-        if (args[index] is not ("--head" or "--tail")
-            || index + 1 >= end
-            || !bool.TryParse(args[index + 1], out _))
-        {
-            return false;
-        }
-
-        index++;
-        return true;
     }
 
     // Both escape helpers are copy-on-write: the array is only cloned when a value actually

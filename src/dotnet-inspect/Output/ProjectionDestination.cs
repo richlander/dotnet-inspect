@@ -5,14 +5,15 @@ namespace DotnetInspector.Output;
 
 /// <summary>
 /// The destination contract shared by printable and scalar/URL/path projections.
-/// A semantic row window has already been applied before projection, so its
-/// presence prevents the destination from reinterpreting the active count as a
-/// rendered-line window. Enforced by
-/// <c>ProjectionDestination_DoesNotApplyALineWindowAfterSemanticRows</c>.
 /// </summary>
+/// <remarks>
+/// Item windows select declared rows before projection. Rendered-line windows
+/// are a separate dimension and still apply to the projected destination.
+/// Exact transfers reject line windows before acquisition instead of changing
+/// payload bytes.
+/// </remarks>
 public readonly record struct ProjectionDestination(
     string? OutputPath,
-    RowWindow? RowWindow = null,
     bool ExactTransfer = false);
 
 internal static class ProjectionDestinationWriter
@@ -21,7 +22,6 @@ internal static class ProjectionDestinationWriter
     {
         if (!destination.ExactTransfer
             || !IsFile(destination)
-            || destination.RowWindow is not null
             || (CommandLineBuilder.HeadLines is null
                 && CommandLineBuilder.TailLines is null))
         {
@@ -54,7 +54,6 @@ internal static class ProjectionDestinationWriter
     {
         OutputDestination.Write(
             destination.OutputPath,
-            destination.RowWindow,
             writer =>
             {
                 var normalized = new LfTextWriter(writer);

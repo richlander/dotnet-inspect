@@ -64,7 +64,7 @@ Discover the stable IDs accepted by body queries:
 
 ```bash
 dnx dotnet-inspect -y -- vocabulary -S "C# Body Kinds" \
-  --columns "ID;Label" --rows 5 --table
+  --columns "ID;Label" -n 5 --table
 ```
 
 Then use one as a typed predicate. `Kind=...` auto-selects `Body Shapes`, while
@@ -73,7 +73,7 @@ ordinary section query options still control columns and rows:
 ```bash
 dnx dotnet-inspect -y -- library System.Text.Json \
   --where "Kind=ObjectCreationExpression" \
-  --columns "Member;Token;Match" --rows 3
+  --columns "Member;Token;Match" -n 3
 ```
 
 ```text
@@ -195,7 +195,7 @@ table rows, and `--heap` for one exact heap address.
 ```bash
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -D @Metadata
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S @Metadata --count
-dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S "Metadata: TypeRef" --rows 20
+dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S "Metadata: TypeRef" -n 20
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll --heap "#Strings:0x1a4"
 ```
 
@@ -211,7 +211,7 @@ Use `-T q` to suppress tips in script-oriented commands.
 | Discover available sections and fields | `-D`, `-D --schema` |
 | Select sections or categories | `-S`, wildcards such as `-S "Async*"`, authored categories such as `-S @Source` or `-S @Audit` |
 | Project columns/fields | `--columns`, `--fields` |
-| Limit rows | `--rows`, `-n`, `--head`, `--tail` |
+| Limit declared items or rendered lines | `-n`, `--head`, `--tail`, `--rows RANGE`, `--lines`, `--tail-lines` |
 | Count results | `--count` |
 | Materialize one payload | `--print`, `--row`, `--value`, `--bare`, `--paths`, `--urls`, `--json-array` |
 | Control document verbosity | `-v:q`, `-v:m`, `-v:n`, `-v:d` |
@@ -228,7 +228,7 @@ Useful discovery and projection patterns:
 dotnet-inspect library System.Text.Json -D
 dotnet-inspect member JsonSerializer --package System.Text.Json -D --schema
 dotnet-inspect vocabulary -D
-dotnet-inspect vocabulary -S "C# Body Kinds" --rows 10
+dotnet-inspect vocabulary -S "C# Body Kinds" -n 10
 dotnet-inspect library System.Text.Json -S Signals
 dotnet-inspect library System.Text.Json -S @Audit
 dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S Integrations

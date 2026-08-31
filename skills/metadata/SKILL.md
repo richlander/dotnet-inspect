@@ -61,7 +61,7 @@ The heap sections are `Metadata: #Strings`, `Metadata: #Blob`,
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll \
-  -S "Metadata: #Strings" --rows 20
+  -S "Metadata: #Strings" -n 20
 dnx dotnet-inspect -y -- library MyLib.dll --heap "#Strings:0x1a4"
 ```
 

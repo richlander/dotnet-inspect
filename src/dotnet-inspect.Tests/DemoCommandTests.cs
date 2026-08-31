@@ -164,6 +164,22 @@ public class DemoCommandTests
     }
 
     [Fact]
+    public async Task ScenarioCommand_RejectsAbsoluteRangeTruthfully()
+    {
+        var (exitCode, output, error) =
+            await RunCliAsync(
+                "demo", "stj-serializer", "--rows", "2..3");
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--rows absolute row ranges apply to 'demo list'",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("-n item windows", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ExecuteScenario_UnknownId_FailsWithCatalog()
     {
         var (exitCode, _, error) = await ConsoleCapture.RunAsync(

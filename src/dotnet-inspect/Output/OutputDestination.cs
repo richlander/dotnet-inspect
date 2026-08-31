@@ -8,7 +8,6 @@ internal static class OutputDestination
 {
     public static void Write(
         string? outputPath,
-        RowWindow? rowWindow,
         Action<TextWriter> write)
     {
         if (string.IsNullOrEmpty(outputPath))
@@ -35,8 +34,7 @@ internal static class OutputDestination
 
         TailLineLimitingTextWriter? tailWriter = null;
         bool hasLineWindow = false;
-        if (rowWindow is null
-            && CommandLineBuilder.HeadLines is int headLines)
+        if (CommandLineBuilder.HeadLines is int headLines)
         {
             destination = new LineLimitingTextWriter(
                 destination,
@@ -44,8 +42,7 @@ internal static class OutputDestination
             hasLineWindow = true;
         }
 
-        if (rowWindow is null
-            && CommandLineBuilder.TailLines is int tailLines)
+        if (CommandLineBuilder.TailLines is int tailLines)
         {
             tailWriter = new TailLineLimitingTextWriter(
                 destination,

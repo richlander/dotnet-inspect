@@ -597,7 +597,7 @@ public class ProjectCommand
                 options.Jsonl,
                 options.JsonArray,
                 options.Bare,
-                new ProjectionDestination(options.OutputPath, options.Rows)));
+                new ProjectionDestination(options.OutputPath)));
     }
 
     private static int WriteSkillShapeProjection(IReadOnlyList<ProjectSkillRow> rows, ProjectOptions options)
@@ -626,7 +626,7 @@ public class ProjectCommand
                 options.JsonOutput,
                 options.Jsonl,
                 options.JsonArray,
-                new ProjectionDestination(options.OutputPath, options.Rows)));
+                new ProjectionDestination(options.OutputPath)));
     }
 
     private static string? SelectSkillValue(ProjectSkillRow row, ProjectOptions options)
@@ -783,12 +783,9 @@ public class ProjectCommand
     }
 
     private static void WriteOutput(string output, string? outputPath)
-    {
-        if (!string.IsNullOrWhiteSpace(outputPath))
-            File.WriteAllText(outputPath, output);
-        else
-            Console.Write(output);
-    }
+        => OutputDestination.Write(
+            outputPath,
+            writer => writer.Write(output));
 
     /// <summary>
     /// Escapes a table cell for Markdown. This handles the pipe and the line

@@ -150,6 +150,26 @@ public class SkillCommandTests
     }
 
     [Fact]
+    public async Task RootSkill_RejectsAbsoluteRangeTruthfully()
+    {
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(async () =>
+        {
+            string[] args = CommandLineBuilder.PreprocessArgs(
+                ["skill", "--rows", "2..3"]);
+            var result = CommandLineBuilder.CreateRootCommand().Parse(args);
+            return await CommandLineBuilder.InvokeWithLineWindowAsync(result, args);
+        });
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--rows absolute row ranges apply to 'skill list'",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("-n item windows", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task FocusedSkill_RejectsNonPositiveWindow()
     {
         var (exitCode, output, error) = await ConsoleCapture.RunAsync(async () =>

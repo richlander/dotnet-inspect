@@ -142,7 +142,7 @@ decompilation. The matching opportunities are mapped through their typed source
 owner identities and only those MethodDef bodies are searched for `Kind`.
 Body Shapes remains the output section; select a Performance section separately
 when the canonical candidate/evidence/IL rows are also needed. Performance
-`--top` and `--order-by` do not compose with Body Shapes; use `--rows` to limit
+`--top` and `--order-by` do not compose with Body Shapes; use `-n` to limit
 rendered matches.
 
 Type scope requires one exact type and searches only its MethodDef and accessor
@@ -167,27 +167,35 @@ dnx dotnet-inspect -y -- library MyLib.dll -S "Performance: Arrays" \
   --where "Finding=analysis.allocation" --order-by "RootReach desc" --jsonl
 ```
 
-`Performance:*` orders within each `Kind` group before flattening, while
-`--rows` caps the flattened sequence. Do not combine those flags expecting a
-global field-ranked prefix; use `--top N` for the curated global rank, or
-select one concrete kind when a specific field controls the order.
+`Performance:*` preserves the ranking within each selected `Kind` row set.
+Use `--top N` to keep the highest-ranked rows in those sets, `-n N` for a
+positional first/last item window, or `--rows RANGE` for stable absolute row
+addresses. Broad library selectors such as `@Performance` also include
+unranked sections and therefore reject `--top` and `--order-by`; select
+`Performance:*` or one concrete kind when ranking is required.
 
 ## Limit output
 
 Prefer built-in limits to shell pipes:
 
-- `-n N` and numeric shorthand like `-6` cap output lines, like `head`.
-- `--tail` takes the same count from the end, like `tail`.
-- `--rows N` takes the first N data rows per table, preserving headings and
-  headers; add `--tail` for the last N.
+- `-n N` and numeric shorthand like `-6` keep the first N declared items in
+  each row set after filtering and ordering. Add `--tail` for the last N;
+  `--head`/`--tail` require `-n`.
 - `--rows 2..10` is an absolute 1-based inclusive range (nine rows), `2+10`
   means ten rows starting at row 2, and `10..` runs from row 10 to the end.
-  Ranges reject `--head`/`--tail`; all `--rows` forms reject `-n`.
+  `--rows` has no count form and does not take an item direction.
+- `-n N --lines` limits rendered lines instead of items. `--tail-lines` is
+  sugar for `--lines --tail`; for multi-item `--print`, the line window applies
+  independently to each payload.
 - `--row` is not a window. With `--print`, `--value`, `--urls`, or `--paths`,
   it selects one displayed row, not a compacted projection position.
   `first`/`last` mean rendered endpoints; missing payloads fail instead of
-  sliding. `-n N` may still limit the result.
-- `--count` counts rows in one selected table.
+  sliding. Item/range windows remain unavailable with these shape projections;
+  use `--row` for exact selection.
+- `--top N` is a ranked selection and requires sections with a ranking default.
+- `--count` counts the full selected/filter cohort before CLI windows and
+  rejects `-n`, `--rows`, `--top`, `--row`, direction, and line gestures.
 
-Command-specific caps: `-t N` for type/find rows, `-m N` for members, and
-`--versions N` for package versions.
+Prefer `-n N` for result caps. Numeric legacy `-t N`/`-m N` limits remain
+accepted without Count but reject `--count`; `--versions N` remains the package
+version-list cap.

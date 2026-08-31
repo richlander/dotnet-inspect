@@ -1136,14 +1136,9 @@ public class PackageCommand
                         options.Fields ?? options.Columns,
                         output,
                         diagnosticCandidates!);
-                if (!string.IsNullOrEmpty(options.OutputPath))
-                {
-                    File.WriteAllText(options.OutputPath, output);
-                }
-                else
-                {
-                    Console.WriteLine(output);
-                }
+                OutputDestination.Write(
+                    options.OutputPath,
+                    writer => writer.WriteLine(output));
             }
 
             return PackageIntegrityExitCode(result);
@@ -2258,7 +2253,7 @@ public class PackageCommand
                 options.JsonOutput,
                 options.Jsonl,
                 options.JsonArray,
-                new ProjectionDestination(options.OutputPath, options.Rows)));
+                new ProjectionDestination(options.OutputPath)));
     }
 
     /// <summary>
@@ -3389,7 +3384,6 @@ public class PackageCommand
     private static ProjectionDestination PackagePayloadDestination(InspectionOptions options)
         => new(
             options.OutputPath,
-            options.Rows,
             ExactTransfer: (options.Print || RequiresUnaryPackageContent(options))
                 && HasUnstructuredOutputPath(options)
                 && options.ContentScope == PackageFileContentScope.Full);
@@ -3876,7 +3870,7 @@ public class PackageCommand
             return PrintBarePackageUrlColumn(
                 urls,
                 section,
-                new ProjectionDestination(options.OutputPath, options.Rows));
+                new ProjectionDestination(options.OutputPath));
         }
 
         CommandError.Write($"--bare does not support section '{section}'. Select a text section or a single URL section.");
@@ -4533,7 +4527,6 @@ public class PackageCommand
                 JsonContext.Default.LibraryInspectionArray);
             OutputDestination.Write(
                 libraryOptions.OutputPath,
-                libraryOptions.Rows,
                 writer => writer.WriteLine(json));
             return completionExitCode;
         }
@@ -4600,7 +4593,6 @@ public class PackageCommand
             CommandError.WriteNote("matched sections have no data across all libraries.");
             OutputDestination.Write(
                 libraryOptions.OutputPath,
-                libraryOptions.Rows,
                 static _ => { });
             return completionExitCode;
         }
@@ -4622,7 +4614,6 @@ public class PackageCommand
         var markdown = RenderAllLibrariesMarkdown(packageName, version, inspections, sections, libraryOptions, pipeline);
         OutputDestination.Write(
             libraryOptions.OutputPath,
-            libraryOptions.Rows,
             writer => OutputFormatter.WriteLfLine(writer, markdown));
         return completionExitCode;
     }
@@ -4977,12 +4968,11 @@ public class PackageCommand
             CommandError.WriteNote("matched section has no row data across all libraries.");
             OutputDestination.Write(
                 options.OutputPath,
-                options.Rows,
                 static _ => { });
             return true;
         }
 
-        OutputDestination.Write(options.OutputPath, options.Rows, output =>
+        OutputDestination.Write(options.OutputPath, output =>
         {
             OutputFormatter.WriteTable(output, !options.NoHeader, (writer, formatter) =>
             {
@@ -5752,7 +5742,6 @@ public class PackageCommand
             };
             OutputDestination.Write(
                 options.OutputPath,
-                options.Rows,
                 writer => MarkoutSerializer.Serialize(
                     emptyView,
                     writer,
@@ -5797,7 +5786,6 @@ public class PackageCommand
 
         OutputDestination.Write(
             options.OutputPath,
-            options.Rows,
             writer => MarkoutSerializer.Serialize(
                 view,
                 writer,

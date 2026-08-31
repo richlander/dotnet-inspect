@@ -277,12 +277,21 @@ public static class UtilityCommandDefinitions
         ParseResult parseResult,
         string supportedCommand)
     {
-        if (opts.ParseRows(parseResult) is null)
+        if (opts.ParseRows(parseResult) is not { } rows)
             return null;
 
-        CommandError.Write(
-            $"-n item windows apply to '{supportedCommand}'. "
-            + "Use --lines with -n for rendered output.");
+        if (rows.Kind == RowWindowKind.Range)
+        {
+            CommandError.Write(
+                $"--rows absolute row ranges apply to '{supportedCommand}'; "
+                + "omit --rows for this command.");
+        }
+        else
+        {
+            CommandError.Write(
+                $"-n item windows apply to '{supportedCommand}'. "
+                + "Use --lines with -n for rendered output.");
+        }
         return 1;
     }
 

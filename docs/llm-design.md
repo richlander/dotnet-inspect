@@ -36,10 +36,11 @@ Agents should prefer built-in query and limiter options over shell pipes:
 - `-D` discovers sections and columns.
 - `-S Section` selects sections by name or wildcard, such as `-S "Async*"`.
 - `--columns` and `--fields` project table columns/fields.
-- `--count` counts rows in one selected section.
-- `-n N` and numeric shorthand like `-6` work like `head`.
-- `--tail` takes the same count from the end, like `tail`.
-- `--rows N` limits data rows per rendered Markdown table while preserving headings and table headers; `--rows N..M` selects the rows those numbers name.
+- `--count` counts the selected/filter cohort and rejects row-window gestures.
+- `-n N` and numeric shorthand like `-6` keep the first N declared items.
+- `--tail` takes the last N items and requires `-n`.
+- `--rows N..M`, `N+K`, and `N..` select stable absolute row addresses.
+- `-n N --lines` limits rendered lines; `--tail-lines` keeps the rendered suffix.
 
 ## Efficient API workflows
 

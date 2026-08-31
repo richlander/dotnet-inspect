@@ -141,7 +141,6 @@ public class OutputFormatterTests
             var path = Path.Combine(tempDirectory.FullName, "output.txt");
             OutputDestination.Write(
                 path,
-                rowWindow: null,
                 writer => writer.Write("first\r\nsecond\rthird\n"));
             Assert.Equal("first\nsecond\nthird\n", File.ReadAllText(path));
 
@@ -158,7 +157,7 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void ProjectionDestination_DoesNotApplyALineWindowAfterSemanticRows()
+    public void ProjectionDestination_AppliesLineWindowAfterSemanticRows()
     {
         var tempDirectory = Directory.CreateTempSubdirectory("projection-row-window-");
         try
@@ -179,10 +178,10 @@ public class OutputFormatterTests
                     JsonOutput: false,
                     Jsonl: false,
                     JsonArray: false,
-                    Destination: new ProjectionDestination(path, RowWindow.Range(2, 3))));
+                    Destination: new ProjectionDestination(path)));
 
             Assert.Equal(0, exit);
-            Assert.Equal("second\nthird\n", File.ReadAllText(path));
+            Assert.Equal("second\n", File.ReadAllText(path));
         }
         finally
         {
