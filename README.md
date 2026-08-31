@@ -306,14 +306,12 @@ dotnet-inspect match Left.Compute Right.Compute --library ./app.dll
 dotnet-inspect match Left.Compute Right.Compute --library ./app.dll --implementation
 dotnet-inspect match Sample.Encode --similar --library ./app.dll
 dotnet-inspect match Sample.Encode --similar --library ./app.dll --assembly-wide --top 10
-dotnet-inspect match Sample.Encode --similar --library ./old.dll..new.dll
 ```
 
 `--similar` ranks structural candidates for one seed method. It is a discovery
 step, not a verdict: a rank establishes no relation, no semantic equivalence,
 and no authorship or copying claim. Within one image, confirm a candidate by
-re-running the pairwise form on the selected pair; across a library range there
-is no such confirmation, as the cross-image paragraph below explains.
+re-running the pairwise form on the selected pair.
 
 The default candidate population is the seed's declaring type. `--assembly-wide`
 opts into whole-assembly retrieval, which costs materially more. `--top` bounds
@@ -326,19 +324,29 @@ parseable.
 
 Every ranked row prints a `Token` column holding the candidate's metadata token,
 which the pairwise form accepts directly as the second operand. That keeps every
-same-image row addressable even when a name is ambiguous across overloads or
-property accessors:
+row addressable even when a name is ambiguous across overloads or property
+accessors:
 
 ```bash
 dotnet-inspect match 'Sample.Encode' 0x06000CF8 --library ./app.dll
 ```
 
-A library range (`--library ./old.dll..new.dll`) ranks candidates from the
-second image against a seed in the first. Cross-image ranks are retrieval
-evidence only, and the disclosure says so: pairwise `match` compares two methods
-within one retained assembly, so there is no checked relation to confirm a
-cross-image row with. Use the ranking to find where a method went between two
-versions, then inspect either side on its own.
+A metadata token is a table row index, not a portable identity, so it addresses
+a member only in the assembly that defines it. `match` resolves a token against
+the image named by `--library` and fails when that image does not define the
+row, rather than binding it to an unrelated member.
+
+That distinction is visible when `--library` names a facade. If the seed's type
+is forwarded, the ranked rows come from the assembly that actually defines them,
+so the run names that assembly and the exact `--library` value to pass when
+confirming a candidate:
+
+```bash
+dotnet-inspect match System.String.IsNullOrEmpty --similar --library ./System.Runtime.dll
+```
+
+Comparing candidates drawn from two different assemblies is not supported;
+inspect each side on its own.
 
 ### Relationships and graphs
 

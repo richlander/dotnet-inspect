@@ -361,13 +361,13 @@ internal static class MatchDiscoveryFormatter
     }
 
     /// <summary>
-    /// Retrieval ranks structural candidates. It is a selection step, not a verdict. Within one
-    /// image a ranked row is directly addressable by pairwise <c>match</c>, which is what the
-    /// printed token promises. Across two images it is not: Analysis ranks cross-image candidates
-    /// by portable structural categories and explicitly establishes no cross-reader
-    /// correspondence, and pairwise <c>match</c> compares two methods within one retained
-    /// assembly. Naming a transition the tool cannot perform would make the disclosure itself
-    /// false, so the cross-image spelling says what is actually available.
+    /// Retrieval ranks structural candidates. It is a selection step, not a verdict. A ranked row
+    /// is addressable by pairwise <c>match</c>, which is what the printed token promises — but a
+    /// MethodDef token is a row index in one image, so the promise is only good against the image
+    /// that owns the row. When type forwarding puts the population in the assembly that defines
+    /// it rather than the facade the caller opened, the disclosure names that assembly, because
+    /// telling the reader to run pairwise <c>match</c> without saying which <c>--library</c> to
+    /// pass would name a transition their next command cannot perform.
     /// </summary>
     internal const string DisclosurePrefix =
         "Ranks structural candidates only. A rank does not establish Exact, Near, or Different, "
@@ -376,18 +376,21 @@ internal static class MatchDiscoveryFormatter
     internal const string Disclosure =
         DisclosurePrefix + "Run pairwise `match` on a candidate to obtain a checked relation.";
 
-    internal const string CrossImageDisclosure =
-        DisclosurePrefix
-            + "Cross-image ranks are retrieval evidence only: pairwise `match` compares two "
-            + "methods within one retained assembly, so no checked relation is available across "
-            + "images.";
-
     /// <summary>
-    /// A cross-image run is exactly the run that carries a candidate assembly, because same-image
-    /// discovery leaves it null rather than repeating the seed's own path.
+    /// A run that carries a candidate assembly is exactly the run whose ranked tokens index an
+    /// image other than the one the caller named, because discovery leaves the candidate assembly
+    /// null when the population lives in the caller's own image.
     /// </summary>
     internal static string DisclosureFor(MatchDiscoveryRequest request)
-        => request.CandidateAssembly is null ? Disclosure : CrossImageDisclosure;
+        => request.CandidateAssembly is string candidateAssembly
+            ? DisclosurePrefix
+                + "Ranked tokens index "
+                + Path.GetFileName(candidateAssembly)
+                + ", which defines them rather than the assembly named on the command line; run "
+                + "pairwise `match` on a candidate with `--library "
+                + candidateAssembly
+                + "` to obtain a checked relation."
+            : Disclosure;
 
     internal static (MatchDiscoveryView View, MatchDiscoveryDocument Document) BuildView(
         MatchDiscoveryRequest request,

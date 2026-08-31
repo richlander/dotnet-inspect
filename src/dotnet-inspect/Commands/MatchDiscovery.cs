@@ -67,48 +67,14 @@ internal static class MatchDiscovery
             return 1;
         }
 
-        // Cross-image discovery reuses the repository's established A-vs-B convention: a range in
-        // the source flag (diff spells it --library old.dll..new.dll). Without a range the
-        // candidate assembly is the seed assembly, which is the A-vs-A default.
-        var (seedLibrary, candidateLibrary, rangeError) =
-            ParseLibraryRange(options.AssemblyPath);
-        if (rangeError is not null)
-        {
-            CommandError.Write(rangeError);
-            return 1;
-        }
-
-        // Same distinction as the library range: "../packages/x.nupkg" is a path, not a range.
-        if (options.PackagePath is string package && FindRangeSeparator(package) != -1)
-        {
-            CommandError.Write(
-                "--similar does not accept a package version range; cross-image discovery uses a "
-                    + "library range.",
-                ["", "  dotnet-inspect match <Type.Member> --similar --library old/Foo.dll..new/Foo.dll"]);
-            return 1;
-        }
-
         LoadedSide? seed = null;
-        LoadedSide? candidate = null;
         try
         {
-            (seed, int? seedError) = await LoadSideAsync(options, seedLibrary);
+            (seed, int? seedError) = await LoadSideAsync(options, options.AssemblyPath);
             if (seedError.HasValue)
                 return seedError.Value;
 
-            if (candidateLibrary is null)
-            {
-                candidate = seed;
-            }
-            else
-            {
-                (candidate, int? candidateError) =
-                    await LoadSideAsync(options, candidateLibrary);
-                if (candidateError.HasValue)
-                    return candidateError.Value;
-            }
-
-            return await ExecuteAsync(options, seed!, candidate!);
+            return await ExecuteAsync(options, seed!, seed!);
         }
         catch (Exception ex)
         {
@@ -117,9 +83,7 @@ internal static class MatchDiscovery
         }
         finally
         {
-            candidate?.Dispose();
-            if (!ReferenceEquals(candidate, seed))
-                seed?.Dispose();
+            seed?.Dispose();
         }
     }
 
@@ -148,13 +112,13 @@ internal static class MatchDiscovery
             MaximumResults: options.MaximumResults ?? 100);
 
         // The population's defining image, not the image the caller named: a facade resolves a
-        // forwarded type without defining it, and retrieval reads TypeDefs.
-        // Both sides are canonicalized before comparison, because the caller's own --library
-        // spelling may be relative while the seed origin is absolute, and a raw ordinal
-        // comparison would report one file as two images, stopping retrieval from suppressing the
-        // seed and ranking the seed as its own best candidate. Canonical paths that still differ
-        // are treated as two images even when a case-insensitive volume would open one file; see
-        // MatchCommand.SameImage for why that error direction is the safe one.
+        // forwarded type without defining it, and retrieval reads TypeDefs. Both sides are
+        // canonicalized before comparison, because the caller's own --library spelling may be
+        // relative while the seed origin is absolute.
+        //
+        // With one --library there is no second spelling of the caller's own path to reconcile,
+        // so these differ only when type forwarding resolves the seed or population to the
+        // assembly that defines it.
         string seedImage = resolvedSeed.OriginAssemblyPath!;
         string callerImage = MatchCommand.CanonicalImagePath(candidate.ApiDllPath);
         string candidateImage = populationImage is null
@@ -162,11 +126,17 @@ internal static class MatchDiscovery
             : MatchCommand.CanonicalImagePath(populationImage);
         bool sameImage = MatchCommand.SameImage(seedImage, candidateImage);
 
+        // Whether the ranked tokens index the image the caller actually named. That, not the
+        // seed-to-candidate relation, is what decides if the run has to name an assembly: a
+        // forwarded seed and its population can agree with each other and still both sit in an
+        // image the caller never typed, and a token addresses a row only in the image owning it.
+        bool tokensIndexCallerImage = MatchCommand.SameImage(candidateImage, callerImage);
+
         // Names are projected from the surface of the image the tokens come from. When the
         // population lives in a forwarded-to assembly, the caller's surface describes the facade,
         // so extract the defining image's surface instead of mislabelling its tokens.
         LoadedSide? populationSide = null;
-        if (!MatchCommand.SameImage(candidateImage, callerImage))
+        if (!tokensIndexCallerImage)
         {
             (populationSide, int? populationError) =
                 await LoadSideAsync(options with { PackagePath = null }, candidateImage);
@@ -203,7 +173,7 @@ internal static class MatchDiscovery
                 new MatchDiscoveryRequest(
                     resolvedSeed.Display!,
                     scopeDisplay!,
-                    sameImage ? null : candidateImage,
+                    tokensIndexCallerImage ? null : candidateImage,
                     limits,
                     options.Top),
                 result,
@@ -276,18 +246,15 @@ internal static class MatchDiscovery
         if (resolved.Error is not null)
             return new ResolvedSeed(null, null, null, null, resolved.Error);
 
-        // A raw token addresses a row directly, so the declaring type comes from a token scan
-        // rather than from the selector text.
-        ApiType? declaring = TryParseMethodToken(selector, out int token)
-            ? seed.Api.Types.FirstOrDefault(
-                type => type.Members.Any(member => MemberTokens(member).Contains(token)))
-            : ApiTypeLookupService.LookupType(seed.Api, selector).Type;
-
+        // The declaring type comes from the resolution that already happened. Re-deriving it here
+        // meant a second token scan that could disagree with the first, and for a raw token that
+        // disagreement bound the seed to a foreign type in another image and scoped the whole run
+        // to it, reporting Completed.
         return new ResolvedSeed(
             resolved.Token,
             resolved.Display,
             resolved.OriginAssemblyPath,
-            declaring,
+            resolved.DeclaringType,
             null);
     }
 
@@ -305,10 +272,15 @@ internal static class MatchDiscovery
     {
         if (options.AssemblyWide)
         {
+            // Whole-assembly means the assembly the seed actually lives in. Leaving the image null
+            // made the caller's own --library the population, so a seed reached through a type
+            // forwarder searched the facade, found no MethodDefs, and completed with an empty
+            // ranking at exit 0 — a widening flag returning strictly less than the narrower
+            // default it widens.
             return (
                 new StructuralCloneQueryPopulation.WholeAssembly(),
                 "whole assembly",
-                null,
+                resolvedSeed.OriginAssemblyPath,
                 null);
         }
 
@@ -413,144 +385,6 @@ internal static class MatchDiscovery
         }
 
         return (new LoadedSide(loaded.Api, loaded.ApiDllPath, source.TempDir), null);
-    }
-
-    /// <summary>
-    /// Finds the range separator in a source argument, ignoring every <c>..</c> that is a
-    /// parent-directory path segment.
-    /// </summary>
-    /// <remarks>
-    /// The two meanings of <c>..</c> are distinguishable by position, not by content. A parent
-    /// segment is always bounded by directory separators or by the ends of the argument
-    /// (<c>../a.dll</c>, <c>a/../b.dll</c>, <c>a/..</c>); a range separator never is, because a
-    /// range joins two file names. Splitting on the first <c>..</c> instead rejects
-    /// <c>--library ../a.dll</c>, which pairwise <c>match</c> accepts. A separator also has to sit
-    /// in a dot run of exactly two or four, so a legal <c>...</c> file name stays a path.
-    /// Returns -1 when the argument carries no range, and -2 when no single <c>..</c> separates
-    /// two well-formed paths, which is ambiguous rather than a silent left-most win.
-    /// </remarks>
-    internal static int FindRangeSeparator(string value)
-    {
-        // A spelling whose every `..` is a bounded parent segment, or sits inside a dot run that
-        // cannot be a separator, carries no range at all.
-        bool sawSeparator = false;
-        for (int index = 0; index + 1 < value.Length; index++)
-        {
-            if (IsSeparatorRun(value, index) && !IsParentSegment(value, index))
-            {
-                sawSeparator = true;
-                break;
-            }
-        }
-
-        if (!sawSeparator)
-            return -1;
-
-        // Something must separate the two operands. The separator is the leftmost `..` that
-        // leaves a non-empty path on each side whose own `..` occurrences are all parent
-        // segments. Scanning occurrences rather than skipping bounded ones is what admits
-        // `old/F.dll..` + `../new/F.dll`, where the separator abuts the right operand's own
-        // parent segment so the two spellings run together as a single run of dots.
-        for (int index = 0; index + 1 < value.Length; index++)
-        {
-            if (!IsSeparatorRun(value, index))
-                continue;
-
-            if (index == 0 || index + 2 == value.Length)
-                continue;
-
-            if (IsAllParentSegments(value.AsSpan(0, index))
-                && IsAllParentSegments(value.AsSpan(index + 2)))
-            {
-                return index;
-            }
-        }
-
-        return -2;
-    }
-
-    /// <summary>
-    /// True when a maximal run of dots starts at <paramref name="index"/> and is long enough to be
-    /// a separator, but not so long that splitting it would strand a dot against an operand.
-    /// </summary>
-    /// <remarks>
-    /// A range is <c>left..right</c>, and <c>right</c> may open with its own parent segment, so the
-    /// run is either <c>..</c> or the four dots of <c>a.dll..../b.dll</c>. Every other run length is
-    /// path text: <c>...</c> is a legal file name on macOS and Linux, and pairwise <c>match</c>
-    /// accepts it as one, so discovery must not silently reinterpret it as a range and split the
-    /// caller's path into two different operands.
-    /// </remarks>
-    static bool IsSeparatorRun(string value, int index)
-    {
-        if (value[index] != '.' || value[index + 1] != '.')
-            return false;
-
-        if (index > 0 && value[index - 1] == '.')
-            return false;
-
-        int end = index;
-        while (end < value.Length && value[end] == '.')
-            end++;
-
-        int length = end - index;
-        return length is 2 or 4;
-    }
-
-    /// <summary>
-    /// True when the <c>..</c> at <paramref name="index"/> is a parent-directory segment, which is
-    /// always bounded by directory separators or by the ends of the argument (<c>../a.dll</c>,
-    /// <c>a/../b.dll</c>, <c>a/..</c>). A range separator never is, because a range joins two file
-    /// names.
-    /// </summary>
-    static bool IsParentSegment(string value, int index)
-        => (index == 0 || IsDirectorySeparator(value[index - 1]))
-            && (index + 2 == value.Length || IsDirectorySeparator(value[index + 2]));
-
-    static bool IsAllParentSegments(ReadOnlySpan<char> path)
-    {
-        if (path.IsEmpty)
-            return false;
-
-        for (int index = 0; index + 1 < path.Length; index++)
-        {
-            if (path[index] != '.' || path[index + 1] != '.')
-                continue;
-
-            bool openBounded = index == 0 || IsDirectorySeparator(path[index - 1]);
-            bool closeBounded =
-                index + 2 == path.Length || IsDirectorySeparator(path[index + 2]);
-            if (!openBounded || !closeBounded)
-                return false;
-        }
-
-        return true;
-    }
-
-    static bool IsDirectorySeparator(char value) => value is '/' or '\\';
-
-    static (string? Seed, string? Candidate, string? Error) ParseLibraryRange(string? library)
-    {
-        if (string.IsNullOrEmpty(library))
-            return (null, null, null);
-
-        int separator = FindRangeSeparator(library);
-        if (separator == -1)
-            return (library, null, null);
-
-        if (separator == -2)
-        {
-            return (null, null,
-                "Invalid library range: no single '..' separates two library paths. "
-                    + "Use format: old/Foo.dll..new/Foo.dll");
-        }
-
-        if (separator == 0 || separator + 2 >= library.Length)
-        {
-            return (null, null,
-                "Invalid library range. Use format: old/Foo.dll..new/Foo.dll");
-        }
-
-        return (library[..separator], library[(separator + 2)..], null);
     }
 
     internal static bool TryParseMethodToken(string selector, out int token)

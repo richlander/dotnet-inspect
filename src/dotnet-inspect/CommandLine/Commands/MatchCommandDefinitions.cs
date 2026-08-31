@@ -96,12 +96,25 @@ public static class MatchCommandDefinitions
                 {
                     CommandError.Write("match --similar requires a seed method selector.");
                     CommandError.WriteLine("Usage: dotnet-inspect match <Type.Member> [<CandidateType>] --similar --package <pkg>");
+                    return 1;
                 }
-                else
+
+                // A discovery-only flag says what the caller meant more clearly than the missing
+                // selector does, so answer that before demanding a second selector.
+                string? discoveryOnly = MatchCommand.DiscoveryOnlyFlag(
+                    parseResult.GetValue(assemblyWideOption),
+                    parseResult.GetValue(topOption),
+                    parseResult.GetValue(maxResultsOption),
+                    parseResult.GetValue(maxMethodsOption));
+
+                if (discoveryOnly is not null)
                 {
-                    CommandError.Write("match requires two method selectors (Type.Member).");
-                    CommandError.WriteLine("Usage: dotnet-inspect match <Type.MemberA> <Type.MemberB> --package <pkg>");
+                    MatchCommand.WriteDiscoveryOnlyError(discoveryOnly);
+                    return 1;
                 }
+
+                CommandError.Write("match requires two method selectors (Type.Member).");
+                CommandError.WriteLine("Usage: dotnet-inspect match <Type.MemberA> <Type.MemberB> --package <pkg>");
 
                 return 1;
             }

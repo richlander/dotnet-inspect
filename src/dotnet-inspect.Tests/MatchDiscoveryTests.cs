@@ -87,34 +87,6 @@ public sealed class MatchDiscoveryTests
         Assert.True(peer.Rank < negative.Rank);
     }
 
-    [Fact]
-    public async Task Similar_CrossImage_RanksTheSurvivingMemberFirst()
-    {
-        MatchOptions options = new()
-        {
-            LeftSelector = "DiffSample.Stable",
-            AssemblyPath =
-                $"{FixtureCatalog.DiffV1.AssemblyPath()}..{FixtureCatalog.DiffV2.AssemblyPath()}",
-            IncludeAll = true,
-            Similar = true,
-            JsonOutput = true,
-        };
-
-        var (exitCode, output, error) = await RunAsync(options);
-
-        Assert.Equal(0, exitCode);
-        Assert.Empty(error);
-        JsonElement document = Parse(output);
-        Assert.Equal("Completed", document.GetProperty("disposition").GetString());
-        Assert.Equal(
-            FixtureCatalog.DiffV2.AssemblyPath(),
-            document.GetProperty("candidate_assembly").GetString());
-
-        var top = Candidates(document).First();
-        Assert.Equal("DiffFixtureSample.DiffSample.Stable", top.Member);
-        Assert.Equal(10_000, top.Score);
-    }
-
     /// <summary>
     /// <c>--top</c> is a presentation control. Structured output must keep every candidate the
     /// query returned, so evidence is never silently discarded by a text-shaping flag.
@@ -288,21 +260,6 @@ public sealed class MatchDiscoveryTests
     }
 
     [Fact]
-    public async Task Similar_MalformedLibraryRange_IsAVisibleFailure()
-    {
-        MatchOptions options = Seeded($"{typeof(MatchSampleA).FullName}.AddOne") with
-        {
-            AssemblyPath = "..only-a-right-side.dll",
-        };
-
-        var (exitCode, output, error) = await RunAsync(options);
-
-        Assert.Equal(1, exitCode);
-        Assert.Empty(output);
-        Assert.Contains("Invalid library range", error);
-    }
-
-    [Fact]
     public async Task Similar_MissingSeed_FailsWithoutRunning()
     {
         var (exitCode, output, error) = await RunAsync(Seeded(""));
@@ -388,23 +345,6 @@ public sealed class MatchDiscoveryTests
     }
 
     // ---- Round 1 review findings ----
-
-    /// <summary>
-    /// ".." means two things in one argument: a parent directory and a range separator. Splitting
-    /// on the first occurrence rejects "--library ../a.dll", which pairwise match accepts.
-    /// </summary>
-    [Theory]
-    [InlineData("a.dll", -1)]
-    [InlineData("../a.dll", -1)]
-    [InlineData("..\\a.dll", -1)]
-    [InlineData("a/../b.dll", -1)]
-    [InlineData("a/..", -1)]
-    [InlineData("../../a.dll", -1)]
-    [InlineData("old.dll..new.dll", 7)]
-    [InlineData("a/../v1/F.dll..b/v2/F.dll", 13)]
-    [InlineData("a.dll..b.dll..c.dll", -2)]
-    public void RangeSeparator_TreatsParentSegmentsAsPathsAndNotRanges(string value, int expected)
-        => Assert.Equal(expected, MatchDiscovery.FindRangeSeparator(value));
 
     /// <summary>
     /// The end-to-end consequence of the rule above: a parent-relative library path is one library,
@@ -575,35 +515,6 @@ public sealed class MatchDiscoveryTests
         });
 
     /// <summary>
-    /// A MethodDef token is a table row, so the seed's token names a different member in the
-    /// candidate image. The seed row must carry the seed's own resolved name, never a lookup in
-    /// the candidate name map, or cross-image JSON reports the wrong member as the seed.
-    /// </summary>
-    [Fact]
-    public async Task Similar_CrossImage_NamesTheSeedFromItsOwnImage()
-    {
-        string coreLibrary = typeof(string).Assembly.Location;
-        string facade = Path.Combine(Path.GetDirectoryName(coreLibrary)!, "System.Runtime.dll");
-
-        MatchOptions options = Seeded(SampleSeed) with
-        {
-            AssemblyPath = $"{TestAssembly}..{facade}",
-            RightSelector = "System.String",
-            JsonOutput = true,
-        };
-
-        var (exitCode, output, error) = await RunAsync(options);
-
-        Assert.Equal(0, exitCode);
-        Assert.Empty(error);
-        JsonElement document = Parse(output);
-        Assert.Equal(SampleSeed, document.GetProperty("seed").GetString());
-        Assert.Equal(
-            SampleSeed,
-            document.GetProperty("seed_outcome").GetProperty("member").GetString());
-    }
-
-    /// <summary>
     /// Only <c>Completed</c> ranked the population. <c>Unsupported</c> and <c>LimitReached</c> are
     /// terminal non-completions carrying blockers, so reporting success would turn an analysis
     /// failure into success-shaped empty output.
@@ -650,49 +561,6 @@ public sealed class MatchDiscoveryTests
                 Assert.Equal(JsonValueKind.Number, value.ValueKind);
             }
         }
-    }
-
-    /// <summary>
-    /// A range separator abuts the right operand's own parent segment, so the two spellings run
-    /// together into one run of dots. Scanning for the leftmost split that leaves two well-formed
-    /// paths accepts that, where skipping bounded occurrences rejected it as ambiguous.
-    /// </summary>
-    [Theory]
-    [InlineData("old/F.dll..../../new/F.dll", 9)]
-    [InlineData("../a/F.dll..../b/F.dll", 10)]
-    [InlineData("/x/F.dll../../y/F.dll", 8)]
-    [InlineData("old/F.dll..new/F.dll", 9)]
-    [InlineData("old\\F.dll..new\\F.dll", 9)]
-    [InlineData("a.dll..b.dll..c.dll", -2)]
-    [InlineData("..a.dll", -2)]
-    [InlineData("a.dll..", -2)]
-    public void RangeSeparator_SplitsWhereBothSidesRemainWellFormedPaths(
-        string value,
-        int expected)
-        => Assert.Equal(expected, MatchDiscovery.FindRangeSeparator(value));
-
-    /// <summary>
-    /// The end-to-end consequence: a range whose right operand is parent-relative is a range, not
-    /// an ambiguity.
-    /// </summary>
-    [Fact]
-    public async Task Similar_RangeWithParentRelativeRightPath_IsARange()
-    {
-        string directory = Path.GetDirectoryName(TestAssembly)!;
-        string relative = Path.Combine(
-            directory, "..", Path.GetFileName(directory), Path.GetFileName(TestAssembly));
-
-        MatchOptions options = Seeded(SampleSeed) with
-        {
-            AssemblyPath = $"{TestAssembly}..{relative}",
-            JsonOutput = true,
-        };
-
-        var (exitCode, output, error) = await RunAsync(options);
-
-        Assert.Equal(0, exitCode);
-        Assert.Empty(error);
-        Assert.Equal("Completed", Parse(output).GetProperty("disposition").GetString());
     }
 
     /// <summary>
@@ -827,9 +695,9 @@ public sealed class MatchDiscoveryTests
             "System.Runtime.dll");
         Assert.True(File.Exists(facade), facade);
 
-        MatchOptions options = Seeded(SampleSeed) with
+        MatchOptions options = Seeded("System.String.IsNullOrEmpty") with
         {
-            AssemblyPath = $"{TestAssembly}..{facade}",
+            AssemblyPath = facade,
             JsonOutput = true,
             RightSelector = "System.String",
         };
@@ -845,6 +713,41 @@ public sealed class MatchDiscoveryTests
         string[] members = Candidates(document).Select(candidate => candidate.Member).ToArray();
         Assert.NotEmpty(members);
         Assert.All(members, member => Assert.StartsWith("System.String.", member));
+    }
+
+    /// <summary>
+    /// A run whose ranked rows come from a forwarded-to image must name that image. The printed
+    /// token indexes a MethodDef row that exists only there, so a disclosure that names nothing --
+    /// or names the facade the caller typed -- hands back an address the caller cannot resolve.
+    /// This is the surviving cross-image shape now that a library argument names one image.
+    /// </summary>
+    [Fact]
+    public async Task Similar_ForwardedPopulation_NamesTheImageThatDefinesTheRankedTokens()
+    {
+        string coreLibrary = typeof(string).Assembly.Location;
+        string facade = Path.Combine(Path.GetDirectoryName(coreLibrary)!, "System.Runtime.dll");
+        Assert.True(File.Exists(facade), facade);
+
+        MatchOptions options = Seeded("System.String.IsNullOrEmpty") with
+        {
+            AssemblyPath = facade,
+            RightSelector = "System.String",
+            JsonOutput = true,
+        };
+
+        var (exitCode, output, error) = await RunAsync(options);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        JsonElement document = Parse(output);
+
+        string candidateAssembly = document.GetProperty("candidate_assembly").GetString()!;
+        Assert.EndsWith("System.Private.CoreLib.dll", candidateAssembly);
+        Assert.NotEqual(facade, candidateAssembly);
+
+        // The disclosure has to hand back the exact library that resolves the printed tokens.
+        string disclosure = document.GetProperty("disclosure").GetString()!;
+        Assert.Contains(candidateAssembly, disclosure);
     }
 
     // ---- Round 3 review findings ----
@@ -931,24 +834,6 @@ public sealed class MatchDiscoveryTests
     }
 
     /// <summary>
-    /// <c>...</c> is a legal directory name, and pairwise <c>match</c> treats it as one. Discovery
-    /// must not silently reinterpret the caller's path as a range and inspect two different
-    /// operands. A separator sits in a dot run of exactly two or four; every other run is path text.
-    /// </summary>
-    [Theory]
-    [InlineData(".../foo.dll")]
-    [InlineData("a/.../foo.dll")]
-    [InlineData("...../foo.dll")]
-    public void FindRangeSeparator_DotRunThatCannotSeparate_IsAPath(string value)
-        => Assert.Equal(-1, MatchDiscovery.FindRangeSeparator(value));
-
-    [Theory]
-    [InlineData("old/Foo.dll..new/Foo.dll", 11)]
-    [InlineData("old/Foo.dll..../new/Foo.dll", 11)]
-    public void FindRangeSeparator_SeparatorRun_SplitsTheOperands(string value, int expected)
-        => Assert.Equal(expected, MatchDiscovery.FindRangeSeparator(value));
-
-    /// <summary>
     /// JSON escaping is not containment: a parser restores the original control character, so a
     /// bidi override in inspected metadata would reach a JSON consumer intact. The document records
     /// contain their own metadata-derived strings, because <c>MarkoutRowContainmentTests</c> covers
@@ -1021,35 +906,6 @@ public sealed class MatchDiscoveryTests
     // ---- Round 4 review findings ----
 
     /// <summary>
-    /// The disclosure names a transition the run can actually perform. A ranked row's token is
-    /// addressable by pairwise <c>match</c> only within one image; Analysis ranks cross-image
-    /// candidates without establishing cross-reader correspondence, and pairwise <c>match</c>
-    /// compares two methods inside one retained assembly. Telling a cross-image caller to "run
-    /// pairwise `match` on a candidate" named a command that cannot be run.
-    /// </summary>
-    [Fact]
-    public async Task Similar_CrossImage_DisclosesThatNoCheckedRelationIsAvailable()
-    {
-        MatchOptions options = new()
-        {
-            LeftSelector = "DiffSample.Stable",
-            AssemblyPath =
-                $"{FixtureCatalog.DiffV1.AssemblyPath()}..{FixtureCatalog.DiffV2.AssemblyPath()}",
-            IncludeAll = true,
-            Similar = true,
-            JsonOutput = true,
-        };
-
-        var (exitCode, output, _) = await RunAsync(options);
-
-        Assert.Equal(0, exitCode);
-        string disclosure = Parse(output).GetProperty("disclosure").GetString()!;
-
-        Assert.Contains("no checked relation is available across images", disclosure);
-        Assert.DoesNotContain("Run pairwise `match` on a candidate", disclosure);
-    }
-
-    /// <summary>
     /// The same-image disclosure still names the transition, because within one image the printed
     /// token really is addressable. A cross-image wording that leaked here would retract a promise
     /// the command does keep.
@@ -1066,67 +922,6 @@ public sealed class MatchDiscoveryTests
 
         Assert.Contains("Run pairwise `match` on a candidate", disclosure);
         Assert.DoesNotContain("across images", disclosure);
-    }
-
-    /// <summary>
-    /// The tabular modes carry the disclosure on stderr rather than in the single row shape, so
-    /// that path has to render the disclosure the run earned rather than its own copy.
-    /// </summary>
-    [Fact]
-    public async Task Similar_CrossImageTable_WritesTheCrossImageDisclosureToStderr()
-    {
-        MatchOptions options = new()
-        {
-            LeftSelector = "DiffSample.Stable",
-            AssemblyPath =
-                $"{FixtureCatalog.DiffV1.AssemblyPath()}..{FixtureCatalog.DiffV2.AssemblyPath()}",
-            IncludeAll = true,
-            Similar = true,
-            Tabular = true,
-        };
-
-        var (exitCode, _, error) = await RunAsync(options);
-
-        Assert.Equal(0, exitCode);
-        Assert.Contains("no checked relation is available across images", error);
-    }
-
-    /// <summary>
-    /// A case-variant spelling of one file is reported as two images. Deciding otherwise requires
-    /// asking the volume about every path component, which is what three review rounds got wrong
-    /// in three different ways. The cost of this direction is visible and bounded — the run opens
-    /// a redundant candidate group, names the candidate assembly, emits the cross-image disclosure
-    /// that promises less, and no longer suppresses the seed — whereas the opposite error ranks
-    /// candidates out of the wrong image and claims a transition it cannot perform. Skipped where
-    /// the case variant does not exist, since then there is no second spelling to compare.
-    /// </summary>
-    [Fact]
-    public async Task Similar_CaseVariantLibraryPath_IsReportedAsTwoImages()
-    {
-        string lowered = LoweredPath(TestAssembly);
-        if (!File.Exists(lowered) || string.Equals(lowered, TestAssembly, StringComparison.Ordinal))
-            return;
-
-        MatchOptions options = Seeded(SampleSeed) with
-        {
-            AssemblyPath = $"{TestAssembly}..{lowered}",
-            AssemblyWide = true,
-            JsonOutput = true,
-        };
-
-        var (exitCode, output, error) = await RunAsync(options);
-
-        Assert.Equal(0, exitCode);
-        Assert.Empty(error);
-        JsonElement document = Parse(output);
-
-        Assert.True(document.TryGetProperty("candidate_assembly", out _));
-        Assert.Contains(
-            "no checked relation is available across images",
-            document.GetProperty("disclosure").GetString()!);
-        Assert.DoesNotContain(
-            "Run pairwise `match` on a candidate",
-            document.GetProperty("disclosure").GetString()!);
     }
 
     /// <summary>
@@ -1214,84 +1009,6 @@ public sealed class MatchDiscoveryTests
     // ---- Round 5 review findings ----
 
     /// <summary>
-    /// Image identity errs toward "two images", because the two errors are not symmetric.
-    /// Reporting one image as two costs a redundant candidate group and a disclosure that
-    /// promises less than the run could have; reporting two images as one makes discovery rank
-    /// candidates out of the seed's image and claim a transition it cannot perform. Case-only
-    /// spellings are undecidable from the path text, so they take the safe direction. Paths that
-    /// canonicalize to the same spelling are still one image, which is what lets a relative
-    /// --library spelling match an absolute seed origin.
-    /// </summary>
-    [Fact]
-    public void SameImage_ErrsTowardTwoImagesWhenSpellingsDiffer()
-    {
-        string directory = Path.Combine(Path.GetTempPath(), $"match-image-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(directory);
-        try
-        {
-            string upper = Path.Combine(directory, "Image.dll");
-            File.WriteAllText(upper, "upper");
-
-            // Canonicalization is what makes differently spelled routes to one file comparable.
-            string relative = Path.Combine(directory, ".", "Image.dll");
-            Assert.True(MatchCommand.SameImage(upper, relative));
-            Assert.True(MatchCommand.SameImage(upper, upper));
-
-            // Case-only siblings take the safe direction on every volume, so this gate does not
-            // depend on the kind of volume the test happens to run on.
-            string lower = Path.Combine(directory, "image.dll");
-            Assert.False(MatchCommand.SameImage(upper, lower));
-
-            // The defect two review rounds missed: identity must cover the whole path, not just
-            // its final component. Both spellings are materialized so this binds on a
-            // case-insensitive volume too, where a leaf-only probe answers "one image".
-            string parent = Path.Combine(directory, "Parent");
-            Directory.CreateDirectory(parent);
-            File.WriteAllText(Path.Combine(parent, "Sample.dll"), "sample");
-            Assert.False(MatchCommand.SameImage(
-                Path.Combine(directory, "Parent", "Sample.dll"),
-                Path.Combine(directory, "parent", "Sample.dll")));
-
-            // A spelling that differs by more than case is never one image.
-            Assert.False(MatchCommand.SameImage(upper, Path.Combine(directory, "Other.dll")));
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
-    }
-
-    /// <summary>
-    /// Image identity answers from the path text alone, so the same pair of spellings gets the
-    /// same answer whether or not the file is there. Probing the filesystem made the answer depend
-    /// on what happened to exist and on whether a directory could be enumerated, which is what
-    /// produced three rounds of defects in three different path components.
-    /// </summary>
-    [Fact]
-    public void SameImage_DoesNotDependOnWhetherThePathsExist()
-    {
-        string directory = Path.Combine(Path.GetTempPath(), $"match-exists-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(directory);
-        try
-        {
-            string upper = Path.Combine(directory, "Image.dll");
-            string lower = Path.Combine(directory, "image.dll");
-
-            bool absentAnswer = MatchCommand.SameImage(upper, lower);
-
-            File.WriteAllText(upper, "upper");
-            bool presentAnswer = MatchCommand.SameImage(upper, lower);
-
-            Assert.Equal(absentAnswer, presentAnswer);
-            Assert.False(presentAnswer);
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
-    }
-
-    /// <summary>
     /// A limit rejects the candidate population atomically, so nothing is processed even though
     /// the input was large. The receipt line must not report the input count as work performed.
     /// </summary>
@@ -1346,6 +1063,249 @@ public sealed class MatchDiscoveryTests
             "Confirm a candidate by re-running the pairwise form on the selected pair.",
             structuralMatching);
         Assert.Contains("Within one image, confirm a candidate", structuralMatching);
+    }
+
+    // ---- Round 7 review findings: raw MethodDef token selectors ----
+
+    /// <summary>
+    /// A MethodDef token is a dense table row index, not an identity. Resolving one against a
+    /// merged surface -- which includes type-forwarded types whose rows live in other images --
+    /// binds it to whichever type collides first. Feeding the tool its own printed token back
+    /// returned a confidently wrong member at exit 0, in both the pairwise and the seeded
+    /// direction, for four consecutive rounds. A token now resolves only against the one image
+    /// named by <c>--library</c>, and never silently against a forwarded one.
+    /// </summary>
+    [Fact]
+    public async Task Pairwise_TokenOutsideTheNamedImage_FailsRatherThanNamingAnotherMember()
+    {
+        string coreLibrary = typeof(string).Assembly.Location;
+        string facade = Path.Combine(Path.GetDirectoryName(coreLibrary)!, "System.Runtime.dll");
+        Assert.True(File.Exists(facade), facade);
+
+        // System.Runtime is a pure facade: it defines no method bodies, so no MethodDef row it
+        // could be asked about is its own. Any answer other than a failure is a wrong answer.
+        MatchOptions options = new()
+        {
+            LeftSelector = "0x06000001",
+            RightSelector = "0x06000001",
+            AssemblyPath = facade,
+        };
+
+        var (exitCode, output, error) = await RunAsync(options);
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.DoesNotContain("Relation", error);
+        Assert.Contains("is not a MethodDef row in", error);
+        Assert.Contains("System.Runtime.dll", error);
+        Assert.DoesNotContain("method handle is outside", error);
+    }
+
+    /// <summary>
+    /// The seeded direction of the same defect: a token seed silently scoped discovery to whatever
+    /// forwarded type its row collided with, then ranked candidates inside that unrelated type and
+    /// reported success. Failing is the only honest outcome when the named image does not define
+    /// the row.
+    /// </summary>
+    [Fact]
+    public async Task Similar_TokenSeedOutsideTheNamedImage_DoesNotScopeToAForeignType()
+    {
+        string coreLibrary = typeof(string).Assembly.Location;
+        string facade = Path.Combine(Path.GetDirectoryName(coreLibrary)!, "System.Runtime.dll");
+        Assert.True(File.Exists(facade), facade);
+
+        MatchOptions options = Seeded("0x06000001") with { AssemblyPath = facade };
+
+        var (exitCode, output, error) = await RunAsync(options);
+
+        // Discovery fails on its own terms here -- it cannot determine a declaring type for a row
+        // the named image does not define. The defect was that it *could*: the row collided with a
+        // forwarded type and silently scoped retrieval to it.
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.DoesNotContain("SortedDictionary", error);
+        Assert.DoesNotContain("method handle is outside", error);
+    }
+
+    /// <summary>
+    /// An out-of-range row must produce the command's own typed selector error. Reaching metadata
+    /// with an unchecked row surfaced a framework resource name (<c>Arg_ParamName_Name</c>) to the
+    /// user instead.
+    /// </summary>
+    [Fact]
+    public async Task Pairwise_TokenBeyondTheMethodDefTable_ReportsATypedSelectorError()
+    {
+        MatchOptions options = new()
+        {
+            LeftSelector = "0x06FFFFFF",
+            RightSelector = "0x06FFFFFF",
+            AssemblyPath = TestAssembly,
+        };
+
+        var (exitCode, output, error) = await RunAsync(options);
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+
+        // The command's own selector error, naming the token and the image -- not the Analysis
+        // layer's ArgumentOutOfRangeException, whose message is a framework resource. On a
+        // resource-stripped AOT host that message renders as the raw key "Arg_ParamName_Name".
+        Assert.Contains("0x06FFFFFF", error);
+        Assert.Contains("is not a MethodDef row in", error);
+        Assert.DoesNotContain("method handle is outside", error);
+        Assert.DoesNotContain("Arg_ParamName_Name", error);
+    }
+
+    /// <summary>
+    /// The contract the token selector exists to serve: a token this run printed must address the
+    /// same member when handed straight back. This is the round-trip that was silently broken.
+    /// </summary>
+    [Fact]
+    public async Task Similar_PrintedToken_AddressesTheSameMemberWhenFedBack()
+    {
+        MatchOptions options = Seeded(SampleSeed) with { JsonOutput = true };
+
+        var (exitCode, output, error) = await RunAsync(options);
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+
+        JsonElement document = Parse(output);
+        JsonElement first = document.GetProperty("candidates").EnumerateArray().First();
+        string token = first.GetProperty("token").GetString()!;
+        string member = first.GetProperty("member").GetString()!;
+
+        var (pairExit, pairOutput, pairError) = await RunAsync(new MatchOptions
+        {
+            LeftSelector = token,
+            RightSelector = token,
+            AssemblyPath = TestAssembly,
+        });
+
+        Assert.Equal(0, pairExit);
+        Assert.Empty(pairError);
+        Assert.Contains(member[..member.LastIndexOf('.')], pairOutput);
+    }
+
+    /// <summary>
+    /// <c>--assembly-wide</c> with a forwarded seed searched the facade, which defines no bodies,
+    /// and reported an empty ranking at exit 0 -- while the narrower default scope ranked real
+    /// candidates. A widened scope must never return strictly less than the narrower one.
+    /// </summary>
+    [Fact]
+    public async Task Similar_AssemblyWideWithForwardedSeed_SearchesTheDefiningImage()
+    {
+        string coreLibrary = typeof(string).Assembly.Location;
+        string facade = Path.Combine(Path.GetDirectoryName(coreLibrary)!, "System.Runtime.dll");
+        Assert.True(File.Exists(facade), facade);
+
+        MatchOptions options = Seeded("System.String.IsNullOrEmpty") with
+        {
+            AssemblyPath = facade,
+            AssemblyWide = true,
+            JsonOutput = true,
+        };
+
+        var (exitCode, output, error) = await RunAsync(options);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.NotEmpty(Candidates(Parse(output)));
+    }
+
+    /// <summary>
+    /// The printed token is a promise scoped to the image the disclosure names. Feeding a token
+    /// that discovery printed for a forwarded population back against the facade must fail: the
+    /// facade does not define that row. Resolving the token through the merged surface instead --
+    /// which carries forwarded types whose rows live elsewhere -- silently re-attributed it to the
+    /// defining image and compared a member the caller never named, at exit 0.
+    /// </summary>
+    [Fact]
+    public async Task Pairwise_TokenPrintedForAForwardedPopulation_IsNotHonoredAgainstTheFacade()
+    {
+        string coreLibrary = typeof(string).Assembly.Location;
+        string facade = Path.Combine(Path.GetDirectoryName(coreLibrary)!, "System.Runtime.dll");
+        Assert.True(File.Exists(facade), facade);
+
+        MatchOptions seedOptions = Seeded("System.String.IsNullOrEmpty") with
+        {
+            AssemblyPath = facade,
+            RightSelector = "System.String",
+            JsonOutput = true,
+        };
+
+        var (seedExit, seedOutput, _) = await RunAsync(seedOptions);
+        Assert.Equal(0, seedExit);
+
+        JsonElement document = Parse(seedOutput);
+        string definingImage = document.GetProperty("candidate_assembly").GetString()!;
+        string token = document.GetProperty("candidates").EnumerateArray()
+            .First().GetProperty("token").GetString()!;
+
+        // Against the image the disclosure named, the promise holds.
+        var (honored, _, honoredError) = await RunCliAsync(
+            "match", token, token, "--library", definingImage);
+        Assert.Equal(0, honored);
+        Assert.Empty(honoredError);
+
+        // Against the facade the caller typed, it must fail rather than name another member.
+        var (rejected, rejectedOutput, rejectedError) = await RunCliAsync(
+            "match", token, token, "--library", facade);
+        Assert.Equal(1, rejected);
+        Assert.Empty(rejectedOutput);
+        Assert.Contains("is not a MethodDef row in", rejectedError);
+    }
+
+    /// <summary>
+    /// <c>System.dll</c> is a multi-target facade that defines no method bodies of its own, so no
+    /// MethodDef token can name one of its members. Resolving a token through the merged surface
+    /// bound it to whichever forwarded type held a colliding row -- returning
+    /// <c>Relation: Exact</c> at exit 0 for a member the caller never named. Every probed row must
+    /// be rejected; a facade has no row to compare.
+    /// </summary>
+    [Fact]
+    public async Task Pairwise_TokenAgainstAPureFacade_NeverBindsToAForwardedType()
+    {
+        string coreLibrary = typeof(string).Assembly.Location;
+        string facade = Path.Combine(Path.GetDirectoryName(coreLibrary)!, "System.dll");
+        if (!File.Exists(facade))
+            return;
+
+        foreach (string token in new[] { "0x06000001", "0x06000169", "0x06000FFF" })
+        {
+            var (exitCode, output, error) = await RunCliAsync(
+                "match", token, token, "--library", facade);
+
+            Assert.Equal(1, exitCode);
+            Assert.Empty(output);
+            Assert.Contains("is not a MethodDef row in", error);
+        }
+    }
+
+    /// <summary>
+    /// The parse layer rejects a missing second selector before the pairwise body runs, so the
+    /// guidance for "you supplied a discovery flag; add <c>--similar</c>" was reachable only when
+    /// the caller had already supplied two selectors. The caller who wrote one selector and a
+    /// discovery flag -- the one who most clearly meant discovery -- was told to add a selector.
+    /// </summary>
+    [Theory]
+    [InlineData("--assembly-wide")]
+    [InlineData("--top")]
+    [InlineData("--max-results")]
+    [InlineData("--max-methods")]
+    public async Task Pairwise_OneSelectorWithADiscoveryFlag_PointsAtSimilar(string flag)
+    {
+        // Must run through the real parser: the check this pins lives in the command definition,
+        // which rejects a missing second selector before MatchCommand.ExecuteAsync is ever called.
+        string[] args = flag == "--assembly-wide"
+            ? ["match", SampleSeed, "--library", TestAssembly, flag]
+            : ["match", SampleSeed, "--library", TestAssembly, flag, "5"];
+
+        var (exitCode, output, error) = await RunCliAsync(args);
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains($"{flag} applies to discovery; add --similar.", error);
+        Assert.DoesNotContain("requires two method selectors", error);
     }
 }
 

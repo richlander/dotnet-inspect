@@ -421,24 +421,32 @@ must disclose that it establishes no relation, no semantic equivalence, and no
 authorship or copying claim. `--implementation` is rejected in discovery mode:
 it is a pairwise drill-down and must not run for every ranked row.
 
-The disclosure names only the transition that is actually available. Within one
-image that is pairwise `match`, and the printed token is the promise that the
-transition will work. Across two images there is none: Analysis ranks
-cross-image candidates by portable structural categories and establishes no
-cross-reader correspondence, and pairwise `match` compares two methods within
-one retained assembly. Cross-image discovery is therefore retrieval evidence
-that ends at the ranking, and it says so rather than naming a command the tool
-cannot run. Confirming a cross-image row would require a cross-image comparison
-capability the Analysis layer does not offer; that is issue #5269, a separate
-effort under its own owner, not a disclosure this command may imply it already
-has.
+The disclosure names only the transition that is actually available, and names
+the image that transition must be given. A `--library` argument names exactly
+one image, so the seed and the candidate population coincide in the ordinary
+case: the transition is pairwise `match` against that same library, and the
+printed token is the promise that it will work.
+
+They come apart only through type forwarding. When the named library forwards
+the seed's type, the rows that retrieval ranks are defined by the forwarded-to
+image, not by the facade the caller typed. A MethodDef token addresses a row
+only in the image that owns it, so a disclosure that named the facade — or named
+no image at all — would hand back an address the caller cannot resolve. The
+disclosure therefore names the defining image and the exact `--library` value
+that resolves the printed tokens, which keeps the pairwise transition available
+rather than withdrawing it. Comparing candidates drawn from two *different*
+images remains outside this command: Analysis ranks by portable structural
+categories and establishes no cross-reader correspondence, and pairwise `match`
+compares two methods within one retained assembly. That capability is
+issue #5269, a separate effort under its own owner, not a disclosure this
+command may imply it already has.
 
 The candidate population follows the disclosure rules rather than the focus
 rules. Type-scoped retrieval is the bounded default and is inferred from the
 seed's declaring type; whole-assembly search changes the cost class and so
-requires an explicit `--assembly-wide`. Cross-image discovery reuses the
-existing range spelling for a second address (`--library old.dll..new.dll`), so
-A-vs-A' needs no new source grammar.
+requires an explicit `--assembly-wide`. Both scopes are evaluated in the image
+that defines the seed, so widening the scope can never search strictly less than
+narrowing it did.
 
 Presentation and product limits stay orthogonal: `--top` bounds rendered rows,
 while `--max-results` and `--max-methods` move the product retrieval limits.
@@ -465,43 +473,32 @@ Discovery prints a metadata token on every ranked row, which is a promise that
 the row is directly addressable by the pairwise transition. Honoring that
 promise means the token grammar belongs to `match`'s shared selector resolution
 rather than to discovery alone; a token that only discovery can read would make
-the printed transition false for overloads and multi-accessor properties. The
-promise is scoped to a same-image population, because that is the only
-population pairwise `match` can accept.
+the printed transition false for overloads and multi-accessor properties.
 
-Range spelling has to coexist with relative paths, because `..` is both the
-range separator and a parent directory segment. A `..` that is a bounded parent
-segment is part of a path; a range requires a single `..` that splits the value
-into two non-empty library paths whose own `..` occurrences are all parent
-segments. A separator also has to sit in a dot run of exactly two or four — two
-for a bare separator, four when the right operand opens with its own parent
-segment — because `...` is a legal file name that pairwise `match` accepts as a
-path, and discovery must not silently reinterpret one path as two operands.
-`old/Foo.dll..new/Foo.dll` is a range, `../lib/Foo.dll` and `.../Foo.dll` are
-paths, and `old/Foo.dll..../new/Foo.dll` is a range whose right operand is
-parent-relative. Discovery-only options are rejected outright on the pairwise
-path rather than being silently accepted and ignored.
+A MethodDef token is a dense table row index, not an identity, so the promise
+holds only against the image that owns the row. A selector token is therefore
+resolved against the one image named by `--library` and is rejected when that
+image does not define it. Resolving a token against a merged surface — which
+includes forwarded types whose rows live elsewhere — binds it to whichever type
+collides first, which returns a confidently wrong member at exit 0 rather than a
+failure. That is the one outcome this command must never produce, so the row is
+range-checked against the image's MethodDef table before any comparison runs.
 
 A selector's origin is a physical-file identity, so it is canonicalized and then
-compared ordinally. The spelling arrives by three routes — a forwarded type's
-defining image, a resolved type's extraction path, and, for a token the
-projection cannot name, the caller's own `--library` spelling — and `./Foo.dll`
-and its absolute path are one file. Canonicalizing reconciles those routes.
+compared ordinally. The spelling arrives by two routes — a forwarded type's
+defining image and a resolved type's extraction path — and `./Foo.dll` and its
+absolute path are one file. Canonicalizing reconciles those routes. A token
+selector contributes no third route: it is anchored to the named library by
+construction, so it cannot introduce an origin the caller did not type.
 
-Canonicalizing preserves case, so two case-only spellings of one file on a
-case-insensitive volume are reported as two images. That is a deliberate choice,
-not an oversight. Case sensitivity is a property of the volume rather than of
-the operating system, so the path text alone cannot decide it, and probing the
-filesystem has to be exhaustive over every path component to be sound — three
-review rounds each found a component an earlier probe had not asked about.
-
-The two errors are not symmetric, which is what settles the rule. Reporting one
-image as two costs a redundant candidate group and a cross-image disclosure that
-promises strictly less than the run could have delivered; the output stays true.
-Reporting two images as one makes discovery rank candidates out of the seed's
-image, label them with the candidate image's names, omit the candidate assembly,
-and emit the same-image disclosure — a wrong answer with no failure. Discovery
-therefore takes the cheap, total comparison and accepts the harmless direction.
+Because `--library` names one image, two origins can differ only by forwarding,
+which the metadata layer resolves to a real defining path. Two case-only
+spellings of one file can no longer reach that comparison at all, so the
+canonicalization rule needs no tie-breaking policy for them. Discovery-only
+options are rejected outright on the pairwise path rather than being silently
+accepted and ignored, and that rejection is raised in the parse layer as well,
+so a caller who supplies one selector and a discovery flag is pointed at
+`--similar` rather than asked for a second selector.
 
 Containment is a property of the structured document, not of its callers. The
 Markout row gate covers views, and a JSON document is not one, so the document
