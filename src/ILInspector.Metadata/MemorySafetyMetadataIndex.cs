@@ -224,6 +224,7 @@ public sealed class MemorySafetyMetadataIndex
         int fieldRows;
         int propertyRows;
         int eventRows;
+        int methodSemanticsRows;
         MemorySafetyRulesResult rules;
         try
         {
@@ -231,6 +232,8 @@ public sealed class MemorySafetyMetadataIndex
             fieldRows = reader.GetTableRowCount(TableIndex.Field);
             propertyRows = reader.GetTableRowCount(TableIndex.Property);
             eventRows = reader.GetTableRowCount(TableIndex.Event);
+            methodSemanticsRows =
+                reader.GetTableRowCount(TableIndex.MethodSemantics);
             rules = ReadRules(
                 reader,
                 attributeRowBudget,
@@ -272,6 +275,7 @@ public sealed class MemorySafetyMetadataIndex
                     methodRows,
                     propertyRows,
                     eventRows,
+                    methodSemanticsRows,
                     associationRowBudget,
                     associatedContracts,
                     ambiguousAssociations,
@@ -382,6 +386,16 @@ public sealed class MemorySafetyMetadataIndex
                 evidence,
                 MemorySafetyMemberContractFailureKind.SignatureUnavailable,
                 "The member signature could not be decoded.");
+        }
+
+        if (pointer.Evidence == MemorySafetyPointerEvidence.Present
+            && pointer.FixedBuffer
+                == MemorySafetyFixedBufferEvidence.Unavailable)
+        {
+            return Unavailable(
+                evidence,
+                MemorySafetyMemberContractFailureKind.AttributeUnavailable,
+                "FixedBufferAttribute metadata could not be read.");
         }
 
         return pointer.Evidence == MemorySafetyPointerEvidence.Present
@@ -614,16 +628,34 @@ public sealed class MemorySafetyMetadataIndex
                 PointerDetector.Instance,
                 (object?)null,
                 PointerDetection.Degraded);
-        bool isFixedBuffer =
-            FixedBufferMetadata.Read(
+        FixedBufferMetadataReadResult fixedBuffer;
+        try
+        {
+            var nameBudget =
+                new MetadataNameWorkBudget(_nameWorkBudget);
+            fixedBuffer = FixedBufferMetadata.Read(
                 _reader,
-                field.GetCustomAttributes()) is not null;
+                field.GetCustomAttributes(),
+                _attributeRowBudget,
+                nameBudget.Observe);
+        }
+        catch (MetadataBudgetException)
+        {
+            fixedBuffer = new(
+                FixedBufferMetadataReadState.Unavailable,
+                Info: null);
+        }
         return FromPointerDetection(
             decoded.Value,
             decoded.IsDegraded,
-            isFixedBuffer
-                ? MemorySafetyFixedBufferEvidence.Present
-                : MemorySafetyFixedBufferEvidence.Absent);
+            fixedBuffer.State switch
+            {
+                FixedBufferMetadataReadState.Present =>
+                    MemorySafetyFixedBufferEvidence.Present,
+                FixedBufferMetadataReadState.Absent =>
+                    MemorySafetyFixedBufferEvidence.Absent,
+                _ => MemorySafetyFixedBufferEvidence.Unavailable,
+            });
     }
 
     PointerReadResult ReadPropertyPointer(PropertyDefinition property)
@@ -917,12 +949,16 @@ public sealed class MemorySafetyMetadataIndex
         int methodRowCount,
         int propertyRowCount,
         int eventRowCount,
+        int methodSemanticsRowCount,
         int rowBudget,
         Dictionary<int, EntityHandle> associations,
         HashSet<int> ambiguous,
         out bool hasMalformedRows)
     {
-        if (checked(propertyRowCount + eventRowCount) > rowBudget)
+        if (checked(
+                propertyRowCount
+                + eventRowCount
+                + methodSemanticsRowCount) > rowBudget)
             throw new MetadataBudgetException();
 
         hasMalformedRows = false;

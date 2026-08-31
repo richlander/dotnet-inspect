@@ -1578,6 +1578,7 @@ public static partial class AttributeReader
         Marker,
         Int32,
         SystemType,
+        SystemTypeInt32,
         String,
         StringString,
         StringStringString,
@@ -1604,6 +1605,16 @@ public static partial class AttributeReader
             reader,
             constructor,
             FrameworkConstructorKind.Int32,
+            beforeMaterialize);
+
+    internal static bool HasExpectedSystemTypeInt32Constructor(
+        MetadataReader reader,
+        EntityHandle constructor,
+        Action<int>? beforeMaterialize = null)
+        => HasExpectedConstructor(
+            reader,
+            constructor,
+            FrameworkConstructorKind.SystemTypeInt32,
             beforeMaterialize);
 
     static bool HasExpectedConstructor(
@@ -1695,6 +1706,17 @@ public static partial class AttributeReader
                     signature.ParameterTypes is
                     [
                         NamedTypeNode type,
+                    ]
+                    && IsExpectedTopLevelSignatureType(
+                        type,
+                        "System",
+                        "Type",
+                        IsCoreContractAssembly),
+                FrameworkConstructorKind.SystemTypeInt32 =>
+                    signature.ParameterTypes is
+                    [
+                        NamedTypeNode type,
+                        PrimitiveTypeNode { Name: "int" },
                     ]
                     && IsExpectedTopLevelSignatureType(
                         type,
@@ -2112,7 +2134,7 @@ public static partial class AttributeReader
         return false;
     }
 
-    static bool IsPlatformAttributeType(
+    internal static bool IsPlatformAttributeType(
         MetadataReader reader,
         EntityHandle constructor,
         string fullTypeName,

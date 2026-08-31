@@ -77,8 +77,8 @@ public static class MetadataSafetyPolicy
     public const int MaxCorrespondenceCandidates = 1024;
 
     /// <summary>
-    /// Maximum Property and Event rows scanned while indexing memory-safety
-    /// accessor associations.
+    /// Maximum Property, Event, and MethodSemantics rows scanned while
+    /// indexing memory-safety accessor associations.
     /// </summary>
     public const int MaxMemorySafetyAssociationRows =
         MaxCorrespondenceMethodRows;

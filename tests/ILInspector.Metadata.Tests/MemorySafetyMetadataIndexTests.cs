@@ -115,6 +115,54 @@ public sealed class MemorySafetyMetadataIndexTests
             result.Evidence.FixedBuffer);
     }
 
+    [Fact]
+    public void MalformedFixedBufferCarrierCannotSuppressPointerPropagation()
+    {
+        using OpenedMetadata opened = Open(
+            BuildFixedBufferLookalikeImage(attributeCount: 1));
+        MemorySafetyMetadataIndex index =
+            MemorySafetyMetadataIndex.Create(opened.Reader);
+
+        var result =
+            Assert.IsType<MemorySafetyMemberContractResult.Unavailable>(
+                index.GetMemberContract(
+                    MetadataTokens.FieldDefinitionHandle(1)));
+        Assert.Equal(
+            MemorySafetyMemberContractFailureKind.AttributeUnavailable,
+            result.Failure.Kind);
+        Assert.Equal(
+            MemorySafetyPointerEvidence.Present,
+            result.Evidence.Pointer);
+        Assert.Equal(
+            MemorySafetyFixedBufferEvidence.Unavailable,
+            result.Evidence.FixedBuffer);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void FixedBufferEvidenceUsesAttributeAndNameWorkBudgets(
+        bool attributeRows)
+    {
+        using OpenedMetadata opened = Open(
+            BuildFixedBufferLookalikeImage(
+                attributeCount: attributeRows ? 2 : 1));
+        MemorySafetyMetadataIndex index =
+            MemorySafetyMetadataIndex.Create(
+                opened.Reader,
+                associationRowBudget: 100,
+                attributeRowBudget: attributeRows ? 1 : 100,
+                nameWorkBudget: attributeRows ? 100 : 1);
+
+        var result =
+            Assert.IsType<MemorySafetyMemberContractResult.Unavailable>(
+                index.GetMemberContract(
+                    MetadataTokens.FieldDefinitionHandle(1)));
+        Assert.Equal(
+            MemorySafetyFixedBufferEvidence.Unavailable,
+            result.Evidence.FixedBuffer);
+    }
+
     [Theory]
     [InlineData(nameof(ContractFixtures.PropertyContract))]
     [InlineData(nameof(ContractFixtures.EventContract))]
@@ -440,7 +488,7 @@ public sealed class MemorySafetyMetadataIndexTests
         MemorySafetyMetadataIndex index =
             MemorySafetyMetadataIndex.Create(
                 opened.Reader,
-                associationRowBudget: 1,
+                associationRowBudget: 2,
                 attributeRowBudget: 100);
         MethodDefinitionHandle getter =
             opened.Reader.GetPropertyDefinition(
@@ -863,6 +911,100 @@ public sealed class MemorySafetyMetadataIndexTests
                 requiresUnsafeConstructor,
                 metadata.GetOrAddBlob(
                     new byte[] { 0x01, 0x00, 0x00, 0x00 }));
+        }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildFixedBufferLookalikeImage(
+        int attributeCount)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("FixedBufferLookalike.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("FixedBufferLookalike"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        AssemblyReferenceHandle coreLibrary =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(11, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                    Convert.FromHexString("B03F5F7F11D50A3A")),
+                default,
+                default);
+        TypeReferenceHandle fixedBufferAttribute =
+            metadata.AddTypeReference(
+                coreLibrary,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString("FixedBufferAttribute"));
+        BlobHandle malformedConstructorSignature =
+            AddMethodSignature(
+                metadata,
+                isInstance: true,
+                parameterCount: 0,
+                _ => { });
+        MemberReferenceHandle malformedConstructor =
+            metadata.AddMemberReference(
+                fixedBufferAttribute,
+                metadata.GetOrAddString(".ctor"),
+                malformedConstructorSignature);
+        var fieldSignature = new BlobBuilder();
+        new BlobEncoder(fieldSignature)
+            .FieldSignature()
+            .Pointer()
+            .Int32();
+        FieldDefinitionHandle field =
+            metadata.AddFieldDefinition(
+                FieldAttributes.Public,
+                metadata.GetOrAddString("Pointer"),
+                metadata.GetOrAddBlob(fieldSignature));
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            field,
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Target"),
+            default,
+            field,
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteSerializedString("System.Int32");
+        value.WriteInt32(4);
+        BlobHandle valueHandle = metadata.GetOrAddBlob(value);
+        for (int index = 0; index < attributeCount; index++)
+        {
+            metadata.AddCustomAttribute(
+                field,
+                malformedConstructor,
+                valueHandle);
         }
 
         var pe = new ManagedPEBuilder(

@@ -1043,11 +1043,14 @@ typed unavailable result rather than absence or an exception.
 
 - Under Legacy, Unsupported, and Malformed module states, pointer or function
   pointer shape in the callable signature produces `Implicit`. A compiler fixed
-  buffer source FieldDef is excluded from pointer-based propagation. A signature
-  that cannot be decoded is `Unavailable` unless a definite pointer was already
-  observed. Legacy, Unsupported, and Malformed results still retain direct and
-  associated `RequiresUnsafeAttribute` evidence without using it to change the
-  compatibility contract.
+  buffer source FieldDef is excluded from pointer-based propagation only after
+  its platform `FixedBufferAttribute(Type, int)` carrier and complete value are
+  authenticated within the member attribute and name-work budgets. A malformed
+  or unavailable fixed-buffer carrier cannot become a fixed-buffer exemption. A
+  signature that cannot be decoded is `Unavailable` unless a definite pointer
+  was already observed. Legacy, Unsupported, and Malformed results still retain
+  direct and associated `RequiresUnsafeAttribute` evidence without using it to
+  change the compatibility contract.
 - Under Updated rules, one or more well-formed
   `System.Diagnostics.CodeAnalysis.RequiresUnsafeAttribute` rows on the member
   produce `Explicit`; the historical
@@ -1068,8 +1071,9 @@ an unavailable rules result. Accessor-association failure is exposed separately:
 a valid direct member carrier remains decisive, while a method that needs an
 incomplete fallback scan is unavailable. Per-member attribute and signature
 failures remain scoped to that member. Fixed-buffer evidence distinguishes
-present, absent, unavailable, and not examined. Dedicated row and name-work
-budgets bound custom-attribute identity and association scans.
+present, absent, unavailable, and not examined. Dedicated row and name-work budgets bound custom-attribute identity and
+association scans, including every PropertyDef, EventDef, and MethodSemantics
+row that contributes accessor relationships.
 `MemorySafetyMetadataIndex_RecognizesCompilerProducedModels`,
 `MemorySafetyMetadataIndex_UsesVersionSpecificMemberContracts`,
 `AccessorFallsBackToAssociatedDefinitionCarrier`,
