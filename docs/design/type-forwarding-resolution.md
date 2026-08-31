@@ -6,31 +6,15 @@
 
 ## Status
 
-Implemented architecture replacing the former collection of type-forwarder
-helpers and spelling-based caller matching with one structured
-reference-to-definition system.
-
-The declaration, acquisition, binding, resolution, and correspondence
-contracts are implemented, and former string/path consumers have migrated to
-the structured results. Delivery followed the primitive-first approach used by
-`InertString` in
-[#3636](https://github.com/richlander/dotnet-inspect/pull/3636): establish each
-value, its invariants, and its gates before asking consumers to depend on it.
+Implemented structured reference-to-definition architecture. The declaration,
+acquisition, binding, resolution, and correspondence contracts are implemented,
+and consumers use their structured results.
 
 This document is limited to Metadata's consumer-independent resolution
 contract: one exact structured request, one policy-authorized forwarding path,
 and one typed terminal outcome. It does not specify how a caller selects
 requests, combines outcomes, admits artifacts, judges C# spellability, or
 presents results.
-
-The former signature-spellability section crossed that boundary by defining a
-consumer protocol inside the resolver design. It is removed rather than
-reworked here. The independent terminal-accessibility primitive is tracked by
-[#5302](https://github.com/richlander/dotnet-inspect/issues/5302), and
-[#5248](https://github.com/richlander/dotnet-inspect/issues/5248) owns the
-tools-side local-declaration restatement. The aggregate implementation proposed
-by [#4885](https://github.com/richlander/dotnet-inspect/issues/4885) describes
-the superseded protocol and must not proceed under that contract.
 
 [Consumer scenario inventory](#consumer-scenario-inventory) records the known
 demand classes, including Research target attempts from
@@ -1893,8 +1877,7 @@ This preserves the single PE-lifetime owner established by
 `AssemblyInspectionSession`; it does not lend a reader to a consumer or dispose
 a session that a retained result expects to keep alive. The catalog outlives
 every `TypeResolutionContext` and every owner retaining its generation-scoped
-keys. The former per-call `TypeForwardResolver` compatibility path has been
-removed.
+keys. Resolution has no per-call `TypeForwardResolver` compatibility path.
 
 Candidate discovery and correspondence are separate phases.
 `TypeResolutionCatalog` is the inspection-lifetime owner. Its internal
