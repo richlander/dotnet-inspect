@@ -443,6 +443,12 @@ string-valued request option that feed data can influence. The handler injects
 plugin authorization only after the authentication owner authorizes the
 concrete target.
 
+Several V3 pipelines constructed with the same `PackageSourceAssociation`
+share the one authentication context bound to that association. Pipeline or
+handler identity does not create another credential authority. Pipelines
+constructed with distinct associations remain isolated even when their
+resource scopes are equal.
+
 Each service-index, feed-advertised, and redirect target must independently
 pass resource authorization. Retry and redirect clones preserve an existing
 rejection; they cannot replace the handler-bound context, turn rejection into
@@ -498,6 +504,10 @@ The target is unverified until Release gates establish:
   provider;
 - `AuthorizedResourceReusesItsSourceContextCredential`: a source challenge
   populates one context and its associated resource reuses that credential;
+- `SharedAssociationPipelinesShareAuthenticationContext`: two V3 pipelines
+  constructed with the same `PackageSourceAssociation` share credential
+  publication and coalesce concurrent challenges into one provider
+  acquisition;
 - `CrossContextResourceCannotReadAcquireOrReplayCredential`: equal resource
   scope does not permit a request carrying another or no context to consume
   the credential;
@@ -532,11 +542,13 @@ are two focused TLA+ modules. The context model checks context isolation,
 target authorization, authorized acquisition and publication, single-flight
 acquisition within a context and independence across contexts, exogenous
 retirement, Gallery and excluded-request non-participation, and
-admitted-request progress. The refresh model checks one bounded rejected-version
-refresh episode: single-flight refresh, joining an in-flight refresh,
-superseded requests consuming the newer version instead of acquiring, read-only
-consumption, and monotonic publication. Those checks establish the design
-interaction, not implementation correspondence.
+admitted-request progress. It consumes the association-to-context mapping as
+an input; `SharedAssociationPipelinesShareAuthenticationContext` is the
+required implementation gate for that mapping. The refresh model checks one
+bounded rejected-version refresh episode: single-flight refresh, joining an
+in-flight refresh, superseded requests consuming the newer version instead of
+acquiring, read-only consumption, and monotonic publication. Those checks
+establish the design interaction, not implementation correspondence.
 
 The context bound contains two distinct configurable contexts sharing one
 resource scope, one foreign scope, and nine requests covering concurrent

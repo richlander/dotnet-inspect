@@ -4,9 +4,9 @@ These TLA+ models are executable interaction companions to the source-scoped
 plugin authentication-context contract in
 [NuGet feed authentication](../../nuget-authentication.md).
 
-- `NuGetSourceAuthenticationContext.tla` checks source association, target
-  authorization, context isolation, retirement, acquisition, publication, and
-  replay.
+- `NuGetSourceAuthenticationContext.tla` checks request-to-context binding,
+  target authorization, context isolation, retirement, acquisition,
+  publication, and replay.
 - `NuGetSourceAuthenticationRefresh.tla` checks one bounded refresh episode
   after the server rejects a cached credential version.
 
@@ -35,6 +35,13 @@ identity. `ContextTwoSendMode` is `Unrestricted` in the complete graph so both
 contexts can acquire concurrently. The focused source-isolation and
 cross-context-reuse probes use `AfterContextOneCredential` to require the
 second source's request to occur after the first source publishes.
+
+`RequestContext` is an input mapping from each request to its already-created
+authentication context. The model does not construct contexts or check that
+several pipelines carrying one `PackageSourceAssociation` resolve to the same
+context. The design names
+`SharedAssociationPipelinesShareAuthenticationContext` as the required
+implementation gate for that mapping.
 
 `ParticipationMode = "LiveOnly"` is the specified policy.
 `"AllowRetired"` is a negative-control policy equivalent to removing the live
