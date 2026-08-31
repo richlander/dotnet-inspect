@@ -8,8 +8,6 @@ using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.JsExportSurface.ScalarFixtures;
 using ILInspector.Metadata;
 
-using tsbindgen;
-
 namespace ILInspector.JsExportSurface.Tests;
 
 /// <summary>
