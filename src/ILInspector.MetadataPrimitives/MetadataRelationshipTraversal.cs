@@ -77,6 +77,27 @@ public static class MetadataSafetyPolicy
     public const int MaxCorrespondenceCandidates = 1024;
 
     /// <summary>
+    /// Maximum Property and Event rows scanned while indexing memory-safety
+    /// accessor associations.
+    /// </summary>
+    public const int MaxMemorySafetyAssociationRows =
+        MaxCorrespondenceMethodRows;
+
+    /// <summary>
+    /// Maximum custom-attribute rows inspected for one memory-safety module or
+    /// member query.
+    /// </summary>
+    public const int MaxMemorySafetyAttributeRows =
+        MaxCorrespondenceCandidates;
+
+    /// <summary>
+    /// Maximum type-name materialization work for one memory-safety attribute
+    /// scan.
+    /// </summary>
+    public const int MaxMemorySafetyNameWorkChars =
+        MaxStructuralSignatureWorkChars;
+
+    /// <summary>
     /// Maximum <see cref="BadImageFormatException"/> failures while decoding
     /// method anchors during one classified-method scan. Each failure is
     /// already bounded per anchor, but catch-and-continue would otherwise

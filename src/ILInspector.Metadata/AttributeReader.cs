@@ -1576,6 +1576,7 @@ public static partial class AttributeReader
     enum FrameworkConstructorKind
     {
         Marker,
+        Int32,
         SystemType,
         String,
         StringString,
@@ -1584,6 +1585,26 @@ public static partial class AttributeReader
         JsonNumberHandling,
         JsonObjectCreationHandling,
     }
+
+    internal static bool HasExpectedMarkerConstructor(
+        MetadataReader reader,
+        EntityHandle constructor,
+        Action<int>? beforeMaterialize = null)
+        => HasExpectedConstructor(
+            reader,
+            constructor,
+            FrameworkConstructorKind.Marker,
+            beforeMaterialize);
+
+    internal static bool HasExpectedInt32Constructor(
+        MetadataReader reader,
+        EntityHandle constructor,
+        Action<int>? beforeMaterialize = null)
+        => HasExpectedConstructor(
+            reader,
+            constructor,
+            FrameworkConstructorKind.Int32,
+            beforeMaterialize);
 
     static bool HasExpectedConstructor(
         MetadataReader reader,
@@ -1665,6 +1686,11 @@ public static partial class AttributeReader
             {
                 FrameworkConstructorKind.Marker =>
                     signature.ParameterTypes.Length == 0,
+                FrameworkConstructorKind.Int32 =>
+                    signature.ParameterTypes is
+                    [
+                        PrimitiveTypeNode { Name: "int" },
+                    ],
                 FrameworkConstructorKind.SystemType =>
                     signature.ParameterTypes is
                     [

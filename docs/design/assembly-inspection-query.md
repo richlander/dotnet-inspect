@@ -1003,6 +1003,86 @@ facets and renders (Markout / writers) rather than transforming service data int
 facet selection and rendering stay above it. This is what keeps the "service returns the final
 shape" promise from quietly regressing into today's formatter/service leakage.
 
+### 4. `MemorySafetyMetadataIndex` — shared module and member meaning
+
+Memory-safety rule selection and member caller contracts are Metadata facts.
+`MemorySafetyMetadataIndex` derives them once from one `MetadataReader`, preserving
+the physical evidence and typed non-success states. Analysis may combine those
+facts with IL-body evidence, while the Decompiler may use them to reconstruct C#;
+neither subsystem re-decodes the marker or depends on the other. This is the same
+layering used by
+[`StateMachineRelationshipIndex`](state-machine-relationship-index.md): Metadata
+authenticates shared structure, then each higher layer owns its distinct policy.
+
+The module result is based only on
+`System.Runtime.CompilerServices.MemorySafetyRulesAttribute` rows attached to the
+ModuleDef. AssemblyDef, TypeDef, and member rows with the same attribute name do
+not select the module model.
+
+| State | Module evidence | Compatibility contract |
+| --- | --- | --- |
+| Legacy | No ModuleDef marker | Version 1 pointer-signature inference |
+| Updated | Every decoded marker has value `2` | Version 2 attribute contracts |
+| Unsupported | Every decoded marker has the same value other than `2` | Preserve the integer; use version 1 compatibility inference |
+| Malformed | Any authentic ModuleDef marker cannot be decoded as exactly one `int` argument | Preserve every observation; use version 1 compatibility inference |
+| Conflicting | Decoded ModuleDef markers carry different integers | Member contracts are unavailable |
+
+Repeated identical decoded markers do not create semantic ambiguity. The result
+retains every row and its value, while normalization selects the one unique model
+they all claim. A malformed row prevents that proof regardless of other valid
+rows. This intentionally differs from Roslyn's first-marker-wins import behavior:
+inspection reports conflicting artifact evidence rather than making row order
+authoritative. `MemorySafetyMetadataIndex_DuplicateIdenticalMarkersRetainEvidence`
+and `MemorySafetyMetadataIndex_ConflictingMarkersMakeContractsUnavailable` gate
+the distinction.
+
+Member queries accept MethodDef (including constructors), FieldDef, PropertyDef,
+and EventDef handles and return `None`, `Implicit`, `Explicit`, or `Unavailable`
+with the evidence used. Nil, out-of-range, and unsupported handle kinds return a
+typed unavailable result rather than absence or an exception.
+
+- Under Legacy, Unsupported, and Malformed module states, pointer or function
+  pointer shape in the callable signature produces `Implicit`. A compiler fixed
+  buffer source FieldDef is excluded from pointer-based propagation. A signature
+  that cannot be decoded is `Unavailable` unless a definite pointer was already
+  observed. Legacy, Unsupported, and Malformed results still retain direct and
+  associated `RequiresUnsafeAttribute` evidence without using it to change the
+  compatibility contract.
+- Under Updated rules, one or more well-formed
+  `System.Diagnostics.CodeAnalysis.RequiresUnsafeAttribute` rows on the member
+  produce `Explicit`; the historical
+  `System.Runtime.CompilerServices.RequiresUnsafeAttribute` spelling is also
+  recognized. A same-named row whose constructor or value cannot be honored makes
+  that carrier unavailable. Pointer shape alone does not propagate an Updated
+  contract.
+- A MethodDef accessor first uses its own attribute rows. A valid direct carrier
+  is decisive. Only when the direct carrier is absent does it inherit a
+  PropertyDef or EventDef contract through MethodSemantics. PropertyDef and
+  EventDef queries do not infer a contract in the reverse direction from
+  attributed accessors.
+- Under Conflicting module rules, every otherwise supported member query is
+  `Unavailable`; raw marker and member evidence remain available for diagnosis.
+
+Construction is bounded and fail-closed. Module-marker failure is represented by
+an unavailable rules result. Accessor-association failure is exposed separately:
+a valid direct member carrier remains decisive, while a method that needs an
+incomplete fallback scan is unavailable. Per-member attribute and signature
+failures remain scoped to that member. Fixed-buffer evidence distinguishes
+present, absent, unavailable, and not examined. Dedicated row and name-work
+budgets bound custom-attribute identity and association scans.
+`MemorySafetyMetadataIndex_RecognizesCompilerProducedModels`,
+`MemorySafetyMetadataIndex_UsesVersionSpecificMemberContracts`,
+`AccessorFallsBackToAssociatedDefinitionCarrier`,
+`DirectAccessorCarrierWinsBeforeAssociatedFallback`, and
+`MemorySafetyMetadataIndex_InvalidHandlesAreUnavailable` gate the shared
+contract.
+
+The index does not inspect method bodies, classify inner `unsafe` use or safe
+boundaries, reconstruct source syntax, read project policy, infer
+project-to-binary provenance, or choose presentation. The vocabulary and
+cross-layer composition of those later answers remain owned by
+[`memory-safety-models.md`](memory-safety-models.md).
+
 ## The sibling seam: method-body / coordinate inspection
 
 Assembly-level inspection is only half the surface. The other half is **method-body /
