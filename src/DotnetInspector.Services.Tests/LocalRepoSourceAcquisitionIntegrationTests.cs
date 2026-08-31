@@ -11,7 +11,7 @@ namespace DotnetInspector.Services.Tests;
 public class LocalRepoSourceAcquisitionIntegrationTests
 {
     [Fact]
-    public async Task LocalClone_SatisfiesMemberAndTypeSourceWithoutRemoteFetch()
+    public async Task ServiceLocalClone_SatisfiesMemberAndTypeSourceWithoutRemoteFetch()
     {
         string repositoryRoot = FindRepositoryRoot();
         Type targetType = typeof(VerifiedLocalSourceReadTests);

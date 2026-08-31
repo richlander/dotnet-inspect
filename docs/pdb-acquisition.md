@@ -25,12 +25,18 @@ uncommitted edits cannot replace the pinned source. A missing commit, path, or
 checksum match in one clone continues through the remaining clones and then to
 the remote source.
 
-The local-clone path is an explicit desktop capability supplied by repeated
-`--repo <fully-qualified-clone-path>` options. Browser/Wasm hosts do not supply
-filesystem clone paths and continue through their host-authorized source
-fetcher. `LocalClone_SatisfiesMemberAndTypeSourceWithoutRemoteFetch` is the
-non-vacuity gate that both member and type acquisition use a verified local
-clone without dispatching the simulated unavailable remote source.
+At the reusable service boundary, callers supply optional fully qualified
+repository paths to member or type acquisition. The desktop CLI exposes those
+paths through repeated `--repo <fully-qualified-clone-path>` options for
+`member` PDB Source and implementation-diff PDB source. The `type` command's
+Source Files section reports mapped URLs; it does not acquire source bodies or
+accept `--repo`.
+
+Browser/Wasm hosts do not supply filesystem clone paths and continue through
+their host-authorized source fetcher.
+`ServiceLocalClone_SatisfiesMemberAndTypeSourceWithoutRemoteFetch` is the
+non-vacuity gate that both service acquisition paths use a verified local clone
+without dispatching the simulated unavailable remote source.
 
 ## PDB formats
 
