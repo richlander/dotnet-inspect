@@ -141,6 +141,19 @@ public sealed partial class InspectionWorkspace
                     registrationByCapability[capability].Acquire(
                         plan,
                         cancellationToken);
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    if (acquisition
+                        is AnalysisUniverseCapabilityAcquisition.Ready
+                            cancelledReady)
+                    {
+                        handles.Add(cancelledReady.Handle);
+                    }
+
+                    ReleaseHandles(handles);
+                    return new AnalysisUniverseIssuanceResult.Cancelled();
+                }
+
                 switch (acquisition)
                 {
                     case AnalysisUniverseCapabilityAcquisition.Ready ready:

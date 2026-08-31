@@ -490,6 +490,51 @@ public sealed class AnalysisUniverseRealizationTests
     }
 
     [Fact]
+    public void AnalysisUniverseRealization_CancellationTakesPrecedenceOverCapabilityRejection()
+    {
+        using var workspace = new InspectionWorkspace();
+        using var cancellation = new CancellationTokenSource();
+        AnalysisUniverseCapabilityDescriptor firstCapability =
+            Capability("first");
+        AnalysisUniverseCapabilityDescriptor secondCapability =
+            Capability("second");
+        AnalysisUniverseRequirementDescriptor first =
+            Requirement("first", firstCapability);
+        AnalysisUniverseRequirementDescriptor second =
+            Requirement("second", secondCapability);
+        int releases = 0;
+        var failure = new TestCapabilityFailure("denied");
+        AnalysisUniverseOffer offer = CreateOffer(
+            workspace,
+            [firstCapability, secondCapability],
+            [
+                Registration(
+                    firstCapability,
+                    release: () => releases++),
+                new AnalysisUniverseCapabilityRegistration<TestAccess>(
+                    secondCapability,
+                    (_, _) =>
+                    {
+                        cancellation.Cancel();
+                        return new AnalysisUniverseCapabilityAcquisition<
+                            TestAccess>.Rejected(
+                                new AnalysisUniverseCapabilityRejection(
+                                    AnalysisUniverseCapabilityRejectionReason
+                                        .AuthorizationDenied,
+                                    failure));
+                    }),
+            ]);
+        AnalysisRequestPlan plan = CreatePlan(
+            offer.Description,
+            [first, second]);
+
+        Assert.IsType<AnalysisUniverseIssuanceResult.Cancelled>(
+            offer.IssueExecutionAccess(plan, cancellation.Token));
+
+        Assert.Equal(1, releases);
+    }
+
+    [Fact]
     public void AnalysisUniverseRealization_CloseDuringIssuancePublishesNoPartialAccess()
     {
         var workspace = new InspectionWorkspace();
