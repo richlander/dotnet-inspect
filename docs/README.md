@@ -123,10 +123,9 @@ the directly usable fixed prefix for every non-trivial reviewer prompt and
 carries the repository trust model and finding-admission contract.
 
 PR templates live under `docs/templates/`: `decompiler-pr.md` (raising,
-structuring, validity, fidelity, or corpus behavior), `decompiler-burndown-fix-pr.md`
-(a focused invalid-`Full` or burndown row fix), and
-`decompiler-compile-back-harness-pr.md` (compile-back harness, fidelity
-skeleton, or ReturnToSender coverage). The optional
+structuring, validity, fidelity, or corpus behavior) and
+`decompiler-compile-back-harness-pr.md` (harness-only compile-back, fidelity
+skeleton, or ReturnToSender coverage with no product-output change). The optional
 [`adversarial-review-prompt.md`](templates/adversarial-review-prompt.md)
 template provides the full fill-in form.
 

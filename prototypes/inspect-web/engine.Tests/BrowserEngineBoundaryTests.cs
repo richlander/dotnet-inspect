@@ -4836,6 +4836,85 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task BrowserPackageRealization_ReceivesAcquisitionIssuedCoordinate()
+    {
+        string packageId = $"Gallery.Binding.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        byte[] archive = Package(
+            [0x01],
+            $"lib/net11.0/{packageId}.dll");
+        var handler = new GalleryPackageHandler(
+            packageId,
+            version,
+            archive);
+        using IPackageSourceClient source = Gallery(handler);
+
+        BrowserPackageCoordinate coordinate =
+            await BrowserPackageWorkspace.ResolveAsync(
+                packageId,
+                version,
+                "net11.0",
+                source,
+                TimeSpan.FromSeconds(5));
+
+        PackageRootBinding binding = Assert.IsType<PackageRootBinding>(
+            coordinate.Binding);
+        Assert.Same(binding.Root, coordinate.Root);
+        Assert.Equal(packageId.ToLowerInvariant(), binding.Coordinate.PackageId);
+        Assert.Equal(version, binding.Coordinate.Version);
+        Assert.Equal("net11.0", binding.Coordinate.Framework);
+        Assert.Null(binding.Coordinate.RuntimeIdentifier);
+        Assert.Equal(
+            NuGetCache.GetSourceKey(PackageSourceIdentity.NuGetOrg.Value),
+            binding.Coordinate.Producer);
+        Assert.True(binding.Root.ReferencesContent(coordinate.Package.Content));
+    }
+
+    [Fact]
+    public async Task BrowserPackageRealization_WithoutFrameworkKeepsHostProjectionSemantics()
+    {
+        string selectedId = $"gallery.binding.selected.{Guid.NewGuid():N}";
+        var selectedHandler = new GalleryPackageHandler(
+            selectedId,
+            "1.0.0",
+            Package(
+                [0x01],
+                $"lib/net11.0/{selectedId}.dll"));
+        using IPackageSourceClient selectedSource = Gallery(selectedHandler);
+        BrowserPackageCoordinate selected =
+            await BrowserPackageWorkspace.ResolveAsync(
+                selectedId,
+                "1.0.0",
+                targetFramework: null,
+                selectedSource,
+                TimeSpan.FromSeconds(5));
+
+        Assert.Null(selected.RealizedCoordinate.Framework);
+        Assert.Equal("net11.0", selected.Framework);
+        Assert.True(selected.Selection.IsSelected);
+
+        string rootOnlyId = $"gallery.binding.root.{Guid.NewGuid():N}";
+        var rootOnlyHandler = new GalleryPackageHandler(
+            rootOnlyId,
+            "1.0.0",
+            PackageDocuments(1));
+        using IPackageSourceClient rootOnlySource = Gallery(rootOnlyHandler);
+        BrowserPackageCoordinate rootOnly =
+            await BrowserPackageWorkspace.ResolveAsync(
+                rootOnlyId,
+                "1.0.0",
+                targetFramework: null,
+                rootOnlySource,
+                TimeSpan.FromSeconds(5));
+
+        Assert.Null(rootOnly.RealizedCoordinate.Framework);
+        Assert.Equal("", rootOnly.Framework);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoCompileAssets,
+            rootOnly.Selection.Status);
+    }
+
+    [Fact]
     public async Task PackageAcquisition_GalleryFailureRemainsVisible()
     {
         string packageId = $"gallery.failure.{Guid.NewGuid():N}";

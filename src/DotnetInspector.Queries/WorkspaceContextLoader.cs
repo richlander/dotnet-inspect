@@ -1936,6 +1936,16 @@ public static class WorkspaceContextLoader
         WorkspaceContextLoadOptions options,
         CancellationToken cancellationToken)
     {
+        string? framework = pinned.Framework;
+        if (framework is null)
+        {
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind.MissingAcquisitionTarget,
+                    declared,
+                    $"Package '{pinned.PackageId}' requires a framework before its assembly assets can be realized."));
+        }
+
         PackageSourceAuthorization authorization =
             options.SourceAuthorization.AuthorizeSourcesFor(pinned.PackageId);
 
@@ -1964,7 +1974,7 @@ public static class WorkspaceContextLoader
                 new PackageCoordinate(
                     pinned.PackageId,
                     pinned.Version,
-                    pinned.Framework,
+                    framework,
                     pinned.RuntimeIdentifier),
                 [producer],
                 options.Log,
@@ -2032,7 +2042,7 @@ public static class WorkspaceContextLoader
         MemberRealization realization = RealizeAcquiredPackage(
             declared,
             acquired,
-            pinned.Framework,
+            framework,
             pinned.RuntimeIdentifier,
             cancellationToken);
 

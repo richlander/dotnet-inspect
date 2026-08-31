@@ -257,13 +257,13 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
-    public void EvaluateRtsParityBurndown_FlagsNewRegressionNotInManifest()
+    public void EvaluateRtsParityKnownGaps_FlagsNewRegressionNotInManifest()
     {
         var snapshot = ReturnToSenderSnapshot(
             RtsMethod("Known", fidelityReference: "Exact", fidelityCheck: "RecompileFail"),
             RtsMethod("New", fidelityReference: "Exact", fidelityCheck: "RecompileFail"));
 
-        var evaluation = CorpusSensor.EvaluateRtsParityBurndown(
+        var evaluation = CorpusSensor.EvaluateRtsParityKnownGaps(
             snapshot,
             ["Pinned!T::Known#0"]);
 
@@ -274,12 +274,12 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
-    public void EvaluateRtsParityBurndown_PassesWhenAllGapsAreInManifest()
+    public void EvaluateRtsParityKnownGaps_PassesWhenAllGapsAreInManifest()
     {
         var snapshot = ReturnToSenderSnapshot(
             RtsMethod("Known", fidelityReference: "Exact", fidelityCheck: "ContextFail"));
 
-        var evaluation = CorpusSensor.EvaluateRtsParityBurndown(
+        var evaluation = CorpusSensor.EvaluateRtsParityKnownGaps(
             snapshot,
             ["Pinned!T::Known#0"]);
 
@@ -289,12 +289,12 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
-    public void EvaluateRtsParityBurndown_ReportsResolvedRowsNoLongerFailing()
+    public void EvaluateRtsParityKnownGaps_ReportsResolvedRowsNoLongerFailing()
     {
         var snapshot = ReturnToSenderSnapshot(
             RtsMethod("StillExact", fidelityReference: "Exact", fidelityCheck: "Exact"));
 
-        var evaluation = CorpusSensor.EvaluateRtsParityBurndown(
+        var evaluation = CorpusSensor.EvaluateRtsParityKnownGaps(
             snapshot,
             ["Pinned!T::Fixed#0"]);
 
@@ -304,64 +304,64 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
-    public void EvaluateRtsParityBurndown_WithEmptyManifestTreatsEveryGapAsNew()
+    public void EvaluateRtsParityKnownGaps_WithEmptyManifestTreatsEveryGapAsNew()
     {
         var snapshot = ReturnToSenderSnapshot(
             RtsMethod("A", fidelityReference: "Exact", fidelityCheck: "RecompileFail"),
             RtsMethod("B", fidelityReference: "Exact", fidelityCheck: "ContextFail"));
 
-        var evaluation = CorpusSensor.EvaluateRtsParityBurndown(snapshot, []);
+        var evaluation = CorpusSensor.EvaluateRtsParityKnownGaps(snapshot, []);
 
         Assert.Equal(2, evaluation.NewRegressions.Length);
     }
 
     [Fact]
-    public void ValidateRtsParityBurndownFlags_RejectsNonReturnToSenderOracle()
+    public void ValidateRtsParityKnownGapFlags_RejectsNonReturnToSenderOracle()
     {
-        var error = CorpusSensor.ValidateRtsParityBurndownFlags(
-            CorpusFidelityOracle.CompileBack, [3], "burndown.json", null);
+        var error = CorpusSensor.ValidateRtsParityKnownGapFlags(
+            CorpusFidelityOracle.CompileBack, [3], "known-gaps.json", null);
 
         Assert.NotNull(error);
         Assert.Contains("rts-parity", error, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void ValidateRtsParityBurndownFlags_RejectsMissingPositiveFidelityCap()
+    public void ValidateRtsParityKnownGapFlags_RejectsMissingPositiveFidelityCap()
     {
-        var error = CorpusSensor.ValidateRtsParityBurndownFlags(
-            CorpusFidelityOracle.ReturnToSender, [0], "burndown.json", null);
+        var error = CorpusSensor.ValidateRtsParityKnownGapFlags(
+            CorpusFidelityOracle.ReturnToSender, [0], "known-gaps.json", null);
 
         Assert.NotNull(error);
         Assert.Contains("--corpus-fidelity-cap", error, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void ValidateRtsParityBurndownFlags_RejectsEmitAndEnforceSamePath()
+    public void ValidateRtsParityKnownGapFlags_RejectsEmitAndEnforceSamePath()
     {
-        var error = CorpusSensor.ValidateRtsParityBurndownFlags(
-            CorpusFidelityOracle.ReturnToSender, [3], "burndown.json", "burndown.json");
+        var error = CorpusSensor.ValidateRtsParityKnownGapFlags(
+            CorpusFidelityOracle.ReturnToSender, [3], "known-gaps.json", "known-gaps.json");
 
         Assert.NotNull(error);
         Assert.Contains("same file", error, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void ValidateRtsParityBurndownFlags_AllowsWellFormedGateRun()
+    public void ValidateRtsParityKnownGapFlags_AllowsWellFormedGateRun()
     {
-        Assert.Null(CorpusSensor.ValidateRtsParityBurndownFlags(
-            CorpusFidelityOracle.ReturnToSender, [3], "burndown.json", null));
-        Assert.Null(CorpusSensor.ValidateRtsParityBurndownFlags(
+        Assert.Null(CorpusSensor.ValidateRtsParityKnownGapFlags(
+            CorpusFidelityOracle.ReturnToSender, [3], "known-gaps.json", null));
+        Assert.Null(CorpusSensor.ValidateRtsParityKnownGapFlags(
             CorpusFidelityOracle.CompileBack, [0], null, null));
     }
 
     [Fact]
-    public void ReadRtsParityBurndown_ManifestWithoutRowsArray_ReadsAsEmptyWithoutThrowing()
+    public void ReadRtsParityKnownGapManifest_WithoutRowsArray_ReadsAsEmptyWithoutThrowing()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"rts-burndown-{Guid.NewGuid():N}.json");
+        var path = Path.Combine(Path.GetTempPath(), $"rts-known-gaps-{Guid.NewGuid():N}.json");
         File.WriteAllText(path, "{}");
         try
         {
-            var manifest = CorpusSensor.ReadRtsParityBurndown(path);
+            var manifest = CorpusSensor.ReadRtsParityKnownGapManifest(path);
             Assert.False(manifest.Rows.IsDefault);
             Assert.Empty(manifest.Rows);
         }

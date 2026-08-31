@@ -79,7 +79,7 @@ public static class TsJsExportCommand
                 return 1;
             }
 
-            var diagnostics = new TsBindGenDiagnostics();
+            var diagnostics = new TypeScriptGenerationDiagnostics();
             string generated;
             try
             {
@@ -94,7 +94,7 @@ public static class TsJsExportCommand
                 return 1;
             }
 
-            foreach (TsBindGenDiagnostic diagnostic in diagnostics.UnmappedTypes)
+            foreach (TypeScriptGenerationDiagnostic diagnostic in diagnostics.UnmappedTypes)
             {
                 stderr.WriteLine(
                     $"ts-jsexport: {diagnostic.Location}: "

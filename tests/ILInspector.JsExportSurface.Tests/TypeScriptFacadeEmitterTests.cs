@@ -6,7 +6,6 @@ using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.JsExportSurface.PublishabilityFixtures;
 using ILInspector.Metadata;
 using ILInspector.TypeScriptGeneration;
-using tsbindgen;
 
 namespace ILInspector.JsExportSurface.Tests;
 
@@ -34,7 +33,7 @@ public sealed class TypeScriptFacadeEmitterTests
                 Assert.Throws<MalformedMetadataRootException>(
                     () => JsExportSurfaceLoader.TryLoad(
                         path,
-                        "tsbindgen",
+                        "ts-jsexport",
                         TextWriter.Null,
                         out _));
             Assert.Equal(
@@ -200,7 +199,7 @@ public sealed class TypeScriptFacadeEmitterTests
     [Fact]
     public void Emit_DoesNotRebindAuthenticatedDelegatePayloadThroughLocalAlias()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var assembly = new ApiAssemblyIdentity(
             "Fixture",
             new Version(1, 0, 0, 0),
@@ -684,7 +683,7 @@ public sealed class TypeScriptFacadeEmitterTests
     [Fact]
     public void Emit_ReportsRejectedAsyncEnvelopeWithoutThrowing()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var dto = new ApiType
         {
             Namespace = "Fixture",

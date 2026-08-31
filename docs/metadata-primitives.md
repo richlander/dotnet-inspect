@@ -331,8 +331,7 @@ gates grouped multi-library Integration preflight projection through the same
 bounded format-failure diagnostic used by ordinary library inspection.
 `TypeScriptFacadeEmitterTests.SurfaceLoader_PreservesMalformedMetadataRoot`
 gates TypeScript-generation propagation; the malformed-root command tests in
-`TsBindGenCommandTests` and `TsJsExportCommandTests` gate their bounded
-diagnostics and non-zero exits.
+`TsJsExportCommandTests` gate bounded diagnostics and non-zero exits.
 `CorpusTests.Searches_preserve_typed_metadata_admission_failures` gates typed
 per-member no-metadata, unsupported-format, malformed-root, and invalid-image
 receipts for both Corpus search operations while retaining

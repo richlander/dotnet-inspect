@@ -2,11 +2,11 @@ using CSharpText;
 
 namespace ILInspector.TypeScriptGeneration;
 
-internal sealed class TsBindGenDiagnostics
+internal sealed class TypeScriptGenerationDiagnostics
 {
-    private readonly List<TsBindGenDiagnostic> _unmappedTypes = [];
+    private readonly List<TypeScriptGenerationDiagnostic> _unmappedTypes = [];
 
-    public IReadOnlyList<TsBindGenDiagnostic> UnmappedTypes => _unmappedTypes;
+    public IReadOnlyList<TypeScriptGenerationDiagnostic> UnmappedTypes => _unmappedTypes;
 
     public bool HasUnmappedTypes => _unmappedTypes.Count > 0;
 
@@ -15,10 +15,12 @@ internal sealed class TsBindGenDiagnostics
         ArgumentException.ThrowIfNullOrEmpty(location);
         ArgumentException.ThrowIfNullOrEmpty(csharpType);
         _unmappedTypes.Add(
-            new TsBindGenDiagnostic(
+            new TypeScriptGenerationDiagnostic(
                 CSharpIdentifier.ContainRenderedText(location),
                 CSharpIdentifier.ContainRenderedText(csharpType)));
     }
 }
 
-internal readonly record struct TsBindGenDiagnostic(string Location, string CSharpType);
+internal readonly record struct TypeScriptGenerationDiagnostic(
+    string Location,
+    string CSharpType);

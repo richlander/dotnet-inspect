@@ -8,6 +8,7 @@ using System.Reflection.PortableExecutable;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
+using NuGetFetch;
 
 namespace DotnetInspector.Queries.Tests;
 
@@ -168,6 +169,340 @@ public sealed class PackageAssemblyContextRealizationTests
         Assert.NotSame(net10.Identity, net11.Identity);
         Assert.Equal("net10.0", net10.Identity.RequestedTargetFramework);
         Assert.Equal("net11.0", net11.Identity.RequestedTargetFramework);
+    }
+
+    [Fact]
+    public async Task PackageRootGenerationIdentity_ReplacementChangesIdentity()
+    {
+        const string packageId = "generation.sample";
+        const string version = "1.0.0";
+        const string producer = "tests";
+        var store = new InMemoryPackageStore();
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(packageId, version);
+        await using var firstArchive = new MemoryStream(
+            Archive(("lib/net11.0/First.dll", [0x01])));
+        IPackageContent first = await store.CommitAsync(
+            packageId,
+            version,
+            producer,
+            firstArchive,
+            TestContext.Current.CancellationToken);
+        var firstPayload = new AcquiredPackageSourcePayload(
+            coordinate,
+            first,
+            producer,
+            PackagePayloadOrigin.Download);
+        PackageRootBinding firstBinding =
+            PackageRootBinding.CreateFromSource(firstPayload, Framework);
+        IPackageContent cachedFirst = Assert.IsAssignableFrom<IPackageContent>(
+            store.TryGetCached(
+                packageId,
+                version,
+                [producer]));
+        Assert.Same(
+            firstBinding.ContentGenerationIdentity,
+            cachedFirst.GenerationIdentity);
+
+        await using var replacementArchive = new MemoryStream(
+            Archive(("lib/net11.0/Second.dll", [0x02])));
+        IPackageContent replacement = await store.CommitAsync(
+            packageId,
+            version,
+            producer,
+            replacementArchive,
+            TestContext.Current.CancellationToken);
+        var replacementPayload = new AcquiredPackageSourcePayload(
+            coordinate,
+            replacement,
+            producer,
+            PackagePayloadOrigin.Download);
+        PackageRootBinding replacementBinding =
+            PackageRootBinding.CreateFromSource(replacementPayload, Framework);
+
+        Assert.NotSame(
+            firstBinding.ContentGenerationIdentity,
+            replacementBinding.ContentGenerationIdentity);
+        Assert.NotEqual(
+            firstBinding.Root.AssetSelection.DefaultAsset?.Path,
+            replacementBinding.Root.AssetSelection.DefaultAsset?.Path);
+    }
+
+    [Fact]
+    public void PackageRootSelectionIdentity_DifferentAssetsChangeIdentity()
+    {
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create("selection.sample", "1.0.0");
+        var content = new InMemoryPackageContent(
+            Archive(
+                ("lib/net10.0/Net10.dll", [0x01]),
+                ("lib/net11.0/Net11.dll", [0x02])),
+            fromCache: false,
+            producerKey: "tests");
+        var payload = new AcquiredPackageSourcePayload(
+            coordinate,
+            content,
+            "tests",
+            PackagePayloadOrigin.Download);
+
+        PackageRootBinding net10 =
+            PackageRootBinding.CreateFromSource(payload, "net10.0");
+        PackageRootBinding net11 =
+            PackageRootBinding.CreateFromSource(payload, "net11.0");
+
+        Assert.Same(
+            net10.ContentGenerationIdentity,
+            net11.ContentGenerationIdentity);
+        Assert.NotSame(net10.SelectionIdentity, net11.SelectionIdentity);
+        Assert.Equal(
+            ["lib/net10.0/Net10.dll"],
+            net10.Root.AssetSelection.Assets.Select(asset => asset.Path));
+        Assert.Equal(
+            ["lib/net11.0/Net11.dll"],
+            net11.Root.AssetSelection.Assets.Select(asset => asset.Path));
+    }
+
+    [Fact]
+    public void PackageRootSelectionIdentity_SelectionSequencesAreImmutable()
+    {
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create("selection.immutable", "1.0.0");
+        var payload = new AcquiredPackageSourcePayload(
+            coordinate,
+            new InMemoryPackageContent(
+                Archive(("lib/net11.0/Immutable.dll", [0x01])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+        PackageRootBinding binding =
+            PackageRootBinding.CreateFromSource(payload, Framework);
+
+        IList<PackageCompileAsset> assets =
+            Assert.IsAssignableFrom<IList<PackageCompileAsset>>(
+                binding.Root.AssetSelection.Assets);
+        IList<PackageCompileAsset> implementationAssets =
+            Assert.IsAssignableFrom<IList<PackageCompileAsset>>(
+                binding.Root.AssetSelection.ImplementationAssets);
+        IList<string> frameworks =
+            Assert.IsAssignableFrom<IList<string>>(
+                binding.Root.AssetSelection.AvailableTargetFrameworks);
+
+        Assert.True(assets.IsReadOnly);
+        Assert.True(implementationAssets.IsReadOnly);
+        Assert.True(frameworks.IsReadOnly);
+        Assert.Throws<NotSupportedException>(
+            () => assets.Add(assets[0]));
+        Assert.Throws<NotSupportedException>(
+            () => implementationAssets.Add(implementationAssets[0]));
+        Assert.Throws<NotSupportedException>(
+            () => frameworks.Add(frameworks[0]));
+    }
+
+    [Fact]
+    public void RealizedPackageCoordinate_ReacquisitionContractIsCoherent()
+    {
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create("coordinate.sample", "1.0.0");
+        var firstPayload = new AcquiredPackageSourcePayload(
+            coordinate,
+            new InMemoryPackageContent(
+                Archive(("lib/net11.0/First.dll", [0x01])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+        var secondPayload = new AcquiredPackageSourcePayload(
+            coordinate,
+            new InMemoryPackageContent(
+                Archive(("lib/net11.0/Second.dll", [0x02])),
+                fromCache: true,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Cache);
+
+        PackageRootBinding first =
+            PackageRootBinding.CreateFromSource(firstPayload, Framework);
+        PackageRootBinding second =
+            PackageRootBinding.CreateFromSource(secondPayload, Framework);
+
+        Assert.Equal(first.Coordinate, second.Coordinate);
+        Assert.NotSame(
+            first.ContentGenerationIdentity,
+            second.ContentGenerationIdentity);
+    }
+
+    [Fact]
+    public void PackageRootBinding_RootOnlyOutcomeRemainsValid()
+    {
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create("root.only", "1.0.0");
+        var content = new InMemoryPackageContent(
+            Archive(("tools/net11.0/any/root-only.dll", [0x01])),
+            fromCache: false,
+            producerKey: "tests");
+        var payload = new AcquiredPackageSourcePayload(
+            coordinate,
+            content,
+            "tests",
+            PackagePayloadOrigin.Download);
+
+        PackageRootBinding binding =
+            PackageRootBinding.CreateFromSource(payload);
+
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoCompileAssets,
+            binding.Root.AssetSelection.Status);
+        Assert.Null(binding.Coordinate.Framework);
+        Assert.True(binding.Root.ReferencesContent(content));
+    }
+
+    [Fact]
+    public void PackageRootBinding_UnrequestedFrameworkDoesNotUsePackageFolderAsCoordinate()
+    {
+        const string untrustedFramework = "net8.0\u202e";
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create("untrusted.framework", "1.0.0");
+        var payload = new AcquiredPackageSourcePayload(
+            coordinate,
+            new InMemoryPackageContent(
+                Archive(
+                    ($"lib/{untrustedFramework}/Untrusted.Framework.dll", [0x01])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+
+        PackageRootBinding binding =
+            PackageRootBinding.CreateFromSource(payload);
+
+        Assert.Null(binding.Coordinate.Framework);
+        Assert.Equal(
+            untrustedFramework,
+            binding.Root.AssetSelection.TargetFramework);
+    }
+
+    [Fact]
+    public void PackageRootBinding_UnrepresentableSelectionTargetUsesFrameworkNeutralCoordinate()
+    {
+        const string selectionTarget = ".NETFramework,Version=v4.8";
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create("rich.framework", "1.0.0");
+        var payload = new AcquiredPackageSourcePayload(
+            coordinate,
+            new InMemoryPackageContent(
+                Archive(("lib/net11.0/Rich.Framework.dll", [0x01])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+
+        PackageRootBinding binding =
+            PackageRootBinding.CreateFromSource(payload, selectionTarget);
+
+        Assert.Null(binding.Coordinate.Framework);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoMatchingTargetFramework,
+            binding.Root.AssetSelection.Status);
+        Assert.Equal(
+            selectionTarget,
+            binding.Root.AssetSelection.TargetFramework);
+    }
+
+    [Fact]
+    public void PackageRootBinding_ResolvedCoordinatePreservesAcquisitionTargetAndRuntime()
+    {
+        var resolved = new ResolvedPackageCoordinate(
+            "resolved.sample",
+            "1.0.0",
+            "net11.0",
+            "linux-x64",
+            [PackageSource.NuGetOrg],
+            wasFloating: false);
+        var payload = new AcquiredPackagePayload(
+            resolved,
+            new InMemoryPackageContent(
+                Archive(
+                    ("lib/net10.0/Net10.dll", [0x01]),
+                    ("runtimes/linux-x64/lib/net10.0/Net10.dll", [0x03]),
+                    ("lib/net11.0/Net11.dll", [0x02])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+
+        PackageRootBinding binding =
+            PackageRootBinding.CreateFromResolved(payload, "net10.0");
+
+        Assert.Equal("net11.0", binding.Coordinate.Framework);
+        Assert.Equal("linux-x64", binding.Coordinate.RuntimeIdentifier);
+        Assert.Equal("net10.0", binding.Root.RequestedTargetFramework);
+        Assert.Equal(
+            ["runtimes/linux-x64/lib/net10.0/Net10.dll"],
+            binding.Root.AssetSelection.Assets.Select(asset => asset.Path));
+        Assert.Equal(
+            ["runtimes/linux-x64/lib/net10.0/Net10.dll"],
+            binding.Root.AssetSelection.ImplementationAssets.Select(
+                asset => asset.Path));
+        Assert.Equal(
+            "linux-x64",
+            binding.Root.RequestedRuntimeIdentifier);
+    }
+
+    [Fact]
+    public void PackageRootBinding_SourceRuntimeRequiresFramework()
+    {
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create("runtime.sample", "1.0.0");
+        var payload = new AcquiredPackageSourcePayload(
+            coordinate,
+            new InMemoryPackageContent(
+                Archive(
+                    ("runtimes/linux-x64/lib/net11.0/Runtime.dll", [0x01])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+
+        ArgumentException failure = Assert.Throws<ArgumentException>(
+            () => PackageRootBinding.CreateFromSource(
+                payload,
+                selectionTargetFramework: null,
+                runtimeIdentifier: "linux-x64"));
+
+        Assert.Equal("selectionTargetFramework", failure.ParamName);
+    }
+
+    [Fact]
+    public void PackageRootBinding_AcquiredPayloadsAreConstructionControlled()
+    {
+        Assert.Empty(typeof(AcquiredPackagePayload).GetConstructors());
+        Assert.Empty(typeof(AcquiredPackageSourcePayload).GetConstructors());
+        Assert.All(
+            typeof(AcquiredPackagePayload).GetProperties(),
+            property => Assert.False(property.CanWrite));
+        Assert.All(
+            typeof(AcquiredPackageSourcePayload).GetProperties(),
+            property => Assert.False(property.CanWrite));
+    }
+
+    [Fact]
+    public void PackageRootBinding_RejectsProducerMismatch()
+    {
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create("producer.sample", "1.0.0");
+
+        ArgumentException failure = Assert.Throws<ArgumentException>(
+            () => new AcquiredPackageSourcePayload(
+                coordinate,
+                new InMemoryPackageContent(
+                    Archive(("lib/net11.0/Producer.dll", [0x01])),
+                    fromCache: false,
+                    producerKey: "other"),
+                "tests",
+                PackagePayloadOrigin.Download));
+
+        Assert.Contains("different producers", failure.Message);
     }
 
     [Fact]

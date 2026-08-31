@@ -179,6 +179,10 @@ public class AuthoredCorpusHarnessProcessTests
                 "Structural review status: **Partial** - 40 unsupported or ambiguous nodes were excluded.",
                 markdown.Output,
                 StringComparison.Ordinal);
+            Assert.Contains(
+                "Supported rows do not establish changes represented only by the gaps below.",
+                markdown.Output,
+                StringComparison.Ordinal);
             Assert.True(
                 markdown.Output.IndexOf("Structural review status:", StringComparison.Ordinal) <
                 markdown.Output.IndexOf("## Before", StringComparison.Ordinal));
