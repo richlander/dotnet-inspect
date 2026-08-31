@@ -248,7 +248,7 @@ public static class InspectionGraphIntegrationsCatalog
                     other._registration)
                 && _member == other._member
                 && ReferenceEquals(_concept, other._concept)
-                && NamedTypeReferencesAreEquivalent(
+                && MetadataNamedTypeReference.EquivalentComparer.Equals(
                     _reference,
                     other._reference);
 
@@ -261,7 +261,8 @@ public static class InspectionGraphIntegrationsCatalog
                     _registration,
                     _member,
                     _concept,
-                    NamedTypeReferenceHashCode(_reference));
+                    MetadataNamedTypeReference.EquivalentComparer
+                        .GetHashCode(_reference));
         }
 
         sealed class ReferenceOccurrenceIdentity :
@@ -296,54 +297,6 @@ public static class InspectionGraphIntegrationsCatalog
                         .GetHashCode(_reference));
         }
 
-        static bool NamedTypeReferencesAreEquivalent(
-            MetadataNamedTypeReference left,
-            MetadataNamedTypeReference right) =>
-            left.Type == right.Type
-            && ScopesAreEquivalent(left.Scope, right.Scope);
-
-        static bool ScopesAreEquivalent(
-            MetadataTypeReferenceScope left,
-            MetadataTypeReferenceScope right) =>
-            (left, right) switch
-            {
-                (MetadataTypeReferenceScope.CurrentAssembly,
-                    MetadataTypeReferenceScope.CurrentAssembly) => true,
-                (MetadataTypeReferenceScope.IntrinsicCoreLibrary,
-                    MetadataTypeReferenceScope.IntrinsicCoreLibrary) => true,
-                (MetadataTypeReferenceScope.AssemblyReference x,
-                    MetadataTypeReferenceScope.AssemblyReference y) =>
-                    x.Assembly.IsEquivalentTo(y.Assembly),
-                (MetadataTypeReferenceScope.ModuleReference x,
-                    MetadataTypeReferenceScope.ModuleReference y) =>
-                    string.Equals(
-                        x.Name,
-                        y.Name,
-                        StringComparison.Ordinal),
-                _ => false,
-            };
-
-        static int NamedTypeReferenceHashCode(
-            MetadataNamedTypeReference reference)
-        {
-            int scopeHash = reference.Scope switch
-            {
-                MetadataTypeReferenceScope.CurrentAssembly => 0,
-                MetadataTypeReferenceScope.IntrinsicCoreLibrary => 1,
-                MetadataTypeReferenceScope.AssemblyReference assembly =>
-                    HashCode.Combine(
-                        2,
-                        AssemblyReferenceIdentity.EquivalentComparer
-                            .GetHashCode(assembly.Assembly)),
-                MetadataTypeReferenceScope.ModuleReference module =>
-                    HashCode.Combine(
-                        3,
-                        StringComparer.Ordinal.GetHashCode(module.Name)),
-                _ => throw new InvalidOperationException(
-                    "Unknown metadata type-reference scope."),
-            };
-            return HashCode.Combine(reference.Type, scopeHash);
-        }
     }
 
     sealed class OpportunityEndpointProjectionImpl :
