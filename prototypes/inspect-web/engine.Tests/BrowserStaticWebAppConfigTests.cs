@@ -21,13 +21,11 @@ public class BrowserStaticWebAppConfigTests
             .. config.RootElement.GetProperty("routes").EnumerateArray(),
         ];
 
-        Assert.Equal(6, routes.Length);
+        Assert.Equal(4, routes.Length);
         AssertRoute(routes[0], "/");
         AssertRoute(routes[1], "/index.html");
         AssertRoute(routes[2], "/credits", "/index.html");
-        AssertRoute(routes[3], "/credits/", "/index.html");
-        AssertRoute(routes[4], "/query", "/index.html");
-        AssertRoute(routes[5], "/query/", "/index.html");
+        AssertRoute(routes[3], "/query", "/index.html");
         Assert.Equal(
             "dotnet-isolated:8.0",
             config.RootElement
@@ -94,6 +92,21 @@ public class BrowserStaticWebAppConfigTests
         Assert.Equal(
             routeKeys.Length,
             routeKeys.Distinct(StringComparer.Ordinal).Count());
+
+        // Azure Static Web Apps normalizes a trailing slash away when matching
+        // routes, so "/credits" and "/credits/" collide even though they are
+        // distinct strings above. That collision failed deployment twice
+        // (#4634, then reintroduced by #5039): catch it here instead of at
+        // deploy time.
+        string[] normalizedRouteKeys =
+        [
+            .. routeKeys.Select(
+                key => key.Length > 1 ? key.TrimEnd('/') : key),
+        ];
+
+        Assert.Equal(
+            normalizedRouteKeys.Length,
+            normalizedRouteKeys.Distinct(StringComparer.Ordinal).Count());
     }
 
     private static void AssertRoute(
