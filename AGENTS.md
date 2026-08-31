@@ -136,30 +136,34 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
 - **Review ordinary non-Markdown changes in parallel with CI:** requires user
   approval; conflict recovery is the explicit exception. A CI failure requiring
   an author change still supersedes the attempt, and all findings carry forward.
-- **Auto-merge on the final push:** once every required review is review-clean,
-  or the intended final head carries an approved exact-head
-  trivial-interaction waiver, the user may authorize auto-merge for that exact
-  head; the agent may ask. Head movement disarms it. Base movement alone does
-  not: if the PR remains open, classify the landed range and disarm before any
-  action other than no-interaction carry-forward.
+- **Authorize auto-merge for the final head:** once every required review is
+  review-clean, or the intended final head carries an approved exact-head
+  trivial-interaction waiver, the user may authorize auto-merge for that head.
+  Record the authorization, but arm GitHub auto-merge only after fresh
+  carry-forward classification and a green merge preflight. Head movement
+  expires it: disable auto-merge before pushing and ask again for the new head.
+  No-interaction base movement preserves it; any other classification expires
+  it.
 - **"CI is ready":** the user's statement that CI has no failures and the PR is
   mergeable. Trust it without re-checking and move to the next task, such as
   dispatching the next round's reviewers.
 - **Authorizing the next round before CI completes:** the agent does not need
   to check CI status first; proceed with the authorized round.
 - **Skip re-review after a trivial base interaction:** requires the user's
-  approval for one exact integration head against one exact analyzed base tip,
-  offered only for a `main`-targeting PR or bottom open stack slice whose
-  waiver lineage starts at one immutable review-clean head and recorded base
-  (a renewal may only integrate a further moved base from that same lineage).
+  approval for one exact integration head and its mechanically resolved
+  interaction at one exact analyzed base tip, offered only for a
+  `main`-targeting PR or bottom open stack slice whose waiver lineage starts at
+  one immutable review-clean head and recorded base (a renewal may only
+  integrate a further moved base from that same lineage).
   Every overlap must resolve mechanically — analyzed base side verbatim, or
   drop the PR's change to that file — and the cumulative diff against the
   newest base must stay a subset of the original reviewed diff with no
   surviving reviewed claim, contract, or behavior changed. `review-clean` stays
   absent on the integration head. Later no-interaction base movement extends
-  the waiver to the analyzed tip without moving the head or asking again; head
-  movement or any other interaction expires it. Semantic conflict resolution
-  or new authored change requires ordinary re-review. Evidence to publish:
+  the waiver and recorded auto-merge authorization to the analyzed tip without
+  moving the head or asking again; head movement or any other interaction
+  expires both. Semantic conflict resolution or new authored change requires
+  ordinary re-review. Evidence to publish:
   [Trivial-interaction re-review waiver](docs/round-orchestration.md#trivial-interaction-re-review-waiver).
 
 ## Before changing files
@@ -403,8 +407,8 @@ section and [round orchestration](docs/round-orchestration.md) explain them.
    author change restarts the *same* round.
 7. **Six rounds, then stop** and ask for another block.
 8. **Never merge without explicit user authorization** for that specific PR.
-   Auto-merge armed at the user's direction is that authorization; see
-   [Standing adjustments](#standing-adjustments).
+   A recorded exact-head auto-merge authorization satisfies this rule; request
+   arming follows [Standing adjustments](#standing-adjustments).
 
 ### Canonical round flow
 
@@ -464,13 +468,14 @@ readiness check and explicit user authorization regardless of classification.
 Full detection, classification, and action procedure:
 [Carry-forward after clean reviews](docs/round-orchestration.md#carry-forward-after-clean-reviews).
 The four outcomes: **no interaction** (keep the reviewed or waived head
-unchanged, preserve its state and authorization, and start no new CI run or
-other gate — the common case), **trivial interaction** (remove `review-clean`,
-disarm auto-merge, integrate, run affected gates, and offer the exact-head
-re-review waiver), **significant interaction, no conflict** (remove
-`review-clean`, disarm auto-merge, re-run validation and CI, and re-dispatch
-reviewers as a normal round), and **merge conflict requiring semantic
-resolution** (disarm auto-merge and treat as an author change under
+unchanged, preserve its state and recorded authorization, and start no new CI
+run or other gate — the common case), **trivial interaction** (remove
+`review-clean`, expire authorization, disable auto-merge, integrate, run
+affected gates, and offer the exact-head re-review waiver), **significant
+interaction, no conflict** (remove `review-clean`, expire authorization,
+disable auto-merge, re-run validation and CI, and re-dispatch reviewers as a
+normal round), and **merge conflict requiring semantic resolution** (expire
+authorization, disable auto-merge, and treat as an author change under
 [Recovery transitions](#recovery-transitions)).
 
 ### How many reviewers, and from which models

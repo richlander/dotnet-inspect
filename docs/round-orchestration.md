@@ -108,6 +108,12 @@ so documented `mergeStateStatus: BLOCKED` can also block the action; do not
 infer that enum from undocumented REST `mergeable_state` values. Follow
 [GitHub status queries](github-status-queries.md).
 
+An exact-head auto-merge authorization may be recorded earlier, but keep the
+GitHub auto-merge request unarmed while CI or mergeability is pending. Arm it
+only after this preflight and carry-forward analysis are current; it should
+then merge immediately without leaving an unclassified base-movement window.
+Before any author or recovery push moves the head, disable an existing request.
+
 For stacks, every open layer must meet its applicable eligibility row above. A
 known-red or conflicted parent blocks upper slices; a pending parent does not
 block a first or conflict-recovery attempt.
@@ -444,7 +450,9 @@ include more detail when the findings or fixes warrant it.
 moving](../AGENTS.md#clean-reviews-are-not-spent-by-main-moving) states when
 this path applies and how each landed-range classification resolves. It applies
 both to a review-clean head and to a head with a pending or approved
-trivial-interaction waiver. This is the procedure once the path applies.
+trivial-interaction waiver. A carry-forward lineage is one immutable candidate
+head plus the ordered base tips analyzed against it. This is the procedure once
+the path applies.
 
 1. **Detect movement without API spend.** Fetch the effective base
    non-mutating, resolve its remote-tracking ref to an exact SHA, and compare
@@ -464,19 +472,22 @@ trivial-interaction waiver. This is the procedure once the path applies.
    - *No interaction:* do not integrate or push. Keep the candidate head
      unchanged and record the analyzed tip as the lineage's new base tip. From
      a review-clean head, keep `review-clean`; from a pending or approved waiver
-     head, keep it absent and carry the waiver forward. Preserve any armed
-     head-bound auto-merge authorization. Skip validation, CI, review, and a
-     new waiver decision.
-   - *Trivial interaction:* remove `review-clean`, disarm auto-merge, integrate
-     the exact analyzed tip, resolve every overlap mechanically as classified,
-     run affected focused gates, and push. Follow the waiver procedure below
-     before dispatching replacement reviewers.
-   - *Significant interaction, no conflict:* remove `review-clean`, disarm
-     auto-merge, integrate the tip, re-run the claimed validation and
-     current-head CI, and re-dispatch the required reviewers at the new head as
-     a normal round.
-   - *Conflict requiring semantic resolution:* remove `review-clean`, disarm
-     auto-merge, and resolve it as an author change under
+     head, keep it absent and carry the waiver forward. Preserve recorded
+     head-bound auto-merge authorization, but do not arm GitHub here. Start no
+     new validation, CI, review, or waiver decision; final preflight still
+     observes the existing current-head gate.
+   - *Trivial interaction:* remove `review-clean`, expire auto-merge
+     authorization, disable any armed request, integrate the exact analyzed
+     tip, resolve every overlap mechanically as classified, run affected
+     focused gates, and push. Follow the waiver procedure below before
+     dispatching replacement reviewers.
+   - *Significant interaction, no conflict:* remove `review-clean`, expire
+     auto-merge authorization, disable any armed request, integrate the tip,
+     re-run the claimed validation and current-head CI, and re-dispatch the
+     required reviewers at the new head as a normal round.
+   - *Conflict requiring semantic resolution:* remove `review-clean`, expire
+     auto-merge authorization, disable any armed request, and resolve it as an
+     author change under
      [conflict recovery](../AGENTS.md#recovery-transitions), and re-dispatch
      the required reviewers at the new head.
 
@@ -491,8 +502,11 @@ not start or spend a replacement round.
 ### Trivial-interaction re-review waiver
 
 The binding criteria and evidentiary limits live in
-[Standing adjustments](../AGENTS.md#standing-adjustments). After the exact
-integration head is pushed, publish this evidence before asking:
+[Standing adjustments](../AGENTS.md#standing-adjustments). Approval covers one
+exact integration head and its mechanically resolved interaction at the named
+base tip; later no-interaction tips extend that lineage without changing the
+head. After the integration head is pushed, publish this evidence before
+asking:
 
 - the immutable reviewed head and its recorded base, the prior integration
   head/base when renewing, and the new integration head/base;
@@ -516,8 +530,9 @@ Without approval, do not waive review; resume the ordinary replacement
 workflow when work continues. A resolution that no longer satisfies the
 criteria requires ordinary re-review. Later base movement requires
 carry-forward classification: no interaction extends the pending or approved
-waiver to the newly analyzed tip without another integration or decision; any
-other interaction invalidates it. Any head movement also invalidates it.
+waiver and recorded auto-merge authorization to the newly analyzed tip without
+another integration or decision; any other interaction invalidates both. Any
+head movement also invalidates both.
 
 ## Block boundaries and splitting
 
