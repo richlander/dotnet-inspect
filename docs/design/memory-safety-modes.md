@@ -12,10 +12,9 @@ For the legacy and updated rule models that supply this binary evidence, see
 
 There are two coherent ways for the decompiler to treat the new rules:
 
-- **Conservative ("replay").** Reproduce only what the compiler *forced* the source
-  to do. If a binary exists, it already satisfied whatever rules it was compiled
-  under, and the metadata records the proof (a module-level `MemorySafetyRulesAttribute`,
-  a member's `RequiresUnsafeAttribute`). We replay those facts and nothing more.
+- **Conservative ("replay").** Render only the contexts justified by the
+  binary's rules/contracts and reconstructed operation semantics. It does not
+  claim to recover the original lexical wrapper.
 - **Optimistic ("simulate").** Show the code as the new rules *would* require, even
   for input that never had to satisfy them — a migration preview that deliberately
   overlaps a source fixer.
@@ -26,9 +25,9 @@ There are two coherent ways for the decompiler to treat the new rules:
 principled and self-gating: new-rules behavior keys off the module-level
 `MemorySafetyRulesAttribute` (`IrImporter.ModuleUsesUpdatedMemorySafetyRules`),
 so a legacy module's output is byte-identical to what it was before the feature
-existed, and a new-rules module replays the `unsafe` contexts the compiler
-demanded. It is the path Features C (body `unsafe` blocks) and D (signature
-`unsafe`) already follow.
+existed, and a new-rules module synthesizes only the `unsafe` contexts justified
+by recoverable contracts and reconstructed operations. It is the path Features
+C (body contexts) and D (signature `unsafe`) already follow.
 
 Optimistic ("simulate") mode is selected explicitly
 (`MetadataSource.SimulateNewRules`; the decompiler harness exposes it as
@@ -41,9 +40,12 @@ labeled, because it can invent contexts the original binary never had to satisfy
 
 The deciding factor is whether a construct leaves a trace in the binary.
 
-- The `unsafe` *context* is recoverable: the compiler stamps `MemorySafetyRulesAttribute`
-  / `RequiresUnsafeAttribute`, and pointer/`calli`/stackalloc operations are visible in
-  IL. So replaying `unsafe` blocks is faithful.
+- The need for an `unsafe` context can be recoverable or derivable: the compiler
+  stamps `MemorySafetyRulesAttribute` / `RequiresUnsafeAttribute`, and some
+  context-requiring operations remain visible in IL. The original lexical form
+  is not recoverable. The same IL can result from an `unsafe` block or
+  `unsafe(expr)`, so the decompiler synthesizes a valid context rather than
+  claiming to replay the source form.
 - The `scoped` modifier on a **local** is generally *not* recoverable: it is
   compile-time-only escape analysis and emits no IL or metadata (only `scoped`
   *parameters* get `ScopedRefAttribute`). A decompiler reading IL has zero signal
@@ -94,24 +96,36 @@ pointerless `unsafe` method's requires-unsafe-ness. Legacy compilation stamps no
 `RequiresUnsafeAttribute` and the call carries no pointer, so the fact was erased
 — there is nothing to replay or recover. This is the principled limit of the mode.
 
-The `unsafe(expr)` compiler gate is now met: roslyn #84012 / csharplang #10196
-shipped, and the syntax `unsafe(expression)` parses and compiles on the
-`11.0.100-preview.7` SDK this repo builds with. (The earlier Preview 6 probe
-rejected the speculative `unsafe stackalloc` spelling, which never shipped.)
-Emission is nonetheless deferred: the compile-back rail's pinned
-`Microsoft.CodeAnalysis.CSharp` (5.6.0, the latest public package) does not yet
-parse `unsafe(expr)` — it reads `unsafe` as the block keyword — so the rail could
-not recompile narrowed output, and every new-rules compile-back harness would
-break. We keep the `unsafe { }` block wrap until the pinned Roslyn advances to a
-version that implements unsafe expressions, at which point new-rules rendering can
-narrow a single `return <unsafe-expr>;` to the tighter `return unsafe(<expr>);`
-form (return position only — `unsafe(...)` is a primary expression, legal as a
-returned value but not as a bare statement). Tracked: #2021.
+## Rendering altitude and the runtime oracle
+
+The target is the smallest valid context, not a reconstruction of the original
+lexical wrapper. Prefer `unsafe(expr)` when one expression and its dependencies
+can be isolated. Otherwise wrap the smallest statement range that compiles and
+preserves scope and data flow. Do not pull semantically safe statements into the
+context merely because they are adjacent.
+
+dotnet/runtime is the oracle in two complementary forms. Migrated runtime source
+shows the accepted authored form where it exists. Because most source has not
+yet migrated, the
+[memory-safety fixer](https://github.com/dotnet/runtime/blob/aa036afce592ad80e938a35bd376222fb232cba9/src/tools/illink/src/ILLink.CodeFix/RequiresUnsafeCodeFixProvider.cs)
+supplies the placement model: it starts with the triggering statement, uses a
+forward declaration when that keeps later safe statements outside, and expands
+the block only when ref-local or other dependency semantics require it. The
+printer follows that containment policy without copying source-only audit
+comments or claiming the original source used the same form.
+
+The `unsafe(expr)` compiler gate is met: roslyn #84012 / csharplang #10196
+shipped, and `unsafe(expression)` parses and compiles on the SDK selected by the
+repository. Emission remains gated by the compile-back rail's pinned
+`Microsoft.CodeAnalysis.CSharp`, which does not yet parse the form. Until that
+package advances, the printer uses the same minimal-region policy with
+`unsafe { }` blocks. Once the rail can validate expressions, any legal
+expression position may use the tighter form; it is not limited to return
+statements. Tracked: #2021.
 
 Still future (not built): emit `// SAFETY-TODO` audit comments at introduced
-blocks; narrow the introduced `unsafe { }` wrap to the `unsafe(expr)` expression
-form once the pinned compiler can validate it (tracked: roslyn #84012 /
-csharplang #10196, #2021).
+contexts. Expression emission remains tracked by #2021 until the pinned
+compile-back compiler can validate it.
 
 ## Opaque-contract classification (analysis surface)
 

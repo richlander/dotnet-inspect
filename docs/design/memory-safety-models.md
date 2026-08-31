@@ -155,6 +155,10 @@ obligation inside its implementation instead of imposing it on callers. A v2
 member with `RequiresUnsafeAttribute` is a propagator whether or not its body
 contains unsafe operations.
 
+IL does not distinguish an operation written inside an `unsafe` block from the
+same operation written as `unsafe(expr)`. Body analysis can establish the need
+for a context, but not recover which lexical form supplied it.
+
 ### V2 audit and identification scenarios
 
 The updated model is useful only if its method roles can be identified and
@@ -399,6 +403,24 @@ audit intent and compiler or binary evidence, but at the cited snapshots they
 are debug-only, disabled by default, and do not establish a shipping
 dotnet-inspect evidence plane.
 
+### Decompiler rendering oracle
+
+For reconstructed C#, `unsafe(expr)` is a valid synthesized context, not a
+recoverable source fact. The Decompiler should emit the smallest context that
+preserves semantics and compiles: use `unsafe(expr)` when one expression can be
+isolated; otherwise use the smallest `unsafe` block permitted by statement,
+scope, and data-flow dependencies. Statements proven not to require the context
+stay outside that block.
+
+The style oracle is dotnet/runtime in two forms: migrated runtime source where
+available, and the memory-safety analyzer/fixer's placement policy while most
+of the source remains unmigrated. The
+[fixer](https://github.com/dotnet/runtime/blob/aa036afce592ad80e938a35bd376222fb232cba9/src/tools/illink/src/ILLink.CodeFix/RequiresUnsafeCodeFixProvider.cs)
+starts at the triggering statement, uses forward declarations when that keeps
+later safe statements outside, and expands only when ref-local or other
+dependency semantics require it. This guides reconstructed placement; it does
+not imply that the original source used the same block or expression form.
+
 ## Product answer map
 
 | User question | Required evidence | Current product answer |
@@ -411,7 +433,7 @@ dotnet-inspect evidence plane.
 | Which methods are safe boundaries? | Recognized v2 module, no member propagation contract, and positive inner-unsafe evidence | Not currently exposed as a composed census. |
 | How do safe and unsafe methods connect? | Typed method roles plus bounded incoming and outgoing call traversal over a finite cross-assembly context | Call-graph infrastructure supports both directions and cross-assembly identities. It can expose a conflating `MethodSignals.Unsafe` cue, but no current query composes the separate propagation, inner-use, and safe-boundary roles onto paths. |
 | How should C# declarations spell safety contracts? | Binary model, declaration shape, and member contract | CSharp does not yet consume the complete typed facts required for v2 `unsafe` and derived `safe` spelling. |
-| How should reconstructed bodies express unsafe context? | Binary model, member contract, and recovered body requirements | Decompiler owns this through [memory-safety rendering modes](memory-safety-modes.md). |
+| How should reconstructed bodies express unsafe context? | Binary model, member contract, recovered body requirements, and the runtime placement oracle | Decompiler owns this through [memory-safety rendering modes](memory-safety-modes.md); current output uses blocks while `unsafe(expr)` compile-back support remains tracked by #2021. |
 | Is the project configured for the strongest default? | Updated project policy, unsafe-context permission disabled, v2 binary, and no propagators or unsafe users | No single current query composes this answer. |
 | Did this project produce this binary? | Affirmative provenance evidence | Unverified unless supplied separately. |
 
