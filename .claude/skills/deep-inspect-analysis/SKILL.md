@@ -117,8 +117,8 @@ Use `docs/decompiler-correctness-pipeline.md` vocabulary:
 - Stage 10: changed-method fidelity/skeleton failures.
 
 Before creating new work, check #1584 for triage comments and #1568 for active
-burndowns. The current pattern is to cluster repeated rows into focused
-burndowns like #1687 (invalid Full printer) or #1688 (changed-method fidelity
+defect dockets. The current pattern is to cluster repeated rows into focused
+dockets like #1687 (invalid Full printer) or #1688 (changed-method fidelity
 skeleton), not to file one issue per assembly.
 
 ## Report shape
