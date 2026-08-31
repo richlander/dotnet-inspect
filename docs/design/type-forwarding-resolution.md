@@ -25,11 +25,12 @@ presents results.
 
 The former signature-spellability section crossed that boundary by defining a
 consumer protocol inside the resolver design. It is removed rather than
-reworked here. Issues
-[#4809](https://github.com/richlander/dotnet-inspect/issues/4809),
-[#4810](https://github.com/richlander/dotnet-inspect/issues/4810), and
-[#5248](https://github.com/richlander/dotnet-inspect/issues/5248) retain the
-separate spellability and compile-back questions under their own owners.
+reworked here. The independent terminal-accessibility primitive is tracked by
+[#5302](https://github.com/richlander/dotnet-inspect/issues/5302), and
+[#5248](https://github.com/richlander/dotnet-inspect/issues/5248) owns the
+tools-side local-declaration restatement. The aggregate implementation proposed
+by [#4885](https://github.com/richlander/dotnet-inspect/issues/4885) describes
+the superseded protocol and must not proceed under that contract.
 
 [Consumer scenario inventory](#consumer-scenario-inventory) records the known
 demand classes, including Research target attempts from
@@ -42,6 +43,18 @@ The executable
 checks the resolver's baseline path, outcome, cycle, hop-bound, and scope
 invariants. The model supplements the existing Release gates; it does not claim
 implementation conformance by itself.
+
+## Baseline supported scenarios
+
+These scenarios describe the common resolver behavior that consumers may rely
+on. Each is a successful execution of the resolver contract, including the
+case where resolution correctly preserves why it could not continue.
+
+| Request for `T1` | Result |
+| --- | --- |
+| The starting assembly defines `T1` directly. | `Resolved` identifies that exact physical `TypeDef`. The forwarding-hop sequence is empty; no forwarding-specific behavior occurs. |
+| The starting assembly forwards `T1`, the exact target assembly is available under the supplied workspace and binding policy, and the target defines `T1`. | `Resolved` identifies the target's exact physical `TypeDef`. The result retains the ordered forwarding-hop sequence, including every source and exact target assembly-reference identity, so consumers can report the forwarding nature and complete chain. |
+| The starting assembly forwards `T1`, but the exact target assembly is not available under the supplied workspace and binding policy. | Resolution returns the applicable typed non-success outcome: `UnboundBinding` when policy authoritatively has no candidate, or `Unavailable` when acquisition or selection cannot supply one. The result retains the completed forwarding-hop sequence and exact target assembly-reference identity so consumers can report a non-resolvable forwarder and its target. It is not `NotFound`, and the forwarding declaration is not treated as a definition. |
 
 ## The problem
 
@@ -349,9 +362,9 @@ public sealed class ResolvedAssemblyCandidate
 }
 ```
 
-`ResolvedAssemblyReference` evolves in slice 2 from a value-equal record to a
-non-equatable sealed class containing identity, optional path, opener,
-provenance, and an `AssemblyAcquisitionRegistration`:
+`ResolvedAssemblyReference` is a non-equatable sealed class containing
+identity, optional path, opener, provenance, and an
+`AssemblyAcquisitionRegistration`:
 
 ```csharp
 public sealed class AssemblyAcquisitionRegistration
@@ -1865,7 +1878,7 @@ Inventory stores distinct semantic `AssemblyRef` and forwarding-target
 identities in first-seen order. Repeated metadata rows and repeated forwarders
 to one target do not amplify the retained adjacency graph.
 
-Slice 2a evolves durable sessions to construct `PEReader` with
+Durable sessions construct `PEReader` with
 `PEStreamOptions.PrefetchEntireImage` and close the source stream immediately
 after construction. The catalog may retain prefetched image memory, but holds
 no source file handle for the lifetime of a context. Candidate, retained-image
@@ -2173,7 +2186,12 @@ to invoke it, but it cannot reinterpret an invoked result.
 - Every followed forwarding declaration contributes one ordered hop before the
   next binding is interpreted. A later missing, unavailable, ambiguous, or
   rejected result retains the completed prefix; failure does not erase how far
-  resolution progressed.
+  resolution progressed. The hop retains the declaration's exact target
+  assembly-reference identity even when no target candidate can be selected.
+- A forwarding declaration encountered after the traversal budget is consumed
+  is retained as the final evidence hop with its tightened scope and exact
+  target identity. Resolution then returns `HopBudgetExceeded` without calling
+  binding policy for that target.
 - Hop sources follow the selected candidate path without gaps or consumer-made
   aliases. Re-selecting any candidate already on that path is a cycle, even
   when another path or descriptor spelling could describe the same bytes.
@@ -2237,7 +2255,7 @@ The
 [TLA+ model](models/type-forwarding-resolution/README.md)
 explores every declaration result, forwarded-hop binding result, and
 selected-candidate open result over three assemblies and two hops. Its positive
-configurations check thirteen safety invariants and terminal progress. Six
+configurations check fourteen safety invariants and terminal progress. Six
 mutations demonstrate that the properties fail if the resolver accepts a
 forwarder as a definition, accepts an invalid selected image, attributes a
 terminal definition to the starting facade, maps a binding miss to `NotFound`,
@@ -2266,7 +2284,7 @@ record their internal protocol.
 | Browser platform call graphs | Resolve through already authorized platform candidates. | Supplemental platform admission and rebuilding the bounded workspace graph remain workspace/query decisions; the resolver does not probe the host. |
 | `match` token selection and discovery in #5228 | Retain the terminal physical candidate and module beside every resolved definition or member coordinate. | The CLI owns raw-token provenance, merged-surface projection, pairwise same-image checks, and discovery-population selection. A forwarded member token cannot be scanned or reinterpreted against the facade, and widening discovery cannot silently switch the seed back to the facade image. |
 | Custom-attribute enum width | Reach the exact defining type selected by the serialized reference. | Serialized-name grammar, qualifier constraints, enum-shape validation, and guard/decode width agreement belong to [Custom-attribute value decoding](custom-attribute-value-decoding.md). |
-| Signature spellability and compile-back | Resolve each named occurrence and preserve terminal definition and failure evidence. | The independent [single-signature decode bound](metadata-signature-decoding.md), C# participation, terminal accessibility, generated-artifact local declaration/nameability, compiler closure, and final admission belong outside this design through #4809, #4810, and #5248. This design issues no spellability aggregate or proof protocol. |
+| Signature spellability and compile-back | Resolve each named occurrence and preserve terminal definition and failure evidence. | The independent [single-signature decode bound](metadata-signature-decoding.md), terminal accessibility tracked by #5302, and the tools-side local declaration/nameability obligation tracked by #5248 belong outside this design. Compiler closure and final admission remain tools-owned. This design issues no spellability aggregate or proof protocol. |
 | Research implementation targets in #5189 | Supply the meaning of a forwarding declaration if a later composition explicitly invokes resolution. | The Research attempt is input-local and intentionally records `Unavailable/DeclaringTypeForwarded` instead of leaving its admitted input. A later workspace owner decides whether a forwarded endpoint may be followed to an already admitted or explicitly authorized implementation participant. |
 | Integration census | Resolve a peer to its terminal definition while retaining ordered forwarding evidence. | Finite-universe `In`/`Out` classification, completeness, suppression, provenance, and parent handoff remain owned by [Integrations](integrations.md). |
 
@@ -2393,7 +2411,7 @@ current ownership boundaries.
 - Type name, assembly identity, acquisition registration, candidate,
   provenance, durable address, terminal definition, and forwarding hops remain
   separate fields; no equality or display projection substitutes for another.
-- `TypeForwardingResolutionSafety.cfg` checks the thirteen resolver-state
+- `TypeForwardingResolutionSafety.cfg` checks the fourteen resolver-state
   invariants, and `TypeForwardingResolutionLiveness.cfg` checks terminal
   progress. The six committed mutation configurations must fail their intended
   scope, cycle, forwarder-success, terminal-ownership, invalid-image, and
@@ -2491,17 +2509,16 @@ Every asserted property names a test that fails when the relevant call site,
 result arm, bound, or discriminator is removed. Existence-only tests do not
 count.
 
-## Disposition of current work
+## Disposition of prior work
 
-- Keep #3437 as the working substrate until Slice 2 replaces its implementation
-  behind the structured contract.
+- #3437 established the working traversal substrate that the structured
+  contract subsequently replaced.
 - Leave #3449 closed.
 - Preserve #3476's real-artifact fixtures, hostile cases, measurements, and
   review findings as requirements. Do not make its alias engine the product
   architecture.
-- Split #3460's general path hardening from forwarder resolution. The
-  forwarder-specific sinks are removed by Slice 4 rather than permanently
-  guarded in place.
+- Keep #3460's general path hardening separate from forwarder resolution.
+  Structured consumers do not construct sibling paths from forwarding targets.
 
 The open issues found during #3476 become model requirements:
 

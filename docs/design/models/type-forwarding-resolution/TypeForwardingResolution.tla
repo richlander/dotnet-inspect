@@ -143,16 +143,25 @@ ProbeForwarded(requestedScope) ==
     /\ IF MutationMode = "ResolveForwarder"
        THEN Finish("Resolved", "ForwarderShortcut")
        ELSE
-            IF Len(hops) = HopBudget
-            THEN Finish("Rejected", "HopBudget")
-            ELSE
-                LET effectiveScope == NextScope(scope, requestedScope)
-                IN
+            LET effectiveScope == NextScope(scope, requestedScope)
+                nextHops == Append(
+                    hops,
+                    [source |-> current, scope |-> effectiveScope])
+            IN
+                IF Len(hops) = HopBudget
+                THEN
+                    /\ phase' = "Terminal"
+                    /\ scope' = effectiveScope
+                    /\ hops' = nextHops
+                    /\ terminalKind' = "Rejected"
+                    /\ terminalCause' = "HopBudget"
+                    /\ terminalAssembly' = current
+                    /\ UNCHANGED
+                        <<current, path, initialScope, validated>>
+                ELSE
                     /\ phase' = "Binding"
                     /\ scope' = effectiveScope
-                    /\ hops' = Append(
-                        hops,
-                        [source |-> current, scope |-> effectiveScope])
+                    /\ hops' = nextHops
                     /\ UNCHANGED
                         <<current, path, initialScope, validated,
                           terminalKind, terminalCause, terminalAssembly>>
@@ -294,7 +303,16 @@ SelectedPathHasNoCycle ==
     NoDuplicates(path)
 
 HopBudgetIsObserved ==
-    Len(hops) <= HopBudget
+    /\ Len(hops) <= HopBudget + 1
+    /\ (Len(hops) > HopBudget =>
+        /\ phase = "Terminal"
+        /\ terminalCause = "HopBudget")
+
+HopBudgetRetainsTerminalEvidence ==
+    terminalCause = "HopBudget" =>
+        /\ Len(hops) = HopBudget + 1
+        /\ Len(path) = Len(hops)
+        /\ hops[Len(hops)].source = current
 
 TerminalOutcomeMatchesCause ==
     phase = "Terminal" =>

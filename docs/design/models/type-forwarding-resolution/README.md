@@ -16,7 +16,9 @@ The model answers six focused questions:
 - Can a binding miss become declaration-level `NotFound`?
 - Can a forwarding hop loosen the resolution scope established by an earlier
   hop?
-- Can the selected assembly path repeat or exceed the hop budget?
+- Can the selected assembly path repeat or consume more bindings than the hop
+  budget while still retaining the terminal forwarding declaration that
+  exhausted it?
 
 It also checks that hop sources form one continuous selected path, the current
 scope agrees with the last hop, terminal causes retain their outcome class, and
@@ -28,11 +30,13 @@ Each initial state begins in one registered, validated assembly under either
 `Any` or `Platform` scope.
 Single-image probing may report a definition, authoritative absence,
 ambiguity, rejection, module export, or forwarding declaration. A forwarder
-records its source and tightened scope before binding. Binding may select any
-of three bounded assemblies or report missing, unavailable, ambiguous, or
-rejected. A selected candidate either terminates as a cycle or enters an open
-step that validates the candidate, rejects unreadable/invalid/budget-exhausted
-images, and only then permits the next probe. The hop budget is two.
+records its source and tightened scope before binding. If that declaration
+exhausts the hop budget, it remains the terminal evidence hop and resolution
+stops without a binding call. Otherwise, binding may select any of three
+bounded assemblies or report missing, unavailable, ambiguous, or rejected. A
+selected candidate either terminates as a cycle or enters an open step that
+validates the candidate, rejects unreadable or invalid images, and only then
+permits the next probe. The hop budget is two.
 
 The three-assembly and two-hop bounds are sufficient for the modeled
 properties: they admit a multi-hop chain, a return to either prior candidate,
@@ -62,7 +66,7 @@ implementation evidence.
 
 | Configuration | Purpose |
 | --- | --- |
-| `TypeForwardingResolutionSafety.cfg` | Checks type safety, path and phase coherence, continuous hop evidence, initial/hop scope monotonicity, cycle exclusion, the hop bound, terminal cause, declaration, validation, and physical-owner preservation, and exactly one terminal outcome. |
+| `TypeForwardingResolutionSafety.cfg` | Checks type safety, path and phase coherence, continuous hop evidence, initial/hop scope monotonicity, cycle exclusion, the binding-hop bound, retained terminal budget evidence, terminal cause, declaration, validation, and physical-owner preservation, and exactly one terminal outcome. |
 | `TypeForwardingResolutionLiveness.cfg` | Checks that every nondeterministic typed path reaches a terminal result under weak fairness. |
 | `TypeForwardingResolutionBrokenScope.cfg` | Allows `Platform` scope to loosen to `Any`; it must violate `ScopeNeverLoosens`. |
 | `TypeForwardingResolutionBrokenCycle.cfg` | Allows a selected assembly to repeat; it must violate `SelectedPathHasNoCycle`. |
@@ -121,8 +125,8 @@ The positive configurations completed with no errors:
 
 | Configuration | Generated states | Distinct states | Maximum depth | Result |
 | --- | ---: | ---: | ---: | --- |
-| Safety | 247 | 226 | 8 | All thirteen invariants passed. |
-| Liveness | 247 | 226 | 8 | `ResolutionConverges` passed. |
+| Safety | 247 | 228 | 8 | All fourteen invariants passed. |
+| Liveness | 247 | 228 | 8 | `ResolutionConverges` passed. |
 
 Each mutation exited with TLC status 12 on its intended invariant:
 

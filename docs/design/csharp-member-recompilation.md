@@ -78,10 +78,8 @@ context.
 - Do not require stricter metadata, exception-region, local-signature, PDB, or PE
   comparison before the first useful round-trip measurements.
 - Do not add Metadata forwarding or accessibility semantics. Compile-back
-  consumes typed resolution evidence from
-  [`type-forwarding-resolution.md`](type-forwarding-resolution.md);
-  #4809 owns the spellability operation and #5248 owns the tools-side local
-  declaration precondition.
+  consumes the signature-spellability aggregate owned by
+  [`type-forwarding-resolution.md`](type-forwarding-resolution.md).
 - Do not expand C# lexical-precedence policy. Issue
   [#4721](https://github.com/richlander/dotnet-inspect/issues/4721) owns that
   concern; this contract only refuses to equate equal spellings with equal
