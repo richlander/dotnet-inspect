@@ -2,7 +2,6 @@ using System.Collections.Immutable;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface;
 using ILInspector.Metadata;
-using tsbindgen;
 
 namespace ILInspector.JsExportSurface.Tests;
 
@@ -86,7 +85,7 @@ public sealed class TsTypeMapperTests
     [Fact]
     public void MapJsonWireType_DoesNotApplyDelegateAuthorityToByteSimpleName()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         Assert.Equal(
             "ReadonlyArray<unknown>",
@@ -175,7 +174,7 @@ public sealed class TsTypeMapperTests
     [Fact]
     public void MapParameterType_MapsAuthenticatedIntPtrAsNumber()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         Assert.Equal(
             "(arg0: number) => undefined",
@@ -192,7 +191,7 @@ public sealed class TsTypeMapperTests
     [Fact]
     public void MapJsonWireType_DoesNotInheritIntPtrInteropMapping()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         Assert.Equal(
             "unknown",
@@ -296,7 +295,7 @@ public sealed class TsTypeMapperTests
     [Fact]
     public void MapParameterType_DoesNotRebindAuthenticatedFrameworkPayloadThroughAlias()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var mappedTypeNames = new Dictionary<string, string>(
             StringComparer.Ordinal)
         {
@@ -609,7 +608,7 @@ public sealed class TsTypeMapperTests
             "A",
             "B+C",
             DefinitionName("A", "B", "C"));
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         Assert.Equal(
             "unknown",
@@ -691,7 +690,7 @@ public sealed class TsTypeMapperTests
     [Fact]
     public void MapParameterType_PreservesAuthenticatedOpaqueJsObject()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         Assert.Equal(
             "(arg0: unknown) => undefined",
@@ -731,7 +730,7 @@ public sealed class TsTypeMapperTests
                     TsLocalTypeKind.Reference,
             },
             FixtureAssembly);
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         Assert.Equal(
             "(arg0: unknown) => undefined",
@@ -793,7 +792,7 @@ public sealed class TsTypeMapperTests
     [Fact]
     public void MapParameterType_RejectsAuthenticatedIdentityMismatch()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var signature = new JsExportDelegateParameter
         {
             ParameterIndex = 0,
@@ -824,7 +823,7 @@ public sealed class TsTypeMapperTests
     [Fact]
     public void MapParameterType_RejectsUnqualifiedRecordAliasMismatch()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var signature = new JsExportDelegateParameter
         {
             ParameterIndex = 0,
@@ -857,7 +856,7 @@ public sealed class TsTypeMapperTests
     [Fact]
     public void MapParameterType_DoesNotTrustDelegateLookingText()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         Assert.Equal(
             "unknown",
@@ -876,7 +875,7 @@ public sealed class TsTypeMapperTests
     [Fact]
     public void MapParameterType_RejectsPromiseReturningDelegate()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var signature = new JsExportDelegateParameter
         {
             ParameterIndex = 0,
@@ -920,7 +919,7 @@ public sealed class TsTypeMapperTests
     [Fact]
     public void Map_UnknownTypeMapsToUnknownAndReportsDiagnostic()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         Assert.Equal(
             "unknown",
@@ -942,7 +941,7 @@ public sealed class TsTypeMapperTests
             "Result",
             "Mine.Result",
         };
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         Assert.Equal(
             "unknown",
@@ -1011,7 +1010,7 @@ public sealed class TsTypeMapperTests
     [Fact]
     public void Map_DictionaryWithNonStringKeyReportsUnmappedType()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         Assert.Equal(
             "unknown",
@@ -1033,7 +1032,7 @@ public sealed class TsTypeMapperTests
         // JsonElement is STJ's own representation of arbitrary/untyped JSON: "unknown" is the
         // deliberately correct TS shape here, not a gap the way an unrecognized type (Guid,
         // DateTime, an unmappable Dictionary) is — so it must not be recorded as an unmapped type.
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         Assert.Equal(
             "unknown",
@@ -1046,7 +1045,7 @@ public sealed class TsTypeMapperTests
     [InlineData("JSObject")]
     public void Map_JSObjectMapsToUnknownWithoutReportingAsUnmapped(string csharpType)
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         Assert.Equal(
             "unknown",
@@ -1063,7 +1062,7 @@ public sealed class TsTypeMapperTests
     [InlineData("JSObject")]
     public void MapJsonWireType_JSObjectReportsUnmappedType(string csharpType)
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         Assert.Equal(
             "unknown",
@@ -1094,7 +1093,7 @@ public sealed class TsTypeMapperTests
         JsExportDelegateParameter signature,
         TsDelegateMappingContext? mappingContext = null)
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         Assert.Equal(
             "unknown",
