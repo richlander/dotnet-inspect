@@ -415,14 +415,12 @@ public class FindCommandTests
         var source = new CountingPackageSource();
         PackageProfileSectionCatalog catalog =
             PackageProfileSections.CreateCatalog();
-        SectionQueryPlan sectionPlan =
-            catalog.Sections.PlanQueries(
-                Verbosity.Normal,
-                [PackageProfileSections.Packages]);
 
         InspectionQueryResults results =
-            await catalog.QueryCatalog
-                .Plan(sectionPlan.Queries[0])
+            await catalog.Lens
+                .Plan(
+                    Verbosity.Normal,
+                    [PackageProfileSections.Packages])
                 .RunAsync(
                     new PackageProfileQueryContext(
                         source,
@@ -453,14 +451,13 @@ public class FindCommandTests
             dependenciesPerManifest);
         PackageProfileSectionCatalog catalog =
             PackageProfileSections.CreateCatalog();
-        HashSet<InspectionQueryDefinition> requested =
-            catalog.Pipeline.GetRequiredQueries(
-                Verbosity.Normal,
-                [PackageProfileSections.Packages]);
 
         InspectionQueryResults results =
-            await catalog.QueryCatalog.ToBuilder().RunAsync(
-                requested,
+            await catalog.Lens
+                .Plan(
+                    Verbosity.Normal,
+                    [PackageProfileSections.Packages])
+                .RunAsync(
                 new PackageProfileQueryContext(
                     source,
                     new PackagePrefixProfileRequest("Contoso.")),
@@ -1148,6 +1145,60 @@ public class FindCommandIntegrationTests
         Assert.Empty(output);
         Assert.Contains(
             "cannot be combined with API search scopes, --all, or --tfm",
+            error);
+        Assert.DoesNotContain("Attempted:", error);
+    }
+
+    [Theory]
+    [InlineData("-t")]
+    [InlineData("--type")]
+    public void PackageProfileCountWithPackageLimit_FailsBeforeNetwork(
+        string option)
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "--package-prefix",
+                "Microsoft",
+                option,
+                "2",
+                "--count",
+                "--offline",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--count cannot be combined with -t for a package-prefix search",
+            error);
+        Assert.DoesNotContain("Attempted:", error);
+    }
+
+    [Theory]
+    [InlineData("-t", "-D")]
+    [InlineData("-t", "--discover")]
+    [InlineData("--type", "-D")]
+    [InlineData("--type", "--discover")]
+    public void PackageProfileDiscoveryRejectsCountWithPackageLimit(
+        string limitOption,
+        string discoverOption)
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "--package-prefix",
+                "Microsoft",
+                limitOption,
+                "2",
+                "--count",
+                discoverOption,
+                "--offline",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--count cannot be combined with -t for a package-prefix search",
             error);
         Assert.DoesNotContain("Attempted:", error);
     }
