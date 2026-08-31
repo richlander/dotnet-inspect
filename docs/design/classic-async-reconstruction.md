@@ -44,8 +44,10 @@ inverse-core boundary. The adjacent work is tracked independently:
   foreign-body embedding decisions for local functions and lambdas.
 - [#5279](https://github.com/richlander/dotnet-inspect/issues/5279) owns direct
   member and whole-type projection of typed body results.
+- [#5292](https://github.com/richlander/dotnet-inspect/issues/5292) owns stage
+  application and no-edit treatment of exact execution and support bodies.
 
-All four efforts are unstacked and target `main`.
+All five efforts are unstacked and target `main`.
 
 ## Claim and non-claims
 
@@ -374,8 +376,8 @@ Release gates:
 | `ClassicInverseSideEffectsInExpressionsDeclineWithoutRealization` | A call or other effect in a condition, operand, initializer, or filter is omitted because it is not an expression statement. |
 | `ClassicInverseNestedStoresDoNotEscapeTheirControlContext` | A sequential or loop store nested under structured control is emitted unconditionally. |
 | `ClassicInverseStructuredViewsRetainImportCorrespondence` | A derived planning node issues a receipt without unambiguous correspondence to its unmodified imported physical region. |
-| `ClassicInverseBodyReplacingReferenceAssembliesDecline` | An authenticated SDK reference-assembly relationship with synthesized bodies reconstructs or is treated as body-unavailable. |
-| `ClassicInverseDefaultInterfaceBodiesUseMethodEvidence` | A managed-IL default-interface kickoff is excluded merely because its declaring type is an interface. |
+| `ClassicInverseBodyReplacingReferenceAssembliesDecline` | A direct core request built from an authenticated SDK reference-assembly relationship with synthesized bodies does not decline. |
+| `ClassicInverseDefaultInterfaceBodiesUseMethodEvidence` | A direct core request built from authenticated managed-IL default-interface evidence is rejected solely because its declaring type is an interface. |
 | `ClassicInverseDecisionIsDetachedAndDeterministic` | A plan retains mutable IR, aliases a request body, or changes with request order or caller mutation. |
 | `ClassicInversePlanningFailuresRemainFailures` | Invalid correlation or core-owned budget exhaustion becomes decline, reconstruction, or empty success. |
 | `ClassicInverseAcceptedPopulationIsMeasured` | The implementation changes the accepted compiler-fixture population without an explicit expected delta and per-method review. |
