@@ -322,7 +322,13 @@ are load-bearing rather than incidental:
   construction.
 - **Named arguments, generic substitution, custom modifiers, nesting near
   `MaxSerializedDepth`, and the malformed extensions** below are all
-  ungenerated.
+  ungenerated. The named-argument count is a literal zero on every generated
+  blob, so even the count-bounding path never runs.
+- **Every generated blob is legal and approved.** The corpus contains no
+  must-refuse case at all: the non-vacuity assertion holds at 600 of 600
+  approved. Refusal is the guard's entire security function and I2 is stated
+  wholly in terms of it, so this slice gates the half of the contract that runs
+  after the guard has already said yes.
 
 Two properties of the corpus are load-bearing enough to state directly. The
 special types `System.Enum` and `System.Type` are scoped to a real
@@ -343,6 +349,40 @@ this document's first draft — including two found by reviewing this very
 section. That is evidence the enumeration below is incomplete rather than
 evidence it is done. Treat it as the starting corpus for the oracle, not as a
 closed description of the input space.
+
+### Why this slice's method cannot close, and what replaces it
+
+This slice samples a corpus randomly and then asserts coverage over the sample:
+*some* generated blob carried byte `0x50`, *some* string was empty. Four review
+rounds each found the same defect — an assertion satisfiable by something other
+than the thing it names — because an existential over a random sample is the
+only thing standing in for domain completeness here, and nothing in the design
+says when the set of such assertions is finished. Hardening them further does
+not converge; each round can only find the next one somebody thought of, which
+is the same critique this section makes of the regression suite it replaced.
+
+The successor inverts it. Rather than sampling a corpus and arguing it is
+representative, enumerate the input space **exhaustively within declared
+bounds**, and derive closure from partitioning rather than from listing wins:
+for each position — top-level fixed argument, array element, boxed inner,
+named-argument type — every byte value is either a legal spelling, enumerated
+with its value forms, or illegal and therefore must-refuse. A partition is
+total, so nothing can be silently absent.
+
+Each enumerated point then carries an expected **disposition**: must-approve,
+must-refuse, or a known gap naming its issue. Coverage assertions disappear
+entirely, because a point is either enumerated or it is not; refusal becomes
+half the domain rather than none of it; and the known gaps above become
+executable, so repairing one fails the gate that records it instead of leaving
+the prose to rot. What is then under review is the *bounds* argument, which is
+the thing that should be reviewed.
+
+That successor closes I1 and the refusal half of the contract. It does not
+close I2 or I3: amplification needs large declared counts and a work-per-byte
+measurement, which is a different instrument and a separate slice. The bounds
+and disposition model are being settled docs-first, as issue #5288, because the
+bounds argument is the artifact that needs review — the prior slice's trouble
+was never the assertions themselves.
 
 ### Generated grammar
 
