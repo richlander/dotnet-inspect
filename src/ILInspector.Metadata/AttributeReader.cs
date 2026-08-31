@@ -1864,33 +1864,23 @@ public static partial class AttributeReader
             });
 
     /// <summary>
-    /// Resolves the defining assembly of an attribute whose type is exactly the
-    /// top-level <paramref name="fullTypeName"/> definition, judged by
-    /// structured <see cref="MetadataTypeDefinitionName"/> identity rather than
-    /// by a flattened display spelling.
+    /// Resolves an attribute constructor's declaring type only when it is
+    /// exactly the top-level <paramref name="fullTypeName"/> definition, judged
+    /// by structured <see cref="MetadataTypeDefinitionName"/> identity rather
+    /// than by a flattened display spelling.
     /// </summary>
-    /// <remarks>
-    /// The flattened spelling of a nested <c>TypeRef</c> chain joins its
-    /// segments with <c>.</c>, so a <c>System.Text.Json/Serialization</c> outer
-    /// reference with a nested <c>JsonIgnoreAttribute</c> leaf renders exactly
-    /// like the genuine top-level attribute — and its resolution scope still
-    /// terminates at the authentic framework <c>AssemblyRef</c>. Comparing
-    /// namespace and root-to-leaf segments separates the two.
-    /// <c>JsonPropertyNameAttributeTests.NestedAttributeIdentityCannotAliasTopLevelFrameworkAttribute</c>
-    /// is the gate.
-    /// </remarks>
-    static bool TryGetAuthenticAttributeAssembly(
+    static bool TryGetTopLevelAttributeType(
         MetadataReader reader,
         EntityHandle constructor,
         string fullTypeName,
         Action<int>? beforeMaterialize,
-        [NotNullWhen(true)] out ApiAssemblyIdentity? identity)
+        out EntityHandle declaringType)
     {
-        identity = null;
+        declaringType = default;
         if (ExpectedTopLevelName(fullTypeName) is not { } expected)
             return false;
 
-        EntityHandle declaringType = constructor.Kind switch
+        declaringType = constructor.Kind switch
         {
             HandleKind.MemberReference =>
                 reader.GetMemberReference(
@@ -1910,7 +1900,6 @@ public static partial class AttributeReader
         if (declaringType.Kind == HandleKind.TypeDefinition)
         {
             if (constructor.Kind != HandleKind.MethodDefinition
-                || !reader.IsAssembly
                 || MetadataTypeDefinitionNameReader.Read(
                         reader,
                         (TypeDefinitionHandle)declaringType,
@@ -1920,26 +1909,61 @@ public static partial class AttributeReader
             {
                 return false;
             }
+            return true;
+        }
 
+        return declaringType.Kind == HandleKind.TypeReference
+            && MetadataTypeDefinitionNameReader.Read(
+                    reader,
+                    (TypeReferenceHandle)declaringType,
+                    beforeMaterialize)
+                is MetadataTypeDefinitionNameReadResult.Read referenced
+            && referenced.Name.Equals(expected);
+    }
+
+    /// <summary>
+    /// Resolves the defining assembly of an attribute whose type is exactly the
+    /// top-level <paramref name="fullTypeName"/> definition.
+    /// </summary>
+    /// <remarks>
+    /// The flattened spelling of a nested <c>TypeRef</c> chain joins its
+    /// segments with <c>.</c>, so a <c>System.Text.Json/Serialization</c> outer
+    /// reference with a nested <c>JsonIgnoreAttribute</c> leaf renders exactly
+    /// like the genuine top-level attribute — and its resolution scope still
+    /// terminates at the authentic framework <c>AssemblyRef</c>. Comparing
+    /// namespace and root-to-leaf segments separates the two.
+    /// <c>JsonPropertyNameAttributeTests.NestedAttributeIdentityCannotAliasTopLevelFrameworkAttribute</c>
+    /// is the gate.
+    /// </remarks>
+    static bool TryGetAuthenticAttributeAssembly(
+        MetadataReader reader,
+        EntityHandle constructor,
+        string fullTypeName,
+        Action<int>? beforeMaterialize,
+        [NotNullWhen(true)] out ApiAssemblyIdentity? identity)
+    {
+        identity = null;
+        if (!TryGetTopLevelAttributeType(
+                reader,
+                constructor,
+                fullTypeName,
+                beforeMaterialize,
+                out EntityHandle declaringType))
+        {
+            return false;
+        }
+
+        if (declaringType.Kind == HandleKind.TypeDefinition)
+        {
+            if (!reader.IsAssembly)
+                return false;
             identity = ApiAssemblyIdentity.FromDefinition(
                 reader,
                 beforeMaterialize);
             return true;
         }
 
-        if (declaringType.Kind != HandleKind.TypeReference)
-            return false;
-
         var typeReference = (TypeReferenceHandle)declaringType;
-        if (MetadataTypeDefinitionNameReader.Read(
-                    reader,
-                    typeReference,
-                    beforeMaterialize)
-                is not MetadataTypeDefinitionNameReadResult.Read referenced
-            || !referenced.Name.Equals(expected))
-        {
-            return false;
-        }
 
         Span<TypeReferenceHandle> chain =
             stackalloc TypeReferenceHandle[
@@ -1962,6 +1986,29 @@ public static partial class AttributeReader
             (AssemblyReferenceHandle)terminal,
             beforeMaterialize);
         return true;
+    }
+
+    internal static bool IsTopLevelAttributeType(
+        MetadataReader reader,
+        EntityHandle constructor,
+        string fullTypeName,
+        Action<int>? beforeMaterialize)
+    {
+        try
+        {
+            return TryGetTopLevelAttributeType(
+                reader,
+                constructor,
+                fullTypeName,
+                beforeMaterialize,
+                out _);
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException)
+        {
+            return false;
+        }
     }
 
     static bool IsFrameworkAttributeType(

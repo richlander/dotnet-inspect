@@ -388,16 +388,6 @@ public sealed class MemorySafetyMetadataIndex
                 "The member signature could not be decoded.");
         }
 
-        if (pointer.Evidence == MemorySafetyPointerEvidence.Present
-            && pointer.FixedBuffer
-                == MemorySafetyFixedBufferEvidence.Unavailable)
-        {
-            return Unavailable(
-                evidence,
-                MemorySafetyMemberContractFailureKind.AttributeUnavailable,
-                "FixedBufferAttribute metadata could not be read.");
-        }
-
         return pointer.Evidence == MemorySafetyPointerEvidence.Present
             ? new MemorySafetyMemberContractResult.Implicit(evidence)
             : new MemorySafetyMemberContractResult.None(evidence);
@@ -736,6 +726,14 @@ public sealed class MemorySafetyMetadataIndex
                 {
                     continue;
                 }
+                if (!AttributeReader.IsTopLevelAttributeType(
+                        _reader,
+                        attribute.Constructor,
+                        name,
+                        nameBudget.Observe))
+                {
+                    continue;
+                }
 
                 if (AttributeReader.HasExpectedMarkerConstructor(
                         _reader,
@@ -853,6 +851,14 @@ public sealed class MemorySafetyMetadataIndex
                 nameBudget.Observe);
             if (name != KnownAttributeNames.MemorySafetyRulesAttribute)
                 continue;
+            if (!AttributeReader.IsTopLevelAttributeType(
+                    reader,
+                    attribute.Constructor,
+                    name,
+                    nameBudget.Observe))
+            {
+                continue;
+            }
 
             if (TryReadRulesVersion(
                     reader,

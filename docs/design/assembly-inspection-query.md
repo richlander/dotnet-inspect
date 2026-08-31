@@ -1017,7 +1017,9 @@ authenticates shared structure, then each higher layer owns its distinct policy.
 The module result is based only on
 `System.Runtime.CompilerServices.MemorySafetyRulesAttribute` rows attached to the
 ModuleDef. AssemblyDef, TypeDef, and member rows with the same attribute name do
-not select the module model.
+not select the module model. Carrier identity is the structured top-level metadata
+type name; a nested TypeDef or TypeRef whose flattened display text is identical
+does not authenticate either the module marker or a member contract.
 
 | State | Module evidence | Compatibility contract |
 | --- | --- | --- |

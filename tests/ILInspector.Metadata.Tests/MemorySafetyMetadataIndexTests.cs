@@ -124,12 +124,9 @@ public sealed class MemorySafetyMetadataIndexTests
             MemorySafetyMetadataIndex.Create(opened.Reader);
 
         var result =
-            Assert.IsType<MemorySafetyMemberContractResult.Unavailable>(
+            Assert.IsType<MemorySafetyMemberContractResult.Implicit>(
                 index.GetMemberContract(
                     MetadataTokens.FieldDefinitionHandle(1)));
-        Assert.Equal(
-            MemorySafetyMemberContractFailureKind.AttributeUnavailable,
-            result.Failure.Kind);
         Assert.Equal(
             MemorySafetyPointerEvidence.Present,
             result.Evidence.Pointer);
@@ -155,12 +152,66 @@ public sealed class MemorySafetyMetadataIndexTests
                 nameWorkBudget: attributeRows ? 100 : 1);
 
         var result =
-            Assert.IsType<MemorySafetyMemberContractResult.Unavailable>(
+            Assert.IsType<MemorySafetyMemberContractResult.Implicit>(
                 index.GetMemberContract(
                     MetadataTokens.FieldDefinitionHandle(1)));
         Assert.Equal(
+            MemorySafetyPointerEvidence.Present,
+            result.Evidence.Pointer);
+        Assert.Equal(
             MemorySafetyFixedBufferEvidence.Unavailable,
             result.Evidence.FixedBuffer);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NestedRulesCarrierCannotAliasTopLevelMarker(
+        bool typeReference)
+    {
+        using OpenedMetadata opened = Open(
+            BuildSyntheticImage(
+                [2],
+                nestedRulesTypeDefinition: !typeReference,
+                nestedRulesTypeReference: typeReference));
+        MemorySafetyMetadataIndex index =
+            MemorySafetyMetadataIndex.Create(opened.Reader);
+
+        var rules =
+            Assert.IsType<MemorySafetyRulesResult.Available>(index.Rules);
+        Assert.Equal(MemorySafetyRulesState.Legacy, rules.State);
+        Assert.Empty(rules.Observations);
+        Assert.IsType<MemorySafetyMemberContractResult.Implicit>(
+            index.GetMemberContract(
+                FindMethod(
+                    opened.Reader,
+                    "Samples.Target",
+                    "PointerOnly")));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NestedRequiresUnsafeCarrierCannotAliasTopLevelContract(
+        bool typeReference)
+    {
+        using OpenedMetadata opened = Open(
+            BuildSyntheticImage(
+                [2],
+                nestedRequiresUnsafeTypeDefinition: !typeReference,
+                nestedRequiresUnsafeTypeReference: typeReference));
+        MemorySafetyMetadataIndex index =
+            MemorySafetyMetadataIndex.Create(opened.Reader);
+
+        var result =
+            Assert.IsType<MemorySafetyMemberContractResult.None>(
+                index.GetMemberContract(
+                    FindMethod(
+                        opened.Reader,
+                        "Samples.Target",
+                        "AttributeOnly")));
+        Assert.False(result.Evidence.DirectAttribute.HasValidRow);
+        Assert.False(result.Evidence.DirectAttribute.HasMalformedRow);
     }
 
     [Theory]
@@ -651,7 +702,11 @@ public sealed class MemorySafetyMetadataIndexTests
         bool directAccessorCarrier = false,
         bool malformedAssociatedCarrier = false,
         bool malformedRulesConstructor = false,
-        bool malformedRequiresUnsafeConstructor = false)
+        bool malformedRequiresUnsafeConstructor = false,
+        bool nestedRulesTypeDefinition = false,
+        bool nestedRequiresUnsafeTypeDefinition = false,
+        bool nestedRulesTypeReference = false,
+        bool nestedRequiresUnsafeTypeReference = false)
     {
         var metadata = new MetadataBuilder();
         ModuleDefinitionHandle module = metadata.AddModule(
@@ -800,6 +855,41 @@ public sealed class MemorySafetyMetadataIndexTests
                 bodyOffset: -1,
                 MetadataTokens.ParameterHandle(1));
 
+        EntityHandle rulesCarrierConstructor = rulesConstructor;
+        if (nestedRulesTypeReference)
+        {
+            TypeReferenceHandle outer = metadata.AddTypeReference(
+                coreLibrary,
+                metadata.GetOrAddString("System.Runtime"),
+                metadata.GetOrAddString("CompilerServices"));
+            TypeReferenceHandle nested = metadata.AddTypeReference(
+                outer,
+                default,
+                metadata.GetOrAddString("MemorySafetyRulesAttribute"));
+            rulesCarrierConstructor = metadata.AddMemberReference(
+                nested,
+                metadata.GetOrAddString(".ctor"),
+                rulesConstructorSignature);
+        }
+
+        EntityHandle requiresUnsafeCarrierConstructor =
+            requiresUnsafeConstructor;
+        if (nestedRequiresUnsafeTypeReference)
+        {
+            TypeReferenceHandle outer = metadata.AddTypeReference(
+                coreLibrary,
+                metadata.GetOrAddString("System.Diagnostics"),
+                metadata.GetOrAddString("CodeAnalysis"));
+            TypeReferenceHandle nested = metadata.AddTypeReference(
+                outer,
+                default,
+                metadata.GetOrAddString("RequiresUnsafeAttribute"));
+            requiresUnsafeCarrierConstructor = metadata.AddMemberReference(
+                nested,
+                metadata.GetOrAddString(".ctor"),
+                markerConstructorSignature);
+        }
+
         metadata.AddTypeDefinition(
             TypeAttributes.NotPublic,
             default,
@@ -807,20 +897,64 @@ public sealed class MemorySafetyMetadataIndexTests
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             rulesConstructor);
-        metadata.AddTypeDefinition(
-            TypeAttributes.NotPublic,
-            metadata.GetOrAddString("System.Runtime.CompilerServices"),
-            metadata.GetOrAddString("MemorySafetyRulesAttribute"),
-            default,
-            MetadataTokens.FieldDefinitionHandle(1),
-            rulesConstructor);
-        metadata.AddTypeDefinition(
-            TypeAttributes.NotPublic,
-            metadata.GetOrAddString("System.Diagnostics.CodeAnalysis"),
-            metadata.GetOrAddString("RequiresUnsafeAttribute"),
-            default,
-            MetadataTokens.FieldDefinitionHandle(1),
-            requiresUnsafeConstructor);
+        if (nestedRulesTypeDefinition)
+        {
+            TypeDefinitionHandle outer = metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                metadata.GetOrAddString("System.Runtime"),
+                metadata.GetOrAddString("CompilerServices"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                rulesConstructor);
+            TypeDefinitionHandle nested = metadata.AddTypeDefinition(
+                TypeAttributes.NestedPublic,
+                default,
+                metadata.GetOrAddString("MemorySafetyRulesAttribute"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                rulesConstructor);
+            metadata.AddNestedType(nested, outer);
+        }
+        else
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString("MemorySafetyRulesAttribute"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                rulesConstructor);
+        }
+        if (nestedRequiresUnsafeTypeDefinition)
+        {
+            TypeDefinitionHandle outer = metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                metadata.GetOrAddString("System.Diagnostics"),
+                metadata.GetOrAddString("CodeAnalysis"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                requiresUnsafeConstructor);
+            TypeDefinitionHandle nested = metadata.AddTypeDefinition(
+                TypeAttributes.NestedPublic,
+                default,
+                metadata.GetOrAddString("RequiresUnsafeAttribute"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                requiresUnsafeConstructor);
+            metadata.AddNestedType(nested, outer);
+        }
+        else
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                metadata.GetOrAddString(
+                    "System.Diagnostics.CodeAnalysis"),
+                metadata.GetOrAddString("RequiresUnsafeAttribute"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                requiresUnsafeConstructor);
+        }
         TypeDefinitionHandle target = metadata.AddTypeDefinition(
             TypeAttributes.Public,
             metadata.GetOrAddString("Samples"),
@@ -862,7 +996,7 @@ public sealed class MemorySafetyMetadataIndexTests
         {
             metadata.AddCustomAttribute(
                 module,
-                rulesConstructor,
+                rulesCarrierConstructor,
                 metadata.GetOrAddBlob(
                     marker is int version
                         ? RulesBlob(version)
@@ -873,42 +1007,42 @@ public sealed class MemorySafetyMetadataIndexTests
         {
             metadata.AddCustomAttribute(
                 assembly,
-                rulesConstructor,
+                rulesCarrierConstructor,
                 metadata.GetOrAddBlob(RulesBlob(2)));
             metadata.AddCustomAttribute(
                 target,
-                rulesConstructor,
+                rulesCarrierConstructor,
                 metadata.GetOrAddBlob(RulesBlob(2)));
             metadata.AddCustomAttribute(
                 attributeOnly,
-                rulesConstructor,
+                rulesCarrierConstructor,
                 metadata.GetOrAddBlob(RulesBlob(2)));
         }
 
         metadata.AddCustomAttribute(
             attributeOnly,
-            requiresUnsafeConstructor,
+            requiresUnsafeCarrierConstructor,
             metadata.GetOrAddBlob(
                 malformedRequiresUnsafe
                     ? new byte[] { 0x01, 0x00, 0x01 }
                     : new byte[] { 0x01, 0x00, 0x00, 0x00 }));
         metadata.AddCustomAttribute(
             property,
-            requiresUnsafeConstructor,
+            requiresUnsafeCarrierConstructor,
             metadata.GetOrAddBlob(
                 malformedAssociatedCarrier
                     ? new byte[] { 0x01, 0x00, 0x01 }
                     : new byte[] { 0x01, 0x00, 0x00, 0x00 }));
         metadata.AddCustomAttribute(
             @event,
-            requiresUnsafeConstructor,
+            requiresUnsafeCarrierConstructor,
             metadata.GetOrAddBlob(
                 new byte[] { 0x01, 0x00, 0x00, 0x00 }));
         if (directAccessorCarrier)
         {
             metadata.AddCustomAttribute(
                 propertyGetter,
-                requiresUnsafeConstructor,
+                requiresUnsafeCarrierConstructor,
                 metadata.GetOrAddBlob(
                     new byte[] { 0x01, 0x00, 0x00, 0x00 }));
         }
