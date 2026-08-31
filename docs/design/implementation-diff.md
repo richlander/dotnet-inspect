@@ -514,6 +514,14 @@ retained root forwarder, makes the target unavailable rather than absent. A
 durable address requires an in-range `MethodDefinition` handle of the validated
 module.
 
+`DeclaringTypeForwarded` is terminal only for this exact input-local attempt.
+It does not decide whether a later workspace-composition step treats the
+forwarder as the compared endpoint or follows it to a terminal implementation
+participant already admitted, or explicitly authorized for supplemental
+admission, by the workspace. That later composition owns the effective
+endpoint choice and retains the Metadata-issued forwarding path as
+supplementary query evidence; it is not implemented or verified by this slice.
+
 `Resolved` is terminal only after Research validates that the selected target
 and durable address belong to the same admitted assembly and module. A
 mismatched MVID, MethodDef address, or borrowed input becomes `Failed` before
