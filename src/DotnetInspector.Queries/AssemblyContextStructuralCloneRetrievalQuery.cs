@@ -807,7 +807,7 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
         {
             MetadataReader reader =
                 MetadataFormatAdmission.GetMetadataReader(image);
-            ValidateMethodOwnership(image, reader);
+            ValidateMethodOwnership(reader);
             return new ValidatedImage(reader);
         }
     }
@@ -843,11 +843,35 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
     /// </para>
     /// <para>
     /// SRM exposes no raw <c>MethodList</c> column, so the partition is
-    /// checked by construction: every projected row must be in range and
-    /// claimed exactly once, and the claimed rows must cover the table.
-    /// This holds for optimized and unoptimized images alike, because a
-    /// valid <c>MethodPtr</c> table is itself a permutation of the
-    /// MethodDef rows.
+    /// checked by construction: no range may report a negative length,
+    /// every projected row must be in range and claimed exactly once,
+    /// and the claimed rows must cover the table. This holds for
+    /// optimized and unoptimized images alike, because a valid
+    /// <c>MethodPtr</c> table is itself a permutation of the MethodDef
+    /// rows.
+    /// </para>
+    /// <para>
+    /// Those requirements bound the raw column jointly, and no one of
+    /// them does it alone. A descending start is not silent: SRM reports
+    /// that range with a negative <c>Count</c> while enumerating
+    /// nothing, so rejecting a negative length is what makes the starts
+    /// non-decreasing. Coverage then supplies the rest, because with the
+    /// starts rising the enumerated total is the projected row count
+    /// less the first non-null start plus one; requiring distinct
+    /// in-range rows that total the MethodDef row count forces that
+    /// first non-null start to row 1 and holds every later start within
+    /// <c>projectionRows + 1</c>. A null start is not part of that
+    /// chain: ECMA-335 II.22.37 permits it and SRM reports its range as
+    /// length zero rather than as the difference to the next start, so
+    /// leading nulls neither rise nor break the ordering. Only a
+    /// *leading* null is expressible, though. Because each run is
+    /// delimited by the following TypeDef's start, a null after a
+    /// populated run would end the preceding run before it began, and
+    /// the negative length lands on that preceding row rather than on
+    /// the null itself. Such a column is malformed and is rejected.
+    /// Neither check
+    /// is redundant: a descending column passes coverage, and a column
+    /// starting past row 1 passes the length check.
     /// </para>
     /// <para>
     /// The projection alone does not prove that permutation, because a
@@ -861,9 +885,7 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
     /// counts leave no <c>MethodPtr</c> row uncovered.
     /// </para>
     /// </remarks>
-    static void ValidateMethodOwnership(
-        PEReader image,
-        MetadataReader reader)
+    static void ValidateMethodOwnership(MetadataReader reader)
     {
         if (reader.GetTableRowCount(TableIndex.TypeDef) == 0)
         {
@@ -883,16 +905,23 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
                     + "MethodDef table.");
         }
 
-        ValidateMethodListOrder(
-            image,
-            reader,
-            methodPtrRows != 0 ? methodPtrRows : methodRows);
-
         var owned = new HashSet<MethodDefinitionHandle>();
         foreach (TypeDefinitionHandle type in reader.TypeDefinitions)
         {
-            foreach (MethodDefinitionHandle method
-                in reader.GetTypeDefinition(type).GetMethods())
+            MethodDefinitionHandleCollection methods =
+                reader.GetTypeDefinition(type).GetMethods();
+
+            // Checked before enumerating, because a negative range
+            // yields no elements rather than an error.
+            if (methods.Count < 0)
+            {
+                throw new BadImageFormatException(
+                    "The TypeDef MethodList column is not a "
+                        + "non-decreasing range in the projected "
+                        + "method table.");
+            }
+
+            foreach (MethodDefinitionHandle method in methods)
             {
                 ValidateProjectedMethod(method, methodRows, owned);
             }
@@ -903,80 +932,6 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
             throw new BadImageFormatException(
                 "The TypeDef method ranges do not cover the MethodDef "
                     + "table exactly once.");
-        }
-    }
-
-    /// <summary>
-    /// Requires the TypeDef <c>MethodList</c> column to be
-    /// non-decreasing and in range.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Enumerating projections cannot see this. A range whose start
-    /// exceeds the following TypeDef's start is descending, and SRM
-    /// reports a descending range as empty rather than as an error, so
-    /// the malformed row contributes nothing to the projection and a
-    /// later row can still cover the table on its own. Coverage then
-    /// passes while the column is not a partition at all.
-    /// </para>
-    /// <para>
-    /// The column is the final TypeDef field, so it is addressed from
-    /// the end of each row. Its width follows the same rule SRM uses:
-    /// two bytes until the table it indexes reaches 65,536 rows. That
-    /// table is MethodPtr when one is present and MethodDef otherwise,
-    /// and the caller has already required those row counts to agree.
-    /// </para>
-    /// </remarks>
-    static void ValidateMethodListOrder(
-        PEReader image,
-        MetadataReader reader,
-        int projectionRows)
-    {
-        int typeRows = reader.GetTableRowCount(TableIndex.TypeDef);
-        int rowSize = reader.GetTableRowSize(TableIndex.TypeDef);
-        int width = projectionRows < 1 << 16 ? 2 : 4;
-        if (rowSize < width)
-        {
-            throw new BadImageFormatException(
-                "The TypeDef table rows are too small to hold a "
-                    + "MethodList column.");
-        }
-
-        PEMemoryBlock block = image.GetMetadata();
-        long tableEnd =
-            (long)reader.GetTableMetadataOffset(TableIndex.TypeDef)
-            + ((long)typeRows * rowSize);
-        if (tableEnd > block.Length)
-        {
-            throw new BadImageFormatException(
-                "The TypeDef table extends past the metadata block.");
-        }
-
-        BlobReader rows = block.GetReader(
-            reader.GetTableMetadataOffset(TableIndex.TypeDef),
-            typeRows * rowSize);
-        // ECMA-335 II.22.37 permits a null MethodList, which SRM
-        // projects as an empty run. Starting the floor at zero accepts
-        // that while still requiring the column to be sorted, so a
-        // null cannot appear after a populated run and leave the
-        // column unordered for declaring-type lookup. A null that
-        // actually drops methods still fails the coverage check.
-        int previous = 0;
-        for (int row = 0; row < typeRows; row++)
-        {
-            rows.Offset = (row * rowSize) + rowSize - width;
-            int start = width == 2
-                ? rows.ReadUInt16()
-                : rows.ReadInt32();
-            if (start < previous || start > projectionRows + 1)
-            {
-                throw new BadImageFormatException(
-                    "The TypeDef MethodList column is not a "
-                        + "non-decreasing range in the projected "
-                        + "method table.");
-            }
-
-            previous = start;
         }
     }
 
