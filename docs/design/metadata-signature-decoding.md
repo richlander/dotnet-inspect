@@ -5,6 +5,12 @@
 > single-signature decode. This document owns the decode's independent
 > work-bounding contract.
 
+## Status
+
+Design-only and unverified until the named gates in this document land. The
+operation and work-budget types named below are planned owner-issued surfaces,
+not current product APIs.
+
 ## Contract
 
 A signature decode walks artifact-authored metadata on behalf of a caller who
@@ -16,9 +22,9 @@ is bounded, and what a gate must do to enforce it.
 
 ### Owner
 
-The signature decode inside `ILInspector.Metadata` owns this contract:
+The planned signature decode inside `ILInspector.Metadata` owns this contract:
 `SignatureOccurrenceProvider` and the work budget it charges. This document is
-the owning document.
+the owning document for that future surface.
 
 This contract does not govern acquisition, binding policy, forwarding
 semantics, the evidence model, or anything outside a single signature decode.
@@ -154,14 +160,14 @@ from Windows Metadata, which `AGENTS.md` excludes as an unsupported input
 format.
 
 That exclusion is **not currently enforced on the decode path**.
-`MetadataImageFormatClassifier` can refuse Windows Metadata, but no product
-code calls it; adoption is tracked by #4877, and `docs/metadata-primitives.md`
-states that the classifier's existence alone does not close the entry-point
-inventory. Until a caller admits images through a `SupportedEcma335` result,
-the allocation-free pricing claim above holds for physical entries and is
-**unverified** for the repository's decode entry points as a whole. A decode
-that admitted Windows Metadata would need this quantity reclassified, because
-its price could not be read before it was paid.
+`MetadataImageFormatClassifier` can refuse Windows Metadata, but this decode
+path does not call it; adoption is tracked by #4877, and
+`docs/metadata-primitives.md` states that the classifier's existence alone does
+not close the entry-point inventory. Until a caller admits images through a
+`SupportedEcma335` result, the allocation-free pricing claim above holds for
+physical entries and is **unverified** for the repository's decode entry points
+as a whole. A decode that admitted Windows Metadata would need this quantity
+reclassified, because its price could not be read before it was paid.
 
 The concrete contrast at a Class B site is therefore:
 
