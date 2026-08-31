@@ -65,7 +65,7 @@ public static class ApiCommandDefinitions
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter types with unsafe signatures (pointers)" };
         var repoOption = new Option<string[]>("--repo")
         {
-            Description = "Read printed Source Files from local git clone(s) by SourceLink commit + PDB checksum, before the network. Can repeat.",
+            Description = "Read PDB-mapped type source from local git clone(s) by SourceLink commit + PDB checksum, before the network. Can repeat.",
             AllowMultipleArgumentsPerToken = false
         };
         var memberOption = new Option<string[]>("-m")

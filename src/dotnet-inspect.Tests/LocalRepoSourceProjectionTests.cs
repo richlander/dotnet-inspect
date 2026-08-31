@@ -50,6 +50,38 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
     }
 
     [Fact]
+    public async Task TypeSourceFilesPrint_RouterPreservesRepoAtCliBoundaryWhileOffline()
+    {
+        string[] arguments =
+        [
+            typeof(CommandLineBuilder).FullName!,
+            "--library",
+            ProductAssemblyPath(),
+            "-S",
+            "Source Files",
+            "--print",
+            "--row",
+            "first",
+            "--repo",
+            FindRepositoryRoot(),
+            "-v:n",
+            "--bare",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunCliAsync(["type", .. arguments]);
+        var deferred = await RunCliAsync(arguments);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
+        Assert.Contains(
+            "public static class CommandLineBuilder",
+            deferred.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task MemberSourceLocationsPrint_UsesPdbRecordedLocalPathWhileOffline()
     {
         var result = await RunCliAsync(

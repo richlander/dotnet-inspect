@@ -46,7 +46,6 @@ public class ApiCommand
         if (options.CtorOnly) return "--ctor";
         if (options.CallerScopeDirectories.Length > 0) return "--bin";
         if (options.CallerScopePackages.Length > 0) return "--caller-package";
-        if (options.SourceRepositories.Length > 0) return "--repo";
         if (options.MermaidOutput || options.EmbeddedMermaid) return "--mermaid";
         return null;
     }
