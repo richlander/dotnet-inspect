@@ -747,27 +747,32 @@ Spotlight scopes are literal unions derived from their UI catalogs. DOM and URL
 tokens are decoded before they reach typed state or actions; the scope-bar and
 workspace-navigation tests gate rejection of unknown values.
 
-Oxlint checks both compiler-derived facade artifacts as consumer contracts:
+Oxlint checks the compiler-derived production facade artifacts and both
+multi-facade canary source modules as consumer contracts:
 `src/inspect-web-engine.d.ts` receives the TypeScript rules, while
 `engine/wwwroot/inspect-web-engine.js` receives the JavaScript correctness and
-suspicious rules described below. TypeScript compilation and the generated
-facade drift gate provide independent source and declaration coverage. The
-toolchain test pins both derived lint inputs so a generator change cannot
-silently leave analysis coverage. The configuration disables four non-correctness
-rules: underscore spelling, function relocation, listener API preference, and
-`Array.prototype.sort`. Those rules prescribe naming/layout churn or, for
-sorting, the ES2023 `toSorted` API while this project targets ES2022. Those
-four, plus the generated-facade overrides, are the *complete* set of disabled
-rules. The compiler-derived JavaScript disables the five unsafe-operation
-rules and the catch-callback annotation rule that JavaScript cannot satisfy.
-The authoritative TypeScript disables those unsafe-operation rules, unsafe
-type-assertion analysis for authenticated JSON envelopes, and the redundant
-constituent diagnostic that lacks the temporary SDK declaration used by its
-separate compiler gate. A toolchain test pins these against Oxlint's resolved
-configuration, so another disable — written at the top level or inside an
-`overrides` entry — fails rather than passing quietly. Turning a rule off is
-not the only way to lose it, so options, plugin settings and the global
-environment are pinned beside the severities; those are described below.
+suspicious rules described below. The checked-in production and canary
+TypeScript facades are compiled separately against the exact SDK-owned
+`dotnet.d.ts`; the canary gate compiles its authored coordinator and exercise
+modules in that same program. TypeScript compilation and the generated facade
+drift gates provide independent source and declaration coverage. The toolchain
+test pins every separately compiled and derived lint input so a generator
+change cannot silently leave analysis coverage. The configuration disables
+four non-correctness rules: underscore spelling, function relocation, listener
+API preference, and `Array.prototype.sort`. Those rules prescribe
+naming/layout churn or, for sorting, the ES2023 `toSorted` API while this
+project targets ES2022. Those four, plus the generated-facade overrides, are
+the *complete* set of disabled rules. The compiler-derived JavaScript disables
+the five unsafe-operation rules and the catch-callback annotation rule that
+JavaScript cannot satisfy. The authoritative generated TypeScript facades
+disable those unsafe-operation rules, unsafe type-assertion analysis for
+authenticated JSON envelopes, and the redundant constituent diagnostic that
+lacks the temporary SDK declaration used by their separate compiler gates. A
+toolchain test pins these against Oxlint's resolved configuration, so another
+disable — written at the top level or inside an `overrides` entry — fails
+rather than passing quietly. Turning a rule off is not the only way to lose it,
+so options, plugin settings and the global environment are pinned beside the
+severities; those are described below.
 
 Existing JavaScript tests and verification scripts remain covered by Oxlint's
 correctness and suspicious rules, but not by its unsafe-operation type rules:

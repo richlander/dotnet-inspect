@@ -48,7 +48,9 @@
     },
     {
       "files": [
-        "engine/inspect-web-engine.ts"
+        "engine/inspect-web-engine.ts",
+        "multi-facade-canary/facades/alpha.ts",
+        "multi-facade-canary/facades/beta.ts"
       ],
       "rules": {
         "typescript/no-redundant-type-constituents": "off",
