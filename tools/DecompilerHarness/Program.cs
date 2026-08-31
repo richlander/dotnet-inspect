@@ -95,6 +95,8 @@ static class Program
         string? harvestOutputPath = null;
         bool benchmarkAuthoredCorpus = false;
         string? benchmarkCorpusPath = null;
+        bool sourceOracleCandidates = false;
+        string? baselineSourceOracleReportPath = null;
         string? ratchetBaselinePath = null;
         string? sourceOracleManifestPath = null;
         bool integrityOnly = false;
@@ -153,8 +155,8 @@ static class Program
         string? diffCorpusBaseline = null;
         string? diffCorpusBaselineRef = null;
         string? emitCorpusDelta = null;
-        string? rtsParityBurndown = null;
-        string? emitRtsParityBurndown = null;
+        string? rtsParityKnownGaps = null;
+        string? emitRtsParityKnownGaps = null;
         string? fidelityMethodDelta = null;
         bool qualityDiffCard = false;
         bool qualityCardRisky = false;
@@ -238,6 +240,10 @@ static class Program
                         benchmarkAuthoredCorpus = true;
                         benchmarkCorpusPath = NextArg(args, ref i, flag);
                         break;
+                    case "--source-oracle-candidates": sourceOracleCandidates = true; break;
+                    case "--baseline-source-oracle-report":
+                        baselineSourceOracleReportPath = NextArg(args, ref i, flag);
+                        break;
                     case "--ratchet-baseline": ratchetBaselinePath = NextArg(args, ref i, flag); break;
                     case "--source-oracle-manifest": sourceOracleManifestPath = NextArg(args, ref i, flag); break;
                     case "--integrity-only": integrityOnly = true; break;
@@ -313,8 +319,8 @@ static class Program
                     case "--emit-corpus-snapshot": emitCorpusSnapshot = NextArg(args, ref i, flag); break;
                     case "--diff-corpus-baseline": diffCorpusBaseline = NextArg(args, ref i, flag); break;
                     case "--diff-corpus-baseline-ref": diffCorpusBaselineRef = NextArg(args, ref i, flag); break;
-                    case "--rts-parity-burndown": rtsParityBurndown = NextArg(args, ref i, flag); break;
-                    case "--emit-rts-parity-burndown": emitRtsParityBurndown = NextArg(args, ref i, flag); break;
+                    case "--rts-parity-known-gaps": rtsParityKnownGaps = NextArg(args, ref i, flag); break;
+                    case "--emit-rts-parity-known-gaps": emitRtsParityKnownGaps = NextArg(args, ref i, flag); break;
                     case "--emit-corpus-delta": emitCorpusDelta = NextArg(args, ref i, flag); break;
                     case "--fidelity-method-delta": fidelityMethodDelta = NextArg(args, ref i, flag); break;
                     case "--quality-diff-card": qualityDiffCard = true; break;
@@ -384,7 +390,9 @@ static class Program
             verifyAuthoredCorpusHistory,
             ratchetBaselinePath is not null,
             integrityOnly,
-            sourceOracleManifestPath is not null);
+            sourceOracleManifestPath is not null,
+            sourceOracleCandidates,
+            baselineSourceOracleReportPath is not null);
         switch (flags.Disposition)
         {
             case AuthoredCorpusExitContract.FlagDisposition.PrintUsage:
@@ -439,6 +447,7 @@ static class Program
             ("--enumerate-real-methods", enumerateRealMethods),
             ("--harvest-authored-corpus", harvestAuthoredCorpus),
             ("--harvest-evil-corpus", harvestEvilCorpus),
+            ("--source-oracle-candidates", sourceOracleCandidates),
             ("--benchmark-authored-corpus", benchmarkAuthoredCorpus),
             ("--verify-authored-corpus", verifyAuthoredCorpus),
             ("--append-authored-corpus-history", appendAuthoredCorpusHistory is not null),
@@ -624,6 +633,15 @@ static class Program
         if (harvestEvilCorpus)
             return AuthoredSourceHarvest.Run(assemblies, harvestOutputPath!, harvestTarget, evil: true, repositoryPaths: sourceRepositories);
 
+        if (sourceOracleCandidates)
+        {
+            return SourceOracleCandidateLedger.Run(
+                assemblies,
+                baselineSourceOracleReportPath!,
+                json,
+                sourceRepositories);
+        }
+
         if (benchmarkAuthoredCorpus || verifyAuthoredCorpus)
         {
             // One assignment, not one per gate. Review round thirteen deleted this line
@@ -680,8 +698,8 @@ static class Program
         if (classifyDec0009)
             return Dec0009Classifier.Run(assemblies, maxExamples, json);
 
-        if (emitCorpusSnapshot is not null || diffCorpusBaseline is not null || diffCorpusBaselineRef is not null || emitCorpusDelta is not null || qualityDiffCard || emitRtsParityBurndown is not null || rtsParityBurndown is not null)
-            return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCaps, maxExamples, emitCorpusSnapshot, diffCorpusBaseline, diffCorpusBaselineRef, emitCorpusDelta, qualityDiffCard, qualityCardRisky, corpusMethodCap, workers, sequential, corpusFidelityOracle, corpusProfile, rtsParityBurndown, emitRtsParityBurndown);
+        if (emitCorpusSnapshot is not null || diffCorpusBaseline is not null || diffCorpusBaselineRef is not null || emitCorpusDelta is not null || qualityDiffCard || emitRtsParityKnownGaps is not null || rtsParityKnownGaps is not null)
+            return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCaps, maxExamples, emitCorpusSnapshot, diffCorpusBaseline, diffCorpusBaselineRef, emitCorpusDelta, qualityDiffCard, qualityCardRisky, corpusMethodCap, workers, sequential, corpusFidelityOracle, corpusProfile, rtsParityKnownGaps, emitRtsParityKnownGaps);
 
         if (renderAb is not null || emitRenderAb is not null)
             return RenderAbSensor.Run(assemblies, renderAb, emitRenderAb, maxExamples, corpusMethodCap, workers, sequential);
@@ -1062,7 +1080,7 @@ static class Program
                         RecordShape(conditionalShapes, shape, id);
                         // The eh-entangled bucket is itself a product of branch
                         // position x EH construct; sub-split it for the EH-aware
-                        // structuring burndown (#1089).
+                        // structuring docket (#1089).
                         if (shape == "eh-entangled")
                             RecordShape(ehShapes, EhShapeClassifier.Classify(function), id);
                     }
@@ -2145,7 +2163,7 @@ static class Program
                                 bucketed by the pass that fired. Zero is the target.
                                 A 2x-pipeline lane — for scheduled/deep runs.
           --slot-residual-census  run to the late F2 expression-inlining boundary
-                                and report StoreStackSlot/LoadStackSlot burn-down
+                                and report StoreStackSlot/LoadStackSlot residuals
                                 plus post-F2 residual deferral classes. Uses
                                 --corpus-method-cap to bound the sweep.
           --slot-unifier-census   run the full pipeline and report the
@@ -2259,8 +2277,9 @@ static class Program
           --package-tfm <tfm>    select a specific TFM from --package.
           --package-assembly <dll>
                                 select a specific assembly inside --package.
-          --repo <path>          with --harvest-authored-corpus/--harvest-evil-corpus
-                                or --verify-authored-corpus: read authored source
+          --repo <path>          with --harvest-authored-corpus/--harvest-evil-corpus,
+                                --verify-authored-corpus, or
+                                --source-oracle-candidates: read authored source
                                 from a local git clone (checksum-arbitrated)
                                 instead of the network; repeatable. Point at this
                                 checkout to skip remote fetches for dotnet-inspect's
@@ -2304,6 +2323,30 @@ static class Program
                                 file must be Valid and Correct; files opted into
                                 Printer exact must also match before source
                                 normalization. Missing or stale members fail.
+          --source-oracle-candidates
+                                network-bound measurement: which whole source files
+                                could be enrolled in the source oracle next, and in
+                                what order they add the most new C# syntax. Scans
+                                every real-method target in the supplied assemblies
+                                (no cap), computes file membership from the complete
+                                portable-PDB mapping before acquiring any source,
+                                and publishes every qualification outcome. It is not
+                                a gate: a rejected candidate or an unanswered source
+                                fetch is typed data and exits 0. Only measurement
+                                integrity fails — no usable assembly or target, a
+                                failed PDB census, an evaluation mismatch, an
+                                unverified baseline, or no checksum-identified file
+                                evaluated. Requires
+                                --baseline-source-oracle-report.
+          --baseline-source-oracle-report <report.json>
+                                with --source-oracle-candidates: the VERIFIED
+                                --benchmark-authored-corpus --json report whose
+                                observed syntax features the ranking is incremental
+                                to. It must have complete inputs, a passing
+                                source-oracle manifest, and an evaluated syntax
+                                inventory at a supported version; a manifest is not
+                                accepted in its place, because a declaration is not
+                                evidence that a feature was ever observed.
           --integrity-only      with --benchmark-authored-corpus: report measurement
                                 integrity only, making no quality claim at all. For a
                                 lane that cannot yet ratchet because its pool is not
@@ -2364,7 +2407,7 @@ static class Program
                                 of their residual control flow, so a bucket count
                                 becomes a per-shape slice docket. The eh-entangled
                                 conditional shape is sub-split further by EH subshape
-                                (the #1089 burndown slices).
+                                (the #1089 docket slices).
           --annotation-check      hidden-fact annotation check — the analyzer analog
                                 of --fidelity-check. Cross-checks each allocation/
                                 unsafety/lifetime annotation against the raw IL
@@ -2413,13 +2456,14 @@ static class Program
           --emit-corpus-delta <f>        with --diff-corpus-baseline: write
                                 changed per-method corpus rows as JSON for
                                 reviewer drill-down and targeted fidelity runs.
-          --rts-parity-burndown <f>      with --corpus-fidelity-oracle rts-parity:
+          --rts-parity-known-gaps <f>    with --corpus-fidelity-oracle rts-parity:
                                 fail if any method recompiles Exact under the
                                 product oracle but RecompileFail/ContextFail under
                                 ReturnToSender and is NOT already listed in the
-                                committed burn-down manifest <f> (a new regression).
-          --emit-rts-parity-burndown <f> with --corpus-fidelity-oracle rts-parity:
-                                mechanically (re)write the burn-down manifest <f>
+                                committed known-gap manifest <f> (a new regression).
+          --emit-rts-parity-known-gaps <f>
+                                with --corpus-fidelity-oracle rts-parity:
+                                mechanically (re)write the known-gap manifest <f>
                                 from the current Exact-to-recompile-failure set.
           --fidelity-method-delta <f>    with --fidelity-check: compile back the
                                 current changed methods from a corpus delta JSON.

@@ -70,6 +70,10 @@ public static class FixtureIds
     public const string AnalysisExceptionBase = "analysis.exception-base";
     public const string AnalysisFacade = "analysis.facade";
     public const string AnalysisLookalike = "analysis.lookalike";
+    public const string AnalysisMethodCorrespondenceRuntime =
+        "analysis.method-correspondence.runtime";
+    public const string AnalysisMethodCorrespondenceSurface =
+        "analysis.method-correspondence.surface";
     public const string AnalysisOwnershipFlow = "analysis.ownership-flow";
     public const string AnalysisTopLevelAsync = "analysis.top-level-async";
     public const string AnalysisTopLevelClassicAsync = "analysis.top-level-classic-async";
@@ -267,6 +271,26 @@ public static class FixtureCatalog
         "ILInspector.Analysis.Fixtures",
         "ILInspector.Analysis.Fixtures.dll",
         "analysis", "caller-loop", "allocation");
+
+    public static readonly FixtureDefinition
+        AnalysisMethodCorrespondenceRuntime = Fixture(
+            FixtureIds.AnalysisMethodCorrespondenceRuntime,
+            "ILInspector.Analysis.MethodCorrespondenceRuntimeFixtures",
+            "ILInspector.Analysis.MethodCorrespondenceFixture.dll",
+            Boundaries(
+                FixtureBoundary.AssemblyIdentity,
+                FixtureBoundary.VersionPair),
+            "analysis", "method-correspondence", "runtime");
+
+    public static readonly FixtureDefinition
+        AnalysisMethodCorrespondenceSurface = Fixture(
+            FixtureIds.AnalysisMethodCorrespondenceSurface,
+            "ILInspector.Analysis.MethodCorrespondenceSurfaceFixtures",
+            "ILInspector.Analysis.MethodCorrespondenceFixture.dll",
+            Boundaries(
+                FixtureBoundary.AssemblyIdentity,
+                FixtureBoundary.VersionPair),
+            "analysis", "method-correspondence", "surface");
 
     public static readonly FixtureDefinition AnalysisAsyncSiblingFriend = Fixture(
         FixtureIds.AnalysisAsyncSiblingFriend,
@@ -492,6 +516,8 @@ public static class FixtureCatalog
         AnalysisExceptionBase,
         AnalysisFacade,
         AnalysisLookalike,
+        AnalysisMethodCorrespondenceRuntime,
+        AnalysisMethodCorrespondenceSurface,
         AnalysisProtobuf,
         AnalysisRender,
         AnalysisSpoofSystemLinq,
@@ -542,6 +568,8 @@ public static class FixtureCatalog
             AnalysisExceptionBase,
             AnalysisFacade,
             AnalysisLookalike,
+            AnalysisMethodCorrespondenceRuntime,
+            AnalysisMethodCorrespondenceSurface,
             AnalysisProtobuf,
             AnalysisRender,
             AnalysisSpoofSystemLinq,

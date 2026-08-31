@@ -7,9 +7,10 @@ inspection experience.
 This is a design proposal with an incremental implementation. Target boundaries
 remain **unverified** until their named implementation gates exist. The
 source-neutral contract floor, artifact-session publication, explicit local-file
-snapshot adapter, and package-free local host now have the gates named under
-[Required gates](#required-gates). Current types and remaining target behavior
-are identified explicitly under [Current mismatches](#current-mismatches).
+snapshot adapter, shared local-path admission, and package-free local host now
+have the gates named under [Required gates](#required-gates). Current types and
+remaining target behavior are identified explicitly under
+[Current mismatches](#current-mismatches).
 
 See [inspection-space.md](../inspection-space.md) for workspace and query
 planning, [inspection-layers.md](inspection-layers.md) for consumer layers, and
@@ -395,6 +396,239 @@ be owner-interruptible (today it awaits `Stream.ReadAsync` with only the caller
 token), and abandoned returned query streams need a stated policy (bound the
 wait, or invalidate visibly). These results establish evidence about the
 model, not the implementation.
+
+### Supplemental acquisition bridge
+
+`ArtifactSetSession.AddSupplementalAcquisitionAsync` is the focused bridge for
+a source that the host may omit from its plan, but whose outcome is no longer
+optional once the host invokes it. `Unavailable`, `Rejected`, and `Failed`
+remain visible admission failures; supplemental does not mean that a declared
+source may fail as success-shaped absence. An `Acquired` outcome with no
+artifacts is instead a successful no-op.
+
+The API has the same owner and outcome vocabulary as required acquisition, but
+adds an owner-issued capacity value to the callback:
+
+```csharp
+ValueTask AddSupplementalAcquisitionAsync(
+    Func<
+        ArtifactContributionScope,
+        SupplementalAcquisitionCapacity,
+        CancellationToken,
+        ValueTask<ArtifactAcquisitionOutcome>> acquire,
+    IReadOnlyCollection<ArtifactWorkspaceRole>? roles = null,
+    CancellationToken cancellationToken = default);
+```
+
+`SupplementalAcquisitionCapacity` is an immutable positive
+`MaxArtifacts`/`MaxArtifactBytes`/`MaxRetainedBytes` grant for that one call.
+The workspace computes `MaxArtifactBytes` as the smaller of the session's
+per-artifact ceiling and the remaining retained-byte capacity. A host may map
+the grant into stricter adapter limits, but may not enlarge it. Source-specific
+bounds such as directory `MaxObservedEntries` remain adapter-owned and are not
+invented by the workspace.
+
+The current session cannot calculate an honest remaining-byte grant while
+required contributions are still deferred until `SealAsync`. The first
+supplemental call therefore performs a one-way phase transition:
+
+1. Under the session gate, it permanently closes required acquisition before
+   its first await. A later `AddRequiredAcquisitionAsync` rejects even when the
+   checkpoint or supplemental call fails. A new session is the escape hatch
+   for a composition that needs more required members.
+2. Existing required-acquisition failures prevent the callback from running
+   before the checkpoint observes cancellation. They retain their original
+   outcome kind and diagnostic.
+3. The checkpoint applies the current seal order to accepted required batches:
+   aggregate count first; then, for each contribution in acquisition order,
+   cancellation, materialization and the per-artifact bound, cumulative
+   retained bytes, and finally identity collision. Required scope ownership was
+   already checked when the batch was added.
+4. Count, per-artifact, aggregate-byte, identity, and recognized
+   materialization failures retain the current `artifact.session.*` kind,
+   diagnostic, and precedence. A zero required count is the sole exception:
+   the checkpoint defers `artifact.session.empty` because a later nonempty
+   supplemental batch may make the session publishable.
+5. A diagnostic checkpoint failure returns normally without invoking the
+   callback; a later seal returns `NotPublished`. Cancellation at the same
+   per-contribution points aborts and throws `OperationCanceledException`.
+6. A successful checkpoint retains the exact required count, byte charge,
+   identities, snapshots, roles, and leases. `SealAsync` consumes those
+   snapshots and never reopens or double-counts the original contributions.
+
+The checkpoint is a one-way simulation of current seal behavior: except for
+deferring the empty-session decision, a checkpoint diagnostic is the same
+first diagnostic that sealing the same required state under the same
+cancellation observations would produce. Sessions that never call
+supplemental acquisition retain the existing required-add and seal-time
+materialization behavior. The supplemental model treats this correctly derived
+checkpoint result as an owner input; the implementation gate, not that model,
+proves the simulation.
+
+Invocation behavior is closed:
+
+| State at method entry | Result |
+| --- | --- |
+| Session is sealing, published, or disposed | Preserve the existing non-constructing `InvalidOperationException`. |
+| Another required or supplemental acquisition is active | Throw the existing acquisition-in-progress `InvalidOperationException`; do not close the required phase. |
+| First eligible supplemental call | Close the required phase and run the checkpoint. |
+| Checkpoint or an earlier acquisition already recorded a diagnostic failure | Do not invoke this callback; return normally so seal reports the retained failures. |
+| Checkpoint succeeded, no failure exists, and positive capacity remains | Record this call as active, issue the grant, and invoke the callback. |
+| Checkpoint succeeded but count or retained-byte capacity is exhausted | Record the supplemental capacity rejection without invoking the callback. |
+
+Concurrent supplemental calls are rejected rather than queued. A successful
+empty or nonempty call leaves the phase open for the next sequential
+supplemental call; any diagnostic failure prevents later callbacks because
+publication is already impossible.
+
+For each eligible call, recording the request and resolving it to either a
+positive grant or capacity rejection occur under one owner-gate hold before
+the first await. Seal, disposal, and a competing call cannot interleave inside
+that transition; whichever reaches the gate first determines the result. The
+model represents request and resolution as two logical steps but deliberately
+permits no external transition between them.
+
+After a successful checkpoint, supplemental calls are sequential. Each call
+receives all positive capacity remaining after the checkpoint and every
+previous accepted supplemental batch. If either the artifact-count or
+retained-byte remainder is zero, the workspace records
+`Rejected`/`artifact.supplemental.capacity-exhausted` before invoking the
+adapter. That is an attributed failure for a supplemental source the host
+chose to invoke, not an empty adapter result.
+
+Owner-produced `artifact.supplemental.*` diagnostics attribute the failure to
+the supplemental admission operation rather than the generation-wide seal.
+This API does not add a source identifier. Adapter-specific coordinate and
+producer attribution remains in the adapter's own preserved diagnostic.
+
+For a returned nonempty batch, the workspace:
+
+1. requires every contribution to belong to the callback's scope;
+2. rejects a count overrun before opening content;
+3. rejects an identity collision against checkpointed required content,
+   previously accepted supplemental content, or the current batch before
+   opening content;
+4. materializes the complete batch into owner-private snapshots while
+   enforcing the granted per-artifact and retained-byte bounds; and
+5. atomically commits the snapshots, actual count and bytes, explicit roles,
+   and returned lease only after every contribution succeeds.
+
+No partial batch survives. Count, per-artifact, retained-byte, foreign-scope,
+identity-collision, and materialization failures use
+`artifact.supplemental.count-limit`,
+`artifact.supplemental.artifact-byte-limit`,
+`artifact.supplemental.byte-limit`, `artifact.supplemental.foreign`,
+`artifact.supplemental.identity-collision`, and
+`artifact.supplemental.materialization-failed`, respectively. Limit failures
+are `Rejected`; foreign scope, identity collision, and materialization failure
+are `Failed`. When one byte would exceed both byte bounds, the per-artifact
+failure takes precedence. Adapter-produced diagnostic outcomes retain their
+adapter-defined kind and diagnostic rather than being wrapped.
+
+`ArtifactMaterializationLimitException` maps to the supplemental
+per-artifact rejection. `IOException`, `UnauthorizedAccessException`,
+`NotSupportedException`, `InvalidOperationException`, and `OverflowException`
+map to supplemental materialization failure, matching the current seal
+classification. An unexpected materialization exception aborts the session and
+propagates after cleanup rather than becoming a generic diagnostic.
+
+An empty `Acquired` batch contributes no artifact, identity, role, or retained
+byte. The workspace still owns its returned lease and attempts disposal before
+the call ceases to be in progress or another acquisition may start. A cleanup
+failure is recorded in `CleanupFailures`; consistent with other lease cleanup,
+it does not turn otherwise valid artifact content into an admission failure or
+replace a primary failure. The capacity grant ends only after that cleanup
+attempt.
+
+An acquired batch rejected during scope, identity, count, or byte validation
+also has its returned lease cleaned up before the call ends. Callback
+exception, materialization cancellation, or other exceptional failure aborts
+the session through the existing termination path. Cancellation uses the
+supplemental call's token for required checkpointing, adapter work, and
+supplemental materialization, remains `OperationCanceledException`, and
+attaches cleanup failures without replacing cancellation.
+
+If caller cancellation is observed before owner termination, cancellation is
+the primary result. If termination closes admission before the owner can commit
+a returned or materialized batch, `ObjectDisposedException` is primary. In
+either order, cleanup failures are attached without replacing that primary
+result.
+
+Seal rejects while checkpoint, adapter work, materialization, or returned-lease
+cleanup is active. Disposal closes admission first and prevents a late
+nonempty batch from committing. Any late `Acquired` outcome, including empty,
+transfers directly to cleanup, after which the call throws
+`ObjectDisposedException`; cleanup failure remains attached and visible.
+A late `Unavailable`, `Rejected`, or `Failed` outcome has no lease to clean and
+cannot be returned through seal after disposal. The call therefore attaches
+the exact `ArtifactSetAdmissionFailure` to the `ObjectDisposedException` under
+`DotnetInspector.Artifacts.Workspaces.AdmissionFailures`; it must not discard
+the adapter's kind or diagnostic. Previously accepted supplemental leases
+remain governed by the session's ordinary retained-lease lifetime.
+
+Preserving current termination behavior means `DisposeAsync` cleans leases
+already known to the session but does not wait for an in-flight adapter to
+return. The supplemental call owns any late returned lease and completes its
+cleanup before that call finishes. `CleanupFailures` may therefore gain a late
+entry after `DisposeAsync` returns; awaiting the supplemental call is the
+completion boundary for that late cleanup.
+
+A session may enter the supplemental phase with no required artifacts. A
+nonempty supplemental batch can then make the session publishable; if every
+supplemental result is empty, seal retains the existing
+`Rejected`/`artifact.session.empty` result. Roles are copied before the first
+await and apply only to an accepted nonempty batch. Supplemental acquisition
+never infers caller designation, platform trust, or another role from source
+kind or location.
+
+This bridge is a bounded implementation stage, not the workspace-wide
+whole-plan reservation described earlier in this section. Its grant is
+exclusive because the current session serializes acquisition and excludes
+seal; it does not reserve against other sessions, join concurrent demands, or
+retain charges until dependent groups quiesce. It therefore does not satisfy
+the `WorkspaceAdmissionBudget_*` or single-flight target gates. Directory
+enumeration and selection remain owned by the
+[bounded directory coordinate](#bounded-directory-coordinate); context
+identity, assembly projection, and binding remain outside this bridge.
+
+[`SupplementalAcquisitionAdmission.tla`](../models/supplemental-acquisition-admission/SupplementalAcquisitionAdmission.tla)
+model-checks the new interaction from phase close through checkpoint, one
+explicit requested call, one active exact remaining-capacity grant, empty or
+nonempty adapter completion, operation-level acceptance after an abstract
+materialization result, cleanup, seal, and close. Its
+[model guide](../models/supplemental-acquisition-admission/README.md) records
+the 26 configurations, checked properties, 12 reachability probes, nine guard
+mutations, commands, and non-claims. It does not derive the checkpoint result,
+model per-stream progress or temporary snapshots, prove scope, identity, or
+byte-failure precedence, or project a late diagnostic into an exception
+payload.
+
+TLC 2026.08.21.155922 (rev `9787e65`, from the pinned `tla2tools.jar` v1.8.0)
+checked five complete two-operation bounds with no invariant violations or
+temporal counterexamples. The primary, zero-required, count-dimension,
+retained-byte-dimension, and per-artifact-dimension runs generated
+1,097/1,264/1,115/1,115/1,047 states, found 581/647/581/581/557 distinct
+states, and reached depth 15/16/15/15/15, respectively. Each reachability
+sentinel produced its intended counterexample. Mutations that accept a late
+required add, start before the checkpoint, independently omit count,
+retained-byte, or per-artifact admission, accept after close, release before
+lease cleanup, convert failure to empty success, or commit an empty result
+violated their paired properties. These results establish the bounded model
+claims, not implementation conformance.
+
+Implementation is complete when focused gates prove:
+
+- `SupplementalAcquisition_RequiredCheckpointPreservesSealOutcome`
+- `SupplementalAcquisition_SealUsesCheckpointedSnapshots`
+- `SupplementalAcquisition_EmptyBatchPublishesNoArtifactsAndOwnsItsLease`
+- `SupplementalAcquisition_ReservesBeforeAdapterAndCannotOverrunAtSeal`
+- `SupplementalAcquisition_PreservesAdapterOutcomeKindAndDiagnostic`
+- `SupplementalAcquisition_NonEmptyBatchPreservesScopeAndRoleChecks`
+- `SupplementalAcquisition_IdentityAndMaterializationAreAtomic`
+- `SupplementalAcquisition_RejectedAcquiredBatchCleansLeaseWithoutMaskingFailure`
+- `SupplementalAcquisition_ConcurrentTerminationDisposesLateOutcomeAndReservation`
+- `SupplementalAcquisition_LateDiagnosticRemainsVisibleOnTermination`
+- `SupplementalAcquisition_CancellationRemainsCancellation`
 
 Retaining content does not retain authority. The artifact owner issues two
 different source-neutral access leases:
@@ -979,9 +1213,21 @@ but it does not resolve links, normalize case, or mint physical file identity.
 Windows treats extended `\\?\` paths as already normalized and leaves their
 segments unchanged. An extended disk or UNC coordinate is therefore admitted
 only when it is fully qualified and contains no `.` or `..` segment; otherwise
-it is rejected as invalid. Any other non-empty path that cannot be normalized
-is also rejected rather than escaping as a platform exception. Invalid-path
-results carry the requested path and no canonical path.
+it is rejected as invalid. Alternate or mixed-separator device-prefix spellings
+such as `//?/` are classified from their raw caller spelling rather than passed
+through `Path.GetFullPath`, which would erase their namespace and dot-segment
+evidence. Every noncanonical separator spelling of the `\\?\`, `\\.\`, and
+`\??\` namespace signatures is invalid rather than being reinterpreted as an
+ordinary UNC coordinate. That coordinate rule does not reject a valid extended
+link merely because its stored target is relative: the target is resolved
+against the link's parent and normalized before final-target classification,
+with parent traversal bounded by the drive, share, or volume root and without
+rewriting the canonical requested coordinate. Absolute extended targets retain
+their raw substitute namespace and remain subject to the final-target syntax
+rules without this relative-target normalization. Managed link resolution must
+not erase that syntax evidence before classification. Any other non-empty path
+that cannot be normalized is also rejected rather than escaping as a platform
+exception. Invalid-path results carry the requested path and no canonical path.
 
 All local coordinates follow symbolic links and supported link-like reparse
 points to their final target. The same policy preserves existing explicit-file
@@ -1056,9 +1302,23 @@ above. An ordinary drive root such as `C:\` is a supported `Directory`
 coordinate; bounded-directory limits still govern its top-level enumeration.
 An ordinary regular file directly beneath that root, such as `C:\foo.dll`, is a
 supported `RegularFile` coordinate. Neither form is a device coordinate.
-Ordinary filesystem paths are inspected through managed attributes. For a final
-reparse point, a metadata handle opened without following the point queries its
-tag. Classification is tag-semantic rather than based only on the name-surrogate
+Ordinary filesystem paths are inspected component by component through managed
+attributes so an ancestor link is classified rather than followed implicitly
+by the metadata lookup. A metadata handle opened without following each
+reparse point queries its tag. Supported links also read the raw substitute
+name and relative flag from that handle. Relative targets are resolved and
+normalized under the rule above; absolute targets preserve their namespace for
+final-target syntax classification. A stable ancestor or final-component link
+cycle consumes the same bounded traversal budget and is rejected as an
+unsupported entry. A direct-cycle shortcut compares path spellings ordinally;
+it does not case-fold distinct coordinates on a case-sensitive Windows
+directory. Raw reparse parsing requires the returned byte count to equal the
+common header plus `ReparseDataLength`, an even payload with a zero reserved
+field, and aligned substitute-name and print-name ranges contained by the
+declared path buffer. A symbolic-link reparse buffer is supported only when its
+flags are exactly `0` for an absolute target or `SYMLINK_FLAG_RELATIVE` for a
+relative target; reserved flag values are malformed unsupported entries.
+Classification is tag-semantic rather than based only on the name-surrogate
 bit:
 
 - symbolic-link and mount-point tags are supported links, so their final target
@@ -1082,6 +1342,10 @@ Before returning it, the adapter classifies the handle again:
 - non-Windows hosts use `SystemNative_FStat` and require regular-file mode; and
 - Windows requires `GetFileType` to report `FILE_TYPE_DISK` and handle-based
   attributes not to report a directory.
+
+A `FILE_TYPE_UNKNOWN` result with a nonzero captured last error is an admission
+failure, not a kind mismatch. A successful non-disk result remains a rejected
+kind mismatch.
 
 A post-open kind mismatch is rejected and the handle is disposed. The explicit
 file and future directory-entry copy therefore consume the same verified open
@@ -1120,17 +1384,23 @@ contract needs stable device/inode identity and intentionally restricts the
 hosts on which it deduplicates physical files. Local-path admission consumes
 only the normalized mode field and does not mint physical identity. The
 portable gate must run the actual `Stat` and `FStat` imports under 32-bit
-Browser/Wasm as well as NativeAOT. If that gate fails on a supported target, the
-platform design reopens; returning classification-unsupported is an operational
-failure mode, not approval to ship an unsupported-platform degradation.
+Browser/Wasm as well as NativeAOT. It must also preserve unavailable outcomes
+for missing and not-directory errors and rejected outcomes for symbolic-link
+loops under each platform's normalized error values. Browser/Wasm selects only
+its WASI-derived values rather than also accepting colliding Linux errno
+numbers. If that gate fails on a supported target, the platform design reopens;
+returning
+classification-unsupported is an operational failure mode, not approval to ship
+an unsupported-platform degradation.
 
 The implementation is complete when focused gates prove:
 
 - canonicalization, including extended-path segment rejection, expected-kind
   mismatches, requested-path retention when canonicalization fails,
-  final-target link following, dangling links, name-surrogate handling, special
-  and unknown reparse rejection, audited data-bearing reparse treatment, and
-  hard-link non-deduplication have the same semantics for every consuming local
+  final-target link following, relative targets from valid extended links,
+  dangling links, name-surrogate handling, special and unknown reparse
+  rejection, audited data-bearing reparse treatment, and hard-link
+  non-deduplication have the same semantics for every consuming local
   coordinate;
 - stable FIFOs, sockets, devices, and their link aliases are rejected before a
   blocking content open, while an empty regular file remains admissible;
@@ -1138,7 +1408,8 @@ The implementation is complete when focused gates prove:
   cannot reopen the coordinate;
 - unavailable, rejected, failed, and cancellation results remain distinct; and
 - the normalized `Stat` and `FStat` classifier compiles and runs under both
-  NativeAOT and Browser/Wasm, while Windows gates cover disk files,
+  NativeAOT and Browser/Wasm, preserving missing, not-directory, and link-loop
+  outcomes, while Windows gates cover disk files,
   drive-root directories, regular files directly beneath a drive root,
   traversable links, reserved device names, named-pipe coordinates, allowed
   data-bearing reparse tags, every supported special-tag family, and an unknown
@@ -1149,10 +1420,24 @@ These properties are represented by
 `LocalPathAdmission_StableNonRegularEntriesRejectBeforeOpen`,
 `LocalPathAdmission_ConsumerReceivesTheVerifiedOpenGeneration`,
 `LocalPathAdmission_OutcomesAndCancellationRemainDistinct`, and
-`LocalPathAdmission_PlatformClassifiersRemainPortable`. They are unverified
-until those gates exist. The bounded-directory implementation must exercise
-the same contract through its public root and selected-entry outcomes rather
-than adding another classifier.
+`LocalPathAdmission_PlatformClassifiersRemainPortable`. The Windows-specific
+`LocalPathAdmission_WindowsExtendedRelativeLinkTargetIsNormalized`,
+`LocalPathAdmission_WindowsAbsoluteExtendedLinkTargetRetainsSyntaxPolicy`, and
+`LocalPathAdmission_WindowsAncestorLinkLoopIsRejected` gates run in Deep
+Inspect's `platform-test` lane, together with
+`LocalPathAdmission_WindowsCaseDistinctLinkTargetIsNotCycle` and
+`LocalPathAdmission_WindowsGetFileTypeFailureIsFailed` and
+`LocalPathAdmission_WindowsAlternateDevicePrefixIsInvalid`;
+`LocalPathAdmission_WindowsPoliciesAreEnumerated` enforces the closed
+symbolic-link flag and namespace-separator matrices, while
+`LocalPathAdmission_WindowsReparsePayloadBoundsAreClosed` enforces exact raw
+payload sizing and both name ranges. The Browser/Wasm probe also rejects
+colliding Linux errno values. The change-detection suite requires a local-path
+product change to select the Browser/Wasm lane that runs its executable probe.
+Together these gates enforce the shared classifier and explicit-file admission
+contract. The bounded-directory
+implementation must exercise the same contract through its public root and
+selected-entry outcomes rather than adding another classifier.
 
 Admission is sequential and adds no publication, interleaving, or concurrent
 ownership state. A new TLA+ model would duplicate the existing artifact-session
@@ -1371,16 +1656,111 @@ assembly inspection must understand.
 
 #### Package Root realization
 
-An exact acquired package is a `PackageRootRealization` before compile-asset
-selection succeeds. That host-neutral product result retains:
+An exact acquired package is a `PackageRootRealization` regardless of whether
+compile asset selection succeeds. That host-neutral package-level result
+retains:
 
 - exact package id and version;
 - the requested target framework and the selector's selected framework, when
   either exists;
+- the requested runtime identifier, when one participates in selection;
 - the package content producer key and cache origin;
 - the complete typed `PackageCompileAssetSelection`, including
   `NoCompileAssets`, `NoMatchingTargetFramework`, `EmptyCompileGroup`, and
   `InvalidImplementationAssets`.
+
+Here, a compile asset is a package assembly selected as a compile-time
+reference; a focused description of
+[NuGet package structure and asset roles](https://github.com/richlander/dotnet-inspect/issues/5294)
+is tracked separately.
+
+The related identity concepts have distinct jobs:
+
+| Concept | Meaning |
+| --- | --- |
+| `PackageRootRealization` | The in-process package-level selection outcome over already-acquired content. It remains valid for Root-only and unsuccessful selection outcomes and is not by itself a cache or admission identity. |
+| `RealizedMemberCoordinate.Package` | The canonical, portable request that repeats the same package, version, producer, and acquisition target. Unlike a possibly floating `WorkspaceMemberCoordinate`, every identity field has already been resolved. It does not promise the same bytes forever. |
+| `ProducerKey` | The opaque, credential-free identity of the content producer. The acquired content and payload carry this value, and the realized coordinate records the same value as `Producer`. It distinguishes sources but not successive byte generations from one source. |
+| `PackageContentGenerationIdentity` | The process-local identity of one retained immutable package-content snapshot. Cache handles over that retained snapshot may share the identity; a replacement snapshot receives a new identity. |
+| `PackageRootSelectionIdentity` | The process-local identity of one frozen package-selection occurrence. |
+| `PackageRootBinding` | The acquisition-issued value that joins one Root, realized coordinate, content-snapshot identity, and frozen selection and proves their correspondence. |
+
+Acquisition issues a `PackageRootBinding` from one
+`AcquiredPackagePayload` or `AcquiredPackageSourcePayload`. The immutable
+binding carries the exact `PackageRootRealization`, its authoritative
+`RealizedMemberCoordinate.Package`, a
+`PackageContentGenerationIdentity`, and a
+`PackageRootSelectionIdentity`. The factory validates that the retained
+content and acquisition result name the same producer before selection, then
+creates the Root, snapshots every selection sequence into read-only storage,
+and mints the coordinate and both identities without repeating coordinate
+resolution, content acquisition, or compile asset selection.
+The acquired payload result has an internal constructor and get-only
+properties, so ordinary consumers cannot forge a coordinate/content pairing
+or replace either half after acquisition issues it.
+
+The content-generation identity is an opaque, credential-free reference token
+for one retained immutable package-content snapshot, owned by
+`IPackageContent`. Every binding over the same content handle shares it. A
+store may preserve that token across handles to one retained cache snapshot;
+the Browser and in-memory stores do so. A replacement snapshot must receive a
+new token, even under the same package/version/producer slot.
+Implementations without a retained-generation registry conservatively receive
+one token per content handle. Equal identities therefore guarantee the same
+retained immutable snapshot for the binding lifetime, while unequal identities
+make no claim about byte inequality. The token is deliberately process-local
+and is never serialized or reconstructed from coordinate display fields.
+
+The selection identity is also an opaque reference token, minted once for one
+binding after the typed selection has been frozen. Equal identities guarantee
+the same selection status, selected target framework, default asset, and
+ordered available-framework, surface, candidate, and implementation
+sequences. Independently repeated equal selections may receive different
+identities. This conservative equality is sufficient for exact-request
+admission: sharing requires the same retained binding, never a display-field
+reconstruction.
+
+`RealizedMemberCoordinate.Package` is the portable producer-bound acquisition
+request, not immutable-byte identity. Reacquiring it may observe a later
+payload generation published under the same package/version/producer slot.
+The generation token is the authoritative immutable-content proof inside one
+adopting process. For the typed source path, the binding derives package id and
+version from `PackageSourceCoordinate`, producer from the acquired payload,
+and the effective acquisition framework from the requested target only when
+the shared target grammar can represent it; otherwise the framework is absent.
+Absence denotes framework-neutral source acquisition and is distinct from the
+real NuGet target `any`. The binding never derives the coordinate from a
+package-supplied asset folder. The original selection target and typed outcome
+remain on the Root and selection identity. The optional runtime identifier is
+carried exactly and must already be canonical. The resolved multi-source path
+uses its already normalized acquisition framework and runtime identifier even
+when a caller requests a different framework for compile asset selection. A
+coordinate that cannot pass the existing canonical
+`RealizedMemberCoordinate.Package` grammar fails construction visibly.
+
+The descriptive `PackageRootRealization` constructor remains a compatibility
+surface for callers that already own retained content, but it does not issue a
+binding and is not admissible as exact-request cache identity. The Browser
+adapter is the first adopting path: it retains the acquisition result, asks it
+for a binding, and carries the issued coordinate and identities. Its legacy
+test-only package constructor remains unbound. This adoption is gated by
+`BrowserPackageRealization_ReceivesAcquisitionIssuedCoordinate`; generation
+replacement, selection difference, coordinate coherence, Root-only binding,
+and producer mismatch are gated by
+`PackageContentGenerationIdentity_ExternalBuffersCannotMutateGeneration`,
+`PackageRootGenerationIdentity_ReplacementChangesIdentity`,
+`PackageRootSelectionIdentity_DifferentAssetsChangeIdentity`,
+`PackageRootSelectionIdentity_SelectionSequencesAreImmutable`,
+`RealizedPackageCoordinate_ReacquisitionContractIsCoherent`,
+`PackageRootBinding_RootOnlyOutcomeRemainsValid`, and
+`PackageRootBinding_RejectsProducerMismatch`. Construction control,
+framework-neutral source binding, exclusion of package-controlled framework
+folders, and resolved framework/RID correspondence are gated by
+`PackageRootBinding_AcquiredPayloadsAreConstructionControlled`,
+`PackageRootBinding_UnrequestedFrameworkDoesNotUsePackageFolderAsCoordinate`,
+`PackageRootBinding_UnrepresentableSelectionTargetUsesFrameworkNeutralCoordinate`,
+`PackageRootBinding_ResolvedCoordinatePreservesAcquisitionTargetAndRuntime`,
+and `PackageRootBinding_SourceRuntimeRequiresFramework`.
 
 Compile-library availability is a capability of that Root, not a precondition
 for the Root to exist. The host workspace retains every requested Root.
@@ -1830,6 +2210,17 @@ The target is complete only when tests equivalent to these exist:
 - `ArtifactSetSession_DisposalDuringSealCannotPublish`
 - `ArtifactSetSession_ReleasesLeasesOnlyAfterDependentGroupsQuiesce`
 - `ArtifactSetSession_PreservesPrimaryFailureWhenCleanupFails`
+- `SupplementalAcquisition_RequiredCheckpointPreservesSealOutcome`
+- `SupplementalAcquisition_SealUsesCheckpointedSnapshots`
+- `SupplementalAcquisition_EmptyBatchPublishesNoArtifactsAndOwnsItsLease`
+- `SupplementalAcquisition_ReservesBeforeAdapterAndCannotOverrunAtSeal`
+- `SupplementalAcquisition_PreservesAdapterOutcomeKindAndDiagnostic`
+- `SupplementalAcquisition_NonEmptyBatchPreservesScopeAndRoleChecks`
+- `SupplementalAcquisition_IdentityAndMaterializationAreAtomic`
+- `SupplementalAcquisition_RejectedAcquiredBatchCleansLeaseWithoutMaskingFailure`
+- `SupplementalAcquisition_ConcurrentTerminationDisposesLateOutcomeAndReservation`
+- `SupplementalAcquisition_LateDiagnosticRemainsVisibleOnTermination`
+- `SupplementalAcquisition_CancellationRemainsCancellation`
 - `WorkspaceDisposal_CancelsAdmissionAndDisposesLateOutcome`
 - `BrowserWorkspace_DisposalDuringAwaitedAdmissionCannotPublish`
 - `ArtifactAdmission_ProjectsAssembliesThroughAuthorizedLease`
@@ -1917,14 +2308,29 @@ non-masking disposal, role assignment separate from provenance, and
 owner-bound content references that cannot mix descriptor, registration, role,
 or bytes across artifacts or generations.
 `LocalArtifactSourceTests` enforce pre-registration local snapshots, typed
-missing/limit diagnostics, mutation and deletion resistance, and cancellation
-remaining cancellation. The three named `LocalDirectoryAcquisition_*` gates
-remain unverified. Together they require bounded deterministic top-level
-selection, source-neutral exclusions, atomic empty and failure outcomes,
-directory provenance, immutable batch snapshots, and cancellation
-preservation. Shared local-path admission remains with the
+path-admission outcomes, expected kinds, link handling, pre-open rejection of
+stable non-regular entries, once-opened generation identity, mutation and
+deletion resistance, and cancellation remaining cancellation. The executable
+NativeAOT and Browser/Wasm probes enforce the normalized `Stat`/`FStat` imports
+and the platform-specific missing, not-directory, and link-loop outcome
+mappings. Deep Inspect's Windows `platform-test` execution of
+`LocalPathAdmission_WindowsExtendedRelativeLinkTargetIsNormalized`,
+`LocalPathAdmission_WindowsAbsoluteExtendedLinkTargetRetainsSyntaxPolicy`, and
+`LocalPathAdmission_WindowsAncestorLinkLoopIsRejected` enforces
+extended-coordinate admission through a parent-relative symbolic-link target,
+absolute-target syntax preservation, and rejected ancestor link cycles.
+The three named `LocalDirectoryAcquisition_*` gates remain unverified. Together
+they require bounded deterministic top-level selection, source-neutral
+exclusions, atomic empty and failure outcomes, directory provenance, immutable
+batch snapshots, and cancellation preservation. Shared local-path admission
+remains with the
 [local adapter](#shared-local-path-admission) rather than these directory
 gates.
+The eleven named `SupplementalAcquisition_*` gates remain unverified. Together
+they require the one-way required checkpoint, reuse of checkpointed snapshots,
+finite pre-adapter capacity, empty-batch lease ownership, exact visible
+failure, atomic scoped nonempty admission, validation-failure cleanup,
+termination cleanup, late-diagnostic projection, and cancellation preservation.
 `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`
 deletes its temporary source after publication, then passes an
 `ArtifactContentReference`'s guarded published snapshot opener to Metadata, so
@@ -1936,9 +2342,10 @@ compile assets. `BrowserEngineBoundaryTests` enforce the tools-v2 pointer and
 explicit-empty-group cases, including typed compile-library absence, package
 documents, manifest dependencies, and no fabricated default assembly.
 
-Workspace-wide admission budgets, single-flight/reentrancy, directory
-acquisition, content digests, dependent-group quiescence, and Metadata
-consumption of workspace roles remain unverified.
+Supplemental acquisition, workspace-wide admission budgets,
+single-flight/reentrancy, directory acquisition, content digests,
+dependent-group quiescence, and Metadata consumption of workspace roles remain
+unverified.
 
 ## Non-goals
 

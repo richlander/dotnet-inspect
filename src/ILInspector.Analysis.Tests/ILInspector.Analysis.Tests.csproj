@@ -41,6 +41,8 @@
     <ProjectReference Include="..\ILInspector.Analysis.CallerGraphCallerTwin\ILInspector.Analysis.CallerGraphCallerTwin.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Analysis.CallerGraphIndirectCaller\ILInspector.Analysis.CallerGraphIndirectCaller.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Analysis.CallerGraphLookalikeCaller\ILInspector.Analysis.CallerGraphLookalikeCaller.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\ILInspector.Analysis.MethodCorrespondenceSurfaceFixtures\ILInspector.Analysis.MethodCorrespondenceSurfaceFixtures.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\ILInspector.Analysis.MethodCorrespondenceRuntimeFixtures\ILInspector.Analysis.MethodCorrespondenceRuntimeFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Analysis.OwnershipFlowFixtures\ILInspector.Analysis.OwnershipFlowFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Analysis.TopLevelAsyncFixtures\ILInspector.Analysis.TopLevelAsyncFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Analysis.TopLevelClassicAsyncFixtures\ILInspector.Analysis.TopLevelClassicAsyncFixtures.csproj" ReferenceOutputAssembly="false" />

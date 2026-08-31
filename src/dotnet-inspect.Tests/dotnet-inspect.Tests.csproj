@@ -19,6 +19,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <AdditionalFiles Include="BannedSymbols.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Using Include="Xunit" />
     <Using Include="ILInspector.Instructions" />
     <Using Include="ILInspector.SourceLink" />

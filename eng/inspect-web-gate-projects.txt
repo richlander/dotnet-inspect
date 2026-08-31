@@ -1,5 +1,6 @@
 src/CSharpText
 src/DotnetInspector.Artifacts
+src/DotnetInspector.Artifacts.Local
 src/DotnetInspector.Core
 src/DotnetInspector.CSharpBodySlicer
 src/DotnetInspector.PackageQueries
@@ -27,4 +28,3 @@ src/InertText
 src/NuGetFetch
 src/SourceLinkFetch
 src/ts-jsexport
-src/tsbindgen
