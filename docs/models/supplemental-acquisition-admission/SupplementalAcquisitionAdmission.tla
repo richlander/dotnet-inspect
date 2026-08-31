@@ -38,7 +38,8 @@ CONSTANTS
   EnforceCapacityGuard,
   EnforceLateAcceptanceGuard,
   EnforceCleanupBeforeRelease,
-  EnforceFailureVisibility
+  EnforceFailureVisibility,
+  EnforceEmptyNoOp
 
 ASSUME Supplementals # {}
 ASSUME Supplementals = {SmallSupplemental, LargeSupplemental}
@@ -64,6 +65,7 @@ ASSUME EnforceCapacityGuard \in BOOLEAN
 ASSUME EnforceLateAcceptanceGuard \in BOOLEAN
 ASSUME EnforceCleanupBeforeRelease \in BOOLEAN
 ASSUME EnforceFailureVisibility \in BOOLEAN
+ASSUME EnforceEmptyNoOp \in BOOLEAN
 
 NoSupplemental == "none"
 
@@ -296,12 +298,12 @@ StartSupplemental(s) ==
   /\ grantArtifactBytes' = RemainingArtifactBytes
   /\ grantRetainedBytes' = RemainingBytes
   /\ checkpointGuardWitness' =
-       checkpointGuardWitness /\ (checkpointState = "Succeeded")
+       (checkpointGuardWitness /\ (checkpointState = "Succeeded"))
   /\ capacityGuardWitness' =
-       capacityGuardWitness
-         /\ RemainingCount > 0
-         /\ RemainingBytes > 0
-         /\ RemainingArtifactBytes > 0
+       (capacityGuardWitness
+          /\ RemainingCount > 0
+          /\ RemainingBytes > 0
+          /\ RemainingArtifactBytes > 0)
   /\ UNCHANGED
        << sessionState, checkpointState, leaseState, accepted, rolesApplied,
           failures, cleanupFailures, requiredAddAttempted,
@@ -421,10 +423,10 @@ MaterializationSucceeds(s) ==
   /\ grantRetainedBytes' = 0
   /\ acceptanceObserved' = TRUE
   /\ acceptanceGuardWitness' =
-       acceptanceGuardWitness
-         /\ sessionState = "Supplemental"
-         /\ checkpointState = "Succeeded"
-         /\ WithinGrant(s)
+       (acceptanceGuardWitness
+          /\ sessionState = "Supplemental"
+          /\ checkpointState = "Succeeded"
+          /\ WithinGrant(s))
   /\ UNCHANGED
        << sessionState, checkpointState, failures, cleanupFailures,
           requiredAddAttempted, requiredAcceptedAfterSupplemental,
@@ -473,12 +475,12 @@ CleanupSucceeds(s) ==
   /\ grantArtifactBytes' = 0
   /\ grantRetainedBytes' = 0
   /\ cleanupReleaseWitness' =
-       cleanupReleaseWitness
-         /\ leaseState[s] = "Returned"
-         /\ active = s
-         /\ grantCount > 0
-         /\ grantArtifactBytes > 0
-         /\ grantRetainedBytes > 0
+       (cleanupReleaseWitness
+          /\ leaseState[s] = "Returned"
+          /\ active = s
+          /\ grantCount > 0
+          /\ grantArtifactBytes > 0
+          /\ grantRetainedBytes > 0)
   /\ UNCHANGED
        << sessionState, checkpointState, accepted, rolesApplied,
           cleanupFailures, requiredAddAttempted,
@@ -512,12 +514,12 @@ CleanupFails(s) ==
   /\ grantArtifactBytes' = 0
   /\ grantRetainedBytes' = 0
   /\ cleanupReleaseWitness' =
-       cleanupReleaseWitness
-         /\ leaseState[s] = "Returned"
-         /\ active = s
-         /\ grantCount > 0
-         /\ grantArtifactBytes > 0
-         /\ grantRetainedBytes > 0
+       (cleanupReleaseWitness
+          /\ leaseState[s] = "Returned"
+          /\ active = s
+          /\ grantCount > 0
+          /\ grantArtifactBytes > 0
+          /\ grantRetainedBytes > 0)
   /\ UNCHANGED
        << sessionState, checkpointState, accepted, rolesApplied,
           requiredAddAttempted, requiredAcceptedAfterSupplemental,
@@ -557,6 +559,36 @@ ReleaseBeforeCleanup(s) ==
           checkpointGuardWitness, capacityGuardWitness,
           acceptanceGuardWitness, publicationGuardWitness >>
 
+CommitEmptyAsArtifact(s) ==
+  /\ ~EnforceEmptyNoOp
+  /\ active = s
+  /\ operationState[s] = "CleaningEmpty"
+  /\ leaseState[s] = "Returned"
+  /\ operationState' = [operationState EXCEPT ![s] = "Empty"]
+  /\ leaseState' = [leaseState EXCEPT ![s] = "Disposed"]
+  /\ accepted' = accepted \cup {s}
+  /\ rolesApplied' = rolesApplied \cup {s}
+  /\ emptyObserved' = TRUE
+  /\ active' = NoSupplemental
+  /\ grantCount' = 0
+  /\ grantArtifactBytes' = 0
+  /\ grantRetainedBytes' = 0
+  /\ cleanupReleaseWitness' =
+       (cleanupReleaseWitness
+          /\ leaseState[s] = "Returned"
+          /\ active = s
+          /\ grantCount > 0
+          /\ grantArtifactBytes > 0
+          /\ grantRetainedBytes > 0)
+  /\ UNCHANGED
+       << sessionState, checkpointState, failures, cleanupFailures,
+          requiredAddAttempted, requiredAcceptedAfterSupplemental,
+          adapterFailures, checkpointFailureObserved,
+          capacityRejectionObserved, acceptanceObserved, overrunObserved,
+          lateOutcomeObserved, requiredRejectionObserved,
+          checkpointGuardWitness, capacityGuardWitness,
+          acceptanceGuardWitness, publicationGuardWitness >>
+
 BeginSeal ==
   /\ sessionState = "Supplemental"
   /\ checkpointState \in {"Succeeded", "Failed"}
@@ -581,12 +613,12 @@ Publish ==
   /\ CommittedCount > 0
   /\ sessionState' = "Published"
   /\ publicationGuardWitness' =
-       publicationGuardWitness
-         /\ checkpointState = "Succeeded"
-         /\ failures = {}
-         /\ active = NoSupplemental
-         /\ CommittedCount > 0
-         /\ \A s \in Supplementals : leaseState[s] # "Returned"
+       (publicationGuardWitness
+          /\ checkpointState = "Succeeded"
+          /\ failures = {}
+          /\ active = NoSupplemental
+          /\ CommittedCount > 0
+          /\ \A s \in Supplementals : leaseState[s] # "Returned")
   /\ UNCHANGED
        << checkpointState, active, operationState, leaseState, accepted,
           rolesApplied, failures, cleanupFailures, grantCount,
@@ -682,7 +714,10 @@ MaterializationSettles(s) ==
   MaterializationSucceeds(s) \/ MaterializationFails(s)
 
 CleanupSettles(s) ==
-  CleanupSucceeds(s) \/ CleanupFails(s) \/ ReleaseBeforeCleanup(s)
+  CleanupSucceeds(s)
+    \/ CleanupFails(s)
+    \/ ReleaseBeforeCleanup(s)
+    \/ CommitEmptyAsArtifact(s)
 
 RetainedLeaseSettles(s) ==
   DisposeRetainedSucceeds(s) \/ DisposeRetainedFails(s)

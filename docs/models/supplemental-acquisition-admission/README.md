@@ -36,7 +36,9 @@ The capacity grant remains active until a returned lease is retained or its
 cleanup attempt finishes. That state represents the externally observable
 rule that another supplemental call cannot start while cleanup from the prior
 call is incomplete; it does not claim a separately reusable reservation
-service inside the current single-session implementation.
+service inside the current single-session implementation. Session close
+abstracts caller cancellation and owner disposal after either has closed
+admission; exception typing remains an implementation obligation.
 
 ## Non-claims
 
@@ -74,6 +76,34 @@ The model does not cover:
 | `RejectedSessionEventuallyCleansRetainedLeases` | Rejection eventually attempts cleanup of every retained supplemental lease. |
 | `ClosedSessionEventuallyCleansRetainedLeases` | Close eventually attempts cleanup of every retained supplemental lease. |
 
+Guard witnesses re-derive the required condition from the pre-step state when
+adapter start, batch acceptance, publication, or cleanup release occurs. The
+broken-policy configurations weaken one action rather than merely negating the
+corresponding invariant.
+
+## Configurations
+
+The committed inventory contains 15 configurations: one complete correctness
+run, seven reachability probes, and seven deliberate mutations.
+
+| Configuration | Purpose |
+| --- | --- |
+| `SupplementalAcquisitionAdmission.cfg` | Checks every safety and liveness property over the two-operation bound. |
+| `ReachabilityCheckpointFailure.cfg` | Reaches a failed required-content checkpoint after the phase closes. |
+| `ReachabilityCapacityRejection.cfg` | Reaches rejection before adapter invocation after prior content consumes the remaining capacity. |
+| `ReachabilityEmptyBatch.cfg` | Reaches empty-batch cleanup with no artifact or role contribution. |
+| `ReachabilityAcceptance.cfg` | Reaches atomic acceptance of a fitting nonempty batch. |
+| `ReachabilityOverrun.cfg` | Reaches a result that exceeds the current operation's count, per-artifact, and retained-byte grant. |
+| `ReachabilityLateOutcome.cfg` | Reaches a returned adapter result after session close. |
+| `ReachabilityRequiredRejection.cfg` | Reaches rejection of a required add after supplemental phase entry. |
+| `BrokenRequiredPhaseGuard.cfg` | Accepts a required add after supplemental phase entry. |
+| `BrokenCheckpointGuard.cfg` | Starts adapter work before a successful checkpoint. |
+| `BrokenCapacityGuard.cfg` | Accepts a batch that exceeds its remaining-capacity grant. |
+| `BrokenLateAcceptanceGuard.cfg` | Accepts a materialized batch after session close. |
+| `BrokenCleanupBeforeRelease.cfg` | Releases the active grant while its returned lease still lacks a cleanup attempt. |
+| `BrokenFailureVisibility.cfg` | Converts an adapter failure into empty success. |
+| `BrokenEmptyNoOp.cfg` | Commits an artifact and role after the adapter returned an empty batch. |
+
 ## Running TLC
 
 From this directory, with the repository-pinned TLA+ tools:
@@ -88,5 +118,9 @@ TLC 2026.08.21.155922 (rev `9787e65`, from the repository-pinned
 generated, 807 distinct states, maximum depth 14, with no invariant violations
 or temporal counterexamples.
 
-Focused reachability and broken-policy configurations are added and recorded
-with the owning design.
+Each reachability configuration violated only its intentional `NotReached`
+invariant. The broken required-phase, checkpoint, capacity, late-acceptance,
+cleanup-release, failure-visibility, and empty-no-op configurations violated
+`RequiredPhaseStaysClosed`, `CheckpointGuardWitnessHolds`, `CapacityBounded`,
+`AcceptanceGuardWitnessHolds`, `ReturnedLeaseRetainsGrant`,
+`FailureIsVisible`, and `EmptyBatchIsNoOp`, respectively.
