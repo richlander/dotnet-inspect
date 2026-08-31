@@ -120,8 +120,7 @@ public static class MetadataMemberSignatureShape
 
         TypeSignatureShape? conversionReturnType = null;
         string name = workBudget.ReadString(reader, method.Name);
-        if (name is "op_Implicit" or "op_Explicit"
-            or "op_CheckedImplicit" or "op_CheckedExplicit")
+        if (ApiMemberIdentity.IsConversionOperator(name))
         {
             if (decoded.Value.ReturnType.Shape is null)
             {
