@@ -5,8 +5,7 @@ components own contracts. An owner defines the guarantees and typed affordances
 that consumers may rely on, the requirements that implementations must uphold,
 and the behavior the contract does not promise. Consumers compose owner-issued
 identities, operations, and evidence without reconstructing stronger semantics
-from implementation details. Ownership is architectural: it is not determined
-solely by a person, project, namespace, or directory.
+from implementation details.
 
 This document maps the current implementation and its explicit migration
 boundaries to the architecture owned by the rest of the documentation set. It
