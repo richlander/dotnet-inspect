@@ -14,6 +14,28 @@ test("source copy excludes annotation and inspector chrome", async ({ page }) =>
   expect(copied).not.toContain("Persistent inspector");
 });
 
+test("annotation rows preserve the anchored source indentation", async ({ page }) => {
+  await page.locator("#explore-annotated").click();
+  const annotationRow = page.locator(".annotated-row-items").filter({
+    has: page.locator("#annotated-chip-modal-0-1-CSharp"),
+  });
+  const anchorStart =
+    await annotationRow.getAttribute("data-annotated-anchor-start");
+  if (anchorStart === null) {
+    throw new Error("Annotation row has no product-issued anchor");
+  }
+  const invocation = page.locator(
+    `#annotated-source-modal [data-annotated-source-start="${anchorStart}"]`,
+  );
+  const invocationBox = await invocation.boundingBox();
+  const annotationBox = await annotationRow.boundingBox();
+  if (!invocationBox || !annotationBox) {
+    throw new Error("Anchored annotation has no browser geometry");
+  }
+
+  expect(Math.abs(invocationBox.x - annotationBox.x)).toBeLessThan(1);
+});
+
 test("pointer hit testing prefers the product-issued invocation node", async ({ page }) => {
   await page.locator("#explore-annotated").click();
   const invocation = page.locator(

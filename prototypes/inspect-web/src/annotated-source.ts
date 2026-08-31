@@ -58,6 +58,24 @@ interface SourceRenderContext {
   escapeHtml: (value: unknown) => string;
 }
 
+type RenderedLineAnnotation =
+  | {
+      kind: "finding";
+      start: number;
+      target: RenderedFindingTarget;
+    }
+  | {
+      kind: "structure";
+      start: number;
+      target: RenderedStructuralTarget;
+    };
+
+interface RenderedAnnotationRow {
+  start: number;
+  findings: RenderedFindingTarget[];
+  structure: RenderedStructuralTarget[];
+}
+
 export function renderAnnotatedSource(
   options: AnnotatedSourceRenderOptions,
 ): string {
@@ -260,31 +278,38 @@ function renderSource(context: SourceRenderContext): string {
   });
   const targets = renderedFindingTargets(model, session);
   const structuralTargets = renderedStructuralTargets(model, session);
-  const targetLines = new Map<number, RenderedFindingTarget[]>();
-  const structuralTargetLines = new Map<number, RenderedStructuralTarget[]>();
+  const lineAnnotations = new Map<number, RenderedLineAnnotation[]>();
+  const appendLineAnnotation = (
+    lineNumber: number,
+    annotation: RenderedLineAnnotation,
+  ) => {
+    const annotations = lineAnnotations.get(lineNumber) ?? [];
+    annotations.push(annotation);
+    lineAnnotations.set(lineNumber, annotations);
+  };
   for (const target of targets) {
     const start = Math.min(...target.node.spans.map(span => span.start));
     const line = view.lines.find(candidate =>
       start >= candidate.start && start <= candidate.end);
     if (!line) continue;
-    const lineTargets = targetLines.get(line.number) ?? [];
-    lineTargets.push(target);
-    targetLines.set(line.number, lineTargets);
+    appendLineAnnotation(line.number, { kind: "finding", start, target });
   }
   for (const target of structuralTargets) {
     const line = view.lines.find(candidate =>
       target.start >= candidate.start && target.start <= candidate.end);
     if (!line) continue;
-    const lineTargets = structuralTargetLines.get(line.number) ?? [];
-    lineTargets.push(target);
-    structuralTargetLines.set(line.number, lineTargets);
+    appendLineAnnotation(line.number, {
+      kind: "structure",
+      start: target.start,
+      target,
+    });
   }
 
   return `
     <div class="annotated-source-code" data-annotated-surface="${session.surface}">
       ${view.lines.map(line => {
-        const lineTargets = targetLines.get(line.number) ?? [];
-        const lineStructure = structuralTargetLines.get(line.number) ?? [];
+        const annotationRows =
+          groupLineAnnotations(lineAnnotations.get(line.number) ?? []);
         return `
           <div class="annotated-source-line medium-${line.medium.toLowerCase()}">
             <span class="annotated-line-number">${line.number}</span>
@@ -314,18 +339,64 @@ function renderSource(context: SourceRenderContext): string {
               ? `<span class="annotated-line-coordinate">UTF-16 ${line.start}..${line.end}</span>`
               : ""}
           </div>
-          ${lineTargets.length || lineStructure.length
-            ? `<div class="annotated-rows" aria-label="Findings on line ${line.number}">
-                ${lineTargets.map(target =>
-                  renderAnnotationTarget(target, session.surface, escapeHtml)).join("")}
-                ${lineStructure.map(target => `
-                  <span class="annotated-structure-mark">
-                    structure · ${escapeHtml(target.region.role)} · ${MEDIUM_LABELS[target.medium]}
-                  </span>`).join("")}
+          ${annotationRows.length
+            ? `<div class="annotated-rows" aria-label="Annotations on line ${line.number}">
+                ${annotationRows.map(row => renderAnnotationRow(
+                  row,
+                  line.start,
+                  model.document.text,
+                  session.surface,
+                  escapeHtml,
+                )).join("")}
               </div>`
             : ""}
         `;
       }).join("")}
+    </div>`;
+}
+
+function groupLineAnnotations(
+  annotations: readonly RenderedLineAnnotation[],
+): RenderedAnnotationRow[] {
+  const rows = new Map<number, RenderedAnnotationRow>();
+  for (const annotation of annotations) {
+    const row = rows.get(annotation.start) ?? {
+      start: annotation.start,
+      findings: [],
+      structure: [],
+    };
+    if (annotation.kind === "finding") row.findings.push(annotation.target);
+    else row.structure.push(annotation.target);
+    rows.set(annotation.start, row);
+  }
+  return [...rows.values()].sort((left, right) => left.start - right.start);
+}
+
+function renderAnnotationRow(
+  row: RenderedAnnotationRow,
+  lineStart: number,
+  documentText: string,
+  surface: "embedded" | "modal",
+  escapeHtml: (value: unknown) => string,
+): string {
+  const prefix = documentText.slice(lineStart, row.start);
+  return `
+    <div class="annotated-row">
+      <span class="annotated-row-gutter" aria-hidden="true"></span>
+      ${surface === "modal"
+        ? `<span class="annotated-row-gutter" aria-hidden="true"></span>`
+        : ""}
+      <div class="annotated-row-content">
+        <span class="annotated-row-prefix" aria-hidden="true">${escapeHtml(prefix)}</span>
+        <div class="annotated-row-items" data-annotated-anchor-start="${row.start}">
+          ${row.findings.map(target =>
+            renderAnnotationTarget(target, surface, escapeHtml)).join("")}
+          ${row.structure.map(target => `
+            <span class="annotated-structure-mark">
+              structure · ${escapeHtml(target.region.role)} · ${MEDIUM_LABELS[target.medium]}
+            </span>`).join("")}
+        </div>
+      </div>
     </div>`;
 }
 

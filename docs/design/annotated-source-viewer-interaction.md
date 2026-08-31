@@ -308,6 +308,12 @@ captures use distinct non-underline treatments such as tint, gutter marks,
 weight, or explicit annotation rows. Hover and focus cannot introduce a
 different action from activation.
 
+An explicit annotation row begins beneath its product-issued source-span start,
+not at a shared left edge. The browser preserves the exact source prefix as
+layout geometry so annotation placement follows the language's visible
+indentation without reconstructing or changing source text. Annotations with
+the same start may share a row; distinct starts remain separately aligned.
+
 Caret rows connecting an annotation label to an exact extent are annotation
 geometry, not text-decoration underlines. They appear only for rendered active
 annotations.
