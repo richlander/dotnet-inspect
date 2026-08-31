@@ -1436,6 +1436,14 @@ retains:
   `NoCompileAssets`, `NoMatchingTargetFramework`, `EmptyCompileGroup`, and
   `InvalidImplementationAssets`.
 
+Here, a compile asset is a package assembly selected as a compile-time
+reference. NuGet package layout prefers a reference assembly under
+`ref/<tfm>/` and falls back to a library assembly under `lib/<tfm>/`; a project
+or build file such as a `.csproj`, or an arbitrary binary in the package, is not
+a compile asset. The implementation asset is the executable counterpart,
+potentially selected from a runtime-specific `runtimes/<rid>/lib/<tfm>/`
+directory. A `lib/<tfm>/` assembly may serve as both.
+
 The related identity concepts have distinct jobs:
 
 | Concept | Meaning |
@@ -1443,9 +1451,9 @@ The related identity concepts have distinct jobs:
 | `PackageRootRealization` | The in-process package-level selection outcome over already-acquired content. It remains valid for Root-only and unsuccessful selection outcomes and is not by itself a cache or admission identity. |
 | `RealizedMemberCoordinate.Package` | The canonical, portable request that repeats the same package, version, producer, and acquisition target. Unlike a possibly floating `WorkspaceMemberCoordinate`, every identity field has already been resolved. It does not promise the same bytes forever. |
 | `ProducerKey` | The opaque, credential-free identity of the content producer. The acquired content and payload carry this value, and the realized coordinate records the same value as `Producer`. It distinguishes sources but not successive byte generations from one source. |
-| `PackageContentGenerationIdentity` | The process-local identity of one retained immutable content generation. |
+| `PackageContentGenerationIdentity` | The process-local identity of one retained immutable package-content snapshot. Cache handles over that retained snapshot may share the identity; a replacement snapshot receives a new identity. |
 | `PackageRootSelectionIdentity` | The process-local identity of one frozen package-selection occurrence. |
-| `PackageRootBinding` | The acquisition-issued value that joins one Root, realized coordinate, content generation, and frozen selection and proves their correspondence. |
+| `PackageRootBinding` | The acquisition-issued value that joins one Root, realized coordinate, content-snapshot identity, and frozen selection and proves their correspondence. |
 
 Acquisition issues a `PackageRootBinding` from one
 `AcquiredPackagePayload` or `AcquiredPackageSourcePayload`. The immutable
@@ -1462,16 +1470,16 @@ properties, so ordinary consumers cannot forge a coordinate/content pairing
 or replace either half after acquisition issues it.
 
 The content-generation identity is an opaque, credential-free reference token
-owned by `IPackageContent`. Every binding over the same content handle shares
-it. A store may preserve that token across handles to one retained cache
-generation; the Browser and in-memory stores do so. A replacement payload
-must receive a new token, even under the same package/version/producer slot.
+for one retained immutable package-content snapshot, owned by
+`IPackageContent`. Every binding over the same content handle shares it. A
+store may preserve that token across handles to one retained cache snapshot;
+the Browser and in-memory stores do so. A replacement snapshot must receive a
+new token, even under the same package/version/producer slot.
 Implementations without a retained-generation registry conservatively receive
 one token per content handle. Equal identities therefore guarantee the same
-retained content generation for the binding lifetime, while unequal
-identities make no claim about byte inequality. The token is deliberately
-process-local and is never serialized or reconstructed from coordinate
-display fields.
+retained immutable snapshot for the binding lifetime, while unequal identities
+make no claim about byte inequality. The token is deliberately process-local
+and is never serialized or reconstructed from coordinate display fields.
 
 The selection identity is also an opaque reference token, minted once for one
 binding after the typed selection has been frozen. Equal identities guarantee
