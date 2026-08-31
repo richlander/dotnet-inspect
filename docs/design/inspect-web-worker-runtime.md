@@ -79,6 +79,35 @@ monotonic work sequence and reports the lease to the main host. The lease can
 widen or disable automatic silence judgment without pretending that an
 operation record still owns the producer.
 
+### Speculative worker-local preparation
+
+After producing the result needed for the initial user experience, an initial
+operation may start a feature-owned shared producer for an expected follow-up
+request. Before that operation wrapper quiesces, the managed bridge transfers
+the outliving producer to an epoch-work lease unless it has a registered
+idle-compatible classification. This runtime consumes that lease transition;
+it does not redefine the bridge's transfer or the feature's decision to start
+the producer.
+
+After transfer, the speculative producer has no operation sink, progress
+stream, cancellation token, or publication authority from the initial
+operation. The initial operation can settle and quiesce while the producer
+continues physically.
+
+Completing the physical work releases its lease while permitting the
+feature-owned result to remain in an epoch-local cache. A later main-thread
+request still follows ordinary `Start`, admission, cancellation, and
+settlement; its feature adapter may satisfy the operation from that cache. If
+the request never arrives, no logical operation record is invented. Planned
+restart or unexpected realm loss discards the cache, and retry or recomputation
+remains feature policy.
+
+Because the worker is single-threaded, speculative work creates no scheduling
+priority or preemption. To remain responsive to the expected request, it must
+return to the worker event loop under a feature-owned structural bound. An
+unbounded declaration keeps watchdog accounting honest but does not guarantee
+prompt request handling.
+
 ## Ownership
 
 This document owns:
@@ -702,9 +731,22 @@ post Start(op-42)          ->
                                   invoke export       ->   register op-42
                           <-      Progress(op-42)
 publish only if op-42 still owns its view
+                                  begin speculative index
+                          <-      EpochWorkStarted(work-9, bounded)
                                   Promise fulfills    <-   close callback,
                                                             remove op-42
                           <-      Settled(op-42, Succeeded)
+terminal succeeded
+quiesced
+
+                                  compute in yielding slices
+                          <-      EpochWorkFinished(work-9)
+                                  retain epoch-local cache
+
+later Start(op-43)         ->
+                          <-      Accepted(op-43, bounded)
+                                  satisfy from worker cache
+                          <-      Settled(op-43, Succeeded)
 terminal succeeded
 quiesced
 
@@ -717,6 +759,11 @@ old epoch-7 messages are stale
 A neighboring browser-native producer uses operation authority without this
 adapter. That case proves the worker runtime is one producer placement rather
 than the owner of all asynchronous feature behavior.
+
+The speculative index demonstrates that physical preparation can precede its
+logical operation without manufacturing publication authority. Its completed
+lease no longer affects liveness, while its cache remains disposable
+epoch-local feature state.
 
 ## Model evidence
 
@@ -779,6 +826,10 @@ feature implementation behavior.
 - worker and main-side epoch-work high-water and active-set validation,
   unmatched or duplicate finish, allowance mismatch, and release on epoch
   close;
+- an initial operation transferring an anticipated shared producer to an
+  epoch-work lease before quiescence, lease release followed by a feature-owned
+  fixture retaining epoch-local cache state, a later ordinary operation
+  consuming that cache, and restart discarding it;
 - `EpochFailed` mapping to `worker-declared` unexpected draining, with no
   continued admission and no feature-result reinterpretation;
 - registered idle-compatible producer classes receiving opaque capabilities,
@@ -802,6 +853,9 @@ feature implementation behavior.
   renewal, with progress and managed reporter callbacks explicitly excluded;
 - every bounded operation and epoch-work class naming its product-structural
   event-loop-return gate, with browser measurements validating margin;
+- bounded speculative preparation continuing to process heartbeats and an
+  expected later request, plus an unbounded case that makes no prompt-service
+  claim;
 - unbounded operation and epoch-work silence preventing automatic watchdog
   termination;
 - the largest concurrent allowance winning until its record closes;
