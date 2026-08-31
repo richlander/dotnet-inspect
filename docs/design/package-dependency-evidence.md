@@ -97,7 +97,10 @@ manifest identity validation, dependency-contract validation, and
 declared groups, exact target-framework selection, implicit manifest-group
 identity, and the distinction among selected, no dependency groups, and no
 matching target framework. The evidence query preserves those states; it does
-not turn either absence state into an empty selected group.
+not turn either absence state into an empty selected group. Its
+`DependencyFrameworkScopeIdentity` never recomputes that selection:
+`SelectedGroupIndex` identifies the exact owner-issued group occurrence, while
+the canonical framework identity serves result comparison.
 
 ### Restored project graph
 
@@ -107,6 +110,7 @@ already-acquired `project.assets.json` selection:
 - one owner-issued restored-project selection identity;
 - the selected target framework and optional runtime identifier;
 - admitted root identities;
+- owner-issued declaration-group identities and order;
 - project-authored direct dependency observations grouped by their authored
   project target framework;
 - optional resolved coordinates and direct/transitive graph roles; and
@@ -147,6 +151,7 @@ observations by canonical package identity.
 One normalized declared observation states:
 
 - which admitted root made the declaration;
+- which owner-issued declaration-group occurrence contains it;
 - the canonical dependency package identity;
 - available declaration target-framework scope;
 - the NuGet version constraint; and
@@ -156,17 +161,24 @@ Canonical package identity, the framework-scope identity defined below, and
 NuGet version semantics are used for joins and equivalence. Display spellings
 are evidence, not identity.
 
-The query emits at most one successful row per root, framework scope, and
-dependency identity. Semantically duplicate declarations with the same
-constraint collapse into that row and retain their source occurrence count as
-provenance. Repeated declarations with conflicting constraints produce a typed
-conflicting-declaration failure; they are not ordered into apparently valid
-rows.
+The query emits at most one successful row per root, declaration-group
+occurrence, and dependency identity. Semantically duplicate declarations with
+the same constraint inside one group collapse into that row and retain their
+source occurrence count as provenance. Repeated declarations with conflicting
+constraints inside one group produce a typed conflicting-declaration failure;
+they are not ordered into apparently valid rows.
+
+Distinct groups remain distinct even when they have equal framework semantics.
+An implicit universal group and an explicit universal group may therefore
+declare the same dependency under different constraints without becoming a
+normalization conflict.
 
 Every owner-issued declaration group becomes normalized evidence. A requested
-framework selection identifies rows within that complete set; it does not
-discard unselected groups. The result preserves selected, no dependency
-groups, and no matching target framework as separate selection states.
+framework selection identifies one owner-issued group occurrence within that
+complete set; it does not mark every group with an equal canonical scope and
+does not discard unselected groups. The result preserves selected, no
+dependency groups, and no matching target framework as separate selection
+states.
 
 The common projection contains only facts both package manifests and restored
 project graphs can state as declarations. It excludes:
@@ -196,13 +208,15 @@ Declaration scope is one of:
   authored framework scope.
 
 This query owns construction of `DependencyFrameworkScopeIdentity` for its
-normalized rows. Exact identities use NuGet.Frameworks parsing and canonical
-short-folder spelling that retains platform and platform-version identity.
-Alternate casing and long/short spellings therefore compare by framework
-semantics. Platform-qualified identities remain distinct. Unrecognized tokens
-retain opaque identity and inert display evidence but are not
-framework-comparable across input forms. Whether a universal group was
-implicit or explicit is retained as provenance, not framework identity.
+normalized rows. Exact identities use NuGet target-framework parsing semantics
+and canonical short-folder spelling that retains platform and
+platform-version identity. Alternate casing and long/short spellings therefore
+compare by framework semantics. Platform-qualified identities remain distinct.
+Unrecognized tokens retain opaque identity and inert display evidence but are
+not framework-comparable across input forms. Whether a universal group was
+implicit or explicit is retained as group provenance, not framework identity.
+This contract names semantics, not a package dependency; implementation remains
+NativeAOT- and Browser-Wasm-compatible.
 
 The selected restored target framework is resolution context, not a substitute
 for an unavailable authored declaration scope. This query does not infer
@@ -305,8 +319,15 @@ The comparison:
 - reports core-declaration equality independently of framework scope;
 - reports scoped equality only when both owner-issued scopes are comparable;
 - distinguishes unequal from not comparable; and
-- compares the canonicalized declaration set after duplicate collapse;
+- compares the multiset of canonicalized group signatures after within-group
+  duplicate collapse;
 - ignores additive resolution evidence and input provenance.
+
+A group signature contains its framework-scope comparison and canonical
+declaration set. Owner-issued group occurrence identity and order are retained
+in each outcome but excluded from cross-input semantic equality. Selected-group
+equivalence compares the selected group's signature and selection status, not
+the incidental source ordinal.
 
 Input-specific evidence is asserted separately. A restored graph may therefore
 be equal under the declared projection while also reporting resolved versions
@@ -315,21 +336,20 @@ and transitive relationships unavailable from the nuspec.
 ## Identity and ordering
 
 Stable evidence identity is constructed from owner-issued root identity,
-framework-scope identity, and canonical dependency identity. It is independent
-of presentation labels, source order, duplicate occurrence count, and row
-position. A conflicting constraint has failure identity rather than successful
-row identity.
+owner-issued declaration-group identity, and canonical dependency identity. It
+is independent of presentation labels, rendered row position, and duplicate
+occurrence count. A conflicting constraint has failure identity rather than
+successful row identity.
 
-The outcome retains the admitted root order supplied by the root-set owner and
-uses a deterministic order within each root:
+The outcome retains admitted-root and declaration-group order supplied by their
+owners and uses a deterministic order within each group:
 
-1. target-framework identity;
-2. dependency package identity;
-3. NuGet version-constraint identity.
+1. dependency package identity;
+2. NuGet version-constraint identity.
 
-The equivalence projection compares the normalized sequence after this order.
+The equivalence projection compares canonical group signatures as a multiset.
 It does not rely on XML element order, JSON property order, source relevance
-order, or serializer behavior.
+order, owner-issued group order, or serializer behavior.
 
 ## Failure and completion
 
@@ -446,6 +466,10 @@ restored-graph evidence in the same snapshot:
 {
   "dependencies": [
     {
+      "group": {
+        "id": "manifest:0",
+        "selected": true
+      },
       "framework": {
         "kind": "exact",
         "id": "net8.0",
@@ -529,6 +553,8 @@ Implementation must establish:
 - non-vacuity by mutating one declared package identity, framework identity,
   version constraint, or conflicting duplicate and observing inequality or
   typed failure;
+- distinct implicit and explicit universal groups with conflicting constraints
+  remaining separate while exact selected-group correspondence is preserved;
 - a diamond restored graph retaining distinct parent edges and constraints;
 - conflicting supplied owner observations producing typed input-contract
   failure;
