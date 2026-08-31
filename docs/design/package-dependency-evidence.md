@@ -59,6 +59,7 @@ immutable outcome
   - roots
   - declared dependency evidence
   - additive restored-graph evidence
+  - restored-graph availability and completion
   - owner observations
   - typed failures
   - completion
@@ -115,7 +116,8 @@ already-acquired `project.assets.json` selection:
 - project-authored direct dependency observations grouped by their authored
   project target framework;
 - optional resolved coordinates and direct/transitive graph roles; and
-- typed projection completion or failure.
+- independent typed declaration-projection and restored-graph
+  availability/completion/failure.
 
 The adapter does not supply a `.csproj` path to L1. Resolving a `.csproj` to its
 existing `project.assets.json`, reading the file, and reporting not-restored or
@@ -226,9 +228,7 @@ Declaration scope is one of:
 - **Exact framework** — a parseable full target framework, including platform
   and platform version when present;
 - **Unrecognized framework** — a retained owner-issued token that cannot be
-  assigned NuGet framework semantics; or
-- **Unavailable** — the input proves the declaration but cannot prove its
-  authored framework scope.
+  assigned NuGet framework semantics.
 
 This query owns construction of `DependencyFrameworkScopeIdentity` for its
 normalized rows. Exact identities use NuGet target-framework parsing semantics
@@ -236,9 +236,11 @@ and canonical short-folder spelling that retains platform and
 platform-version identity. Alternate casing and long/short spellings therefore
 compare by framework semantics. Platform-qualified identities remain distinct.
 Unrecognized tokens retain opaque identity and inert display evidence but are
-not framework-comparable across input forms. Whether a universal group was
-implicit or explicit is retained as group provenance, not framework identity.
-This contract names semantics, not a package dependency; implementation remains
+comparable only within one evidence family: matching opaque identities compare
+equal under same-owner parity, while no unrecognized identity is comparable
+across declaration-facts owners. Whether a universal group was implicit or
+explicit is retained as group provenance, not framework identity. This
+contract names semantics, not a package dependency; implementation remains
 NativeAOT- and Browser-Wasm-compatible.
 
 An unrecognized scope's opaque identity is internal comparison state, not
@@ -246,9 +248,10 @@ renderable artifact text. Sinks receive its kind and `InertString` display
 evidence; they do not serialize or render the raw identity token.
 
 The selected restored target framework is resolution context, not a substitute
-for an unavailable authored declaration scope. This query does not infer
-framework compatibility or claim that a `netstandard2.0` declaration has
-`net8.0` authored scope because it participated in a `net8.0` restore.
+for an authored declaration scope the input owner did not supply. Such an input
+has incomplete declaration projection. This query does not infer framework
+compatibility or claim that a `netstandard2.0` declaration has `net8.0`
+authored scope because it participated in a `net8.0` restore.
 
 For one explicitly paired root from each outcome, the common result supports
 two projections:
@@ -266,14 +269,16 @@ including any typed declaration failure, both comparisons return
 Declaration projection is complete when every owner-issued logical group,
 including an empty group, is represented; every owner-issued declaration
 contributes a normalized row; and no typed declaration failure occurs.
-Unavailable or unrecognized framework scope is a complete declaration
-projection with non-comparable scope; it does not prevent core comparison.
+Unrecognized framework scope is a complete declaration projection with
+context-dependent scope comparison; it does not prevent core comparison. An
+input that cannot associate a declaration with any logical group has incomplete
+declaration projection instead of an unavailable scope.
 
 Otherwise, core comparison retains logical-group multiplicity and returns
 equal or unequal. Scoped comparison returns:
 
-- **Not comparable: framework scope** if either paired root contains an
-  unavailable or unrecognized logical-group scope;
+- **Not comparable: framework scope** if the selected scope-comparison family
+  cannot compare an unrecognized logical-group identity;
 - **Equal** when every scope is comparable and the scoped-signature multisets
   are equal; or
 - **Unequal** when every scope is comparable and those multisets differ.
@@ -287,6 +292,24 @@ the paired-root comparison.
 The query returns one independent comparison result per explicitly paired root.
 It defines no outcome-wide aggregate equivalence across multiple root pairs;
 that composition belongs to the caller.
+
+Scope comparison names its evidence family:
+
+- **Same-owner parity** compares roots produced by the same declaration-facts
+  owner, including package archive versus direct nuspec and `.csproj` locator
+  versus direct-assets composition. Matching unrecognized opaque identities
+  compare equal; differing unrecognized identities are not comparable.
+- **Cross-owner declaration comparison** compares package-manifest and
+  restored-project facts. Any unrecognized scope makes scoped comparison not
+  comparable because the two owners cannot establish shared framework
+  semantics.
+
+The query selects the family from the paired roots' owner provenance, never
+from a caller flag. This family distinction affects only scoped comparison.
+Core declaration comparison remains independent of framework scope. #5314
+separately owns whether project locator and direct assets produce the same
+restored facts; this query only normalizes those same-owner facts
+deterministically.
 
 ## Additive restored-graph evidence
 
@@ -309,6 +332,24 @@ root-authored declarations. A direct edge may be correlated with a normalized
 declaration through typed identities when the restored-facts owner establishes
 that correspondence. The query does not infer it from package labels, rendered
 version text, row positions, or local paths.
+
+Each root carries one restored-graph state:
+
+- **Not applicable** — the query assigns this to a root with no
+  restored-facts owner, including package/nuspec input;
+- **Available, complete** — the full owner-issued graph is present, including
+  a valid empty edge collection;
+- **Available, incomplete** — bounded edges are usable but the typed completion
+  reason proves the graph is partial;
+- **Unavailable** — a restored input supplied declarations but its
+  restored-facts owner cannot supply graph evidence under the available
+  capabilities; or
+- **Failed** — graph projection failed with typed failure evidence.
+
+The query assigns **Not applicable** when no restored-facts owner exists.
+Otherwise, it preserves the available, unavailable, incomplete, or failed state
+supplied by that owner. Graph unavailability, incompleteness, or failure never
+downgrades complete declaration comparison.
 
 ## Owner observations
 
@@ -350,7 +391,8 @@ archive-extracted and direct nuspec bytes produce the same manifest facts and
 group-selection outcome. The package path uses an independently expected
 coordinate; the #5316 direct-content path uses typed self-attested identity.
 Acquisition and identity-trust provenance may differ and is compared
-separately.
+separately. Scoped equivalence uses same-owner parity, so matching
+unrecognized framework identities remain equal.
 
 ### Restored input determinism
 
@@ -439,7 +481,9 @@ The outcome separately reports:
 
 - root-set completion;
 - admitted, rejected, and failed root counts;
-- per-root declaration projection completion and its aggregate; and
+- per-root declaration projection completion and its aggregate;
+- per-root restored-graph availability, completion, and failure, plus its
+  aggregate; and
 - owner-enrichment completion.
 
 One phase cannot upgrade another phase's completion. In particular, complete
@@ -538,8 +582,7 @@ restored-graph evidence in the same snapshot:
   "dependencies": [
     {
       "group": {
-        "id": "manifest:0",
-        "selected": true
+        "id": "project:net8.0"
       },
       "framework": {
         "kind": "exact",
@@ -618,8 +661,11 @@ Implementation must establish:
 - core and scoped common-projection equivalence between package/nuspec and
   restored inputs;
 - equivalent alternate TFM spellings, distinct platform-qualified TFMs, and
-  explicit implicit-versus-explicit any-framework, unavailable, unrecognized,
-  unequal, and not comparable cases;
+  explicit implicit-versus-explicit any-framework, unrecognized, unequal, and
+  not comparable cases;
+- identical unrecognized framework identities comparing equal for
+  package/nuspec same-owner parity but not comparable across
+  package/restored owners;
 - separate assertions for provenance, resolution, capability, and completion;
 - non-vacuity by mutating one declared package identity or version constraint
   and observing core and scoped inequality;
@@ -636,13 +682,15 @@ Implementation must establish:
   group, normalized group order, conflict outcome, and selected declarations;
 - empty logical groups retained in completion and group-signature multiplicity,
   including repeated empty groups and cross-input empty-framework equivalence;
-- repeated declaration-set signatures with mixed exact and unavailable scopes
-  producing deterministic not-comparable scoped evidence;
+- repeated declaration-set signatures with mixed exact and cross-owner
+  unrecognized scopes producing deterministic not-comparable scoped evidence;
 - a multi-root prefix outcome whose unrelated incomplete or unrecognized root
   does not poison comparison of two individually complete paired roots;
 - root-set truncation retained separately from comparison of already-admitted
   complete roots;
 - a diamond restored graph retaining distinct parent edges and constraints;
+- complete-empty, incomplete, unavailable, and failed restored-graph states
+  remaining visible without changing complete declaration comparison;
 - hostile text containment at query-result construction, with sink retention
   gated by each later JSON or Markout adopter, including no raw unrecognized
   framework identity at a sink; and
