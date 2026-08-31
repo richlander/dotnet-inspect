@@ -219,28 +219,31 @@ and makes no exact identity claim.
 
 These properties remain unverified until the Release suite contains:
 
-- `DeclaredTypeSelfNameAdmissionTests.ExactNamesConsumeCSharpTextAdmission`,
+- `DeclaredTypeSelfNameAdmissionTests.OrdinaryExactNamesConsumeCSharpTextAdmission`,
   covering ordinary, BMP and supplementary Unicode, Unicode format characters,
   ordinary and newly reserved words such as `extension`, nested, generic,
   noncanonical-backtick, arity-mismatch, literal-punctuation, and hostile
   metadata neighbors; the gate requires #5215's real-compiler and emitted
   TypeDef-identity evidence rather than restating its tables, and rejects
-  top-level and nested requests with fewer or more leaf generic parameters than
-  the exact introduced count;
+  top-level and nested ordinary requests with fewer or more leaf generic
+  parameters than the exact introduced count;
 - `CSharpTypePrinterTests.SelfNameIsSharedByItsDeclarationPositions`, proving
-  an exact non-delegate named `extension` uses one prepared admitted identifier
-  in its type header, instance and static constructors, and
-  destructor-spelled finalizer while its suppressed finalizer uses no
-  self-name. A second exact `extension` delegate proves the separate delegate
-  header path consumes that same kind of prepared identifier; and
+  a positive-arity exact non-delegate named `extension` uses one prepared
+  admitted identifier in its type header, instance and static constructors,
+  and destructor-spelled finalizer while its suppressed finalizer uses no
+  self-name. The header alone composes the declared generic parameters; no
+  constructor or finalizer head does. A second positive-arity exact `extension`
+  delegate proves the separate delegate header path consumes that same kind of
+  prepared identifier and composes its declared generic parameters; and
 - `CSharpTypePrinterTests.SelfNameFailureMakesBatchNotRendered`, using the
   hostile metadata fixture for top-level, nested, same-namespace,
   multi-namespace, and selected-replacement failures while proving the typed
   outcome exposes no partial source surface. Singleton `Print`, `PrintBatch`,
   generated-name legacy routing with valid, truncated, overlong, and
-  suffix-disagreeing arity evidence, missing-identity and `null` or empty-count
-  legacy routing, ordinary-name truncated and overlong count-vector refusal,
-  mixed legacy/exact batches, and both request orders for refusal plus
+  suffix-disagreeing arity evidence and with fewer or more leaf generic
+  parameters than its introduced count, missing-identity and `null` or
+  empty-count legacy routing, ordinary-name truncated and overlong count-vector
+  refusal, mixed legacy/exact batches, and both request orders for refusal plus
   duplicate validation are explicit cases.
 
 The implementation remains in the existing SRM-only, Roslyn-free product
