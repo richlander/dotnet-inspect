@@ -460,6 +460,180 @@ The periodic authored-corpus Deep Inspect lane runs this perfection gate before
 the separate EVIL regression ratchet. `DeepInspect_RunsTheWholeFileSourceOracleGate`
 is the non-vacuity gate for that workflow wiring.
 
+#### Source-oracle candidate ledger (`--source-oracle-candidates`)
+
+`--source-oracle-candidates --baseline-source-oracle-report <report.json>
+[--repo <path>] [--json] <assembly...>` answers the question the manifest above
+cannot: **which whole source files could be enrolled next, and in what order do
+they add the most new C# syntax?** It is a network-bound measurement mode, not a
+gate.
+
+It scans **every** real-method target in the supplied assemblies — there is no
+cap and no diversification — and reports every qualification outcome, including
+the ones that produce no candidate.
+
+**File membership is computed before any source is acquired.** For each
+assembly the ledger reads the complete portable-PDB MethodDef-to-document
+mapping through `SourceLinkFindings.InspectMemberSources` and
+`InspectSourceDocuments`, selects each MethodDef's primary document exactly as
+`PdbSourceAcquisition.AcquireMemberAsync` does (`IsPrimaryDocument` descending,
+then `DocumentRowId`), and intersects that mapping with the real-method targets.
+A file's denominator is therefore never inferred from the rows that happened to
+harvest successfully. That distinction is the reason this mode exists: a full
+`System.Text.Encodings.Web` sweep enumerated more real-method targets than the
+harvest captured, and the harvest counted the difference as undifferentiated
+skips, so nothing could say which files were complete.
+`SourceOracleCandidateLedgerTests.Census_ReadsTheCompletePdbMappingFromARealAssembly`
+is the compiled-artifact canary for the census, and
+`AcquisitionFailure_CannotLeaveAFileQualified` plus
+`MissingEvaluation_IsUnevaluableRatherThanAShorterDenominator` are the named
+gates that an unmeasured member cannot leave a file qualified.
+
+**Scope is stated, not implied.** Every file publishes `mappedMembers` (all
+primary PDB-mapped MethodDefs), `eligibleTargets` (the real-method subset),
+`evaluatedTargets`, and `unevaluatedMappedMembers`. Qualification is
+eligible-method completeness for the exact scanned assembly set; it is **not** a
+claim that every C# declaration in the file was checked. A file with no eligible
+target is rejected structurally rather than qualifying vacuously.
+
+Each immutable file identity — the `(sourceUrl, checksumAlgorithm, checksum)`
+triple the manifest registers, grouped across assemblies and marked
+`sharedAcrossAssemblies` when more than one module maps it — is:
+
+- **Enrolled** — its exact commit-pinned source URL is already present in the
+  verified baseline, so it remains visible but is not ranked as a next
+  candidate.
+- **Qualified** — every eligible target has a captured record, evaluates
+  `ValidMatch`, is `PrinterExact` `Exact` at the supported printer comparison
+  version, and its Printer body parses for the syntax inventory.
+- **Rejected** — the file was measured and something disqualifies it.
+- **Unevaluable** — at least one eligible target was never measured, so nothing
+  has been shown about the file either way.
+
+Rejection reasons are stable codes in four disjoint families:
+
+| Family | Reasons | Meaning |
+| --- | --- | --- |
+| `Structural` | `no-eligible-targets`, `body-extraction-failed`, `printer-body-ineligible`, `unsupported-target`, `decompiler-not-full` | measured, and not eligible for whole-file printer correspondence |
+| `Acquisition` | `no-pdb-source-mapping`, `no-immutable-source-identity`, `source-unavailable`, `source-acquisition-failed`, `evaluation-missing` | never measured; makes the file Unevaluable |
+| `Quality` | `not-valid`, `not-correct`, `printer-different`, `printer-not-recorded`, `printer-version-unsupported` | evaluated, and the decompiled body is not good enough |
+| `Inventory` | `inventory-parse-failed` | the captured Printer body could not be inventoried |
+
+Acquisition wins when a file exhibits more than one family, because a file with
+an unmeasured member has not been shown to fail anything.
+`StructuralIneligibility_PrinterMismatch_AndUnavailability_AreDistinct` is the
+named gate that a structural ineligibility, a printer mismatch, and an outage
+are three different facts. An eligible target the PDB does not map, or whose
+document carries no immutable identity, is an explicit report row rather than
+silent file membership
+(`UnmappedEligibleTarget_StaysExplicitAndInventsNoFileMembership`).
+
+**The baseline is a report, not a manifest.** `--baseline-source-oracle-report`
+takes a `--benchmark-authored-corpus --json` report and accepts it only when it
+has complete inputs, a non-null `sourceOracleManifest` with `passed: true`,
+`syntaxInventoryEvaluated: true` at a supported inventory and printer comparison
+version, and a non-null, sorted, duplicate-free `observedFeatures`. A manifest
+declares what someone expects to be enrolled; only a passing report with an
+evaluated inventory is evidence that a feature was ever observed, and ranking
+against declarations would report enrolled coverage as new.
+The report must also identify every enrolled file as Printer exact, track every
+file's nonempty, sorted, and duplicate-free observed features, publish the exact
+union of those per-file features as `observedFeatures`, and satisfy the
+producer's passing invariants: at least one file, no failures, and every
+registered file Valid, Correct, inventory-tracked, and Printer exact.
+The consumer also recomputes the benchmark's complete-input predicate and
+denominator relationships from its row, target, corpus, and assembly counts
+rather than trusting the serialized `inputsComplete` flag. Every enrolled file
+must also have at least one benchmark row naming its exact source URL and judged
+both Correct and Printer exact. Contradictory or vacuous passing evidence is
+rejected.
+`SourceOracleCandidateLedgerTests.Baseline_RejectsUnverifiedReports`,
+`Baseline_RejectsALegacyReportWithNoManifest`,
+`Baseline_RejectsAManifestSuppliedInPlaceOfAReport`,
+`Baseline_RejectsUnsortedObservedFeatures`,
+`Baseline_RejectsDuplicateObservedFeatures`,
+`Baseline_RejectsMalformedPerFileFeatures`,
+`Baseline_RejectsAnIncompleteTrackedFileCount`,
+`Baseline_RejectsObservedFeaturesThatContradictTheFileInventory`,
+`Baseline_RejectsAVacuousPassingReport`,
+`Baseline_RejectsContradictoryPassingInvariants`,
+`Baseline_RejectsContradictoryInputCompleteness`, and
+`Baseline_RejectsInsufficientEnrolledFileRowEvidence` are the named gates.
+`Baseline_RejectsANullFileInventoryEntry` enforces typed refusal of malformed
+inventory entries. The
+candidate report records the baseline's provenance, digest, and feature set —
+never its local path.
+
+Qualified files are then ranked greedily and deterministically: starting from
+the baseline's observed features, repeatedly take the remaining qualified file
+covering the most currently uncovered features, breaking ties on total feature
+count descending, eligible-target count descending, then source URL ordinal.
+Each pick records its `rank` and `incrementalFeatures` and updates the covered
+set, so a file's gain reflects the picks before it and zero-gain files rank
+after every positive-gain file.
+`GreedyRanking_IsDeterministicAndUpdatesIncrementalGain` and
+`GreedyRanking_BreaksTiesDeterministically` are the named gates.
+
+**Exit code.** Candidate rejection and transient source unavailability are typed
+data and exit 0. The run fails only on measurement integrity: no usable assembly
+or real-method target, a failed PDB mapping census, an evaluation count or
+correlation mismatch, an invalid or unverified baseline report, or a run in
+which no checksum-identified file was evaluated at all.
+
+**Durable output.** The `--json` report carries identities, checksums, counts,
+typed reason codes, outcomes, feature names, and member identities only.
+Assembly provenance is content-derived; path-derived labels such as a parent
+directory interpreted as a target framework are excluded. The report never
+carries an authored body, a Printer body, a diff, or a local path;
+`Json_ExcludesAuthoredAndPrinterSourceTextAndLocalPaths` is the named
+serialization gate, and it is non-vacuous because the sentinels it searches for
+are the real authored body, Printer body, diff detail, and source path of a row
+it classifies and serializes. The text card is the same data: input and
+denominator totals, status counts, the rejection-family and reason histograms,
+the baseline feature count, the ranked candidates with gain, total, and member
+counts, and the explicit unevaluable and unmapped counts. Data goes to stdout
+and diagnostics to stderr.
+
+```bash
+bash eng/restore-authored-source-corpus.sh
+bash eng/prepare-authored-source-oracles.sh /tmp/source-oracle-assemblies.txt
+mapfile -t oracle_assemblies < /tmp/source-oracle-assemblies.txt
+
+# 1. Produce the verified enrolled baseline the ranking is incremental to.
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --benchmark-authored-corpus external/authored-source-corpus/oracle/corpus.jsonl \
+  --source-oracle-manifest external/authored-source-corpus/oracle/manifest.json \
+  --json "${oracle_assemblies[@]}" > /tmp/source-oracle-baseline.json
+
+# 2. Ask which whole files could be enrolled next, and in what order.
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --source-oracle-candidates \
+  --baseline-source-oracle-report /tmp/source-oracle-baseline.json \
+  --repo "$(git rev-parse --show-toplevel)" \
+  "${oracle_assemblies[@]}"
+```
+
+Step 1 requires the enrolled manifest to declare `syntaxInventoryVersion` and
+`expectedFeatures`; a legacy manifest reports the inventory as not tracked, and
+the candidate mode refuses that report rather than ranking against an unverified
+feature set.
+
+The mode dispatches before every protected authored-corpus gate, so combining it
+with one refuses rather than preempting it
+(`AuthoredCorpusRatchetTests.CandidateLedger_PrecedesEveryProtectedGate` and
+`AuthoredCorpusHarnessProcessTests.Harness_RefusesEveryPreemptingModeAgainstEveryProtectedGate`).
+`--baseline-source-oracle-report` on its own, and the mode without it, both
+refuse (`CandidateLedgerFlags_RequireEachOther`,
+`Harness_RefusesTheCandidateLedgerWithoutItsBaseline`), and
+`Harness_ForwardsTheCandidateLedgerBaselinePath` plus
+`Harness_VerifiesTheForwardedCandidateLedgerBaseline` are the black-box
+non-vacuity gates that the flag value reaches the ledger and is verified there.
+
+The candidate ledger and both harvest modes share one typed harvest attempt, so
+the normal harvest summary now breaks its skips down by the same reason codes
+instead of reporting a single undifferentiated count. Captured corpus rows are
+unchanged.
+
 Raw syntax indexes used by fixture and on-demand source probes do not carry that
 typed correlation, so fault attribution is not attempted for them. Their
 original compile diagnostic remains visible and an invalid result is
@@ -1777,6 +1951,14 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
 # Whole-type binding oracle: new CS0104 ambiguous-reference collisions
 dotnet run --project tools/DecompilerHarness -c Release -- \
   /path/to/System.Private.CoreLib.dll --bind-check --max-examples 20
+
+# Which whole source files could be enrolled in the source oracle next, ranked by
+# the new C# syntax each one adds over a VERIFIED enrolled benchmark report.
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --source-oracle-candidates \
+  --baseline-source-oracle-report /tmp/source-oracle-baseline.json \
+  --repo "$(git rev-parse --show-toplevel)" \
+  /path/to/System.Text.Encodings.Web.dll
 ```
 
 Inputs are assembly paths or directories (non-managed files are skipped).

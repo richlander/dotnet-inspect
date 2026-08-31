@@ -265,13 +265,7 @@ static partial class AuthoredCorpusHistoryStore
         {
             throw new InvalidDataException($"Benchmark date '{report.Date}' is not yyyy-MM-dd.");
         }
-        if (!report.InputsComplete
-            || report.UnmatchedRows != 0
-            || report.MalformedRows != 0
-            || report.TargetsEvaluated <= 0
-            || report.MatchedAssemblies != report.CorpusAssemblies
-            || report.Rows.Count != report.TargetsEvaluated
-            || report.TargetsEvaluated + report.UnmatchedRows != report.CorpusRows)
+        if (!AuthoredCorpusExitContract.ReportInputsAreComplete(report))
         {
             throw new InvalidDataException("Benchmark artifact is incomplete and cannot become a history row.");
         }

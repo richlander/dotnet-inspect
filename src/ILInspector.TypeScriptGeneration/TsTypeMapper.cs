@@ -93,7 +93,7 @@ static class TsTypeMapper
     public static string MapReturnType(
         string csharpType,
         IReadOnlySet<string> recordNames,
-        TsBindGenDiagnostics? diagnostics = null,
+        TypeScriptGenerationDiagnostics? diagnostics = null,
         string? location = null,
         IReadOnlySet<string>? blockedAliases = null,
         IReadOnlyDictionary<string, string>? mappedTypeNames = null)
@@ -162,7 +162,7 @@ static class TsTypeMapper
         string csharpType,
         string wireDtoName,
         IReadOnlySet<string> recordNames,
-        TsBindGenDiagnostics? diagnostics = null,
+        TypeScriptGenerationDiagnostics? diagnostics = null,
         string? location = null,
         IReadOnlySet<string>? blockedAliases = null,
         IReadOnlyDictionary<string, string>? mappedTypeNames = null,
@@ -228,7 +228,7 @@ static class TsTypeMapper
     public static string MapParameterType(
         string csharpType,
         IReadOnlySet<string> recordNames,
-        TsBindGenDiagnostics? diagnostics = null,
+        TypeScriptGenerationDiagnostics? diagnostics = null,
         string? location = null,
         IReadOnlySet<string>? blockedAliases = null,
         IReadOnlyDictionary<string, string>? mappedTypeNames = null,
@@ -264,7 +264,7 @@ static class TsTypeMapper
     public static string MapJsonWireType(
         string csharpType,
         IReadOnlySet<string> recordNames,
-        TsBindGenDiagnostics? diagnostics = null,
+        TypeScriptGenerationDiagnostics? diagnostics = null,
         string? location = null,
         IReadOnlySet<string>? blockedAliases = null,
         IReadOnlyDictionary<string, string>? mappedTypeNames = null,
@@ -285,7 +285,7 @@ static class TsTypeMapper
     static string Map(
         string csharpType,
         IReadOnlySet<string> recordNames,
-        TsBindGenDiagnostics? diagnostics,
+        TypeScriptGenerationDiagnostics? diagnostics,
         string? location,
         IReadOnlySet<string>? blockedAliases,
         IReadOnlyDictionary<string, string>? mappedTypeNames,
@@ -572,7 +572,7 @@ static class TsTypeMapper
     static bool TryMapDictionary(
         string typeName,
         IReadOnlySet<string> recordNames,
-        TsBindGenDiagnostics? diagnostics,
+        TypeScriptGenerationDiagnostics? diagnostics,
         string? location,
         IReadOnlySet<string>? blockedAliases,
         IReadOnlyDictionary<string, string>? mappedTypeNames,
@@ -658,7 +658,7 @@ static class TsTypeMapper
     static string MapAuthenticatedDelegate(
         string csharpType,
         JsExportDelegateParameter delegateParameter,
-        TsBindGenDiagnostics? diagnostics,
+        TypeScriptGenerationDiagnostics? diagnostics,
         string? location,
         IReadOnlySet<string>? blockedAliases,
         IReadOnlyDictionary<string, string>? mappedTypeNames,

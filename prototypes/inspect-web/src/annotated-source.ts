@@ -5,7 +5,7 @@ import type {
 } from "./annotated-source-view.ts";
 import { buildAnnotatedView, MEDIA, MEDIUM_LABELS } from "./annotated-source-view.ts";
 
-// BrowserAnnotatedSource's "document" field is generated as `unknown` because tsbindgen doesn't
+// BrowserAnnotatedSource's "document" field is generated as `unknown` because the facade doesn't
 // model the wire shape of the annotated-source document graph, only which fields are DTO
 // boundaries. AnnotatedSourceDocument (annotated-source-view.ts) is the product-owned structural
 // model of that same JSON payload, coupled to document-model.ts's runtime validation — so this
