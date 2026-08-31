@@ -207,6 +207,8 @@ public static class PackageCommandDefinitions
         searchCommand.Options.Add(compactOption);
         searchCommand.Options.Add(opts.Verbose);
         searchCommand.Options.Add(opts.Limit);
+        searchCommand.Options.Add(opts.Lines);
+        searchCommand.Options.Add(opts.TailLines);
         searchCommand.Options.Add(opts.Count);
         searchCommand.Options.Add(opts.Fields);
         searchCommand.Options.Add(opts.Columns);
@@ -214,6 +216,9 @@ public static class PackageCommandDefinitions
         opts.AddRowWindowValidators(searchCommand);
         searchCommand.Validators.Add(result =>
         {
+            bool lineMode =
+                result.GetValue(opts.Lines)
+                || result.GetValue(opts.TailLines);
             int? resultLimit = null;
             var limitResult = result.GetResult(opts.Limit);
             if (limitResult is { Implicit: false }
@@ -228,20 +233,21 @@ public static class PackageCommandDefinitions
                     return;
                 }
 
-                resultLimit = parsedLimit;
-            }
+                if (!lineMode)
+                    resultLimit = parsedLimit;
 
-            if (resultLimit is <= 0)
-            {
-                result.AddError(
-                    "-n requires a positive package search result limit greater than zero.");
+                if (parsedLimit <= 0)
+                {
+                    result.AddError(
+                        "-n requires a positive package search result limit greater than zero.");
+                }
             }
 
             bool hasDirection =
                 result.GetValue(opts.Head) || result.GetValue(opts.Tail);
             bool hasRows =
                 result.GetResult(opts.Rows) is { Implicit: false };
-            if (hasDirection && !hasRows && resultLimit is null)
+            if (!lineMode && hasDirection && !hasRows && resultLimit is null)
             {
                 result.AddError(
                     "--head/--tail requires a carrier: use -n for result rows "
@@ -286,6 +292,8 @@ public static class PackageCommandDefinitions
                 opts.Rows,
                 opts.Head,
                 opts.Tail,
+                opts.Lines,
+                opts.TailLines,
                 opts.Fields,
                 opts.Columns,
                 inheritedPrereleaseOption,
@@ -324,11 +332,14 @@ public static class PackageCommandDefinitions
             }
 
             var projection = ProjectionAudit.Requested(parseResult, opts);
+            bool lineMode = opts.IsLinesRequested(parseResult);
             var options = new PackageSearchOptions
             {
                 Query = query,
-                Take = parseResult.GetValue(opts.Limit)
-                    ?? parseResult.GetValue(takeOption),
+                Take = lineMode
+                    ? parseResult.GetValue(takeOption)
+                    : parseResult.GetValue(opts.Limit)
+                        ?? parseResult.GetValue(takeOption),
                 Prerelease =
                     parseResult.GetValue(inheritedPrereleaseOption)
                     || parseResult.GetValue(prereleaseOption),

@@ -91,6 +91,53 @@ public class DemoCommandTests
     }
 
     [Fact]
+    public async Task ListCommand_AppliesAbsoluteRange()
+    {
+        var (exitCode, output, error) =
+            await RunCliAsync(
+                "demo", "list", "--rows", "2..3", "--json");
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(2, document.RootElement.GetArrayLength());
+        Assert.Equal(
+            ProductInspectionDemos.Entries[1].Id,
+            document.RootElement[0].GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public async Task ListCommand_AppliesParentAbsoluteRange()
+    {
+        var (exitCode, output, error) =
+            await RunCliAsync(
+                "demo", "--rows", "2..3", "list", "--json");
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(2, document.RootElement.GetArrayLength());
+    }
+
+    [Theory]
+    [InlineData("--lines")]
+    [InlineData("--tail-lines")]
+    public async Task ListCommand_AppliesRenderedLineWindow(string lineOption)
+    {
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(async () =>
+        {
+            string[] args = CommandLineBuilder.PreprocessArgs(
+                ["demo", "list", "-n", "1", lineOption]);
+            var result = CommandLineBuilder.CreateRootCommand().Parse(args);
+            return await CommandLineBuilder.InvokeWithLineWindowAsync(result, args);
+        });
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Single(output.TrimEnd('\n').Split('\n'));
+    }
+
+    [Fact]
     public async Task RootCommand_AppliesItemWindowWhenListing()
     {
         var (exitCode, output, error) =

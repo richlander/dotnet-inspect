@@ -114,6 +114,15 @@ public static class ApiCommandDefinitions
 
         typeCommand.SetAction(async (parseResult, ct) =>
         {
+            if (RejectCountWithNumericLegacyLimit(
+                    parseResult,
+                    opts,
+                    typeFilterOption,
+                    memberOption))
+            {
+                return 1;
+            }
+
             bool hasTarget =
                 parseResult.GetValue(argsArg) is { Length: > 0 }
                 || !string.IsNullOrEmpty(parseResult.GetValue(packageOption))
@@ -288,6 +297,15 @@ public static class ApiCommandDefinitions
 
         memberCommand.SetAction(async (parseResult, ct) =>
         {
+            if (RejectCountWithNumericLegacyLimit(
+                    parseResult,
+                    opts,
+                    typeFilterOption: null,
+                    memberOption))
+            {
+                return 1;
+            }
+
             bool hasTarget =
                 parseResult.GetValue(argsArg) is { Length: > 0 }
                 || !string.IsNullOrEmpty(parseResult.GetValue(packageOption))
@@ -341,5 +359,34 @@ public static class ApiCommandDefinitions
         });
 
         return memberCommand;
+    }
+
+    private static bool RejectCountWithNumericLegacyLimit(
+        ParseResult parseResult,
+        SharedOptions opts,
+        Option<string?>? typeFilterOption,
+        Option<string[]> memberOption)
+    {
+        if (!parseResult.GetValue(opts.Count))
+            return false;
+
+        if (typeFilterOption is not null
+            && SharedParsers.ParseTypeFilter(
+                parseResult.GetValue(typeFilterOption)).Limit is not null)
+        {
+            CommandError.Write(
+                "--count cannot be combined with a numeric -t/--type limit.");
+            return true;
+        }
+
+        if (SharedParsers.ParseMemberFilter(
+                parseResult.GetValue(memberOption) ?? []).Limit is not null)
+        {
+            CommandError.Write(
+                "--count cannot be combined with a numeric -m/--member limit.");
+            return true;
+        }
+
+        return false;
     }
 }

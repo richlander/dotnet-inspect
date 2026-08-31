@@ -1946,7 +1946,9 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             [
                 .. sourceArgs,
-                "-S", "Performance Triage",
+                "-S", command == "library"
+                    ? "Performance: *"
+                    : "Performance Triage",
                 "--where", "CallerLoop=direct",
                 "--where", "CallerLoopDepth>=1",
                 "--order-by", "CallerLoopDepth desc",
@@ -2337,7 +2339,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-S", "Performance Triage",
+            "-S", "Performance: *",
             "--where", "Post Dominance=return-post-dominates",
             "--order-by", "PostDominance desc,RootReach desc",
             "--json",
@@ -5266,12 +5268,14 @@ public partial class CommandExecutionTests
             "--all",
             "-S",
             "Type Info",
-            "--count",
             "--tips",
             "q");
 
         Assert.Equal(0, exit);
-        Assert.Equal("8", output.Trim());
+        Assert.Contains(
+            "| Library | Microsoft.AspNetCore.Components.Endpoints |",
+            output,
+            StringComparison.Ordinal);
         Assert.Empty(error);
     }
 
@@ -5539,7 +5543,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_DeferredExactTypePreservesSharedMemberLimit()
+    public async Task Router_DeferredExactTypeRejectsSharedMemberLimitWithCount()
     {
         const string target =
             "System.Collections.Immutable.ImmutableArray<T>.Builder";
@@ -5559,8 +5563,12 @@ public partial class CommandExecutionTests
         var deferred = await RunAppAsync([target, .. tail]);
 
         Assert.Equal(direct, deferred);
-        Assert.Equal(0, deferred.Exit);
-        Assert.Equal("1", deferred.Output.Trim());
+        Assert.Equal(1, deferred.Exit);
+        Assert.Empty(deferred.Output);
+        Assert.Contains(
+            "--count cannot be combined with a numeric -m/--member limit.",
+            deferred.Error,
+            StringComparison.Ordinal);
     }
 
     [Theory]
@@ -11805,6 +11813,41 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("--lines", "NuGet Search: Fixture")]
+    [InlineData("--tail-lines", "Fixture.Four")]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchLineWindowUsesTakeForAcquisition(
+        string lineOption,
+        string expected)
+    {
+        var (exit, output, error) = await RunPackageSearchFixtureAsync(
+            "package", "search", "Fixture",
+            "--take", "4",
+            "-n", "1",
+            lineOption);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Single(output.TrimEnd('\n').Split('\n'));
+        Assert.Contains(expected, output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchInheritedLineWindowUsesTakeForAcquisition()
+    {
+        var (exit, output, error) = await RunPackageSearchFixtureAsync(
+            "package",
+            "-n", "1",
+            "--tail-lines",
+            "search", "Fixture",
+            "--take", "4");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Single(output.TrimEnd('\n').Split('\n'));
+        Assert.Contains("Fixture.Four", output, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("-n=abc", "Cannot parse value 'abc'")]
     [InlineData("-n=0", "positive package search result limit")]
     [InlineData("-n=-1", "positive package search result limit")]
@@ -14438,6 +14481,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("--rows cannot be combined with --urls", error);
+        Assert.DoesNotContain("use -n N", error, StringComparison.Ordinal);
     }
 
     [Fact]

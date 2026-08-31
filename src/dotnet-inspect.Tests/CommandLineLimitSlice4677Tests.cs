@@ -451,6 +451,46 @@ public class CommandLineLimitSlice4677Tests
     }
 
     [Theory]
+    [InlineData("type", "-t", "-t/--type")]
+    [InlineData("type", "-m", "-m/--member")]
+    [InlineData("member", "-m", "-m/--member")]
+    public async Task ApiNumericLegacyLimitsRejectCountBeforeAcquisition(
+        string command,
+        string option,
+        string optionName)
+    {
+        var arguments = new List<string> { command };
+        if (command == "member")
+            arguments.Add("System.String");
+        arguments.AddRange(
+        [
+            "--package",
+            "Does.Not.Exist.4677",
+            "--source",
+            "http://127.0.0.1:1/v3/index.json",
+            option,
+            "2",
+            "--count",
+        ]);
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(async () =>
+        {
+            var args = CommandLineBuilder.PreprocessArgs([.. arguments]);
+            return await CommandLineBuilder.CreateRootCommand()
+                .Parse(args)
+                .InvokeAsync();
+        });
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"--count cannot be combined with a numeric {optionName} limit.",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("127.0.0.1", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("-n", "1", "item windows")]
     [InlineData("--rows", "2..3", "absolute row ranges")]
     public async Task FindRejectsDocumentJsonWindowsBeforeAcquisition(

@@ -134,6 +134,7 @@ public static class UtilityCommandDefinitions
     {
         var skillCommand = new Command("skill", "Show skill definition (router to focused skills)");
         skillCommand.Options.Add(opts.Limit);
+        skillCommand.Options.Add(opts.Rows);
         skillCommand.Options.Add(opts.Lines);
         skillCommand.Options.Add(opts.TailLines);
         skillCommand.Options.Add(opts.Head);
@@ -151,6 +152,9 @@ public static class UtilityCommandDefinitions
         listCommand.Options.Add(opts.Json);
         opts.AddTableOptionsTo(listCommand);
         listCommand.Options.Add(opts.Limit);
+        listCommand.Options.Add(opts.Rows);
+        listCommand.Options.Add(opts.Lines);
+        listCommand.Options.Add(opts.TailLines);
         listCommand.Options.Add(opts.Head);
         listCommand.Options.Add(opts.Tail);
         opts.AddRowWindowValidators(listCommand);
@@ -168,6 +172,7 @@ public static class UtilityCommandDefinitions
             var name = skill.Name;
             var focusedCommand = new Command(name, skill.Description);
             focusedCommand.Options.Add(opts.Limit);
+            focusedCommand.Options.Add(opts.Rows);
             focusedCommand.Options.Add(opts.Lines);
             focusedCommand.Options.Add(opts.TailLines);
             focusedCommand.Options.Add(opts.Head);
@@ -202,6 +207,7 @@ public static class UtilityCommandDefinitions
         demoCommand.Options.Add(opts.Mermaid);
         opts.AddTableOptionsTo(demoCommand);
         demoCommand.Options.Add(opts.Limit);
+        demoCommand.Options.Add(opts.Rows);
         demoCommand.Options.Add(opts.Lines);
         demoCommand.Options.Add(opts.TailLines);
         demoCommand.Options.Add(opts.Head);
@@ -214,6 +220,9 @@ public static class UtilityCommandDefinitions
         listCommand.Options.Add(opts.PlainText);
         opts.AddTableOptionsTo(listCommand);
         listCommand.Options.Add(opts.Limit);
+        listCommand.Options.Add(opts.Rows);
+        listCommand.Options.Add(opts.Lines);
+        listCommand.Options.Add(opts.TailLines);
         listCommand.Options.Add(opts.Head);
         listCommand.Options.Add(opts.Tail);
         opts.AddRowWindowValidators(listCommand);

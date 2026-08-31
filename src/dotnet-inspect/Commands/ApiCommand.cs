@@ -909,7 +909,7 @@ public class ApiCommand
         if (options.Rows is { Kind: RowWindowKind.Range })
         {
             CommandError.Write(
-                $"--rows cannot be combined with {optionName}; use -n N to limit projected items or --row N|first|last to select a projected row.");
+                $"--rows cannot be combined with {optionName}; use --row N|first|last to select a projected row.");
             return false;
         }
         if (options.Rows is not null)

@@ -427,7 +427,7 @@ public class LibraryCommand
             }
             if (options.Rows is { Kind: RowWindowKind.Range })
             {
-                CommandError.Write($"--rows cannot be combined with {optionName}; use -n N to limit projected items or --row N|first|last to select a projected row.");
+                CommandError.Write($"--rows cannot be combined with {optionName}; use --row N|first|last to select a projected row.");
                 return 1;
             }
             if (options.Rows is not null)

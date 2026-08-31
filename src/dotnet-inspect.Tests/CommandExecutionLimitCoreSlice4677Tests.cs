@@ -58,4 +58,48 @@ public partial class CommandExecutionTests
             result.Error,
             StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task UnadoptedProjectionRangeWindowsFailClosedTruthfully()
+    {
+        var result = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "References",
+            "--value",
+            "--rows", "2..3",
+            "--tips", "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--rows cannot be combined with --value",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "use -n N",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Performance")]
+    [InlineData("@Performance")]
+    [InlineData("Performance Triage")]
+    [InlineData("Optimization Opportunities")]
+    public async Task PerformanceCategoryRejectsTopWhenItIncludesUnrankedSections(
+        string selector)
+    {
+        var result = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", selector,
+            "--top", "1",
+            "--tips", "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "does not support --top.",
+            result.Error,
+            StringComparison.Ordinal);
+    }
 }

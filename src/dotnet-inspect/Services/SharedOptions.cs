@@ -607,12 +607,6 @@ public class SharedOptions
         if (autoSelectsRankingSection)
             return true;
 
-        if (select is { Length: 1 }
-            && IsRankingSelectorAlias(select[0]))
-        {
-            return true;
-        }
-
         var resolvedSelection = ResolveSelectedSections(
             select,
             knownSections,
@@ -829,12 +823,6 @@ public class SharedOptions
         => section.Equals(SectionNames.PerformanceTriage, StringComparison.Ordinal)
            || section.Equals(SectionNames.TopLeverage, StringComparison.Ordinal)
            || PerformanceKinds.Sections.Contains(section, StringComparer.Ordinal);
-
-    private static bool IsRankingSelectorAlias(string selector)
-        => selector.Equals(SectionNames.PerformanceTriage, StringComparison.OrdinalIgnoreCase)
-           || selector.Equals("Performance", StringComparison.OrdinalIgnoreCase)
-           || selector.Equals("Optimization Opportunities", StringComparison.OrdinalIgnoreCase)
-           || selector.Equals(SectionCategoryNames.Performance, StringComparison.OrdinalIgnoreCase);
 
     public RowSelector? ParsePrintRow(ParseResult parseResult)
         => RowSelector.TryParse(parseResult.GetValue(Row), out var selector) ? selector : null;
