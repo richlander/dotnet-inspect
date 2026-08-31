@@ -19,11 +19,38 @@ public enum PackagePayloadOrigin
 /// One acquired package payload together with the coordinate that selected it
 /// and the producer identity recorded with its bytes.
 /// </summary>
-public sealed record AcquiredPackagePayload(
-    ResolvedPackageCoordinate Coordinate,
-    IPackageContent Content,
-    string ProducerKey,
-    PackagePayloadOrigin Origin);
+public sealed class AcquiredPackagePayload
+{
+    internal AcquiredPackagePayload(
+        ResolvedPackageCoordinate coordinate,
+        IPackageContent content,
+        string producerKey,
+        PackagePayloadOrigin origin)
+    {
+        ArgumentNullException.ThrowIfNull(coordinate);
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentException.ThrowIfNullOrWhiteSpace(producerKey);
+        if (!content.ProducerKey.Equals(producerKey, StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "The acquired payload and retained content name different producers.",
+                nameof(content));
+        }
+
+        Coordinate = coordinate;
+        Content = content;
+        ProducerKey = producerKey;
+        Origin = origin;
+    }
+
+    public ResolvedPackageCoordinate Coordinate { get; }
+
+    public IPackageContent Content { get; }
+
+    public string ProducerKey { get; }
+
+    public PackagePayloadOrigin Origin { get; }
+}
 
 /// <summary>The result of acquiring one exact package payload.</summary>
 public abstract record PackagePayloadResult
@@ -57,11 +84,38 @@ public abstract record PackagePayloadResult
 /// <summary>
 /// One payload acquired through a typed source client.
 /// </summary>
-public sealed record AcquiredPackageSourcePayload(
-    PackageSourceCoordinate Coordinate,
-    IPackageContent Content,
-    string ProducerKey,
-    PackagePayloadOrigin Origin);
+public sealed class AcquiredPackageSourcePayload
+{
+    internal AcquiredPackageSourcePayload(
+        PackageSourceCoordinate coordinate,
+        IPackageContent content,
+        string producerKey,
+        PackagePayloadOrigin origin)
+    {
+        ArgumentNullException.ThrowIfNull(coordinate);
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentException.ThrowIfNullOrWhiteSpace(producerKey);
+        if (!content.ProducerKey.Equals(producerKey, StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "The acquired payload and retained content name different producers.",
+                nameof(content));
+        }
+
+        Coordinate = coordinate;
+        Content = content;
+        ProducerKey = producerKey;
+        Origin = origin;
+    }
+
+    public PackageSourceCoordinate Coordinate { get; }
+
+    public IPackageContent Content { get; }
+
+    public string ProducerKey { get; }
+
+    public PackagePayloadOrigin Origin { get; }
+}
 
 /// <summary>The result of acquiring one exact typed-source package payload.</summary>
 public abstract record PackageSourcePayloadResult

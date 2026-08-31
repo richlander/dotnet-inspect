@@ -269,9 +269,13 @@ public enum WorkspaceContextLoadFailureKind
 /// A declared <see cref="WorkspaceMemberCoordinate"/> may float: a package
 /// member without a version names no exact identity, so it cannot be
 /// transported, compared, or re-acquired as one. The realized coordinate is
-/// what the loader actually selected — every field concrete and canonical —
-/// so a consumer can carry it across a transport boundary and get the same
-/// bytes back.
+/// what the loader actually selected — every identity field concrete and
+/// canonical, with an optional acquisition target absent only for a
+/// framework-neutral source acquisition — so a consumer can carry it across a
+/// transport boundary and repeat the same producer-bound acquisition request.
+/// Package storage may publish a newer payload generation under that
+/// coordinate; only an acquisition-owned content-generation identity proves
+/// immutable byte correspondence.
 /// </para>
 /// <para>
 /// It is a value, not a handle. It carries no source, credential, stream,
@@ -330,7 +334,7 @@ public abstract record RealizedMemberCoordinate
             string packageId,
             string version,
             string producer,
-            string framework,
+            string? framework,
             string? runtimeIdentifier)
         {
             if (!IsCanonicalPackageIdentity(packageId))
@@ -354,7 +358,8 @@ public abstract record RealizedMemberCoordinate
                     nameof(producer));
             }
 
-            if (!IsCanonicalFramework(framework))
+            if (framework is not null
+                && !IsCanonicalFramework(framework))
             {
                 throw new ArgumentException(
                     "A realized acquisition framework is a canonical lowercase moniker.",
@@ -366,6 +371,13 @@ public abstract record RealizedMemberCoordinate
             {
                 throw new ArgumentException(
                     "A realized runtime identifier is a canonical lowercase moniker.",
+                    nameof(runtimeIdentifier));
+            }
+            if (framework is null
+                && runtimeIdentifier is not null)
+            {
+                throw new ArgumentException(
+                    "A realized runtime identifier requires an acquisition framework.",
                     nameof(runtimeIdentifier));
             }
 
@@ -396,8 +408,11 @@ public abstract record RealizedMemberCoordinate
         /// </remarks>
         public string Producer { get; }
 
-        /// <summary>The context's effective acquisition framework.</summary>
-        public string Framework { get; }
+        /// <summary>
+        /// The context's effective acquisition framework, or <c>null</c> for a
+        /// framework-neutral source acquisition.
+        /// </summary>
+        public string? Framework { get; }
 
         /// <summary>The context's effective acquisition runtime identifier.</summary>
         public string? RuntimeIdentifier { get; }
@@ -421,7 +436,7 @@ public abstract record RealizedMemberCoordinate
             string packageId,
             string version,
             string producer,
-            string framework,
+            string? framework,
             string? runtimeIdentifier,
             [NotNullWhen(true)] out Package? coordinate,
             [NotNullWhen(false)] out string? problem)
@@ -433,11 +448,15 @@ public abstract record RealizedMemberCoordinate
                     ? "a realized package version must be one exact NuGet version in its normalized lowercase spelling"
                     : !IsCanonicalProducer(producer)
                         ? "a realized package producer must be a canonical content-cache producer key"
-                        : !IsCanonicalFramework(framework)
+                        : framework is not null
+                            && !IsCanonicalFramework(framework)
                             ? "a realized acquisition framework must be a canonical lowercase moniker"
                             : runtimeIdentifier is not null
                                 && !IsCanonicalRuntimeIdentifier(runtimeIdentifier)
                                 ? "a realized runtime identifier must be a canonical lowercase moniker"
+                                : framework is null
+                                    && runtimeIdentifier is not null
+                                    ? "a realized runtime identifier requires an acquisition framework"
                                 : null;
             if (problem is not null)
                 return false;

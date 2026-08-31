@@ -327,6 +327,7 @@ while IFS= read -r -d '' file; do
     src/NetworkDestinationPolicy.cs|src/UnionPolyfill.cs) CODE=true; WEB=true ;;
     src/*) CODE=true ;;
     tests/ILInspector.MetadataPrimitives.PlatformProbe/*) CODE=true; WEB=true ;;
+    tests/DotnetInspector.Artifacts.Local.PlatformProbe/*) CODE=true; WEB=true ;;
     tests/ILInspector.JsExportSurface.TypeScriptFixtures/*) CODE=true; WEB=true ;;
     tests/ILInspector.JsExportSurface.Tests/Fixtures/ts-jsexport-runtime/*) CODE=true; WEB=true ;;
     tests/*) CODE=true ;;
@@ -371,10 +372,11 @@ while IFS= read -r -d '' file; do
     eng/restore-iltools.sh) CODE=true ;;
     eng/activate-iltools.sh) CODE=true ;;
     eng/run-method-semantics-platform-probe.sh) CODE=true; WEB=true ;;
+    eng/run-local-path-admission-platform-probe.sh) CODE=true; WEB=true ;;
     eng/test-ts-jsexport-typescript.sh) WEB=true ;;
     eng/validate-inspect-web-promotion.cs) WEB=true ;;
     eng/validate-inspect-web-promotion.sh) WEB=true ;;
-    eng/generate-inspect-web-engine-dts.sh) WEB=true ;;
+    eng/generate-inspect-web-engine-facade.sh) WEB=true ;;
     # Global analyzer input consumed by every product and Browser build.
     eng/BannedSymbols.txt) CODE=true; WEB=true ;;
     # Controls checkout line endings on Windows, including the raw

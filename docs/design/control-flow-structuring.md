@@ -77,7 +77,7 @@ after every step of this plan.
 - **The completeness view** — `decompiler-harness --gaps` inspects the raised tree
   alone and reports "fully raised" plus a residual-kind docket. A method with a
   surviving `structuring: conditional-branch` residual is one this plan targets.
-  This is the burndown number (~96% fully raised), and because it reads only the
+  This is the residual-completeness number (~96% fully raised), and because it reads only the
   residual control flow it isolates the structuring gap from the `= default` /
   `pinned` cosmetics that text diffing would conflate.
 - **The per-method view** — `decompiler-harness --dump 'Ns.Type::Method'` prints
@@ -477,7 +477,7 @@ Run a **Stepper Semantic Auditor** pass when a change:
 Run `--pass-impact <pass>` for any matcher broadening, and compare
 `--validity-check` / `--fidelity-check` (or the fixture fidelity gates) whenever
 the change can make `Full` output more structured. Always re-run
-`--gaps --by-shape` for row-burndown claims.
+`--gaps --by-shape` for row-reduction claims.
 
 Known canaries:
 
@@ -907,7 +907,7 @@ than something to emit speculatively now.
   Step 2 answers it empirically: the return-tail subset's recovery count tells
   us how much value lands before the invariant relaxation is needed. The
   `--structuring-stops` diagnostic (landed) makes this a number, not a guess.
-- **What is the true structuring-only burndown, separated from the residue?**
+- **What is the true structuring-only reduction, separated from the residue?**
   `--gaps`'s residual-kind docket isolates `structuring: conditional-branch`
   from the `= default` / `pinned` cosmetics, and `--structuring-stops` sizes the
   merge docket directly (1,475 containers), so this track is measured against its
@@ -934,7 +934,7 @@ engineering priority* — not chiefly to raise the fully-raised number, but beca
 onboarding*," and that "the longer this migration stays half-done, the more the
 normalization layer accretes, and the more each tiny raise PR pays interest on a
 debt the redesign would clear." That recommendation is informed by the *pattern
-across many burndown phases*, not a single baseline.
+across many reduction phases*, not a single baseline.
 
 The [review of this spike](https://gist.github.com/richlander/a6f12e0ca8c426ee034be29a01b3f7a2)
 then made the decisive correction: an earlier draft sized the prize on

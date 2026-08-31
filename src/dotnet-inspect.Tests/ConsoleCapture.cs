@@ -15,9 +15,9 @@ namespace DotnetInspector.Tests;
 /// current xUnit collection is not assembly-exclusive. The negative path is gated by
 /// <c>ConsoleCaptureParallelCollectionTests.CaptureFromParallelCollectionIsRejected</c>.
 /// Redirecting the console anywhere else in this assembly re-opens the race even if
-/// this type is used correctly everywhere else, so
-/// <c>ConsoleCaptureTests.TestAssemblyRedirectsConsoleOnlyThroughConsoleCapture</c>
-/// fails if another file does it.
+/// this type is used correctly everywhere else. The compiler enforces that boundary:
+/// this project's <c>BannedSymbols.txt</c> bans <c>Console.SetOut</c>, and the
+/// repository-wide ban already covers <c>Console.SetError</c>.
 /// </para>
 /// </summary>
 static class ConsoleCapture
@@ -30,10 +30,9 @@ static class ConsoleCapture
         EnsureAssemblyExclusive();
         await _lock.WaitAsync();
         var origOut = Console.Out;
-        // Capturing the stream is the one thing that must reach past the
-        // stderr-ownership rule (#3319): the rule keeps the product from writing
-        // here, and this is the harness that reads what the product wrote.
-#pragma warning disable RS0030
+        // This owner must reach past the stdout-redirection and stderr-ownership
+        // rules to capture what the product writes.
+#pragma warning disable RS0030 // ConsoleCapture owns test-harness redirection (#3416).
         var origErr = Console.Error;
         using var outWriter = new StringWriter();
         using var errWriter = new StringWriter();

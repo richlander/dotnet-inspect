@@ -8,7 +8,7 @@ using System.Text.Json.Serialization.Metadata;
 namespace ILInspector.JsExportSurface.Fixtures;
 
 /// <summary>
-/// A small, purpose-built <c>[JSExport]</c> surface exercising the cases <c>tsbindgen</c> needs to
+/// A small, purpose-built <c>[JSExport]</c> surface exercising the cases TypeScript facade generation needs to
 /// handle: a plain record DTO, array and nullable properties, a nested record, an async
 /// (<c>Task&lt;string&gt;</c>) export, and a non-generic <c>Task</c> export. Deliberately not a
 /// real product surface — kept minimal and stable as a regression fixture.
@@ -115,6 +115,42 @@ public static partial class FixtureExports
 
     [JSExport]
     public static byte[] EchoBytes(byte[] value) => value;
+
+    [JSExport]
+    public static void ReportValue(
+        [JSMarshalAs<JSType.Function<JSType.Number>>]
+        Action<int> callback) =>
+        callback(42);
+
+    [JSExport]
+    public static void ReportValueAgain(
+        [JSMarshalAs<JSType.Function<JSType.Number>>]
+        Action<int> callback) =>
+        callback(43);
+
+    [JSExport]
+    public static void ReportNullableText(
+        [JSMarshalAs<JSType.Function<JSType.String>>]
+        Action<string?> callback) =>
+        callback(null);
+
+    [JSExport]
+    public static bool TransformValue(
+        [JSMarshalAs<JSType.Function<
+            JSType.Number,
+            JSType.String,
+            JSType.Boolean>>]
+        Func<int, string, bool> callback) =>
+        callback(42, "answer");
+
+    [JSExport]
+    public static void ObserveValues(
+        [JSMarshalAs<JSType.Function<
+            JSType.Number,
+            JSType.String,
+            JSType.Boolean>>]
+        Action<int, string, bool> callback) =>
+        callback(42, "answer", true);
 
     [JSExport]
     public static string GetRegisteredString(string value) =>

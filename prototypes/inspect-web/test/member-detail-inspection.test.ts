@@ -4,6 +4,7 @@ import test from "node:test";
 import { sampleDocument } from "../../annotated-source-viewer/src/sample-document.js";
 import type { AnnotatedSourceResult } from "../src/annotated-source.ts";
 import { validateAnnotatedSourceDocument } from "../src/annotated-source-view.ts";
+import { sampleViewerCatalog } from "./annotated-source-result-fixture.ts";
 import {
   cancelAnnotatedSourceRequest,
   createMemberDetailInspectionCoordinator,
@@ -116,6 +117,7 @@ function annotatedResult(): AnnotatedSourceResult {
   validateAnnotatedSourceDocument(document);
   return {
     document,
+    viewerCatalog: sampleViewerCatalog,
     provenance: "decompiled from IL",
     contextLimitation: null,
   };

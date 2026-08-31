@@ -93,11 +93,14 @@ public sealed class IntegrationProducerPolicyBinding
 /// </summary>
 public static class IntegrationAnalysisCatalog
 {
-    const int Revision = 1;
+    const int AnalysisRevision = 1;
 
     static readonly Dictionary<
         IntegrationConceptDescriptor,
         IntegrationConceptRequirementIdentity> AffectedByConcept;
+    static readonly Dictionary<
+        AnalysisUniverseRequirementDescriptor,
+        IntegrationProducerPolicyBinding> ProducerPolicyByRequirement;
 
     static IntegrationAnalysisCatalog()
     {
@@ -132,6 +135,10 @@ public static class IntegrationAnalysisCatalog
             OpenTelemetryObserved,
             Opportunity,
         ];
+        ProducerPolicyByRequirement = new(
+            ReferenceEqualityComparer.Instance);
+        foreach (IntegrationProducerPolicyBinding policy in ProducerPolicies)
+            ProducerPolicyByRequirement.Add(policy.UniverseRequirement, policy);
 
         SelectedTypes = Capability(
             "universe.integration.selected-types",
@@ -194,7 +201,7 @@ public static class IntegrationAnalysisCatalog
 
         Analysis = new AnalysisDescriptor(
             Declaration("analysis.integrations"),
-            Revision,
+            AnalysisRevision,
             InspectionCost.Unbounded,
             [AnalysisQuestionMode.Census],
             [
@@ -268,6 +275,17 @@ public static class IntegrationAnalysisCatalog
             : throw new ArgumentException(
                 "The concept is not configured in this Integration catalog.",
                 nameof(concept));
+    }
+
+    public static bool TryGetProducerPolicy(
+        AnalysisUniverseRequirementDescriptor requirement,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+        out IntegrationProducerPolicyBinding? policy)
+    {
+        ArgumentNullException.ThrowIfNull(requirement);
+        return ProducerPolicyByRequirement.TryGetValue(
+            requirement,
+            out policy);
     }
 
     static IntegrationProducerPolicyBinding Bind(
