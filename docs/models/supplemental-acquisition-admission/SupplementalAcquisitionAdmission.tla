@@ -35,7 +35,9 @@ CONSTANTS
   LargeResultLargestArtifactBytes,
   EnforceRequiredPhaseGuard,
   EnforceCheckpointGuard,
-  EnforceCapacityGuard,
+  EnforceCountGuard,
+  EnforceRetainedBytesGuard,
+  EnforceArtifactBytesGuard,
   EnforceLateAcceptanceGuard,
   EnforceCleanupBeforeRelease,
   EnforceFailureVisibility,
@@ -51,6 +53,7 @@ ASSUME MaxArtifactBytes \in Nat \ {0}
 ASSUME MaxRetainedBytes \in Nat \ {0}
 ASSUME RequiredCount <= MaxArtifacts
 ASSUME RequiredBytes <= MaxRetainedBytes
+ASSUME RequiredBytes <= RequiredCount * MaxArtifactBytes
 ASSUME SmallResultCount \in Nat \ {0}
 ASSUME SmallResultBytes \in Nat \ {0}
 ASSUME SmallResultLargestArtifactBytes \in Nat \ {0}
@@ -61,7 +64,9 @@ ASSUME LargeResultLargestArtifactBytes \in Nat \ {0}
 ASSUME LargeResultLargestArtifactBytes <= LargeResultBytes
 ASSUME EnforceRequiredPhaseGuard \in BOOLEAN
 ASSUME EnforceCheckpointGuard \in BOOLEAN
-ASSUME EnforceCapacityGuard \in BOOLEAN
+ASSUME EnforceCountGuard \in BOOLEAN
+ASSUME EnforceRetainedBytesGuard \in BOOLEAN
+ASSUME EnforceArtifactBytesGuard \in BOOLEAN
 ASSUME EnforceLateAcceptanceGuard \in BOOLEAN
 ASSUME EnforceCleanupBeforeRelease \in BOOLEAN
 ASSUME EnforceFailureVisibility \in BOOLEAN
@@ -156,6 +161,13 @@ WithinGrant(s) ==
   /\ ResultCount(s) <= grantCount
   /\ ResultBytes(s) <= grantRetainedBytes
   /\ ResultLargestArtifactBytes(s) <= grantArtifactBytes
+
+CapacityPermits(s) ==
+  /\ (ResultCount(s) <= grantCount \/ ~EnforceCountGuard)
+  /\ (ResultBytes(s) <= grantRetainedBytes
+        \/ ~EnforceRetainedBytesGuard)
+  /\ (ResultLargestArtifactBytes(s) <= grantArtifactBytes
+        \/ ~EnforceArtifactBytesGuard)
 
 ActiveStates ==
   {"Acquiring", "Materializing", "CleaningEmpty", "CleaningFailure"}
@@ -288,6 +300,7 @@ AttemptRequiredAdd ==
 RequestSupplemental(s) ==
   /\ sessionState = "Supplemental"
   /\ (checkpointState = "Succeeded" \/ ~EnforceCheckpointGuard)
+  /\ failures = {}
   /\ operationState[s] = "Pending"
   /\ active = NoSupplemental
   /\ \A other \in Supplementals :
@@ -411,7 +424,7 @@ AdapterReturnsBatch(s) ==
        [operationState EXCEPT
           ![s] =
             IF /\ sessionState = "Supplemental"
-               /\ (WithinGrant(s) \/ ~EnforceCapacityGuard)
+               /\ CapacityPermits(s)
             THEN "Materializing"
             ELSE "CleaningFailure"]
   /\ leaseState' = [leaseState EXCEPT ![s] = "Returned"]
@@ -804,6 +817,10 @@ CapacityBounded ==
           /\ grantArtifactBytes <= MaxArtifactBytes
           /\ grantArtifactBytes <= grantRetainedBytes
 
+AcceptedArtifactsFitPerArtifactLimit ==
+  \A s \in accepted :
+    ResultLargestArtifactBytes(s) <= MaxArtifactBytes
+
 ReturnedLeaseRetainsGrant ==
   \A s \in Supplementals :
     leaseState[s] = "Returned"
@@ -901,6 +918,8 @@ EmptyBatchNotReached == ~emptyObserved
 AcceptanceNotReached == ~acceptanceObserved
 OverrunNotReached == ~overrunObserved
 LateOutcomeNotReached == ~lateOutcomeObserved
+LateDiagnosticNotReached ==
+  ~(lateOutcomeObserved /\ adapterFailures # {})
 RequiredRejectionNotReached == ~requiredRejectionObserved
 EmptyOnlyRejectionNotReached ==
   ~( /\ sessionState = "Rejected"

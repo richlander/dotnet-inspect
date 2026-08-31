@@ -559,8 +559,12 @@ cleanup is active. Disposal closes admission first and prevents a late
 nonempty batch from committing. Any late `Acquired` outcome, including empty,
 transfers directly to cleanup, after which the call throws
 `ObjectDisposedException`; cleanup failure remains attached and visible.
-Previously accepted supplemental leases remain governed by the session's
-ordinary retained-lease lifetime.
+A late `Unavailable`, `Rejected`, or `Failed` outcome has no lease to clean and
+cannot be returned through seal after disposal. The call therefore attaches
+the exact `ArtifactSetAdmissionFailure` to the `ObjectDisposedException` under
+`DotnetInspector.Artifacts.Workspaces.AdmissionFailures`; it must not discard
+the adapter's kind or diagnostic. Previously accepted supplemental leases
+remain governed by the session's ordinary retained-lease lifetime.
 
 Preserving current termination behavior means `DisposeAsync` cleans leases
 already known to the session but does not wait for an in-flight adapter to
@@ -593,21 +597,24 @@ explicit requested call, one active exact remaining-capacity grant, empty or
 nonempty adapter completion, operation-level acceptance after an abstract
 materialization result, cleanup, seal, and close. Its
 [model guide](../models/supplemental-acquisition-admission/README.md) records
-the 20 configurations, checked properties, 11 reachability probes, seven guard
+the 26 configurations, checked properties, 12 reachability probes, nine guard
 mutations, commands, and non-claims. It does not derive the checkpoint result,
-model per-stream progress or temporary snapshots, or prove scope, identity, or
-byte-failure precedence.
+model per-stream progress or temporary snapshots, prove scope, identity, or
+byte-failure precedence, or project a late diagnostic into an exception
+payload.
 
 TLC 2026.08.21.155922 (rev `9787e65`, from the pinned `tla2tools.jar` v1.8.0)
-checked the primary two-operation bound: 1,632 states generated, 835 distinct
-states, maximum depth 16, with no invariant violations or temporal
-counterexamples. The zero-required bound generated 1,711 states, found 833
-distinct states, and reached depth 16 with the same result. Each reachability
+checked five complete two-operation bounds with no invariant violations or
+temporal counterexamples. The primary, zero-required, count-dimension,
+retained-byte-dimension, and per-artifact-dimension runs generated
+1,097/1,264/1,115/1,115/1,047 states, found 581/647/581/581/557 distinct
+states, and reached depth 15/16/15/15/15, respectively. Each reachability
 sentinel produced its intended counterexample. Mutations that accept a late
-required add, start before the checkpoint, accept capacity overrun, accept
-after close, release before lease cleanup, convert failure to empty success, or
-commit an empty result violated their paired properties. These results
-establish the bounded model claims, not implementation conformance.
+required add, start before the checkpoint, independently omit count,
+retained-byte, or per-artifact admission, accept after close, release before
+lease cleanup, convert failure to empty success, or commit an empty result
+violated their paired properties. These results establish the bounded model
+claims, not implementation conformance.
 
 Implementation is complete when focused gates prove:
 
@@ -620,6 +627,7 @@ Implementation is complete when focused gates prove:
 - `SupplementalAcquisition_IdentityAndMaterializationAreAtomic`
 - `SupplementalAcquisition_RejectedAcquiredBatchCleansLeaseWithoutMaskingFailure`
 - `SupplementalAcquisition_ConcurrentTerminationDisposesLateOutcomeAndReservation`
+- `SupplementalAcquisition_LateDiagnosticRemainsVisibleOnTermination`
 - `SupplementalAcquisition_CancellationRemainsCancellation`
 
 Retaining content does not retain authority. The artifact owner issues two
@@ -2194,6 +2202,7 @@ The target is complete only when tests equivalent to these exist:
 - `SupplementalAcquisition_IdentityAndMaterializationAreAtomic`
 - `SupplementalAcquisition_RejectedAcquiredBatchCleansLeaseWithoutMaskingFailure`
 - `SupplementalAcquisition_ConcurrentTerminationDisposesLateOutcomeAndReservation`
+- `SupplementalAcquisition_LateDiagnosticRemainsVisibleOnTermination`
 - `SupplementalAcquisition_CancellationRemainsCancellation`
 - `WorkspaceDisposal_CancelsAdmissionAndDisposesLateOutcome`
 - `BrowserWorkspace_DisposalDuringAwaitedAdmissionCannotPublish`
@@ -2300,11 +2309,11 @@ batch snapshots, and cancellation preservation. Shared local-path admission
 remains with the
 [local adapter](#shared-local-path-admission) rather than these directory
 gates.
-The ten named `SupplementalAcquisition_*` gates remain unverified. Together
+The eleven named `SupplementalAcquisition_*` gates remain unverified. Together
 they require the one-way required checkpoint, reuse of checkpointed snapshots,
 finite pre-adapter capacity, empty-batch lease ownership, exact visible
 failure, atomic scoped nonempty admission, validation-failure cleanup,
-termination cleanup, and cancellation preservation.
+termination cleanup, late-diagnostic projection, and cancellation preservation.
 `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`
 deletes its temporary source after publication, then passes an
 `ArtifactContentReference`'s guarded published snapshot opener to Metadata, so
