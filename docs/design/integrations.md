@@ -474,6 +474,15 @@ capabilities rather than duplicating their participant collections. Snapshot
 compatibility therefore requires the same owner-issued report-surface and
 universe objects, not merely independently constructed values with similar
 display or boundary data.
+[Analysis universe realization](analysis-universe-realization.md) owns the
+future execution-time handoff that binds those exact requirements to
+Workspace-backed, capability-owner-issued rosters, context incidence,
+resolution access, and lifetimes. The current core snapshot still constructs
+the full candidate-by-binding-context product and accepts no owner-issued
+incidence input. [#5319](https://github.com/richlander/dotnet-inspect/issues/5319)
+owns that Integration adoption before the Census executor can consume the
+handoff. The eventual consumer receives no mutable Workspace state and no
+context identity inferred from a group object or binding-policy version.
 
 ### Producer-policy attempt accounting
 
