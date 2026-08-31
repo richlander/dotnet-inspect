@@ -1,5 +1,12 @@
 # Architecture
 
+`dotnet-inspect` uses a layered architecture in which focused designs and
+components own contracts. An owner defines the guarantees and typed affordances
+that consumers may rely on, the requirements that implementations must uphold,
+and the behavior the contract does not promise. Consumers compose owner-issued
+identities, operations, and evidence without reconstructing stronger semantics
+from implementation details.
+
 This document maps the current implementation and its explicit migration
 boundaries to the architecture owned by the rest of the documentation set. It
 is a guide to composition, project boundaries, and code location; it is not an

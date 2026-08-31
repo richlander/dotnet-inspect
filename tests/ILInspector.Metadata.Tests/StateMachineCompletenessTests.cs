@@ -8,7 +8,7 @@ using Fixtures =
 namespace ILInspector.Metadata.Tests;
 
 /// <summary>
-/// Implementation evidence for C1 and C6 in
+/// Implementation evidence for C1, C3, and C6 in
 /// <c>docs/design/state-machine-relationship-index.md#completeness</c>.
 /// Structural async machines are discovered independently from raw metadata
 /// and compared with the index's keyed classification.
@@ -46,6 +46,49 @@ public sealed class StateMachineCompletenessTests
         Assert.Equal(0, report.Rejected);
         Assert.Equal(0, report.Absent);
         Assert.Equal(report.Structural, report.Resolved);
+    }
+
+    /// <summary>
+    /// C3 implementation evidence: one whole-module failure must replace every
+    /// structural async machine's classification with the same rejection.
+    /// </summary>
+    [Fact]
+    public void GlobalFailure_RejectsEveryStructuralAsyncStateMachine()
+    {
+        using FileStream stream =
+            File.OpenRead(typeof(Fixtures).Assembly.Location);
+        using var pe = new PEReader(
+            stream,
+            PEStreamOptions.PrefetchEntireImage);
+        MetadataReader reader = pe.GetMetadataReader();
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(
+                reader,
+                relationshipBudget: 1);
+        var relationships =
+            Assert.IsType<StateMachineRelationshipsResult.Rejected>(
+                index.Relationships);
+        int structural = 0;
+
+        foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
+        {
+            if (!ImplementsAsyncStateMachine(reader, handle))
+                continue;
+
+            structural++;
+            var rejected =
+                Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                    index.GetByStateMachine(handle));
+            Assert.Same(relationships.Failure, rejected.Failure);
+        }
+
+        Assert.True(
+            structural > 1,
+            "The fixture must carry multiple structural async machines so this "
+                + "gate can detect a partial whole-module rejection.");
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.BudgetExceeded,
+            relationships.Failure.Kind);
     }
 
     /// <summary>

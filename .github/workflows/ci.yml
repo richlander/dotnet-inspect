@@ -68,6 +68,7 @@ jobs:
       shipped: ${{ steps.filter.outputs.shipped }}
       web: ${{ steps.filter.outputs.web }}
       skills: ${{ steps.filter.outputs.skills }}
+      tla: ${{ steps.filter.outputs.tla }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -130,6 +131,68 @@ jobs:
         uses: DavidAnson/markdownlint-cli2-action@v19
         with:
           globs: '**/*.md'
+
+  # Upholds the bar in docs/tla-plus-methodology.md for every committed
+  # TLA+ model: SANY parses every module, and TLC runs every .cfg to
+  # completion without an unexpected error. See eng/run-tla-checks.sh for
+  # what "unexpected" excludes (an intentional violation verdict) and why
+  # (some committed .cfg files are negative controls expected to find one).
+  tla-plus:
+    needs: changes
+    if: needs.changes.outputs.tla == 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      # Ubuntu 26.04's default-jre metapackage resolves to OpenJDK 25,
+      # matching the Java pin in docs/runbooks/tla-plus-setup.md.
+      - name: Install Java
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y default-jre
+
+      - name: Cache tla2tools.jar
+        id: cache-tla
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/tlaplus/tla2tools.jar
+          key: tla2tools-v1.8.0
+
+      # Pinned per docs/runbooks/tla-plus-setup.md: v1.8.0 is a GitHub
+      # prerelease, so it is never resolved by a "latest" alias -- always
+      # fetch this exact tagged asset URL.
+      - name: Download tla2tools.jar
+        if: steps.cache-tla.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.local/share/tlaplus
+          curl -fLo ~/.local/share/tlaplus/tla2tools.jar \
+            https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
+
+      # A cache key alone is not an integrity check: a substituted release
+      # asset served under the same tag, or a poisoned cache entry, would
+      # otherwise execute unverified bytecode via the "Run TLA+ checks"
+      # step below with no diagnostic. Verify on every run -- cache hits
+      # included -- not only right after a fresh download.
+      - name: Verify tla2tools.jar checksum
+        run: |
+          set -euo pipefail
+          echo "eabd140a70f49eb9305a3bd3f3df944eddf87e5a90d329789085f8953a80533a  $HOME/.local/share/tlaplus/tla2tools.jar" \
+            | sha256sum -c -
+
+      - name: Run TLA+ checks
+        shell: bash
+        run: |
+          export TLA_TOOLS_JAR="$HOME/.local/share/tlaplus/tla2tools.jar"
+          # Tighter than the script's 600s local-dev default: this repo's
+          # shared CI runners are slower than a typical contributor
+          # machine, and a per-invocation cap this size still leaves ample
+          # room under the job's timeout-minutes even if several configs
+          # hit it (a hit is a warning, not a failure -- see
+          # eng/run-tla-checks.sh).
+          export TLA_CHECK_TIMEOUT_SECONDS=120
+          eng/run-tla-checks.sh
 
   inspect-web:
     needs: changes
@@ -1214,6 +1277,7 @@ jobs:
       - inspect-web
       - skill-gate
       - test
+      - tla-plus
       # Path-gated jobs report `skipped` when their input class is absent; all
       # expensive jobs except inspect-web also skip on pushes to main. That
       # passes the gate by design; the allow list below distinguishes

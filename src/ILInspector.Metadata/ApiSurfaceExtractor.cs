@@ -5031,9 +5031,19 @@ public static class ApiSurfaceExtractor
         if (string.IsNullOrEmpty(signature))
             return false;
 
-        // Check for pointer types (e.g., int*, void*, byte*)
-        // and function pointers (delegate*)
-        return signature.Contains('*');
+        for (int i = 0; i < signature.Length; i++)
+        {
+            if (signature[i] == '*'
+                && (i == 0
+                    || i == signature.Length - 1
+                    || signature[i - 1] != '['
+                    || signature[i + 1] != ']'))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     internal static long CountRetainedText(ApiType type)

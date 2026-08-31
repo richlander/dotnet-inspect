@@ -1296,6 +1296,32 @@ and its migration:
 - changing the selected source set never reinterprets bytes from an
   unauthorized configured authority.
 
+### Browser pending-acquisition association
+
+The Browser workspace coalesces one in-flight payload transfer by exact package
+coordinate and the reference identity of the selected `IPackageSourceClient`
+handle. The key is session-local and non-persistent. Repeating a coordinate
+through the same handle shares work; a distinct handle remains distinct even
+when it reports the same producer or uses another transport for that producer.
+If package composition proves that Gallery and v3 transports implement one
+configured authority, it supplies one composed client handle rather than asking
+the Browser to infer equivalence.
+
+Producer identity remains provenance and is not pending-work authority. The
+Browser does not place its legacy `Value` or target `Key` or `Display` into the
+pending key, pass any of them to `NuGetCache.GetSourceKey`, parse them as a URL
+or local path, or consult the process working directory. The key's lifetime is
+bounded by the exact in-flight task, and completion removes only that task's
+entry.
+
+`PendingAcquisitionAssociation_UsesCoordinateAndExactClientReference` gates the
+closed key shape, same-handle equivalence, and distinct Gallery/v3 handles with
+one producer.
+`PackageAcquisition_SharedStallIsAVisibleTimeoutForEveryCaller` proves that
+equivalent callers share one transfer, while
+`PackageAcquisition_DistinctSameProducerClientsDoNotSharePendingTransfer`
+proves that producer equality alone cannot merge pending work.
+
 Search metadata does not authorize payload bytes from every active source.
 Candidate authority and provenance together determine which source may fulfill
 a discovered coordinate.
@@ -1969,6 +1995,12 @@ Implementation is not complete until gates prove:
   authorities, including two authorities with the same producer label; this
   end-to-end property remains unverified pending owner gates from #4797 and
   #4805;
+- Browser pending acquisition coalesces the same coordinate only through the
+  exact selected client handle and remains distinct for separate Gallery and v3
+  handles with one producer, gated by
+  `PendingAcquisitionAssociation_UsesCoordinateAndExactClientReference`,
+  `PackageAcquisition_SharedStallIsAVisibleTimeoutForEveryCaller`, and
+  `PackageAcquisition_DistinctSameProducerClientsDoNotSharePendingTransfer`;
 - a keyword-search/latest cache entry cannot answer complete listing-aware
   enumeration, and incomplete listing metadata cannot populate that cache;
 - source-relative listing states cover `listed`, `unlisted`, `unknown`, and

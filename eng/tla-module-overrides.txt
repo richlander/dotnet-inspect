@@ -1,0 +1,81 @@
+# Explicit cfg -> module overrides for eng/run-tla-checks.sh.
+#
+# The script pairs a .cfg with the sole .tla module in its directory, or with
+# a same-named module when a directory has more than one. That heuristic is
+# wrong wherever a .cfg is meant to run against a model-checking harness
+# module (commonly named `<Model>_MC.tla`) instead of the base spec, because
+# TLC's .cfg grammar cannot express some constant values directly (see the
+# comment atop the harness module itself). List every such directory's cfg
+# files here rather than letting the heuristic silently pick the wrong
+# module; the script fails if a cfg matches neither this file nor the
+# heuristic.
+#
+# Format: one `<path-to-cfg>=<module-name>` pair per line. <module-name> is
+docs/models/package-realization-admission/PackageRealizationAdmission.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/PackageRealizationAdmission_Option.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/PackageRealizationAdmission_ContentGeneration.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/PackageRealizationAdmission_Selection.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/PackageRealizationAdmission_Reordered.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/PackageRealizationAdmission_Duplicate.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/PackageRealizationAdmission_RootOnly.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/PackageRealizationAdmission_Cancellation.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/ReachabilityJoin.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/ReachabilityRetryAfterFailure.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/ReachabilityMultiDemandConsistency.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/ReachabilityOverlappingRequests.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/ReachabilityOptionIsolation.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/ReachabilityContentGenerationIsolation.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/ReachabilitySelectionIsolation.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/ReachabilityReorderedRequestIsolation.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/ReachabilityDuplicateRejection.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/ReachabilityRootOnlyBypass.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/ReachabilityDetachedCancellation.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/ReachabilityCanceledOperationReuse.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/ReachabilityZeroLeaseRetention.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/ReachabilityDisposalWait.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/ReachabilityDrainedSuccess.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/ReachabilityDoubleReturn.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/BrokenInexactReuse.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/BrokenInexactReuseOption.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/BrokenInexactReuseContentGeneration.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/BrokenInexactReuseSelection.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/BrokenPartialPublish.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/BrokenCancellationAbandonsOperation.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/BrokenCancellationFailsOperation.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/BrokenLeaseAfterClose.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/BrokenReleaseWithActiveLease.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/BrokenLatePublish.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/BrokenDoubleCleanup.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/BrokenResurrection.cfg=PackageRealizationAdmission_MC
+docs/models/package-realization-admission/PackageRealizationAdmission_EntryCapacity.cfg=PackageRealizationAdmission_Capacity_MC
+docs/models/package-realization-admission/PackageRealizationAdmission_InFlightCapacity.cfg=PackageRealizationAdmission_Capacity_MC
+docs/models/package-realization-admission/PackageRealizationAdmission_ByteCapacity.cfg=PackageRealizationAdmission_Capacity_MC
+docs/models/package-realization-admission/PackageRealizationAdmission_ZeroReservation.cfg=PackageRealizationAdmission_Capacity_MC
+docs/models/package-realization-admission/PackageRealizationAdmission_ZeroInFlightCapacity.cfg=PackageRealizationAdmission_Capacity_MC
+docs/models/package-realization-admission/ReachabilityEntryCapacityRejection.cfg=PackageRealizationAdmission_Capacity_MC
+docs/models/package-realization-admission/ReachabilityInFlightCapacityRejection.cfg=PackageRealizationAdmission_Capacity_MC
+docs/models/package-realization-admission/ReachabilityByteCapacityRejection.cfg=PackageRealizationAdmission_Capacity_MC
+docs/models/package-realization-admission/ReachabilityZeroReservationAdmission.cfg=PackageRealizationAdmission_Capacity_MC
+docs/models/package-realization-admission/ReachabilityZeroEntryCapacityRejection.cfg=PackageRealizationAdmission_Capacity_MC
+docs/models/package-realization-admission/ReachabilityZeroInFlightCapacityRejection.cfg=PackageRealizationAdmission_Capacity_MC
+docs/models/package-realization-admission/BrokenEntryCapacity.cfg=PackageRealizationAdmission_Capacity_MC
+docs/models/package-realization-admission/BrokenInFlightCapacity.cfg=PackageRealizationAdmission_Capacity_MC
+docs/models/package-realization-admission/BrokenByteCapacity.cfg=PackageRealizationAdmission_Capacity_MC
+docs/models/package-realization-admission/BrokenDuplicateBindingIdentity.cfg=PackageRealizationAdmission_DuplicateMutation_MC
+docs/models/package-realization-admission/BrokenRootOnlyAdmission.cfg=PackageRealizationAdmission_RootOnlyMutation_MC
+# the .tla module base name (no extension) and must exist beside the cfg.
+docs/design/models/state-machine-completeness/BudgetExhaustion.cfg=StateMachineCompleteness
+docs/design/models/state-machine-completeness/BrokenAbsentOnFailure.cfg=StateMachineCompleteness
+docs/design/models/state-machine-completeness/BrokenDroppedRow.cfg=StateMachineCompleteness
+docs/design/models/state-machine-completeness/BrokenMutatingFailure.cfg=StateMachineCompleteness
+docs/design/models/state-machine-completeness/BrokenUntypedFailure.cfg=StateMachineCompleteness
+docs/design/models/state-machine-completeness/BrokenUnvisitedPublish.cfg=StateMachineCompleteness
+docs/design/models/state-machine-completeness/BrokenWrongBudgetFailureKind.cfg=StateMachineCompleteness
+docs/design/models/state-machine-completeness/BrokenWrongFailureKind.cfg=StateMachineCompleteness
+docs/design/models/state-machine-completeness/BrokenOvermerge.cfg=RejectionComponentMerge
+docs/design/models/state-machine-completeness/BrokenPartialMerge.cfg=RejectionComponentMerge
+docs/design/models/state-machine-completeness/BrokenUnmergedPublish.cfg=RejectionComponentMerge
+docs/design/models/state-machine-completeness/BrokenDroppedEvidence.cfg=RejectionComponentMerge
+docs/design/models/state-machine-completeness/BrokenHybridReason.cfg=RejectionComponentMerge
+docs/design/models/state-machine-completeness/BrokenLocalReason.cfg=RejectionComponentMerge
+docs/design/models/state-machine-completeness/BrokenPartialFailure.cfg=StateMachineCompleteness
