@@ -208,7 +208,7 @@ if [ "$RESOLVED" != "true" ]; then
   # infallible. `git ls-files` exits 128 on an unreadable index.
   # Keep this list in sync with the `outputs:` block above.
   echo "::warning title=Change detection fell back::Could not determine the changed files for $GITHUB_SHA; running every job so that no validation is skipped."
-  for name in code csharpdiff decompiler docs ildiff ilroundtrip packaging shipped web skills; do
+  for name in code csharpdiff decompiler docs ildiff ilroundtrip packaging shipped web skills tla; do
     echo "$name=true" >> "$GITHUB_OUTPUT"
   done
   echo "Change detection fell back; every job filter forced true."
@@ -224,6 +224,7 @@ PACKAGING=false
 SHIPPED=false
 WEB=false
 SKILLS=false
+TLA=false
 DECOMPILER_SKIP_PROJECTS_READY=true
 DECOMPILER_SKIP_PROJECTS=()
 DECOMPILER_SKIP_PROJECTS_FILE=eng/decompiler-gate-skip-projects.txt
@@ -314,8 +315,16 @@ while IFS= read -r -d '' file; do
     SHIPPED=true
     WEB=true
     SKILLS=true
+    TLA=true
     continue
   fi
+  # Portable lowercase fold (avoids bash 4+ ${var,,}, since local dev on
+  # macOS defaults to bash 3.2): used only where extension case must not
+  # affect classification, e.g. the TLA+ patterns below, since
+  # eng/run-tla-checks.sh discovers .tla/.cfg files case-insensitively
+  # (find -iname) and a mismatch here would silently exempt an
+  # uppercase/mixed-case module or config from the tla-plus job.
+  file_lower=$(printf '%s' "$file" | tr '[:upper:]' '[:lower:]')
   if is_web_project_path "$file"; then
     CODE=true
     WEB=true
@@ -462,6 +471,28 @@ while IFS= read -r -d '' file; do
     skills/*/*/SKILL.md) ;;
     skills/*/SKILL.md) SKILLS=true ;;
   esac
+  # TLA+ models get their own SANY/TLC verification lane rather than
+  # riding on the docs lint job, since checking them costs real compute
+  # (the docs lane is otherwise a cheap markdownlint-only pass).
+  case "$file" in
+    .github/workflows/ci.yml) TLA=true ;;
+  esac
+  case "$file_lower" in
+    docs/design/models/*/*.tla|docs/design/models/*/*.cfg) TLA=true ;;
+    docs/models/*/*.tla|docs/models/*/*.cfg) TLA=true ;;
+  esac
+  # A .tla/.cfg file placed directly under a model root, with no model
+  # subdirectory, would not match the nested patterns above but is still a
+  # layout eng/run-tla-checks.sh explicitly detects and reports as
+  # misplaced -- so it must still route to tla-plus for that diagnostic to
+  # ever run against it.
+  case "$file_lower" in
+    docs/design/models/*.tla|docs/design/models/*.cfg) TLA=true ;;
+    docs/models/*.tla|docs/models/*.cfg) TLA=true ;;
+  esac
+  case "$file" in
+    eng/run-tla-checks.sh|eng/tla-module-overrides.txt) TLA=true ;;
+  esac
   # The decompiler docket/byte-neutrality gates cost ~8 minutes, so
   # they run as their own job rather than in the hot `test` lane.
   #
@@ -582,5 +613,6 @@ echo "packaging=$PACKAGING" >> "$GITHUB_OUTPUT"
 echo "shipped=$SHIPPED" >> "$GITHUB_OUTPUT"
 echo "web=$WEB" >> "$GITHUB_OUTPUT"
 echo "skills=$SKILLS" >> "$GITHUB_OUTPUT"
+echo "tla=$TLA" >> "$GITHUB_OUTPUT"
 echo "Changed files were decoded and classified without logging raw path bytes."
-echo "code=$CODE csharpdiff=$CSHARPDIFF decompiler=$DECOMPILER docs=$DOCS ildiff=$ILDIFF ilroundtrip=$ILROUNDTRIP packaging=$PACKAGING shipped=$SHIPPED web=$WEB skills=$SKILLS"
+echo "code=$CODE csharpdiff=$CSHARPDIFF decompiler=$DECOMPILER docs=$DOCS ildiff=$ILDIFF ilroundtrip=$ILROUNDTRIP packaging=$PACKAGING shipped=$SHIPPED web=$WEB skills=$SKILLS tla=$TLA"

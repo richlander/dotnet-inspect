@@ -2353,16 +2353,12 @@ test("static hosting serves credits links through the application entry point", 
   const creditsRoutes = staticWebAppConfig.routes
     .filter(route => route.route === "/credits" || route.route === "/credits/");
 
+  // Azure Static Web Apps normalizes a trailing slash away when matching routes, so a
+  // separate "/credits/" rule collides with "/credits" and fails deployment (#4634,
+  // reintroduced by #5039 and refixed here). One rule covers both forms.
   assert.deepEqual(creditsRoutes, [
     {
       route: "/credits",
-      rewrite: "/index.html",
-      headers: {
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-      },
-    },
-    {
-      route: "/credits/",
       rewrite: "/index.html",
       headers: {
         "Cache-Control": "no-cache, no-store, must-revalidate",
