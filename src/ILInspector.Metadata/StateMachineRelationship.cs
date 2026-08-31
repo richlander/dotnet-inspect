@@ -121,6 +121,46 @@ public sealed record StateMachineRelationshipFailure
 }
 
 /// <summary>
+/// Total result of enumerating state-machine relationships from one module.
+/// </summary>
+public abstract record StateMachineRelationshipsResult
+{
+    private protected StateMachineRelationshipsResult()
+    {
+    }
+
+    /// <summary>
+    /// Successful module-wide construction. The complete relationship set may
+    /// be empty.
+    /// </summary>
+    public sealed record Available : StateMachineRelationshipsResult
+    {
+        internal Available(
+            ImmutableArray<StateMachineRelationship> relationships) =>
+            Relationships = relationships.IsDefault
+                ? []
+                : relationships;
+
+        public ImmutableArray<StateMachineRelationship> Relationships
+        {
+            get;
+        }
+    }
+
+    /// <summary>Module-wide construction failed.</summary>
+    public sealed record Rejected : StateMachineRelationshipsResult
+    {
+        internal Rejected(StateMachineRelationshipFailure failure)
+        {
+            ArgumentNullException.ThrowIfNull(failure);
+            Failure = failure;
+        }
+
+        public StateMachineRelationshipFailure Failure { get; }
+    }
+}
+
+/// <summary>
 /// Total result of one state-machine relationship query. Absence and rejection
 /// are distinct so malformed metadata cannot become an empty success.
 /// </summary>
