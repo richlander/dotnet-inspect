@@ -132,6 +132,35 @@ It does not own:
 The thin composition map in #5095 connects these owners without restating
 their internal state machines.
 
+## Worker epoch identity problem
+
+Replacing a worker creates an overlap hazard. Messages queued by the old
+worker can arrive after the host has created its replacement, and message text
+alone cannot prove which `Worker` object emitted it. Operation IDs and
+operation sequences identify logical work, not the physical realm that
+processed it. Retaining every completed worker identity would also turn stale
+message rejection into page-lifetime unbounded state.
+
+The runtime therefore needs two related values:
+
+- a host-only epoch binding that pairs one exact `Worker` object with its
+  lifecycle authority; and
+- a bounded, structured-clone-safe token that correlates envelopes with that
+  binding.
+
+The token is not a capability or authentication secret. A message is current
+only when both its token equals the current binding's token and its handler is
+still bound to that exact `Worker` object. Copying the current token onto
+another worker source grants no authority.
+
+The page owns one monotonically increasing safe-integer token source. Creating
+an epoch reserves the next positive token before installing any handler,
+constructs the worker, and commits the host binding before accepting an event.
+A reserved token is never reused during that page lifetime, including after
+startup failure or realm release. Allocation never wraps; exhaustion refuses
+worker creation visibly. Token ordering has no protocol meaning despite the
+monotonic allocator, so receivers compare tokens only for exact equality.
+
 ## Boundary shapes
 
 The exact product types may use narrower generic parameters. These sketches
@@ -139,11 +168,18 @@ state the owned distinctions.
 
 ```ts
 declare const workerEpochBrand: unique symbol;
+declare const workerEpochTokenBrand: unique symbol;
 declare const workerIdleCompatibleBrand: unique symbol;
 
-type WorkerEpoch = string & {
-  readonly [workerEpochBrand]: "WorkerEpoch";
+type WorkerEpochToken = number & {
+  readonly [workerEpochTokenBrand]: "WorkerEpochToken";
 };
+
+interface WorkerEpoch {
+  readonly [workerEpochBrand]: "WorkerEpoch";
+  readonly token: WorkerEpochToken;
+  readonly worker: Worker;
+}
 
 interface WorkerOperationReference {
   readonly operationId: OperationId;
@@ -186,10 +222,11 @@ type WorkerEpochClosure =
     };
 ```
 
-`WorkerEpoch` is opaque and bound to the exact `Worker` object created for it.
-It is never parsed for ordering. The host allocates it from page-lifetime
-non-reused identity state and refuses another realm visibly if that identity
-source is exhausted.
+`WorkerEpoch` is a host-only identity binding and is never structured-cloned.
+`WorkerEpochToken` is a positive safe integer carried on the wire. The host
+obtains a token only from the page-lifetime allocator and creates a binding
+only from that freshly reserved token and its newly created `Worker`. It never
+derives either identity from received message data.
 
 Operation sequences remain owned by operation authority. This host consumes
 them as safe integers and requires every start assigned to one epoch to be
@@ -219,7 +256,7 @@ One runtime host has at most one live epoch. Creation commits the epoch and
 both the source object and epoch; matching message text from another source is
 stale.
 
-The first main-to-worker envelope supplies the protocol version, epoch,
+The first main-to-worker envelope supplies the protocol version, epoch token,
 structured-clone-safe bootstrap input, and the expected idle-heartbeat policy.
 The worker validates that envelope before beginning the consumer-owned
 bootstrap operation. A duplicate initialization envelope is an epoch protocol
@@ -287,7 +324,7 @@ into the committed epoch closure.
 Every envelope carries:
 
 - the exact protocol version;
-- the exact worker epoch; and
+- the exact worker epoch token; and
 - one closed message discriminator with all required fields.
 
 Operation envelopes also carry the complete operation reference. The receiver
@@ -713,7 +750,10 @@ feature implementation behavior.
 - own-property narrowing of every envelope from `unknown`, with malformed,
   inherited, accessor-backed, oversized, unsafe-integer, wrong-version, and
   wrong-epoch negatives;
-- non-reused epoch identity bound to the exact worker source;
+- positive safe-integer epoch-token allocation, exact token equality, no
+  page-lifetime reuse or wrap, visible exhaustion, and authority requiring both
+  the current token and exact bound worker source, including same-token
+  different-worker and same-worker wrong-token negatives;
 - preparation, abandonment, activation, held starts, sequence-order readiness
   flush without warm-start overtaking, held cancellation,
   `StartupFailed`-driven startup closure, and activation after a committed
