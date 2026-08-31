@@ -188,9 +188,9 @@ source occurrence identities and order as provenance.
 
 If `SelectedGroupIndex` names any constituent implicit occurrence, selection
 maps to the coalesced logical implicit group while retaining the selected source
-occurrence. This is the same logical-universal grouping used by dependency
-resolution; XML interleaving cannot change success, failure, or selected
-declarations.
+occurrence. This normalization rule is independent of the current package
+selection implementation; XML interleaving cannot change success, failure, or
+selected declarations.
 
 Each explicit manifest group remains a distinct logical group occurrence even
 when two explicit groups or an explicit and implicit group have equal framework
@@ -244,25 +244,42 @@ for an unavailable authored declaration scope. This query does not infer
 framework compatibility or claim that a `netstandard2.0` declaration has
 `net8.0` authored scope because it participated in a `net8.0` restore.
 
-The common result therefore supports two explicit projections:
+For one explicitly paired root from each outcome, the common result supports
+two projections:
 
-- **Core declaration** — the multiset of each logical group's canonical
-  declaration-set signature with framework scope omitted; and
-- **Scoped declaration** — the multiset of each logical group's canonical
-  declaration-set signature paired with any/exact framework scope.
+- **Core declaration** — the multiset of that root's logical-group canonical
+  declaration-set signatures with framework scope omitted; and
+- **Scoped declaration** — the multiset of that root's logical-group canonical
+  declaration-set signatures paired with any/exact framework scope.
 
-Core comparison retains logical-group multiplicity and returns equal or
-unequal. Scoped comparison returns:
+Both comparisons return **Equal**, **Unequal**, or **Not comparable**, with a
+typed reason. If either paired root has incomplete declaration projection,
+including any typed declaration failure, both comparisons return
+**Not comparable: declaration projection incomplete**.
 
-- **Not comparable** if either outcome contains an unavailable or unrecognized
-  logical-group scope;
+Declaration projection is complete when every owner-issued declaration for
+that root contributes a normalized row and no typed declaration failure
+occurs. Unavailable or unrecognized framework scope is a complete declaration
+projection with non-comparable scope; it does not prevent core comparison.
+
+Otherwise, core comparison retains logical-group multiplicity and returns
+equal or unequal. Scoped comparison returns:
+
+- **Not comparable: framework scope** if either paired root contains an
+  unavailable or unrecognized logical-group scope;
 - **Equal** when every scope is comparable and the scoped-signature multisets
   are equal; or
 - **Unequal** when every scope is comparable and those multisets differ.
 
-Not comparable conservatively dominates any differences visible in the
-comparable subset. Those subset differences may remain diagnostic evidence but
-cannot upgrade the overall scoped result.
+Not comparable conservatively dominates any differences visible in that
+paired root's comparable subset. Those subset differences may remain
+diagnostic evidence but cannot upgrade the overall result. Unrelated roots in
+the same package-prefix outcome and root-set truncation do not participate in
+the paired-root comparison.
+
+The query returns one independent comparison result per explicitly paired root.
+It defines no outcome-wide aggregate equivalence across multiple root pairs;
+that composition belongs to the caller.
 
 ## Additive restored-graph evidence
 
@@ -359,7 +376,10 @@ identity and NuGet constraint pairs in one logical group. Logical-group
 identity, constituent source occurrence identity, and group order are retained
 in each outcome but excluded from cross-input semantic equality.
 Selected-group equivalence compares the selected logical group's core or scoped
-signature and selection status, not the incidental source ordinal.
+signature and selection status, not the incidental source ordinal. It returns
+not comparable when either paired root's declaration projection is incomplete;
+equal for matching absence statuses; unequal for differing statuses; and,
+when both are selected, applies the same core or scoped signature rules.
 
 Input-specific evidence is asserted separately. A restored graph may therefore
 be equal under the declared projection while also reporting resolved versions
@@ -402,12 +422,13 @@ The outcome separately reports:
 
 - root-set completion;
 - admitted, rejected, and failed root counts;
-- declaration projection completion; and
+- per-root declaration projection completion and its aggregate; and
 - owner-enrichment completion.
 
 One phase cannot upgrade another phase's completion. In particular, complete
 owner enrichment over a truncated package-prefix root set does not make the
-prefix exhaustive.
+prefix exhaustive. Root-set incompleteness does not downgrade declaration
+comparison between two already-admitted, individually complete roots.
 
 ## `InertString` boundary
 
@@ -583,15 +604,23 @@ Implementation must establish:
   explicit implicit-versus-explicit any-framework, unavailable, unrecognized,
   unequal, and not comparable cases;
 - separate assertions for provenance, resolution, capability, and completion;
-- non-vacuity by mutating one declared package identity, framework identity,
-  version constraint, or conflicting duplicate and observing inequality or
-  typed failure;
+- non-vacuity by mutating one declared package identity or version constraint
+  and observing core and scoped inequality;
+- a framework-identity mutation producing scoped inequality while core
+  equality remains unchanged;
+- a conflicting duplicate producing both typed declaration failure and
+  not-comparable core/scoped results against an otherwise matching complete
+  root;
 - distinct implicit and explicit universal groups with conflicting constraints
   remaining separate while exact selected-group correspondence is preserved;
 - interleaved and adjacent implicit dependency runs producing the same logical
   group, conflict outcome, and selected declarations;
 - repeated declaration-set signatures with mixed exact and unavailable scopes
   producing deterministic not-comparable scoped evidence;
+- a multi-root prefix outcome whose unrelated incomplete or unrecognized root
+  does not poison comparison of two individually complete paired roots;
+- root-set truncation retained separately from comparison of already-admitted
+  complete roots;
 - a diamond restored graph retaining distinct parent edges and constraints;
 - conflicting supplied owner observations producing typed input-contract
   failure;
