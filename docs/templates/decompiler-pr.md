@@ -142,21 +142,28 @@ a new raise.
 ### Two-lens review
 
 <!--
-For a changed rendered body, acquire both exact revisions with:
+For a changed rendered body, acquire both exact revisions as root JSON
+documents:
 
+```bash
+# At the exact base revision
 dotnet-inspect member {Type} {MethodSelector} {scope} \
-  -S "Annotated Source Document"
+  -S "Annotated Source Document" --json > /tmp/before.json
 
-Save each product-emitted document separately, then produce the generated
-artifact directly from those exact revisions:
+# At the exact head revision
+dotnet-inspect member {Type} {MethodSelector} {scope} \
+  -S "Annotated Source Document" --json > /tmp/after.json
 
 dotnet run --project tools/DecompilerHarness -c Release -- \
   --structural-review /tmp/before.json /tmp/after.json
+```
 
 Then acquire the independent SourceLink-backed lens from the PR head:
 
+```bash
 dotnet-inspect member {Type} {MethodSelector} {scope} \
   -S "Source Diff" --bare > /tmp/source-diff.txt
+```
 
 Paste both outputs verbatim under their respective headings. The structural
 artifact's complete Before/After blocks and rich structural
@@ -182,9 +189,10 @@ evidence. Record compile-back status beside it as an independent oracle; do not
 infer fidelity from textual similarity.
 
 If the generated review reports `Partial`, explicitly determine whether the
-claimed changed structure has a unique matched row. Incidental matched rows do
-not prove a change represented only by unsupported or ambiguous gaps. In that
-case, or when document acquisition fails, either document lacks product
+claimed changed structure appears in one or more supported generated rows,
+including `Changed`, `Moved`, `Added`, or `Removed`. Rows for unrelated changes
+do not prove a change represented only by unsupported or ambiguous gaps. In
+that case, or when document acquisition fails, either document lacks product
 provenance, or the physical method identities differ, write:
 
 Attempted — unavailable for the claimed change: {exact acquisition,
@@ -206,8 +214,8 @@ validity, correctness, fidelity, taste, and commit verdicts.
 #### Before → After: structural raise delta
 
 Structural review status: {Generated — complete / Generated — partial; claimed
-change has a unique matched row / Attempted — unavailable for the claimed
-change: exact result}
+change appears in supported generated row(s) / Attempted — unavailable for the
+claimed change: exact result}
 
 {paste the generated structural review verbatim when correspondence supports
 the claimed change; otherwise retain the standalone Before and After bodies}
