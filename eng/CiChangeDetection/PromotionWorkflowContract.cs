@@ -23,7 +23,8 @@ internal static class PromotionWorkflowContract
           compiler \
           prototypes/inspect-web/engine/bin/Release/net11.0/InspectWeb.Engine.dll \
           artifacts/inspect-web-publish/wwwroot \
-          artifacts/inspect-web-publish/async-lowering.json
+          artifacts/inspect-web-publish/async-lowering.json \
+          artifacts/inspect-web-compiler-async-receipts
         """;
     private const string RuntimeAsyncDeploymentCheck =
         """
@@ -42,7 +43,7 @@ internal static class PromotionWorkflowContract
         index="$site/index.html"
         receipt=artifacts/inspect-web-publish/async-lowering.json
         test -f "$index"
-        jq -e '.schema == 2 and .method == "InspectionEngine.AsyncLoweringCanary" and .lowering == "compiler" and .result == "inspect-web-async-lowering-ok" and .async_method_count > 0 and .compiler_async_method_count == .async_method_count and .runtime_async_method_count == 0 and (.publish_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.published_webcil_file | test("^InspectWeb\\.Engine\\.[A-Za-z0-9]+\\.wasm$")) and (.published_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.contract_sha256 | test("^[0-9a-f]{64}$"))' "$receipt" >/dev/null
+        jq -e '.schema == 3 and .method == "InspectionEngine.AsyncLoweringCanary" and .lowering == "compiler" and .result == "inspect-web-async-lowering-ok" and .async_method_count > 0 and .compiler_async_method_count == .async_method_count and .runtime_async_method_count == 0 and .repository_project_count > 0 and (.publish_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.published_webcil_file | test("^InspectWeb\\.Engine\\.[A-Za-z0-9]+\\.wasm$")) and (.published_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.contract_sha256 | test("^[0-9a-f]{64}$"))' "$receipt" >/dev/null
         webcil=$(jq -r '.published_webcil_file' "$receipt")
         test "$(find "$site/_framework" -maxdepth 1 -type f -name 'InspectWeb.Engine.*.wasm' | wc -l)" -eq 1
         test "$(sha256sum "$site/_framework/$webcil" | awk '{print $1}')" = "$(jq -r '.published_webcil_sha256' "$receipt")"
@@ -81,7 +82,7 @@ internal static class PromotionWorkflowContract
         index="$site/index.html"
         receipt=artifacts/inspect-web-coreclr-publish/async-lowering.json
         test -f "$index"
-        jq -e '.schema == 2 and .method == "InspectionEngine.AsyncLoweringCanary" and .lowering == "runtime" and .result == "inspect-web-async-lowering-ok" and .async_method_count > 0 and .runtime_async_method_count == .async_method_count and .compiler_async_method_count == 0 and (.publish_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.published_webcil_file | test("^InspectWeb\\.Engine\\.[A-Za-z0-9]+\\.wasm$")) and (.published_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.contract_sha256 | test("^[0-9a-f]{64}$"))' "$receipt" >/dev/null
+        jq -e '.schema == 3 and .method == "InspectionEngine.AsyncLoweringCanary" and .lowering == "runtime" and .result == "inspect-web-async-lowering-ok" and .async_method_count > 0 and .runtime_async_method_count == .async_method_count and .compiler_async_method_count == 0 and .repository_project_count > 0 and (.publish_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.published_webcil_file | test("^InspectWeb\\.Engine\\.[A-Za-z0-9]+\\.wasm$")) and (.published_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.contract_sha256 | test("^[0-9a-f]{64}$"))' "$receipt" >/dev/null
         webcil=$(jq -r '.published_webcil_file' "$receipt")
         test "$(find "$site/_framework" -maxdepth 1 -type f -name 'InspectWeb.Engine.*.wasm' | wc -l)" -eq 1
         test "$(sha256sum "$site/_framework/$webcil" | awk '{print $1}')" = "$(jq -r '.published_webcil_sha256' "$receipt")"
@@ -136,21 +137,21 @@ internal static class PromotionWorkflowContract
             repository,
             "eng",
             "verify-inspect-web-async-deployment.sh");
-        string runtimeAsyncReceiptTargetPath = Path.Combine(
+        string asyncLoweringReceiptTargetPath = Path.Combine(
             repository,
             "eng",
-            "InspectWebRuntimeAsyncReceipt.targets");
+            "InspectWebAsyncLoweringReceipt.targets");
         string promotionWorkflow = File.ReadAllText(promotionPath);
         string stagingWorkflow = File.ReadAllText(stagingPath);
         string coreClrStagingWorkflow = File.ReadAllText(coreClrStagingPath);
         string asyncVerifier = File.ReadAllText(asyncVerifierPath);
-        string runtimeAsyncReceiptTarget =
-            File.ReadAllText(runtimeAsyncReceiptTargetPath);
+        string asyncLoweringReceiptTarget =
+            File.ReadAllText(asyncLoweringReceiptTargetPath);
         ValidatePromotion(promotionWorkflow);
         ValidateStaging(stagingWorkflow);
         ValidateCoreClrStaging(coreClrStagingWorkflow);
         ValidateAsyncDeploymentVerifier(asyncVerifier);
-        ValidateRuntimeAsyncReceiptTarget(runtimeAsyncReceiptTarget);
+        ValidateAsyncLoweringReceiptTarget(asyncLoweringReceiptTarget);
 
         const string trustedCheckout =
             """
@@ -304,11 +305,23 @@ internal static class PromotionWorkflowContract
             ValidateAsyncDeploymentVerifier,
             "Async deployment verifier accepted a receipt without the async census.");
         AssertMutationRejected(
-            runtimeAsyncReceiptTarget,
-            "Condition=\"$([System.String]::Copy(';$(Features);').Contains(';runtime-async=on;')) != 'True'\"",
+            asyncVerifier,
+            "    repository_project_count: graphResult.repository_project_count,\n",
+            "",
+            ValidateAsyncDeploymentVerifier,
+            "Async deployment verifier accepted a receipt without the project count.");
+        AssertMutationRejected(
+            asyncLoweringReceiptTarget,
+            "Condition=\"'$(InspectWebExpectedAsyncLowering)' == 'runtime' And $([System.String]::Copy(';$(Features);').Contains(';runtime-async=on;')) != 'True'\"",
             "Condition=\"false\"",
-            ValidateRuntimeAsyncReceiptTarget,
-            "Runtime-async receipt target accepted projects without the feature.");
+            ValidateAsyncLoweringReceiptTarget,
+            "Async-lowering receipt target accepted runtime projects without the feature.");
+        AssertMutationRejected(
+            asyncLoweringReceiptTarget,
+            "Condition=\"'$(InspectWebExpectedAsyncLowering)' == 'compiler' And $([System.String]::Copy(';$(Features);').Contains(';runtime-async=on;')) == 'True'\"",
+            "Condition=\"false\"",
+            ValidateAsyncLoweringReceiptTarget,
+            "Async-lowering receipt target accepted compiler projects with the feature.");
         AssertMutationRejected(
             coreClrStagingWorkflow,
             "            -p:UseMonoRuntime=false \\\n",
@@ -811,6 +824,7 @@ internal static class PromotionWorkflowContract
         RequireScalarValue(publish, "shell", "bash", "staging publish step");
         const string ExpectedPublish =
             """
+            rm -rf artifacts/inspect-web-compiler-async-receipts
             version=$(dotnet msbuild src/dotnet-inspect/dotnet-inspect.csproj -getProperty:VersionPrefix -nologo)
             built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
             dotnet publish \
@@ -819,7 +833,10 @@ internal static class PromotionWorkflowContract
               --output artifacts/inspect-web-publish \
               -p:VersionPrefix="$version" \
               -p:SourceRevisionId="$GITHUB_SHA" \
-              -p:BuildTimestampUtc="$built_at"
+              -p:BuildTimestampUtc="$built_at" \
+              -p:InspectWebExpectedAsyncLowering=compiler \
+              -p:InspectWebAsyncLoweringReceiptDirectory="$GITHUB_WORKSPACE/artifacts/inspect-web-compiler-async-receipts" \
+              -p:CustomAfterMicrosoftCommonTargets="$GITHUB_WORKSPACE/eng/InspectWebAsyncLoweringReceipt.targets"
             """;
         if (GetRequiredScalar(publish, "run", "staging publish step").TrimEnd() !=
             ExpectedPublish)
@@ -1173,8 +1190,9 @@ internal static class PromotionWorkflowContract
               -p:WasmBuildNative=false \
               -p:WasmNestedPublishAppDependsOn= \
               -p:WasmEnableExceptionHandling=true \
-              -p:InspectWebRuntimeAsyncReceiptDirectory="$GITHUB_WORKSPACE/artifacts/inspect-web-runtime-async-receipts" \
-              -p:CustomAfterMicrosoftCommonTargets="$GITHUB_WORKSPACE/eng/InspectWebRuntimeAsyncReceipt.targets"
+              -p:InspectWebExpectedAsyncLowering=runtime \
+              -p:InspectWebAsyncLoweringReceiptDirectory="$GITHUB_WORKSPACE/artifacts/inspect-web-runtime-async-receipts" \
+              -p:CustomAfterMicrosoftCommonTargets="$GITHUB_WORKSPACE/eng/InspectWebAsyncLoweringReceipt.targets"
             """;
         if (GetRequiredScalar(
                 publish,
@@ -1408,8 +1426,9 @@ internal static class PromotionWorkflowContract
             "\"$repo_root/eng/generate-inspect-web-engine-facade.sh\" \\\n  --contract",
             "\"$repo_root/prototypes/inspect-web/src/inspect-web-engine.d.ts\" \\\n  \"$scratch/inspect-web-engine.d.ts\"",
             "\"$repo_root/prototypes/inspect-web/scripts/verify-published-engine-facade.ts\" \\\n  \"$site\"",
-            "\"$repo_root/prototypes/inspect-web/scripts/verify-runtime-async-project-graph.ts\"",
+            "\"$repo_root/prototypes/inspect-web/scripts/verify-async-project-graph.ts\"",
             "async_method_count: census.async_method_count",
+            "repository_project_count: graphResult.repository_project_count",
             "published_webcil_file: webcil[0]",
         ];
         string[] missing = required
@@ -1426,13 +1445,15 @@ internal static class PromotionWorkflowContract
         }
     }
 
-    private static void ValidateRuntimeAsyncReceiptTarget(string target)
+    private static void ValidateAsyncLoweringReceiptTarget(string target)
     {
         string[] required =
         [
             "BeforeTargets=\"CoreCompile\"",
-            "Condition=\"$([System.String]::Copy(';$(Features);').Contains(';runtime-async=on;')) != 'True'\"",
-            "File=\"$(InspectWebRuntimeAsyncReceiptDirectory)/$(MSBuildProjectName).txt\"",
+            "Condition=\"'$(InspectWebExpectedAsyncLowering)' != 'compiler' And '$(InspectWebExpectedAsyncLowering)' != 'runtime'\"",
+            "Condition=\"'$(InspectWebExpectedAsyncLowering)' == 'runtime' And $([System.String]::Copy(';$(Features);').Contains(';runtime-async=on;')) != 'True'\"",
+            "Condition=\"'$(InspectWebExpectedAsyncLowering)' == 'compiler' And $([System.String]::Copy(';$(Features);').Contains(';runtime-async=on;')) == 'True'\"",
+            "File=\"$(InspectWebAsyncLoweringReceiptDirectory)/$(MSBuildProjectName).txt\"",
             "Lines=\"$(MSBuildProjectFullPath)\"",
         ];
         string[] missing = required
@@ -1442,7 +1463,7 @@ internal static class PromotionWorkflowContract
         if (missing.Length != 0)
         {
             throw new InvalidOperationException(
-                "Inspect-web runtime-async receipt target does not contain each "
+                "Inspect-web async-lowering receipt target does not contain each "
                 + "trusted compile receipt step exactly once. Missing or duplicate: ["
                 + string.Join(", ", missing)
                 + "].");

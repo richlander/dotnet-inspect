@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "$#" -lt 4 || "$#" -gt 5 ]]; then
-  echo "Usage: verify-inspect-web-async-deployment.sh <compiler|runtime> <publish-engine.dll> <published-wwwroot> <receipt.json> [compile-receipts]" >&2
+if [[ "$#" -ne 5 ]]; then
+  echo "Usage: verify-inspect-web-async-deployment.sh <compiler|runtime> <publish-engine.dll> <published-wwwroot> <receipt.json> <compile-receipts>" >&2
   exit 1
 fi
 
@@ -10,18 +10,8 @@ lowering="$1"
 assembly="$2"
 site="$3"
 receipt="$4"
-compile_receipts="${5:-}"
-if [[ "$lowering" == "runtime" ]]; then
-  if [[ -z "$compile_receipts" ]]; then
-    echo "Runtime lowering verification requires compile receipts." >&2
-    exit 1
-  fi
-elif [[ "$lowering" == "compiler" ]]; then
-  if [[ -n "$compile_receipts" ]]; then
-    echo "Compiler lowering verification does not accept runtime compile receipts." >&2
-    exit 1
-  fi
-else
+compile_receipts="$5"
+if [[ "$lowering" != "compiler" && "$lowering" != "runtime" ]]; then
   echo "Expected lowering must be 'compiler' or 'runtime'." >&2
   exit 1
 fi
@@ -32,6 +22,8 @@ node=${NODE:-node}
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 census="$scratch/async-census.json"
+graph="$scratch/browser-engine-restore-graph.json"
+graph_result="$scratch/async-project-graph.json"
 
 "$dotnet" run \
   "$repo_root/prototypes/inspect-web/scripts/verify-async-lowering.cs" \
@@ -52,38 +44,52 @@ cmp \
   "$repo_root/prototypes/inspect-web/scripts/verify-published-engine-facade.ts" \
   "$site"
 
+graph_properties=()
 if [[ "$lowering" == "runtime" ]]; then
-  graph="$scratch/browser-engine-restore-graph.json"
-  "$dotnet" msbuild \
-    "$repo_root/prototypes/inspect-web/engine/InspectWeb.Engine.csproj" \
-    -t:GenerateRestoreGraphFile \
-    -p:RestoreGraphOutputPath="$graph" \
-    -p:Configuration=Release \
-    -p:Features=runtime-async=on \
-    -p:MSBuildEnableWorkloadResolver=false \
-    -nologo \
-    -v:q
-  "$node" \
-    "$repo_root/prototypes/inspect-web/scripts/verify-runtime-async-project-graph.ts" \
-    "$repo_root" \
-    "$graph" \
-    "$compile_receipts"
+  graph_properties+=("-p:Features=runtime-async=on")
 fi
+"$dotnet" msbuild \
+  "$repo_root/prototypes/inspect-web/engine/InspectWeb.Engine.csproj" \
+  -t:GenerateRestoreGraphFile \
+  -p:RestoreGraphOutputPath="$graph" \
+  -p:Configuration=Release \
+  -p:MSBuildEnableWorkloadResolver=false \
+  "${graph_properties[@]}" \
+  -nologo \
+  -v:q
+"$node" \
+  "$repo_root/prototypes/inspect-web/scripts/verify-async-project-graph.ts" \
+  "$lowering" \
+  "$repo_root" \
+  "$graph" \
+  "$compile_receipts" \
+  "$graph_result"
 
 mkdir -p "$(dirname "$receipt")"
 "$node" --input-type=module - "$assembly" "$site" "$lowering" \
   "$repo_root/prototypes/inspect-web/src/inspect-web-engine.d.ts" \
-  "$census" "$receipt" <<'JS'
+  "$census" "$graph_result" "$receipt" <<'JS'
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const [assembly, site, lowering, contract, censusPath, receipt] =
+const [assembly, site, lowering, contract, censusPath, graphResultPath, receipt] =
   process.argv.slice(2);
-if (!assembly || !site || !lowering || !contract || !censusPath || !receipt) {
+if (!assembly
+    || !site
+    || !lowering
+    || !contract
+    || !censusPath
+    || !graphResultPath
+    || !receipt) {
   throw new Error("missing async deployment receipt argument");
 }
 const census = JSON.parse(readFileSync(censusPath, "utf8"));
+const graphResult = JSON.parse(readFileSync(graphResultPath, "utf8"));
+if (!Number.isInteger(graphResult.repository_project_count)
+    || graphResult.repository_project_count <= 0) {
+  throw new Error("invalid async project graph result");
+}
 const counts = [
   census.async_method_count,
   census.compiler_async_method_count,
@@ -114,13 +120,14 @@ function sha256(path) {
 writeFileSync(
   receipt,
   `${JSON.stringify({
-    schema: 2,
+    schema: 3,
     method: "InspectionEngine.AsyncLoweringCanary",
     lowering,
     result: "inspect-web-async-lowering-ok",
     async_method_count: census.async_method_count,
     compiler_async_method_count: census.compiler_async_method_count,
     runtime_async_method_count: census.runtime_async_method_count,
+    repository_project_count: graphResult.repository_project_count,
     publish_assembly_sha256: sha256(assembly),
     published_webcil_file: webcil[0],
     published_webcil_sha256: sha256(resolve(site, "_framework", webcil[0])),

@@ -575,17 +575,17 @@ internal static class DetectionTestSuite
                     + FormatValues(webGate));
             }
         }
-        Dictionary<string, string> runtimeAsyncReceiptTarget = RunDetection(
+        Dictionary<string, string> asyncLoweringReceiptTarget = RunDetection(
             repository,
             body,
             "pull_request",
-            "eng/InspectWebRuntimeAsyncReceipt.targets",
+            "eng/InspectWebAsyncLoweringReceipt.targets",
             outputs);
-        if (runtimeAsyncReceiptTarget["web"] != "true")
+        if (asyncLoweringReceiptTarget["web"] != "true")
         {
             throw new InvalidOperationException(
-                    "Runtime-async receipt target did not select the web lane: "
-                    + FormatValues(runtimeAsyncReceiptTarget));
+                    "Async-lowering receipt target did not select the web lane: "
+                    + FormatValues(asyncLoweringReceiptTarget));
         }
         Dictionary<string, string> methodSemanticsProbeRunner = RunDetection(
             repository,

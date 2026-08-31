@@ -3,6 +3,7 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  writeFileSync,
 } from "node:fs";
 import {
   basename,
@@ -13,12 +14,22 @@ import {
   sep,
 } from "node:path";
 
-const [repositoryArgument, graphArgument, receiptsArgument] =
+const [
+  lowering,
+  repositoryArgument,
+  graphArgument,
+  receiptsArgument,
+  resultArgument,
+] =
   process.argv.slice(2);
-if (!repositoryArgument || !graphArgument || !receiptsArgument) {
+if ((lowering !== "compiler" && lowering !== "runtime")
+    || !repositoryArgument
+    || !graphArgument
+    || !receiptsArgument
+    || !resultArgument) {
   throw new Error(
-    "Usage: verify-runtime-async-project-graph.ts "
-      + "<repository> <restore-graph.json> <receipt-directory>");
+    "Usage: verify-async-project-graph.ts <compiler|runtime> "
+      + "<repository> <restore-graph.json> <receipt-directory> <result.json>");
 }
 
 const repository = realpathSync(repositoryArgument);
@@ -83,8 +94,13 @@ const unexpected = [...actual].filter(project => !expected.has(project)).sort();
 assert.deepEqual(
   { missing, unexpected },
   { missing: [], unexpected: [] },
-  "runtime-async compile receipts do not match the browser engine project graph");
+  `${lowering}-async compile receipts do not match the browser engine project graph`);
 
+writeFileSync(
+  resolve(resultArgument),
+  `${JSON.stringify({ repository_project_count: expected.size })}\n`,
+);
 console.log(
-  `Runtime async reached all ${expected.size} repository projects in the `
+  `${lowering === "compiler" ? "Compiler" : "Runtime"} async reached all `
+    + `${expected.size} repository projects in the `
     + "browser engine graph.");

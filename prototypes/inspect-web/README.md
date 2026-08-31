@@ -1595,8 +1595,16 @@ deployment; Mono staging and ordinary non-AOT builds retain classic async
 lowering. The workflow verifies the CoreCLR-specific `GetDotNetRuntimeHeap`
 hook before and after artifact transfer.
 
-Both deployment builds run `verify-inspect-web-async-deployment.sh` immediately
-after their clean engine publish. The gate enumerates every public async method
+Both deployment builds import `InspectWebAsyncLoweringReceipt.targets`. Every
+project that reaches `CoreCompile` fails unless its exact `Features` property
+selects the deployment's expected lowering, then emits a project-path receipt.
+`verify-async-project-graph.ts` requires those receipts to equal the evaluated
+transitive repository project graph rooted at `InspectWeb.Engine.csproj`;
+framework/runtime-pack binaries, the separately published MSDL server API, and
+unrelated repository projects are outside that set.
+
+Both builds then run `verify-inspect-web-async-deployment.sh` immediately after
+their clean engine publish. The gate enumerates every public async method
 in that publish's
 `bin/Release/net11.0/InspectWeb.Engine.dll` as compiler async for Mono and
 runtime async for CoreCLR, requires the entire census to use the expected
@@ -1607,23 +1615,16 @@ intermediate assembly before packaging the shipped WebCIL. The gate generates a
 declaration from each pre-link assembly with
 `generate-inspect-web-engine-facade.sh --contract`, requires both to equal the
 checked-in declaration, and invokes the canary through the generated facade in
-each published WebCIL application. The uploaded receipt records total,
-compiler-async, and runtime-async method counts plus the publish assembly,
-shipped WebCIL, and facade-contract digests. Build, staging, and production
-artifact checks require the expected all-or-nothing lowering census, require the
-one named WebCIL file, and recompute its digest without executing candidate code
-in an environment-gated deployment job.
-
-The CoreCLR publish also imports `InspectWebRuntimeAsyncReceipt.targets`.
-Every project that reaches `CoreCompile` fails unless its exact `Features`
-property includes `runtime-async=on`, then emits a project-path receipt.
-`verify-runtime-async-project-graph.ts` requires those receipts to equal the
-evaluated transitive repository project graph rooted at
-`InspectWeb.Engine.csproj`; framework/runtime-pack binaries, the separately
-published MSDL server API, and unrelated repository projects are outside that
-set. `PromotionWorkflowContract` gates the global feature property, exact
-publish-assembly paths, both browser invocations, graph receipts, and
-post-transfer evidence checks with close mutations.
+each published WebCIL application. The schema-3 uploaded receipt records total,
+compiler-async, and runtime-async method counts, the verified repository project
+count, and the publish assembly, shipped WebCIL, and facade-contract digests.
+Build, staging, and production artifact checks require the expected
+all-or-nothing lowering census and a nonempty verified project graph, require
+the one named WebCIL file, and recompute its digest without executing candidate
+code in an environment-gated deployment job. `PromotionWorkflowContract` gates
+both expected-lowering properties, exact publish-assembly paths, both browser
+invocations, graph receipts, and post-transfer evidence checks with close
+mutations.
 
 `.github/workflows/promote-inspect-web.yml` intentionally promotes one
 successful staging run to production at `https://dotnet-inspect.net`. The
