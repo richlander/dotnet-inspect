@@ -1,6 +1,29 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 
 namespace DotnetInspector.Packages;
+
+/// <summary>
+/// Opaque identity for one retained package-content generation.
+/// </summary>
+/// <remarks>
+/// Equality is reference identity. The token is intentionally process-local and
+/// carries no package bytes, source location, or credentials.
+/// </remarks>
+public sealed class PackageContentGenerationIdentity
+{
+    static readonly ConditionalWeakTable<IPackageContent, PackageContentGenerationIdentity>
+        Identities = new();
+
+    internal PackageContentGenerationIdentity()
+    {
+    }
+
+    internal static PackageContentGenerationIdentity For(IPackageContent content) =>
+        Identities.GetValue(
+            content,
+            static _ => new PackageContentGenerationIdentity());
+}
 
 /// <summary>
 /// Host-neutral view over the materialized contents of a NuGet package.
@@ -38,6 +61,14 @@ public interface IPackageContent
     /// Canonical identity of the source that produced this package payload.
     /// </summary>
     string ProducerKey { get; }
+
+    /// <summary>
+    /// Opaque identity for the immutable retained content exposed by this
+    /// handle. Stores may preserve it across handles to the same retained
+    /// generation; replacement content must receive a different identity.
+    /// </summary>
+    PackageContentGenerationIdentity GenerationIdentity =>
+        PackageContentGenerationIdentity.For(this);
 
     /// <summary>
     /// When true, admission must require archive/tree matching for any
