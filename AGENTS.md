@@ -464,13 +464,13 @@ readiness check and explicit user authorization regardless of classification.
 Full detection, classification, and action procedure:
 [Carry-forward after clean reviews](docs/round-orchestration.md#carry-forward-after-clean-reviews).
 The four outcomes: **no interaction** (keep the reviewed or waived head
-unchanged, preserve its state and authorization, and skip all gates — the
-common case), **trivial interaction** (remove `review-clean`, disarm
-auto-merge, integrate, run affected gates, and offer the exact-head re-review
-waiver), **significant interaction, no conflict** (remove `review-clean`,
-disarm auto-merge, re-run validation and CI, and re-dispatch reviewers as a
-normal round), and **merge conflict requiring semantic resolution** (disarm
-auto-merge and treat as an author change under
+unchanged, preserve its state and authorization, and start no new CI run or
+other gate — the common case), **trivial interaction** (remove `review-clean`,
+disarm auto-merge, integrate, run affected gates, and offer the exact-head
+re-review waiver), **significant interaction, no conflict** (remove
+`review-clean`, disarm auto-merge, re-run validation and CI, and re-dispatch
+reviewers as a normal round), and **merge conflict requiring semantic
+resolution** (disarm auto-merge and treat as an author change under
 [Recovery transitions](#recovery-transitions)).
 
 ### How many reviewers, and from which models
