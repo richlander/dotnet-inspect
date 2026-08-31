@@ -338,10 +338,10 @@ coverage strings, sharpen ledger notes, and avoid behavior changes unless the
 curation exposes an actual bug. Run the relevant catalog/fixture tests so the
 metadata still points at real rows and mechanisms.
 
-Operational burndown queue hygiene — stale rows, merged PR status, merge
+Operational defect-queue hygiene — stale rows, merged PR status, merge
 conflicts, CI breaks, rebaseline triggers, and subagent delegation — is the
-**Burndown Curator** role, tracked operationally through rollup issue #1568.
-Burndown row ownership is hot-start work: a claimed row should proceed to a PR,
+**Defect Docket Curator** role, tracked operationally through rollup issue #1568.
+Docket-row ownership is hot-start work: a claimed row should proceed to a PR,
 explicit blocker, or pivot issue rather than waiting or stopping at an internal
 milestone.
 
@@ -541,11 +541,13 @@ drill-down. To reproduce the full row set behind a capped card, follow
 [Reproducing decompiler corpus deltas](decompiler-corpus-delta-repro.md).
 Use the terse PR body shape in
 [docs/templates/decompiler-pr.md](templates/decompiler-pr.md) when writing the
-human summary around the generated card. For DecompilerHarness,
-ReturnToSender, fidelity skeleton, or compile-back coverage PRs, use
+human summary around the generated card. For harness-only DecompilerHarness,
+ReturnToSender, fidelity skeleton, or compile-back coverage PRs that do not
+alter product decompiler output, use
 [docs/templates/decompiler-compile-back-harness-pr.md](templates/decompiler-compile-back-harness-pr.md)
 instead so the PR records the targeted checked population and RTS/current A/B
-evidence.
+evidence. If product output changes, keep `decompiler-pr.md` as the PR body and
+add the relevant compile-back evidence there.
 
 Rate deltas in card prose use **percentage points** (`pp`): `+0.49 pp` means
 the rate increased from, for example, `82.17%` to `82.66%`. The metric-change

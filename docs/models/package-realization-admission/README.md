@@ -53,9 +53,12 @@ selected-package admission while composing their host-owned Root-only portions
 outside the lease.
 
 Generation and selection soundness are assumed owner inputs, not model
-results. #5121 must reconcile the current realized-coordinate same-bytes
-reacquisition promise and land its named replacement-generation and
-selection-difference gates before implementation consumes these identities.
+results. `PackageRootBinding` now supplies those owner inputs, and
+`PackageRootGenerationIdentity_ReplacementChangesIdentity`,
+`PackageRootSelectionIdentity_DifferentAssetsChangeIdentity`, and
+`RealizedPackageCoordinate_ReacquisitionContractIsCoherent` gate the
+generation, selection, and coordinate guarantees before admission consumes
+them.
 
 Order is intentionally significant. Combined role construction and binding
 operate over ordered participants, and the demand-local projection preserves

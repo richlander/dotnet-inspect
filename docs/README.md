@@ -54,6 +54,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Style Guide](design/style-guide.md) | Output formatting conventions. |
 | [Output Shapes](design/output-shapes.md) | The Document → Table → Vector → Scalar shape ladder, how Markout produces it, and how the output flags select a shape. |
 | [Semantic Row Selection](design/semantic-row-selection.md) | Dependency-free ordered Head, Tail, Window, and Top stages over complete logical sequences. |
+| [Source Delegation](design/source-delegation.md) | Delegated source execution: the effect protocol, closed result algebra, completion-evidence bases, and equivalence gates for row handoff and exact upstream Count. |
 | [Projected JSON Output](design/projected-json.md) | Typed versus lowered JSON, section-scoped projection, representability, atomic output, and adoption gates. |
 | [Inspection Graph Document](design/inspection-graph-document.md) | Typed multi-subject graph envelope for calls, metadata, integrations, Findings, occurrences, characteristics, and package/type lenses. |
 | [Custom-Attribute Value Decoding](design/custom-attribute-value-decoding.md) | The alignment, bounding, and guard-work invariants relating the custom-attribute value guard to SRM's decode, the two width-resolution paths, bounds, charging, and refusal semantics. Descriptive, with seven known gaps recorded against the contract. |
@@ -122,10 +123,9 @@ the directly usable fixed prefix for every non-trivial reviewer prompt and
 carries the repository trust model and finding-admission contract.
 
 PR templates live under `docs/templates/`: `decompiler-pr.md` (raising,
-structuring, validity, fidelity, or corpus behavior), `decompiler-burndown-fix-pr.md`
-(a focused invalid-`Full` or burndown row fix), and
-`decompiler-compile-back-harness-pr.md` (compile-back harness, fidelity
-skeleton, or ReturnToSender coverage). The optional
+structuring, validity, fidelity, or corpus behavior) and
+`decompiler-compile-back-harness-pr.md` (harness-only compile-back, fidelity
+skeleton, or ReturnToSender coverage with no product-output change). The optional
 [`adversarial-review-prompt.md`](templates/adversarial-review-prompt.md)
 template provides the full fill-in form.
 

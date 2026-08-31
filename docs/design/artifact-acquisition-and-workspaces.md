@@ -1654,10 +1654,88 @@ selection succeeds. That host-neutral product result retains:
 - exact package id and version;
 - the requested target framework and the selector's selected framework, when
   either exists;
+- the requested runtime identifier, when one participates in selection;
 - the package content producer key and cache origin;
 - the complete typed `PackageCompileAssetSelection`, including
   `NoCompileAssets`, `NoMatchingTargetFramework`, `EmptyCompileGroup`, and
   `InvalidImplementationAssets`.
+
+Acquisition issues a `PackageRootBinding` from one
+`AcquiredPackagePayload` or `AcquiredPackageSourcePayload`. The immutable
+binding carries the exact `PackageRootRealization`, its authoritative
+`RealizedMemberCoordinate.Package`, a
+`PackageContentGenerationIdentity`, and a
+`PackageRootSelectionIdentity`. The factory validates that the retained
+content and acquisition result name the same producer before selection, then
+creates the Root, snapshots every selection sequence into read-only storage,
+and mints the coordinate and both identities without repeating coordinate
+resolution, content acquisition, or compile-asset selection.
+The acquired payload result has an internal constructor and get-only
+properties, so ordinary consumers cannot forge a coordinate/content pairing
+or replace either half after acquisition issues it.
+
+The content-generation identity is an opaque, credential-free reference token
+owned by `IPackageContent`. Every binding over the same content handle shares
+it. A store may preserve that token across handles to one retained cache
+generation; the Browser and in-memory stores do so. A replacement payload
+must receive a new token, even under the same package/version/producer slot.
+Implementations without a retained-generation registry conservatively receive
+one token per content handle. Equal identities therefore guarantee the same
+retained content generation for the binding lifetime, while unequal
+identities make no claim about byte inequality. The token is deliberately
+process-local and is never serialized or reconstructed from coordinate
+display fields.
+
+The selection identity is also an opaque reference token, minted once for one
+binding after the typed selection has been frozen. Equal identities guarantee
+the same selection status, selected target framework, default asset, and
+ordered available-framework, surface, candidate, and implementation
+sequences. Independently repeated equal selections may receive different
+identities. This conservative equality is sufficient for exact-request
+admission: sharing requires the same retained binding, never a display-field
+reconstruction.
+
+`RealizedMemberCoordinate.Package` is the portable producer-bound acquisition
+request, not immutable-byte identity. Reacquiring it may observe a later
+payload generation published under the same package/version/producer slot.
+The generation token is the authoritative immutable-content proof inside one
+adopting process. For the typed source path, the binding derives package id and
+version from `PackageSourceCoordinate`, producer from the acquired payload,
+and the effective acquisition framework from the requested target only when
+the shared target grammar can represent it; otherwise the framework is absent.
+Absence denotes framework-neutral source acquisition and is distinct from the
+real NuGet target `any`. The binding never derives the coordinate from a
+package-supplied asset folder. The original selection target and typed outcome
+remain on the Root and selection identity. The optional runtime identifier is
+carried exactly and must already be canonical. The resolved multi-source path
+uses its already normalized acquisition framework and runtime identifier even
+when a caller requests a different framework for compile-asset selection. A
+coordinate that cannot pass the existing canonical
+`RealizedMemberCoordinate.Package` grammar fails construction visibly.
+
+The descriptive `PackageRootRealization` constructor remains a compatibility
+surface for callers that already own retained content, but it does not issue a
+binding and is not admissible as exact-request cache identity. The Browser
+adapter is the first adopting path: it retains the acquisition result, asks it
+for a binding, and carries the issued coordinate and identities. Its legacy
+test-only package constructor remains unbound. This adoption is gated by
+`BrowserPackageRealization_ReceivesAcquisitionIssuedCoordinate`; generation
+replacement, selection difference, coordinate coherence, Root-only binding,
+and producer mismatch are gated by
+`PackageContentGenerationIdentity_ExternalBuffersCannotMutateGeneration`,
+`PackageRootGenerationIdentity_ReplacementChangesIdentity`,
+`PackageRootSelectionIdentity_DifferentAssetsChangeIdentity`,
+`PackageRootSelectionIdentity_SelectionSequencesAreImmutable`,
+`RealizedPackageCoordinate_ReacquisitionContractIsCoherent`,
+`PackageRootBinding_RootOnlyOutcomeRemainsValid`, and
+`PackageRootBinding_RejectsProducerMismatch`. Construction control,
+framework-neutral source binding, exclusion of package-controlled framework
+folders, and resolved framework/RID correspondence are gated by
+`PackageRootBinding_AcquiredPayloadsAreConstructionControlled`,
+`PackageRootBinding_UnrequestedFrameworkDoesNotUsePackageFolderAsCoordinate`,
+`PackageRootBinding_UnrepresentableSelectionTargetUsesFrameworkNeutralCoordinate`,
+`PackageRootBinding_ResolvedCoordinatePreservesAcquisitionTargetAndRuntime`,
+and `PackageRootBinding_SourceRuntimeRequiresFramework`.
 
 Compile-library availability is a capability of that Root, not a precondition
 for the Root to exist. The host workspace retains every requested Root.
