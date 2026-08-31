@@ -193,6 +193,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   order resolution, baseline ordering, and per-`Top` ranking identities.
 - [Section-row shaping](design/section-row-shaping.md): typed declared-row-set
   binding, projection roles, terminal Count, and result binding.
+- [Source delegation](design/source-delegation.md): delegated source
+  execution — the effect protocol, result algebra, completion-evidence
+  binding, and exact upstream Count acceptance.
 - [Product vocabulary](design/vocabulary.md): sectioned, host-neutral legal query values shared by CLI and browser/WASM.
 - [View Facet Registry](design/view-facet-registry.md): stable product-owned
   inspection-facet identities, labels, order, structural applicability,
