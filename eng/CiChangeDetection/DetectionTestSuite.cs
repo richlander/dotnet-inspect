@@ -559,7 +559,7 @@ internal static class DetectionTestSuite
             repository,
             body,
             "pull_request",
-            "eng/generate-inspect-web-engine-dts.sh",
+            "eng/generate-inspect-web-engine-facade.sh",
             outputs);
         if (webGenerationScript["code"] != "false"
             || webGenerationScript["web"] != "true")

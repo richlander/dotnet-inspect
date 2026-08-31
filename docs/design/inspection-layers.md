@@ -987,10 +987,9 @@ identify one selectable occurrence. `Producer` distinguishes feeds, but it is
 source identity rather than immutable content-generation identity. A store may
 replace bytes under the same package/version/producer key, so coordinate
 equality alone cannot authorize reuse.
-That observation conflicts with the current realized-coordinate documentation
-that promises transporting the coordinate can reacquire the same bytes.
-Acquisition issue #5121 must resolve that owner contract rather than admission
-choosing one interpretation.
+The realized coordinate therefore promises a repeatable producer-bound
+acquisition request, not immutable bytes; acquisition's generation identity is
+the immutable-content proof.
 
 Each selected request member therefore also carries an acquisition-owned,
 opaque content-generation identity. Equal generation identities within the
@@ -1009,11 +1008,11 @@ same ordered surface and implementation asset sequences. Admission compares
 that token without defining TFM matching, asset paths, selection ordering, or
 selection failure semantics.
 
-The generation and selection guarantees consumed here are target guarantees,
-not current verified product facts. They remain unverified until
+The generation and selection guarantees consumed here are acquisition-owned
+product facts, gated by
 `PackageRootGenerationIdentity_ReplacementChangesIdentity`,
 `PackageRootSelectionIdentity_DifferentAssetsChangeIdentity`, and
-`RealizedPackageCoordinate_ReacquisitionContractIsCoherent` land under #5121.
+`RealizedPackageCoordinate_ReacquisitionContractIsCoherent`.
 
 Individual assembly content still has no equivalent independent coordinate, so
 this layer does not admit by assembly identity and does not replace
@@ -1062,13 +1061,12 @@ generation tokens. Duplicate coordinates are rejected visibly before cache
 lookup, so they cannot join an entry or multiply one package occurrence inside
 a combined group.
 
-`PackageRootRealization` does not currently carry the complete resolved
-coordinate: it lacks a runtime identifier and its descriptive fields are not
-the coordinate authority. It also exposes no immutable content-generation
-or selection identity. The target input therefore requires a separate
-owner-issued typed seam before implementation (#5121). This section consumes
-that typed binding; it does not define coordinate construction, normalization,
-generation, selection, or acquisition.
+`PackageRootRealization` alone still does not carry the complete resolved
+coordinate and is not an admission identity. Acquisition now issues
+`PackageRootBinding`, which carries that Root, the authoritative coordinate,
+content-generation identity, and selection identity for one occurrence. This
+section consumes that typed binding; it does not define coordinate
+construction, normalization, generation, selection, or acquisition.
 
 ### Admission and publication
 
@@ -1239,9 +1237,8 @@ recorded failure, that exact request is terminal for the disposed workspace.
 
 Implementation of #4960 must not begin until:
 
-- an owner-issued typed input binds every selected root to its resolved package
-  coordinate, immutable content-generation identity, and exact selection
-  identity (#5121);
+- the owner-issued `PackageRootBinding` input and its #5121 generation,
+  selection, coordinate, and adopter gates have landed;
 - the package-role boundary supplies a shareable completion and demand-local
   participant projection instead of the caller-owned disposable compatibility
   result (#5122);

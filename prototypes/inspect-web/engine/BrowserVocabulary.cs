@@ -6,7 +6,7 @@ namespace InspectWeb.Engine;
 /// <summary>
 /// Maps the product-owned <see cref="VocabularyWireDocument"/> to the browser-local
 /// <see cref="BrowserVocabularyDocument"/> shape, verbatim. The mapping exists solely so
-/// <c>tsbindgen</c>'s JSON-wire-contract discovery — which only walks types physically defined in
+/// TypeScript facade JSON-wire-contract discovery — which only walks types physically defined in
 /// <c>InspectWeb.Engine</c> — can generate a real TypeScript interface for the vocabulary document
 /// instead of collapsing it to <c>unknown</c>; see <see cref="BrowserVocabularyField"/>'s remarks.
 /// </summary>
