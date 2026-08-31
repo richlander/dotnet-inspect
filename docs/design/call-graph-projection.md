@@ -102,6 +102,20 @@ The projection owns everything a host must not re-invent in JavaScript:
   the *entire* projection. It never mixes catalog and structural identities in
   one result. Shared callees, cycles, and the target as both caller and callee
   collapse to one node in either domain.
+  The fallback's opaque member selector preserves ECMA-335 array kind:
+  vector `T[]` and rank-one non-SZ `T[*]` are distinct at every nested
+  position. The Metadata API producer emits the Analysis-owned structural
+  payload whenever a non-SZ array requires it, and the Analysis `MemberRef`
+  producer emits the byte-identical payload from `TypeRef`; normalized display
+  spelling remains compatibility-only and does not erase exact array kind.
+  An older surface without that structural payload cannot claim a structural
+  match for `T[*]`, but an exact MethodDef-token candidate may still recover
+  the body when no structural candidate matches.
+  `CallGraphArrayKindIdentityTests.Resolve_PreservesArrayKindAcrossExtractedApiAndMemberRefSelectors`
+  gates producer agreement for vectors, non-SZ arrays, nested generics,
+  pointers, by-reference types, tuples, method generic parameters, custom
+  modifiers, and return types, plus resolution with and without an exact-token
+  candidate.
 - **Physical evidence.** Every projected node retains the distinct
   `GraphNodeEvidence` carried by the tree occurrences that collapsed into it.
   A catalog-resolved node also carries the exact defining assembly identity
