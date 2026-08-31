@@ -259,8 +259,22 @@ public static class TypeCommand
                                 SectionNames.BodyShapes,
                             ]))
                     {
-                        var pdbPath = await ApiCommand.TryAcquirePdbPathAsync(
-                            dllForPdb, effectiveOptions, logger, context.HttpClient);
+                        ResolvedAssemblyReference? sourceAssembly =
+                            loaded.TryGetSourceAssembly(apiType);
+                        var pdbPath = sourceAssembly is null
+                            ? await ApiCommand.TryAcquirePdbPathAsync(
+                                dllForPdb,
+                                effectiveOptions,
+                                logger,
+                                context.HttpClient)
+                            : await ApiCommand.TryAcquirePdbPathAsync(
+                                dllForPdb,
+                                sourceAssembly,
+                                effectiveOptions,
+                                logger,
+                                context.HttpClient,
+                                fallbackPackageName: packageName,
+                                fallbackPackageVersion: packageVersion);
                         effectiveOptions = effectiveOptions with { PdbPath = pdbPath };
                     }
 

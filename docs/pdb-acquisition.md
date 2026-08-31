@@ -61,6 +61,28 @@ and
 `PdbAcquisitionServiceTests.PathlessParticipant_AcquiresMatchingPdbThroughInMemoryStore`
 gate those claims.
 
+When an API or member selection came from a resolved assembly, the descriptor
+for the `ApiType` that supplied that selection is authoritative for PDB
+acquisition. The CLI retains that descriptor by selected object identity rather
+than reconstructing it from `SourceAssemblyPath`. A package descriptor supplies
+its own package ID and exact version, and a platform descriptor selects platform
+symbol policy. Explicit caller package coordinates are only a fallback for
+project, local, or explicitly designated descriptors that do not encode a
+backing package. They never override package or platform provenance. This lets a
+forwarding facade and the assembly that supplies its selected member use
+different symbol coordinates without attributing the member to the facade.
+`SourceForwarderResolutionTests.ApiServices_RetainsSelectedForwarderDescriptor`,
+`SourceForwarderResolutionTests.ApiServices_RetainsRootPackageDescriptor`,
+`PdbAcquisitionServiceTests.SelectedPackageDescriptor_OverridesCallerPackageFallback`,
+`PdbAcquisitionServiceTests.SelectedPlatformDescriptor_IgnoresCallerPackageFallback`,
+and
+`PdbAcquisitionServiceTests.SelectedLocalOrProjectDescriptor_UsesCallerPackageFallback`
+gate that handoff and precedence contract.
+
+This contract does not define type-forwarder resolution, API-to-runtime
+MethodDef correspondence, package-feed authorization, SourceLink map semantics,
+or presentation. Those remain owned by their existing components.
+
 Descriptor-backed PDB contexts own the stream they open. If debug-directory or
 embedded-PDB inspection fails during construction, the incomplete context
 releases that stream before propagating the failure.

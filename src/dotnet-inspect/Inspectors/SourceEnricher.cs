@@ -48,7 +48,9 @@ internal static class SourceEnricher
         Action<string>? log,
         bool cacheOnly = false,
         NuGetSourceOptions? sourceOptions = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? fallbackPackageName = null,
+        string? fallbackPackageVersion = null)
         => PdbAcquisitionService.AcquireAsync(
             context,
             assembly,
@@ -56,7 +58,9 @@ internal static class SourceEnricher
             log,
             cacheOnly,
             sourceOptions,
-            cancellationToken);
+            cancellationToken,
+            fallbackPackageName,
+            fallbackPackageVersion);
 
     // ===== Verbosity-Aware Enrichment Gateways =====
 

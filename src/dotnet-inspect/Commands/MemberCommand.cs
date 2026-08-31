@@ -109,6 +109,8 @@ public static class MemberCommand
             }
 
             var apiType = lookupResult.Type!;
+            ResolvedAssemblyReference? sourceAssembly =
+                loaded.TryGetSourceAssembly(apiType);
             if (options.RouterDeferredTypeOrMember
                 && lookupResult.ImpliedMember is null
                 && DeferredExactTargetUsesTypePipeline(
@@ -418,8 +420,14 @@ public static class MemberCommand
             {
                 var locationDllPath = apiType.SourceAssemblyPath ?? pdbLookupPath;
                 var pdbPath = await MemberSourceLocationCollector.EnrichAsync(
-                    apiType, locationDllPath, packageName, packageVersion,
-                    effectiveOptions, context.HttpClient, logger);
+                    apiType,
+                    locationDllPath,
+                    sourceAssembly,
+                    packageName,
+                    packageVersion,
+                    effectiveOptions,
+                    context.HttpClient,
+                    logger);
                 if (pdbPath != null)
                     effectiveOptions = effectiveOptions with { PdbPath = pdbPath };
             }
@@ -454,26 +462,34 @@ public static class MemberCommand
                 // was extracted from — apiType.SourceAssemblyPath (the target
                 // assembly for a forwarded type, otherwise the extraction dll).
                 // Only resolve source by token when the assembly opened for
-                // lookup (pdbLookupPath) IS that same assembly; otherwise the
+                // lookup is that same assembly; otherwise the
                 // token's row would not align (forwarded facade, or a reference
                 // assembly for the surface vs an implementation assembly for
                 // bodies), so fall back to name/overload resolution.
                 var tokenOriginAssembly = apiType.SourceAssemblyPath ?? apiDllPath;
+                string methodSourceAssemblyPath =
+                    apiType.IsForwarded
+                        && sourceAssembly?.Path is { } supplierPath
+                            ? supplierPath
+                            : pdbLookupPath;
                 var sourceMetadataToken = LibraryMetadataService
                     .ReferenceTreePathComparer(OperatingSystem.IsWindows())
                     .Equals(
-                        Path.GetFullPath(pdbLookupPath),
+                        Path.GetFullPath(methodSourceAssemblyPath),
                         Path.GetFullPath(tokenOriginAssembly))
                     ? (sourceMember?.MetadataToken ?? 0)
                     : 0;
                 var resolved = await ApiCommand.ResolveMethodSourceAsync(
-                    pdbLookupPath, sourceTypeName,
+                    methodSourceAssemblyPath, sourceTypeName,
                     sourceMember?.Name ?? effectiveOptions.MemberFilter.First(),
                     sourceOverloadIndex,
                     effectiveOptions, context.HttpClient, logger, fetchSource, publicOnly,
                     sourceMetadataToken,
                     tokenOriginAssembly,
-                    sourceMember?.MetadataToken ?? 0);
+                    sourceMember?.MetadataToken ?? 0,
+                    sourceAssembly,
+                    packageName,
+                    packageVersion);
 
                 effectiveOptions = effectiveOptions with
                 {
