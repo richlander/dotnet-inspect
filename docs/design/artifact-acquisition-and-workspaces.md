@@ -1424,7 +1424,7 @@ assembly inspection must understand.
 #### Package Root realization
 
 An exact acquired package is a `PackageRootRealization` regardless of whether
-compile-asset selection succeeds. That host-neutral package-level result
+compile asset selection succeeds. That host-neutral package-level result
 retains:
 
 - exact package id and version;
@@ -1467,7 +1467,7 @@ binding carries the exact `PackageRootRealization`, its authoritative
 content and acquisition result name the same producer before selection, then
 creates the Root, snapshots every selection sequence into read-only storage,
 and mints the coordinate and both identities without repeating coordinate
-resolution, content acquisition, or compile-asset selection.
+resolution, content acquisition, or compile asset selection.
 The acquired payload result has an internal constructor and get-only
 properties, so ordinary consumers cannot forge a coordinate/content pairing
 or replace either half after acquisition issues it.
@@ -1507,7 +1507,7 @@ package-supplied asset folder. The original selection target and typed outcome
 remain on the Root and selection identity. The optional runtime identifier is
 carried exactly and must already be canonical. The resolved multi-source path
 uses its already normalized acquisition framework and runtime identifier even
-when a caller requests a different framework for compile-asset selection. A
+when a caller requests a different framework for compile asset selection. A
 coordinate that cannot pass the existing canonical
 `RealizedMemberCoordinate.Package` grammar fails construction visibly.
 
