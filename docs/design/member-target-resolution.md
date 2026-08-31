@@ -42,10 +42,12 @@ Member identity has two related vocabularies:
   has a different type-name vocabulary from API identity because it mirrors
   `LibraryBodyIndex`/`MethodIdentity` evidence.
 
-Conversion operators are a special API-identity case: C# overloads
-`op_Implicit`, `op_Explicit`, and `op_CheckedExplicit` by return type. Their
-API canonical signatures therefore include a product-owned return-type suffix
-`~ReturnType`, for example
+Conversion operators are a special API-identity case: every MethodDef name in
+Metadata's owner-issued `ApiMemberIdentity.IsConversionOperator`
+classification is return-sensitive. The closed name set is owned by
+[Type, member, and API representation](type-member-api-representation.md#conversion-ownership).
+Their API canonical signatures therefore include a product-owned return-type
+suffix `~ReturnType`, for example
 `M:System.Decimal.op_Explicit(System.Decimal)~int`. Without the suffix, all
 conversions with the same source parameter collapse to one anchor digest. The
 suffix deliberately uses the same delimiter shape as XML documentation member
