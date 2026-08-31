@@ -674,6 +674,32 @@ the same worker-safe path and exercises build identity plus
 `asyncLoweringCanary()`, a genuinely awaited operation with a fixed typed
 result and no network, package-cache, server-API, or user-data dependency.
 
+The purpose-built `multi-facade-canary` proves that this lifecycle composes
+across independently generated modules. Its Alpha and Beta assemblies
+deliberately use the same namespace, declaring-type names, method names,
+overload shapes, record name, and enum name. Each checked-in facade is generated
+from only its own assembly and acquires only that assembly's export root. A
+consumer-owned single-flight coordinator serializes first initialization:
+Alpha initializes before Beta, while concurrent readiness callers share that
+one sequence. The second facade relies on the SDK builder's completed-runtime
+reuse; neither generated module coordinates with the other or exposes the
+runtime.
+
+`eng/generate-inspect-web-multi-facade-canary.sh --check` gates independent
+generation and drift for both facades. The
+`eng/test-inspect-web-multi-facade-canary.sh` Browser/Wasm gate publishes both
+assemblies into one runtime, requests readiness concurrently, and then invokes
+both facades. It requires exactly one live SDK runtime, assembly-distinct
+results through both declaring types and exact overload keys, a genuinely
+awaited operation from each assembly, and independent record and enum
+declarations. Its negative cases prove that the gate fails for a wrong assembly
+root, a separately loaded runtime module, both operational paths routed through
+one facade, an uninitialized second facade, or a dropped managed invocation.
+This canary does not split the production engine binding or expose raw
+`ILInspector` APIs; that production partition remains [#4497].
+
+[#4497]: https://github.com/richlander/dotnet-inspect/issues/4497
+
 The home page identifies the browser stack below its search surface and links
 to the client-rendered `/credits` route. `src/credits-panel.ts` owns that page's
 markup, route recognition, and rendered control bindings. Azure Static Web Apps
