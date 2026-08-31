@@ -74,10 +74,26 @@ public class LoopExitTerminalTargetTests
 
         var output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
 
-        // Every literal assigned along a reachable path must still be printed:
-        // dropping block 4 loses "104" and the non-void method falls off the
-        // end (CS0161).
-        Assert.Contains("104", output);
+        // Block 4 is targeted by two conditional guards (block 0's, which is
+        // reachable from entry, and block 2's, which is only reached by
+        // looping back through block 3 -- never on the `in1 == 1` path).
+        // Asserting "104" appears anywhere is not enough: an implementation
+        // could clone the terminator only into block 2's unreachable guard,
+        // convert block 0's branch to a bare `break;`, and still satisfy that
+        // assertion while reproducing the original bug on the reachable path.
+        // Require both guards to have been cloned (two occurrences of "104")
+        // and require no `break;` to remain (a `break;` here means a guard's
+        // clone was skipped and its content silently dropped).
+        Assert.Equal(2, CountOccurrences(output, "104"));
         Assert.Contains("101", output);
+        Assert.DoesNotContain("break;", output);
+    }
+
+    static int CountOccurrences(string text, string value)
+    {
+        int count = 0;
+        for (int index = text.IndexOf(value, StringComparison.Ordinal); index >= 0; index = text.IndexOf(value, index + value.Length, StringComparison.Ordinal))
+            count++;
+        return count;
     }
 }
