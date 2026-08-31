@@ -19,7 +19,9 @@ public sealed class PackageCoordinateResolverTests
     public async Task TypedExactPin_DoesNotEscapeExpiredOperationContext()
     {
         using IPackageSourceClient source =
-            PackageSourceClientFactory.CreateGallery(new FailingHandler());
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create(),
+                new FailingHandler());
         var options = new NuGetFetchOptions
         {
             RequestTimeout = TimeSpan.FromSeconds(1),

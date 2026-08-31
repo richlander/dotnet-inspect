@@ -4782,6 +4782,7 @@ public sealed class BrowserEngineBoundaryTests
             packageId,
             "1.0.0",
             source,
+            PackageSourceIdentity.NuGetOrg,
             TimeSpan.FromMilliseconds(200));
         await handler.RequestStarted.Task.WaitAsync(
             TimeSpan.FromSeconds(1),
@@ -4813,6 +4814,7 @@ public sealed class BrowserEngineBoundaryTests
             packageId,
             version,
             source,
+            PackageSourceIdentity.NuGetOrg,
             TimeSpan.FromSeconds(5));
 
         Assert.Equal(version, package.Version);
@@ -4851,6 +4853,7 @@ public sealed class BrowserEngineBoundaryTests
                 version,
                 "net11.0",
                 source,
+                PackageSourceIdentity.NuGetOrg,
                 TimeSpan.FromSeconds(5));
 
         PackageRootBinding binding = Assert.IsType<PackageRootBinding>(
@@ -4883,6 +4886,7 @@ public sealed class BrowserEngineBoundaryTests
                 "1.0.0",
                 targetFramework: null,
                 selectedSource,
+                PackageSourceIdentity.NuGetOrg,
                 TimeSpan.FromSeconds(5));
 
         Assert.Null(selected.RealizedCoordinate.Framework);
@@ -4901,6 +4905,7 @@ public sealed class BrowserEngineBoundaryTests
                 "1.0.0",
                 targetFramework: null,
                 rootOnlySource,
+                PackageSourceIdentity.NuGetOrg,
                 TimeSpan.FromSeconds(5));
 
         Assert.Null(rootOnly.RealizedCoordinate.Framework);
@@ -4927,6 +4932,7 @@ public sealed class BrowserEngineBoundaryTests
                     packageId,
                     "1.0.0",
                     source,
+                    PackageSourceIdentity.NuGetOrg,
                     TimeSpan.FromSeconds(5)));
 
         Assert.Contains(
@@ -4956,6 +4962,7 @@ public sealed class BrowserEngineBoundaryTests
                     packageId,
                     "1.0.0",
                     source,
+                    PackageSourceIdentity.NuGetOrg,
                     TimeSpan.FromSeconds(5)));
 
         Assert.Contains(
@@ -4981,6 +4988,7 @@ public sealed class BrowserEngineBoundaryTests
             packageId,
             version: null,
             source,
+            PackageSourceIdentity.NuGetOrg,
             TimeSpan.FromSeconds(5));
 
         Assert.Equal(version, package.Version);
@@ -5015,6 +5023,7 @@ public sealed class BrowserEngineBoundaryTests
             packageId,
             version: null,
             source,
+            PackageSourceIdentity.NuGetOrg,
             TimeSpan.FromSeconds(5));
         await handler.RequestStarted.Task.WaitAsync(
             TimeSpan.FromSeconds(10),
@@ -5042,6 +5051,7 @@ public sealed class BrowserEngineBoundaryTests
             packageId,
             "1.0.0",
             source,
+            PackageSourceIdentity.NuGetOrg,
             TimeSpan.FromMilliseconds(500));
         await handler.RequestStarted.Task.WaitAsync(
             TimeSpan.FromSeconds(1),
@@ -5050,6 +5060,7 @@ public sealed class BrowserEngineBoundaryTests
             packageId,
             "1.0.0",
             source,
+            PackageSourceIdentity.NuGetOrg,
             TimeSpan.FromMilliseconds(100));
 
         TimeoutException secondFailure =
@@ -5203,6 +5214,7 @@ public sealed class BrowserEngineBoundaryTests
         var handler = new StallingGalleryRegistrationHandler();
         using IPackageSourceClient source =
             PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create(),
                 handler,
                 new NuGetFetchOptions
                 {
@@ -5249,6 +5261,7 @@ public sealed class BrowserEngineBoundaryTests
         var handler = new StallingGalleryRegistrationHandler();
         using IPackageSourceClient source =
             PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create(),
                 handler,
                 new NuGetFetchOptions
                 {
@@ -5734,6 +5747,7 @@ public sealed class BrowserEngineBoundaryTests
 
     static IPackageSourceClient Gallery(HttpMessageHandler handler) =>
         PackageSourceClientFactory.CreateGallery(
+            PackageSourceAssociation.Create(),
             handler,
             new NuGetFetchOptions
             {

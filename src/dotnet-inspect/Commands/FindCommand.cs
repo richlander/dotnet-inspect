@@ -197,6 +197,7 @@ public class FindCommand
 
         using IPackageSourceClient source =
             PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create(),
                 DotnetInspector.Core.HttpClientFactory
                     .CreateCredentialFreeHandler(),
                 NuGetFetchOptions.FromRequestTimeout(

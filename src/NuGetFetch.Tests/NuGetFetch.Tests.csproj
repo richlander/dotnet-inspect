@@ -25,6 +25,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\NuGetFetch.CustomClientFixture\NuGetFetch.CustomClientFixture.csproj" />
     <ProjectReference Include="..\NuGetFetch.PluginFixture\NuGetFetch.PluginFixture.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\NuGetFetch\NuGetFetch.csproj" />
   </ItemGroup>

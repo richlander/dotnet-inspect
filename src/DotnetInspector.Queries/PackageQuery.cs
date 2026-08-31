@@ -164,7 +164,7 @@ public enum PackageQueryCompletionKind
 /// <summary>Terminal accounting for one package-query stream.</summary>
 public sealed record PackageQuerySummary(
     InertString Prefix,
-    PackageSourceIdentity Producer,
+    PackageSourceResultIdentity Source,
     int CandidateLimit,
     int MatchLimit,
     int Candidates,
@@ -455,7 +455,7 @@ public static class PackageQuery
                     {
                         yield return Completed(
                             plan,
-                            source.Identity,
+                            source.Source,
                             candidates,
                             matches,
                             failures,
@@ -478,7 +478,7 @@ public static class PackageQuery
                 case PackageProfileEvent.Completed completed:
                     yield return Completed(
                         plan,
-                        completed.Value.Producer,
+                        completed.Value.Source,
                         completed.Value.Candidates,
                         matches,
                         completed.Value.Failures,
@@ -540,7 +540,7 @@ public static class PackageQuery
 
     static PackageQueryEvent.Completed Completed(
         PackageQueryPlan plan,
-        PackageSourceIdentity producer,
+        PackageSourceResultIdentity source,
         int candidates,
         int matches,
         int failures,
@@ -548,7 +548,7 @@ public static class PackageQuery
         new(
             new PackageQuerySummary(
                 plan.Prefix,
-                producer,
+                source,
                 plan.MaximumCandidates,
                 plan.MaximumMatches,
                 candidates,

@@ -32,15 +32,18 @@ public sealed class BrowserPackageQueryOperationsTests
     [Fact]
     public void Project_PreservesFailureAndCompletionEvidence()
     {
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create());
         var failure = new PackageProfileFailure(
             "Contoso.Bad",
             "1.0.0",
-            PackageSourceIdentity.NuGetOrg,
+            source.Source,
             PackageProfileFailureKind.ManifestAcquisition,
             "manifest unavailable");
         var summary = new PackageQuerySummary(
             new InertString(TextPolicy.Field, "Contoso."),
-            PackageSourceIdentity.NuGetOrg,
+            source.Source,
             CandidateLimit: 200,
             MatchLimit: 100,
             Candidates: 5,
@@ -79,7 +82,7 @@ public sealed class BrowserPackageQueryOperationsTests
             Failure: null,
             Completion: new BrowserPackageQueryCompletion(
                 "Contoso.",
-                PackageSourceIdentity.NuGetOrg.Value,
+                PackageProducerIdentity.NuGetOrg.Key,
                 CandidateLimit: 200,
                 MatchLimit: 100,
                 Candidates: 5,

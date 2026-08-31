@@ -17,15 +17,18 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         "https://globalcdn.nuget.org/symbol-packages/";
     private const int RegistrationPageBatchSize = 8;
 
+    private readonly PackageSourceResultFactory _results;
     private readonly HttpClient _client;
     private readonly NuGetFetchOptions _options;
     private readonly NuGetClient _nuget;
     private readonly SearchService _search;
 
     public NuGetGalleryPackageSourceClient(
+        PackageSourceResultFactory results,
         HttpClient client,
         NuGetFetchOptions options)
     {
+        _results = results;
         _client = client;
         _options = NuGetFetchOptions.Validate(options);
         _nuget = new NuGetClient(client, _options);
@@ -36,8 +39,7 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
             retryTransientRequests: true);
     }
 
-    public PackageSourceIdentity Identity => PackageSourceIdentity.NuGetOrg;
-    public PackageSourceKind Kind => PackageSourceKind.NuGetGallery;
+    public PackageSourceResultIdentity Source => _results.Source;
     internal TimeSpan TransportTimeout => _client.Timeout;
     internal TimeSpan RequestTimeout => _options.RequestTimeout;
     internal TimeSpan OperationTimeout => _options.OperationTimeout;
@@ -55,10 +57,8 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         CancellationToken cancellationToken = default,
         NuGetOperationContext? operationContext = null)
     {
-        return await PackageSourceOperation.CaptureAsync(
-            Identity,
-            Kind,
-            PackageSourceCapabilities.Search,
+        return await PackageSourceOperation.CaptureSearchAsync(
+            _results,
             async () =>
             {
                 using NuGetOperationDeadline operation =
@@ -86,8 +86,8 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                 }
 
                 return PackageSourceProjection.ProjectSearch(
+                    _results,
                     results,
-                    Identity,
                     operation,
                     results.Count == take
                         ? PackageSearchTruncationReason.RequestedLimit
@@ -104,10 +104,8 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         CancellationToken cancellationToken = default,
         NuGetOperationContext? operationContext = null)
     {
-        return await PackageSourceOperation.CaptureAsync(
-            Identity,
-            Kind,
-            PackageSourceCapabilities.Search,
+        return await PackageSourceOperation.CaptureSearchAsync(
+            _results,
             async () =>
             {
                 using NuGetOperationDeadline operation =
@@ -136,8 +134,8 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                 }
 
                 return PackageSourceProjection.ProjectSearch(
+                    _results,
                     result.Matches,
-                    Identity,
                     operation,
                     result.Completion switch
                     {
@@ -165,10 +163,8 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         cancellationToken = operationContext?.ResolveInvocationToken(
             cancellationToken) ?? cancellationToken;
         string normalizedId = NormalizePackageId(packageId);
-        return await PackageSourceOperation.CaptureAsync(
-            Identity,
-            Kind,
-            PackageSourceCapabilities.VersionEnumeration,
+        return await PackageSourceOperation.CaptureVersionsAsync(
+            _results,
             async () =>
             {
                 string url =
@@ -208,7 +204,7 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
 
                 if (!found)
                 {
-                    return new PackageVersionResult(
+                    return _results.Versions(
                         [],
                         hasAuthoritativeListingState: true);
                 }
@@ -218,9 +214,9 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                         "The NuGet Gallery version response was not a valid version document.");
                 PackageVersionResult partial =
                     PackageSourceProjection.ProjectVersions(
+                    _results,
                     packageId,
                     versions,
-                    Identity,
                     PackageDiscoveryContract.CompleteVersionEnumeration,
                     PackageListingState.Unknown,
                     hasAuthoritativeListingState: false,
@@ -235,6 +231,7 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                     return partial;
 
                 return ApplyRegistrationListingsOrPartial(
+                    _results,
                     partial,
                     listings,
                     operation,
@@ -408,11 +405,13 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
 
     internal static PackageVersionResult
         ApplyRegistrationListingsOrPartial(
+            PackageSourceResultFactory results,
             PackageVersionResult partial,
             IReadOnlyDictionary<string, PackageListingState> listings,
             NuGetOperationDeadline operation,
             CancellationToken callerCancellation)
     {
+        ArgumentNullException.ThrowIfNull(results);
         try
         {
             var candidates =
@@ -422,15 +421,14 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                 operation.ThrowIfExpired();
                 PackageCandidateObservation candidate =
                     partial.Candidates[i];
-                candidates[i] = candidate with
-                {
-                    ListingState =
-                        listings[candidate.Coordinate.Version],
-                };
+                candidates[i] = results.Candidate(
+                    candidate.Coordinate,
+                    candidate.DiscoveryContract,
+                    listings[candidate.Coordinate.Version]);
             }
 
             operation.ThrowIfExpired();
-            return new PackageVersionResult(
+            return results.Versions(
                 candidates,
                 hasAuthoritativeListingState: true);
         }
@@ -715,10 +713,9 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         string fileName =
             EscapeSegment(
                 $"{coordinate.PackageId}.{coordinate.Version}.nupkg");
-        return await PackageSourceOperation.CaptureAsync(
-            Identity,
-            Kind,
-            PackageSourceCapabilities.PackagePayload,
+        return await PackageSourceOperation.CapturePackageAsync(
+            _results,
+            coordinate,
             async () =>
             {
                 (Stream content, long? advertisedLength) =
@@ -726,16 +723,13 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                         $"{PackageEndpoint}{fileName}",
                         cancellationToken,
                         operationContext).ConfigureAwait(false);
-                return new PackageSourcePayload(
+                return _results.Payload(
                     coordinate,
-                    Identity,
-                    Kind,
                     PackageSourcePayloadKind.Package,
                     content,
                     advertisedLength);
             },
             cancellationToken,
-            coordinate,
             operationContext).ConfigureAwait(false);
     }
 
@@ -747,20 +741,16 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
     {
         PackageSourceCoordinate coordinate =
             PackageSourceCoordinate.Create(packageId, version);
-        return await PackageSourceOperation.CaptureAsync(
-            Identity,
-            Kind,
-            PackageSourceCapabilities.Manifest,
-            async () => new PackageSourceManifest(
+        return await PackageSourceOperation.CaptureManifestAsync(
+            _results,
+            coordinate,
+            async () => _results.Manifest(
                 coordinate,
-                Identity,
-                Kind,
                 await GetManifestAsync(
                     coordinate,
                     cancellationToken,
                     operationContext).ConfigureAwait(false)),
             cancellationToken,
-            coordinate,
             operationContext).ConfigureAwait(false);
     }
 
@@ -775,10 +765,9 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         string fileName =
             EscapeSegment(
                 $"{coordinate.PackageId}.{coordinate.Version}.snupkg");
-        return await PackageSourceOperation.CaptureAsync(
-            Identity,
-            Kind,
-            PackageSourceCapabilities.SymbolPayload,
+        return await PackageSourceOperation.CaptureSymbolsAsync(
+            _results,
+            coordinate,
             async () =>
             {
                 (Stream content, long? advertisedLength) =
@@ -786,16 +775,13 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                         $"{SymbolEndpoint}{fileName}",
                         cancellationToken,
                         operationContext).ConfigureAwait(false);
-                return new PackageSourcePayload(
+                return _results.Payload(
                     coordinate,
-                    Identity,
-                    Kind,
                     PackageSourcePayloadKind.Symbols,
                     content,
                     advertisedLength);
             },
             cancellationToken,
-            coordinate,
             operationContext).ConfigureAwait(false);
     }
 
@@ -851,13 +837,11 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                 _options,
                 _client.Timeout,
                 cancellationToken,
-                Identity,
-                Kind)
+                Source)
             : operationContext.CreateDeadline(
                 _client.Timeout,
                 cancellationToken,
-                Identity,
-                Kind);
+                Source);
 
     private async Task<ReadOnlyMemory<byte>> GetManifestAsync(
         PackageSourceCoordinate coordinate,
