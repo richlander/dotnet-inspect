@@ -544,8 +544,9 @@ registered file Valid, Correct, inventory-tracked, and Printer exact.
 The consumer also recomputes the benchmark's complete-input predicate and
 denominator relationships from its row, target, corpus, and assembly counts
 rather than trusting the serialized `inputsComplete` flag. Every enrolled file
-must also have at least one evaluated, Correct, and Printer-exact benchmark row
-available to support it. Contradictory or vacuous passing evidence is rejected.
+must also have at least one benchmark row naming its exact source URL and judged
+both Correct and Printer exact. Contradictory or vacuous passing evidence is
+rejected.
 `SourceOracleCandidateLedgerTests.Baseline_RejectsUnverifiedReports`,
 `Baseline_RejectsALegacyReportWithNoManifest`,
 `Baseline_RejectsAManifestSuppliedInPlaceOfAReport`,
@@ -557,7 +558,9 @@ available to support it. Contradictory or vacuous passing evidence is rejected.
 `Baseline_RejectsAVacuousPassingReport`,
 `Baseline_RejectsContradictoryPassingInvariants`,
 `Baseline_RejectsContradictoryInputCompleteness`, and
-`Baseline_RejectsMoreEnrolledFilesThanRowEvidence` are the named gates. The
+`Baseline_RejectsInsufficientEnrolledFileRowEvidence` are the named gates.
+`Baseline_RejectsANullFileInventoryEntry` enforces typed refusal of malformed
+inventory entries. The
 candidate report records the baseline's provenance, digest, and feature set —
 never its local path.
 

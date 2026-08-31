@@ -890,7 +890,9 @@ static class SourceOracleCandidateLedger
             return false;
         }
         if (fileInventory.Any(file =>
-            !file.PrinterExact || string.IsNullOrWhiteSpace(file.SourceUrl)))
+            file is null
+            || !file.PrinterExact
+            || string.IsNullOrWhiteSpace(file.SourceUrl)))
         {
             error = "Baseline source-oracle report contains a file that is not "
                 + "Printer exact or lacks a source URL.";
@@ -903,6 +905,25 @@ static class SourceOracleCandidateLedger
             != enrolledSourceUrls.Length)
         {
             error = "Baseline source-oracle report contains a duplicate enrolled source URL.";
+            return false;
+        }
+        var supportedSourceUrls = report.Rows
+            .Where(static row =>
+                string.Equals(
+                    row.Outcome,
+                    nameof(ReturnToSenderSourceOutcome.ValidMatch),
+                    StringComparison.Ordinal)
+                && string.Equals(
+                    row.PrinterExact,
+                    nameof(PrinterExactOutcome.Exact),
+                    StringComparison.Ordinal)
+                && !string.IsNullOrWhiteSpace(row.SourceFile))
+            .Select(static row => row.SourceFile!)
+            .ToHashSet(StringComparer.Ordinal);
+        if (enrolledSourceUrls.Any(sourceUrl => !supportedSourceUrls.Contains(sourceUrl)))
+        {
+            error = "Baseline source-oracle report contains an enrolled file without "
+                + "Correct, Printer-exact row evidence naming its source URL.";
             return false;
         }
 

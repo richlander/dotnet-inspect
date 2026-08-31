@@ -810,6 +810,21 @@ public class SourceOracleCandidateLedgerTests
     }
 
     [Fact]
+    public void Baseline_RejectsANullFileInventoryEntry()
+    {
+        var document = System.Text.Json.Nodes.JsonNode.Parse(BaselineJson())!.AsObject();
+        document["sourceOracleManifest"]!["fileInventory"]!.AsArray()[0] = null;
+
+        Assert.False(
+            SourceOracleCandidateLedger.TryParseBaseline(
+                document.ToJsonString(),
+                "digest",
+                out _,
+                out string? error));
+        Assert.Contains("source URL", error!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Baseline_RejectsAVacuousPassingReport()
     {
         var report = Baseline();
@@ -863,10 +878,11 @@ public class SourceOracleCandidateLedgerTests
     }
 
     [Theory]
+    [InlineData("correlation")]
     [InlineData("evaluated")]
     [InlineData("correct")]
     [InlineData("printer-exact")]
-    public void Baseline_RejectsMoreEnrolledFilesThanRowEvidence(string evidence)
+    public void Baseline_RejectsInsufficientEnrolledFileRowEvidence(string evidence)
     {
         var report = Baseline();
         var manifest = report.SourceOracleManifest! with
@@ -897,6 +913,7 @@ public class SourceOracleCandidateLedgerTests
         };
         report = evidence switch
         {
+            "correlation" => report,
             "evaluated" => report with
             {
                 CorpusRows = 1,
@@ -1378,7 +1395,7 @@ public class SourceOracleCandidateLedgerTests
                     SupersededFaultIsolationMethod: null,
                     Reason: "body_match",
                     Detail: null,
-                    SourceFile: "src/A.cs",
+                    SourceFile: FileA,
                     PrinterExact: PrinterExactOutcome.Exact.ToString()),
             ]);
 
