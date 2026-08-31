@@ -410,7 +410,8 @@ dotnet-inspect evidence plane.
 | Which methods establish inner unsafe? | Model-aware context-requiring operations, including constructor initializer/body origin, plus source/build evidence where binary semantics are ambiguous | `MethodSafetyAnalysis` produces structural and operation evidence, but it does not yet expose a model-aware, completeness-qualified inner-unsafe census. |
 | Which methods are safe boundaries? | Recognized v2 module, no member propagation contract, and positive inner-unsafe evidence | Not currently exposed as a composed census. |
 | How do safe and unsafe methods connect? | Typed method roles plus bounded incoming and outgoing call traversal over a finite cross-assembly context | Call-graph infrastructure supports both directions and cross-assembly identities. It can expose a conflating `MethodSignals.Unsafe` cue, but no current query composes the separate propagation, inner-use, and safe-boundary roles onto paths. |
-| How should reconstructed C# express safety contracts and context? | Binary model, declaration shape, member contract, and recovered body requirements | Decompiler owns this through [memory-safety rendering modes](memory-safety-modes.md). |
+| How should C# declarations spell safety contracts? | Binary model, declaration shape, and member contract | CSharp does not yet consume the complete typed facts required for v2 `unsafe` and derived `safe` spelling. |
+| How should reconstructed bodies express unsafe context? | Binary model, member contract, and recovered body requirements | Decompiler owns this through [memory-safety rendering modes](memory-safety-modes.md). |
 | Is the project configured for the strongest default? | Updated project policy, unsafe-context permission disabled, v2 binary, and no propagators or unsafe users | No single current query composes this answer. |
 | Did this project produce this binary? | Affirmative provenance evidence | Unverified unless supplied separately. |
 
