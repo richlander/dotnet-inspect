@@ -580,40 +580,6 @@ public sealed class CallerScopeReachabilityPlan
             if (_target.Identity.IsEquivalentTo(reference.Identity))
                 return AssemblyBindingSelection.Found(_target);
 
-            if (string.Equals(
-                _target.Identity.Name,
-                reference.Identity.Name,
-                StringComparison.OrdinalIgnoreCase))
-            {
-                // Keep a skewed caller as indeterminate unless the supplied
-                // policy explicitly rolls its reference to the selected target.
-                AssemblyBindingSelection fallback =
-                    AssemblyBindingSelection.ValidateForRequest(
-                        request,
-                        _fallback.Select(request));
-                if (fallback
-                        is AssemblyBindingSelection.Selected selected
-                    && selected.Assembly.Identity.IsEquivalentTo(
-                        _target.Identity))
-                {
-                    return fallback;
-                }
-
-                if (fallback
-                    is not AssemblyBindingSelection.Missing
-                    {
-                        Disposition:
-                            AssemblyBindingMissDisposition.NoNameOwner,
-                    })
-                {
-                    return fallback;
-                }
-
-                return AssemblyBindingSelection.CannotSelect(
-                    new AssemblyBindingFailure(
-                        AssemblyBindingFailureKind.IdentityPolicyRequired));
-            }
-
             ImmutableArray<ResolvedAssemblyReference> matches = _roots
                 .Where(
                     root => root.Identity.IsEquivalentTo(
@@ -640,13 +606,23 @@ public sealed class CallerScopeReachabilityPlan
                 return delegated;
             }
 
+            bool targetOwnsName = string.Equals(
+                _target.Identity.Name,
+                reference.Identity.Name,
+                StringComparison.OrdinalIgnoreCase);
             ImmutableArray<ResolvedAssemblyReference> nameOwners = _roots
                 .Where(
                     root => string.Equals(
                         root.Identity.Name,
                         reference.Identity.Name,
-                        StringComparison.OrdinalIgnoreCase))
+                        StringComparison.OrdinalIgnoreCase)
+                    && (!targetOwnsName
+                        || !root.Identity.IsEquivalentTo(
+                            _target.Identity)))
                 .ToImmutableArray();
+            if (targetOwnsName)
+                nameOwners = nameOwners.Insert(0, _target);
+
             return nameOwners.Length switch
             {
                 0 => delegated,

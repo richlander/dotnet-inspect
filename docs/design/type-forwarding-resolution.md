@@ -1317,12 +1317,15 @@ An explicit disposition is valid only for
 `AssemblyBindingTarget.AssemblyReference`, whose structured identity supplies
 the requested name. An intrinsic-core-library request has no requested
 assembly name and continues to use a selected, unavailable, or rejected
-outcome rather than a name-ownership miss. Every wrapper or composite validates
-each delegated result against the original request before interpreting it. A
-missing result for an intrinsic-core-library request immediately becomes
-`Rejected(InvalidPolicyResult)` and no later tier is invoked. The Metadata
-adapter applies the same validation to a final policy result, so direct and
-composed policies share one closed rule.
+outcome rather than a name-ownership miss. Every wrapper or composite
+validates each delegated result against the request that produced it before
+interpreting it. An intrinsic facade search issues a distinct
+assembly-reference sub-request for each facade identity. A valid miss for one
+facade may advance to the next facade identity, but it cannot become the final
+intrinsic result. Exhausting all facade identities without a selection returns
+`Unavailable(UnsupportedScope)`. The Metadata adapter rejects a missing final
+result for the enclosing intrinsic request, so direct and composed policies
+share one closed final-result rule.
 
 Only the policy owner that holds the complete frozen name-ownership decision
 for the exact request may issue `NoNameOwner` or `NameOwnedNoMatch`. This
@@ -3913,11 +3916,12 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - An external fake policy can construct all three
   `AssemblyBindingMissDisposition` arms only through the closed missing-result
   factories.
-- `AssemblyBindingMissDisposition_IntrinsicMissingRejectedBeforeComposition`
-  returns each public missing result from a first tier for an
-  intrinsic-core-library request while a second facade tier could select. The
-  intrinsic composition returns `Rejected(InvalidPolicyResult)` without
-  invoking that second tier.
+- `IntrinsicFacadeMiss_ContinuesToLaterFacadeSelection` returns each public
+  missing result from one facade-reference sub-request and proves a later
+  facade identity can still select.
+- `IntrinsicFacadeMisses_ExhaustAsUnsupportedScope` proves an exhausted facade
+  search returns `Unavailable(UnsupportedScope)` rather than exposing a miss
+  as the final intrinsic result.
 - `ValidateForRequest_RejectsMissForIntrinsicTarget` proves the shared wrapper
   validation rejects a target-invalid miss, and
   `IntrinsicBindingMiss_IsRejectedBeforeFreezing` proves Metadata applies the
@@ -3967,6 +3971,11 @@ Claim: direct callers and transitive call graphs share one definition identity.
   `VersionSkewedFacadeRoots_ReportAmbiguous` prove delegated `NoNameOwner`
   advances into the local caller-scope inventory, where one version-skewed
   same-name root requires identity policy and multiple roots retain ambiguity.
+- `ScopeFirstBindingPolicy_ExactRootWinsOverSameNameTargetSkew` and
+  `ScopeFirstBindingPolicy_SameNameOwnersRemainAmbiguous` prove an exact local
+  root wins before target-name skew handling, while a skewed target and skewed
+  same-name root remain distinct ambiguous owners after delegated
+  `NoNameOwner`.
 - `EcmaEquivalentTargetIdentity_ResolvesToTargetDefinition` and
   `EcmaEquivalentFacadeIdentity_ResolvesToTargetDefinition` prove exact-target
   and root selection use ECMA assembly-identity equivalence, including

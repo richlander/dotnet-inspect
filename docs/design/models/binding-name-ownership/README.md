@@ -43,7 +43,9 @@ under one stable policy version. A policy may issue a target-invalid miss; the
 composition boundary must reject it before interpreting the disposition. The
 model does not define how package, project, sibling, platform, or local owners
 decide name ownership; identity matching; candidate acquisition; platform
-precedence; complete eligible candidate domains; or workspace lifecycle.
+precedence; complete eligible candidate domains; intrinsic facade
+alternatives; or workspace lifecycle. Each facade alternative is a distinct
+assembly-reference sub-request, not another policy tier for the same request.
 
 Atomic association between an answer and its governing policy version belongs
 to #5213 and is outside this model. The #5214 composition handoff may consume
@@ -55,7 +57,7 @@ Release tests enforce the corresponding product behavior:
 | --- | --- |
 | Owned miss falls through | `SourceRelativeAssemblyGroupBindingPolicy_ContinuesOnlyAfterNoNameOwner` |
 | Legacy miss falls through | `AssemblyBindingMissDisposition_UndifferentiatedLegacyMissFailsClosed` |
-| Target-invalid miss is hidden | `AssemblyBindingMissDisposition_IntrinsicMissingRejectedBeforeComposition` and `IntrinsicBindingMiss_IsRejectedBeforeFreezing` |
+| Target-invalid miss is hidden | `ValidateForRequest_RejectsMissForIntrinsicTarget` and `IntrinsicBindingMiss_IsRejectedBeforeFreezing` |
 | Composite reports no owner before exhaustion | `AssemblyBindingMissDisposition_CompleteExhaustionRequired` |
 | Request-eligible tier is omitted | **Unverified:** #5216 must supply workspace-owned completeness evidence independent of the configured chain. |
 | Frozen disposition is collapsed | `AssemblyBindingMissDisposition_SurvivesInterningAndFrozenReuse` |
@@ -73,8 +75,17 @@ and Queries wrappers preserve the same terminal policy currency.
 `VersionSkewedFacadeRoots_ReportAmbiguous` gate that delegated `NoNameOwner`
 advances into the caller-scope inventory without losing one-root policy
 requirements or multi-root ambiguity.
+`ScopeFirstBindingPolicy_ExactRootWinsOverSameNameTargetSkew` and
+`ScopeFirstBindingPolicy_SameNameOwnersRemainAmbiguous` prove an exact local
+root wins before target-name skew handling, while a skewed target and skewed
+same-name root remain distinct ambiguous owners after delegated
+`NoNameOwner`.
 `Select_PreservesBindingPolicyIntrinsicSelection` gates that the Metadata
 migration adapter preserves structured intrinsic selections.
+`IntrinsicFacadeMiss_ContinuesToLaterFacadeSelection` proves a valid miss for
+one facade-reference sub-request does not hide a later facade selection, while
+`IntrinsicFacadeMisses_ExhaustAsUnsupportedScope` proves misses cannot escape
+as the final intrinsic result.
 `InstalledPlatformFallback_DoesNotOwnAbsentPrefixedName` and
 `AssemblyGroup_AbsentPlatformPrefixedNamePreservesAmbiguity` gate that
 installed-platform name ownership comes from the probed inventory rather than

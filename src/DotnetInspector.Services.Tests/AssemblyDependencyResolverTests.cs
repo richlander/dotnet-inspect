@@ -594,7 +594,7 @@ public class AssemblyDependencyResolverTests
     [InlineData(AssemblyBindingMissDisposition.Undifferentiated)]
     [InlineData(AssemblyBindingMissDisposition.NoNameOwner)]
     [InlineData(AssemblyBindingMissDisposition.NameOwnedNoMatch)]
-    public void AssemblyBindingMissDisposition_IntrinsicMissingRejectedBeforeComposition(
+    public void IntrinsicFacadeMiss_ContinuesToLaterFacadeSelection(
         AssemblyBindingMissDisposition disposition)
     {
         byte[] image = BuildAssembly(
@@ -618,17 +618,59 @@ public class AssemblyDependencyResolverTests
                     "intrinsic miss validation test"));
         int selectionCount = 0;
 
-        var rejected = Assert.IsType<AssemblyBindingSelection.Rejected>(
+        var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
             IntrinsicCoreLibraryBinding.Select(
                 owner,
                 _ => ++selectionCount == 1
                     ? Missing(disposition)
                     : AssemblyBindingSelection.Found(owner)));
 
+        Assert.Same(owner, selected.Assembly);
+        Assert.Equal(2, selectionCount);
+    }
+
+    [Theory]
+    [InlineData(AssemblyBindingMissDisposition.Undifferentiated)]
+    [InlineData(AssemblyBindingMissDisposition.NoNameOwner)]
+    [InlineData(AssemblyBindingMissDisposition.NameOwnedNoMatch)]
+    public void IntrinsicFacadeMisses_ExhaustAsUnsupportedScope(
+        AssemblyBindingMissDisposition disposition)
+    {
+        byte[] image = BuildAssembly(
+            "IntrinsicMissOwner",
+            [1, 2, 3],
+            assemblyReferences:
+            [
+                "System.Private.CoreLib",
+                "mscorlib",
+            ]);
+        ResolvedAssemblyReference owner =
+            ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(
+                    "IntrinsicMissOwner",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                path: null,
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local(
+                    "intrinsic miss exhaustion test"));
+        int selectionCount = 0;
+
+        var unavailable =
+            Assert.IsType<AssemblyBindingSelection.Unavailable>(
+                IntrinsicCoreLibraryBinding.Select(
+                    owner,
+                    _ =>
+                    {
+                        selectionCount++;
+                        return Missing(disposition);
+                    }));
+
         Assert.Equal(
-            AssemblyBindingFailureKind.InvalidPolicyResult,
-            rejected.Failure.Kind);
-        Assert.Equal(1, selectionCount);
+            AssemblyBindingFailureKind.UnsupportedScope,
+            unavailable.Failure.Kind);
+        Assert.Equal(2, selectionCount);
     }
 
     [Fact]

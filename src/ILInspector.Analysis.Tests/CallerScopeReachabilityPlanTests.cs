@@ -197,6 +197,63 @@ public class CallerScopeReachabilityPlanTests
     }
 
     [Fact]
+    public void ScopeFirstBindingPolicy_ExactRootWinsOverSameNameTargetSkew()
+    {
+        ResolvedAssemblyReference target =
+            Descriptor(BuildTarget(new Version(2, 0, 0, 0)));
+        ResolvedAssemblyReference root =
+            Descriptor(BuildTarget(new Version(1, 0, 0, 0)));
+        var fallback = new FixedPolicy(
+            AssemblyBindingSelection.NameNotOwned());
+        var policy =
+            new CallerScopeReachabilityPlan.ScopeFirstBindingPolicy(
+                fallback,
+                target,
+                [root]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(root.Identity),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Any);
+
+        var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
+            policy.Select(request));
+
+        Assert.Same(root, selected.Assembly);
+        Assert.Equal(0, fallback.CallCount);
+    }
+
+    [Fact]
+    public void ScopeFirstBindingPolicy_SameNameOwnersRemainAmbiguous()
+    {
+        ResolvedAssemblyReference target =
+            Descriptor(BuildTarget(new Version(3, 0, 0, 0)));
+        ResolvedAssemblyReference root =
+            Descriptor(BuildTarget(new Version(2, 0, 0, 0)));
+        var fallback = new FixedPolicy(
+            AssemblyBindingSelection.NameNotOwned());
+        var policy =
+            new CallerScopeReachabilityPlan.ScopeFirstBindingPolicy(
+                fallback,
+                target,
+                [root]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(
+                target.Identity with
+                {
+                    Version = new Version(1, 0, 0, 0),
+                }),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Any);
+
+        var ambiguous =
+            Assert.IsType<AssemblyBindingSelection.Ambiguous>(
+                policy.Select(request));
+
+        Assert.Equal([target, root], ambiguous.Assemblies);
+        Assert.Equal(1, fallback.CallCount);
+    }
+
+    [Fact]
     public void ScopeFirstBindingPolicy_SkewedRootRequiresIdentityPolicy()
     {
         ResolvedAssemblyReference target = Descriptor(BuildTarget());

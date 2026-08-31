@@ -42,11 +42,7 @@ static class IntrinsicCoreLibraryBinding
                         new AssemblyBindingFailure(
                             AssemblyBindingFailureKind.InvalidPolicyResult));
                 if (selection is AssemblyBindingSelection.Missing)
-                {
-                    return AssemblyBindingSelection.Invalid(
-                        new AssemblyBindingFailure(
-                            AssemblyBindingFailureKind.InvalidPolicyResult));
-                }
+                    continue;
                 if (selection is AssemblyBindingSelection.Selected
                     or AssemblyBindingSelection.Ambiguous)
                 {
