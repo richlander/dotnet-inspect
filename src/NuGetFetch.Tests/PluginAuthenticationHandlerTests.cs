@@ -144,8 +144,8 @@ public sealed class PluginAuthenticationHandlerTests
         "not-an-origin",
         "https://feed.example/flat/index.json",
         true)]
-    public void PluginAuthenticationOriginUsesSchemeIdnHostAndEffectivePort(
-        string credentialAuthorityUrl,
+    public void PluginAuthenticationNetworkOriginUsesSchemeIdnHostAndEffectivePort(
+        string configuredSourceUrl,
         string requestUrl,
         bool expectedSuppression)
     {
@@ -154,9 +154,9 @@ public sealed class PluginAuthenticationHandlerTests
             requestUrl);
 
         NuGetSourceRequest
-            .SuppressPluginAuthenticationOutsideCredentialOrigin(
+            .SuppressPluginAuthenticationForDifferentNetworkOrigin(
                 request,
-                credentialAuthorityUrl,
+                configuredSourceUrl,
                 requestUrl);
 
         Assert.Equal(

@@ -60,7 +60,7 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
                         request,
                         endpointCredential);
                     NuGetSourceRequest
-                        .SuppressPluginAuthenticationOutsideCredentialOrigin(
+                        .SuppressPluginAuthenticationForDifferentNetworkOrigin(
                             request,
                             serviceIndexUrl,
                             url);
@@ -128,7 +128,7 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
                     request,
                     endpointCredential);
                 NuGetSourceRequest
-                    .SuppressPluginAuthenticationOutsideCredentialOrigin(
+                    .SuppressPluginAuthenticationForDifferentNetworkOrigin(
                         request,
                         serviceIndexUrl,
                         url);
@@ -226,7 +226,7 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
                     request,
                     endpointCredential);
                 NuGetSourceRequest
-                    .SuppressPluginAuthenticationOutsideCredentialOrigin(
+                    .SuppressPluginAuthenticationForDifferentNetworkOrigin(
                         request,
                         serviceIndexUrl,
                         url);
