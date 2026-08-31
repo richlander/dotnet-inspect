@@ -197,17 +197,12 @@ public sealed class CustomAttributeDifferentialOracleTests
     [Fact]
     public void Generator_ReachesEveryShapeTheCorpusClaimsToCover()
     {
-        bool array = false;
-        bool boxed = false;
-        bool objectArray = false;
-        bool systemType = false;
-        bool enumHandleSpelled = false;
-
         var emitted = new HashSet<byte>();
         var primitives = new HashSet<PrimitiveTypeCode>();
         var stringForms = new HashSet<CustomAttributeDifferentialOracle.SerStringForm>();
         var arrayCounts = new HashSet<int>();
         var enumWidths = new HashSet<PrimitiveTypeCode>();
+        var facts = new HashSet<CustomAttributeDifferentialOracle.EmittedFact>();
 
         for (int seed = 0; seed < SeedCount; seed++)
         {
@@ -217,15 +212,17 @@ public sealed class CustomAttributeDifferentialOracleTests
             stringForms.UnionWith(generated.StringForms);
             arrayCounts.UnionWith(generated.ArrayCounts);
             enumWidths.UnionWith(generated.EnumWidths);
-            foreach (var shape in generated.Shapes)
-                Visit(shape, boxedContext: false);
+            facts.UnionWith(generated.Facts);
         }
 
-        Assert.True(array, "no SZARRAY was generated");
-        Assert.True(boxed, "no boxed argument was generated");
-        Assert.True(objectArray, "no object[] was generated");
-        Assert.True(systemType, "no System.Type argument was generated");
-        Assert.True(enumHandleSpelled, "no handle-spelled enum was generated");
+        // Structural coverage, read from the writer rather than from the shape
+        // tree. A shape present in the tree is not a shape written to a blob:
+        // the elements of a zero-length array are never emitted, so a corpus
+        // whose every `object[]` was empty would otherwise still claim to have
+        // covered `object[]`.
+        Assert.Equal(
+            Enum.GetValues<CustomAttributeDifferentialOracle.EmittedFact>().ToHashSet(),
+            facts);
 
         // Emitted bytes, not inferred ones.
         Assert.Contains((byte)0x50, emitted);   // System.Type, spelled inline
@@ -274,35 +271,5 @@ public sealed class CustomAttributeDifferentialOracleTests
         // blob carries no enum argument at all.
         Assert.Contains(PrimitiveTypeCode.Int32, enumWidths);
         Assert.Contains(PrimitiveTypeCode.Int64, enumWidths);
-
-        void Visit(
-            CustomAttributeDifferentialOracle.Shape shape,
-            bool boxedContext)
-        {
-            switch (shape)
-            {
-                case CustomAttributeDifferentialOracle.ArrayShape a:
-                    array = true;
-                    objectArray |= a.Element is CustomAttributeDifferentialOracle.BoxedShape;
-                    // An array element inherits its parent's encoding context.
-                    Visit(a.Element, boxedContext);
-                    break;
-                case CustomAttributeDifferentialOracle.BoxedShape b:
-                    boxed = true;
-                    Visit(b.Inner, boxedContext: true);
-                    break;
-                case CustomAttributeDifferentialOracle.EnumHandleShape:
-                    // Recorded only where an enum actually occurs. The
-                    // serialized-name spelling is asserted from the emitted
-                    // bytes, and the width from the values written.
-                    if (!boxedContext)
-                        enumHandleSpelled = true;
-                    break;
-                case CustomAttributeDifferentialOracle.SystemTypeShape:
-                    systemType = true;
-                    break;
-
-            }
-        }
     }
 }

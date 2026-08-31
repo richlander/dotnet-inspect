@@ -78,6 +78,33 @@ static class CustomAttributeDifferentialOracle
         /// width to an image that contains no enum argument at all.
         /// </summary>
         public HashSet<PrimitiveTypeCode> EnumWidths { get; } = [];
+
+        /// <summary>
+        /// Structural facts recorded at the instant they are emitted. A shape
+        /// present in the tree is not necessarily a shape written to a blob —
+        /// the elements of a zero-length array are never written — so coverage
+        /// for these is read from the writer rather than from the tree.
+        /// </summary>
+        public HashSet<EmittedFact> Facts { get; } = [];
+    }
+
+    /// <summary>Structural facts a blob can carry, recorded where they are written.</summary>
+    internal enum EmittedFact
+    {
+        /// <summary>An SZARRAY payload was written.</summary>
+        ArrayPayload,
+
+        /// <summary>A boxed value was written, carrying its own element type.</summary>
+        BoxedValue,
+
+        /// <summary>A boxed element was written *inside* an array, so the array was non-empty.</summary>
+        ObjectArrayElement,
+
+        /// <summary>A <c>System.Type</c> serialized name was written.</summary>
+        SystemTypeValue,
+
+        /// <summary>An enum was spelled as VALUETYPE plus a coded handle in a signature.</summary>
+        HandleSpelledEnumSignature,
     }
 
     /// <summary>
@@ -125,8 +152,16 @@ static class CustomAttributeDifferentialOracle
         public override void WriteValue(BlobBuilder value, Context context)
         {
             WriteRecordedArrayCount(value, Count, context);
+            context.Facts.Add(EmittedFact.ArrayPayload);
             for (int index = 0; index < Count; index++)
+            {
+                // Recorded inside the loop: an `object[]` that is empty or null
+                // never writes an element, so the shape tree alone would credit
+                // coverage the blob does not contain.
+                if (Element is BoxedShape)
+                    context.Facts.Add(EmittedFact.ObjectArrayElement);
                 Element.WriteValue(value, context);
+            }
         }
 
         public override string ToString()
@@ -146,6 +181,7 @@ static class CustomAttributeDifferentialOracle
             // prefix for this case; emitting it here would generate a
             // non-canonical blob.
             WriteInlineElementType(value, Inner, context);
+            context.Facts.Add(EmittedFact.BoxedValue);
             Inner.WriteValue(value, context);
         }
 
@@ -162,7 +198,10 @@ static class CustomAttributeDifferentialOracle
             => encoder.Type(context.SystemType, isValueType: false);
 
         public override void WriteValue(BlobBuilder value, Context context)
-            => value.WriteSerializedString(TypeName);
+        {
+            context.Facts.Add(EmittedFact.SystemTypeValue);
+            value.WriteSerializedString(TypeName);
+        }
 
         public override string ToString() => $"Type(\"{TypeName}\")";
     }
@@ -171,7 +210,13 @@ static class CustomAttributeDifferentialOracle
     internal sealed record EnumHandleShape : Shape
     {
         public override void WriteSignature(SignatureTypeEncoder encoder, Context context)
-            => encoder.Type(context.EnumType, isValueType: true);
+        {
+            // The VALUETYPE spelling lives in the signature, not the value blob,
+            // so it is recorded where it is emitted. A boxed enum never reaches
+            // here: its parameter is `object`, and BoxedShape spells that.
+            context.Facts.Add(EmittedFact.HandleSpelledEnumSignature);
+            encoder.Type(context.EnumType, isValueType: true);
+        }
 
         public override void WriteValue(BlobBuilder value, Context context)
             => WriteRecordedEnumValue(value, context.EnumUnderlying, context);
@@ -249,18 +294,33 @@ static class CustomAttributeDifferentialOracle
     /// value could not leave the coverage gate still claiming the forms the
     /// shape tree describes.
     /// </summary>
+    /// <summary>
+    /// Writes a SerString and records the form of the bytes that were actually
+    /// appended. Classifying the requested payload instead lets the two drift:
+    /// a writer emitting one encoding for every string would still be credited
+    /// with all four, which is the exact defect this gate exists to catch.
+    /// </summary>
     static void WriteRecordedString(BlobBuilder value, string? payload, Context context)
     {
-        context.StringForms.Add(payload switch
-        {
-            null => SerStringForm.Null,
-            { Length: 0 } => SerStringForm.Empty,
-            { Length: < 128 } => SerStringForm.SingleByteLength,
-            _ => SerStringForm.MultiByteLength,
-        });
-
+        int start = value.Count;
         value.WriteSerializedString(payload);
+        context.StringForms.Add(
+            ClassifyEmittedSerString(value.ToArray(start, value.Count - start)));
     }
+
+    /// <summary>
+    /// Reads a SerString's form back out of the bytes it was encoded into.
+    /// <c>0xFF</c> is the null encoding and <c>0x00</c> the empty one; any other
+    /// leading byte is a compressed length, whose high bit distinguishes the
+    /// single-byte form from the wider ones.
+    /// </summary>
+    static SerStringForm ClassifyEmittedSerString(byte[] emitted) => emitted switch
+    {
+        [0xFF] => SerStringForm.Null,
+        [0x00] => SerStringForm.Empty,
+        [< 0x80, ..] => SerStringForm.SingleByteLength,
+        _ => SerStringForm.MultiByteLength,
+    };
 
     /// <summary>
     /// Writes a primitive argument value and records which primitive it was.
@@ -454,7 +514,8 @@ static class CustomAttributeDifferentialOracle
         IReadOnlySet<PrimitiveTypeCode> primitives,
         IReadOnlySet<SerStringForm> stringForms,
         IReadOnlySet<int> arrayCounts,
-        IReadOnlySet<PrimitiveTypeCode> enumWidths) : IDisposable
+        IReadOnlySet<PrimitiveTypeCode> enumWidths,
+        IReadOnlySet<EmittedFact> facts) : IDisposable
     {
         /// <summary>The inline element-type bytes this blob actually carried.</summary>
         public IReadOnlySet<byte> InlineElementTypes => inlineElementTypes;
@@ -470,6 +531,9 @@ static class CustomAttributeDifferentialOracle
 
         /// <summary>The enum underlying widths this blob's values actually used.</summary>
         public IReadOnlySet<PrimitiveTypeCode> EnumWidths => enumWidths;
+
+        /// <summary>The structural facts this image actually emitted.</summary>
+        public IReadOnlySet<EmittedFact> Facts => facts;
 
         readonly PEReader _peReader = new(new MemoryStream(image, writable: false));
 
@@ -652,7 +716,8 @@ static class CustomAttributeDifferentialOracle
             context.Primitives,
             context.StringForms,
             context.ArrayCounts,
-            context.EnumWidths);
+            context.EnumWidths,
+            context.Facts);
     }
 
     static byte[] Serialize(MetadataBuilder metadata)
