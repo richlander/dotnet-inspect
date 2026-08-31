@@ -1,0 +1,58 @@
+version: 2
+
+# Security updates are driven by Dependabot alerts and do not need an entry here.
+# These entries add scheduled version updates so a dependency is already current
+# when an advisory lands, rather than needing an upgrade under time pressure.
+#
+# Minor and patch updates are grouped per ecosystem to keep the PR volume low.
+# Major updates stay ungrouped: they are the ones that need to be read.
+updates:
+  - package-ecosystem: npm
+    directory: /prototypes/inspect-web
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /prototypes/annotated-source-viewer
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  # Versions are centrally managed in Directory.Packages.props.
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      nuget-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      actions-all:
+        patterns:
+          - "*"
