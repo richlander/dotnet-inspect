@@ -473,6 +473,47 @@ public static class PdbSourceAcquisition
             verification);
     }
 
+    public static async Task<VerifiedSourceTextResult> AcquireVerifiedSourceTextAsync(
+        SourceFetcher fetcher,
+        string? localPath,
+        string url,
+        string? checksumAlgorithm,
+        byte[]? checksum,
+        IReadOnlyList<string>? repositoryPaths = null,
+        CancellationToken cancellationToken = default,
+        bool allowLocalSource = true)
+    {
+        ArgumentNullException.ThrowIfNull(fetcher);
+        ArgumentException.ThrowIfNullOrWhiteSpace(url);
+
+        byte[]? content = allowLocalSource
+            ? TryReadVerifiedLocalSource(localPath, checksumAlgorithm, checksum)
+            : null;
+        content ??= LocalRepoSourceAcquisition.TryReadVerifiedRepoBlob(
+            url,
+            checksumAlgorithm,
+            checksum,
+            repositoryPaths ?? []);
+        if (content is not null)
+        {
+            var verification = VerifyChecksum(
+                checksumAlgorithm,
+                checksum,
+                content);
+            return new VerifiedSourceTextResult(
+                DecodeSourceText(content),
+                null,
+                verification);
+        }
+
+        return await FetchVerifiedSourceTextAsync(
+            fetcher,
+            url,
+            checksumAlgorithm,
+            checksum,
+            cancellationToken).ConfigureAwait(false);
+    }
+
     public static PdbMemberSourceInspection FromContent(
         MemberSourceObservation mapping,
         SourceDocumentObservation document,

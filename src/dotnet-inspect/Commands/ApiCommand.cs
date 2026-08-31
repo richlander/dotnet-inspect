@@ -2725,6 +2725,7 @@ public class ApiCommand
                     Row: index + 1,
                     Label: (string?)row.Url,
                     Url: (string?)row.Url,
+                    row.FilePath,
                     row.Checksum,
                     row.ChecksumAlgorithm)),
                 options);
@@ -2738,6 +2739,7 @@ public class ApiCommand
                     Row: index + 1,
                     Label: (string?)row.File ?? row.Url,
                     Url: row.Url,
+                    FilePath: row.File,
                     row.Checksum,
                     row.ChecksumAlgorithm)),
                 options);
@@ -2940,6 +2942,7 @@ public class ApiCommand
             int Row,
             string? Label,
             string? Url,
+            string? FilePath,
             byte[]? Checksum,
             string? ChecksumAlgorithm)>? rows,
         ApiOptions options)
@@ -2958,11 +2961,13 @@ public class ApiCommand
         var rawUrl = GitHubUrlResolver.ConvertBlobToRawUrl(selectedRow.Url!);
         var selectedSource = materialized.Single(row => row.Row == selectedRow.Row);
         var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-        var fetch = await PdbSourceAcquisition.FetchVerifiedSourceTextAsync(
+        var fetch = await PdbSourceAcquisition.AcquireVerifiedSourceTextAsync(
             fetcher,
+            selectedSource.FilePath,
             rawUrl,
             selectedSource.ChecksumAlgorithm,
-            selectedSource.Checksum);
+            selectedSource.Checksum,
+            options.SourceRepositories);
         if (fetch.Text is null)
         {
             CommandError.Write(

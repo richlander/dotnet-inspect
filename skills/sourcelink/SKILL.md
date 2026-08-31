@@ -59,8 +59,10 @@ dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Sou
 ```
 
 `--repo` requires a fully qualified clone path and applies only to
-`raw.githubusercontent.com` SourceLink URLs. It is consulted before fetching
-the source body remotely; package or PDB acquisition may still use the network.
+`raw.githubusercontent.com` SourceLink URLs. Member PDB Source, printable type
+Source Files, printable member Source Locations, and implementation-diff PDB
+source consult the clone before fetching the source body remotely. Package or
+PDB acquisition may still use the network.
 
 ## URL forms
 

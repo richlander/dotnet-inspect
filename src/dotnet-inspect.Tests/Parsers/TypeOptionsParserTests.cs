@@ -27,6 +27,7 @@ public class TypeOptionsParserTests
         var compactOption = new Option<bool>("--compact");
         var shapeOption = new Option<bool>("--shape");
         var unsafeOption = new Option<bool>("--unsafe");
+        var repoOption = new Option<string[]>("--repo") { AllowMultipleArgumentsPerToken = false };
         var memberOption = new Option<string[]>("-m") { AllowMultipleArgumentsPerToken = true };
         var kindOption = new Option<string[]>("-k") { AllowMultipleArgumentsPerToken = true };
 
@@ -45,6 +46,7 @@ public class TypeOptionsParserTests
         opts.AddTableOptionsTo(typeCommand);
         typeCommand.Options.Add(shapeOption);
         typeCommand.Options.Add(unsafeOption);
+        typeCommand.Options.Add(repoOption);
         typeCommand.Options.Add(memberOption);
         typeCommand.Options.Add(kindOption);
         opts.AddSectionOptionsTo(typeCommand);
@@ -59,9 +61,31 @@ public class TypeOptionsParserTests
         var args = new TypeOptionsParser.TypeCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, projectOption, frameworkOption, tfmOption,
             allOption, typeFilterOption, compactOption, opts.NoHeaders,
-            shapeOption, unsafeOption, memberOption, kindOption, atOption);
+            shapeOption, unsafeOption, repoOption, memberOption, kindOption, atOption);
 
         return (root, opts, args);
+    }
+
+    [Fact]
+    public async Task RepoOption_PopulatesSourceRepositories()
+    {
+        var options = await ParseSuccessAsync(
+            "type", "Some.Type",
+            "--library", "x.dll",
+            "--repo", @"C:\clone-a",
+            "--repo", @"C:\clone-b");
+
+        Assert.Equal([@"C:\clone-a", @"C:\clone-b"], options.SourceRepositories);
+    }
+
+    [Fact]
+    public async Task RepoOption_DefaultsToEmpty()
+    {
+        var options = await ParseSuccessAsync(
+            "type", "Some.Type",
+            "--library", "x.dll");
+
+        Assert.Empty(options.SourceRepositories);
     }
 
     static async Task<TypeOptions> ParseSuccessAsync(params string[] args)

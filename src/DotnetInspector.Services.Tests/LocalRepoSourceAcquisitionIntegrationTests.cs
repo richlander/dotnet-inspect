@@ -46,6 +46,18 @@ public class LocalRepoSourceAcquisitionIntegrationTests
                 [repositoryRoot],
                 TestContext.Current.CancellationToken,
                 allowLocalSource: false);
+        SourceDocumentObservation document = Assert.IsType<SourceDocumentObservation>(
+            member.Document);
+        VerifiedSourceTextResult projection =
+            await PdbSourceAcquisition.AcquireVerifiedSourceTextAsync(
+                fetcher,
+                document.OriginalPath,
+                document.ResolvedUrl!,
+                document.ChecksumAlgorithm,
+                Convert.FromHexString(document.Checksum!),
+                [repositoryRoot],
+                TestContext.Current.CancellationToken,
+                allowLocalSource: false);
 
         Assert.IsType<FindingInspection<string>.Complete>(member.Lines.Value);
         Assert.Contains(targetMethod.Name, member.Text, StringComparison.Ordinal);
@@ -53,6 +65,8 @@ public class LocalRepoSourceAcquisitionIntegrationTests
         Assert.IsType<FindingInspection<string>.Complete>(type.Lines.Value);
         Assert.Contains(targetType.Name, type.Text, StringComparison.Ordinal);
         Assert.Equal(SourceChecksumVerification.Exact, type.ChecksumVerification);
+        Assert.Contains(targetType.Name, projection.Text, StringComparison.Ordinal);
+        Assert.Equal(SourceChecksumVerification.Exact, projection.ChecksumVerification);
         Assert.Equal(0, outage.RequestCount);
     }
 

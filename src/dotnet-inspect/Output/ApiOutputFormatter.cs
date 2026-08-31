@@ -550,6 +550,7 @@ public static class ApiOutputFormatter
             Version = topFieldsOnly ? packageVersion : null,
             Source = topFieldsOnly ? apiSource : null,
             SourceUrl = SelectSourceUrl(type.SourceUrl, options.BrowsableUrls),
+            SourceFilePath = type.SourceFilePath,
             SourceChecksum = type.SourceChecksum,
             SourceChecksumAlgorithm = type.SourceChecksumAlgorithm,
             AdditionalSourceFiles = SelectSourceFiles(type.AdditionalSourceFiles, options.BrowsableUrls),

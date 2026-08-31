@@ -28,15 +28,18 @@ the remote source.
 At the reusable service boundary, callers supply optional fully qualified
 repository paths to member or type acquisition. The desktop CLI exposes those
 paths through repeated `--repo <fully-qualified-clone-path>` options for
-`member` PDB Source and implementation-diff PDB source. The `type` command's
-Source Files section reports mapped URLs; it does not acquire source bodies or
-accept `--repo`.
+`member` PDB Source, printable `type` Source Files, printable member Source
+Locations, and implementation-diff PDB source.
 
 Browser/Wasm hosts do not supply filesystem clone paths and continue through
 their host-authorized source fetcher.
 `ServiceLocalClone_SatisfiesMemberAndTypeSourceWithoutRemoteFetch` is the
-non-vacuity gate that both service acquisition paths use a verified local clone
-without dispatching the simulated unavailable remote source.
+non-vacuity gate that member, type, and printable-projection service acquisition
+use a verified local clone with PDB-recorded path reads disabled and without
+dispatching the simulated unavailable remote source.
+`TypeSourceFilesPrint_AcceptsRepoAtCliBoundaryWhileOffline` separately gates the
+CLI parser and dispatch boundary using the product's embedded PDB while all
+network access is disabled.
 
 ## PDB formats
 
