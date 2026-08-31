@@ -914,6 +914,10 @@ public record MemberSourceLocationRow(
 
     [MarkoutIgnore]
     [JsonIgnore]
+    internal string? FilePath { get; init; }
+
+    [MarkoutIgnore]
+    [JsonIgnore]
     internal byte[]? Checksum { get; init; }
 
     [MarkoutIgnore]

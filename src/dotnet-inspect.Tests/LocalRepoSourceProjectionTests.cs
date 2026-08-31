@@ -16,9 +16,66 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
     public async Task TypeSourceFilesPrint_AcceptsRepoAtCliBoundaryWhileOffline()
     {
         string repositoryRoot = FindRepositoryRoot();
-        string productAssembly = Path.Combine(
-            AppContext.BaseDirectory,
-            "dotnet-inspect.dll");
+        var result = await RunCliAsync(
+            "type",
+            typeof(CommandLineBuilder).FullName!,
+            "--library",
+            ProductAssemblyPath(),
+            "-S",
+            "Source Files",
+            "--print",
+            "--row",
+            "first",
+            "--repo",
+            repositoryRoot,
+            "--bare",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(
+            "public static class CommandLineBuilder",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "failed to fetch verified source",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberSourceLocationsPrint_UsesPdbRecordedLocalPathWhileOffline()
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(CommandLineBuilder).FullName!,
+            "--library",
+            ProductAssemblyPath(),
+            "-m",
+            nameof(CommandLineBuilder.TryGetStaleArgumentError),
+            "-S",
+            "Source Locations",
+            "--print",
+            "--row",
+            "first",
+            "--bare",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(
+            "public static bool TryGetStaleArgumentError",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "failed to fetch verified source",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    async Task<(int Exit, string Output, string Error)> RunCliAsync(
+        params string[] arguments)
+    {
         string executable = Path.Combine(
             AppContext.BaseDirectory,
             OperatingSystem.IsWindows() ? "dotnet-inspect.exe" : "dotnet-inspect");
@@ -29,23 +86,6 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             RedirectStandardError = true,
             UseShellExecute = false,
         };
-        string[] arguments =
-        [
-            "type",
-            typeof(CommandLineBuilder).FullName!,
-            "--library",
-            productAssembly,
-            "-S",
-            "Source Files",
-            "--print",
-            "--row",
-            "first",
-            "--repo",
-            repositoryRoot,
-            "--bare",
-            "--tips",
-            "q",
-        ];
         foreach (string argument in arguments)
             startInfo.ArgumentList.Add(argument);
         startInfo.Environment["DOTNET_INSPECT_OFFLINE"] = "1";
@@ -75,15 +115,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
 
         string output = await standardOutput;
         string error = await standardError;
-        Assert.Equal(0, process.ExitCode);
-        Assert.Contains(
-            "public static class CommandLineBuilder",
-            output,
-            StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "failed to fetch verified source",
-            error,
-            StringComparison.Ordinal);
+        return (process.ExitCode, output, error);
     }
 
     public void Dispose()
@@ -105,4 +137,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
         throw new InvalidOperationException(
             $"Could not locate the repository root from '{AppContext.BaseDirectory}'.");
     }
+
+    static string ProductAssemblyPath()
+        => Path.Combine(AppContext.BaseDirectory, "dotnet-inspect.dll");
 }

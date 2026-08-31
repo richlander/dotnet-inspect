@@ -2739,7 +2739,7 @@ public class ApiCommand
                     Row: index + 1,
                     Label: (string?)row.File ?? row.Url,
                     Url: row.Url,
-                    FilePath: row.File,
+                    FilePath: row.FilePath,
                     row.Checksum,
                     row.ChecksumAlgorithm)),
                 options);

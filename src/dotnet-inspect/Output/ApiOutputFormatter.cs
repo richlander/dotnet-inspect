@@ -1118,6 +1118,7 @@ public static class ApiOutputFormatter
                 endLine,
                 SelectSourceUrl(member.SourceUrl, options.BrowsableUrls))
             {
+                FilePath = member.SourceFilePath,
                 Checksum = member.SourceChecksum,
                 ChecksumAlgorithm = member.SourceChecksumAlgorithm,
             });
