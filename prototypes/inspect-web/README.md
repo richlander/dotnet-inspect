@@ -665,6 +665,27 @@ and shared-workspace deep links retain the full loading interstitial. The `bare
 home paints before wasm engine download` JavaScript test gates this startup
 boundary.
 
+`eng/generate-inspect-web-engine-facade.sh` generates
+`engine/inspect-web-engine.ts` from the engine's `[JSExport]` surface. That
+native TypeScript file is the authoritative checked-in handoff. The script
+compiles it against the SDK-owned `dotnet.d.ts` from the Browser/Wasm runtime
+pack selected for the engine build, with LF compiler output on every host, into
+the checked-in `src/inspect-web-engine.d.ts` consumer declaration and
+`engine/wwwroot/inspect-web-engine.js` publish artifact; `--check` fails when
+any of the three drifts. The SDK declaration is a compile-time input copied
+only into a temporary workspace and is never published.
+
+The application explicitly sequences `initializeRuntime()`,
+`configureHost(window.location.origin)`, and `runEntryPoint()`. The generated
+facade owns runtime creation and typed managed dispatch but owns no browser-host
+policy, performs no managed operation during initialization, and does not
+expose the runtime or raw managed exports. Its generation-time runtime canary
+executes without a `window` global. After publish,
+`verify-published-engine-facade.ts` runs the real Browser/Wasm artifact through
+the same worker-safe path and exercises build identity plus
+`asyncLoweringCanary()`, a genuinely awaited operation with a fixed typed
+result and no network, package-cache, server-API, or user-data dependency.
+
 The home page identifies the browser stack below its search surface and links
 to the client-rendered `/credits` route. `src/credits-panel.ts` owns that page's
 markup, route recognition, and rendered control bindings. Azure Static Web Apps
@@ -712,20 +733,24 @@ Spotlight scopes are literal unions derived from their UI catalogs. DOM and URL
 tokens are decoded before they reach typed state or actions; the scope-bar and
 workspace-navigation tests gate rejection of unknown values.
 
-Oxlint checks both checked-in tsbindgen outputs as consumer contracts:
+Oxlint checks both compiler-derived facade artifacts as consumer contracts:
 `src/inspect-web-engine.d.ts` receives the TypeScript rules, while
 `engine/wwwroot/inspect-web-engine.js` receives the JavaScript correctness and
 suspicious rules described below. TypeScript compilation and the generated
-surface drift gate provide independent declaration coverage. The toolchain
-test pins both generated lint inputs so a generator change cannot silently
-leave analysis coverage. The configuration disables four non-correctness
+facade drift gate provide independent source and declaration coverage. The
+toolchain test pins both derived lint inputs so a generator change cannot
+silently leave analysis coverage. The configuration disables four non-correctness
 rules: underscore spelling, function relocation, listener API preference, and
 `Array.prototype.sort`. Those rules prescribe naming/layout churn or, for
 sorting, the ES2023 `toSorted` API while this project targets ES2022. Those
-four, plus the five unsafe-operation rules scoped to the generated
-`engine/wwwroot/inspect-web-engine.js` artifact, are the *complete* set of
-disabled rules: a toolchain test pins it against Oxlint's resolved
-configuration, so a fifth disable — written at the top level or inside an
+four, plus the generated-facade overrides, are the *complete* set of disabled
+rules. The compiler-derived JavaScript disables the five unsafe-operation
+rules and the catch-callback annotation rule that JavaScript cannot satisfy.
+The authoritative TypeScript disables those unsafe-operation rules, unsafe
+type-assertion analysis for authenticated JSON envelopes, and the redundant
+constituent diagnostic that lacks the temporary SDK declaration used by its
+separate compiler gate. A toolchain test pins these against Oxlint's resolved
+configuration, so another disable — written at the top level or inside an
 `overrides` entry — fails rather than passing quietly. Turning a rule off is
 not the only way to lose it, so options, plugin settings and the global
 environment are pinned beside the severities; those are described below.
@@ -1579,13 +1604,45 @@ main-only `inspect-web-coreclr-staging` environment, a distinct deployment
 token, and the non-promotable `inspect-web-coreclr-site` artifact. The site is
 interpreter-only while the .NET 11 Preview 7 SDK lacks the packaged headers and
 Emscripten cache wiring needed for CoreCLR native relinking. The workflow pins
-the proven preview SDK, enables `runtime-async=on` across this application
-graph, and applies the `UseMonoRuntime=false`, `WasmBuildNative=false`,
+the same proven preview SDK as Mono staging, enables `runtime-async=on` across
+this application graph, and applies the `UseMonoRuntime=false`,
+`WasmBuildNative=false`,
 `WasmNestedPublishAppDependsOn=`, and `WasmEnableExceptionHandling=true`
 overrides. This exercises runtime async only in the CoreCLR comparison
 deployment; Mono staging and ordinary non-AOT builds retain classic async
 lowering. The workflow verifies the CoreCLR-specific `GetDotNetRuntimeHeap`
 hook before and after artifact transfer.
+
+Both deployment builds import `InspectWebAsyncLoweringReceipt.targets`. Every
+project that reaches `CoreCompile` fails unless its exact `Features` property
+selects the deployment's expected lowering, then emits a project-path receipt.
+`verify-async-project-graph.ts` requires those receipts to equal the evaluated
+transitive repository project graph rooted at `InspectWeb.Engine.csproj`;
+framework/runtime-pack binaries, the separately published MSDL server API, and
+unrelated repository projects are outside that set.
+
+Both builds then run `verify-inspect-web-async-deployment.sh` immediately after
+their clean engine publish. The gate enumerates every public async method
+in that publish's
+`bin/Release/net11.0/InspectWeb.Engine.dll` as compiler async for Mono and
+runtime async for CoreCLR, requires the entire census to use the expected
+physical lowering, and separately authenticates `AsyncLoweringCanary`. This is
+the exact pre-link assembly that retains the compiler-generated runtime wrappers
+authenticated by `ts-jsexport`; the linker removes those wrappers from its
+intermediate assembly before packaging the shipped WebCIL. The gate generates a
+declaration from each pre-link assembly with
+`generate-inspect-web-engine-facade.sh --contract`, requires both to equal the
+checked-in declaration, and invokes the canary through the generated facade in
+each published WebCIL application. The schema-3 uploaded receipt records total,
+compiler-async, and runtime-async method counts, the verified repository project
+count, and the publish assembly, shipped WebCIL, and facade-contract digests.
+Build, staging, and production artifact checks require the expected
+all-or-nothing lowering census and a nonempty verified project graph, require
+the one named WebCIL file, and recompute its digest without executing candidate
+code in an environment-gated deployment job. `PromotionWorkflowContract` gates
+both expected-lowering properties, exact publish-assembly paths, both browser
+invocations, graph receipts, and post-transfer evidence checks with close
+mutations.
 
 `.github/workflows/promote-inspect-web.yml` intentionally promotes one
 successful staging run to production at `https://dotnet-inspect.net`. The

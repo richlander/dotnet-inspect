@@ -10278,7 +10278,7 @@ public class LibraryBodyIndexTests
 
     /// <summary>
     /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is the
-    /// non-vacuity gate for tsbindgen's value-flow opt-in: plain method
+    /// non-vacuity gate for TypeScript facade generation's value-flow opt-in: plain method
     /// evidence retains direct calls without materializing their argument,
     /// receiver, or result flow, while the named feature supplies them.
     /// </summary>

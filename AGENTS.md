@@ -204,7 +204,7 @@ workflow doc, and PR template — lives in [`docs/README.md`](docs/README.md).
 | Metadata and API inspection | `docs/design/assembly-inspection-query.md` |
 | PDB and source acquisition | `docs/pdb-acquisition.md` |
 | Security and untrusted input | `docs/design/untrusted-data-threat-model.md` |
-| Decompiler raising, structuring, typing, or printer behavior | `docs/decompiler-correctness-pipeline.md`, then `docs/decompiler-raise-discipline.md` |
+| Decompiler raising, structuring, typing, or printer behavior | `docs/decompiler-correctness-pipeline.md`, then `docs/decompiler-raise-discipline.md`; use `docs/templates/decompiler-pr.md` for the PR body |
 | Everything else — design docs, contributor workflow, PR templates, skills | `docs/README.md` |
 
 Some files under `docs/design/` record proposals or design history. Prefer

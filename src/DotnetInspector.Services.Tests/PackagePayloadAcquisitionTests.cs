@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Net;
+using System.Runtime.InteropServices;
 using DotnetInspector.Packages;
 using NuGetFetch;
 
@@ -20,6 +21,33 @@ public sealed class PackagePayloadAcquisitionTests
     const string Version = "1.2.3";
     const string NupkgUrl =
         $"https://api.nuget.org/v3-flatcontainer/{PackageId}/{Version}/{PackageId}.{Version}.nupkg";
+
+    [Fact]
+    public void PackageContentGenerationIdentity_ExternalBuffersCannotMutateGeneration()
+    {
+        byte[] supplied =
+            TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        byte[] expected = supplied.ToArray();
+        var content = new InMemoryPackageContent(
+            supplied,
+            fromCache: false,
+            producerKey: "tests");
+        PackageContentGenerationIdentity identity =
+            content.GenerationIdentity;
+
+        Array.Fill<byte>(supplied, 0);
+        Assert.Equal(expected, ReadArchive(content));
+
+        ReadOnlyMemory<byte> exported = content.NupkgBytes;
+        Assert.True(
+            MemoryMarshal.TryGetArray(
+                exported,
+                out ArraySegment<byte> segment));
+        Array.Fill<byte>(segment.Array!, 0);
+
+        Assert.Equal(expected, ReadArchive(content));
+        Assert.Same(identity, content.GenerationIdentity);
+    }
 
     [Fact]
     public async Task CacheMiss_DownloadsAndCommitsWithProducerIdentity()
@@ -43,6 +71,17 @@ public sealed class PackagePayloadAcquisitionTests
         Assert.Equal(
             "lib/net10.0/Sample.dll",
             Assert.Single(payload.Content.EnumerateEntries()));
+    }
+
+    static byte[] ReadArchive(IPackageContent content)
+    {
+        Assert.True(content.TryOpenArchive(out Stream? archive));
+        using (archive)
+        using (var buffer = new MemoryStream())
+        {
+            archive.CopyTo(buffer);
+            return buffer.ToArray();
+        }
     }
 
     [Fact]

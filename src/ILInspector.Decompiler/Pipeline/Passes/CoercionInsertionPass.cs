@@ -152,6 +152,22 @@ public static class CoercionSinks
         };
 
     /// <summary>
+    /// The semantic target that can recover a typed slot load's identity.
+    /// Property stores join the ordinary testimony sinks here because their
+    /// setter parameter is available even when the load still carries its
+    /// evaluation-stack storage type.
+    /// </summary>
+    public static TypeRef? SemanticLoadSinkTargetType(
+        LoadStackSlot load,
+        TypeRef? returnType,
+        IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => load.Parent is StoreProperty store
+            && ReferenceEquals(store.Value, load)
+            && store.Accessor.ParameterTypes is { IsDefault: false, Length: > 0 } setter
+                ? setter[^1]
+                : LoadSinkTargetType(load, returnType, shapes);
+
+    /// <summary>
     /// The enum family a slot load contributes when it is an operand of a
     /// flags-enum bitwise op (<c>and</c>/<c>or</c>/<c>xor</c>) whose sibling
     /// operand is enum-typed. #3009: a spilled accumulator holding a bare
@@ -263,8 +279,8 @@ public static class CoercionSinks
                 // (`(T)(object)x`) renders the operand through ConvertText, not
                 // CoerceText, and a bare constant under `(object)` boxes the
                 // literal's own type regardless of the box token — the coercion
-                // needs the explicit type spelling there. Residual for the
-                // burn-down; the plain-Box printer branch still coerces via its
+                // needs the explicit type spelling there. Residual docket item;
+                // the plain-Box printer branch still coerces via its
                 // own CoerceText call.
                 case StoreElement store when store.Value is { } value
                     && StoreElementTarget(store, function.TypeShapes) is { } elementType:
@@ -273,7 +289,7 @@ public static class CoercionSinks
                 // StoreIndirect is deliberately absent: the printer's target
                 // derivation (IndirectStoreType) carries special cases this
                 // enumeration would drift from; TypedConstantsPass still retypes
-                // its constants. Residual for the burn-down.
+                // its constants. Residual docket item.
                 case Call call when !call.Callee.ParameterTypes.IsDefault:
                     for (int i = 0, offset = call.Callee.HasThis ? 1 : 0;
                         i < call.Callee.ParameterTypes.Length && i + offset < call.Arguments.Count; i++)
@@ -388,7 +404,7 @@ public static class CoercionInvariant
     /// <see cref="Violations"/> break the invariant (gates assert zero);
     /// <see cref="Residuals"/> are in-domain mismatches the invariant's scope
     /// deliberately leaves to later or targeted deciders, counted by value
-    /// kind so the scope limit is measurable burn-down, never silent (#2145).
+    /// kind so the scope limit is measurable and never silent (#2145).
     /// </summary>
     public readonly record struct CoercionViolation(IrNode Node, string Message);
 

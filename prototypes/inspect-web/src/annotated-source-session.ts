@@ -16,6 +16,8 @@ import type {
   BrowserAnnotatedSourceViewerCatalog,
 } from "./inspect-web-engine.d.ts";
 
+// The generated facade intentionally leaves the annotated document graph unknown.
+// This narrows that field to the product-owned model enforced by validateDocument.
 export interface AnnotatedSourceResult extends Omit<BrowserAnnotatedSource, "document"> {
   document: AnnotatedSourceDocument;
 }

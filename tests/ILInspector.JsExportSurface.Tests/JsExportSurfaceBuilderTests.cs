@@ -13,7 +13,6 @@ using ILInspector.JsExportSurface.OperatorFixtures;
 using ILInspector.JsExportSurface.PublishabilityFixtures;
 using ILInspector.JsExportSurface.ScalarFixtures;
 using ILInspector.Metadata;
-using tsbindgen;
 
 namespace ILInspector.JsExportSurface.Tests;
 
@@ -1199,17 +1198,6 @@ public sealed class JsExportSurfaceBuilderTests
             "ILInspector.JsExportSurface.PublishabilityFixtures"
                 + ".WrapperPrefixCollisionFixture",
             function.DeclaringType);
-        Assert.Contains(
-            "exports.ILInspector.JsExportSurface"
-                + ".PublishabilityFixtures"
-                + ".WrapperPrefixCollisionFixture.Foo_Bar",
-            JsEmitter.Emit(
-                new ILInspector.JsExportSurface.JsExportSurface
-                {
-                    AssemblyIdentity = extracted.AssemblyIdentity,
-                    Functions = [function],
-                }),
-            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1753,17 +1741,6 @@ public sealed class JsExportSurfaceBuilderTests
             "ILInspector.JsExportSurface.PublishabilityFixtures"
                 + ".NestedExportContainer.NestedExports",
             function.DeclaringType);
-        Assert.Contains(
-            "exports.ILInspector.JsExportSurface"
-                + ".PublishabilityFixtures"
-                + ".NestedExportContainer.NestedExports.AddOne",
-            JsEmitter.Emit(
-                new ILInspector.JsExportSurface.JsExportSurface
-                {
-                    AssemblyIdentity = extracted.AssemblyIdentity,
-                    Functions = [function],
-                }),
-            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2747,7 +2724,7 @@ public sealed class JsExportSurfaceBuilderTests
             JsExportSurfaceBuilder.Build(
                 apiSurface,
                 OpenWireContractBodyIndex(path));
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         string dts = DtsEmitter.Emit(
             surface,
             diagnostics);
@@ -2755,7 +2732,7 @@ public sealed class JsExportSurfaceBuilderTests
             $"export type {contractName} = unknown;",
             dts,
             StringComparison.Ordinal);
-        TsBindGenDiagnostic diagnostic =
+        TypeScriptGenerationDiagnostic diagnostic =
             Assert.Single(diagnostics.UnmappedTypes);
         Assert.Equal(
             $"{contractName} JSON wire shape",
