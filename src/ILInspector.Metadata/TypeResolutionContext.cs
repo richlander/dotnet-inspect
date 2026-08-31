@@ -2456,6 +2456,14 @@ public sealed class TypeResolutionContext : IDisposable
             AssemblyBindingSelection? selection = _policy.Select(request);
             if (selection is null || !HasPolicyVersion())
                 return CacheInvalidBinding(key);
+            if (request.Target
+                    is AssemblyBindingTarget.IntrinsicCoreLibrary
+                && selection is AssemblyBindingSelection.Missing)
+            {
+                selection = AssemblyBindingSelection.Invalid(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind.InvalidPolicyResult));
+            }
 
             // Policy returns public descriptors. Registration turns those
             // selections into catalog candidates and a frozen Metadata-owned
@@ -2466,8 +2474,10 @@ public sealed class TypeResolutionContext : IDisposable
                     SelectOne(
                         selected.Assembly,
                         selected.ShadowedAssemblies),
-                AssemblyBindingSelection.Missing =>
-                    new(new AssemblyBindingOutcome.Missing()),
+                AssemblyBindingSelection.Missing missing =>
+                    new(
+                        new AssemblyBindingOutcome.Missing(
+                            missing.Disposition)),
                 AssemblyBindingSelection.Unavailable unavailable =>
                     new(
                         new AssemblyBindingOutcome.Unavailable(
