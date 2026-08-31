@@ -105,6 +105,8 @@ public static class FixtureIds
     public const string SourceLinkMalformed = "sourcelink.malformed";
     public const string SourceLinkNormalized = "sourcelink.normalized";
 
+    public const string ResearchTargetSample = "research.target-sample";
+
     public const string RunFasterAllocation = "runfaster.allocation";
 }
 
@@ -160,6 +162,18 @@ public static class FixtureCatalog
         "DiffFixtureSample.dll",
         Boundaries(FixtureBoundary.VersionPair),
         "diff", "version-pair", "analysis", "decompiler", "rts-candidate");
+
+    /// <summary>
+    /// Purpose-built member shapes for Research target requests (#5049):
+    /// compiler-produced accessor tokens, an ambiguous overload pair, a
+    /// bodyless field, a nested declaring type, and a real type-forwarder row.
+    /// </summary>
+    public static readonly FixtureDefinition ResearchTargetSample = Fixture(
+        FixtureIds.ResearchTargetSample,
+        "ILInspector.Research.TargetFixtures",
+        "ILInspector.Research.TargetFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "research", "target", "accessor-role", "type-forwarder");
 
     public static readonly FixtureDefinition DiffAsmCaller = Fixture(
         FixtureIds.DiffAsmCaller,
@@ -527,6 +541,7 @@ public static class FixtureCatalog
         DecompilerUnsafeChainC,
         DecompilerVbFinalizer,
         RunFasterAllocation,
+        ResearchTargetSample,
     ];
 
     public static readonly FixturePair DiffPair = new("diff", DiffV1, DiffV2);
