@@ -155,21 +155,30 @@ still carries enough evidence to satisfy every proof obligation.
 A request cannot be formed from the inspected artifact when:
 
 - trimming removes the kickoff, state-machine type, or execution MethodDef;
-- a required MethodDef remains but has no IL body, represented by RVA zero;
+- a required MethodDef fails Metadata's managed-IL-body predicate because it
+  has RVA zero, is P/Invoke, uses a non-IL code type, or is runtime-implemented;
+  or
 - trimming retains a relationship claim but removes role evidence, so the
-  Metadata relationship is rejected; or
-- the input is a metadata-only, reference, or native artifact with no managed
-  kickoff and execution IL available to import.
+  Metadata relationship is rejected.
 
-Abstract, extern, interface, and P/Invoke methods are ordinary RVA-zero cases,
-although they are not valid classic kickoff or execution bodies. Linker output
-or malformed metadata can expose the same absence at this boundary.
+Artifact category alone never decides availability. Abstract members and
+bodyless interface declarations ordinarily have RVA zero, but a default
+interface method may carry ordinary managed IL and may be a valid classic
+kickoff. SDK-produced reference assemblies may retain authenticated classic
+relationships and replace every related body with synthesized `ldnull; throw`
+IL. Those body-replacing assemblies reach the core and decline because the
+replacement bodies do not satisfy a classic recipe. A stripped targeting-pack,
+metadata-only, or native artifact forms no request only when its actual
+MethodDefs or relationship evidence fail the boundary above.
 
-These cases are not repairable by broadening the inverse matcher: the current
-artifact no longer contains the executable operations, evaluation order, and
-exception structure that a reconstruction proof must account for. Supporting
-an authenticated pre-trim assembly or another body source would be a separate
-acquisition and request-adapter contract, not an inverse-core extension.
+The inverse core cannot repair these unavailable inputs. When a method or its
+body is absent, the current artifact no longer contains the executable
+operations, evaluation order, and exception structure that a reconstruction
+proof must account for. When only relationship evidence is missing, its
+Metadata owner may extend that relationship contract if the artifact retains
+enough evidence; the inverse cannot infer it locally. Supplying an authenticated
+pre-trim assembly or another body source would require a separate acquisition
+and request-adapter contract.
 
 The terminal result is:
 
@@ -182,14 +191,28 @@ ClassicInverseDecision
 
 `Decline` means the request is healthy but outside the proven recipe domain.
 `Failed` means planning could not produce a trustworthy decision, including
-invalid request/body correlation, resource exhaustion, or an internal
-planning failure. A failure never becomes a decline or an empty plan.
-Unexpected programmer errors remain errors rather than being translated into a
-success-shaped result.
+invalid request/body correlation, core-owned resource exhaustion, or an
+internal planning failure. A failure never becomes a decline or an empty plan.
+Unexpected programmer errors remain errors rather than being translated into
+a success-shaped result.
 
 The decision and plan are immutable values detached from mutable input trees.
 They may refer to owner-issued identities and stable input receipts, but never
 retain an `IrNode`, local, parent link, or stage-owned collection.
+
+### Derived planning views
+
+The boundary snapshots are importer output, before raising passes create
+conditions, loops, exception structure, and other recipe-level constructs. The
+core may derive structured planning views from detached clones using
+Decompiler-owned prerequisite passes. These are proof views, not caller-owned
+Raised or Lowered stage snapshots.
+
+Every receipt issued from a derived view maps unambiguously back to the
+physical region in the unmodified import snapshot that it classifies. Derived
+structure cannot replace the physical partition or manufacture semantic
+identity. If a candidate's import correspondence is missing or ambiguous, the
+recipe declines.
 
 ## Proof-carrying plan
 
@@ -330,11 +353,12 @@ over value-equal requests produces value-equal decisions. Request order,
 rendering, stage selection, or mutation of a caller-owned clone cannot change
 the decision.
 
-Resource limits are part of the result algebra. Exhausting a traversal,
-relationship, node, or receipt budget is `Failed`; it cannot yield a partial
-proof. Unsupported but healthy lowering shapes are `Decline`. The distinction
-is preserved so callers can route failure without pretending the inverse made
-a semantic judgment.
+Resource limits are part of the result algebra. Exhausting a core-owned
+traversal, node, structured-view, or receipt budget is `Failed`; it cannot
+yield a partial proof. Metadata relationship-budget exhaustion is an
+owner-issued rejection and never enters this core. Unsupported but healthy
+lowering shapes are `Decline`. The distinction is preserved so callers can
+route failure without pretending the inverse made a semantic judgment.
 
 ## Validation status and implementation gates
 
@@ -349,8 +373,11 @@ Release gates:
 | `ClassicInversePlanRequiresCompleteStructuredAncestorPaths` | A consumed node has an unknown ancestor or loses a condition, loop, exception context, or structured transfer. |
 | `ClassicInverseSideEffectsInExpressionsDeclineWithoutRealization` | A call or other effect in a condition, operand, initializer, or filter is omitted because it is not an expression statement. |
 | `ClassicInverseNestedStoresDoNotEscapeTheirControlContext` | A sequential or loop store nested under structured control is emitted unconditionally. |
+| `ClassicInverseStructuredViewsRetainImportCorrespondence` | A derived planning node issues a receipt without unambiguous correspondence to its unmodified imported physical region. |
+| `ClassicInverseBodyReplacingReferenceAssembliesDecline` | An authenticated SDK reference-assembly relationship with synthesized bodies reconstructs or is treated as body-unavailable. |
+| `ClassicInverseDefaultInterfaceBodiesUseMethodEvidence` | A managed-IL default-interface kickoff is excluded merely because its declaring type is an interface. |
 | `ClassicInverseDecisionIsDetachedAndDeterministic` | A plan retains mutable IR, aliases a request body, or changes with request order or caller mutation. |
-| `ClassicInversePlanningFailuresRemainFailures` | Invalid correlation or budget exhaustion becomes decline, reconstruction, or empty success. |
+| `ClassicInversePlanningFailuresRemainFailures` | Invalid correlation or core-owned budget exhaustion becomes decline, reconstruction, or empty success. |
 | `ClassicInverseAcceptedPopulationIsMeasured` | The implementation changes the accepted compiler-fixture population without an explicit expected delta and per-method review. |
 
 The first five gates need compiler-produced positives plus synthetic close
