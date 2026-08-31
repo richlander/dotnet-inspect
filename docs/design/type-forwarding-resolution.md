@@ -1317,12 +1317,15 @@ An explicit disposition is valid only for
 `AssemblyBindingTarget.AssemblyReference`, whose structured identity supplies
 the requested name. An intrinsic-core-library request has no requested
 assembly name and continues to use a selected, unavailable, or rejected
-outcome rather than a name-ownership miss. Every wrapper or composite validates
-each delegated result against the original request before interpreting it. A
-missing result for an intrinsic-core-library request immediately becomes
-`Rejected(InvalidPolicyResult)` and no later tier is invoked. The Metadata
-adapter applies the same validation to a final policy result, so direct and
-composed policies share one closed rule.
+outcome rather than a name-ownership miss. Every wrapper or composite
+validates each delegated result against the request that produced it before
+interpreting it. An intrinsic facade search issues a distinct
+assembly-reference sub-request for each facade identity. A valid miss for one
+facade may advance to the next facade identity, but it cannot become the final
+intrinsic result. Exhausting all facade identities without a selection returns
+`Unavailable(UnsupportedScope)`. The Metadata adapter rejects a missing final
+result for the enclosing intrinsic request, so direct and composed policies
+share one closed final-result rule.
 
 Only the policy owner that holds the complete frozen name-ownership decision
 for the exact request may issue `NoNameOwner` or `NameOwnedNoMatch`. This
@@ -1364,8 +1367,8 @@ the complete empty decision.
 
 The Metadata adapter copies the disposition unchanged from
 `AssemblyBindingSelection.Missing` to `AssemblyBindingOutcome.Missing`.
-`AssemblyBindingSnapshot` and every frozen binding dependency include the
-disposition, so cache equality never collapses `NoNameOwner`,
+The frozen Metadata binding outcome and every cached binding dependency include
+the disposition, so cache equality never collapses `NoNameOwner`,
 `NameOwnedNoMatch`, and `Undifferentiated`. A disposition change for an equal
 request is a policy-answer change and therefore requires a different
 `AssemblyBindingPolicyVersion`; the atomic selection snapshot above carries
@@ -3913,20 +3916,25 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - An external fake policy can construct all three
   `AssemblyBindingMissDisposition` arms only through the closed missing-result
   factories.
-- `AssemblyBindingMissDisposition_IntrinsicMissingRejectedBeforeComposition`
-  returns each public missing result from a first tier for an
-  intrinsic-core-library request while a second tier could select. Every
-  wrapper and composite returns `Rejected(InvalidPolicyResult)` without
-  invoking that second tier, and Metadata applies the same rule to a direct
-  final result.
-- `AssemblyBindingMissDisposition_OnlyNoNameOwnerContinues` derives every
-  two-tier result pair from one declaration and proves that only
-  `NoNameOwner` invokes the next tier; selected, ambiguous, unavailable,
-  rejected, `NameOwnedNoMatch`, and `Undifferentiated` remain terminal.
+- `IntrinsicFacadeMiss_ContinuesToLaterFacadeSelection` returns each public
+  missing result from one facade-reference sub-request and proves a later
+  facade identity can still select.
+- `IntrinsicFacadeMisses_ExhaustAsUnsupportedScope` proves an exhausted facade
+  search returns `Unavailable(UnsupportedScope)` rather than exposing a miss
+  as the final intrinsic result.
+- `ValidateForRequest_RejectsMissForIntrinsicTarget` proves the shared wrapper
+  validation rejects a target-invalid miss, and
+  `IntrinsicBindingMiss_IsRejectedBeforeFreezing` proves Metadata applies the
+  same rule to a direct final result.
+- `SourceRelativeAssemblyGroupBindingPolicy_ContinuesOnlyAfterNoNameOwner`
+  proves for a requesting-assembly origin that only `NoNameOwner` invokes the
+  concrete designated tier, while `NameOwnedNoMatch` and `Undifferentiated`
+  remain terminal.
 - `AssemblyBindingMissDisposition_CompleteExhaustionRequired` proves a
-  composite cannot issue `NoNameOwner` when its configured chain omits an
-  independently owner-attested request-eligible tier or while any tier in the
-  complete chain remains unevaluated.
+  composite cannot issue `NoNameOwner` while any tier in its concrete fixed
+  chain remains unevaluated. Rejecting a configured chain that omits an
+  independently owner-attested request-eligible tier remains unverified until
+  #5216 supplies that workspace-owned completeness evidence.
 - `AssemblyBindingMissDisposition_AllNoOwnerRemainsNoOwner` proves a complete,
   exhausted policy chain containing only `NoNameOwner` results retains that
   disposition.
@@ -3935,8 +3943,7 @@ Claim: direct callers and transitive call graphs share one definition identity.
   reach a lower tier or become owner-attested evidence.
 - `AssemblyBindingMissDisposition_SurvivesInterningAndFrozenReuse` proves all
   three dispositions remain distinct through `AssemblyBindingOutcome.Missing`,
-  structural `AssemblyBindingSnapshot` comparison, frozen recipe dependencies,
-  and unchanged-version cache reuse.
+  descriptor-to-outcome interning, and unchanged-version catalog reuse.
 - `AssemblyBindingMissDisposition_ObservedVersionChangeRefreshesDisposition`
   proves a changed observed policy version refreshes a frozen miss and recipe
   dependency rather than reusing the prior disposition. Same-version answer
@@ -3948,16 +3955,45 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - `AssemblyReferenceBindingPolicy_NullRemainsUndifferentiated` proves the
   nullable resolver adapter neither invents ownership nor permits
   fallthrough.
+- `Select_PreservesBindingPolicyIntrinsicSelection` proves the migration
+  adapter delegates intrinsic targets when its resolver also owns the
+  structured binding-policy contract.
+- `InstalledPlatformFallback_DoesNotOwnAbsentPrefixedName` and
+  `AssemblyGroup_AbsentPlatformPrefixedNamePreservesAmbiguity` prove a
+  platform-looking simple name triggers an installed-platform probe but does
+  not attest name ownership unless that inventory provides a path, preserving
+  the group composite's retained ambiguity.
+- `ScopeFirstBindingPolicy_PreservesDelegatedTerminalResults` and
+  `ScopeFirstBindingPolicy_NoNameOwnerRequiresIdentityPolicy` prove the
+  caller-scope wrapper preserves every delegated terminal result and reaches
+  its local identity-policy outcome only after `NoNameOwner`.
+- `ScopeFirstBindingPolicy_SkewedRootRequiresIdentityPolicy` and
+  `VersionSkewedFacadeRoots_ReportAmbiguous` prove delegated `NoNameOwner`
+  advances into the local caller-scope inventory, where one version-skewed
+  same-name root requires identity policy and multiple roots retain ambiguity.
+- `ScopeFirstBindingPolicy_ExactRootWinsOverSameNameTargetSkew` and
+  `ScopeFirstBindingPolicy_SameNameOwnersRemainAmbiguous` prove an exact local
+  root wins before target-name skew handling, while a skewed target and skewed
+  same-name root remain distinct ambiguous owners after delegated
+  `NoNameOwner`.
+- `EcmaEquivalentTargetIdentity_ResolvesToTargetDefinition` and
+  `EcmaEquivalentFacadeIdentity_ResolvesToTargetDefinition` prove exact-target
+  and root selection use ECMA assembly-identity equivalence, including
+  case-insensitive names and equivalent neutral-culture spellings.
+- `CallerScopes_ExactReferencedVersionExcludesDifferentTarget` proves that
+  preserving an exact selected assembly keeps a different-version definition
+  distinct from the inspected target and produces a complete empty caller
+  graph rather than an indeterminate diagnostic.
+- `BindingPolicyResolver_PreservesDelegatedNonSelectedResults` proves the
+  Queries-to-Analysis bridge retains the structured policy channel and does
+  not collapse a typed miss or failure through nullable resolution.
 - `KnownInventoryBindingPolicy_DistinguishesNameAbsenceFromIdentityMiss`
   proves a complete frozen inventory reports `NoNameOwner` when the requested
   name is absent and `NameOwnedNoMatch` when its owner-issued name domain
   contains the name but no identity candidate is selected.
 - `AssemblyDependencyResolver_PreservesOwnerIssuedNameDisposition` covers
-  package, sibling, project, and platform close negatives without deriving
-  ownership from an empty final identity match.
-- `SourceRelativeAssemblyGroupBindingPolicy_ContinuesOnlyAfterNoNameOwner`
-  covers both global and requesting-assembly origins and proves
-  `NameOwnedNoMatch` and `Undifferentiated` remain authoritative.
+  a readable same-name sibling that prevents installed-platform fallback
+  without deriving ownership from an empty final identity match.
 - `AssemblyBindingMissDisposition_OriginScopesRemainDistinct` proves global
   and requesting-assembly requests can carry different owner-issued
   dispositions and retain separate frozen cache entries.
