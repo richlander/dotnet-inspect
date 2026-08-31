@@ -31,12 +31,14 @@ The host:
 - treats realm destruction as the release barrier for every unresolved
   operation and callback assigned to that epoch.
 
-Moving the runtime, rather than returning a `Task` or Promise, keeps managed
-CPU work off the DOM event loop. The worker can still monopolize its own event
-loop. Cancellation commands, heartbeats, probes, and unrelated worker tasks
-cannot run while synchronous managed work holds that event loop. A synchronous
-managed progress callback can post a message from that same call stack, but it
-does not yield to queued worker tasks.
+Moving the runtime, rather than relying on a `Task` or Promise alone, keeps
+managed CPU work off the DOM event loop. `Task` and Promise still carry
+asynchronous completion; worker placement supplies event-loop isolation. The
+worker can still monopolize its own event loop. Cancellation commands,
+heartbeats, probes, and unrelated worker tasks cannot run while synchronous
+managed work holds that event loop. A synchronous managed progress callback
+can post a message from that same call stack, but it does not yield to queued
+worker tasks.
 
 ## User scenarios
 
