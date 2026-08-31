@@ -15,7 +15,6 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="ILInspector.JsExportSurface.Tests" />
-    <InternalsVisibleTo Include="tsbindgen" />
     <InternalsVisibleTo Include="ts-jsexport" />
   </ItemGroup>
 

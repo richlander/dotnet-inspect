@@ -6,7 +6,7 @@ namespace InspectWeb.Engine;
 /// <summary>
 /// Maps product-owned <see cref="ProductInspectionDemos"/> catalog and
 /// <see cref="ResolvedScenario"/> values to browser-local transport records so
-/// <c>tsbindgen</c> can generate real TypeScript interfaces (same reason as
+/// <c>ts-jsexport</c> can generate real TypeScript interfaces (same reason as
 /// <see cref="BrowserVocabulary"/>).
 /// </summary>
 internal static class BrowserProductHomeDemos
