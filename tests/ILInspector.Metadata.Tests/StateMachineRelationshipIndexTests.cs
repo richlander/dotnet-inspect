@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -477,6 +478,55 @@ public sealed class StateMachineRelationshipIndexTests
             Assert.Single(damaged.Failure.KickoffCandidates).Token);
         Assert.Empty(damaged.Failure.StateMachineCandidates);
         Assert.Empty(damaged.Failure.ClaimedTypes);
+    }
+
+    [Fact]
+    public void
+        StateMachineRelationshipIndex_IsolatesReservedConstructorTag()
+    {
+        byte[] bytes =
+            BuildClassicRelationshipImage(
+                ClassicRelationshipMutation.None,
+                addMalformedConstructorRow: true);
+        using (var pe = new PEReader(ImmutableArray.Create(bytes)))
+        {
+            MetadataReader reader = pe.GetMetadataReader();
+            int rowSize =
+                reader.GetTableRowSize(TableIndex.CustomAttribute);
+            int constructorOffset =
+                pe.PEHeaders.MetadataStartOffset
+                + reader.GetTableMetadataOffset(
+                    TableIndex.CustomAttribute)
+                + rowSize
+                + sizeof(ushort);
+            Span<byte> constructor =
+                bytes.AsSpan(constructorOffset, sizeof(ushort));
+            Assert.Equal(
+                (2 << 3) | 3,
+                BinaryPrimitives.ReadUInt16LittleEndian(constructor));
+            BinaryPrimitives.WriteUInt16LittleEndian(
+                constructor,
+                (2 << 3) | 4);
+        }
+
+        using var image = new LoadedImage(bytes);
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        var relationships =
+            Assert.IsType<StateMachineRelationshipsResult.Available>(
+                index.Relationships);
+
+        Assert.Single(relationships.Relationships);
+        Assert.IsType<StateMachineRelationshipResult.Resolved>(
+            index.GetByKickoff(
+                MetadataTokens.MethodDefinitionHandle(1)));
+        var damaged =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(4)));
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.Malformed,
+            damaged.Failure.Kind);
     }
 
     [Theory]

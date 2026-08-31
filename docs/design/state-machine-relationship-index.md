@@ -147,11 +147,16 @@ byte-length preflight before SRM materializes their strings, and the whole value
 blob is validated before decode: a trusted claim constructor takes exactly one
 `System.Type`, so a value carrying named arguments or trailing bytes is
 `Malformed` without materializing payloads the claim contract already forbids.
-Malformed metadata encountered while classifying one custom-attribute
-constructor is isolated to that attribute's owning kickoff. The kickoff is
-rejected as `Malformed`, without fabricating a claim kind, state-machine
-identity, or claimed name that the damaged row did not establish; discovery
-continues for other kickoff methods in the module. This includes typed
+Malformed metadata encountered while acquiring or classifying one
+custom-attribute constructor is isolated to that attribute's owning kickoff.
+Constructor coded-index extraction remains inside that row-local recovery
+boundary, and no classification is cached until it yields a stable constructor
+handle. The kickoff is rejected as `Malformed`, without fabricating a claim
+kind, state-machine identity, or claimed name that the damaged row did not
+establish; discovery continues for other kickoff methods in the module.
+`StateMachineRelationshipIndex_IsolatesMalformedConstructorRow` and
+`StateMachineRelationshipIndex_IsolatesReservedConstructorTag` gate the
+acquisition and coded-index paths. This includes typed
 type-name-reader rejections returned for malformed and over-budget constructor
 type names and resolution-scope walks, TypeSpec guard rejections, and failures
 nested inside composite TypeSpec shapes, not only exceptions thrown while

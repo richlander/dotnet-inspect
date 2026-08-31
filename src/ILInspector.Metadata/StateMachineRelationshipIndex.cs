@@ -406,11 +406,13 @@ public sealed class StateMachineRelationshipIndex
             {
                 Charge();
                 CustomAttribute attribute;
+                EntityHandle constructor;
                 AttributeConstructorClassification classification;
                 try
                 {
                     attribute =
                         _reader.GetCustomAttribute(attributeHandle);
+                    constructor = attribute.Constructor;
                 }
                 catch (Exception ex) when (
                     IsRecoverableMetadataFailure(ex))
@@ -420,14 +422,14 @@ public sealed class StateMachineRelationshipIndex
                 }
 
                 if (!_attributeConstructors.TryGetValue(
-                        attribute.Constructor,
+                        constructor,
                         out classification))
                 {
                     try
                     {
                         classification =
                             _signatures.ClassifyAttributeConstructor(
-                                attribute.Constructor);
+                                constructor);
                     }
                     catch (Exception ex) when (
                         IsRecoverableMetadataFailure(ex))
@@ -438,7 +440,7 @@ public sealed class StateMachineRelationshipIndex
                     }
 
                     _attributeConstructors.Add(
-                        attribute.Constructor,
+                        constructor,
                         classification);
                 }
 
