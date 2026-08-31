@@ -830,8 +830,9 @@ failed. Cleanup failure never selects or replaces the terminal primary.
 
 ### Shareable completion and demand projections
 
-**Status:** target design for #5122; unimplemented and unverified until the
-named gates below land.
+**Status:** implemented for #5122 and verified by the named
+`PackageAssemblyContextCompletionTests` Release gates below. Coordinated
+workspace adoption remains separate under #5185.
 
 One successfully opened package-role operation produces one
 workspace-owned `PackageAssemblyContextCompletion`. The completion owns the
@@ -1317,9 +1318,9 @@ begin group access. A use that linearizes before return may finish after the
 lease is removed; package-role quiescence prevents terminal cleanup from
 completing until that already-started use ends. `AssemblyContextGroup`
 `RetainAssemblyReference` can create an independent non-pooled snapshot whose
-lifetime already outlives group disposal. #5122 must decide explicitly whether
-the projection exposes that capability; returning the lease ends access
-through the projection but cannot revoke an independently retained snapshot.
+lifetime already outlives group disposal. The #5122 projection does not expose
+that capability; returning the lease therefore ends all access through the
+projection without creating an independently retained snapshot.
 
 ### Shared-realization lifetime
 
