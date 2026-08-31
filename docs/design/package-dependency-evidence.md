@@ -199,7 +199,9 @@ constraints without becoming a normalization conflict.
 
 Restored-project facts supply their already-logical authored framework groups.
 This query does not merge those groups merely because their declaration sets
-or framework scopes compare equal.
+or framework scopes compare equal. One logical group is supplied for every
+authored project target framework, including a framework with zero direct
+package declarations.
 
 The common projection contains only facts both package manifests and restored
 project graphs can state as declarations. It excludes:
@@ -239,6 +241,10 @@ implicit or explicit is retained as group provenance, not framework identity.
 This contract names semantics, not a package dependency; implementation remains
 NativeAOT- and Browser-Wasm-compatible.
 
+An unrecognized scope's opaque identity is internal comparison state, not
+renderable artifact text. Sinks receive its kind and `InertString` display
+evidence; they do not serialize or render the raw identity token.
+
 The selected restored target framework is resolution context, not a substitute
 for an unavailable authored declaration scope. This query does not infer
 framework compatibility or claim that a `netstandard2.0` declaration has
@@ -257,9 +263,10 @@ typed reason. If either paired root has incomplete declaration projection,
 including any typed declaration failure, both comparisons return
 **Not comparable: declaration projection incomplete**.
 
-Declaration projection is complete when every owner-issued declaration for
-that root contributes a normalized row and no typed declaration failure
-occurs. Unavailable or unrecognized framework scope is a complete declaration
+Declaration projection is complete when every owner-issued logical group,
+including an empty group, is represented; every owner-issued declaration
+contributes a normalized row; and no typed declaration failure occurs.
+Unavailable or unrecognized framework scope is a complete declaration
 projection with non-comparable scope; it does not prevent core comparison.
 
 Otherwise, core comparison retains logical-group multiplicity and returns
@@ -327,11 +334,10 @@ these observations; that later operation must preserve unknown and failed
 states.
 
 An owner value contains canonical owner identity separately from its
-`InertString` display spelling. Equivalent canonical package identities must
-carry the same immutable owner observation within an outcome. Conflicting
-supplied observations are a typed input-contract failure, not a reason to pick
-one. Resolver batching, caching, source selection, retry, and network policy
-remain outside this owner.
+`InertString` display spelling. #5315 supplies an immutable mapping with at
+most one observation per canonical package identity, so conflicting
+observations are unrepresentable at this boundary. Resolver batching, caching,
+source selection, retry, and network policy remain outside this owner.
 
 ## Equivalence
 
@@ -378,8 +384,13 @@ in each outcome but excluded from cross-input semantic equality.
 Selected-group equivalence compares the selected logical group's core or scoped
 signature and selection status, not the incidental source ordinal. It returns
 not comparable when either paired root's declaration projection is incomplete;
-equal for matching absence statuses; unequal for differing statuses; and,
-when both are selected, applies the same core or scoped signature rules.
+not comparable with **selection status unavailable** unless both roots carry an
+owner-issued selection status; equal for matching absence statuses; unequal
+for differing statuses; and, when both are selected, applies the same core or
+scoped signature rules. Package/nuspec pairs carry that status.
+Restored-project roots currently do not, so package/restored selected-group
+comparison is not comparable even when their full core or scoped declarations
+are equal.
 
 Input-specific evidence is asserted separately. A restored graph may therefore
 be equal under the declared projection while also reporting resolved versions
@@ -399,6 +410,12 @@ logical group:
 
 1. dependency package identity;
 2. NuGet version-constraint identity.
+
+Each logical group has a deterministic normalized order key. An explicit group
+uses its source occurrence position. The coalesced implicit universal group
+uses the minimum position of its constituent source occurrences. Restored facts
+supply their owner-issued logical-group order key. Constituent positions remain
+separate provenance.
 
 The equivalence projection compares canonical group signatures as a multiset.
 It does not rely on XML element order, JSON property order, source relevance
@@ -613,8 +630,12 @@ Implementation must establish:
   root;
 - distinct implicit and explicit universal groups with conflicting constraints
   remaining separate while exact selected-group correspondence is preserved;
+- package/nuspec selected-group equivalence and package/restored
+  not-comparable selection status;
 - interleaved and adjacent implicit dependency runs producing the same logical
-  group, conflict outcome, and selected declarations;
+  group, normalized group order, conflict outcome, and selected declarations;
+- empty logical groups retained in completion and group-signature multiplicity,
+  including repeated empty groups and cross-input empty-framework equivalence;
 - repeated declaration-set signatures with mixed exact and unavailable scopes
   producing deterministic not-comparable scoped evidence;
 - a multi-root prefix outcome whose unrelated incomplete or unrecognized root
@@ -622,10 +643,9 @@ Implementation must establish:
 - root-set truncation retained separately from comparison of already-admitted
   complete roots;
 - a diamond restored graph retaining distinct parent edges and constraints;
-- conflicting supplied owner observations producing typed input-contract
-  failure;
 - hostile text containment at query-result construction, with sink retention
-  gated by each later JSON or Markout adopter; and
+  gated by each later JSON or Markout adopter, including no raw unrecognized
+  framework identity at a sink; and
 - visible root, declaration, and enrichment failures.
 
 Until those Release gates exist, the implementation properties are
