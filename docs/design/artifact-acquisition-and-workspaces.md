@@ -1423,8 +1423,9 @@ assembly inspection must understand.
 
 #### Package Root realization
 
-An exact acquired package is a `PackageRootRealization` before compile-asset
-selection succeeds. That host-neutral product result retains:
+An exact acquired package is a `PackageRootRealization` regardless of whether
+compile asset selection succeeds. That host-neutral package-level result
+retains:
 
 - exact package id and version;
 - the requested target framework and the selector's selected framework, when
@@ -1435,6 +1436,22 @@ selection succeeds. That host-neutral product result retains:
   `NoCompileAssets`, `NoMatchingTargetFramework`, `EmptyCompileGroup`, and
   `InvalidImplementationAssets`.
 
+Here, a compile asset is a package assembly selected as a compile-time
+reference; a focused description of
+[NuGet package structure and asset roles](https://github.com/richlander/dotnet-inspect/issues/5294)
+is tracked separately.
+
+The related identity concepts have distinct jobs:
+
+| Concept | Meaning |
+| --- | --- |
+| `PackageRootRealization` | The in-process package-level selection outcome over already-acquired content. It remains valid for Root-only and unsuccessful selection outcomes and is not by itself a cache or admission identity. |
+| `RealizedMemberCoordinate.Package` | The canonical, portable request that repeats the same package, version, producer, and acquisition target. Unlike a possibly floating `WorkspaceMemberCoordinate`, every identity field has already been resolved. It does not promise the same bytes forever. |
+| `ProducerKey` | The opaque, credential-free identity of the content producer. The acquired content and payload carry this value, and the realized coordinate records the same value as `Producer`. It distinguishes sources but not successive byte generations from one source. |
+| `PackageContentGenerationIdentity` | The process-local identity of one retained immutable package-content snapshot. Cache handles over that retained snapshot may share the identity; a replacement snapshot receives a new identity. |
+| `PackageRootSelectionIdentity` | The process-local identity of one frozen package-selection occurrence. |
+| `PackageRootBinding` | The acquisition-issued value that joins one Root, realized coordinate, content-snapshot identity, and frozen selection and proves their correspondence. |
+
 Acquisition issues a `PackageRootBinding` from one
 `AcquiredPackagePayload` or `AcquiredPackageSourcePayload`. The immutable
 binding carries the exact `PackageRootRealization`, its authoritative
@@ -1444,22 +1461,22 @@ binding carries the exact `PackageRootRealization`, its authoritative
 content and acquisition result name the same producer before selection, then
 creates the Root, snapshots every selection sequence into read-only storage,
 and mints the coordinate and both identities without repeating coordinate
-resolution, content acquisition, or compile-asset selection.
+resolution, content acquisition, or compile asset selection.
 The acquired payload result has an internal constructor and get-only
 properties, so ordinary consumers cannot forge a coordinate/content pairing
 or replace either half after acquisition issues it.
 
 The content-generation identity is an opaque, credential-free reference token
-owned by `IPackageContent`. Every binding over the same content handle shares
-it. A store may preserve that token across handles to one retained cache
-generation; the Browser and in-memory stores do so. A replacement payload
-must receive a new token, even under the same package/version/producer slot.
+for one retained immutable package-content snapshot, owned by
+`IPackageContent`. Every binding over the same content handle shares it. A
+store may preserve that token across handles to one retained cache snapshot;
+the Browser and in-memory stores do so. A replacement snapshot must receive a
+new token, even under the same package/version/producer slot.
 Implementations without a retained-generation registry conservatively receive
 one token per content handle. Equal identities therefore guarantee the same
-retained content generation for the binding lifetime, while unequal
-identities make no claim about byte inequality. The token is deliberately
-process-local and is never serialized or reconstructed from coordinate
-display fields.
+retained immutable snapshot for the binding lifetime, while unequal identities
+make no claim about byte inequality. The token is deliberately process-local
+and is never serialized or reconstructed from coordinate display fields.
 
 The selection identity is also an opaque reference token, minted once for one
 binding after the typed selection has been frozen. Equal identities guarantee
@@ -1484,7 +1501,7 @@ package-supplied asset folder. The original selection target and typed outcome
 remain on the Root and selection identity. The optional runtime identifier is
 carried exactly and must already be canonical. The resolved multi-source path
 uses its already normalized acquisition framework and runtime identifier even
-when a caller requests a different framework for compile-asset selection. A
+when a caller requests a different framework for compile asset selection. A
 coordinate that cannot pass the existing canonical
 `RealizedMemberCoordinate.Package` grammar fails construction visibly.
 
