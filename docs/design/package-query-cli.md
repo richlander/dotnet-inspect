@@ -146,6 +146,12 @@ between 1 and..."). `-S` and `--where` are also not yet wired (there is
 currently exactly one section, `Packages`, so `-S` selection is moot until the
 facet layer adds more to select between).
 
+While that legacy spelling remains, numeric `-t` clamps the package candidates
+the source is asked to return and is mutually exclusive with `--count`.
+Accepting both would present a count over an intentionally shortened
+acquisition as though no package clamp applied. This package-source rule does
+not define how `--count` composes with L2 row windows.
+
 **Interaction concern for the next CLI slice:** the Sections migration and the
 `-t`→`-n` flag rename were assumed to be one atomic step; in practice they
 decoupled, and the migration landed first. The CLI facet wiring in

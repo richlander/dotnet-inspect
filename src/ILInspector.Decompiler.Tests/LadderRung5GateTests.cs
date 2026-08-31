@@ -220,7 +220,7 @@ public class LadderRung5GateTests
     }
 
     // The compiler-synthesized record members render at the rung 5 bar. These pin
-    // the two fixes that closed the modern-syntax burndown rows (#1632, #1639) so
+    // the two fixes that closed the modern-syntax docket rows (#1632, #1639) so
     // they cannot silently regress.
     [Fact]
     public void Rung5Fixture_RendersRecordMembers()

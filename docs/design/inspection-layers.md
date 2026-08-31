@@ -63,7 +63,8 @@ the ownership boundaries below, not the project count.
 layer. L3 does not reach the leaf directly; its boundary output is typed
 operation intent. L2 owns resolution into the executable plan and typed source
 request. L1 or source owners may analyze that request for equivalent execution
-and return a typed result with completion evidence. The
+and return a typed result with completion evidence through the
+[source delegation](source-delegation.md) pattern. The
 [composition map](item-and-line-limits.md#composition) owns the exact sequence.
 L2 and L1/source owners reach the leaf without depending on one another.
 
@@ -827,6 +828,134 @@ flatten, retain, count, reorder, or reinterpret the group's exception graph.
 One group-level `Failed` record says only that release of that planned group
 failed. Cleanup failure never selects or replaces the terminal primary.
 
+### Shareable completion and demand projections
+
+**Status:** target design for #5122; unimplemented and unverified until the
+named gates below land.
+
+One successfully opened package-role operation produces one
+workspace-owned `PackageAssemblyContextCompletion`. The completion owns the
+combined role groups, immutable participant layout, and exact keyed cleanup
+completion. It does not retain the first demand's
+`PackageRootIdentity` objects as the identity of that shared layout, and it
+never flows to a demand as a caller-disposable value.
+
+The operation is prepared before it is started. Preparation snapshots the
+ordered selected `PackageRootBinding` antecedents and returns one cold,
+single-use operation with an opaque operation identity. Exact-request
+admission publishes that identity before invoking the operation. Execution
+accepts no demand cancellation token: a canceled demand stops waiting through
+the admission owner, while the workspace-owned operation continues to one
+explicit success or failure. The executor provides a cooperative scheduling
+opportunity before opening the first selected asset and after at most each
+subsequent asset realization attempt. This bounds host scheduling latency at
+asset granularity without claiming that decoding one asset is preemptible or
+requiring a background thread.
+
+The completion issues one `PackageAssemblyContextProjection` per admitted
+demand. Projection creation receives:
+
+- the exact ordered selected coordinate, content-generation, and selection
+  antecedents that admission matched to the completion; and
+- that demand's ordered `PackageRootIdentity` references for those same
+  selected package slots.
+
+The completion verifies exact antecedent count, order, coordinate value, and
+generation and selection token identity before issuing a projection. It then
+creates fresh `PackageAssemblyRoleParticipant` wrappers that retain the
+receiving demand's exact Root references while reusing the completion's
+underlying `AssemblyContextParticipant` objects. Surface and implementation
+participant order, shared/separate topology, reference-only absence, and
+`ImplementationParticipant` correspondence remain identical to the shared
+layout. Root-only packages remain outside this projection because the
+admission contract omits them from the selected request and the host retains
+them independently.
+
+A projection exposes non-owning surface and optional implementation role
+views. A role view is a Queries-owned query target, not an
+`AssemblyContextGroup`: it exposes the demand-local participant wrappers and
+permits only operations that retain the participant and group for the duration
+of that query. It exposes no `Dispose`, group-release request, owned-resource
+registration, or release-after-use operation. In particular,
+`AssemblyContextIntegrationsQuery.ExecuteParticipantAsync` is not available
+through the view because its completion permanently releases a participant.
+The projection also does not expose
+`AssemblyContextGroup.RetainAssemblyReference`; that operation creates an
+independent snapshot whose retained-byte lifetime would escape the demand and
+the shared completion's lease boundary.
+
+Projection access and return have one atomic linearization boundary. Each
+projection tracks only its own active uses:
+
+- access that linearizes before return may complete using the shared group;
+- return closes that projection to new access immediately, waits for its
+  already-linearized uses, then removes only that demand's use from the
+  completion;
+- access that linearizes after return throws
+  `ObjectDisposedException` naming the projection before entering the group;
+  and
+- concurrent or repeated return calls observe one shared completion and have
+  no effect on other projections.
+
+Returning or closing from inside an active use of the same projection is a
+programmer error rejected before lifetime state changes; otherwise awaiting
+the operation would wait on itself. A completion-global active-use counter is
+unnecessary: the completion retains the exact set of outstanding projections,
+and each projection owns its own use drain.
+
+`PackageAssemblyContextCompletion.CloseAsync` is the only package-role
+terminal-release request. It accepts no cancellation token, atomically closes
+projection admission, waits for every issued projection to return, then
+requests release of each distinct planned group and awaits the existing group
+quiescence protocol. A close racing the final projection return linearizes in
+either order but starts group cleanup once. Repeated close calls return the
+same task and immutable `PackageRoleCleanupReport` instance. The wait may be
+indefinite when a demand violates the admission owner's explicit assumption
+that every issued lease eventually returns; the completion does not revoke or
+forge that demand's return.
+
+Cleanup records retain the exact `PackageRoleGroupId` domain and states defined
+above. Shared topology produces one record; separate topology produces two;
+record order never substitutes for identity. Expected group-release failure is
+captured at that group's release completion and remains a keyed `Failed`
+record; it does not escape through another demand's query or replace a primary
+operation result. The completion retains no caller cancellation source, and a
+projection retains no terminal release capability.
+
+The current `PackageAssemblyContextRealization : IDisposable` remains a
+single-caller compatibility surface. It may continue to expose and dispose its
+groups, but exact-request admission must never cache or share it. The new
+completion is initially package-role-owned beside that compatibility path.
+Coordinated workspace registration, workspace-close signaling, late
+completion, and preservation of existing lease-holder access during workspace
+close remain owned by
+[Workspace close and group release authority](../inspection-space.md#workspace-close-and-group-release-authority)
+and are adopted separately by #5185.
+
+The adjacent exact-request admission and assembly-context group lifecycle
+models bound cache leases and group quiescence respectively. Neither model
+claims to prove projection construction or its use/return boundary. The
+implementation therefore names direct Release gates:
+
+- `PackageRealizationProjection_PreservesDemandPackageIdentityAndOrder`
+- `PackageRealizationProjection_OneReturnDoesNotInvalidateAnotherDemand`
+- `PackageRealizationProjection_CannotTerminallyReleaseSharedParticipant`
+- `PackageRealizationProjection_RetainedSnapshotPolicyIsExplicit`
+- `PackageRealizationLeaseHolder_CannotReleaseSharedGroup`
+- `PackageRealizationReturnedLease_RejectsProjectionAccess`
+- `PackageRealizationConcurrentUseAndReturn_LinearizesBeforeCleanup`
+- `PackageRealizationProjection_ReentrantReturnRejectsBeforeMutation`
+- `PackageRealizationCompletion_LastReturnAndCloseStartCleanupOnce`
+- `PackageRealizationCompletion_CloseReturnsExactKeyedCleanupDomain`
+- `PackageRealizationCompletion_RepeatedCloseSharesReport`
+- `PackageRealizationLease_ReturnIsIdempotent`
+- `PackageRealizationRelease_WaitsForEveryLease`
+- `PackageRealizationRelease_UsesPackageRoleCompletionExactlyOnce`
+- `PackageRealizationCleanupFailure_RemainsVisible`
+- `PackageRealizationOperation_IsWorkspaceOwnedAndCallerIndependent`
+- `PackageRealizationOperation_CannotRunBeforeInFlightPublication`
+- `PackageRealizationOperation_HasBoundedCooperativeProgress`
+
 Realization has one terminal-primary commitment. Explicit cancellation
 checkpoints and expected rejection/failure sites compete to select it; the
 first selected terminal primary wins. After commitment, mandatory cleanup does
@@ -870,11 +999,15 @@ Migration preserves dependency direction and current behavior:
    throwing `RealizePackageAssemblyContextRoles` compatibility API. The
    synchronous compatibility API retains its current throwing behavior; it
    does not implement the target complete-report contract.
-4. The package composition adapter supplies its typed selected-role and
+4. L1 adds the shareable completion and demand-local projection boundary above
+   without changing workspace registration ownership. The completion becomes
+   the package-role release authority consumed by later admission and
+   workspace-adoption slices.
+5. The package composition adapter supplies its typed selected-role and
    Artifacts correspondence inputs after that adjacent migration exists. This
    document does not prescribe the adapter's type, factory, accessibility,
    acquisition, or package-selection implementation.
-5. Product callers migrate to the typed path. Only then may the compatibility
+6. Product callers migrate to the typed path. Only then may the compatibility
    `AggregateException` surfaces and direct package dependencies be retired
    under their owning migration plans.
 
@@ -902,6 +1035,24 @@ land:
 - `PackageRoleCancellationException_AfterTransferCarriesCleanupReport`
 - `PackageRoleAsyncLifecycle_NeverBlocksSingleThreadedHost`
 - `PackageRoleTargetPath_ReturnsKeyedFailuresWithoutAggregateException`
+- `PackageRealizationProjection_PreservesDemandPackageIdentityAndOrder`
+- `PackageRealizationProjection_OneReturnDoesNotInvalidateAnotherDemand`
+- `PackageRealizationProjection_CannotTerminallyReleaseSharedParticipant`
+- `PackageRealizationProjection_RetainedSnapshotPolicyIsExplicit`
+- `PackageRealizationLeaseHolder_CannotReleaseSharedGroup`
+- `PackageRealizationReturnedLease_RejectsProjectionAccess`
+- `PackageRealizationConcurrentUseAndReturn_LinearizesBeforeCleanup`
+- `PackageRealizationProjection_ReentrantReturnRejectsBeforeMutation`
+- `PackageRealizationCompletion_LastReturnAndCloseStartCleanupOnce`
+- `PackageRealizationCompletion_CloseReturnsExactKeyedCleanupDomain`
+- `PackageRealizationCompletion_RepeatedCloseSharesReport`
+- `PackageRealizationLease_ReturnIsIdempotent`
+- `PackageRealizationRelease_WaitsForEveryLease`
+- `PackageRealizationRelease_UsesPackageRoleCompletionExactlyOnce`
+- `PackageRealizationCleanupFailure_RemainsVisible`
+- `PackageRealizationOperation_IsWorkspaceOwnedAndCallerIndependent`
+- `PackageRealizationOperation_CannotRunBeforeInFlightPublication`
+- `PackageRealizationOperation_HasBoundedCooperativeProgress`
 
 The expected binding, group, and cleanup sets must be derived from the plan, so
 both missing and stale entries fail. The no-open gate must observe the real
@@ -986,10 +1137,9 @@ identify one selectable occurrence. `Producer` distinguishes feeds, but it is
 source identity rather than immutable content-generation identity. A store may
 replace bytes under the same package/version/producer key, so coordinate
 equality alone cannot authorize reuse.
-That observation conflicts with the current realized-coordinate documentation
-that promises transporting the coordinate can reacquire the same bytes.
-Acquisition issue #5121 must resolve that owner contract rather than admission
-choosing one interpretation.
+The realized coordinate therefore promises a repeatable producer-bound
+acquisition request, not immutable bytes; acquisition's generation identity is
+the immutable-content proof.
 
 Each selected request member therefore also carries an acquisition-owned,
 opaque content-generation identity. Equal generation identities within the
@@ -1008,11 +1158,11 @@ same ordered surface and implementation asset sequences. Admission compares
 that token without defining TFM matching, asset paths, selection ordering, or
 selection failure semantics.
 
-The generation and selection guarantees consumed here are target guarantees,
-not current verified product facts. They remain unverified until
+The generation and selection guarantees consumed here are acquisition-owned
+product facts, gated by
 `PackageRootGenerationIdentity_ReplacementChangesIdentity`,
 `PackageRootSelectionIdentity_DifferentAssetsChangeIdentity`, and
-`RealizedPackageCoordinate_ReacquisitionContractIsCoherent` land under #5121.
+`RealizedPackageCoordinate_ReacquisitionContractIsCoherent`.
 
 Individual assembly content still has no equivalent independent coordinate, so
 this layer does not admit by assembly identity and does not replace
@@ -1061,13 +1211,12 @@ generation tokens. Duplicate coordinates are rejected visibly before cache
 lookup, so they cannot join an entry or multiply one package occurrence inside
 a combined group.
 
-`PackageRootRealization` does not currently carry the complete resolved
-coordinate: it lacks a runtime identifier and its descriptive fields are not
-the coordinate authority. It also exposes no immutable content-generation
-or selection identity. The target input therefore requires a separate
-owner-issued typed seam before implementation (#5121). This section consumes
-that typed binding; it does not define coordinate construction, normalization,
-generation, selection, or acquisition.
+`PackageRootRealization` alone still does not carry the complete resolved
+coordinate and is not an admission identity. Acquisition now issues
+`PackageRootBinding`, which carries that Root, the authoritative coordinate,
+content-generation identity, and selection identity for one occurrence. This
+section consumes that typed binding; it does not define coordinate
+construction, normalization, generation, selection, or acquisition.
 
 ### Admission and publication
 
@@ -1238,9 +1387,8 @@ recorded failure, that exact request is terminal for the disposed workspace.
 
 Implementation of #4960 must not begin until:
 
-- an owner-issued typed input binds every selected root to its resolved package
-  coordinate, immutable content-generation identity, and exact selection
-  identity (#5121);
+- the owner-issued `PackageRootBinding` input and its #5121 generation,
+  selection, coordinate, and adopter gates have landed;
 - the package-role boundary supplies a shareable completion and demand-local
   participant projection instead of the caller-owned disposable compatibility
   result (#5122);

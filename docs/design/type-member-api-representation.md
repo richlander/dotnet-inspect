@@ -93,7 +93,7 @@ binding is unverified pending
 | `TypeNode` | One API extraction operation | Rich signature facts and inputs to display or identity projections | Cross-layer public currency or definition correspondence |
 | `MetadataMemberSignatureShape` adapter | One MethodDef signature | How an SRM signature projects into the model-free `CSharpText` correspondence shape | Source binding, authoritative identity, or ordinal fallback policy |
 | `ApiType`, `ApiMember`, `ApiParameter` | Materialized, JSON-capable API output | API inventory, presentation fields, and persisted identity projections | Reader-local resolution or body identity |
-| `ApiTypeShape` | One identity-sensitive API signature or serializer root | Primitive code, array rank, exact named definition, and constructed generic arguments | Display spelling, assembly resolution, or universal type correspondence |
+| `ApiTypeShape` | One identity-sensitive API signature or serializer root | Primitive code, array kind and rank, exact named definition, and constructed generic arguments | Display spelling, assembly resolution, or universal type correspondence |
 | `MemberTargetSelector` | One member-selection request | The user's member question, including overload and digest syntax | Evidence that selection succeeded |
 | `MetadataNamedTypeReference` | One decoded signature detached from its reader | Which exact named type definition and metadata scope the signature denotes | Resolution to an acquired assembly, constructed-type shape, or display spelling |
 | `StateMachineRelationship` and `StateMachineRelationshipResult` | One physical metadata module | Which kickoff, same-module state-machine type, and exact interface implementation methods form an authenticated compiler-state-machine relationship, or why structural authentication failed | Analysis attribution, decompiler reconstruction eligibility, source ownership, or presentation policy |
@@ -127,6 +127,24 @@ remains a named shape rather than aliasing an intrinsic primitive.
 `ReadJsonSerializableRoots_RejectsMalformedGenericDelimitersAndArity` gate
 and `ReadJsonSerializableRoots_DoesNotAliasBogusPrimitiveAssembly` gate that
 contract.
+
+Metadata API signatures preserve the ECMA-335 distinction between vector
+arrays and non-SZ arrays in the identity projections owned here: `T[]` is an
+SZ array, rank-one non-SZ is `T[*]`, and higher ranks are `T[,]`, `T[,,]`, and
+so on. Canonical signature spelling composes that distinction through generic
+arguments, tuple elements, pointers, by-reference forms, and
+generic-parameter positions;
+`ApiTypeShape.Kind` distinguishes `SzArray` from `Array`; and materialized
+member anchors and direct SRM anchors each retain the distinction in their
+own projection-specific spelling. The ordinary vector display remains `T[]`.
+The `[*]` array marker is not pointer evidence and does not make an
+`ApiMember` unsafe; a separate pointer or function-pointer star still does.
+The opaque structural string used by legacy call-graph correspondence remains
+outside this exact array-kind contract.
+`ArrayKindIdentityTests` gates valid, CLR-resolvable synthetic metadata through
+decode, canonical identity, typed shape equality, anchor projection, unsafe
+classification, JSON persistence, exact API comparison, and compatibility of
+Metadata's existing payload-bearing structural output.
 
 `ApiMember.HasMethodBody` preserves the nullable MethodDef RVA/body fact beside
 the API member, and `HasRuntimeJsExportWrapperCandidate` preserves whether
@@ -445,7 +463,7 @@ into a display string or a durable identifier.
 | --- | --- | --- | --- |
 | `TypeResolutionCatalog` | One inspection and its progressive generations | Which acquisition, declaration, stable-policy binding, and resolution-recipe caches generations share | A frozen answer set or ownership by one context |
 | `TypeResolutionContext` | One frozen catalog generation | Which manifested bindings and type requests may execute without policy or source work | Requests absent from the manifest or answers after catalog disposal |
-| `AssemblyBindingRequest`, `AssemblyBindingSelection`, and `AssemblyBindingOutcome` | One source-relative or global binding question | Which structured target policy selected and, for a miss, whether it proved no name owner, reported a name-owned mismatch, or retained an undifferentiated legacy result | Type lookup or hidden fallback probing |
+| `AssemblyBindingRequest`, `AssemblyBindingSelectionSnapshot`, `AssemblyBindingSelection`, and `AssemblyBindingOutcome` | One source-relative or global binding question | Which exact policy version governed the selection and, for a miss, whether it proved no name owner, reported a name-owned mismatch, or retained an undifferentiated legacy result | Type lookup or hidden fallback probing |
 | `TypeResolutionRequest` | One resolution operation | Which typed start candidate/binding target and exact name to resolve | Decoded provenance or reusable identity |
 | `TypeResolutionRequestComparer` | One request manifest | Whether separately constructed requests occupy the same frozen manifest entry | Type correspondence, outcome equality, or cross-generation reuse |
 | `TypeResolutionOutcome` | One frozen catalog generation | The complete resolution verdict, non-success evidence, and ordered hops | Definition equality or a nullable success result |

@@ -4832,6 +4832,85 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task BrowserPackageRealization_ReceivesAcquisitionIssuedCoordinate()
+    {
+        string packageId = $"Gallery.Binding.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        byte[] archive = Package(
+            [0x01],
+            $"lib/net11.0/{packageId}.dll");
+        var handler = new GalleryPackageHandler(
+            packageId,
+            version,
+            archive);
+        using IPackageSourceClient source = Gallery(handler);
+
+        BrowserPackageCoordinate coordinate =
+            await BrowserPackageWorkspace.ResolveAsync(
+                packageId,
+                version,
+                "net11.0",
+                source,
+                TimeSpan.FromSeconds(5));
+
+        PackageRootBinding binding = Assert.IsType<PackageRootBinding>(
+            coordinate.Binding);
+        Assert.Same(binding.Root, coordinate.Root);
+        Assert.Equal(packageId.ToLowerInvariant(), binding.Coordinate.PackageId);
+        Assert.Equal(version, binding.Coordinate.Version);
+        Assert.Equal("net11.0", binding.Coordinate.Framework);
+        Assert.Null(binding.Coordinate.RuntimeIdentifier);
+        Assert.Equal(
+            NuGetCache.GetSourceKey(PackageSourceIdentity.NuGetOrg.Value),
+            binding.Coordinate.Producer);
+        Assert.True(binding.Root.ReferencesContent(coordinate.Package.Content));
+    }
+
+    [Fact]
+    public async Task BrowserPackageRealization_WithoutFrameworkKeepsHostProjectionSemantics()
+    {
+        string selectedId = $"gallery.binding.selected.{Guid.NewGuid():N}";
+        var selectedHandler = new GalleryPackageHandler(
+            selectedId,
+            "1.0.0",
+            Package(
+                [0x01],
+                $"lib/net11.0/{selectedId}.dll"));
+        using IPackageSourceClient selectedSource = Gallery(selectedHandler);
+        BrowserPackageCoordinate selected =
+            await BrowserPackageWorkspace.ResolveAsync(
+                selectedId,
+                "1.0.0",
+                targetFramework: null,
+                selectedSource,
+                TimeSpan.FromSeconds(5));
+
+        Assert.Null(selected.RealizedCoordinate.Framework);
+        Assert.Equal("net11.0", selected.Framework);
+        Assert.True(selected.Selection.IsSelected);
+
+        string rootOnlyId = $"gallery.binding.root.{Guid.NewGuid():N}";
+        var rootOnlyHandler = new GalleryPackageHandler(
+            rootOnlyId,
+            "1.0.0",
+            PackageDocuments(1));
+        using IPackageSourceClient rootOnlySource = Gallery(rootOnlyHandler);
+        BrowserPackageCoordinate rootOnly =
+            await BrowserPackageWorkspace.ResolveAsync(
+                rootOnlyId,
+                "1.0.0",
+                targetFramework: null,
+                rootOnlySource,
+                TimeSpan.FromSeconds(5));
+
+        Assert.Null(rootOnly.RealizedCoordinate.Framework);
+        Assert.Equal("", rootOnly.Framework);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoCompileAssets,
+            rootOnly.Selection.Status);
+    }
+
+    [Fact]
     public async Task PackageAcquisition_GalleryFailureRemainsVisible()
     {
         string packageId = $"gallery.failure.{Guid.NewGuid():N}";
@@ -4982,6 +5061,96 @@ public sealed class BrowserEngineBoundaryTests
         Assert.False(first.IsCompleted);
         await Assert.ThrowsAsync<TimeoutException>(() => first);
         Assert.Equal(1, handler.Requests);
+    }
+
+    [Fact]
+    public void PendingAcquisitionAssociation_UsesCoordinateAndExactClientReference()
+    {
+        using IPackageSourceClient gallery =
+            PackageSourceClientFactory.CreateGallery();
+        using IPackageSourceClient v3 =
+            PackageSourceClientFactory.Create(
+                PackageSourceDescriptor.NuGetV3(
+                    "nuget-v3",
+                    "NuGet.org v3",
+                    new Uri("https://api.nuget.org/v3/index.json")));
+        const string coordinate = "example@1.0.0";
+
+        Assert.Equal(gallery.Identity, v3.Identity);
+        Assert.NotEqual(gallery.Kind, v3.Kind);
+
+        var galleryKey =
+            new BrowserPackageWorkspace.PendingAcquisitionKey(
+                coordinate,
+                gallery);
+        var equivalentGalleryKey =
+            new BrowserPackageWorkspace.PendingAcquisitionKey(
+                coordinate,
+                gallery);
+        var v3Key =
+            new BrowserPackageWorkspace.PendingAcquisitionKey(
+                coordinate,
+                v3);
+
+        Assert.Equal(galleryKey, equivalentGalleryKey);
+        Assert.Equal(
+            galleryKey.GetHashCode(),
+            equivalentGalleryKey.GetHashCode());
+        Assert.NotEqual(galleryKey, v3Key);
+
+        FieldInfo[] fields = typeof(
+                BrowserPackageWorkspace.PendingAcquisitionKey)
+            .GetFields(
+                BindingFlags.Instance
+                | BindingFlags.NonPublic);
+        Assert.Equal(2, fields.Length);
+        Assert.Contains(fields, field => field.FieldType == typeof(string));
+        Assert.Contains(
+            fields,
+            field => field.FieldType == typeof(IPackageSourceClient));
+    }
+
+    [Fact]
+    public async Task PackageAcquisition_DistinctSameProducerClientsDoNotSharePendingTransfer()
+    {
+        string packageId =
+            $"distinct.pending.package.{Guid.NewGuid():N}";
+        const string version = "1.0.0";
+        var stalledHandler = new StallingPackageHandler();
+        var servingHandler = new GalleryPackageHandler(
+            packageId,
+            version,
+            PackageDocuments(1));
+        using IPackageSourceClient stalledSource =
+            Gallery(stalledHandler);
+        using IPackageSourceClient servingSource =
+            Gallery(servingHandler);
+
+        Assert.Equal(stalledSource.Identity, servingSource.Identity);
+        Assert.NotSame(stalledSource, servingSource);
+
+        Task<BrowserPackage> stalled =
+            BrowserPackageWorkspace.AcquireAsync(
+                packageId,
+                version,
+                stalledSource,
+                TimeSpan.FromMilliseconds(500));
+        await stalledHandler.RequestStarted.Task.WaitAsync(
+            TimeSpan.FromSeconds(1),
+            TestContext.Current.CancellationToken);
+
+        BrowserPackage served =
+            await BrowserPackageWorkspace.AcquireAsync(
+                packageId,
+                version,
+                servingSource,
+                TimeSpan.FromSeconds(5));
+
+        Assert.Equal(packageId, served.PackageId);
+        Assert.Equal(version, served.Version);
+        await Assert.ThrowsAsync<TimeoutException>(() => stalled);
+        Assert.Equal(1, stalledHandler.Requests);
+        Assert.Single(servingHandler.Requested);
     }
 
     [Fact]

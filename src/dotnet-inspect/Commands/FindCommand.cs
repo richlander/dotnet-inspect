@@ -21,6 +21,15 @@ public class FindCommand
         FindOptions options,
         CancellationToken cancellationToken = default)
     {
+        if (options.IsPackageProfile
+            && options.Count
+            && options.Limit is not null)
+        {
+            CommandError.Write(
+                "--count cannot be combined with -t for a package-prefix search.");
+            return 1;
+        }
+
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
 
@@ -199,12 +208,8 @@ public class FindCommand
             PackageProfileSections.CreateCatalog();
         HashSet<string> includeSections =
             [PackageProfileSections.Packages];
-        SectionQueryPlan sectionPlan =
-            catalog.Sections.PlanQueries(
-                Verbosity.Normal,
-                includeSections);
-        InspectionQueryPlan<PackageProfileQueryContext> queryPlan =
-            catalog.QueryCatalog.Plan(sectionPlan.Queries[0]);
+        CompiledInspectionPlan<PackageProfileQueryContext> queryPlan =
+            catalog.Lens.Plan(Verbosity.Normal, includeSections);
         InspectionQueryResults queryResults =
             await queryPlan.RunAsync(
                 new PackageProfileQueryContext(source, request),

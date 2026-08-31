@@ -1381,9 +1381,249 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         AssemblyContextParticipant participant =
             Assert.Single(group.Participants);
 
-        // The descending range reads as empty, so the later type covers
-        // both rows on its own and coverage alone accepts a MethodList
-        // column that is not a partition.
+        // The descending range reports a negative length and enumerates
+        // nothing, so the later type covers both rows on its own and
+        // coverage alone accepts a MethodList column that is not a
+        // partition. Only the range-length check rejects this image.
+        Assert.Equal(
+            [-1, 2],
+            MeasureMethodRangeLengths(image));
+
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(
+                                MetadataTokens.GetToken(
+                                    MetadataTokens
+                                        .MethodDefinitionHandle(1))),
+                        new StructuralCloneQueryPopulation.Type(
+                            TypeName("N.Fixture")))));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Contains(
+            "non-decreasing",
+            failed.Failure.Detail);
+    }
+
+    [Fact]
+    public void Execute_DescendingMethodListWithoutMethodPtrIsAVisibleRejection()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildDescendingMethodListWithoutMethodPtrAssembly());
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        // No MethodPtr table stands between the column and the methods
+        // it names, so this is the descending shape on a plain image.
+        // The throw fires at the module row, before any row is
+        // projected; pinned so the comment cannot drift from the
+        // fixture.
+        Assert.Equal(
+            [-1, 2],
+            MeasureMethodRangeLengths(image));
+
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(
+                                MetadataTokens.GetToken(
+                                    MetadataTokens
+                                        .MethodDefinitionHandle(1))),
+                        new StructuralCloneQueryPopulation.Type(
+                            TypeName("N.Fixture")))));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Contains(
+            "non-decreasing",
+            failed.Failure.Detail);
+    }
+
+    [Fact]
+    public void Execute_DescendingReorderedMethodPtrIsAVisibleRejection()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildDescendingReorderedMethodPtrAssembly());
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        // The same column on an unoptimized image whose MethodPtr rows
+        // reverse MethodDef order, so the guard is exercised on the
+        // other metadata shape. Like the plain case this throws at the
+        // module row, so the reordering itself is never projected; what
+        // it gates is that a MethodPtr image reaches the check at all.
+        Assert.Equal(
+            [-1, 2],
+            MeasureMethodRangeLengths(image));
+
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(
+                                MetadataTokens.GetToken(
+                                    MetadataTokens
+                                        .MethodDefinitionHandle(1))),
+                        new StructuralCloneQueryPopulation.Type(
+                            TypeName("N.Fixture")))));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Contains(
+            "non-decreasing",
+            failed.Failure.Detail);
+    }
+
+    [Fact]
+    public void Execute_MethodListStartPastProjectedTableIsAVisibleRejection()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildStartPastProjectedTableAssembly());
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        // Every start sits past the end of the projected table, so the
+        // earlier ranges report length zero and enumerate nothing and
+        // the final range is the one that reports a negative length.
+        // This is the only case that reaches the end of the derived
+        // bound: the descending cases throw at the module row first.
+        // Coverage also rejects this shape if the range-length check is
+        // removed, so this pins the bound's end, not a case that would
+        // otherwise be silently accepted.
+        // Pinned rather than asserted, so the fixture cannot drift into
+        // rejecting for some earlier reason.
+        Assert.Equal(
+            [0, -1],
+            MeasureMethodRangeLengths(image));
+
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(
+                                MetadataTokens.GetToken(
+                                    MetadataTokens
+                                        .MethodDefinitionHandle(1))),
+                        new StructuralCloneQueryPopulation.Type(
+                            TypeName("N.Fixture")))));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Contains(
+            "non-decreasing",
+            failed.Failure.Detail);
+    }
+
+    [Fact]
+    public void Execute_FirstMethodListStartPastRowOneIsAVisibleRejection()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildFirstStartPastRowOneAssembly());
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        // Every range here reports a non-negative length, so the
+        // range-length check accepts the column and coverage is the only
+        // thing that rejects it. Ordering is a joint property of the two
+        // checks; this pins the half that the length check cannot see.
+        Assert.Equal(
+            [0, 1],
+            MeasureMethodRangeLengths(image));
+
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(
+                                MetadataTokens.GetToken(
+                                    MetadataTokens
+                                        .MethodDefinitionHandle(2))),
+                        new StructuralCloneQueryPopulation.Type(
+                            TypeName("N.Fixture")))));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Contains(
+            "cover the MethodDef table exactly once",
+            failed.Failure.Detail);
+    }
+
+    [Fact]
+    public void Execute_NullMethodListAfterPopulatedRunIsAVisibleRejection()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildNullMethodListAfterPopulatedRunAssembly());
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        // A *leading* null is legal, but a null after a populated run is
+        // not: ECMA-335 II.22.37 ends each run where the next TypeDef's
+        // run begins, so a null start at row i+1 would end row i's run
+        // before it began. The damage lands on the preceding row, which
+        // is why the negative length appears at row 0 rather than at the
+        // null itself.
+        Assert.Equal(
+            [-1, 0],
+            MeasureMethodRangeLengths(image));
+
         var failed = Assert.IsType<
             AssemblyContextStructuralCloneRetrievalResult.Failed>(
                 Execute(
@@ -1425,6 +1665,14 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         // ordering check must not turn a valid package into a typed
         // inspection failure; coverage remains the guard that a null
         // run does not silently drop methods.
+        //
+        // The null start reports length zero rather than the difference
+        // to the next start, so the first *non-null* start is the one
+        // coverage pins to row 1. Pinned, because this is the shape
+        // that makes the weaker claim the necessary one.
+        Assert.Equal(
+            [0, 2],
+            MeasureMethodRangeLengths(image));
         AssemblyContextStructuralCloneRetrievalResult result =
             Execute(
                 new(
@@ -3078,18 +3326,128 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     /// <summary>
-    /// Builds an assembly whose MethodPtr table carries more rows than
-    /// the MethodDef table, so a row no TypeDef range covers escapes
-    /// projection while the projected rows still cover MethodDef.
-    /// </summary>
-    /// <summary>
     /// Builds an assembly whose module TypeDef starts after the type
-    /// that follows it, so its range descends and SRM reports it as
-    /// empty while the later type still covers every MethodDef row.
+    /// that follows it, so its range descends. SRM reports that range
+    /// with a negative length while enumerating nothing, which is why
+    /// the later type can still cover every MethodDef row on its own.
     /// </summary>
     static byte[] BuildDescendingMethodListAssembly()
     {
         byte[] bytes = BuildMethodPtrAssembly(1, 2);
+        WriteMethodListStart(bytes, typeDefRow: 0, start: 2);
+        return bytes;
+    }
+
+    /// <summary>
+    /// Builds the descending column on an image carrying no MethodPtr
+    /// table, so the guard is exercised on the plain metadata shape.
+    /// The descent throws at the module row, before any row is
+    /// projected.
+    /// </summary>
+    static byte[] BuildDescendingMethodListWithoutMethodPtrAssembly()
+    {
+        byte[] bytes = BuildTwoTypeTwoMethodAssembly();
+        WriteMethodListStart(bytes, typeDefRow: 0, start: 2);
+        return bytes;
+    }
+
+    /// <summary>
+    /// Builds a column that starts past MethodDef row 1 while staying
+    /// non-decreasing and in range, so every method range reports a
+    /// non-negative length and only the coverage requirement rejects
+    /// the image. This is the half of the ordering proof that the
+    /// range-length check does not supply.
+    /// </summary>
+    static byte[] BuildFirstStartPastRowOneAssembly()
+    {
+        byte[] bytes = BuildTwoTypeTwoMethodAssembly();
+        WriteMethodListStart(bytes, typeDefRow: 0, start: 2);
+        WriteMethodListStart(bytes, typeDefRow: 1, start: 2);
+        return bytes;
+    }
+
+    /// <summary>
+    /// Reports the length SRM computes for each TypeDef's method range,
+    /// so a fixture can pin which row carries the negative length rather
+    /// than leaving that to a comment.
+    /// </summary>
+    static int[] MeasureMethodRangeLengths(ImmutableArray<byte> image)
+    {
+        using var peReader = new PEReader(image);
+        MetadataReader reader = peReader.GetMetadataReader();
+        return [.. reader.TypeDefinitions.Select(
+            handle => reader.GetTypeDefinition(handle)
+                .GetMethods()
+                .Count)];
+    }
+
+    /// <summary>
+    /// Builds a column whose starts all sit two rows past the end of the
+    /// projected method table. Every earlier range then reports length
+    /// zero and enumerates nothing, so the *final* range is the one that
+    /// reports a negative length. This isolates the end of the derived
+    /// bound, which the descending fixtures never reach because they
+    /// throw at the module row before any row is projected.
+    /// </summary>
+    static byte[] BuildStartPastProjectedTableAssembly()
+    {
+        byte[] bytes = BuildTwoTypeTwoMethodAssembly();
+        WriteMethodListStart(bytes, typeDefRow: 0, start: 4);
+        WriteMethodListStart(bytes, typeDefRow: 1, start: 4);
+        return bytes;
+    }
+
+    /// <summary>
+    /// Builds a well-formed image whose module TypeDef and
+    /// <c>N.Fixture</c> both start at MethodDef row 1, carrying no
+    /// MethodPtr table.
+    /// </summary>
+    static byte[] BuildTwoTypeTwoMethodAssembly()
+    {
+        MetadataBuilder metadata = CreateMetadata(
+            "DescendingNoMethodPtr",
+            new Guid("2B7E1C4A-58D3-4F60-9A21-7C0E5D8B3F94"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Class | TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Fixture"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var bodies = new BlobBuilder();
+        var encoder = new MethodBodyStreamEncoder(bodies);
+        AddSyntheticMethod(metadata, encoder, "M0");
+        AddSyntheticMethod(metadata, encoder, "M1");
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    /// <summary>
+    /// Builds the descending column on a MethodPtr image whose pointer
+    /// rows reverse the MethodDef order, so the guard is exercised on
+    /// the unoptimized metadata shape. The descent still throws at the
+    /// module row, so the reordering itself is never projected.
+    /// </summary>
+    static byte[] BuildDescendingReorderedMethodPtrAssembly()
+    {
+        byte[] bytes = BuildMethodPtrAssembly(2, 1);
         WriteMethodListStart(bytes, typeDefRow: 0, start: 2);
         return bytes;
     }
@@ -3128,6 +3486,19 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         }
 
         return 0;
+    }
+
+    /// <summary>
+    /// Builds a column carrying a null start *after* a populated run.
+    /// ECMA-335 II.22.37 delimits each run by the following TypeDef's
+    /// start, so a null there truncates the preceding run rather than
+    /// describing an empty one. Only a leading null is expressible.
+    /// </summary>
+    static byte[] BuildNullMethodListAfterPopulatedRunAssembly()
+    {
+        byte[] bytes = BuildTwoTypeTwoMethodAssembly();
+        WriteMethodListStart(bytes, typeDefRow: 1, start: 0);
+        return bytes;
     }
 
     static byte[] BuildNullMethodListAssembly()

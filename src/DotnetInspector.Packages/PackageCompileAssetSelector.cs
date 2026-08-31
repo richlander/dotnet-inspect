@@ -111,7 +111,8 @@ public static class PackageCompileAssetSelector
     public static PackageCompileAssetSelection Select(
         IPackageContent content,
         string packageId,
-        string? targetFramework = null)
+        string? targetFramework = null,
+        string? runtimeIdentifier = null)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
@@ -183,7 +184,10 @@ public static class PackageCompileAssetSelector
                     StringComparison.OrdinalIgnoreCase)),
         ];
         PackageAssetSelection implementationSelection =
-            PackageAssetSelector.Select(content, selectedFramework);
+            PackageAssetSelector.Select(
+                content,
+                selectedFramework,
+                runtimeIdentifier);
         if (implementationSelection
             is PackageAssetSelection.Ambiguous ambiguous)
         {
