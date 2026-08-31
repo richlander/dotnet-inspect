@@ -54,6 +54,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Style Guide](design/style-guide.md) | Output formatting conventions. |
 | [Output Shapes](design/output-shapes.md) | The Document → Table → Vector → Scalar shape ladder, how Markout produces it, and how the output flags select a shape. |
 | [Semantic Row Selection](design/semantic-row-selection.md) | Dependency-free ordered Head, Tail, Window, and Top stages over complete logical sequences. |
+| [Source Delegation](design/source-delegation.md) | Delegated source execution: the effect protocol, closed result algebra, completion-evidence bases, and equivalence gates for row handoff and exact upstream Count. |
 | [Projected JSON Output](design/projected-json.md) | Typed versus lowered JSON, section-scoped projection, representability, atomic output, and adoption gates. |
 | [Inspection Graph Document](design/inspection-graph-document.md) | Typed multi-subject graph envelope for calls, metadata, integrations, Findings, occurrences, characteristics, and package/type lenses. |
 | [Custom-Attribute Value Decoding](design/custom-attribute-value-decoding.md) | The alignment, bounding, and guard-work invariants relating the custom-attribute value guard to SRM's decode, the two width-resolution paths, bounds, charging, and refusal semantics. Descriptive, with seven known gaps recorded against the contract. |
@@ -75,6 +76,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Caret Stacking](design/caret-stacking.md) | `--focus` display model: one caret per fact extent, packed onto as few rows as fit, with the numbered fact texts listed below. |
 | [Decompiler Inspection & Oracle](design/decompiler-inspection-oracle.md) | Unifies single-method inspection (dump/stages) with the corpus-wide fidelity check oracle; product-vs-tool scoping. |
 | [ReturnToSender: Fact-Planned Compile-Back Harness](design/fact-planned-compile-back-harness.md) | Spec for a fresh tools-side compile-back harness with fact-planned TypeProducer/TypePrinter shells. |
+| [Memory-Safety Models and Evidence](design/memory-safety-models.md) | v1/v2 vocabulary and composition of project policy, binary contracts, implementation evidence, and provenance. |
 | [Method Body Inspection](design/method-body-inspection.md) | Target service seam for shared `member` and `library --il-offset` method-body facts and coordinate inspection. |
 | [Member Body Substrate](design/member-body-substrate.md) | One base for skeleton/full/merged/diff body rendering: `ApiType` shape, `MemberAnchor` address, one scope, and `MemberBody`'s scalar (whole-body) and vector (offset-keyed) shapes. |
 | [NuGet API](design/nuget.md) | NuGet API endpoints used by the tool. |
@@ -85,6 +87,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Skill Guidance Taste](../taste/skill-guidance.md) | Good and bad examples for maintaining the embedded skill. |
 | [Inspection Layers](design/inspection-layers.md) | Layering and consumer-boundary rules between Metadata, Analysis, CSharpText, CSharp, Research, and the CLI. |
 | [Artifact Acquisition and Workspaces](design/artifact-acquisition-and-workspaces.md) | How artifacts are acquired and composed into an inspection workspace. |
+| [Inspect-web Managed Operation Bridge](design/inspect-web-managed-operation-bridge.md) | Dynamic managed-operation admission, keyed cancellation, progress callback release, typed outcomes, shared-waiter detachment, and epoch-work leases. |
 | [Platform Composition and Overlays](design/platform-composition-and-overlays.md) | Platform library composition, overlays, and core-library entitlement. |
 | [Type, Member, and API Representation](design/type-member-api-representation.md) | Canonical type, member, and API identity model. |
 | [Source Finding Producers](design/source-finding-producers.md) | How source-derived Findings are produced. |
@@ -115,11 +118,17 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [TLA+ Methodology](tla-plus-methodology.md) | TLA+ modeling methodology and curated examples. |
 | [IL Round-trip Tests](../tests/DotnetInspector.ILRoundtrip.Tests/README.md) | Dependency restore and fast/full test commands for the IL round-trip suite. |
 
+The canonical [`adversarial-review-prompt.md`](adversarial-review-prompt.md) is
+the directly usable fixed prefix for every non-trivial reviewer prompt and
+carries the repository trust model and finding-admission contract.
+
 PR templates live under `docs/templates/`: `decompiler-pr.md` (raising,
 structuring, validity, fidelity, or corpus behavior), `decompiler-burndown-fix-pr.md`
 (a focused invalid-`Full` or burndown row fix), and
 `decompiler-compile-back-harness-pr.md` (compile-back harness, fidelity
-skeleton, or ReturnToSender coverage).
+skeleton, or ReturnToSender coverage). The optional
+[`adversarial-review-prompt.md`](templates/adversarial-review-prompt.md)
+template provides the full fill-in form.
 
 ### Design history and backlog
 
