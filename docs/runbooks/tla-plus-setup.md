@@ -39,6 +39,10 @@ pinned release is:
   stable `v1.7.4` to stay consistent with work already done.
 - **Source:** <https://github.com/tlaplus/tlaplus/releases/tag/v1.8.0>
 - **Asset:** `tla2tools.jar`
+- **SHA-256:** `eabd140a70f49eb9305a3bd3f3df944eddf87e5a90d329789085f8953a80533a` —
+  CI verifies this on every run (cache hit or fresh download), since a
+  cache key alone is not an integrity check against a substituted release
+  asset. Update it alongside the version when the pin changes.
 
 (For reference, Homebrew's `tla+-toolbox` cask still tracks the older stable
 `1.7.4` — it does not pick up prereleases. That is another reason it is not
