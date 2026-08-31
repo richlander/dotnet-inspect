@@ -301,7 +301,7 @@ static class SlotResidualCensus
         SlotMaterializationVeto.UnrenderableStoreType => "cross-family/unrenderable store",
         SlotMaterializationVeto.MultiStoreSingleLoadFold => "multi-store/single-load fold",
         SlotMaterializationVeto.CrossBlockStoreFold => "cross-block store fold",
-        SlotMaterializationVeto.ConditionalSingleLoadFold => "conditional single-load fold",
+        SlotMaterializationVeto.BooleanSinkIdentityRecovery => "boolean sink identity recovery",
         SlotMaterializationVeto.ElementStoreIdentityRecovery => "element-store identity recovery",
         SlotMaterializationVeto.IncompleteCopyComponent => "incomplete direct-copy component",
         _ => veto.ToString(),
