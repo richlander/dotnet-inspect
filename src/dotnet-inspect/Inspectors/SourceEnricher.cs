@@ -237,7 +237,8 @@ internal static class SourceEnricher
         }
 
         List<(ApiType Type, string TypeName, SourceLinkResolver.TypeSourceInfo? SourceInfo)> typeSourceInfo = [];
-        Dictionary<string, (string Url, string? Algorithm, byte[]? Checksum)> allSourcesToFetch = [];
+        Dictionary<string, (string Url, string FilePath, string? Algorithm, byte[]? Checksum)>
+            allSourcesToFetch = [];
 
         foreach (var apiType in types)
         {
@@ -250,6 +251,7 @@ internal static class SourceEnricher
                 AddSourceFetch(
                     allSourcesToFetch,
                     sourceInfo.SourceUrl,
+                    sourceInfo.SourceFilePath ?? "",
                     sourceInfo.ChecksumAlgorithm,
                     sourceInfo.Checksum);
                 if (sourceInfo.AdditionalSourceFiles != null)
@@ -261,6 +263,7 @@ internal static class SourceEnricher
                             AddSourceFetch(
                                 allSourcesToFetch,
                                 additional.SourceUrl,
+                                additional.FilePath,
                                 additional.ChecksumAlgorithm,
                                 additional.Checksum);
                         }
@@ -283,11 +286,13 @@ internal static class SourceEnricher
             new ParallelOptions { MaxDegreeOfParallelism = 16 },
             async (sourceFetch, ct) =>
             {
-                var result = await PdbSourceAcquisition.FetchVerifiedSourceTextAsync(
+                var result = await PdbSourceAcquisition.AcquireVerifiedSourceTextAsync(
                     fetcher,
+                    sourceFetch.FilePath,
                     sourceFetch.Url,
                     sourceFetch.Algorithm,
                     sourceFetch.Checksum,
+                    options.SourceRepositories,
                     ct);
                 contentCache[SourceFetchKey(
                     sourceFetch.Url,
@@ -821,11 +826,13 @@ internal static class SourceEnricher
         foreach ((string url, string filePath, string? algorithm, byte[]? checksum) in sourceFilesToFetch)
         {
             logger.Log("Fetching SourceLink source.");
-            var fetch = await PdbSourceAcquisition.FetchVerifiedSourceTextAsync(
+            var fetch = await PdbSourceAcquisition.AcquireVerifiedSourceTextAsync(
                 fetcher,
+                filePath,
                 url,
                 algorithm,
-                checksum);
+                checksum,
+                options.SourceRepositories);
             string? content = fetch.Text;
             if (content is null)
             {
@@ -870,13 +877,14 @@ internal static class SourceEnricher
     }
 
     private static void AddSourceFetch(
-        Dictionary<string, (string Url, string? Algorithm, byte[]? Checksum)> sources,
+        Dictionary<string, (string Url, string FilePath, string? Algorithm, byte[]? Checksum)> sources,
         string url,
+        string filePath,
         string? algorithm,
         byte[]? checksum)
         => sources.TryAdd(
             SourceFetchKey(url, algorithm, checksum),
-            (url, algorithm, checksum));
+            (url, filePath, algorithm, checksum));
 
     private static string SourceFetchKey(
         string url,
