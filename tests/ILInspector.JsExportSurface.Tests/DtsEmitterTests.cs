@@ -3,13 +3,11 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
-using System.Text.Encodings.Web;
 using System.Text.Json;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.JsExportSurface.PublishabilityFixtures;
 using ILInspector.Metadata;
-using tsbindgen;
 
 namespace ILInspector.JsExportSurface.Tests;
 
@@ -17,7 +15,7 @@ public sealed class DtsEmitterTests
 {
     private static string EmitFixtureDts(
         bool includeAll = false,
-        TsBindGenDiagnostics? diagnostics = null)
+        TypeScriptGenerationDiagnostics? diagnostics = null)
     {
         using FileStream stream = File.OpenRead(typeof(FixtureExports).Assembly.Location);
         using var peReader = new PEReader(stream);
@@ -148,6 +146,521 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void Emit_MapsAuthenticatedSynchronousDelegatesToFunctionTypes()
+    {
+        string dts = EmitFixtureDtsWithWireContracts();
+
+        Assert.Contains(
+            "export declare function reportValue("
+                + "callback: (arg0: number) => undefined): void;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function reportNullableText("
+                + "callback: (arg0: string | null) => undefined): void;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function transformValue("
+                + "callback: (arg0: number, arg1: string) => boolean): "
+                + "boolean;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function observeValues("
+                + "callback: (arg0: number, arg1: string, "
+                + "arg2: boolean) => undefined): void;",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_MapsDelegateRecordFromContainingAssembly()
+    {
+        var assembly = new ApiAssemblyIdentity(
+            "Local",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: "0011223344556677");
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            AssemblyIdentity = assembly,
+            Records =
+            [
+                new ApiType
+                {
+                    Namespace = "Mine",
+                    Name = "Payload",
+                    Kind = "class",
+                    DefinitionName =
+                        DefinitionName("Mine", "Payload"),
+                },
+            ],
+            Functions =
+            [
+                DelegateRecordFunction(assembly),
+            ],
+        };
+
+        Assert.Contains(
+            "export declare function register("
+                + "callback: (arg0: Payload | null) => undefined): void;",
+            DtsEmitter.Emit(surface),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_RejectsDelegateRecordFromDifferentAssembly()
+    {
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+        var assembly = new ApiAssemblyIdentity(
+            "Local",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: "0011223344556677");
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            AssemblyIdentity = assembly,
+            Records =
+            [
+                new ApiType
+                {
+                    Namespace = "Mine",
+                    Name = "Payload",
+                    Kind = "class",
+                    DefinitionName =
+                        DefinitionName("Mine", "Payload"),
+                },
+            ],
+            Functions =
+            [
+                DelegateRecordFunction(
+                    new ApiAssemblyIdentity(
+                        "Other",
+                        new Version(1, 0, 0, 0),
+                        culture: null,
+                        publicKeyToken: null)),
+            ],
+        };
+
+        Assert.Contains(
+            "export declare function register(callback: unknown): void;",
+            DtsEmitter.Emit(surface, diagnostics),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+                diagnostic.Location == "Register.Callback"
+                && diagnostic.CSharpType
+                    == "System.Action<Mine.Payload?>");
+    }
+
+    [Fact]
+    public void Emit_RejectsDelegateRecordWithIncompleteAssemblyIdentity()
+    {
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+        var assembly = new ApiAssemblyIdentity(
+            "Local",
+            version: null,
+            culture: null,
+            publicKeyToken: null);
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            AssemblyIdentity = assembly,
+            Records =
+            [
+                new ApiType
+                {
+                    Namespace = "Mine",
+                    Name = "Payload",
+                    Kind = "class",
+                    DefinitionName =
+                        DefinitionName("Mine", "Payload"),
+                },
+            ],
+            Functions =
+            [
+                DelegateRecordFunction(assembly),
+            ],
+        };
+
+        Assert.Contains(
+            "export declare function register(callback: unknown): void;",
+            DtsEmitter.Emit(surface, diagnostics),
+            StringComparison.Ordinal);
+        Assert.Single(diagnostics.UnmappedTypes);
+    }
+
+    [Fact]
+    public void Emit_RejectsNullableDelegateValueTypeWithoutWrapper()
+    {
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+        var assembly = new ApiAssemblyIdentity(
+            "Local",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: null);
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            AssemblyIdentity = assembly,
+            Enums =
+            [
+                new ApiType
+                {
+                    Namespace = "Mine",
+                    Name = "Payload",
+                    Kind = "enum",
+                    DefinitionName =
+                        DefinitionName("Mine", "Payload"),
+                },
+            ],
+            Functions =
+            [
+                DelegateRecordFunction(assembly),
+            ],
+        };
+
+        Assert.Contains(
+            "export declare function register(callback: unknown): void;",
+            DtsEmitter.Emit(surface, diagnostics),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+                diagnostic.Location == "Register.Callback"
+                && diagnostic.CSharpType
+                    == "System.Action<Mine.Payload?>");
+    }
+
+    [Fact]
+    public void Emit_MapsNullableDelegateValueTypeWithWrapper()
+    {
+        var assembly = new ApiAssemblyIdentity(
+            "Local",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: null);
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            AssemblyIdentity = assembly,
+            Enums =
+            [
+                new ApiType
+                {
+                    Namespace = "Mine",
+                    Name = "Payload",
+                    Kind = "enum",
+                    DefinitionName =
+                        DefinitionName("Mine", "Payload"),
+                },
+            ],
+            Functions =
+            [
+                DelegateRecordFunction(
+                    assembly,
+                    nullableValueType: true),
+            ],
+        };
+
+        Assert.Contains(
+            "export declare function register("
+                + "callback: (arg0: Payload | null) => undefined): void;",
+            DtsEmitter.Emit(surface),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_RejectsDelegateRecordWithDifferentFullAssemblyIdentity()
+    {
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+        var assembly = new ApiAssemblyIdentity(
+            "Local",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: "0011223344556677");
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            AssemblyIdentity = assembly,
+            Records =
+            [
+                new ApiType
+                {
+                    Namespace = "Mine",
+                    Name = "Payload",
+                    Kind = "class",
+                    DefinitionName =
+                        DefinitionName("Mine", "Payload"),
+                },
+            ],
+            Functions =
+            [
+                DelegateRecordFunction(
+                    new ApiAssemblyIdentity(
+                        assembly.Name,
+                        new Version(2, 0, 0, 0),
+                        culture: null,
+                        publicKeyToken: "8899aabbccddeeff")),
+            ],
+        };
+
+        Assert.Contains(
+            "export declare function register(callback: unknown): void;",
+            DtsEmitter.Emit(surface, diagnostics),
+            StringComparison.Ordinal);
+        Assert.NotEmpty(diagnostics.UnmappedTypes);
+    }
+
+    [Fact]
+    public void Emit_RejectsFlattenedLocalDefinitionCollision()
+    {
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+        var assembly = new ApiAssemblyIdentity(
+            "Local",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: null);
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            AssemblyIdentity = assembly,
+            Records =
+            [
+                new ApiType
+                {
+                    Namespace = "A.B",
+                    Name = "C",
+                    Kind = "class",
+                    DefinitionName =
+                        DefinitionName("A.B", "C"),
+                },
+            ],
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Exports",
+                    Name = "Register",
+                    ReturnType = "void",
+                    Parameters =
+                    [
+                        new ApiParameter
+                        {
+                            Name = "Callback",
+                            Type = "System.Action<A.B.C?>",
+                        },
+                    ],
+                    DelegateParameters =
+                    [
+                        new JsExportDelegateParameter
+                        {
+                            ParameterIndex = 0,
+                            Kind = JsExportDelegateKind.Action,
+                            ParameterTypes =
+                            [
+                                ResolvedType(
+                                    assembly,
+                                    "A",
+                                    "B+C",
+                                    DefinitionName(
+                                        "A",
+                                        "B",
+                                        "C")),
+                            ],
+                        },
+                    ],
+                },
+            ],
+        };
+
+        Assert.Contains(
+            "export declare function register(callback: unknown): void;",
+            DtsEmitter.Emit(surface, diagnostics),
+            StringComparison.Ordinal);
+        Assert.NotEmpty(diagnostics.UnmappedTypes);
+    }
+
+    [Fact]
+    public void Emit_FrameworkDelegateFactsOverrideNestedLocalNameCollisions()
+    {
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+        var assembly = new ApiAssemblyIdentity(
+            "Local",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: null);
+        var coreAssembly = new ApiAssemblyIdentity(
+            "System.Private.CoreLib",
+            new Version(11, 0, 0, 0),
+            culture: null,
+            publicKeyToken: "7cec85d7bea7798e");
+        var jsAssembly = new ApiAssemblyIdentity(
+            "System.Runtime.InteropServices.JavaScript",
+            new Version(11, 0, 0, 0),
+            culture: null,
+            publicKeyToken: "b03f5f7f11d50a3a");
+        TypeRef localPayload = ResolvedType(
+            assembly,
+            "Mine",
+            "Payload");
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            AssemblyIdentity = assembly,
+            Records =
+            [
+                LocalClass("Mine", "Payload"),
+                LocalClass("System", "Int32"),
+                LocalClass(
+                    "System.Runtime.InteropServices.JavaScript",
+                    "JSObject"),
+            ],
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Exports",
+                    Name = "Register",
+                    ReturnType = "void",
+                    Parameters =
+                    [
+                        new ApiParameter
+                        {
+                            Name = "Callback",
+                            Type = "System.Action<"
+                                + "System.Collections.Generic.Dictionary<"
+                                + "string, Mine.Payload>, "
+                                + "Int32?[], JSObject?[]>",
+                            TypeReferences =
+                            [
+                                new ApiTypeReferenceIdentity(
+                                    coreAssembly,
+                                    "System.Int32",
+                                    DefinitionName(
+                                        "System",
+                                        "Int32")),
+                                new ApiTypeReferenceIdentity(
+                                    jsAssembly,
+                                    "System.Runtime.InteropServices."
+                                        + "JavaScript.JSObject",
+                                    DefinitionName(
+                                        "System.Runtime.InteropServices."
+                                            + "JavaScript",
+                                        "JSObject")),
+                            ],
+                        },
+                    ],
+                    DelegateParameters =
+                    [
+                        new JsExportDelegateParameter
+                        {
+                            ParameterIndex = 0,
+                            Kind = JsExportDelegateKind.Action,
+                            ParameterTypes =
+                            [
+                                TypeRef.GenericInstance(
+                                    TypeRef.Definition(
+                                        "System.Collections",
+                                        "System.Collections.Generic",
+                                        "Dictionary`2"),
+                                    [
+                                        TypeRef.CoreLib(
+                                            "System",
+                                            "String"),
+                                        localPayload,
+                                    ]),
+                                TypeRef.SzArray(
+                                    TypeRef.GenericInstance(
+                                        TypeRef.CoreLib(
+                                            "System",
+                                            "Nullable`1"),
+                                        [
+                                            TypeRef.CoreLib(
+                                                "System",
+                                                "Int32"),
+                                        ])),
+                                TypeRef.SzArray(
+                                    TypeRef.Definition(
+                                        "System.Runtime.InteropServices."
+                                            + "JavaScript",
+                                        "System.Runtime.InteropServices."
+                                            + "JavaScript",
+                                        "JSObject")),
+                            ],
+                        },
+                    ],
+                },
+            ],
+        };
+
+        Assert.Contains(
+            "export declare function register(callback: "
+                + "(arg0: Record<string, Payload>, "
+                + "arg1: (number | null)[], "
+                + "arg2: (unknown | null)[]) => undefined): void;",
+            DtsEmitter.Emit(surface, diagnostics),
+            StringComparison.Ordinal);
+        Assert.Empty(diagnostics.UnmappedTypes);
+
+        ApiType LocalClass(string @namespace, string name) =>
+            new()
+            {
+                Namespace = @namespace,
+                Name = name,
+                Kind = "class",
+                DefinitionName =
+                    DefinitionName(@namespace, name),
+            };
+    }
+
+    [Theory]
+    [InlineData(-1, false)]
+    [InlineData(1, false)]
+    [InlineData(0, true)]
+    public void Emit_RejectsInvalidDelegateParameterAssociations(
+        int parameterIndex,
+        bool duplicate)
+    {
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+        JsExportDelegateParameter fact = new()
+        {
+            ParameterIndex = parameterIndex,
+            Kind = JsExportDelegateKind.Action,
+        };
+        var facts = new List<JsExportDelegateParameter> { fact };
+        if (duplicate)
+            facts.Add(fact);
+
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Exports",
+                    Name = "Ping",
+                    ReturnType = "void",
+                    Parameters =
+                    [
+                        new ApiParameter
+                        {
+                            Name = "Value",
+                            Type = "int",
+                        },
+                    ],
+                    DelegateParameters = facts,
+                },
+            ],
+        };
+
+        Assert.Contains(
+            "export declare function ping(value: unknown): void;",
+            DtsEmitter.Emit(surface, diagnostics),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+                diagnostic.Location == "Ping delegate parameters");
+    }
+
+    [Fact]
     public void Emit_LeavesDirectInteropArraysMutable()
     {
         string dts = EmitFixtureDts();
@@ -161,6 +674,79 @@ public sealed class DtsEmitterTests
             dts,
             StringComparison.Ordinal);
     }
+
+    static JsExportFunction DelegateRecordFunction(
+        ApiAssemblyIdentity assembly,
+        bool nullableValueType = false) =>
+        new()
+        {
+            DeclaringType = "Exports",
+            Name = "Register",
+            ReturnType = "void",
+            Parameters =
+            [
+                new ApiParameter
+                {
+                    Name = "Callback",
+                    Type = "System.Action<Mine.Payload?>",
+                },
+            ],
+            DelegateParameters =
+            [
+                new JsExportDelegateParameter
+                {
+                    ParameterIndex = 0,
+                    Kind = JsExportDelegateKind.Action,
+                    ParameterTypes =
+                    [
+                        nullableValueType
+                            ? TypeRef.GenericInstance(
+                                TypeRef.CoreLib(
+                                    "System",
+                                    "Nullable`1"),
+                                [
+                                    ResolvedType(
+                                        assembly,
+                                        "Mine",
+                                        "Payload"),
+                                ])
+                            : ResolvedType(
+                                assembly,
+                                "Mine",
+                                "Payload"),
+                    ],
+                },
+            ],
+        };
+
+    static TypeRef ResolvedType(
+        ApiAssemblyIdentity assembly,
+        string @namespace,
+        string name,
+        MetadataTypeDefinitionName? definitionName = null)
+    {
+        var identity = new AssemblyReferenceIdentity(
+            assembly.Name,
+            assembly.Version,
+            assembly.Culture,
+            assembly.PublicKeyToken);
+        definitionName ??= DefinitionName(@namespace, name);
+        return TypeRef.Definition(
+            assembly.Name,
+            @namespace,
+            name,
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.AssemblyReference(identity),
+                definitionName));
+    }
+
+    static MetadataTypeDefinitionName DefinitionName(
+        string @namespace,
+        params string[] segments) =>
+        ((MetadataTypeDefinitionNameResult.Valid)
+            MetadataTypeDefinitionName.Create(
+                @namespace,
+                segments.ToImmutableArray())).Name;
 
     [Fact]
     public void Emit_MapsPrimitiveArrayAndClosedGenericWireRoots()
@@ -191,23 +777,6 @@ public sealed class DtsEmitterTests
             "export declare function getClosedGenericRoot(): "
                 + "Readonly<Record<string, ClosedGenericRootDto>>;",
             dts,
-            StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Emit_ParsesDecimalWireRootResults()
-    {
-        string js = JsEmitter.Emit(BuildFixtureSurfaceWithWireContracts());
-
-        Assert.Contains(
-            "const result = getRegisteredDecimalExport();\n"
-                + "  return JSON.parse(result);",
-            js,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "const result = getRegisteredDecimalArrayExport();\n"
-                + "  return JSON.parse(result);",
-            js,
             StringComparison.Ordinal);
     }
 
@@ -252,7 +821,7 @@ public sealed class DtsEmitterTests
         var hostileByte = new ApiTypeReferenceIdentity(
             hostileAssembly,
             "System.Byte");
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var surface = new ILInspector.JsExportSurface.JsExportSurface
         {
             Records =
@@ -329,10 +898,6 @@ public sealed class DtsEmitterTests
             "export declare function queryPackage(packageId: string): string;",
             dts,
             StringComparison.Ordinal);
-        Assert.Contains(
-            "export declare function initializeEngine(onStatus?: (status: string) => void): Promise<unknown>;",
-            dts,
-            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -380,146 +945,6 @@ public sealed class DtsEmitterTests
         Assert.Contains(
             "export declare function ping(): Promise<void>;",
             dts,
-            StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void JsEmitter_UsesTheDeclarationEmittersReturnShapeClassification()
-    {
-        var surface = new ILInspector.JsExportSurface.JsExportSurface
-        {
-            AssemblyIdentity = new ApiAssemblyIdentity(
-                "Fixture",
-                new Version(1, 0, 0, 0),
-                culture: null,
-                publicKeyToken: null),
-            Functions =
-            [
-                new()
-                {
-                    DeclaringType = "FixtureExports",
-                    Name = "GetTaskInfo",
-                    ReturnType = "TaskInfo",
-                },
-                new()
-                {
-                    DeclaringType = "FixtureExports",
-                    Name = "Ping",
-                    ReturnType = "void",
-                    ReturnWireType = "WidgetDto",
-                },
-                new()
-                {
-                    DeclaringType = "FixtureExports",
-                    Name = "QueryWidget",
-                    ReturnType = "System.Threading.Tasks.Task<string>",
-                    ReturnWireType = "WidgetDto",
-                },
-            ],
-        };
-
-        string js = JsEmitter.Emit(surface);
-
-        Assert.Contains(
-            "export function getTaskInfo()",
-            js,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "export function ping()",
-            js,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "return pingExport();",
-            js,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "export async function queryWidget()",
-            js,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "const result = await queryWidgetExport();\n  return JSON.parse(result);",
-            js,
-            StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void JsEmitter_BindsAndEscapesInspectedAssemblyIdentity()
-    {
-        const string assemblyName =
-            "Exports.Library\"\n\\";
-        var surface = new ILInspector.JsExportSurface.JsExportSurface
-        {
-            AssemblyIdentity = new ApiAssemblyIdentity(
-                assemblyName,
-                new Version(1, 0, 0, 0),
-                culture: null,
-                publicKeyToken: null),
-        };
-
-        string js = JsEmitter.Emit(surface);
-
-        Assert.Contains(
-            "runtime.getAssemblyExports(\""
-                + JavaScriptEncoder.Default.Encode(
-                    assemblyName)
-                + "\")",
-            js,
-            StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "config.mainAssemblyName",
-            js,
-            StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            $"getAssemblyExports(\"{assemblyName}\")",
-            js,
-            StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("void", "string", true)]
-    [InlineData("void", "number", false)]
-    [InlineData("System.Threading.Tasks.Task", "string", false)]
-    public void JsEmitter_BootstrapsOnlySupportedConfigureHostSignature(
-        string returnType,
-        string parameterType,
-        bool expectedBootstrap)
-    {
-        var surface = new ILInspector.JsExportSurface.JsExportSurface
-        {
-            AssemblyIdentity = new ApiAssemblyIdentity(
-                "Fixture",
-                new Version(1, 0, 0, 0),
-                culture: null,
-                publicKeyToken: null),
-            Functions =
-            [
-                new JsExportFunction
-                {
-                    DeclaringType = "Exports",
-                    Name = "ConfigureHost",
-                    ReturnType = returnType,
-                    Parameters =
-                    [
-                        new ApiParameter
-                        {
-                            Name = "value",
-                            Type = parameterType,
-                        },
-                    ],
-                },
-            ],
-        };
-
-        string js = JsEmitter.Emit(surface);
-
-        Assert.Equal(
-            expectedBootstrap,
-            js.Contains(
-                "configureHostExport(window.location.origin);",
-                StringComparison.Ordinal));
-        Assert.Contains(
-            "function configureHost(value)",
-            js,
             StringComparison.Ordinal);
     }
 
@@ -681,7 +1106,7 @@ public sealed class DtsEmitterTests
     [Fact]
     public void Emit_BlocksEnumWithUnsupportedContextOptions()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var enumType = new ApiType
         {
             Name = "Status",
@@ -789,7 +1214,7 @@ public sealed class DtsEmitterTests
     [Fact]
     public void Emit_BlocksUnsupportedTypeAndMemberConverters()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var blocked = new ApiType
         {
             Name = "Blocked",
@@ -874,7 +1299,7 @@ public sealed class DtsEmitterTests
     [Fact]
     public void Emit_BlocksDuplicateStringEnumConverters()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var enumType = new ApiType
         {
             Name = "Status",
@@ -919,7 +1344,7 @@ public sealed class DtsEmitterTests
             apiSurface.Types,
             type => type.Name
                 == nameof(MismatchedStringEnumConverterFixture));
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         string dts = DtsEmitter.Emit(
             new ILInspector.JsExportSurface.JsExportSurface
@@ -1006,7 +1431,7 @@ public sealed class DtsEmitterTests
     [Fact]
     public void Emit_ExternalEnvelopeCannotAliasLocalQualifiedType()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var localAssembly = new ApiAssemblyIdentity(
             "Local",
             new Version(1, 0, 0, 0),
@@ -1058,7 +1483,7 @@ public sealed class DtsEmitterTests
     [Fact]
     public void Emit_ExternalSignatureTypesCannotAliasLocalQualifiedType()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var localAssembly = new ApiAssemblyIdentity(
             "Local",
             new Version(1, 0, 0, 0),
@@ -1116,7 +1541,7 @@ public sealed class DtsEmitterTests
     [Fact]
     public void Emit_NestedIdentityCannotAliasNamespaceQualifiedType()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var assembly = new ApiAssemblyIdentity(
             "Local",
             new Version(1, 0, 0, 0),
@@ -1172,7 +1597,7 @@ public sealed class DtsEmitterTests
     [Fact]
     public void Emit_DoesNotApplyDictionarySemanticsToLookalikeType()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var lookalikeDictionary = new ApiTypeReferenceIdentity(
             new ApiAssemblyIdentity(
                 "System.Collections",
@@ -1202,6 +1627,15 @@ public sealed class DtsEmitterTests
                                     "System.Collections.Generic.Dictionary<string, string>",
                                 ReturnTypeReferences =
                                     [lookalikeDictionary],
+                                ReturnTypeShape =
+                                    ApiTypeShape.GenericInstance(
+                                        lookalikeDictionary,
+                                        [
+                                            ApiTypeShape.PrimitiveType(
+                                                ApiPrimitiveType.String),
+                                            ApiTypeShape.PrimitiveType(
+                                                ApiPrimitiveType.String),
+                                        ]),
                             },
                         },
                     ],
@@ -1216,9 +1650,101 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void Emit_DoesNotApplyIntPtrSemanticsToLookalikeType()
+    {
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Exports",
+                    Name = "RegisterPointer",
+                    ReturnType = "void",
+                    Parameters =
+                    [
+                        new ApiParameter
+                        {
+                            Name = "Value",
+                            Type = "nint",
+                            TypeReferences =
+                            [
+                                new ApiTypeReferenceIdentity(
+                                    new ApiAssemblyIdentity(
+                                        "Lookalikes",
+                                        new Version(1, 0, 0, 0),
+                                        culture: null,
+                                        publicKeyToken: null),
+                                    "System.IntPtr",
+                                    DefinitionName(
+                                        "System",
+                                        "IntPtr")),
+                            ],
+                        },
+                    ],
+                },
+            ],
+        };
+
+        Assert.Contains(
+            "export declare function registerPointer(value: unknown): void;",
+            DtsEmitter.Emit(surface, diagnostics),
+            StringComparison.Ordinal);
+        Assert.Single(diagnostics.UnmappedTypes);
+    }
+
+    [Fact]
+    public void Emit_RejectsUnresolvedStructuredProducerWithIntrinsicSpelling()
+    {
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+        var externalString = new ApiTypeReferenceIdentity(
+            new ApiAssemblyIdentity(
+                "External",
+                new Version(1, 0, 0, 0),
+                culture: null,
+                publicKeyToken: null),
+            "string");
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records =
+            [
+                new ApiType
+                {
+                    Name = "Root",
+                    Members =
+                    [
+                        new ApiMember
+                        {
+                            Name = "Value",
+                            Kind = "property",
+                            HasGetter = true,
+                            SignatureModel = new ApiSignature
+                            {
+                                ReturnType = "string",
+                                ReturnTypeReferences = [externalString],
+                                ReturnTypeShape =
+                                    ApiTypeShape.Named(externalString),
+                            },
+                        },
+                    ],
+                },
+            ],
+        };
+
+        string dts = DtsEmitter.Emit(surface, diagnostics);
+
+        Assert.Contains(
+            "  readonly Value: unknown;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Single(diagnostics.UnmappedTypes);
+    }
+
+    [Fact]
     public void Emit_DoesNotApplyTaskSemanticsToLookalikeType()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var surface = new ILInspector.JsExportSurface.JsExportSurface
         {
             Functions =
@@ -1255,7 +1781,7 @@ public sealed class DtsEmitterTests
     [Fact]
     public void Emit_DoesNotTrustClaimedPlatformTokenFromWrongAssembly()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var surface = new ILInspector.JsExportSurface.JsExportSurface
         {
             Functions =
@@ -1307,7 +1833,7 @@ public sealed class DtsEmitterTests
             ["Tasks", "Task`1"],
             nestedTask.DefinitionName?.Segments);
 
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var surface = new ILInspector.JsExportSurface.JsExportSurface
         {
             Functions =
@@ -1964,94 +2490,6 @@ public sealed class DtsEmitterTests
             () => DtsEmitter.Emit(surface));
     }
 
-    [Theory]
-    [InlineData("Dotnet", "Other")]
-    [InlineData("Foo", "FooExport")]
-    public void Emit_RefusesGeneratedModuleBindingCollisions(
-        string firstName,
-        string secondName)
-    {
-        var surface = new ILInspector.JsExportSurface.JsExportSurface
-        {
-            Functions =
-            [
-                new JsExportFunction
-                {
-                    DeclaringType = "Ns.Exports",
-                    Name = firstName,
-                    ReturnType = "void",
-                },
-                new JsExportFunction
-                {
-                    DeclaringType = "Ns.Exports",
-                    Name = secondName,
-                    ReturnType = "void",
-                },
-            ],
-        };
-
-        Assert.Throws<UnsupportedWireContractException>(
-            () => DtsEmitter.Emit(surface));
-    }
-
-    [Fact]
-    public void Emit_RefusesJsonResultLocalParameterCollision()
-    {
-        var surface = new ILInspector.JsExportSurface.JsExportSurface
-        {
-            Functions =
-            [
-                new JsExportFunction
-                {
-                    DeclaringType = "Ns.Exports",
-                    Name = "Get",
-                    ReturnType = "string",
-                    ReturnWireType = "Widget",
-                    Parameters =
-                    [
-                        new ApiParameter
-                        {
-                            Name = "Result",
-                            Type = "string",
-                        },
-                    ],
-                },
-            ],
-        };
-
-        Assert.Throws<UnsupportedWireContractException>(
-            () => DtsEmitter.Emit(surface));
-    }
-
-    [Fact]
-    public void Emit_RefusesParameterThatShadowsItsExportSlot()
-    {
-        var surface = new ILInspector.JsExportSurface.JsExportSurface
-        {
-            Functions =
-            [
-                new JsExportFunction
-                {
-                    DeclaringType = "Ns.Exports",
-                    Name = "Foo",
-                    ReturnType = "string",
-                    ReturnWireType = "Widget",
-                    Parameters =
-                    [
-                        new ApiParameter
-                        {
-                            Name = "FooExport",
-                            Type = "string",
-                        },
-                    ],
-                },
-            ],
-        };
-
-        Assert.Throws<UnsupportedWireContractException>(
-            () => DtsEmitter.Emit(surface));
-    }
-
     [Fact]
     public void Emit_RefusesControlCharacterJsonPropertyNamesOnEnumFields()
     {
@@ -2278,7 +2716,7 @@ public sealed class DtsEmitterTests
         ApiType record = Assert.Single(
             apiSurface.Types,
             type => type.Name == typeName);
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         string dts = DtsEmitter.Emit(
             new ILInspector.JsExportSurface.JsExportSurface
@@ -2373,7 +2811,7 @@ public sealed class DtsEmitterTests
     [Fact]
     public void Emit_BlocksRecordWithConflictingContextNamingPolicies()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         string dts = EmitFixtureDts(diagnostics: diagnostics);
 
@@ -2515,7 +2953,7 @@ public sealed class DtsEmitterTests
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         string dts = DtsEmitter.Emit(
             JsExportSurfaceBuilder.Build(
@@ -2593,7 +3031,7 @@ public sealed class DtsEmitterTests
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures
                     .JsonWireContractFlow);
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         string dts = DtsEmitter.Emit(
             JsExportSurfaceBuilder.Build(
@@ -2617,7 +3055,7 @@ public sealed class DtsEmitterTests
     [Fact]
     public void Emit_BlocksBidirectionalTypeWithDirectionSensitiveMember()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         string path = typeof(FixtureExports).Assembly.Location;
         using FileStream stream = File.OpenRead(path);
         using var peReader = new PEReader(stream);

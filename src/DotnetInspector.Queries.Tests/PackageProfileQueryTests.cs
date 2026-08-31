@@ -436,7 +436,8 @@ public sealed class PackageProfileQueryTests
                 string prefix,
                 int take = 100,
                 bool prerelease = false,
-                CancellationToken cancellationToken = default)
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null)
         {
             cancellationToken.ThrowIfCancellationRequested();
             PackageSourceOperationResult<PackageSearchResult> result =
@@ -455,7 +456,8 @@ public sealed class PackageProfileQueryTests
             GetManifestAsync(
                 string packageId,
                 string version,
-                CancellationToken cancellationToken = default)
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null)
         {
             cancellationToken.ThrowIfCancellationRequested();
             PackageSourceCoordinate coordinate =
@@ -488,20 +490,23 @@ public sealed class PackageProfileQueryTests
                 string query,
                 int take = 20,
                 bool prerelease = false,
-                CancellationToken cancellationToken = default) =>
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
             throw new NotSupportedException();
 
         public Task<PackageSourceOperationResult<PackageVersionResult>>
             GetVersionsAsync(
                 string packageId,
-                CancellationToken cancellationToken = default) =>
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
             throw new NotSupportedException();
 
         public Task<PackageSourceOperationResult<PackageSourcePayload>>
             GetPackageAsync(
                 string packageId,
                 string version,
-                CancellationToken cancellationToken = default)
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null)
         {
             PackageRequests++;
             throw new NotSupportedException();
@@ -511,7 +516,8 @@ public sealed class PackageProfileQueryTests
             TryGetSymbolsAsync(
                 string packageId,
                 string version,
-                CancellationToken cancellationToken = default) =>
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
             throw new NotSupportedException();
 
         public void Dispose()

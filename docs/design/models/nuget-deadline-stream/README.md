@@ -91,6 +91,7 @@ behaviors:
 | An I/O failure classified while no deadline has elapsed remains an I/O failure | `NuGetDeadlineTests.IoFailureBeforeDeadline_RemainsAnIoFailure` |
 | EOF disarms later deadline translation | `NuGetDeadlineTests.CompletedPackageStream_RemainsAtEofAfterDeadline` |
 | Caller cancellation remains caller cancellation | `NuGetDeadlineTests.PackageCallerCancellation_IsNotReportedAsADeadline` |
+| Caller disposal releases an active read as a source-safe transport failure | `PackageSourceClientTests.PayloadConcurrentDisposalTranslatesOutstandingRead` and `PayloadConcurrentDisposalEofTranslatesOutstandingRead` |
 | Async cleanup does not deadlock with abort | `NuGetDeadlineTests.DisposeAsync_DoesNotBlockOnAbortCleanup` and `InlineAsyncCompletion_DoesNotDeadlockAbortCleanup` |
 | Abort cleanup failure remains visible | `NuGetDeadlineTests.RequestDeadline_DisposalFailureIsRetained` and `DisposeAsync_InlineCompletionRetainsAbortFailure` |
 

@@ -44,9 +44,14 @@ applications do not need it in their runtime bundle.
   compatibility alias. The
   `ReadOnlySpan<JSMarshalerType>` descriptor argument must resolve to one
   element per export return and parameter, each built by a
-  `JSMarshalerType` factory compatible with that managed type. A diagnosed
-  registration, wrapper, or stub body, prefix sibling, or handwritten candidate
-  cannot publish another export.
+  `JSMarshalerType` factory compatible with that managed type. Trusted
+  `System.Action` and `System.Func` parameters require the generated
+  `Action(...)` or `Function(...)` factory respectively, with every nested
+  parameter and synchronous return descriptor authenticated in managed order.
+  The resulting target-language-neutral `JsExportDelegateParameter` facts are
+  correlated to the containing method parameter by index. A diagnosed
+  registration, wrapper, or stub body, prefix sibling, or handwritten
+  candidate cannot publish another export.
   An attributed body in a non-partial type is rejected because it has no
   runtime publication glue.
 - **Records** — the transitive closure of record shapes reachable from the
@@ -60,7 +65,7 @@ applications do not need it in their runtime bundle.
 
 This library intentionally stays free of any target-language opinion (naming
 policy, `Promise` unwrapping, `.d.ts` syntax); that "personality" belongs to a
-consumer such as the proposed
+consumer such as the
 [`ts-jsexport` TypeScript facade](../../docs/design/ts-jsexport.md).
 The single-argument `Build(surface)` overload is a declaration-only
 compatibility seam for metadata-focused tests and hand-composed surfaces. It
@@ -185,7 +190,7 @@ negative boundaries.
 `Build_RejectsGeneratedRootGetterWithoutTrustedBodyFlow`,
 `Build_RejectsGeneratedContextWithoutTrustedDefaultInitialization`,
 `Build_RejectsCustomSerializerContextInstanceReceiver`, and
-`TsBindGenCommandTests.Invoke_FilteredGeneratedTypeExportFailsBeforePublication`
+`TsJsExportCommandTests.Invoke_FilteredGeneratedTypeExportFailsBeforePublication`
 gate these publishability and provenance boundaries against compiled fixtures.
 
 ## Linked evidence, not adjacent evidence
@@ -223,12 +228,30 @@ publishes:
 - `Build_RejectsRegistrationWithSwappedDescriptorElement` — the registration
   keeps its name, hash, and element count; only the marshaler the element holds
   stops matching the export's own return type.
+- `Build_RejectsDelegateRegistrationWithWrongNestedDescriptor` and
+  `Build_RejectsDelegateRegistrationWithWrongResultDescriptor` — the generated
+  delegate factory remains, but one argument or result payload descriptor
+  changes.
+- `Build_RejectsDelegateRegistrationWithReorderedDescriptors` and
+  `Build_RejectsDelegateRegistrationWithWrongOuterFactory` — the authenticated
+  managed order is swapped or the same-arity `Function` factory is replaced by
+  `Action`.
+- `Build_RejectsDelegateRegistrationWithMismatchedSignatureHash` and
+  `Build_RejectsDelegateWrapperThatCallsDifferentExport` — a delegate export
+  cannot borrow another generated registration or wrapper target.
+- `Build_PublishesAuthenticatedSynchronousDelegateSignatures` — the unmodified
+  compiled `Action` and `Func` controls publish their exact managed parameter
+  and return shapes.
+- `TryGetDelegateShape_RejectsDecodedFourArgumentAction` — decoded callback
+  metadata beyond the SDK's three-parameter limit is not authenticated even
+  when its generic definition is otherwise `Action`.
 - `Build_AcceptsGeneratedContextWithUnrelatedStaticOptions` — the positive
   control, a real source-generated context whose user partial adds an unrelated
   static `JsonSerializerOptions`.
-- `TsBindGen_ReadsOneImageForMetadataAndBodyEvidence` — `tsbindgen` reads the
-  assembly once and shares one immutable image, so a metadata surface cannot be
-  composed with bodies read separately from different content.
+- `GeneratorLoader_ReadsOneImageForMetadataAndBodyEvidence` — the TypeScript
+  generator loader reads the assembly once and shares one immutable image, so
+  a metadata surface cannot be composed with bodies read separately from
+  different content.
 
 Two boundaries are deliberately *not* claimed. The wrapper's pointer and byref
 argument marshaling is out of scope: publication proves the chain is reachable
@@ -237,13 +260,21 @@ slot is threaded correctly inside the generated stub. And the descriptor check
 compares the generated descriptor graph against the export's managed signature
 through a compatibility table; it is not a reimplementation of the runtime's
 `JSExportGenerator`. An export whose managed type that table does not recognize
-— a delegate parameter, or a `[JSMarshalAs]` override that redirects marshaling
-— fails visibly with an unsupported-surface message rather than being published
-on weaker evidence.
+— such as a custom delegate definition or an unsupported `[JSMarshalAs]`
+override — fails visibly rather than being published on weaker evidence. The
+SDK source generator itself rejects a Promise-returning
+`Func<..., Task<T>>` callback and callbacks with more than three parameters
+with method-scoped `SYSLIB1072`;
+`UnsupportedDelegateShapes_AreRejectedBySdkGenerator` gates that boundary.
+Consumers independently reject over-arity hand-composed delegate facts;
+`MapParameterType_RejectsDelegateFactsBeyondSdkArity` gates that containment.
+They also reject `Void` parameters and `Func<..., Void>` returns that this
+producer cannot publish;
+`MapParameterType_RejectsVoidDelegatePayloads` gates that boundary.
 
 `[JSMarshalAs<JSType.BigInt>] long` is an authentic override that this library
 rejects for a different reason: the descriptor is real and the wrapper is
-genuine, but no consumer can describe it yet. `tsbindgen`'s `TsTypeMapper` emits
+genuine, but no consumer can describe it yet. `TsTypeMapper` emits
 every `long` as TypeScript `number`, which is the wrong type for a JavaScript
 `BigInt` and would silently truncate at 2^53. Until descriptor-aware TypeScript
 types exist, an export carrying the `get_BigInt64` descriptor fails with a
@@ -281,10 +312,9 @@ explicit `Replace` remains supported.
 `Emit_BlocksReachedPopulateObjectCreationHandlingAttribute`,
 `Extract_AcceptsExplicitReplaceObjectCreationHandlingAttribute`,
 `Build_IgnoresUnusedUnsupportedScalarContextAndResolvesVectorSibling`, and
-`TsBindGenCommandTests.Invoke_UnsupportedScalarContextOptionsFailsBeforeDeclarationOrWrapperPublication`
-are the gates. `Build_RejectsAuthenticJsExportOperatorBeforePublication`,
-`SourceGeneratedJsExport_EmitsOnlyOrdinaryMethodWrappers`, and
-`TsBindGenCommandTests.Invoke_JsExportOperatorFailsBeforeDeclarationOrWrapperPublication` gate the
+`TsJsExportCommandTests.Invoke_DoesNotPublishPartialOutputWhenSurfaceIsUnsupported`
+are the gates. `Build_RejectsAuthenticJsExportOperatorBeforePublication` and
+`SourceGeneratedJsExport_EmitsOnlyOrdinaryMethodWrappers` gate the
 ordinary-method boundary.
 
 Run its test suite in Release:
@@ -293,6 +323,6 @@ Run its test suite in Release:
 dotnet run --project tests/ILInspector.JsExportSurface.Tests -c Release
 ```
 
-Tests validate this library and `tsbindgen` together against
+Tests validate this library and `ts-jsexport` together against
 `ILInspector.JsExportSurface.Fixtures`, a small purpose-built `[JSExport]`
 surface used only as a regression fixture.

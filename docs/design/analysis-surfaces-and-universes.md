@@ -303,13 +303,14 @@ participating owners' behavior:
 | Integrations | Workspace / report-domain identity | Workspace Types | Census | Rows or matrix |
 | Integrations | Workspace / report-domain identity | Workspace Types | Census | Graph |
 | Manifest facts | Workspace / report-domain identity | Prefix-selected package manifests | Census | Rows |
-| Integrations | Workspace / report-domain identity | Project-graph package Types | Census | Rows or graph |
+| Integrations | Workspace / report-domain identity | Project-graph package Types | Census | Rows, matrix, or graph |
 
-Issue #3629 is the Integration-owned workspace Census canary. Issue #4947 adds
-Integration-owned candidate inventory and universe-adjustment requirements.
-Those issues should consume this request topology while defining their own
-result semantics and gates in
-[Integrations](integrations.md).
+Issue #3629 is the Integration-owned workspace Census canary.
+`IntegrationAnalysisCatalog` now consumes this request topology for structural
+concept discovery and Census request capability while
+[Integrations](integrations.md) retains producer and result semantics. The
+candidate inventory, execution accounting, universe adjustment, and projection
+slices remain Integration-owned follow-up work.
 
 Prefix-bound search, top-N selection, and project package graphs are
 acquisition- and package-owner canaries for supplying different universes to

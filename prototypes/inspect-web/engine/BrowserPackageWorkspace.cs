@@ -55,11 +55,11 @@ namespace InspectWeb.Engine;
 /// gate the service-index-free Gallery routes, while
 /// <c>BrowserEngineBoundaryTests.PackageAcquisition_RejectedReservationDisposesGalleryPayload</c>
 /// gates response ownership when Browser capacity policy rejects a transfer.
-/// <c>BrowserEngineBoundaryTests.BrowserGalleryDeadlineLeavesTimeForPartialRegistration</c>
+/// <c>BrowserEngineBoundaryTests.BrowserGalleryDeadlineLeavesTimeForSourceTimeout</c>
 /// and
-/// <c>BrowserEngineBoundaryTests.VersionPickerRetainsFlatListWhenRegistrationTimesOut</c>
-/// gate the timeout margin that lets optional registration degrade to a partial
-/// version-picker result before the Browser operation ceiling.
+/// <c>BrowserEngineBoundaryTests.VersionPickerPreservesGalleryRegistrationTimeout</c>
+/// gate the timeout margin that lets the source-owned registration timeout remain
+/// visible before the Browser operation ceiling.
 /// </para>
 /// </remarks>
 [SupportedOSPlatform("browser")]
@@ -116,7 +116,35 @@ internal static class BrowserPackageWorkspace
         Store;
     internal static PackagePayloadLimits PackageLimits => PayloadLimits;
 
-    sealed record CacheEntry(byte[] Bytes, string ProducerKey, long LastAccess);
+    sealed record CacheEntry
+    {
+        public CacheEntry(
+            byte[] bytes,
+            InMemoryPackageContent content,
+            long lastAccess)
+        {
+            ArgumentNullException.ThrowIfNull(bytes);
+            ArgumentNullException.ThrowIfNull(content);
+            if (!content.ReferencesArchive(bytes))
+            {
+                throw new ArgumentException(
+                    "The Browser cache content does not retain the supplied package archive.",
+                    nameof(content));
+            }
+
+            Bytes = bytes;
+            Content = content;
+            LastAccess = lastAccess;
+        }
+
+        public byte[] Bytes { get; private init; }
+
+        public InMemoryPackageContent Content { get; private init; }
+
+        public long LastAccess { get; init; }
+
+        public string ProducerKey => Content.ProducerKey;
+    }
 
     sealed record ScopeEntry(
         IDisposable Scope,
@@ -216,7 +244,10 @@ internal static class BrowserPackageWorkspace
         if (!Cache.TryGetValue(key, out CacheEntry? cached)
             || !cached.ProducerKey.Equals(
                 payload.ProducerKey,
-                StringComparison.Ordinal))
+                StringComparison.Ordinal)
+            || !ReferenceEquals(
+                cached.Content.GenerationIdentity,
+                payload.Content.GenerationIdentity))
         {
             throw new InvalidOperationException(
                 "The shared package acquisition completed without publishing its Browser cache entry.");
@@ -225,10 +256,8 @@ internal static class BrowserPackageWorkspace
         Cache[key] = cached with { LastAccess = ++_clock };
         return new BrowserPackage(
             packageId,
-            coordinate.Version,
-            cached.Bytes,
-            payload.Origin == PackagePayloadOrigin.Cache,
-            cached.ProducerKey);
+            payload,
+            cached.Bytes);
     }
 
     static async Task<PackageSourceCoordinate> ResolveCoordinateAsync(
@@ -271,12 +300,26 @@ internal static class BrowserPackageWorkspace
             packageId,
             version,
             cancellationToken);
-        var root = new PackageRootRealization(
-            package.Content,
+        return new BrowserPackageCoordinate(
+            package,
+            package.CreateRootBinding(targetFramework));
+    }
+
+    internal static async Task<BrowserPackageCoordinate> ResolveAsync(
+        string packageId,
+        string? version,
+        string? targetFramework,
+        IPackageSourceClient source,
+        TimeSpan operationTimeout)
+    {
+        BrowserPackage package = await AcquireAsync(
             packageId,
-            package.Version,
-            targetFramework);
-        return new BrowserPackageCoordinate(package, root);
+            version,
+            source,
+            operationTimeout);
+        return new BrowserPackageCoordinate(
+            package,
+            package.CreateRootBinding(targetFramework));
     }
 
     /// <summary>
@@ -1072,7 +1115,7 @@ internal static class BrowserPackageWorkspace
         MakeCacheRoom(package.RetainedBytes.LongLength, additionalEntries: 1);
         Cache[key] = new CacheEntry(
             package.RetainedBytes,
-            package.Content.ProducerKey,
+            package.Content,
             ++_clock);
     }
 
@@ -1150,10 +1193,7 @@ internal static class BrowserPackageWorkspace
 
             Cache[key] = entry with { LastAccess = ++_clock };
             log?.Invoke($"Using cached package: {packageName} {version}");
-            return new InMemoryPackageContent(
-                entry.Bytes,
-                fromCache: true,
-                entry.ProducerKey);
+            return entry.Content.AsCacheHit();
         }
 
         public async ValueTask<IPackageContent> CommitAsync(
@@ -1195,11 +1235,12 @@ internal static class BrowserPackageWorkspace
                     cancellationToken).ConfigureAwait(false);
             }
 
-            reservation.Stage(bytes, sourceKey);
-            return new InMemoryPackageContent(
+            var content = InMemoryPackageContent.CreateOwned(
                 bytes,
                 fromCache: false,
                 sourceKey);
+            reservation.Stage(bytes, content);
+            return content;
         }
 
         public IPackagePayloadReservation Reserve(
@@ -1224,7 +1265,7 @@ internal static class BrowserPackageWorkspace
     {
         readonly string _packageKey;
         byte[]? _stagedBytes;
-        string? _producerKey;
+        InMemoryPackageContent? _stagedContent;
         bool _completed;
 
         internal PackageDownloadReservation(
@@ -1237,10 +1278,12 @@ internal static class BrowserPackageWorkspace
 
         internal long ReservedBytes { get; }
 
-        internal void Stage(byte[] bytes, string producerKey)
+        internal void Stage(
+            byte[] bytes,
+            InMemoryPackageContent content)
         {
             ArgumentNullException.ThrowIfNull(bytes);
-            ArgumentException.ThrowIfNullOrWhiteSpace(producerKey);
+            ArgumentNullException.ThrowIfNull(content);
             if (_completed || _stagedBytes is not null)
                 throw new InvalidOperationException("The package reservation is complete.");
             if (bytes.LongLength != ReservedBytes)
@@ -1250,14 +1293,14 @@ internal static class BrowserPackageWorkspace
             }
 
             _stagedBytes = bytes;
-            _producerKey = producerKey;
+            _stagedContent = content;
         }
 
         public void Complete()
         {
             if (_completed)
                 throw new InvalidOperationException("The package reservation is complete.");
-            if (_stagedBytes is null || _producerKey is null)
+            if (_stagedBytes is null || _stagedContent is null)
             {
                 throw new InvalidOperationException(
                     "The package reservation has no validated content to publish.");
@@ -1266,7 +1309,7 @@ internal static class BrowserPackageWorkspace
             RemoveReservation();
             Cache[_packageKey] = new CacheEntry(
                 _stagedBytes,
-                _producerKey,
+                _stagedContent,
                 ++_clock);
             Downloaded.Add(_packageKey);
             _completed = true;
@@ -1312,6 +1355,7 @@ internal sealed record BrowserScopeResolution(
 internal sealed class BrowserPackage
 {
     const long MaxTextEntryBytes = 16L * 1024 * 1024;
+    readonly AcquiredPackageSourcePayload? _acquiredPayload;
 
     public BrowserPackage(
         string packageId,
@@ -1329,10 +1373,41 @@ internal sealed class BrowserPackage
         PackageId = packageId;
         Version = version;
         RetainedBytes = retainedBytes;
-        Content = new InMemoryPackageContent(
+        Content = InMemoryPackageContent.CreateOwned(
             retainedBytes,
             fromCache,
             producerKey);
+    }
+
+    internal BrowserPackage(
+        string requestedPackageId,
+        AcquiredPackageSourcePayload acquiredPayload,
+        byte[] retainedBytes)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(requestedPackageId);
+        ArgumentNullException.ThrowIfNull(acquiredPayload);
+        ArgumentNullException.ThrowIfNull(retainedBytes);
+        if (!requestedPackageId.Equals(
+                acquiredPayload.Coordinate.PackageId,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                "The acquired package payload does not match the requested package.",
+                nameof(acquiredPayload));
+        }
+        if (acquiredPayload.Content is not InMemoryPackageContent content)
+        {
+            throw new ArgumentException(
+                "The Browser package store returned non-memory package content.",
+                nameof(acquiredPayload));
+        }
+
+        BrowserPackageWorkspace.ValidateArchive(retainedBytes);
+        PackageId = requestedPackageId;
+        Version = acquiredPayload.Coordinate.Version;
+        RetainedBytes = retainedBytes;
+        Content = content;
+        _acquiredPayload = acquiredPayload;
     }
 
     public string PackageId { get; }
@@ -1342,6 +1417,13 @@ internal sealed class BrowserPackage
     public InMemoryPackageContent Content { get; }
 
     internal byte[] RetainedBytes { get; }
+
+    internal PackageRootBinding CreateRootBinding(string? targetFramework) =>
+        PackageRootBinding.CreateFromSource(
+            _acquiredPayload
+            ?? throw new InvalidOperationException(
+                "Only an acquisition-issued Browser package can create a bound package Root."),
+            targetFramework);
 
     /// <summary>
     /// The package's browsable Markdown: a root <c>README.md</c>/<c>PACKAGE.md</c> and any
@@ -1482,6 +1564,30 @@ internal sealed class BrowserPackageCoordinate
 {
     public BrowserPackageCoordinate(
         BrowserPackage package,
+        PackageRootBinding binding)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+        ArgumentNullException.ThrowIfNull(binding);
+        if (!package.PackageId.Equals(
+                binding.Coordinate.PackageId,
+                StringComparison.OrdinalIgnoreCase)
+            || !package.Version.Equals(
+                binding.Coordinate.Version,
+                StringComparison.OrdinalIgnoreCase)
+            || !binding.Root.ReferencesContent(package.Content))
+        {
+            throw new ArgumentException(
+                "The product package Root binding does not describe the acquired Browser package.",
+                nameof(binding));
+        }
+
+        Package = package;
+        Binding = binding;
+        Root = binding.Root;
+    }
+
+    public BrowserPackageCoordinate(
+        BrowserPackage package,
         PackageRootRealization root)
     {
         ArgumentNullException.ThrowIfNull(package);
@@ -1506,7 +1612,14 @@ internal sealed class BrowserPackageCoordinate
 
     public BrowserPackage Package { get; }
 
+    public PackageRootBinding? Binding { get; }
+
     public PackageRootRealization Root { get; }
+
+    public RealizedMemberCoordinate.Package RealizedCoordinate =>
+        Binding?.Coordinate
+        ?? throw new InvalidOperationException(
+            "The legacy Browser package coordinate has no acquisition-issued binding.");
 
     public PackageCompileAssetSelection Selection =>
         Root.AssetSelection;
@@ -1533,6 +1646,16 @@ internal sealed class BrowserPackageCoordinate
     public bool HasExactContentAs(BrowserPackageCoordinate other)
     {
         ArgumentNullException.ThrowIfNull(other);
+        if (Binding is not null || other.Binding is not null)
+        {
+            return Binding is not null
+                && other.Binding is not null
+                && Key.Equals(other.Key, StringComparison.Ordinal)
+                && ReferenceEquals(
+                    Binding.ContentGenerationIdentity,
+                    other.Binding.ContentGenerationIdentity);
+        }
+
         return Key.Equals(other.Key, StringComparison.Ordinal)
             && ReferenceEquals(Package.RetainedBytes, other.Package.RetainedBytes)
             && Root.ProducerKey.Equals(

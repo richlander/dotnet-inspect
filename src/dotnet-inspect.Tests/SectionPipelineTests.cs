@@ -4453,7 +4453,9 @@ public class SectionPipelineTests
                 Verbosity.Normal,
                 packageSelection);
         InspectionQueryPlan<PackageProfileQueryContext> packageQueryPlan =
-            queryCatalog.Plan(packageSectionPlan.Queries[0]);
+            profileCatalog.Lens
+                .Plan(Verbosity.Normal, packageSelection)
+                .QueryPlan;
 
         long before = GC.GetAllocatedBytesForCurrentThread();
         for (int iteration = 0; iteration < 1_000; iteration++)
@@ -4477,7 +4479,9 @@ public class SectionPipelineTests
                         packageSelection))
                 || !ReferenceEquals(
                     packageQueryPlan,
-                    queryCatalog.Plan(packageSectionPlan.Queries[0])))
+                    profileCatalog.Lens
+                        .Plan(Verbosity.Normal, packageSelection)
+                        .QueryPlan))
             {
                 throw new InvalidOperationException(
                     "The package-profile catalog or a precomputed plan changed identity.");
@@ -5260,6 +5264,10 @@ public class SectionPipelineTests
     {
         LibrarySectionCatalog catalog = LibrarySections.CreateCatalog();
         SectionPipeline<LibraryInspection> pipeline = catalog.Pipeline;
+        Assert.Equal(
+            IntegrationConceptCatalog.Concepts,
+            LibraryIntegrationCatalog.All.Select(
+                descriptor => descriptor.Concept));
         Assert.Contains(
             AssemblyContextIntegrationsQuery.Definition,
             catalog.GroupQueryCatalog.RegisteredQueries);

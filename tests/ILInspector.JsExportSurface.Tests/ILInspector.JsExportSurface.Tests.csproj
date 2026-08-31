@@ -23,7 +23,7 @@
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <ProjectReference Include="../../src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
     <ProjectReference Include="../../src/ILInspector.JsExportSurface/ILInspector.JsExportSurface.csproj" />
-    <ProjectReference Include="../../src/tsbindgen/tsbindgen.csproj" />
+    <ProjectReference Include="../../src/ts-jsexport/ts-jsexport.csproj" />
     <ProjectReference Include="../../src/ILInspector.JsExportSurface.Fixtures/ILInspector.JsExportSurface.Fixtures.csproj" />
     <ProjectReference
       Include="../../src/ILInspector.JsExportSurface.RuntimeAsyncFixtures/ILInspector.JsExportSurface.RuntimeAsyncFixtures.csproj"
@@ -32,6 +32,7 @@
     <ProjectReference Include="../ILInspector.JsExportSurface.OperatorFixtures/ILInspector.JsExportSurface.OperatorFixtures.csproj" />
     <ProjectReference Include="../ILInspector.JsExportSurface.PublishabilityFixtures/ILInspector.JsExportSurface.PublishabilityFixtures.csproj" />
     <ProjectReference Include="../ILInspector.JsExportSurface.ScalarFixtures/ILInspector.JsExportSurface.ScalarFixtures.csproj" />
+    <ProjectReference Include="../ILInspector.JsExportSurface.TypeScriptFixtures/ILInspector.JsExportSurface.TypeScriptFixtures.csproj" />
   </ItemGroup>
 
   <Target Name="CopyRuntimeAsyncFixture" AfterTargets="Build">

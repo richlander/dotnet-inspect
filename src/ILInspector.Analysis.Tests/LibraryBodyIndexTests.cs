@@ -10278,7 +10278,7 @@ public class LibraryBodyIndexTests
 
     /// <summary>
     /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is the
-    /// non-vacuity gate for tsbindgen's value-flow opt-in: plain method
+    /// non-vacuity gate for TypeScript facade generation's value-flow opt-in: plain method
     /// evidence retains direct calls without materializing their argument,
     /// receiver, or result flow, while the named feature supplies them.
     /// </summary>
@@ -11943,6 +11943,19 @@ public class LibraryBodyIndexTests
         var pointerRead = Assert.Single(index.Methods.Where(m =>
             m.Name == nameof(UnsafeEvidenceFixtures.UnsafePointerRead)));
         Assert.Equal(CallerUnsafeMode.Implicit, pointerRead.CallerUnsafeMode);
+    }
+
+    [Fact]
+    public void CallerUnsafeMode_RequiresUnsafeIsExplicitWhenModuleOptedIn()
+    {
+        var index = LibraryBodyIndex.Open(
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
+
+        Assert.True(index.MemorySafetyRulesEnabled);
+        Assert.NotEqual(0, index.UnsafeModes.Explicit);
+        Assert.DoesNotContain(
+            index.Methods,
+            method => method.CallerUnsafeMode == CallerUnsafeMode.Implicit);
     }
 
     [Fact]

@@ -31,6 +31,13 @@ public class EcosystemIntegrationScannerTests
         ];
 
         Assert.Equal(expected, signals);
+        Assert.Same(
+            IntegrationConceptCatalog.DependencyInjection,
+            signals[0].GetConcept());
+        Assert.Same(
+            IntegrationConceptCatalog.EcosystemObserved,
+            signals[0].GetProducerPolicy());
+        Assert.Same(signals[0].GetConcept(), signals[1].GetConcept());
         EcosystemIntegrationApiEvidence api = Assert.IsType<
             EcosystemIntegrationApiEvidence>(
                 signals[0].GetApiEvidence());
@@ -63,6 +70,150 @@ public class EcosystemIntegrationScannerTests
         Assert.Equal(scannedPresence, summarizedPresence);
         Assert.Equal(1, scannedPresence.IntegrationCount);
         Assert.True(scannedPresence.HasDependencyInjectionSupport);
+    }
+
+    [Fact]
+    public void OpportunityScan_PreservesCompatibilitySetComparer()
+    {
+        using var stream = BuildCloudClientAssembly();
+        using var peReader = new PEReader(stream);
+        IReadOnlySet<string> existingIntegrations = new HashSet<string>(
+            [EcosystemIntegrationNames.DependencyInjection.ToLowerInvariant()],
+            StringComparer.OrdinalIgnoreCase);
+
+        List<IntegrationOpportunityInfo> opportunities =
+            IntegrationOpportunityScanner.Scan(peReader, existingIntegrations);
+
+        Assert.DoesNotContain(
+            opportunities,
+            opportunity =>
+                opportunity.Integration
+                == EcosystemIntegrationNames.DependencyInjection);
+        Assert.Contains(
+            opportunities,
+            opportunity =>
+                opportunity.Integration == EcosystemIntegrationNames.Aspire);
+    }
+
+    [Fact]
+    public void OpportunityScan_UsesExactDescriptorIdentityIndependentlyOfSetComparer()
+    {
+        using var stream = BuildCloudClientAssembly();
+        using var peReader = new PEReader(stream);
+        IReadOnlySet<IntegrationConceptDescriptor> existingIntegrations =
+            new HashSet<IntegrationConceptDescriptor>(
+                AllConceptsEqualComparer.Instance)
+            {
+                IntegrationConceptCatalog.AI,
+            };
+
+        List<IntegrationOpportunityInfo> opportunities =
+            IntegrationOpportunityScanner.Scan(peReader, existingIntegrations);
+
+        Assert.Contains(
+            opportunities,
+            opportunity =>
+                opportunity.GetConcept()
+                == IntegrationConceptCatalog.DependencyInjection);
+        Assert.Contains(
+            opportunities,
+            opportunity =>
+                opportunity.GetConcept() == IntegrationConceptCatalog.Aspire);
+    }
+
+    [Fact]
+    public void SummarizePresence_PreservesUnknownCompatibilityLabelCount()
+    {
+        using var stream = BuildDependencyInjectionExtensionAssembly();
+        using var peReader = new PEReader(stream);
+        EcosystemIntegrationSignalInfo[] signals =
+        [
+            new(
+                "External Integration",
+                "External",
+                "External.Type"),
+        ];
+
+        EcosystemIntegrationPresence presence =
+            EcosystemIntegrationScanner.SummarizePresence(
+                peReader,
+                signals,
+                hasOpenTelemetrySupport: false);
+
+        Assert.Equal(1, presence.IntegrationCount);
+    }
+
+    [Fact]
+    public void CompatibilityRecords_DoNotInventProducerPolicyMembership()
+    {
+        var ecosystemSignal = new EcosystemIntegrationSignalInfo(
+            EcosystemIntegrationNames.OpenTelemetry,
+            "Telemetry",
+            "OpenTelemetry.Api");
+        var opportunity = new IntegrationOpportunityInfo(
+            EcosystemIntegrationNames.Logging,
+            "Logger",
+            "Logging",
+            "Add logging");
+
+        Assert.Same(
+            IntegrationConceptCatalog.OpenTelemetry,
+            ecosystemSignal.GetConcept());
+        Assert.Null(ecosystemSignal.GetProducerPolicy());
+        Assert.Same(
+            IntegrationConceptCatalog.Logging,
+            opportunity.GetConcept());
+        Assert.Null(opportunity.GetProducerPolicy());
+    }
+
+    [Fact]
+    public void CompatibilityRecords_WithMutationKeepsConceptIdentitySynchronized()
+    {
+        var ecosystemSignal = new EcosystemIntegrationSignalInfo(
+            EcosystemIntegrationNames.AI,
+            "Chat",
+            "ChatClient") with
+        {
+            Integration = EcosystemIntegrationNames.Logging,
+        };
+        var opportunity = new IntegrationOpportunityInfo(
+            EcosystemIntegrationNames.AI,
+            "ChatClient",
+            "AI",
+            "IChatClient") with
+        {
+            Integration = EcosystemIntegrationNames.Configuration,
+        };
+
+        Assert.Equal(
+            EcosystemIntegrationNames.Logging,
+            ecosystemSignal.Integration);
+        Assert.Same(
+            IntegrationConceptCatalog.Logging,
+            ecosystemSignal.GetConcept());
+        Assert.Same(
+            IntegrationConceptCatalog.EcosystemObserved,
+            ecosystemSignal.GetProducerPolicy());
+        Assert.Equal(
+            EcosystemIntegrationNames.Configuration,
+            opportunity.Integration);
+        Assert.Same(
+            IntegrationConceptCatalog.Configuration,
+            opportunity.GetConcept());
+        Assert.Same(
+            IntegrationConceptCatalog.Opportunity,
+            opportunity.GetProducerPolicy());
+
+        var externalSignal = ecosystemSignal with
+        {
+            Integration = "External Integration",
+        };
+        Assert.Null(externalSignal.GetConcept());
+        Assert.Null(externalSignal.GetProducerPolicy());
+        Assert.Null((opportunity with
+        {
+            Integration = EcosystemIntegrationNames.Logging,
+        }).GetProducerPolicy());
     }
 
     [Fact]
@@ -158,6 +309,36 @@ public class EcosystemIntegrationScannerTests
             method.SetCustomAttribute(extensionAttribute);
             method.GetILGenerator().Emit(OpCodes.Ret);
         }
+    }
+
+    private static MemoryStream BuildCloudClientAssembly()
+    {
+        var assemblyBuilder = new PersistedAssemblyBuilder(
+            new AssemblyName("IntegrationOpportunityFixture"),
+            typeof(object).Assembly);
+        var module =
+            assemblyBuilder.DefineDynamicModule("IntegrationOpportunityFixture");
+        module.DefineType(
+                "Azure.Storage.SampleClient",
+                TypeAttributes.Public | TypeAttributes.Class)
+            .CreateType();
+
+        var stream = new MemoryStream();
+        assemblyBuilder.Save(stream);
+        stream.Position = 0;
+        return stream;
+    }
+
+    private sealed class AllConceptsEqualComparer
+        : IEqualityComparer<IntegrationConceptDescriptor>
+    {
+        public static AllConceptsEqualComparer Instance { get; } = new();
+
+        public bool Equals(
+            IntegrationConceptDescriptor? x,
+            IntegrationConceptDescriptor? y) => true;
+
+        public int GetHashCode(IntegrationConceptDescriptor obj) => 0;
     }
 
     private static byte[] BuildAnchorOverBudgetExtensionAssembly()

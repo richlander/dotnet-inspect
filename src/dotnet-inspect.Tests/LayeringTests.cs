@@ -4,7 +4,6 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using DotnetInspector.AssemblyOnlyHost.Fixture;
-using ILInspector.Analysis;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -507,6 +506,76 @@ public sealed class LayeringTests
             changeDetection);
     }
 
+    [Fact]
+    public void LocalPathAdmission_PlatformClassifiersRemainPortable()
+    {
+        string root = CommandErrorOwnershipTests.RepositoryRoot();
+        string probeDirectory = Path.Combine(
+            root,
+            "tests",
+            "DotnetInspector.Artifacts.Local.PlatformProbe");
+        string probe = File.ReadAllText(
+            Path.Combine(probeDirectory, "Program.cs"));
+        string nativeProject = File.ReadAllText(
+            Path.Combine(
+                probeDirectory,
+                "LocalPathAdmissionPlatformProbe.csproj"));
+        string browserProject = File.ReadAllText(
+            Path.Combine(
+                probeDirectory,
+                "LocalPathAdmissionBrowserProbe.csproj"));
+        string runner = File.ReadAllText(
+            Path.Combine(
+                root,
+                "eng",
+                "run-local-path-admission-platform-probe.sh"));
+        string workflow = File.ReadAllText(
+            Path.Combine(root, ".github", "workflows", "ci.yml"));
+        string changeDetection = File.ReadAllText(
+            Path.Combine(root, "eng", "ci-detect-changes.sh"));
+
+        Assert.Contains(
+            "LocalArtifactSource.AcquireFileAsync(",
+            probe);
+        Assert.Contains("\"local.file.missing\"", probe);
+        Assert.Contains("\"local.file.unsupported-entry\"", probe);
+        Assert.Contains(
+            "Browser errno classification did not select only WASI values.",
+            probe);
+        Assert.Contains("LocalPathAdmission.IsUnixMissing(2)", probe);
+        Assert.Contains(
+            "LocalPathAdmission.IsUnixSymbolicLinkLoop(40)",
+            probe);
+        Assert.Contains(
+            "<PublishAot>true</PublishAot>",
+            nativeProject);
+        Assert.Contains(
+            "<IsPublishable>true</IsPublishable>",
+            nativeProject);
+        Assert.Contains(
+            "Microsoft.NET.Sdk.WebAssembly",
+            browserProject);
+        Assert.Contains(
+            "<IsPublishable>true</IsPublishable>",
+            browserProject);
+        Assert.Contains(
+            "run-local-path-admission-platform-probe.sh nativeaot",
+            workflow);
+        Assert.Contains(
+            "run-local-path-admission-platform-probe.sh browser",
+            workflow);
+        Assert.Contains("dotnet publish", runner);
+        Assert.Contains("node \"$main_js\"", runner);
+        Assert.Contains(
+            "tests/DotnetInspector.Artifacts.Local.PlatformProbe/*) "
+                + "CODE=true; WEB=true",
+            changeDetection);
+        Assert.Contains(
+            "eng/run-local-path-admission-platform-probe.sh) "
+                + "CODE=true; WEB=true",
+            changeDetection);
+    }
+
     private static (string Name, string Source)[] EvaluatedSources(
         string project)
     {
@@ -951,114 +1020,6 @@ public sealed class LayeringTests
         Assert.DoesNotContain(
             "System.Reflection.Metadata.MetadataReader",
             referencedTypes);
-    }
-
-    [Theory]
-    [InlineData("DiffCommand.cs")]
-    [InlineData("TimelineCommand.cs")]
-    public void BodyComparisonCommands_UseMethodBodyInspectionSession(
-        string commandFile)
-    {
-        string projectDirectory = Path.Combine(
-            CommandErrorOwnershipTests.RepositoryRoot(),
-            "src",
-            "dotnet-inspect");
-        string path = Path.Combine(
-            projectDirectory,
-            "Commands",
-            commandFile);
-        string source = File.ReadAllText(path);
-        string commandTypeName =
-            Path.GetFileNameWithoutExtension(commandFile);
-        var projectSources = Directory.EnumerateFiles(
-                    projectDirectory,
-                    "*.cs",
-                    SearchOption.AllDirectories)
-                .Select(sourcePath => (
-                    Path: sourcePath,
-                    Source: File.ReadAllText(sourcePath)))
-                .ToArray();
-        string projectSource = string.Join(
-            Environment.NewLine,
-            projectSources.Select(file => file.Source));
-        string qualifiedIndexType =
-            $@"(?:global\s*::\s*)?"
-            + $@"(?:@?\w+\s*\.\s*)*@?{nameof(LibraryBodyIndex)}";
-        string directIndexAccess =
-            $@"\b{qualifiedIndexType}\s*\.\s*"
-            + $@"@?{nameof(LibraryBodyIndex.Open)}\w*\b";
-        string obscuredIndexImport =
-            $@"\b(?:global\s+)?using\s+"
-            + $@"(?:@?\w+\s*=\s*|static\s+)"
-            + $@"{qualifiedIndexType}\s*;";
-        string obscuredGlobalIndexImport =
-            $@"\bglobal\s+using\s+"
-            + $@"(?:@?\w+\s*=\s*|static\s+)"
-            + $@"{qualifiedIndexType}\s*;";
-        string sessionOpen =
-            $@"\b(?:\w+\.)*{nameof(MethodBodyInspectionSession)}\s*\.\s*"
-            + $@"{nameof(MethodBodyInspectionSession.Open)}\w*\b";
-        string[] directIndexOwners = projectSources
-            .Where(file =>
-                System.Text.RegularExpressions.Regex.IsMatch(
-                    file.Source,
-                    directIndexAccess))
-            .Select(file =>
-                Path.GetRelativePath(projectDirectory, file.Path)
-                    .Replace(Path.DirectorySeparatorChar, '/'))
-            .Order()
-            .ToArray();
-
-        Assert.Matches(
-            directIndexAccess,
-            $"indexes.Select({nameof(LibraryBodyIndex)}."
-                + $"{nameof(LibraryBodyIndex.Open)})");
-        Assert.Matches(
-            directIndexAccess,
-            $"global :: ILInspector . Analysis . {nameof(LibraryBodyIndex)} . "
-                + $"{nameof(LibraryBodyIndex.Open)}(path)");
-        Assert.Matches(
-            directIndexAccess,
-            $"{nameof(LibraryBodyIndex)}.@{nameof(LibraryBodyIndex.Open)}(path)");
-        Assert.Matches(
-            obscuredIndexImport,
-            $"using BodyIndex = ILInspector.Analysis."
-                + $"{nameof(LibraryBodyIndex)};");
-        Assert.Matches(
-            obscuredIndexImport,
-            $"using @BodyIndex = ILInspector . Analysis . "
-                + $"{nameof(LibraryBodyIndex)};");
-        Assert.Matches(
-            obscuredIndexImport,
-            $"using BodyIndex = ILInspector.Analysis."
-                + $"@{nameof(LibraryBodyIndex)};");
-        Assert.Matches(
-            obscuredIndexImport,
-            $"global using static ILInspector.Analysis."
-                + $"{nameof(LibraryBodyIndex)};");
-        Assert.Matches(
-            obscuredGlobalIndexImport,
-            $"global using BodyIndex = ILInspector.Analysis."
-                + $"{nameof(LibraryBodyIndex)};");
-        Assert.Matches(
-            obscuredGlobalIndexImport,
-            $"global using BodyIndex = global :: ILInspector . Analysis . "
-                + $"{nameof(LibraryBodyIndex)};");
-        Assert.Matches(
-            obscuredGlobalIndexImport,
-            $"global using static ILInspector . Analysis . "
-                + $"{nameof(LibraryBodyIndex)};");
-        Assert.Matches(
-            obscuredGlobalIndexImport,
-            $"global using static ILInspector.Analysis."
-                + $"@{nameof(LibraryBodyIndex)};");
-        Assert.Equal(
-            ["Inspectors/MethodBodyInspectionSession.cs"],
-            directIndexOwners);
-        Assert.DoesNotMatch(directIndexAccess, source);
-        Assert.DoesNotMatch(obscuredIndexImport, projectSource);
-        Assert.DoesNotMatch(obscuredGlobalIndexImport, projectSource);
-        Assert.Matches(sessionOpen, source);
     }
 
     private static void AssertNoForbiddenImplementations(

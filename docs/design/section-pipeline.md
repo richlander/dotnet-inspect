@@ -289,6 +289,13 @@ allocation gates exercise the seam without introducing
 assembly or workspace lifetime. API, Type, and Member migration remains
 follow-up work.
 
+Package Profile is the second production adopter. Its fixed query catalog and
+`Packages` section compile into one reusable lens, and `FindCommand` obtains and
+runs the selected query plan through that lens rather than manually lowering a
+section plan. `PackageProfileCatalog_MaterializesSourceExecutionOnce` and
+`PackageProfileCatalog_RepeatedAcquisitionAndCommonPlanningAllocateNothing`
+gate single execution and the allocation-free common planning path.
+
 Release conformance is enforced by
 `CompiledDomain_MultipleLensesShareOneQueryCatalog`,
 `CompiledLens_RejectsQueryOutsideProducerDomain`,

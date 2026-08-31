@@ -547,7 +547,7 @@ internal static class DetectionTestSuite
             repository,
             body,
             "pull_request",
-            "src/tsbindgen/JsEmitter.cs",
+            "src/ILInspector.TypeScriptGeneration/TypeScriptFacadeEmitter.cs",
             outputs);
         if (webGenerator["code"] != "true" || webGenerator["web"] != "true")
         {
@@ -559,7 +559,7 @@ internal static class DetectionTestSuite
             repository,
             body,
             "pull_request",
-            "eng/generate-inspect-web-engine-dts.sh",
+            "eng/generate-inspect-web-engine-facade.sh",
             outputs);
         if (webGenerationScript["code"] != "false"
             || webGenerationScript["web"] != "true")
@@ -593,6 +593,79 @@ internal static class DetectionTestSuite
             throw new InvalidOperationException(
                 "MethodSemantics platform-probe source did not select code and web: "
                 + FormatValues(methodSemanticsProbeSource));
+        }
+        Dictionary<string, string> localPathProbeRunner = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/run-local-path-admission-platform-probe.sh",
+            outputs);
+        if (localPathProbeRunner["code"] != "true"
+            || localPathProbeRunner["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Local-path platform-probe runner did not select code and web: "
+                + FormatValues(localPathProbeRunner));
+        }
+        Dictionary<string, string> localPathProbeSource = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "tests/DotnetInspector.Artifacts.Local.PlatformProbe/wwwroot/main.js",
+            outputs);
+        if (localPathProbeSource["code"] != "true"
+            || localPathProbeSource["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Local-path platform-probe source did not select code and web: "
+                + FormatValues(localPathProbeSource));
+        }
+        Dictionary<string, string> localPathProbeProduct = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "src/DotnetInspector.Artifacts.Local/LocalPathAdmission.cs",
+            outputs);
+        if (localPathProbeProduct["code"] != "true"
+            || localPathProbeProduct["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Local-path probe product dependency did not select code and web: "
+                + FormatValues(localPathProbeProduct));
+        }
+        Dictionary<string, string> tsJsExportGate = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/test-ts-jsexport-typescript.sh",
+            outputs);
+        if (tsJsExportGate["code"] != "false"
+            || tsJsExportGate["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "ts-jsexport TypeScript gate did not select only web: "
+                + FormatValues(tsJsExportGate));
+        }
+        foreach (string tsJsExportInput in new[]
+        {
+            "tests/ILInspector.JsExportSurface.TypeScriptFixtures/TypeScriptFixtureExports.cs",
+            "tests/ILInspector.JsExportSurface.Tests/Fixtures/ts-jsexport-runtime/runtime-probe.mjs",
+            "tests/ILInspector.JsExportSurface.Tests/Fixtures/ts-jsexport-runtime/dotnet.js",
+        })
+        {
+            Dictionary<string, string> tsJsExportInputRouting = RunDetection(
+                repository,
+                body,
+                "pull_request",
+                tsJsExportInput,
+                outputs);
+            if (tsJsExportInputRouting["code"] != "true"
+                || tsJsExportInputRouting["web"] != "true")
+            {
+                throw new InvalidOperationException(
+                    $"ts-jsexport input {tsJsExportInput} did not select code and web: "
+                    + FormatValues(tsJsExportInputRouting));
+            }
         }
         foreach (string promotionInput in new[]
         {

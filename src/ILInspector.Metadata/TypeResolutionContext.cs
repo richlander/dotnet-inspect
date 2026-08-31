@@ -214,7 +214,15 @@ public sealed class TypeResolutionCatalog : IDisposable
                     bindingPolicy,
                     includeAll,
                     typesOnly);
-        if (readyRegistration.InventoryFailure is { } inventoryFailure)
+        if (readyRegistration.InventoryFailure is { } inventoryFailure
+            && !surface.InspectionFailures.Any(
+                failure =>
+                    failure.Mechanism
+                        == MetadataTypeNameFailureMechanism.Metadata
+                    && string.Equals(
+                        failure.Detail,
+                        inventoryFailure.Detail,
+                        StringComparison.Ordinal)))
         {
             surface.InspectionFailures.Add(
                 new ApiSurfaceInspectionFailure(
@@ -2458,8 +2466,10 @@ public sealed class TypeResolutionContext : IDisposable
                     SelectOne(
                         selected.Assembly,
                         selected.ShadowedAssemblies),
-                AssemblyBindingSelection.Missing =>
-                    new(new AssemblyBindingOutcome.Missing()),
+                AssemblyBindingSelection.Missing missing =>
+                    new(
+                        new AssemblyBindingOutcome.Missing(
+                            missing.Disposition)),
                 AssemblyBindingSelection.Unavailable unavailable =>
                     new(
                         new AssemblyBindingOutcome.Unavailable(

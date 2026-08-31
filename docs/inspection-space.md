@@ -39,7 +39,11 @@ directions, and remain independent of rendering. Group-scoped optimization
 ranking also builds Analysis indexes from retained snapshots, resolves
 cross-assembly metadata only to selected siblings under each participant's
 binding policy, attributes bodies to public API owners, and returns one stable
-product-owned order across the group. Exact method analysis reads signals,
+product-owned order across the group. Seeded structural-clone retrieval binds
+one exact seed participant and one explicit candidate participant, keeps both
+retained snapshots alive for one same-image or cross-image Analysis call, and
+returns the product result unchanged beside both subjects' identity and
+provenance. Exact method analysis reads signals,
 allocations, direct calls, unsafe evidence, exception regions, opportunities,
 and diagnostics from one physical MethodDef body without exposing the snapshot
 or Analysis index to its consumer. Analysis index execution remains sequential,
@@ -863,6 +867,90 @@ sequential for Browser/Wasm.
 `AssemblyContextMethodAnalysisQueryTests` gate exact-token filtering, compiled
 allocation/call/exception/opportunity evidence, visible invalid and bodyless
 failures, and unbounded query cost.
+
+`AssemblyContextStructuralCloneRetrievalQuery` is the first query that joins
+two explicitly selected assembly participants while both immutable snapshots
+remain borrowed. Its input names the seed and candidate groups and
+participants, selects the seed by a MethodDef token or an exact structured type
+plus `MemberAnchor`, and declares either one exact candidate type or an explicit
+whole-assembly population. A-vs-A uses one reader only when both selections
+refer to the same participant in the same group. Every other request uses
+independent readers, including equal-MVID content acquired under separate
+registrations, so reader-local identity is never inferred from module identity.
+
+The query resolves only exact metadata identities, enumerates the full selected
+population without query-side truncation, and dispatches one mutually exclusive
+same-image or cross-image Analysis path. The exactly-once Analysis call count is
+unverified beyond direct inspection. The returned
+`StructuralCloneRetrievalResult` is not projected or reconstructed: ranks,
+score components, method outcomes, blockers, receipts, MVID-scoped method
+addresses, and the four product dispositions remain owned by Analysis.
+Acquisition rejection, missing or ambiguous exact targets, and pre-retrieval
+metadata failure are separate typed query outcomes. The query is `Unbounded`;
+whole-assembly scope is explicit, and Analysis method, result, and
+body-production limits remain the visible work controls. Exact selection still
+uses Metadata-owned cumulative name, member-anchor, method-row, decode-failure,
+and custom-attribute work ceilings, so malformed metadata fails visibly before
+retrieval rather than multiplying per-row work. Each candidate type-name
+attempt consumes structural-name work, and decode failures also count against
+the decode-failure ceiling. Method projection is validated once per image
+rather than at each projection site: the query admits a reader only after
+confirming that no TypeDef method range reports a negative length and that
+the ranges cover the MethodDef table exactly once, and seed and population
+resolution accept only an image carrying that confirmation. Those two
+requirements bound the underlying `MethodList` column jointly, which is why
+neither is redundant: a negative length is what makes the starts
+non-decreasing, and coverage is what forces the first non-null start to row 1
+and holds every later start within one past the projected table. A null start
+sits outside that chain: ECMA-335 II.22.37 permits it and the reader reports
+its range as length zero rather than as the difference to the next start.
+A repeated or out-of-range row, a `MethodPtr` table
+that aliases one MethodDef row into two types, a descending range, and a
+`MethodList` start past the table -- which SRM reports as an empty or
+negative-length range rather than an error -- are all typed
+metadata failures in the participant role that read the image, instead of
+reaching Analysis as untyped argument errors, being reported as a member
+ambiguity, or returning a success-shaped empty population. The check is a
+single pass over the image's own tables and reads no raw table bytes; it is not
+a claim that every malformed image is diagnosed before Analysis. It introduces
+no network, source, Research, Finding, Decompiler, or presentation capability.
+`AssemblyContextStructuralCloneRetrievalQueryTests` gates A-vs-A and A-vs-B
+product-result preservation, type and whole-assembly population behavior,
+exact-member, extension-member, and token selection, ambiguity, limit
+separation, unsupported bodies, seed-before-candidate failure precedence,
+malformed acquisition and metadata-neighbor isolation, and same-MVID
+independent-reader handling. Its virtual-token, repeated-long-leaf,
+repeated-long-unequal-leaf, repeated-malformed-leaf, near-limit-member-anchor,
+repeated-container-attribute, and rejected-TypeSpec-attribute cases gate the
+pre-retrieval work ceilings and visible metadata-failure boundary. Its
+type-name decode-failure case gates the decode-failure ceiling, paired with a
+below-ceiling case that proves isolated malformed neighbors remain tolerable.
+Fifteen cases gate whole-image method ownership across the type-scoped,
+whole-assembly same-image, whole-assembly cross-image, and member-seed paths,
+covering duplicate, out-of-range, cross-type aliased, and silently empty
+projections, a descending `MethodList` range, an uncovered `MethodPtr` row, and
+metadata declaring no TypeDef rows. The descending cases pin the check on both
+metadata shapes -- a `MethodPtr`-free image and a reordered `MethodPtr`
+permutation -- and each is rejected at the module row, before any row is
+projected. A further case pushes every start past the end of the projected
+table so the earlier ranges report length zero and enumerate nothing, isolating
+the one path that reaches the end of the derived bound with a negative final
+range. Every fixture in this group pins its per-row range lengths, so the shape
+it claims to exercise is gated rather than asserted in prose. A further case starts
+the column past MethodDef row 1 while every range keeps a non-negative length,
+so it is rejected by coverage alone and pins the half of the ordering proof the
+range-length check cannot supply. A further case carries a null start *after* a
+populated run, which ECMA-335 II.22.37 cannot express because each run is
+delimited by the following start, so the negative length lands on the preceding
+row. Those fifteen are all rejections; a
+sixteenth case gates that a null
+`MethodList`, which ECMA-335 permits and the runtime reader projects as an
+empty run, is accepted rather than reported as malformed. A seventeenth gates
+uniqueness of the exact seed member, which a rejected sibling leaves unproven,
+and an eighteenth gates that matching a candidate leaf charges the
+declaring-chain traversal it performs rather than only the names it compares;
+that case pins its fixture's declaring depth, because a shallow fixture would
+exhaust the same budget while leaving the traversal unexercised.
 
 Other domain catalogs, query authorization, concurrent execution, and broader
 command migration remain later slices.
