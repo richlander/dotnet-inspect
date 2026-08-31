@@ -194,7 +194,7 @@ gives Finding collection records sequence- and set-aware value equality while
 keeping matching key-driven. The test that pins this behavior is
 `FindingPayloadEquality_IsProducerOwnedButMatchingRemainsKeyDriven`: equal keys
 still match while unequal payload content reports unequal, and that is correct.
-See [Finding Value Equality](finding-value-equality.md) and
+See [Finding value semantics](finding-value-equality.md) and
 [`FindingValueEquality`](../../src/ILInspector.Findings/FindingValueEquality.cs).
 
 ## 9. Retain provenance without promoting judgments

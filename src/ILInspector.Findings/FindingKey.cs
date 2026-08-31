@@ -80,6 +80,13 @@ public readonly record struct FindingKey
     {
         ArgumentNullException.ThrowIfNull(IdentityKey);
         ArgumentNullException.ThrowIfNull(SoftKeys);
+        if (SoftKeys is ImmutableArray<FindingSoftKey> softKeyArray
+            && softKeyArray.IsDefault)
+        {
+            throw new ArgumentException(
+                "Soft keys must be initialized.",
+                nameof(SoftKeys));
+        }
 
         var softKeys = SoftKeys.ToImmutableArray();
         if (softKeys.Any(key => key is null))
