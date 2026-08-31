@@ -5,7 +5,7 @@
 (* The model covers two operation references assigned to one worker epoch: *)
 (* held starts, readiness flush, admission ordering, cancellation response, *)
 (* atomic physical settlement, bounded replay evidence, epoch-work identity,*)
-(* response-probe proof, draining, realm release, and stale old-epoch input. *)
+(* response-probe proof, draining, realm release, and replacement binding.  *)
 (*                                                                         *)
 (* It deliberately abstracts feature payloads, DOM authority, managed body  *)
 (* behavior, clocks, watchdog allowance arithmetic, and facade generation.  *)
@@ -78,6 +78,7 @@ ReuseWorkSequence == "ReuseWorkSequence"
 UnmatchedWorkFinish == "UnmatchedWorkFinish"
 AcceptDuringDrain == "AcceptDuringDrain"
 StaleEpochMutation == "StaleEpochMutation"
+WrongEpochTokenMutation == "WrongEpochTokenMutation"
 CallbackAfterClose == "CallbackAfterClose"
 CancelAckBeforeAdmission == "CancelAckBeforeAdmission"
 WarmActivationBeforeHeldFlush == "WarmActivationBeforeHeldFlush"
@@ -100,6 +101,7 @@ Mutations ==
      UnmatchedWorkFinish,
      AcceptDuringDrain,
      StaleEpochMutation,
+     WrongEpochTokenMutation,
      CallbackAfterClose,
      CancelAckBeforeAdmission,
      WarmActivationBeforeHeldFlush,
@@ -235,6 +237,25 @@ UnchangedProtocolFlags ==
 UnchangedWork ==
     UNCHANGED
         <<workHighWater, activeWork, startedWork, finishedWork>>
+
+OldWorkerSource == "OldWorkerSource"
+ReplacementWorkerSource == "ReplacementWorkerSource"
+
+CurrentWorkerSource ==
+    IF replacementOpen THEN ReplacementWorkerSource ELSE OldWorkerSource
+
+CurrentEpochToken ==
+    IF replacementOpen THEN EpochCurrent ELSE EpochStale
+
+ExactMessageIsCurrent(workerSource, epochToken) ==
+    /\ workerSource = CurrentWorkerSource
+    /\ epochToken = CurrentEpochToken
+
+MessageIsCurrent(workerSource, epochToken) ==
+    /\ (Mutation = StaleEpochMutation
+          \/ workerSource = CurrentWorkerSource)
+    /\ (Mutation = WrongEpochTokenMutation
+          \/ epochToken = CurrentEpochToken)
 
 MissingRequiredResponseForA ==
     \/ recordPhase[OperationA]
@@ -1261,7 +1282,7 @@ OpenReplacement ==
     /\ epochState = Closed
     /\ ~replacementOpen
     /\ replacementOpen' = TRUE
-    \* The cell is reused as the replacement epoch's empty receive high-water.
+    \* The cell is reused as the replacement epoch's receive high-water.
     /\ operationHighWater' = 0
     /\ UNCHANGED
         <<epochState,
@@ -1296,16 +1317,19 @@ OpenReplacement ==
           staleEpochChangedState,
           callbackAfterCloseObserved>>
 
-StaleEpochMessage ==
+ReceiveReplacementMessage(workerSource, epochToken) ==
     /\ epochState = Closed
     /\ replacementOpen
-    /\ IF Mutation = StaleEpochMutation
+    /\ operationHighWater \in 0..1
+    /\ IF MessageIsCurrent(workerSource, epochToken)
        THEN
            /\ operationHighWater' = 1
-           /\ staleEpochChangedState' = TRUE
+           /\ staleEpochChangedState' =
+               (staleEpochChangedState
+                  \/ ~ExactMessageIsCurrent(workerSource, epochToken))
        ELSE
            /\ UNCHANGED operationHighWater
-           /\ staleEpochChangedState' = FALSE
+           /\ UNCHANGED staleEpochChangedState
     /\ UNCHANGED
         <<epochState,
           readyMatched,
@@ -1417,7 +1441,9 @@ Next ==
            UnmatchedWorkFinishMutation(sequence)
     \/ DestroyRealm
     \/ OpenReplacement
-    \/ StaleEpochMessage
+    \/ ReceiveReplacementMessage(ReplacementWorkerSource, EpochCurrent)
+    \/ ReceiveReplacementMessage(OldWorkerSource, EpochCurrent)
+    \/ ReceiveReplacementMessage(ReplacementWorkerSource, EpochStale)
     \/ CallbackAfterCloseMutation
 
 Spec ==
@@ -1538,13 +1564,11 @@ WorkFinishRequiresActiveStart ==
 StartedWorkTracksHighWater ==
     \A sequence \in startedWork: sequence <= workHighWater
 
-StaleEpochCannotMutateCurrentState ==
-    /\ ~staleEpochChangedState
-    /\ (replacementOpen => operationHighWater = 0)
+OnlyCurrentBindingMutatesReplacement ==
+    ~staleEpochChangedState
 
 NoCallbackAfterRealmRelease ==
-    /\ ~callbackAfterCloseObserved
-    /\ (replacementOpen => operationHighWater = 0)
+    ~callbackAfterCloseObserved
 
 ProtocolFailureLeavesReadyState ==
     protocolFailure => epochState \in {Draining, Closed}

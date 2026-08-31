@@ -232,6 +232,7 @@ type WorkerRuntimeFailureKind =
   | "protocol"
   | "watchdog"
   | "control-response"
+  | "probe-exhaustion"
   | "worker-declared"
   | "worker-message";
 
@@ -446,8 +447,12 @@ operation message for an absent record fail the epoch.
 
 An old epoch's event is stale and cannot affect the current epoch, operation
 sink, liveness clock, or diagnostics attributed to the current realm. An
-invalid message from the current worker source proves only that the source ran;
-it still begins protocol-failure draining.
+invalid message from the current worker source proves only that the source ran.
+Before matching readiness it immediately revokes and closes the partial realm;
+after matching readiness it begins bounded protocol-failure draining. The
+`StartupFailed` and a mismatched `Ready` echo retain `startup`; every other
+pre-readiness fault retains its specific `protocol` or `worker-message`
+failure kind.
 
 ## Cancellation and record release
 
@@ -542,10 +547,14 @@ An unbounded operation that prevents the worker from processing both the
 request and probe has not supplied that proof. It remains eligible only for an
 explicit hard-termination choice, not an elapsed-time inference.
 
-Probe sequences begin at one per epoch, strictly increase, never wrap, and stop
-visibly at JavaScript's maximum safe integer. An acknowledgment must match the
-one outstanding probe. Duplicate, future, or stale current-epoch
-acknowledgments fail the epoch.
+Probe sequences begin at one per epoch, strictly increase, and never wrap.
+Retiring a valid probe whose sequence is JavaScript's maximum safe integer
+first validates its immutable covered-response obligations. A covered omitted
+response commits `control-response` failure. Otherwise retirement commits
+unexpected `probe-exhaustion` failure, closes admission, and begins bounded
+draining; the epoch never remains live without an allocatable next sequence.
+An acknowledgment must match the one outstanding probe. Duplicate, future, or
+stale current-epoch acknowledgments fail the epoch.
 
 ## Epoch-work leases
 
@@ -657,7 +666,7 @@ Epoch closure has one cause:
 
 - planned restart; or
 - unexpected startup, worker crash, worker-declared, message, protocol,
-  control-response, or watchdog failure.
+  control-response, probe-exhaustion, or watchdog failure.
 
 A valid current-epoch `EpochFailed(diagnostic)` is the worker's cooperative
 declaration that its managed bridge or epoch-work reporter reached an
@@ -672,6 +681,12 @@ revokes the partial realm, terminates it immediately, and closes every
 activated held producer with that boundary failure. It is distinct from
 post-readiness `EpochFailed`, which permits bounded draining of admitted
 managed work and epoch-work leases.
+
+Other than `StartupFailed` and a mismatched `Ready` echo, any current-source
+message or protocol fault before matching readiness uses the same immediate
+partial-realm closure mechanics while retaining its specific `worker-message`
+or `protocol` failure kind. Bounded unexpected draining is reserved for faults
+committed after matching readiness.
 
 Entering draining atomically refuses new assignments and fixes that cause.
 Every still-pending assigned producer receives one physical closure:
@@ -777,15 +792,15 @@ The companion model directory contains four finite models:
   failed draining.
 - `InspectWebWorkerProtocol.tla` covers held starts, admission ordering,
   cancellation acknowledgment order and closure, atomic settlement, replay
-  high-water marks, missing-response proof, epoch-work identity, and stale
-  epochs.
+  high-water marks, missing-response proof, epoch-work identity, and exact
+  worker-source plus epoch-token replacement binding.
 - `InspectWebWorkerLifecycle.tla` covers startup active time, matching
   readiness, bounded and unbounded silence, probes, lifecycle and main-loop
   discontinuities, planned versus unexpected closure, draining, termination,
   and quiescence.
 - `InspectWebWorkerProbe.tla` composes control-response and watchdog probe
   triggers over the one physical probe register, including adoption, deferred
-  coverage, exact acknowledgment, and missing-response failure.
+  coverage, exact acknowledgment, exhaustion, and missing-response failure.
 
 The models separate allowance validation, protocol bookkeeping, clock and
 worker lifetime, and the cross-cutting probe arbitration seam. Their README
@@ -809,6 +824,9 @@ feature implementation behavior.
   `StartupFailed`-driven startup closure, and activation after a committed
   close preserving planned-restart cancellation versus unexpected boundary
   failure without posting `Start`;
+- current-source malformed or protocol-invalid messages before `Ready`
+  immediately closing the partial realm with their specific failure kind,
+  while the corresponding post-readiness faults use bounded draining;
 - strictly increasing operation sequences with legal gaps, high-water replay
   rejection after record release, active duplicate IDs, and visible sequence
   exhaustion;
@@ -825,7 +843,9 @@ feature implementation behavior.
   response and begins bounded draining, plus asynchronous cancellation that
   cannot be overtaken by a later probe;
 - probe-sequence monotonicity, matching, exhaustion, duplicate, future, and
-  stale acknowledgment cases;
+  stale acknowledgment cases, including retirement of the maximum safe
+  sequence entering `probe-exhaustion` draining rather than leaving a degraded
+  epoch;
 - worker and main-side epoch-work high-water and active-set validation,
   unmatched or duplicate finish, allowance mismatch, and release on epoch
   close;
@@ -883,7 +903,8 @@ feature implementation behavior.
 - valid liveness, matching probe acknowledgment, malformed message, worker
   `error`, worker `messageerror`, bootstrap rejection sending
   `StartupFailed` and immediately releasing the partial realm, protocol
-  failure, worker-declared failure, and watchdog loss;
+  failure, worker-declared failure, and watchdog loss, with an illegal
+  pre-`Ready` message also immediately releasing the partial realm;
 - planned restart cancellation versus unexpected boundary failure;
 - preparation followed by epoch closure before activation, preserving planned
   versus unexpected classification;

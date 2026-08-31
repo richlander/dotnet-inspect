@@ -33,8 +33,9 @@ worker epoch. It covers:
 - operation-sequence high-water replay rejection without completed-ID
   tombstones;
 - epoch-work sequence high-water and active-set validation;
-- failed draining and realm release; and
-- stale old-epoch messages and callbacks after release.
+- exact replacement binding from worker source plus epoch token, including
+  valid replacement traffic and independently stale source or token; and
+- failed draining, realm release, and callbacks after release.
 
 `InspectWebWorkerLifecycle.tla` models one worker epoch with two assigned
 operations. It covers:
@@ -59,6 +60,8 @@ probe register. It covers:
 - deferred control coverage when any outstanding probe predates the command;
 - immutable response-obligation snapshots;
 - exact probe acknowledgment;
+- maximum probe-sequence retirement entering failed draining rather than
+  leaving a live epoch without another sequence;
 - missing-response failure after serialized command completion;
 - task-loop evidence clearing watchdog suspicion; and
 - lifecycle recovery preserving an outstanding register and acknowledgment.
@@ -94,7 +97,12 @@ The protocol model assumes:
 - cancellation acknowledgment commits only after the earlier Start response;
 - cancellation and settlement may race in either order;
 - `AckNotActive` on an accepted wire record abstracts the managed bridge's
-  settling state before physical `Settled`; and
+  settling state before physical `Settled`;
+- the closed old-epoch lifecycle cell reuses its high-water value only to
+  represent replacement traffic after the binding switches; one common
+  receive transition compares exact source and token, records whether an
+  accepted mutation came from the unmodified current binding, and exercises
+  same-token stale-source and same-source stale-token negatives;
 - `MaxWorkSequence = 2` is a state-space bound, not a product limit; and
 - weak fairness applies only to realm destruction after draining.
 
@@ -121,6 +129,8 @@ The lifecycle model assumes:
 - worker crash has already destroyed the realm;
 - bootstrap rejection is a distinct startup cause that destroys and releases
   the partial realm immediately;
+- a current-source protocol fault before readiness retains its protocol
+  classification but uses the same immediate partial-realm closure mechanics;
 - worker-declared epoch failure refines the same unexpected-closure transition
   as other post-readiness live-realm failures while retaining its distinct
   cause; and
@@ -142,7 +152,9 @@ The probe model assumes:
   response, so acknowledgment proves a protocol defect; and
 - the worker's next reply sequence is retained independently from the host's
   outstanding register so accidental register replacement produces an
-  ordinary mismatched-acknowledgment failure; and
+  ordinary mismatched-acknowledgment failure;
+- retiring the maximum bounded sequence represents exhaustion of the product's
+  safe-integer allocator and commits failed draining; and
 - `MaxProbeSequence = 2` is a state-space bound, not a product limit.
 
 The validation model assumes:
@@ -184,7 +196,7 @@ among several distinct bounded durations.
 | `not-active` cannot acknowledge a future sequence | `NotActiveRequiresReceivedSequence` |
 | Epoch-work sequences do not restart or reuse | `WorkSequenceNeverReused`, `StartedWorkTracksHighWater` |
 | Work finish requires a recorded start | `WorkFinishRequiresActiveStart` |
-| An old epoch cannot mutate the current host | `StaleEpochCannotMutateCurrentState` |
+| Only exact replacement worker-source and token identity can mutate replacement state | `OnlyCurrentBindingMutatesReplacement` |
 | No callback runs after realm release | `NoCallbackAfterRealmRelease` |
 | Protocol failure leaves ready operation | `ProtocolFailureLeavesReadyState` |
 | Draining eventually closes | `DrainingEventuallyCloses` |
@@ -205,6 +217,8 @@ among several distinct bounded durations.
 | Planned restart cancels pending work | `PlannedRestartCancelsPendingOperations` |
 | Unexpected loss fails pending work | `UnexpectedLossFailsPendingOperations` |
 | Startup failure closes and releases the partial realm immediately | `StartupFailureClosesImmediately` |
+| A current-source protocol fault before readiness closes the partial realm immediately | `PreReadyProtocolFailureClosesImmediately` |
+| Pre-readiness protocol and worker-message faults retain their classifications | `PreReadyFaultClassificationIsPreserved` |
 | Failed draining begins only after matching readiness | `FailedDrainingRequiresReadiness` |
 | Worker-declared failure records an unexpected cause and fails pending work | `ClosureCauseDeterminesOutcome` |
 | One fixed closure cause determines every affected outcome | `ClosureCauseDeterminesOutcome` |
@@ -235,6 +249,8 @@ among several distinct bounded durations.
 | A covered omitted response fails the epoch | `CoveredOmissionFails` |
 | Probe acknowledgment clears watchdog suspicion | `ProbeAcknowledgmentClearsSuspicion` |
 | Probe-driven protocol failure is limited to a covered omission | `ProtocolFailureIsOnlyCoveredOmission` |
+| A control-response failure requires proof that the retiring probe covered the omitted response | `ProtocolFailureHasCoveredOmissionProof` |
+| Probe exhaustion cannot leave a live epoch | `NoLiveEpochAfterProbeSequenceExhaustion` |
 
 ## Running TLC
 
@@ -272,6 +288,9 @@ java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
 ```
 
 Substitute any mutation configuration filename for the positive configuration.
+The repository-wide `eng/run-tla-checks.sh` gate resolves every shared-module
+configuration in this directory through `eng/tla-module-overrides.txt`; keep
+those mappings synchronized when adding or renaming a configuration.
 
 The recorded runs used OpenJDK 21.0.12 and TLA+ tools 1.8.0
 (`TLC2 2026.08.21.155922`, revision `9787e65`). The checked
@@ -283,10 +302,14 @@ The recorded runs used OpenJDK 21.0.12 and TLA+ tools 1.8.0
 | Configuration | Bounds | Generated | Distinct | Depth | Result |
 | --- | --- | ---: | ---: | ---: | --- |
 | `InspectWebWorkerValidation.cfg` | 2 operations, 2 allowance classes, `MaxWorkSequence = 2` | 622 | 351 | 11 | No error |
-| `InspectWebWorkerProtocol.cfg` | 2 operations, `MaxWorkSequence = 2` | 209,761 | 65,283 | 21 | No error |
-| `InspectWebWorkerLifecycle.cfg` | 2 operations, all budgets = 1 | 87,212 | 20,124 | 18 | No error |
-| `InspectWebWorkerLifecycle_BoundedSilence.cfg` | No recurring task evidence or unbounded work; all budgets = 1 | 2,553 | 1,020 | 13 | No error |
+| `InspectWebWorkerProtocol.cfg` | 2 operations, `MaxWorkSequence = 2` | 244,951 | 72,321 | 22 | No error |
+| `InspectWebWorkerLifecycle.cfg` | 2 operations, all budgets = 1 | 87,452 | 20,268 | 18 | No error |
+| `InspectWebWorkerLifecycle_BoundedSilence.cfg` | No recurring task evidence or unbounded work; all budgets = 1 | 2,569 | 1,036 | 13 | No error |
 | `InspectWebWorkerProbe.cfg` | 1 command, `MaxProbeSequence = 2` | 827 | 316 | 10 | No error |
+
+Generated and distinct counts are stable across worker counts. The protocol
+row's depth 22 is the single-worker breadth-first result; parallel runs can
+report depth 22-24 because worker discovery order changes the reported maximum.
 
 ## Mutation results
 
@@ -314,7 +337,8 @@ violation.
 | `InspectWebWorkerProtocolReuseWorkSequence.cfg` | Restarts a completed work sequence | `WorkSequenceNeverReused` |
 | `InspectWebWorkerProtocolUnmatchedWorkFinish.cfg` | Finishes work without an active lease | `WorkFinishRequiresActiveStart` |
 | `InspectWebWorkerProtocolAcceptDuringDrain.cfg` | Accepts a new assignment while draining | `DrainingRefusesStarts` |
-| `InspectWebWorkerProtocolStaleEpochMutation.cfg` | Lets an old epoch mutate current state | `StaleEpochCannotMutateCurrentState` |
+| `InspectWebWorkerProtocolStaleEpochMutation.cfg` | Accepts a stale worker source carrying the current token | `OnlyCurrentBindingMutatesReplacement` |
+| `InspectWebWorkerProtocolWrongEpochTokenMutation.cfg` | Accepts the current worker source carrying a stale token | `OnlyCurrentBindingMutatesReplacement` |
 | `InspectWebWorkerProtocolCallbackAfterClose.cfg` | Delivers a callback after realm release | `NoCallbackAfterRealmRelease` |
 
 ### Lifecycle mutations
@@ -326,6 +350,9 @@ violation.
 | `InspectWebWorkerLifecycleProbeSatisfiesStartup.cfg` | Probe acknowledgment opens the epoch | `ProbeCannotSatisfyStartup` |
 | `InspectWebWorkerLifecycleAcceptMismatchedReady.cfg` | Mismatched readiness opens the epoch | `MismatchedReadyCannotOpenEpoch` |
 | `InspectWebWorkerLifecycleAcceptReadyAfterStartupExpiry.cfg` | Matching readiness opens the epoch after the startup budget expires | `ReadyRequiresUnexpiredStartup` |
+| `InspectWebWorkerLifecyclePreReadyProtocolFailureDrains.cfg` | A pre-readiness protocol fault enters bounded draining | `PreReadyProtocolFailureClosesImmediately` |
+| `InspectWebWorkerLifecyclePreReadyProtocolAsStartup.cfg` | A pre-readiness protocol fault is reclassified as startup failure | `PreReadyFaultClassificationIsPreserved` |
+| `InspectWebWorkerLifecyclePreReadyWorkerMessageAsProtocol.cfg` | A pre-readiness worker-message fault is reclassified as protocol failure | `PreReadyFaultClassificationIsPreserved` |
 | `InspectWebWorkerLifecycleTerminateAtFirstExpiry.cfg` | First silence interval terminates | `FirstWatchdogExpiryOnlyProbes` |
 | `InspectWebWorkerLifecycleTerminateWhileUnbounded.cfg` | Silence kills an unbounded epoch | `UnboundedSilenceCannotFailWatchdog` |
 | `InspectWebWorkerLifecycleTerminateAcrossMainGap.cfg` | A delayed main watchdog kills the worker | `MainLoopGapCannotFailWatchdog` |
@@ -351,6 +378,8 @@ violation.
 | `InspectWebWorkerProbe_MutationAcceptWrongAck.cfg` | Acknowledgment accepts the wrong probe sequence | `ProbeSequenceIsExact` |
 | `InspectWebWorkerProbe_MutationResumeRetiresRegister.cfg` | Lifecycle recovery replaces a live probe and the old acknowledgment fails the epoch | `ProtocolFailureIsOnlyCoveredOmission` |
 | `InspectWebWorkerProbe_MutationTaskEvidenceRetiresRegister.cfg` | Non-acknowledgment task evidence discards a covered omission | `CoveredOmissionFails` |
+| `InspectWebWorkerProbe_MutationRetainAfterProbeExhaustion.cfg` | The epoch remains live after retiring its maximum probe sequence | `NoLiveEpochAfterProbeSequenceExhaustion` |
+| `InspectWebWorkerProbe_MutationMisclassifyExhaustionAsProtocolFailure.cfg` | An uncovered omitted response replaces maximum-sequence exhaustion with control-response failure | `ProtocolFailureHasCoveredOmissionProof` |
 
 ### Input-validation mutations
 

@@ -41,9 +41,21 @@ PlannedCause == "PlannedCause"
 UnexpectedCause == "UnexpectedCause"
 StartupFailureCause == "StartupFailureCause"
 WorkerDeclaredCause == "WorkerDeclaredCause"
+PreReadyProtocolCause == "PreReadyProtocolCause"
+PreReadyWorkerMessageCause == "PreReadyWorkerMessageCause"
 UnexpectedCauses ==
-    {UnexpectedCause, StartupFailureCause, WorkerDeclaredCause}
+    {UnexpectedCause,
+     StartupFailureCause,
+     WorkerDeclaredCause,
+     PreReadyProtocolCause,
+     PreReadyWorkerMessageCause}
 ClosureCauses == {NoCause, PlannedCause} \cup UnexpectedCauses
+
+NoPreReadyFault == "NoPreReadyFault"
+PreReadyProtocolFault == "PreReadyProtocolFault"
+PreReadyWorkerMessageFault == "PreReadyWorkerMessageFault"
+PreReadyFaultKinds ==
+    {NoPreReadyFault, PreReadyProtocolFault, PreReadyWorkerMessageFault}
 
 NoOutcome == "NoOutcome"
 SucceededOutcome == "SucceededOutcome"
@@ -76,6 +88,9 @@ AllowanceChurnRenews == "AllowanceChurnRenews"
 BootstrapFailureDrains == "BootstrapFailureDrains"
 WorkerDeclaredAsCancellation == "WorkerDeclaredAsCancellation"
 AcceptReadyAfterStartupExpiry == "AcceptReadyAfterStartupExpiry"
+PreReadyProtocolFailureDrains == "PreReadyProtocolFailureDrains"
+PreReadyProtocolAsStartup == "PreReadyProtocolAsStartup"
+PreReadyWorkerMessageAsProtocol == "PreReadyWorkerMessageAsProtocol"
 Mutations ==
     {NoMutation,
      RenewStartupFromMessage,
@@ -96,7 +111,10 @@ Mutations ==
      AllowanceChurnRenews,
      BootstrapFailureDrains,
      WorkerDeclaredAsCancellation,
-     AcceptReadyAfterStartupExpiry}
+     AcceptReadyAfterStartupExpiry,
+     PreReadyProtocolFailureDrains,
+     PreReadyProtocolAsStartup,
+     PreReadyWorkerMessageAsProtocol}
 
 BoundedSilenceScenario ==
     Mutation \in {BoundedSilenceRun, AllowanceChurnRenews}
@@ -115,6 +133,7 @@ ASSUME
 VARIABLES
     epochState,
     closureCause,
+    preReadyFaultKind,
     startupRemaining,
     startupRenewed,
     readyMatched,
@@ -151,6 +170,7 @@ VARIABLES
 vars ==
     <<epochState,
       closureCause,
+      preReadyFaultKind,
       startupRemaining,
       startupRenewed,
       readyMatched,
@@ -187,6 +207,7 @@ vars ==
 Init ==
     /\ epochState = Starting
     /\ closureCause = NoCause
+    /\ preReadyFaultKind = NoPreReadyFault
     /\ startupRemaining = MaxStartupBudget
     /\ startupRenewed = FALSE
     /\ readyMatched = FALSE
@@ -232,7 +253,8 @@ UnchangedMutationFlags ==
           unexpectedOutcomeMismatch,
           quiescedBeforeRelease,
           callbackAfterReleaseObserved,
-          nonTaskMessageRenewed>>
+          nonTaskMessageRenewed,
+          preReadyFaultKind>>
 
 AssignOperation(o) ==
     /\ epochState \in {Starting, Ready, Suspect}
@@ -241,6 +263,7 @@ AssignOperation(o) ==
     /\ UNCHANGED
         <<epochState,
           closureCause,
+          preReadyFaultKind,
           startupRemaining,
           startupRenewed,
           readyMatched,
@@ -276,6 +299,7 @@ AcceptOperation(o) ==
     /\ UNCHANGED probeOutstanding
     /\ UNCHANGED
         <<closureCause,
+          preReadyFaultKind,
           startupRemaining,
           startupRenewed,
           readyMatched,
@@ -306,6 +330,7 @@ AcceptDuringDrainMutation(o) ==
     /\ UNCHANGED
         <<epochState,
           closureCause,
+          preReadyFaultKind,
           startupRemaining,
           startupRenewed,
           readyMatched,
@@ -345,6 +370,7 @@ StartupTick ==
     /\ UNCHANGED
         <<epochState,
           closureCause,
+          preReadyFaultKind,
           startupRenewed,
           readyMatched,
           lifecycleActive,
@@ -378,6 +404,7 @@ StartupMessage ==
     /\ UNCHANGED
         <<epochState,
           closureCause,
+          preReadyFaultKind,
           readyMatched,
           lifecycleActive,
           suspensionBudget,
@@ -411,6 +438,7 @@ StartupProbeAcknowledged ==
            /\ probeSatisfiedStartup' = FALSE
     /\ UNCHANGED
         <<closureCause,
+          preReadyFaultKind,
           startupRemaining,
           startupRenewed,
           lifecycleActive,
@@ -450,6 +478,7 @@ ReceiveReady ==
     /\ silenceRemaining' = MaxSilenceBudget
     /\ UNCHANGED
         <<closureCause,
+          preReadyFaultKind,
           startupRemaining,
           startupRenewed,
           lifecycleActive,
@@ -480,6 +509,7 @@ AcceptReadyAfterStartupExpiryMutation ==
     /\ silenceRemaining' = MaxSilenceBudget
     /\ UNCHANGED
         <<closureCause,
+          preReadyFaultKind,
           startupRemaining,
           startupRenewed,
           lifecycleActive,
@@ -501,10 +531,16 @@ AcceptReadyAfterStartupExpiryMutation ==
           assignedAtClosure>>
     /\ UnchangedMutationFlags
 
-ClosePartialRealm ==
+ClosePartialRealm(cause, faultKind) ==
     /\ epochState = Starting
+    /\ cause \in
+        {StartupFailureCause,
+         PreReadyProtocolCause,
+         PreReadyWorkerMessageCause}
+    /\ faultKind \in PreReadyFaultKinds
     /\ epochState' = Closed
-    /\ closureCause' = StartupFailureCause
+    /\ closureCause' = cause
+    /\ preReadyFaultKind' = faultKind
     /\ assignedAtClosure' = assigned \ released
     /\ outcome' =
         [o \in Operations |->
@@ -531,11 +567,22 @@ ClosePartialRealm ==
           probeWasSent,
           firstExpiryObserved,
           drainRemaining>>
-    /\ UnchangedMutationFlags
+    /\ UNCHANGED
+        <<startDuringDrain,
+          mismatchedReadyAccepted,
+          probeSatisfiedStartup,
+          watchdogWithoutProbe,
+          unboundedWatchdogFailure,
+          mainGapWatchdogFailure,
+          plannedOutcomeMismatch,
+          unexpectedOutcomeMismatch,
+          quiescedBeforeRelease,
+          callbackAfterReleaseObserved,
+          nonTaskMessageRenewed>>
 
 ReceiveMismatchedReady ==
     /\ Mutation # AcceptMismatchedReady
-    /\ ClosePartialRealm
+    /\ ClosePartialRealm(StartupFailureCause, NoPreReadyFault)
 
 AcceptMismatchedReadyMutation ==
     /\ Mutation = AcceptMismatchedReady
@@ -547,6 +594,7 @@ AcceptMismatchedReadyMutation ==
     /\ probeOutstanding' = FALSE
     /\ UNCHANGED
         <<closureCause,
+          preReadyFaultKind,
           startupRemaining,
           startupRenewed,
           lifecycleActive,
@@ -578,17 +626,78 @@ AcceptMismatchedReadyMutation ==
 
 StartupExpires ==
     /\ startupRemaining = 0
-    /\ ClosePartialRealm
+    /\ ClosePartialRealm(StartupFailureCause, NoPreReadyFault)
 
 ReceiveBootstrapFailure ==
     /\ Mutation # BootstrapFailureDrains
-    /\ ClosePartialRealm
+    /\ ClosePartialRealm(StartupFailureCause, NoPreReadyFault)
+
+ReceivePreReadyProtocolFailure ==
+    /\ Mutation # PreReadyProtocolFailureDrains
+    /\ ClosePartialRealm(
+        IF Mutation = PreReadyProtocolAsStartup
+        THEN StartupFailureCause
+        ELSE PreReadyProtocolCause,
+        PreReadyProtocolFault)
+
+ReceivePreReadyWorkerMessageFailure ==
+    /\ ClosePartialRealm(
+        IF Mutation = PreReadyWorkerMessageAsProtocol
+        THEN PreReadyProtocolCause
+        ELSE PreReadyWorkerMessageCause,
+        PreReadyWorkerMessageFault)
+
+PreReadyProtocolFailureDrainsMutation ==
+    /\ Mutation = PreReadyProtocolFailureDrains
+    /\ epochState = Starting
+    /\ epochState' = Draining
+    /\ closureCause' = PreReadyProtocolCause
+    /\ preReadyFaultKind' = PreReadyProtocolFault
+    /\ assignedAtClosure' = assigned \ released
+    /\ outcome' =
+        [o \in Operations |->
+            IF o \in assigned \ released
+            THEN FailedOutcome
+            ELSE outcome[o]]
+    /\ drainRemaining' = MaxDrainBudget
+    /\ probeOutstanding' = FALSE
+    /\ UNCHANGED
+        <<startupRemaining,
+          startupRenewed,
+          readyMatched,
+          lifecycleActive,
+          suspensionBudget,
+          mainLoopContinuous,
+          gapBudget,
+          assigned,
+          accepted,
+          released,
+          quiesced,
+          workState,
+          silenceRemaining,
+          probeWasSent,
+          firstExpiryObserved,
+          realmDestroyed,
+          sourceRevoked>>
+    /\ UNCHANGED
+        <<startDuringDrain,
+          mismatchedReadyAccepted,
+          probeSatisfiedStartup,
+          watchdogWithoutProbe,
+          unboundedWatchdogFailure,
+          mainGapWatchdogFailure,
+          plannedOutcomeMismatch,
+          unexpectedOutcomeMismatch,
+          quiescedBeforeRelease,
+          callbackAfterReleaseObserved,
+          nonTaskMessageRenewed>>
 
 BootstrapFailureDrainsMutation ==
     /\ Mutation = BootstrapFailureDrains
     /\ epochState = Starting
     /\ epochState' = Draining
     /\ closureCause' = StartupFailureCause
+    /\ preReadyFaultKind' = NoPreReadyFault
     /\ assignedAtClosure' = assigned \ released
     /\ outcome' =
         [o \in Operations |->
@@ -627,6 +736,7 @@ SuspendLifecycle ==
     /\ UNCHANGED
         <<epochState,
           closureCause,
+          preReadyFaultKind,
           startupRemaining,
           startupRenewed,
           readyMatched,
@@ -666,6 +776,7 @@ ResumeLifecycle ==
            /\ UNCHANGED <<epochState, silenceRemaining, probeOutstanding>>
     /\ UNCHANGED
         <<closureCause,
+          preReadyFaultKind,
           readyMatched,
           suspensionBudget,
           mainLoopContinuous,
@@ -694,6 +805,7 @@ DetectMainLoopGap ==
     /\ UNCHANGED
         <<epochState,
           closureCause,
+          preReadyFaultKind,
           startupRemaining,
           startupRenewed,
           readyMatched,
@@ -727,6 +839,7 @@ ResumeMainLoop ==
            /\ UNCHANGED <<epochState, silenceRemaining, probeOutstanding>>
     /\ UNCHANGED
         <<closureCause,
+          preReadyFaultKind,
           startupRemaining,
           startupRenewed,
           readyMatched,
@@ -759,6 +872,7 @@ TaskLoopEvidence ==
     /\ UNCHANGED probeOutstanding
     /\ UNCHANGED
         <<closureCause,
+          preReadyFaultKind,
           startupRemaining,
           startupRenewed,
           readyMatched,
@@ -789,6 +903,7 @@ ProbeAcknowledgmentEvidence ==
     /\ probeOutstanding' = FALSE
     /\ UNCHANGED
         <<closureCause,
+          preReadyFaultKind,
           startupRemaining,
           startupRenewed,
           readyMatched,
@@ -826,6 +941,7 @@ NonTaskMessage ==
                  nonTaskMessageRenewed>>
     /\ UNCHANGED
         <<closureCause,
+          preReadyFaultKind,
           startupRemaining,
           startupRenewed,
           readyMatched,
@@ -866,6 +982,7 @@ SilenceTick ==
     /\ UNCHANGED
         <<epochState,
           closureCause,
+          preReadyFaultKind,
           startupRemaining,
           startupRenewed,
           readyMatched,
@@ -943,7 +1060,8 @@ FirstSilenceExpiry ==
           unexpectedOutcomeMismatch,
           quiescedBeforeRelease,
           callbackAfterReleaseObserved,
-          nonTaskMessageRenewed>>
+          nonTaskMessageRenewed,
+          preReadyFaultKind>>
 
 AllowanceChurnRenewalMutation ==
     /\ Mutation = AllowanceChurnRenews
@@ -956,6 +1074,7 @@ AllowanceChurnRenewalMutation ==
     /\ probeOutstanding' = FALSE
     /\ UNCHANGED
         <<closureCause,
+          preReadyFaultKind,
           startupRemaining,
           startupRenewed,
           readyMatched,
@@ -1064,7 +1183,8 @@ TerminateWhileUnboundedMutation ==
           unexpectedOutcomeMismatch,
           quiescedBeforeRelease,
           callbackAfterReleaseObserved,
-          nonTaskMessageRenewed>>
+          nonTaskMessageRenewed,
+          preReadyFaultKind>>
 
 TerminateAcrossMainGapMutation ==
     /\ Mutation = TerminateAcrossMainGap
@@ -1108,7 +1228,8 @@ TerminateAcrossMainGapMutation ==
           unexpectedOutcomeMismatch,
           quiescedBeforeRelease,
           callbackAfterReleaseObserved,
-          nonTaskMessageRenewed>>
+          nonTaskMessageRenewed,
+          preReadyFaultKind>>
 
 StartEpochWork(work) ==
     /\ epochState \in {Ready, Suspect}
@@ -1119,6 +1240,7 @@ StartEpochWork(work) ==
     /\ UNCHANGED
         <<epochState,
           closureCause,
+          preReadyFaultKind,
           startupRemaining,
           startupRenewed,
           readyMatched,
@@ -1154,6 +1276,7 @@ FinishEpochWork ==
     /\ UNCHANGED
         <<epochState,
           closureCause,
+          preReadyFaultKind,
           startupRemaining,
           startupRenewed,
           readyMatched,
@@ -1195,6 +1318,7 @@ SettleOperation(o) ==
     /\ UNCHANGED
         <<epochState,
           closureCause,
+          preReadyFaultKind,
           startupRemaining,
           startupRenewed,
           readyMatched,
@@ -1268,7 +1392,8 @@ EnterClosure(cause) ==
           mainGapWatchdogFailure,
           quiescedBeforeRelease,
           callbackAfterReleaseObserved,
-          nonTaskMessageRenewed>>
+          nonTaskMessageRenewed,
+          preReadyFaultKind>>
 
 ReleaseDuringDrain(o) ==
     /\ epochState = Draining
@@ -1280,6 +1405,7 @@ ReleaseDuringDrain(o) ==
     /\ UNCHANGED
         <<epochState,
           closureCause,
+          preReadyFaultKind,
           startupRemaining,
           startupRenewed,
           readyMatched,
@@ -1313,6 +1439,7 @@ QuiesceBeforeReleaseMutation(o) ==
     /\ UNCHANGED
         <<epochState,
           closureCause,
+          preReadyFaultKind,
           startupRemaining,
           startupRenewed,
           readyMatched,
@@ -1394,6 +1521,7 @@ DestroyRealm ==
     /\ probeOutstanding' = FALSE
     /\ UNCHANGED
         <<closureCause,
+          preReadyFaultKind,
           startupRemaining,
           startupRenewed,
           readyMatched,
@@ -1449,6 +1577,7 @@ CallbackAfterReleaseMutation ==
     /\ UNCHANGED
         <<epochState,
           closureCause,
+          preReadyFaultKind,
           startupRemaining,
           startupRenewed,
           readyMatched,
@@ -1494,6 +1623,9 @@ Next ==
     \/ AcceptMismatchedReadyMutation
     \/ StartupExpires
     \/ ReceiveBootstrapFailure
+    \/ ReceivePreReadyProtocolFailure
+    \/ ReceivePreReadyWorkerMessageFailure
+    \/ PreReadyProtocolFailureDrainsMutation
     \/ BootstrapFailureDrainsMutation
     \/ SuspendLifecycle
     \/ ResumeLifecycle
@@ -1537,6 +1669,7 @@ Spec ==
 TypeOK ==
     /\ epochState \in EpochStates
     /\ closureCause \in ClosureCauses
+    /\ preReadyFaultKind \in PreReadyFaultKinds
     /\ startupRemaining \in 0..MaxStartupBudget
     /\ startupRenewed \in BOOLEAN
     /\ readyMatched \in BOOLEAN
@@ -1627,6 +1760,19 @@ StartupFailureClosesImmediately ==
     /\ epochState = Closed
     /\ realmDestroyed
     /\ sourceRevoked
+
+PreReadyProtocolFailureClosesImmediately ==
+    closureCause \in {PreReadyProtocolCause, PreReadyWorkerMessageCause}
+    =>
+    /\ epochState = Closed
+    /\ realmDestroyed
+    /\ sourceRevoked
+
+PreReadyFaultClassificationIsPreserved ==
+    /\ preReadyFaultKind = PreReadyProtocolFault
+       => closureCause = PreReadyProtocolCause
+    /\ preReadyFaultKind = PreReadyWorkerMessageFault
+       => closureCause = PreReadyWorkerMessageCause
 
 FailedDrainingRequiresReadiness ==
     epochState = Draining /\ closureCause \in UnexpectedCauses

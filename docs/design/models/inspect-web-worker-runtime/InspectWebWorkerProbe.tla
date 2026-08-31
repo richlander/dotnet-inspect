@@ -19,7 +19,9 @@ CONSTANTS
     MUTATION_ACK_LEAVES_SUSPECT,
     MUTATION_ACCEPT_WRONG_ACK,
     MUTATION_RESUME_RETIRES_REGISTER,
-    MUTATION_TASK_EVIDENCE_RETIRES_REGISTER
+    MUTATION_TASK_EVIDENCE_RETIRES_REGISTER,
+    MUTATION_RETAIN_AFTER_PROBE_EXHAUSTION,
+    MUTATION_MISCLASSIFY_EXHAUSTION_AS_PROTOCOL_FAILURE
 
 ASSUME MaxProbeSequence = 2
 
@@ -58,7 +60,8 @@ VARIABLES
     olderProbeCoveredLaterCommand,
     ignoredCoveredOmission,
     suspectSurvivedAcknowledgment,
-    wrongAcknowledgmentAccepted
+    wrongAcknowledgmentAccepted,
+    probeExhaustionFailure
 
 vars ==
     <<probeCount,
@@ -77,7 +80,8 @@ vars ==
       olderProbeCoveredLaterCommand,
       ignoredCoveredOmission,
       suspectSurvivedAcknowledgment,
-      wrongAcknowledgmentAccepted>>
+      wrongAcknowledgmentAccepted,
+      probeExhaustionFailure>>
 
 Init ==
     /\ probeCount = 0
@@ -97,6 +101,7 @@ Init ==
     /\ ignoredCoveredOmission = FALSE
     /\ suspectSurvivedAcknowledgment = FALSE
     /\ wrongAcknowledgmentAccepted = FALSE
+    /\ probeExhaustionFailure = FALSE
 
 UnchangedMutationFlags ==
     UNCHANGED
@@ -105,7 +110,8 @@ UnchangedMutationFlags ==
           olderProbeCoveredLaterCommand,
           ignoredCoveredOmission,
           suspectSurvivedAcknowledgment,
-          wrongAcknowledgmentAccepted>>
+          wrongAcknowledgmentAccepted,
+          probeExhaustionFailure>>
 
 PostControlCommand ==
     /\ responseState = NoCommand
@@ -127,7 +133,8 @@ PostControlCommand ==
         <<olderProbeCoveredLaterCommand,
           ignoredCoveredOmission,
           suspectSurvivedAcknowledgment,
-          wrongAcknowledgmentAccepted>>
+          wrongAcknowledgmentAccepted,
+          probeExhaustionFailure>>
 
 CommitControlResponse ==
     /\ responseState = PendingResponse
@@ -187,7 +194,8 @@ ExpireControlGraceNoProbe ==
         <<olderProbeCoveredLaterCommand,
           ignoredCoveredOmission,
           suspectSurvivedAcknowledgment,
-          wrongAcknowledgmentAccepted>>
+          wrongAcknowledgmentAccepted,
+          probeExhaustionFailure>>
 
 ExpireControlGraceBehindOutstandingProbe ==
     /\ responseState \in {PendingResponse, ResponseOmitted}
@@ -218,7 +226,8 @@ ExpireControlGraceBehindOutstandingProbe ==
           taskEvidenceCount,
           ignoredCoveredOmission,
           suspectSurvivedAcknowledgment,
-          wrongAcknowledgmentAccepted>>
+          wrongAcknowledgmentAccepted,
+          probeExhaustionFailure>>
 
 FirstWatchdogExpiryNoProbe ==
     /\ watchdogState = NormalWatchdog
@@ -247,7 +256,8 @@ FirstWatchdogExpiryNoProbe ==
         <<olderProbeCoveredLaterCommand,
           ignoredCoveredOmission,
           suspectSurvivedAcknowledgment,
-          wrongAcknowledgmentAccepted>>
+          wrongAcknowledgmentAccepted,
+          probeExhaustionFailure>>
 
 FirstWatchdogExpiryWithOutstandingProbe ==
     /\ watchdogState = NormalWatchdog
@@ -309,8 +319,6 @@ ReceiveProbeAcknowledgment ==
     /\ probeKind' = NoProbe
     /\ probeSequence' = 0
     /\ workerReplySequence' = 0
-    /\ coveredResponse' = FALSE
-    /\ probePredatesCommand' = FALSE
     /\ taskEvidenceCount' = taskEvidenceCount + 1
     /\ UNCHANGED wrongAcknowledgmentAccepted
     /\ IF coveredResponse
@@ -321,27 +329,61 @@ ReceiveProbeAcknowledgment ==
                   /\ protocolFailure' = FALSE
                   /\ watchdogState' = NormalWatchdog
                   /\ ignoredCoveredOmission' = TRUE
-                  /\ UNCHANGED suspectSurvivedAcknowledgment
+                  /\ coveredResponse' = FALSE
+                  /\ probePredatesCommand' = FALSE
+                  /\ UNCHANGED
+                      <<suspectSurvivedAcknowledgment,
+                        probeExhaustionFailure>>
               ELSE
                   /\ protocolFailure' = TRUE
                   /\ watchdogState' = DrainingWatchdog
+                  /\ coveredResponse' = TRUE
+                  /\ probePredatesCommand' = probePredatesCommand
                   /\ UNCHANGED
                       <<ignoredCoveredOmission,
-                        suspectSurvivedAcknowledgment>>
+                        suspectSurvivedAcknowledgment,
+                        probeExhaustionFailure>>
        ELSE
-           /\ UNCHANGED protocolFailure
-           /\ IF watchdogState = SuspectWatchdog
+           /\ IF nextProbeSequence > MaxProbeSequence
               THEN
-                  /\ IF MUTATION_ACK_LEAVES_SUSPECT
+                  /\ IF MUTATION_MISCLASSIFY_EXHAUSTION_AS_PROTOCOL_FAILURE
+                        /\ responseState = ResponseOmitted
+                        /\ probePredatesCommand
                      THEN
-                         /\ watchdogState' = SuspectWatchdog
-                         /\ suspectSurvivedAcknowledgment' = TRUE
+                         /\ protocolFailure' = TRUE
+                         /\ watchdogState' = DrainingWatchdog
+                         /\ probeExhaustionFailure' = FALSE
+                         /\ coveredResponse' = FALSE
+                         /\ UNCHANGED probePredatesCommand
                      ELSE
-                         /\ watchdogState' = NormalWatchdog
-                         /\ UNCHANGED suspectSurvivedAcknowledgment
-              ELSE
-                  /\ UNCHANGED watchdogState
+                         /\ UNCHANGED protocolFailure
+                         /\ coveredResponse' = FALSE
+                         /\ probePredatesCommand' = FALSE
+                         /\ IF MUTATION_RETAIN_AFTER_PROBE_EXHAUSTION
+                            THEN
+                                /\ watchdogState' = NormalWatchdog
+                                /\ probeExhaustionFailure' = FALSE
+                            ELSE
+                                /\ watchdogState' = DrainingWatchdog
+                                /\ probeExhaustionFailure' = TRUE
                   /\ UNCHANGED suspectSurvivedAcknowledgment
+              ELSE
+                  /\ UNCHANGED protocolFailure
+                  /\ coveredResponse' = FALSE
+                  /\ probePredatesCommand' = FALSE
+                  /\ probeExhaustionFailure' = FALSE
+                  /\ IF watchdogState = SuspectWatchdog
+                     THEN
+                         /\ IF MUTATION_ACK_LEAVES_SUSPECT
+                            THEN
+                                /\ watchdogState' = SuspectWatchdog
+                                /\ suspectSurvivedAcknowledgment' = TRUE
+                            ELSE
+                                /\ watchdogState' = NormalWatchdog
+                                /\ UNCHANGED suspectSurvivedAcknowledgment
+                     ELSE
+                         /\ UNCHANGED watchdogState
+                         /\ UNCHANGED suspectSurvivedAcknowledgment
            /\ UNCHANGED ignoredCoveredOmission
     /\ UNCHANGED
         <<nextProbeSequence,
@@ -380,7 +422,8 @@ ReceiveMismatchedProbeAcknowledgment ==
           deferredControlProbe,
           olderProbeCoveredLaterCommand,
           ignoredCoveredOmission,
-          suspectSurvivedAcknowledgment>>
+          suspectSurvivedAcknowledgment,
+          probeExhaustionFailure>>
 
 DispatchDeferredControlProbe ==
     /\ probeCount = 0
@@ -408,7 +451,8 @@ DispatchDeferredControlProbe ==
         <<olderProbeCoveredLaterCommand,
           ignoredCoveredOmission,
           suspectSurvivedAcknowledgment,
-          wrongAcknowledgmentAccepted>>
+          wrongAcknowledgmentAccepted,
+          probeExhaustionFailure>>
 
 LifecycleResume ==
     /\ watchdogState = SuspectWatchdog
@@ -441,7 +485,8 @@ LifecycleResume ==
         <<olderProbeCoveredLaterCommand,
           ignoredCoveredOmission,
           suspectSurvivedAcknowledgment,
-          wrongAcknowledgmentAccepted>>
+          wrongAcknowledgmentAccepted,
+          probeExhaustionFailure>>
 
 OtherTaskLoopEvidence ==
     /\ watchdogState \in {NormalWatchdog, SuspectWatchdog}
@@ -475,7 +520,8 @@ OtherTaskLoopEvidence ==
         <<olderProbeCoveredLaterCommand,
           ignoredCoveredOmission,
           suspectSurvivedAcknowledgment,
-          wrongAcknowledgmentAccepted>>
+          wrongAcknowledgmentAccepted,
+          probeExhaustionFailure>>
 
 RetireDeferredAfterResponse ==
     /\ deferredControlProbe
@@ -530,6 +576,7 @@ TypeOK ==
     /\ ignoredCoveredOmission \in BOOLEAN
     /\ suspectSurvivedAcknowledgment \in BOOLEAN
     /\ wrongAcknowledgmentAccepted \in BOOLEAN
+    /\ probeExhaustionFailure \in BOOLEAN
 
 OnePhysicalProbe ==
     /\ probeCount <= 1
@@ -556,5 +603,15 @@ ProbeAcknowledgmentClearsSuspicion ==
 
 ProtocolFailureIsOnlyCoveredOmission ==
     protocolFailure => responseState = ResponseOmitted
+
+ProtocolFailureHasCoveredOmissionProof ==
+    protocolFailure
+    =>
+    /\ coveredResponse
+    /\ ~probePredatesCommand
+
+NoLiveEpochAfterProbeSequenceExhaustion ==
+    nextProbeSequence > MaxProbeSequence /\ probeCount = 0 /\ ~protocolFailure
+    => probeExhaustionFailure
 
 =============================================================================
