@@ -506,8 +506,10 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
 
 Each slice reports the standard decompiler-affecting-PR evidence: focused tests,
 the corpus quality-diff card, and improved/still-flat examples. As ReturnToSender
-coverage grows, compile-back-affecting slices add its A/B evidence per
-[docs/templates/decompiler-compile-back-harness-pr.md](../templates/decompiler-compile-back-harness-pr.md).
+coverage grows, compile-back-affecting slices add the A/B evidence described in
+[docs/templates/decompiler-compile-back-harness-pr.md](../templates/decompiler-compile-back-harness-pr.md)
+while retaining `decompiler-pr.md` as the PR body whenever product output
+changes.
 
 ## Acceptance and start-trigger
 

@@ -122,8 +122,8 @@ carries the repository trust model and finding-admission contract.
 
 PR templates live under `docs/templates/`: `decompiler-pr.md` (raising,
 structuring, validity, fidelity, or corpus behavior) and
-`decompiler-compile-back-harness-pr.md` (compile-back harness, fidelity
-skeleton, or ReturnToSender coverage). The optional
+`decompiler-compile-back-harness-pr.md` (harness-only compile-back, fidelity
+skeleton, or ReturnToSender coverage with no product-output change). The optional
 [`adversarial-review-prompt.md`](templates/adversarial-review-prompt.md)
 template provides the full fill-in form.
 
