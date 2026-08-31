@@ -8,6 +8,30 @@ PDBs contain debug information that maps compiled code back to source. Metadata
 owns PE/PDB opening and extracts raw portable-PDB facts. The SourceLink layer
 recognizes and interprets the SourceLink custom-debug-information document.
 
+## PDB source document acquisition
+
+After a Portable PDB maps a member or type to a checksummed source document,
+`PdbSourceAcquisition` looks for the document bytes in this order:
+
+1. The PDB-recorded local path, when local source reads are enabled.
+2. Each caller-supplied local Git clone, addressed by the exact commit and
+   repository-relative path in a `raw.githubusercontent.com` SourceLink URL.
+3. The remote SourceLink URL.
+
+Every successful path must match the Portable PDB checksum before its content
+becomes evidence. Local-clone acquisition reads the committed Git blob rather
+than the working tree, so an outage does not require a pristine checkout and
+uncommitted edits cannot replace the pinned source. A missing commit, path, or
+checksum match in one clone continues through the remaining clones and then to
+the remote source.
+
+The local-clone path is an explicit desktop capability supplied by repeated
+`--repo <fully-qualified-clone-path>` options. Browser/Wasm hosts do not supply
+filesystem clone paths and continue through their host-authorized source
+fetcher. `LocalClone_SatisfiesMemberAndTypeSourceWithoutRemoteFetch` is the
+non-vacuity gate that both member and type acquisition use a verified local
+clone without dispatching the simulated unavailable remote source.
+
 ## PDB formats
 
 ### Portable PDB
