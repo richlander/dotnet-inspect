@@ -6,12 +6,14 @@ structuring, validity, fidelity, or corpus behavior. There is no alternate
 template for focused validity fixes. Delete sections that do not apply. Keep
 generated tables generated; do not re-key metric rows by hand.
 
-Every output-changing decompiler PR must keep Structural review status, Before,
-After, and Evidence. Every behavior-changing raise must also keep Raise contract
-and Fully raised. Every invalid-`Full` or output-correctness fix must keep
-Correctness-fix contract and Corpus validity. Before and After must each show a
-concrete C# example. After records this PR's output; Fully raised records the
-intended endpoint.
+Every output-changing decompiler PR must acquire exact base/head product
+documents, run `DecompilerHarness --structural-review`, and keep Structural
+review status, Before, After, and Evidence. This is a mandatory attempt, not
+optional presentation polish. Every behavior-changing raise must also keep
+Raise contract and Fully raised. Every invalid-`Full` or output-correctness fix
+must keep Correctness-fix contract and Corpus validity. Before and After must
+each show a concrete C# example. After records this PR's output; Fully raised
+records the intended endpoint.
 
 Glossary: **IL fidelity** judges whether the rendered C# recompiles to the
 original contract body; **fully raised** judges whether that faithful rendering
@@ -165,6 +167,12 @@ selected text, labels, and display order never establish correspondence.
 Fidelity and retained IL notes are independent evidence, not claims inferred
 from the C# transition.
 
+Running this acquisition and command is required. Do not delete the section,
+substitute a hand-written diff, or report an unavailable result without first
+attempting to acquire the product documents. The tool evolves against the real
+raise corpus tracked by #4952; use its current generated output rather than
+copying an older PR's annotation shape.
+
 The Source Diff is PDB Source → After text convergence, not structural
 correspondence. Its comments name the PDB-selected document and checksum
 agreement, including whether CR/LF normalization was required, without claiming
@@ -176,25 +184,33 @@ infer fidelity from textual similarity.
 If the generated review reports `Partial`, explicitly determine whether the
 claimed changed structure has a unique matched row. Incidental matched rows do
 not prove a change represented only by unsupported or ambiguous gaps. In that
-case, or when either document lacks product provenance or the physical method
-identities differ, write:
+case, or when document acquisition fails, either document lacks product
+provenance, or the physical method identities differ, write:
 
-Not generated — unsupported or ambiguous product correspondence: {detail}
+Attempted — unavailable for the claimed change: {exact acquisition,
+provenance, identity, unsupported, or ambiguous-correspondence result}
 
 Do not fabricate comparison JSON. This presentation boundary does not by itself
 change the raise verdict; independent validity, correctness, fidelity, and
 corpus evidence still decide it.
 
-When this artifact is present, delete the duplicate code fences in the
-standalone Before and After sections below, but retain their validity,
-correctness, fidelity, taste, and commit verdicts.
+When the claimed change has supported correspondence, paste the current
+generated output verbatim. A useful `Partial` result remains a generated
+artifact, with its gap warning intact. When the claimed change appears only in
+gaps, retain the standalone Before and After bodies instead of presenting
+incidental rows as its structural delta. When a generated artifact is present,
+delete the duplicate code fences in those standalone sections, but retain their
+validity, correctness, fidelity, taste, and commit verdicts.
 -->
 
 #### Before → After: structural raise delta
 
-Structural review status: {generated artifact / Not generated — unsupported or ambiguous product correspondence: detail}
+Structural review status: {Generated — complete / Generated — partial; claimed
+change has a unique matched row / Attempted — unavailable for the claimed
+change: exact result}
 
-{paste generated structural review}
+{paste the generated structural review verbatim when correspondence supports
+the claimed change; otherwise retain the standalone Before and After bodies}
 
 #### PDB Source → After: source convergence
 
