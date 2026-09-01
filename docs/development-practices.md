@@ -8,6 +8,18 @@ states the binding summary. Focused documents such as
 [Round orchestration](round-orchestration.md) own their specialized contracts
 and mechanics.
 
+## Purpose
+
+These practices exist to produce robust, capable features that provide
+foundational capabilities or compelling user experiences. Users and peers
+should be able to recognize the result as conventionally sound, delightfully
+new or unique, or both.
+
+Convention supplies trustworthy footing; it is not a ceiling. Novelty can make
+a feature uniquely valuable; it does not excuse weak boundaries, evidence, or
+reliability. The strongest work combines dependable foundations with a
+capability or experience worth choosing.
+
 ## Convention and best practice are the baseline
 
 Start from the applicable convention and best practice rather than inventing a
