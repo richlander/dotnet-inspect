@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 interface EngineFacade {
+  asyncLoweringCanary(): Promise<string>;
   buildIdentity(): unknown;
   configureHost(origin: string): void;
   initializeRuntime(): Promise<void>;
@@ -21,6 +22,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isEngineFacade(value: unknown): value is EngineFacade {
   return isRecord(value)
+    && typeof value.asyncLoweringCanary === "function"
     && typeof value.buildIdentity === "function"
     && typeof value.configureHost === "function"
     && typeof value.initializeRuntime === "function"
@@ -63,6 +65,9 @@ const exports = { InspectionEngine: Object.fromEntries(dispatchKeys.map(key => [
   key,
   (...args) => {
     calls.push(\`managed:\${key}:\${JSON.stringify(args)}\`);
+    if (key.startsWith("AsyncLoweringCanary.")) {
+      return Promise.resolve("inspect-web-async-lowering-ok");
+    }
     if (key.startsWith("BuildIdentity.")) return "{}";
     if (key.startsWith("QueryPackageVersions.")) return Promise.resolve("[]");
     return undefined;
@@ -106,6 +111,9 @@ importedFacade.configureHost("https://dotnet-inspect.test");
 assert.match(
   importedState.calls.at(-1) ?? "",
   /^managed:ConfigureHost\.-?\d+:\["https:\/\/dotnet-inspect\.test"\]$/);
+assert.equal(
+  await importedFacade.asyncLoweringCanary(),
+  "inspect-web-async-lowering-ok");
 assert.deepEqual(importedFacade.buildIdentity(), {});
 assert.deepEqual(await importedFacade.queryPackageVersions("Example.Package"), []);
 assert.equal(await importedFacade.runEntryPoint(), 0);

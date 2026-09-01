@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Runtime.Versioning;
 using System.Text;
 using DotnetInspector.Packages;
@@ -43,6 +44,11 @@ namespace InspectWeb.Engine;
 /// and payload acquisition.
 /// <c>BrowserEngineBoundaryTests.PackageAcquisition_SharedStallIsAVisibleTimeoutForEveryCaller</c>
 /// gates per-caller deadlines over a shared transfer, and
+/// <c>BrowserEngineBoundaryTests.PendingAcquisitionAssociation_UsesCoordinateAndExactClientReference</c>
+/// and
+/// <c>BrowserEngineBoundaryTests.PackageAcquisition_DistinctSameProducerClientsDoNotSharePendingTransfer</c>
+/// gate Browser-owned pending-acquisition association without reparsing producer identity,
+/// and
 /// <c>BrowserEngineBoundaryTests.PackageAcquisition_ExpiredDeadlineCannotPublishReservedContent</c>
 /// gates the final monotonic check before cache publication, and
 /// <c>BrowserEngineBoundaryTests.PackageOperation_LateFailureBecomesVisibleTimeout</c>
@@ -101,8 +107,8 @@ internal static class BrowserPackageWorkspace
     static readonly Dictionary<string, PackageDownloadReservation> Reservations =
         new(StringComparer.Ordinal);
     static readonly Dictionary<string, int> Leases = new(StringComparer.Ordinal);
-    static readonly Dictionary<string, Task<AcquiredPackageSourcePayload>> PendingAcquisitions =
-        new(StringComparer.Ordinal);
+    static readonly Dictionary<PendingAcquisitionKey, Task<AcquiredPackageSourcePayload>>
+        PendingAcquisitions = [];
     static readonly HashSet<string> Downloaded = new(StringComparer.Ordinal);
     static long _clock;
 
@@ -219,8 +225,7 @@ internal static class BrowserPackageWorkspace
             resolutionCancellation.Token).ConfigureAwait(false);
 
         string key = PackageKey(coordinate.PackageId, coordinate.Version);
-        string pendingKey =
-            $"{key}@{NuGetCache.GetSourceKey(source.Identity.Value)}";
+        var pendingKey = new PendingAcquisitionKey(key, source);
         if (!PendingAcquisitions.TryGetValue(
                 pendingKey,
                 out Task<AcquiredPackageSourcePayload>? pending))
@@ -619,7 +624,7 @@ internal static class BrowserPackageWorkspace
     }
 
     static void ObserveAndRemovePendingAcquisition(
-        string key,
+        PendingAcquisitionKey key,
         Task<AcquiredPackageSourcePayload> acquisition)
     {
         _ = acquisition.ContinueWith(
@@ -638,6 +643,38 @@ internal static class BrowserPackageWorkspace
             CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
+    }
+
+    internal sealed class PendingAcquisitionKey
+        : IEquatable<PendingAcquisitionKey>
+    {
+        readonly string _coordinateKey;
+        readonly IPackageSourceClient _source;
+
+        internal PendingAcquisitionKey(
+            string coordinateKey,
+            IPackageSourceClient source)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(coordinateKey);
+            ArgumentNullException.ThrowIfNull(source);
+            _coordinateKey = coordinateKey;
+            _source = source;
+        }
+
+        public bool Equals(PendingAcquisitionKey? other) =>
+            other is not null
+            && _coordinateKey.Equals(
+                other._coordinateKey,
+                StringComparison.Ordinal)
+            && ReferenceEquals(_source, other._source);
+
+        public override bool Equals(object? obj) =>
+            obj is PendingAcquisitionKey other && Equals(other);
+
+        public override int GetHashCode() =>
+            HashCode.Combine(
+                StringComparer.Ordinal.GetHashCode(_coordinateKey),
+                RuntimeHelpers.GetHashCode(_source));
     }
 
     static Task<AcquiredPackageSourcePayload> AcquirePayloadWithinOperationAsync(

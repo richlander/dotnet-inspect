@@ -136,41 +136,18 @@ static class AuthoredCorpusBenchmark
             var group = byAssembly[pool.Identities[i]];
             matchedGroups.Add(pool.Identities[i]);
 
-            ReturnToSenderSourceIndex index;
-            try
+            if (!AuthoredCorpusSourceEvaluator.TryEvaluate(
+                    assemblyPath,
+                    group,
+                    out IReadOnlyList<AuthoredSourceOracleManifest.EvaluatedRow> groupRows,
+                    out string? evaluationError))
             {
-                using var pe = new PEReader(File.OpenRead(assemblyPath));
-                index = ReturnToSenderSourceIndex.FromCorrelatedMembers(
-                    group.Select(ToSourceMember),
-                    pe.GetMetadataReader());
-            }
-            catch (Exception ex) when (ex is IOException
-                or InvalidDataException
-                or BadImageFormatException
-                or InvalidOperationException
-                or ArgumentException)
-            {
-                Console.Error.WriteLine(
-                    $"Corpus correlation failed for '{assemblyPath}': {ex.Message}");
+                Console.Error.WriteLine(evaluationError);
                 return 1;
             }
-            var targets = group.Select(ToTarget).ToArray();
-            var groupResults = ReturnToSenderSourceProbe.EvaluateWithIndex(
-                assemblyPath,
-                targets,
-                index);
-            if (groupResults.Count != group.Count)
-            {
-                Console.Error.WriteLine(
-                    $"Corpus evaluation returned {groupResults.Count} result(s) for "
-                    + $"{group.Count} target(s) in '{assemblyPath}'.");
-                return 1;
-            }
-            results.AddRange(groupResults);
-            evaluatedRows.AddRange(group.Zip(
-                groupResults,
-                static (record, result) =>
-                    new AuthoredSourceOracleManifest.EvaluatedRow(record, result)));
+
+            results.AddRange(groupRows.Select(static row => row.Result));
+            evaluatedRows.AddRange(groupRows);
         }
 
         string? poolSha256 = pool.Sha256;
@@ -301,21 +278,6 @@ static class AuthoredCorpusBenchmark
         [property: System.Text.Json.Serialization.JsonRequired] AuthoredSourceOracleManifest.Report? SourceOracleManifest,
         [property: System.Text.Json.Serialization.JsonRequired] RatchetReport? Ratchet,
         [property: System.Text.Json.Serialization.JsonRequired] IReadOnlyList<RowReport> Rows);
-
-    static ReturnToSenderSourceMember ToSourceMember(AuthoredSourceHarvest.CorpusRecord record)
-        => new(
-            record.Type,
-            record.Method,
-            record.Overload,
-            record.Signature ?? "",
-            record.SourceUrl ?? "",
-            record.AuthoredBody,
-            record.MetadataToken,
-            record.ModuleVersionId,
-            PrinterBody: record.PrinterBody);
-
-    static ReturnToSender.RequestedTarget ToTarget(AuthoredSourceHarvest.CorpusRecord record)
-        => new(record.Type, record.Method, record.Overload, record.Signature);
 
     /// <summary>
     /// Reads a JSONL authored corpus, counting every line that is not a usable row.
@@ -1114,4 +1076,90 @@ static class AuthoredCorpusBenchmark
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
                 WriteIndented = true,
             });
+}
+
+/// <summary>
+/// The one source-oracle evaluation of a set of captured corpus rows against one pinned
+/// assembly: correlate the rows into a <see cref="ReturnToSenderSourceIndex"/> and run
+/// them through <see cref="ReturnToSenderSourceProbe.EvaluateWithIndex"/>.
+///
+/// <para>Extracted from <see cref="AuthoredCorpusBenchmark"/> when the source-oracle
+/// candidate ledger needed the same judgment. Two copies of this plumbing would be two
+/// answers to "is this member Correct", and only one of them would be the one the
+/// enrolled oracle gate uses — so the ledger's ranking would be measuring a different
+/// oracle than the benchmark it ranks against.</para>
+/// </summary>
+static class AuthoredCorpusSourceEvaluator
+{
+    /// <summary>
+    /// Evaluates <paramref name="records"/> against <paramref name="assemblyPath"/>,
+    /// pairing each row with its result in input order.
+    ///
+    /// <para>A correlation failure or a result count that does not match the input count
+    /// is a measurement-integrity failure, never a shortened denominator: the caller gets
+    /// <see langword="false"/> and the message, and must not proceed.</para>
+    /// </summary>
+    internal static bool TryEvaluate(
+        string assemblyPath,
+        IReadOnlyList<AuthoredSourceHarvest.CorpusRecord> records,
+        out IReadOnlyList<AuthoredSourceOracleManifest.EvaluatedRow> rows,
+        out string? error)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(assemblyPath);
+        ArgumentNullException.ThrowIfNull(records);
+
+        rows = [];
+        error = null;
+
+        ReturnToSenderSourceIndex index;
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            index = ReturnToSenderSourceIndex.FromCorrelatedMembers(
+                records.Select(ToSourceMember),
+                pe.GetMetadataReader());
+        }
+        catch (Exception ex) when (ex is IOException
+            or InvalidDataException
+            or BadImageFormatException
+            or InvalidOperationException
+            or ArgumentException)
+        {
+            error = $"Corpus correlation failed for '{assemblyPath}': {ex.Message}";
+            return false;
+        }
+
+        var targets = records.Select(ToTarget).ToArray();
+        var results = ReturnToSenderSourceProbe.EvaluateWithIndex(
+            assemblyPath,
+            targets,
+            index);
+        if (results.Count != records.Count)
+        {
+            error = $"Corpus evaluation returned {results.Count} result(s) for "
+                + $"{records.Count} target(s) in '{assemblyPath}'.";
+            return false;
+        }
+
+        rows = [.. records.Zip(
+            results,
+            static (record, result) =>
+                new AuthoredSourceOracleManifest.EvaluatedRow(record, result))];
+        return true;
+    }
+
+    static ReturnToSenderSourceMember ToSourceMember(AuthoredSourceHarvest.CorpusRecord record)
+        => new(
+            record.Type,
+            record.Method,
+            record.Overload,
+            record.Signature ?? "",
+            record.SourceUrl ?? "",
+            record.AuthoredBody,
+            record.MetadataToken,
+            record.ModuleVersionId,
+            PrinterBody: record.PrinterBody);
+
+    static ReturnToSender.RequestedTarget ToTarget(AuthoredSourceHarvest.CorpusRecord record)
+        => new(record.Type, record.Method, record.Overload, record.Signature);
 }

@@ -296,7 +296,9 @@ public sealed partial class AssemblyDependencyResolver :
                     return new AssemblyResolutionAttempt(
                         Assembly: null,
                         candidateFailure,
-                        AdmissionFailure: candidateAdmissionFailure);
+                        AdmissionFailure: candidateAdmissionFailure,
+                        MissDisposition:
+                            AssemblyBindingMissDisposition.NameOwnedNoMatch);
                 }
             }
             activeTier = tier;
@@ -340,7 +342,9 @@ public sealed partial class AssemblyDependencyResolver :
             return new AssemblyResolutionAttempt(
                 Assembly: null,
                 candidateFailure,
-                AdmissionFailure: candidateAdmissionFailure);
+                AdmissionFailure: candidateAdmissionFailure,
+                MissDisposition:
+                    AssemblyBindingMissDisposition.NameOwnedNoMatch);
         }
 
         // The target may reference an older platform contract than the running
@@ -353,8 +357,11 @@ public sealed partial class AssemblyDependencyResolver :
             || scope == AssemblyResolutionScope.Any
                 && _options.IncludeInstalledPlatformFallback
                 && activeTier is null;
-        if (useInstalledPlatformFallback
-            && PlatformResolver.IsPlatformCandidate(identity.Name))
+        bool probeInstalledPlatform =
+            useInstalledPlatformFallback
+            && PlatformResolver.IsPlatformCandidate(identity.Name);
+        bool installedPlatformOwnsName = false;
+        if (probeInstalledPlatform)
         {
             var (path, framework, _, _) =
                 _options.PreferImplementationAssemblies
@@ -364,6 +371,7 @@ public sealed partial class AssemblyDependencyResolver :
                     : PlatformResolver.ResolveAssemblyFromSnapshot(
                         identity.Name,
                         _installedPlatformFrameworkSnapshot.Value);
+            installedPlatformOwnsName = path is not null;
             if (path is not null)
             {
                 AssemblyDescriptorResolution descriptor = DescriptorResult(
@@ -402,7 +410,11 @@ public sealed partial class AssemblyDependencyResolver :
         return new AssemblyResolutionAttempt(
             Assembly: null,
             candidateFailure,
-            AdmissionFailure: candidateAdmissionFailure);
+            AdmissionFailure: candidateAdmissionFailure,
+            MissDisposition: activeTier is not null
+                || installedPlatformOwnsName
+                    ? AssemblyBindingMissDisposition.NameOwnedNoMatch
+                    : AssemblyBindingMissDisposition.NoNameOwner);
     }
 
     static bool ShouldReplaceCandidateFailure(
@@ -686,7 +698,17 @@ public sealed partial class AssemblyDependencyResolver :
                     MetadataRootReason = MalformedRootReason(
                         attempt.AdmissionFailure?.SourceException),
                 })
-            : AssemblyBindingSelection.NotFound();
+            : attempt.MissDisposition switch
+            {
+                null or AssemblyBindingMissDisposition.Undifferentiated =>
+                    AssemblyBindingSelection.NotFound(),
+                AssemblyBindingMissDisposition.NoNameOwner =>
+                    AssemblyBindingSelection.NameNotOwned(),
+                AssemblyBindingMissDisposition.NameOwnedNoMatch =>
+                    AssemblyBindingSelection.NameOwnedButNoMatch(),
+                _ => throw new InvalidOperationException(
+                    "Unknown assembly-binding miss disposition."),
+            };
     }
 
     AssemblyBindingSelection SelectIntrinsicCoreLibrary(
@@ -973,7 +995,8 @@ public sealed partial class AssemblyDependencyResolver :
         CandidateOpenFailureKind? CandidateFailure,
         ImmutableArray<ResolvedAssemblyReference> ShadowedAssemblies = default,
         ImmutableArray<ResolvedAssemblyReference> AmbiguousAssemblies = default,
-        ExceptionDispatchInfo? AdmissionFailure = null);
+        ExceptionDispatchInfo? AdmissionFailure = null,
+        AssemblyBindingMissDisposition? MissDisposition = null);
 
     readonly record struct AssemblyDescriptorKey(
         string Path,

@@ -65,6 +65,37 @@ static class AuthoredSourceHarvest
             Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
         IlDifficulty? Difficulty = null);
 
+    /// <summary>
+    /// One harvest attempt for one target: either the captured corpus row, or the typed
+    /// reason the target produced no row.
+    ///
+    /// <para>Both harvest modes and the source-oracle candidate ledger call the same
+    /// attempt. The harvest modes previously saw only "row or null" and counted every
+    /// non-row as one undifferentiated skip, so a sweep could not say whether a target
+    /// was missing because its source did not arrive or because its body was not
+    /// extractable — the distinction the candidate ledger has to publish, and the
+    /// distinction between a file that is genuinely rejected and one that was never
+    /// measured.</para>
+    /// </summary>
+    internal sealed record HarvestAttempt(
+        CorpusRecord? Record,
+        SourceOracleCandidateLedger.CandidateReason? Reason)
+    {
+        public static HarvestAttempt Rejected(SourceOracleCandidateLedger.CandidateReason reason)
+            => new(null, reason);
+    }
+
+    /// <summary>
+    /// The assembly-identity coordinates every captured row carries. Taken apart from
+    /// the harvest's own library state so the candidate ledger, which opens its own
+    /// SourceLink service for the PDB census, calls the same attempt.
+    /// </summary>
+    internal sealed record HarvestIdentity(
+        string AssemblyName,
+        string AssemblyVersion,
+        Guid ModuleVersionId,
+        string Tfm);
+
     sealed class LibraryState
     {
         public required string AssemblyPath { get; init; }
@@ -74,6 +105,9 @@ static class AuthoredSourceHarvest
         public required string Tfm { get; init; }
         public required SourceLinkService Source { get; init; }
         public required Queue<RealMethodTargetEnumerator.RealMethodTarget> Candidates { get; init; }
+
+        public HarvestIdentity Identity
+            => new(AssemblyName, AssemblyVersion, ModuleVersionId, Tfm);
     }
 
     public static int Run(
@@ -124,6 +158,7 @@ static class AuthoredSourceHarvest
             long attempts = 0;
             long resolved = 0;
             long skipped = 0;
+            var skipReasons = new Dictionary<SourceOracleCandidateLedger.CandidateReason, int>();
             var perLibraryKept = new Dictionary<string, int>(StringComparer.Ordinal);
 
             await using var writer = new StreamWriter(outputPath, append: false);
@@ -148,10 +183,15 @@ static class AuthoredSourceHarvest
                     var candidate = library.Candidates.Dequeue();
                     attempts++;
 
-                    var record = await TryHarvestAsync(library, candidate, fetcher, evil, repositoryPaths);
-                    if (record is null)
+                    var attempt = await TryHarvestAsync(library, candidate, fetcher, evil, repositoryPaths);
+                    if (attempt.Record is not { } record)
                     {
                         skipped++;
+                        var reason = attempt.Reason
+                            ?? throw new InvalidOperationException(
+                                "A harvest attempt without a record must carry a reason.");
+                        skipReasons.TryGetValue(reason, out int reasonCount);
+                        skipReasons[reason] = reasonCount + 1;
                         continue;
                     }
 
@@ -169,6 +209,14 @@ static class AuthoredSourceHarvest
             Console.WriteLine($"  resolved      : {resolved}");
             Console.WriteLine($"  attempts      : {attempts}");
             Console.WriteLine($"  skipped       : {skipped}");
+            foreach (var entry in skipReasons
+                .OrderByDescending(pair => pair.Value)
+                .ThenBy(pair => SourceOracleCandidateLedger.Code(pair.Key), StringComparer.Ordinal))
+            {
+                Console.WriteLine(
+                    $"    {SourceOracleCandidateLedger.Code(entry.Key),-28} "
+                    + $"{entry.Value} ({SourceOracleCandidateLedger.FamilyOf(entry.Key)})");
+            }
             Console.WriteLine($"  libraries     : {libraries.Count}");
             Console.WriteLine("  per library   :");
             foreach (var entry in perLibraryKept.OrderByDescending(pair => pair.Value))
@@ -245,13 +293,44 @@ static class AuthoredSourceHarvest
         }
     }
 
-    static async Task<CorpusRecord?> TryHarvestAsync(
+    static async Task<HarvestAttempt> TryHarvestAsync(
         LibraryState library,
         RealMethodTargetEnumerator.RealMethodTarget candidate,
         SourceFetcher fetcher,
         bool evil,
         IReadOnlyList<string>? repositoryPaths)
+        => await TryHarvestAsync(
+            library.Source,
+            library.Identity,
+            candidate,
+            fetcher,
+            evil,
+            repositoryPaths);
+
+    /// <summary>
+    /// Attempts one target: acquire its authoritative authored source through the PDB,
+    /// reduce it to the member body, and return the corpus row — or the typed reason no
+    /// row exists.
+    ///
+    /// <para>The reasons are disjoint and stable, and split into the families the
+    /// candidate ledger reports on: an <em>acquisition</em> reason means the target was
+    /// never measured (no mapping, no immutable source identity, source unavailable or
+    /// unfetchable), while a <em>structural</em> reason means the target was measured and
+    /// is not eligible for whole-file printer correspondence.</para>
+    /// </summary>
+    internal static async Task<HarvestAttempt> TryHarvestAsync(
+        SourceLinkService source,
+        HarvestIdentity identity,
+        RealMethodTargetEnumerator.RealMethodTarget candidate,
+        SourceFetcher fetcher,
+        bool evil,
+        IReadOnlyList<string>? repositoryPaths)
     {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(identity);
+        ArgumentNullException.ThrowIfNull(candidate);
+        ArgumentNullException.ThrowIfNull(fetcher);
+
         var subject = new FindingSubject(
             $"{candidate.Type}::{candidate.Method}#{candidate.Overload}",
             $"{candidate.Type}.{candidate.Method}");
@@ -260,7 +339,7 @@ static class AuthoredSourceHarvest
         try
         {
             authored = await PdbSourceAcquisition.AcquireMemberAsync(
-                library.Source,
+                source,
                 candidate.MetadataToken,
                 candidate.Method,
                 subject,
@@ -272,11 +351,14 @@ static class AuthoredSourceHarvest
             or HttpRequestException
             or TaskCanceledException)
         {
-            return null;
+            return HarvestAttempt.Rejected(
+                SourceOracleCandidateLedger.CandidateReason.SourceAcquisitionFailed);
         }
 
-        if (authored.Text is not { } memberSource || memberSource.Length == 0)
-            return null;
+        if (ClassifyUnavailableInspection(authored) is { } reason)
+            return HarvestAttempt.Rejected(reason);
+
+        string memberSource = authored.Text!;
 
         // Reduce the PDB line-span slice to the clean, disambiguated member body
         // the benchmark will compare the decompiler output against.
@@ -288,13 +370,14 @@ static class AuthoredSourceHarvest
                 out string? printerBody)
             || body.Length == 0)
         {
-            return null;
+            return HarvestAttempt.Rejected(
+                SourceOracleCandidateLedger.CandidateReason.BodyExtractionFailed);
         }
 
-        return new CorpusRecord(
-            Assembly: library.AssemblyName,
-            AssemblyVersion: library.AssemblyVersion,
-            Tfm: library.Tfm,
+        var record = new CorpusRecord(
+            Assembly: identity.AssemblyName,
+            AssemblyVersion: identity.AssemblyVersion,
+            Tfm: identity.Tfm,
             Type: candidate.Type,
             Method: candidate.Method,
             Overload: candidate.Overload,
@@ -306,12 +389,43 @@ static class AuthoredSourceHarvest
             ChecksumAlgorithm: authored.Document?.ChecksumAlgorithm,
             Checksum: authored.Document?.Checksum,
             AuthoredBody: body,
-            ModuleVersionId: library.ModuleVersionId,
+            ModuleVersionId: identity.ModuleVersionId,
             PrinterBody: printerBody,
             PrinterBodyVersion: printerBody is null
                 ? null
                 : AuthoredSourceOracleManifest.PrinterComparisonVersion,
             Difficulty: evil ? candidate.Difficulty : null);
+        return new HarvestAttempt(record, null);
+    }
+
+    internal static SourceOracleCandidateLedger.CandidateReason?
+        ClassifyUnavailableInspection(PdbMemberSourceInspection inspection)
+    {
+        if (inspection.Mapping is not null
+            && inspection.Document is not null
+            && inspection.ChecksumVerification is SourceChecksumVerification.Exact
+                or SourceChecksumVerification.LineEndingNormalized
+            && inspection.Text is not { Length: > 0 })
+        {
+            return SourceOracleCandidateLedger.CandidateReason.BodyExtractionFailed;
+        }
+
+        if (inspection.Lines.Value is FindingInspection<string>.Failed)
+            return SourceOracleCandidateLedger.CandidateReason.SourceAcquisitionFailed;
+
+        if (inspection.Mapping is null)
+            return SourceOracleCandidateLedger.CandidateReason.NoPdbSourceMapping;
+
+        if (inspection.Text is not { Length: > 0 })
+        {
+            // A mapped document without immutable identity cannot become a whole-file
+            // candidate; keep it distinct from an unavailable identified source.
+            return SourceOracleCandidateLedger.HasImmutableIdentity(inspection.Document)
+                ? SourceOracleCandidateLedger.CandidateReason.SourceUnavailable
+                : SourceOracleCandidateLedger.CandidateReason.NoImmutableSourceIdentity;
+        }
+
+        return null;
     }
 
     internal static Guid ReadModuleVersionId(string assemblyPath)
@@ -384,7 +498,7 @@ static class AuthoredSourceHarvest
 
     // The published corpus assemblies live under lib/<tfm>/Name.dll; the parent
     // directory name is the target framework moniker.
-    static string InferTfm(string assemblyPath)
+    internal static string InferTfm(string assemblyPath)
     {
         string? directory = Path.GetDirectoryName(assemblyPath);
         return directory is null ? "" : Path.GetFileName(directory);

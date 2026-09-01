@@ -555,18 +555,37 @@ internal static class DetectionTestSuite
                 "Web generator canary did not select code and web: "
                 + FormatValues(webGenerator));
         }
-        Dictionary<string, string> webGenerationScript = RunDetection(
+        foreach (string webGateInput in new[]
+        {
+            "eng/generate-inspect-web-engine-facade.sh",
+            "eng/verify-inspect-web-async-deployment.sh",
+        })
+        {
+            Dictionary<string, string> webGate = RunDetection(
+                repository,
+                body,
+                "pull_request",
+                webGateInput,
+                outputs);
+            if (webGate["code"] != "false"
+                || webGate["web"] != "true")
+            {
+                throw new InvalidOperationException(
+                    $"Web gate input {webGateInput} did not select only web: "
+                    + FormatValues(webGate));
+            }
+        }
+        Dictionary<string, string> asyncLoweringReceiptTarget = RunDetection(
             repository,
             body,
             "pull_request",
-            "eng/generate-inspect-web-engine-facade.sh",
+            "eng/InspectWebAsyncLoweringReceipt.targets",
             outputs);
-        if (webGenerationScript["code"] != "false"
-            || webGenerationScript["web"] != "true")
+        if (asyncLoweringReceiptTarget["web"] != "true")
         {
             throw new InvalidOperationException(
-                "Web generation-script canary did not select only web: "
-                + FormatValues(webGenerationScript));
+                    "Async-lowering receipt target did not select the web lane: "
+                    + FormatValues(asyncLoweringReceiptTarget));
         }
         Dictionary<string, string> methodSemanticsProbeRunner = RunDetection(
             repository,
@@ -920,10 +939,10 @@ internal static class DetectionTestSuite
             "pull_request",
             ".github/workflows/ci.yml",
             outputs);
-        if (workflow["code"] != "true" || workflow["skills"] != "true")
+        if (workflow["code"] != "true" || workflow["skills"] != "true" || workflow["tla"] != "true")
         {
             throw new InvalidOperationException(
-                "Workflow canary did not select code and skills: " +
+                "Workflow canary did not select code, skills, and tla: " +
                 FormatValues(workflow));
         }
 
@@ -992,6 +1011,123 @@ internal static class DetectionTestSuite
             throw new InvalidOperationException(
                 "Nested skill support document canary selected the wrong lanes: " +
                 FormatValues(nestedSkillSupportDoc));
+        }
+
+        Dictionary<string, string> tlaModule = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "docs/models/semantic-row-selection/SemanticRowSelection.tla",
+            outputs);
+        if (tlaModule["tla"] != "true"
+            || tlaModule["docs"] != "true"
+            || tlaModule["code"] != "false")
+        {
+            throw new InvalidOperationException(
+                "TLA+ module canary did not select only docs and tla: " +
+                FormatValues(tlaModule));
+        }
+
+        Dictionary<string, string> tlaConfig = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "docs/design/models/nuget-deadline-stream/DeadlineStreamLifecycle.cfg",
+            outputs);
+        if (tlaConfig["tla"] != "true"
+            || tlaConfig["docs"] != "true"
+            || tlaConfig["code"] != "false")
+        {
+            throw new InvalidOperationException(
+                "TLA+ config canary did not select only docs and tla: " +
+                FormatValues(tlaConfig));
+        }
+
+        Dictionary<string, string> tlaRunner = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/run-tla-checks.sh",
+            outputs);
+        if (tlaRunner["tla"] != "true" || tlaRunner["code"] != "false")
+        {
+            throw new InvalidOperationException(
+                "TLA+ runner canary did not select only tla: " +
+                FormatValues(tlaRunner));
+        }
+
+        Dictionary<string, string> tlaOverrides = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/tla-module-overrides.txt",
+            outputs);
+        if (tlaOverrides["tla"] != "true" || tlaOverrides["code"] != "false")
+        {
+            throw new InvalidOperationException(
+                "TLA+ module overrides canary did not select only tla: " +
+                FormatValues(tlaOverrides));
+        }
+
+        // eng/run-tla-checks.sh discovers .tla/.cfg files case-insensitively
+        // (find -iname), so a file with an uppercase or mixed-case
+        // extension must still route to the tla-plus job -- otherwise the
+        // job is silently skipped for content the runner would check.
+        Dictionary<string, string> tlaUppercaseModule = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "docs/models/semantic-row-selection/Uppercase.TLA",
+            outputs);
+        if (tlaUppercaseModule["tla"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Uppercase-extension TLA+ module canary did not select tla: " +
+                FormatValues(tlaUppercaseModule));
+        }
+
+        Dictionary<string, string> nonModelDoc = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "docs/design/models/nuget-deadline-stream/README.md",
+            outputs);
+        if (nonModelDoc["tla"] != "false" || nonModelDoc["docs"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Model README canary selected the wrong lanes: " +
+                FormatValues(nonModelDoc));
+        }
+
+        // A .tla/.cfg placed directly under a model root (no model
+        // subdirectory) is outside the layout eng/run-tla-checks.sh
+        // supports and must still route to the tla-plus job, so the
+        // runner's own loud rejection of that layout actually executes
+        // instead of the change silently skipping the job altogether.
+        Dictionary<string, string> tlaRootLevelModule = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "docs/models/RootLevel.tla",
+            outputs);
+        if (tlaRootLevelModule["tla"] != "true" || tlaRootLevelModule["docs"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Root-level TLA+ module canary did not select tla: " +
+                FormatValues(tlaRootLevelModule));
+        }
+
+        Dictionary<string, string> tlaRootLevelConfig = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "docs/design/models/RootLevel.cfg",
+            outputs);
+        if (tlaRootLevelConfig["tla"] != "true" || tlaRootLevelConfig["docs"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Root-level TLA+ config canary did not select tla: " +
+                FormatValues(tlaRootLevelConfig));
         }
 
         Dictionary<string, string> pushedSource = RunDetection(

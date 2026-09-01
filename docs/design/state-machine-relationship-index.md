@@ -147,6 +147,24 @@ byte-length preflight before SRM materializes their strings, and the whole value
 blob is validated before decode: a trusted claim constructor takes exactly one
 `System.Type`, so a value carrying named arguments or trailing bytes is
 `Malformed` without materializing payloads the claim contract already forbids.
+Malformed metadata encountered while acquiring or classifying one
+custom-attribute constructor is isolated to that attribute's owning kickoff.
+Constructor coded-index extraction remains inside that row-local recovery
+boundary, and no classification is cached until it yields a stable constructor
+handle. The kickoff is rejected as `Malformed`, without fabricating a claim
+kind, state-machine identity, or claimed name that the damaged row did not
+establish; discovery continues for other kickoff methods in the module.
+`StateMachineRelationshipIndex_IsolatesMalformedConstructorRow` and
+`StateMachineRelationshipIndex_IsolatesReservedConstructorTag` gate the
+acquisition and coded-index paths. This includes typed
+type-name-reader rejections returned for malformed and over-budget constructor
+type names and resolution-scope walks, TypeSpec guard rejections, and failures
+nested inside composite TypeSpec shapes, not only exceptions thrown while
+reading constructor rows.
+`StateMachineRelationshipIndex_IsolatesTypeSpecificationGuardRejection` and
+`StateMachineRelationshipIndex_PreservesNestedConstructorTypeNameFailure` gate
+those TypeSpec paths. Other malformed metadata that prevents module-wide
+construction remains a whole-module failure.
 Each ambiguous claimed name is expanded into its matching type definitions once
 per image rather than once per kickoff, so rejection evidence stays complete
 while the work stays bounded by the `TypeDef` row count. The TypeDef index
@@ -154,10 +172,14 @@ retains ambiguous handles with amortized-linear growth. Existing signature,
 custom-attribute, serialized-name, and metadata-relationship guards bound
 recursive or allocated decoding.
 
-Exhausting a bound makes valid keyed queries reject with `BudgetExceeded`;
-malformed SRM data makes them reject with `Malformed`. Neither keyed path
-becomes `Absent`. `Relationships` carries no failure status; see
-[C2](#c2--keyed-failure-queries-are-never-success-shaped).
+`Relationships` is a total `StateMachineRelationshipsResult`. Successful
+construction returns `Available`, whose relationship array may legitimately be
+empty. Whole-module construction failure returns `Rejected` with the same
+immutable `StateMachineRelationshipFailure` reported by every valid keyed
+query. Exhausting a bound reports `BudgetExceeded`; malformed SRM data reports
+`Malformed`. Neither keyed queries nor enumeration turn whole-module failure
+into absence or an empty success. See
+[C2](#c2--query-failures-are-never-success-shaped).
 `StateMachineRelationshipIndex_PropagatesTypedBudgetFailure` and
 `StateMachineRelationshipIndex_RejectsMethodTableBeyondScanBudget`,
 `StateMachineRelationshipIndex_ReportsTypeDefNameBudget`, and
@@ -166,8 +188,11 @@ results and TypeDef indexing cost;
 `StateMachineRelationshipIndex_ChargesUnrelatedAttributeRows` and
 `StateMachineRelationshipIndex_RejectsOversizedTypeBeforeDecode` gate the
 attribute-row and serialized-name bounds;
-`StateMachineRelationshipIndex_CachesConstructorAuthentication` gates
-constructor-classification reuse;
+`StateMachineRelationshipIndex_CachesConstructorAuthentication` and
+`StateMachineRelationshipIndex_CachesThrownConstructorAuthenticationFailure`
+gate reuse of both returned and recoverably thrown constructor
+classifications, so repeated references to one damaged constructor cannot
+convert its kickoff-local rejection into whole-module budget failure;
 `StateMachineRelationshipIndex_BoundsAttributeNameMaterialization` gates that a
 name-work budget is enforced during attribute classification at all, but note
 that its one-unit budget is spent by the assembly-key charge before any
@@ -211,6 +236,13 @@ value-blob preflight; and
 `StateMachineRelationshipIndex_ExpandsAmbiguousClaimsOnce` gates that
 kickoff-by-duplicate fan-out stays linear while preserving every kickoff and
 type-definition candidate in the merged failure.
+`StateMachineRelationshipIndex_IsolatesMalformedConstructorRow` gates that one
+unreadable constructor row rejects only its owning kickoff while a valid
+relationship elsewhere in the module remains available.
+`StateMachineRelationshipIndex_IsolatesRejectedConstructorTypeName` gates the
+same containment for returned malformed-name and name-budget failures.
+`StateMachineRelationshipIndex_IsolatesTypeReferenceTraversalRejection` gates
+containment for a returned resolution-scope node-budget failure.
 
 ## Completeness
 
@@ -257,26 +289,36 @@ structural machines in deterministic build outputs and require
 populations in which every machine is expected to resolve; the absent and
 rejected columns remain unverified.
 
-### C2 — Keyed failure queries are never success-shaped
+### C2 — Query failures are never success-shaped
 
 After construction fails, every valid `GetByKickoff`, `GetByStateMachine`, and
 `GetByImplementation` query reports that failure. Exhausting a bound yields
 `BudgetExceeded`; malformed SRM data yields `Malformed`. Neither keyed path
 answers `Absent` for rows construction never examined.
 
-This invariant does **not** cover `Relationships`. That public enumeration is
-empty after whole-module failure and carries no status, so by itself it is
-indistinguishable from a successful index with no relationships. A consumer
-that needs to enumerate and detect global failure has no supported operation
-today; #4833 tracks that missing contract.
+`Relationships` reports the same distinction at collection scope:
+`StateMachineRelationshipsResult.Available` carries the complete relationship
+array after successful construction, including a legitimately empty array, and
+`StateMachineRelationshipsResult.Rejected` carries the whole-module failure.
+The result is closed rather than an array plus an optional flag, so enumeration
+cannot proceed without first observing which state construction reached.
 
 Gate: `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_PropagatesTypedBudgetFailure`,
-`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RejectsMethodTableBeyondScanBudget`.
+`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RejectsMethodTableBeyondScanBudget`,
+`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RelationshipsReportsGlobalFailure`,
+`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RelationshipsKeepsSuccessfulEmptyDistinct`,
+`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_InvalidMvidPreservesGlobalFailureForValidHandles`,
+`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_PortablePdbReturnsGlobalFailure`.
 
-Both gates are narrower than the invariant. Each asserts that **one** queried
-kickoff returns `Rejected` with kind `BudgetExceeded`. Neither exercises the
-`Malformed` whole-module path, and neither asserts that *no* machine in a
-failed module answers `Absent`. That second half is `unverified`.
+The first two gates assert that one queried kickoff returns `Rejected` with
+kind `BudgetExceeded`. The collection gates distinguish a successful empty
+index from whole-module budget failure and require collection and keyed
+queries to expose the same immutable failure. The malformed-MVID gate exercises
+nil, ordinary out-of-range, and overflow-wrapping GUID handles, and exercises
+one valid MethodDef through both method-keyed paths and one valid TypeDef through
+the type-keyed path. The Portable PDB gate proves failure recovery cannot throw
+again when no module table exists. Exhaustive valid-row coverage for the
+malformed whole-module path remains `unverified`.
 
 ### C3 — Whole-module failure rejects the whole module
 
@@ -289,20 +331,23 @@ way only. A whole-module failure is always total; a per-claim refusal *may*
 also be total, because a claim can reach every machine in the module, and in a
 single-machine module it necessarily does. So observing a **partial** rejection
 proves the failure was per-claim, while observing a total one proves nothing
-about which path produced it. Combined with C4, a consumer that needs the
-distinction cannot obtain it from the index as it stands.
+about which path produced it. Combined with C4, a consumer cannot obtain the
+distinction from keyed-result shape; it must inspect the outer `Relationships`
+result.
 
 Trimming is explicitly **not** evidence for this invariant. A trimmed artifact
 can retain a claim while losing required role evidence, producing per-claim
 refusal rather than whole-module failure. Making that refusal total does not
 change which failure path produced it.
 
-Gate: `unverified`.
+Gate:
+`StateMachineCompletenessTests.GlobalFailure_RejectsEveryStructuralAsyncStateMachine`.
+The gate independently recounts every structural async machine in a
+multi-machine compiled fixture and requires a whole-module budget failure to
+return the same `Rejected` failure for each one.
 `StateMachineCompletenessTests.Sweep_RejectedStateMachine_FailsTheSweep`
 provides the total per-claim negative control; it is evidence for the sweep,
-not a C3 gate. C2's budget gates reach the whole-module path, but each inspects
-one kickoff rather than the whole module. No current test asserts that a global
-failure rejects every machine.
+not a C3 gate. The malformed whole-module path remains `unverified`.
 
 ### C4 — `Failure.Kind` does not identify the cause
 
@@ -311,14 +356,17 @@ failed to index. `Malformed` and `BudgetExceeded` each arise from both paths.
 `Unresolved`, `Ambiguous`, `CrossKind`, and `Duplicate` arise only from the
 per-claim path, so the kinds are informative but not decisive.
 
-A consumer needing the distinction must not infer it from `Failure.Kind` and
-must not infer it from rendered failure text. Per C3 it cannot reliably infer
-it from shape either: a total rejection is consistent with both paths.
+A consumer needing the distinction must inspect the outer `Relationships`
+result, not infer it from `Failure.Kind`, rendered failure text, or the number
+of rejected keyed queries. Per C3 a total keyed rejection is consistent with
+both paths. `Relationships.Rejected` identifies whole-module failure;
+per-claim refusals remain keyed results beneath `Relationships.Available`.
 
-Gate: `unverified`. No test currently forces a consumer to respect this, and
-the index exposes no discriminator that would make one meaningful. #4833 tracks
-consolidating the failure contract so that this invariant becomes enforceable
-rather than advisory.
+Gate:
+`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RelationshipsDistinguishesFailureScopeFromKind`.
+Its paired `Malformed` and `BudgetExceeded` arms each require the same kind on
+one local rejection beneath `Relationships.Available` and one whole-module
+`Relationships.Rejected`, so only the outer result identifies scope.
 
 ### C5 — Merged rejections agree
 

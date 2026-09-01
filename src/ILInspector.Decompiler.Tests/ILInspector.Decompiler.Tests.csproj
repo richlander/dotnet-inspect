@@ -189,6 +189,8 @@
              Link="AuthoredCorpusBenchmark.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AuthoredSourceOracleManifest.cs"
              Link="AuthoredSourceOracleManifest.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\SourceOracleCandidateLedger.cs"
+             Link="SourceOracleCandidateLedger.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\PrinterSyntaxInventory.cs"
              Link="PrinterSyntaxInventory.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AuthoredCorpusRatchet.cs"

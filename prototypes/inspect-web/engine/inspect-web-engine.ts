@@ -812,6 +812,7 @@ export interface BrowserWorkspaceShareView {
 
 type $ManagedExports = {
   readonly "InspectionEngine": {
+    readonly "AsyncLoweringCanary.1684317047": () => Promise<string>;
     readonly "BuildIdentity.1310674786": () => string;
     readonly "CancelPackageQuery.19325221": () => void;
     readonly "CancelSourceQuery.19325221": () => void;
@@ -893,6 +894,14 @@ function $requireManagedExports(): $ManagedExports {
 }
 
 function $validateManagedExports(exports: unknown): asserts exports is $ManagedExports {
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "InspectionEngine");
+    value = $ownDataProperty(value, "AsyncLoweringCanary.1684317047");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027InspectionEngine.AsyncLoweringCanary.1684317047\u0027 is not callable.");
+    }
+  }
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "InspectionEngine");
@@ -1272,6 +1281,10 @@ export function runEntryPoint(
   args?: string[],
 ): Promise<number> {
   return $requireRuntime().runMain(mainAssemblyName, args);
+}
+
+export async function asyncLoweringCanary(): Promise<string> {
+  return await $requireManagedExports()["InspectionEngine"]["AsyncLoweringCanary.1684317047"]();
 }
 
 export function buildIdentity(): BrowserBuildIdentity {

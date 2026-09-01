@@ -742,7 +742,9 @@ static class AuthoredCorpusExitContract
         bool verifyAuthoredCorpusHistory,
         bool ratchetBaselineSupplied,
         bool integrityOnly,
-        bool sourceOracleManifestSupplied)
+        bool sourceOracleManifestSupplied,
+        bool sourceOracleCandidates,
+        bool baselineSourceOracleReportSupplied)
     {
         // Both corpus gates are taken separately rather than pre-combined by the caller.
         // Pre-combining put the `||` in Program.cs, which no test can reach: tampering it
@@ -756,7 +758,8 @@ static class AuthoredCorpusExitContract
             || verifyAuthoredCorpusHistory
             || ratchetBaselineSupplied
             || integrityOnly
-            || sourceOracleManifestSupplied;
+            || sourceOracleManifestSupplied
+            || baselineSourceOracleReportSupplied;
 
         if (showHelp && !anyGateFlag)
             return new FlagVerdict(FlagDisposition.PrintUsage, null);
@@ -764,8 +767,18 @@ static class AuthoredCorpusExitContract
         if (ratchetBaselineSupplied && !benchmarkAuthoredCorpus)
             return Refuse("--ratchet-baseline applies to --benchmark-authored-corpus; it has no effect on its own.");
 
+        // The candidate ledger's baseline is not optional: without a verified enrolled
+        // report there is nothing to measure incremental coverage against, so a ranking
+        // computed from an absent baseline would rank against zero and call every
+        // enrolled feature new.
+        if (baselineSourceOracleReportSupplied && !sourceOracleCandidates)
+            return Refuse("--baseline-source-oracle-report applies to --source-oracle-candidates; it has no effect on its own.");
+
         if (showHelp)
             return Refuse("--help does not run a gate; drop the ratchet flags to read usage.");
+
+        if (sourceOracleCandidates && !baselineSourceOracleReportSupplied)
+            return Refuse("--source-oracle-candidates requires --baseline-source-oracle-report <report.json>; ranking without a verified enrolled baseline would report enrolled coverage as new.");
 
         if (integrityOnly && !benchmarkAuthoredCorpus)
             return Refuse("--integrity-only applies to --benchmark-authored-corpus; it has no effect on its own.");
@@ -784,6 +797,27 @@ static class AuthoredCorpusExitContract
 
         static FlagVerdict Refuse(string message) => new(FlagDisposition.Refuse, message);
     }
+
+    internal static FlagVerdict JudgeGateFlags(
+        bool showHelp,
+        bool benchmarkAuthoredCorpus,
+        bool verifyAuthoredCorpus,
+        bool appendAuthoredCorpusHistory,
+        bool verifyAuthoredCorpusHistory,
+        bool ratchetBaselineSupplied,
+        bool integrityOnly,
+        bool sourceOracleManifestSupplied)
+        => JudgeGateFlags(
+            showHelp,
+            benchmarkAuthoredCorpus,
+            verifyAuthoredCorpus,
+            appendAuthoredCorpusHistory,
+            verifyAuthoredCorpusHistory,
+            ratchetBaselineSupplied,
+            integrityOnly,
+            sourceOracleManifestSupplied,
+            sourceOracleCandidates: false,
+            baselineSourceOracleReportSupplied: false);
 
     internal static FlagVerdict JudgeGateFlags(
         bool showHelp,
@@ -876,6 +910,7 @@ static class AuthoredCorpusExitContract
         "--enumerate-real-methods",
         "--harvest-authored-corpus",
         "--harvest-evil-corpus",
+        "--source-oracle-candidates",
         "--benchmark-authored-corpus",
         "--verify-authored-corpus",
         "--append-authored-corpus-history",
@@ -1074,6 +1109,22 @@ static class AuthoredCorpusExitContract
     /// </summary>
     internal static bool InputsComplete(int unmatchedRows, int malformedRows, int evaluated)
         => unmatchedRows == 0 && malformedRows == 0 && evaluated > 0;
+
+    /// <summary>
+    /// Recomputes the complete-input claim carried by a serialized benchmark report.
+    /// The report is an evidence boundary, so consumers verify both the producer rule
+    /// and the denominator relationships instead of trusting its derived flag.
+    /// </summary>
+    internal static bool ReportInputsAreComplete(AuthoredCorpusBenchmark.Report report)
+        => report.InputsComplete
+            && InputsComplete(report.UnmatchedRows, report.MalformedRows, report.TargetsEvaluated)
+            && report.MatchedAssemblies > 0
+            && report.MatchedAssemblies == report.CorpusAssemblies
+            && report.MatchedAssemblies <= report.TargetsEvaluated
+            && report.Rows is { } rows
+            && rows.Count == report.TargetsEvaluated
+            && rows.All(static row => row is not null)
+            && report.TargetsEvaluated + report.UnmatchedRows == report.CorpusRows;
 
     /// <summary>
     /// Whether the run is trustworthy at all. These conditions do not say the

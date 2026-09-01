@@ -42,6 +42,16 @@ using InspectWeb.Engine;
 public static partial class InspectionEngine
 {
     /// <summary>
+    /// A deterministic awaited operation used by the paired deployment smoke.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> AsyncLoweringCanary()
+    {
+        await Task.Yield();
+        return "inspect-web-async-lowering-ok";
+    }
+
+    /// <summary>
     /// The package type surface for one exact package/version/framework workspace, produced by
     /// <see cref="AssemblyContextApiSurfaceQuery"/> over the workspace's own group. The query owns
     /// every session and every accessibility bucket; this method adapts its typed models and

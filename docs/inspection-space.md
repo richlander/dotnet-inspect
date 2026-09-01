@@ -1183,6 +1183,10 @@ sequential executor satisfies these rules without requiring threads.
 Producers receive the narrow context named by their scope, not a mutable
 workspace object. This keeps the workspace from becoming a god object and makes
 cross-group access explicit.
+[Analysis universe realization](design/analysis-universe-realization.md) owns
+the equivalent narrow handoff when a validated analysis plan needs an ordered
+finite population, one or more contexts, and provider-issued executable
+capabilities.
 
 ## Core currencies
 

@@ -1890,13 +1890,15 @@ public static class InspectionGraphIntegrationsQuery
         {
             AssemblyContextParticipant source =
                 _participants[sourceRegistration];
+            var request = new AssemblyBindingRequest(
+                target,
+                AssemblyBindingOrigin.FromAssembly(
+                    source.Assembly),
+                AssemblyResolutionScope.Any);
             AssemblyBindingSelection selection =
-                source.BindingPolicy.Select(
-                    new AssemblyBindingRequest(
-                        target,
-                        AssemblyBindingOrigin.FromAssembly(
-                            source.Assembly),
-                        AssemblyResolutionScope.Any));
+                AssemblyBindingSelection.ValidateForRequest(
+                    request,
+                    source.BindingPolicy.Select(request));
             if (selection
                 is AssemblyBindingSelection.Selected selected)
             {

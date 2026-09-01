@@ -706,6 +706,7 @@ export interface BrowserWorkspaceShareView {
 }
 export declare function initializeRuntime(): Promise<void>;
 export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]): Promise<number>;
+export declare function asyncLoweringCanary(): Promise<string>;
 export declare function buildIdentity(): BrowserBuildIdentity;
 export declare function cancelPackageQuery(): void;
 export declare function cancelSourceQuery(): void;

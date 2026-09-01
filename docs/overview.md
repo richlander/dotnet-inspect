@@ -54,7 +54,7 @@ substrates, and inspection producers that will extend that space.
   Metadata suggestion ranking does not acquire the Finding-backed Text layer;
   `MetadataNameMatching_DoesNotDependOnFindingBackedText` gates that boundary.
 - `src/CSharpText/` is a dependency-free leaf for model-free C# and XML-documentation textual grammars: primitive aliases, canonical member signatures, XML-documentation identity notation and comment extraction, FQN/member-selector normalization, operator notation, identifier and keyword policy, expression-body recognition, member text layout, lexing, and conservative declaration/source-range recognition. It is not a parser and makes uncertainty explicit rather than guessing a span.
-- `src/ILInspector.CSharp/` is the lightweight model-bound C# spelling and type-view layer over Metadata shapes. `CSharpFormatter` is the declaration-spelling seam; `CSharpTypePrinter` composes exact typed requests, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes, without taking a Decompiler or Research dependency.
+- `src/ILInspector.CSharp/` is the lightweight model-bound C# spelling and type-view layer over Metadata shapes. `CSharpFormatter` is the declaration-spelling seam; [declared-type self-name admission](design/csharp-declared-type-self-name.md) owns the proposed exact-name boundary shared by type, constructor, and finalizer heads. `CSharpTypePrinter` composes exact typed requests, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes, without taking a Decompiler or Research dependency.
 - `src/ILInspector.Analysis/` indexes IL method-body evidence such as direct call sites, allocation and unsafety occurrences, method signals, and whole-assembly leverage without decompiling to C#. `AnalysisFindings` exposes reusable typed censuses and comparisons for allocations, call sites, unsafe operations, and unsafe declaration/body evidence.
 - `src/ILInspector.Analysis.App/` is a temporary console harness for exercising Analysis queries until CLI wiring exists.
 - `src/ILInspector.ControlFlow/` contains shared block-edge, dominance, and dataflow kernels used below Analysis and Decompiler without depending on either.
@@ -145,6 +145,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   host-neutral request topology separating report surface, finite evidence
   universe, targeted/census mode, capability introspection, and result
   projection without owning producer semantics or presentation.
+- [Analysis universe realization](design/analysis-universe-realization.md):
+  operation-scoped binding from one exact finite universe description and
+  validated plan to owner-issued executable capabilities, deterministic
+  population and context access, retained lifetimes, and visible failure.
 - [`ts-jsexport` TypeScript facade generation](design/ts-jsexport.md): ownership,
   type views, compiler handoff, related generator categories, and migration from
   direct JavaScript plus declaration emission.
@@ -218,6 +222,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Finding nomenclature](design/finding-nomenclature.md): observation/change semantics, operation outcomes, and Research composition boundaries.
 - [Finding producer design](design/finding-producers.md): how to choose owners, payloads, identities, result shapes, and matching modes.
 - [Finding coordinates](design/finding-coordinates.md): separation of subject identity, correspondence, optional producer order, and typed provenance.
+- [Finding value semantics](design/finding-value-equality.md): .NET equality
+  and hashing for Finding-owned structural values, ordered collections,
+  identity sets, union cases, and reference-identity operation objects.
 - [Finding adoption](design/finding-adoption.md): consumer migration, failure visibility, native-case presentation, and quality-gate rules.
 - [Source Finding producers](design/source-finding-producers.md): portable-PDB source/build-context inputs, outputs, identities, and migration boundaries.
 - [Implementation Diff](design/implementation-diff.md): product C# + IL/body diff projection shared by the opt-in `diff` section, RTS, and harnesses.
@@ -233,6 +240,11 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Member ordering](design/member-order.md): canonical type/member section order and member-kind mapping.
 - [Package source model](design/package-source-model.md): source eligibility,
   mapping, local stores, source-bound caches, selection, and enrichment.
+- [Package dependency evidence](design/package-dependency-evidence.md):
+  normalized declared dependency observations across typed package-manifest
+  and restored-project inputs, additive resolution and owner evidence,
+  cross-input equivalence, completion, and query-result `InertString`
+  containment.
 - [NuGetFetch source-result identity](design/browser-package-sources.md#nugetfetch-typed-source-result-identity):
   credential-free producer provenance, caller association, transport evidence,
   factory-bound result propagation, and safe retained failures. It consumes

@@ -14,7 +14,7 @@ public enum SlotMaterializationVeto
     UnrenderableStoreType = 1 << 7,
     MultiStoreSingleLoadFold = 1 << 8,
     CrossBlockStoreFold = 1 << 9,
-    ConditionalSingleLoadFold = 1 << 10,
+    BooleanSinkIdentityRecovery = 1 << 10,
     ElementStoreIdentityRecovery = 1 << 11,
     IncompleteCopyComponent = 1 << 12,
 }
@@ -174,11 +174,20 @@ public sealed class SlotMaterializationPass : IIrPass
             if (candidate.Stores.Count > 1
                 && candidate.Stores.Select(static store => store.Parent).Distinct().Count() > 1)
                 candidate.Vetoes |= SlotMaterializationVeto.CrossBlockStoreFold;
-            if (candidate.Loads.Count == 1 && candidate.Stores is [{ Value: Conditional }])
-                candidate.Vetoes |= SlotMaterializationVeto.ConditionalSingleLoadFold;
 
             if (candidate.Type is not { } slotType)
                 continue;
+
+            if (TypeFamilies.IsIntegerLike(slotType)
+                && candidate.Loads.Any(load =>
+                    CoercionSinks.SemanticLoadSinkTargetType(
+                        load,
+                        function.Signature.ReturnType,
+                        function.TypeShapes) is { } sinkType
+                    && TypeFamilies.IsBoolean(sinkType)))
+            {
+                candidate.Vetoes |= SlotMaterializationVeto.BooleanSinkIdentityRecovery;
+            }
 
             if (!CoercionDomain.InDomain(slotType, function.TypeShapes))
                 candidate.Vetoes |= SlotMaterializationVeto.OutsideCoercionDomain;

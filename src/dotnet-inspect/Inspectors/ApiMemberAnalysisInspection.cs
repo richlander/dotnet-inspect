@@ -623,7 +623,9 @@ internal sealed class ApiMemberAnalysisInspection
             }
 
             AssemblyBindingSelection selection =
-                policy.Value.Select(request);
+                AssemblyBindingSelection.ValidateForRequest(
+                    request,
+                    policy.Value.Select(request));
             switch (selection)
             {
                 case AssemblyBindingSelection.Selected selected:

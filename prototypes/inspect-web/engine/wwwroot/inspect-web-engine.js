@@ -39,6 +39,14 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "InspectionEngine");
+        value = $ownDataProperty(value, "AsyncLoweringCanary.1684317047");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027InspectionEngine.AsyncLoweringCanary.1684317047\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "InspectionEngine");
         value = $ownDataProperty(value, "BuildIdentity.1310674786");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027InspectionEngine.BuildIdentity.1310674786\u0027 is not callable.");
@@ -409,6 +417,9 @@ export function initializeRuntime() {
 }
 export function runEntryPoint(mainAssemblyName, args) {
     return $requireRuntime().runMain(mainAssemblyName, args);
+}
+export async function asyncLoweringCanary() {
+    return await $requireManagedExports()["InspectionEngine"]["AsyncLoweringCanary.1684317047"]();
 }
 export function buildIdentity() {
     const $result = $requireManagedExports()["InspectionEngine"]["BuildIdentity.1310674786"]();
