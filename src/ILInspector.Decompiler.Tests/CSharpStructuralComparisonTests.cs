@@ -646,17 +646,14 @@ public class CSharpStructuralComparisonTests
         var beforeSpan = Assert.Single(row.BeforeSpans);
         var afterSpan = Assert.Single(row.AfterSpans);
 
-        // Not narrowed to `IDisposable iDisposable =` / the bare resource
-        // expression -- since the body also changed, items 2/7's own
-        // header-narrowing already fell back to the full node span, and
-        // item 10 must leave that fallback alone rather than reaching past
-        // its own side's matching closing paren into the (differing) body.
-        Assert.NotEqual(
-            "IDisposable iDisposable =",
-            before.Text.Substring(beforeSpan.Start, beforeSpan.Length));
-        Assert.NotEqual(
-            "DisposableFromObjectSpan([a, b])",
-            after.Text.Substring(afterSpan.Start, afterSpan.Length));
+        // Falls all the way back to the full `UsingStatement` node spans --
+        // not narrowed to `IDisposable iDisposable =` / the bare resource
+        // expression, nor to any other erroneous substring reaching into
+        // the (differing) body. Since the body also changed, items 2/7's
+        // own header-narrowing already fell back to the full node span, and
+        // item 10 must leave that fallback exactly alone.
+        Assert.Equal(before.Nodes[0].Spans[0], beforeSpan);
+        Assert.Equal(after.Nodes[0].Spans[0], afterSpan);
         Assert.NotEqual(PrintedRegionRole.Header, row.BeforeRegion);
         Assert.NotEqual(PrintedRegionRole.Header, row.AfterRegion);
 
