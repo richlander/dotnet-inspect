@@ -131,6 +131,10 @@ substrates, and inspection producers that will extend that space.
   owns the long-lived inspect-web Web Worker epoch, bootstrap readiness, held
   starts, closed protocol, replay validation, liveness accounting, draining,
   hard termination, and worker-realm release.
+- [`docs/design/inspect-web-async-composition.md`](design/inspect-web-async-composition.md)
+  owns the user-scenario ordering and typed handoffs across operation
+  authority, worker runtime, generated facades, managed bridging, and
+  feature-owned work without redefining those owners.
 - [`docs/design/custom-attribute-value-decoding.md`](design/custom-attribute-value-decoding.md)
   owns the safety contract for decoding custom-attribute values
   from untrusted metadata: the alignment, bounding, and guard-work invariants
@@ -214,6 +218,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   worker epochs, bootstrap readiness, held operation dispatch, closed protocol
   validation, liveness and replay accounting, draining, restart, and hard
   worker-realm release.
+- [Inspect-web async composition](design/inspect-web-async-composition.md):
+  scenario-level sequencing, owner-issued handoffs, browser/.NET/Rust semantic
+  distinctions, gate ownership, and focused migration order.
 - [Bounded metadata traversal](design/bounded-metadata-traversal.md): cycle, depth, count, text-budget, failure, and verification rules for artifact-derived metadata graphs.
 - [Rendering model](design/rendering-model.md): output mode and verbosity design.
 - [Progressive disclosure](design/progressive-disclosure.md): base/domain scope,
