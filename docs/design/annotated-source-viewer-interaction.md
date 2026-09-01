@@ -234,7 +234,9 @@ medium as visible.
 C#/IL visibility changes presentation, not annotation membership. Revealing
 supported IL may render an already-active IL-only Finding; hiding IL hides that
 target without removing the Finding from the active set or changing the
-reported annotation state.
+reported annotation state. On a mixed line, spans belonging only to a hidden
+medium remain as invisible layout geometry but are neither focusable nor
+actionable; visible sibling spans keep their product-issued coordinates.
 
 At least one supported source medium is always visible. Activating the control
 for the last visible medium leaves media, annotations, selection, detail, and
@@ -248,12 +250,13 @@ persistent inspector action. A sibling chip on another medium is not a
 semantically equivalent opener and must not receive focus.
 
 Coordinates are off by default. A modal toggle reveals offsets and source
-ranges wherever the product supplies them and retains focus when activated.
-It changes no annotation, medium, primary, or detail state. Annotation-set and
-medium controls preserve coordinate visibility. Dismissal destroys the
-preference, so a later modal session starts with coordinates hidden. The
-toggle's label names the coordinate system; unexplained hexadecimal values do
-not appear in the embedded reader.
+ranges wherever the product supplies them, including Finding-detail source
+offsets, and retains focus when activated. It changes no annotation, medium,
+primary, or detail state. Annotation-set and medium controls preserve
+coordinate visibility. Dismissal destroys the preference, so a later modal
+session starts with coordinates hidden. The toggle's label names the
+coordinate system; unexplained hexadecimal values do not appear in the
+embedded reader.
 
 ## Finding detail and focus
 
@@ -307,7 +310,9 @@ Focus is trapped inside the open modal by Inspect Web UI. Successful
 destination navigation closes the modal and lets the destination/history
 owner focus the destination. Presentation, synchronization, announcements, and
 focus for every non-applied navigation outcome remain governed by Inspect Web
-UI. Superseded work produces no viewer effect.
+UI. Superseded work produces no viewer effect. Addressable source spans carry
+stable DOM identities so a shell rerender that preserves the current member
+also preserves source focus rather than leaving focus outside the modal.
 
 ## Source presentation
 
@@ -335,6 +340,11 @@ tracked by [#4852](https://github.com/richlander/dotnet-inspect/issues/4852)
 owns making all declarations, including constructor initializers,
 representable. The browser transports that text unchanged and does not
 reconstruct C# from an API signature, identity, or body.
+
+The portable document is validated before rendering. A rejected document
+remains a visible failure at the shell boundary; it does not abort the global
+render or become an empty success. A rejected modal remains dismissible and
+inside the shell-owned modal focus contract.
 
 ## Adjacent integrations
 
@@ -423,10 +433,11 @@ Conformance requires:
   unsupported media cannot satisfy the non-empty guard, membership is
   orthogonal, a hidden opener falls back to the exact Finding's inspector
   action, a same- or different-medium sibling chip is not substituted, toggles
-  retain focus, and the final visible medium cannot be disabled;
+  retain focus, mixed-line hidden segments remain as inert layout geometry,
+  and the final visible medium cannot be disabled;
 - coordinate tests proving hidden fresh state, exact toggling and focus,
   annotation-set and media preservation, dismissal destruction, and hidden
-  state on reopening;
+  state on reopening, including Finding-detail source offsets;
 - primary tests proving Finding and node transitions are explicit and toggles
   do not select;
 - detail-open and close tests proving exact opener identity, including two
@@ -451,6 +462,8 @@ Conformance requires:
   precedence, discontinuous spans, deterministic tightest-node selection, and
   drag-selection non-activation;
 - source-copy tests proving annotations and chrome are excluded;
+- replacement-render tests proving stable addressable-source focus, plus shell
+  containment tests proving rejected documents remain visible and dismissible;
 - a style gate rejecting persistent source-text underlines; and
 - a CI-integrated real-browser gate for pointer hit testing, focus, Escape,
   modal trapping, backdrop dismissal, and drag selection.

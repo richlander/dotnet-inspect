@@ -2272,6 +2272,7 @@ kbd {
 .annotated-source-segment.invocation:hover,
 .annotated-source-segment.invocation:focus-visible { background: color-mix(in srgb, var(--accent) 20%, transparent); }
 .annotated-source-segment.selected { background: color-mix(in srgb, var(--accent) 24%, transparent); color: var(--text); font-weight: 650; }
+.annotated-source-segment.medium-hidden { visibility: hidden; pointer-events: none; }
 .annotated-line-coordinate { padding-left: 20px; color: var(--dim); font-size: 10px; user-select: none; }
 
 .annotated-rows { display: block; }
@@ -2309,6 +2310,8 @@ kbd {
 .annotated-modal-source { min-width: 0; min-height: 0; overflow: auto; border-right: 1px solid var(--line); }
 .annotated-modal-source .annotated-source-code { min-height: 100%; }
 .annotated-modal-inspector { min-height: 0; overflow: auto; background: var(--panel); }
+.annotated-modal-failure { grid-row: 2 / 4; padding: 24px; overflow: auto; }
+.annotated-modal-failure p { color: var(--muted); }
 .annotated-inspector-section { padding: 14px; border-bottom: 1px solid var(--line); }
 .annotated-selection-empty { display: grid; gap: 5px; margin-top: 10px; padding: 8px; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--panel-raised); }
 .annotated-selection-empty strong { color: var(--text); }

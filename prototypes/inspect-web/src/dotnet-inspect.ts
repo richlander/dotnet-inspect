@@ -4262,22 +4262,56 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
 // lines from its text buffer, structural segments from its nodes, and the fact -> target -> node ->
 // span walk it defines. Coordinates, validation, and segmentation belong to document-model.ts.
 function renderAnnotatedSource(result: AnnotatedSourceResult) {
-  const session = state.memberAnnotatedEmbedded
-    ?? createEmbeddedSession(createAnnotatedSourceViewerModel(result));
-  return renderAnnotatedSourcePure({
-    result,
-    session,
-    escapeHtml,
-  });
+  try {
+    const session = state.memberAnnotatedEmbedded
+      ?? createEmbeddedSession(createAnnotatedSourceViewerModel(result));
+    return renderAnnotatedSourcePure({
+      result,
+      session,
+      escapeHtml,
+    });
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+    return renderAnnotatedSourceRejection(error);
+  }
 }
 
 function renderAnnotatedSourceModal() {
   if (!state.memberAnnotated || !state.memberAnnotatedModal) return "";
-  return renderAnnotatedSourceModalPure({
-    result: state.memberAnnotated,
-    session: state.memberAnnotatedModal,
-    escapeHtml,
-  });
+  try {
+    return renderAnnotatedSourceModalPure({
+      result: state.memberAnnotated,
+      session: state.memberAnnotatedModal,
+      escapeHtml,
+    });
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+    return `<div id="annotated-source-backdrop" class="annotated-modal-backdrop">
+      <section id="annotated-source-modal" class="annotated-modal"
+        role="dialog" aria-modal="true" aria-labelledby="annotated-modal-title">
+        <header class="annotated-modal-head">
+          <div>
+            <p class="section-eyebrow">Explore Annotated Source</p>
+            <h2 id="annotated-modal-title" tabindex="-1">Annotated source document rejected</h2>
+          </div>
+          <div class="annotated-modal-head-actions">
+            <button id="annotated-modal-close" type="button"
+              data-annotated-action="close-modal">Close</button>
+          </div>
+        </header>
+        <section class="annotated-modal-failure" role="alert">
+          <p>${escapeHtml(errorMessage(error))}</p>
+        </section>
+      </section>
+    </div>`;
+  }
+}
+
+function renderAnnotatedSourceRejection(error: TypeError) {
+  return `<section class="document-section empty-member-section">
+    <h2>Annotated source document rejected</h2>
+    <p>${escapeHtml(errorMessage(error))}</p>
+  </section>`;
 }
 
 function renderMemberFacts(

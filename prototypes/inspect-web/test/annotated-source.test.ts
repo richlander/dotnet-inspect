@@ -15,6 +15,7 @@ import {
   selectAllAnnotations,
   selectFinding,
   selectNode,
+  toggleCoordinates,
 } from "../src/annotated-source-session.ts";
 import type {
   AnnotatedSourceResult,
@@ -188,7 +189,7 @@ test("the result preserves the validated portable document contract", () => {
   assert.equal(document, sampleDocument);
 });
 
-test("an invalid document remains a visible failure instead of empty output", () => {
+test("the pure renderer rejects an invalid document for the shell to surface", () => {
   assert.throws(
     () => embeddedHtml({
       ...result,
@@ -259,6 +260,7 @@ test("modal controls are exactly catalog-supported media and annotatable Finding
   assert.match(html, /annotated-medium-il/);
   assert.match(html, /annotated-coordinate-toggle/);
   assert.match(html, /data-annotated-source-start/);
+  assert.match(html, /id="annotated-source-modal-segment-\d+"/);
 });
 
 test("Selection and Findings are peer inspector sections with a tiled empty state", () => {
@@ -335,9 +337,64 @@ test("chip and persistent inspector paths render identical non-empty detail", ()
   assert.match(annotation, /<dt>Conditionality<\/dt><dd>Always<\/dd>/);
   assert.match(annotation, /<dt>Detail<\/dt><dd>object<\/dd>/);
   assert.match(annotation, /<dt>Origin<\/dt><dd>Body<\/dd>/);
+  assert.doesNotMatch(annotation, /<dt>Source offset<\/dt>/);
   assert.match(annotation, /ObjectCreationExpression · C#/);
   assert.match(annotation, /Instruction · IL/);
   assert.match(annotation, /Not projected by the current product query/);
+
+  const coordinates = renderAnnotatedSourceModal({
+    result,
+    session: selectFinding(
+      toggleCoordinates(modal).state,
+      { kind: "inspector", factId: 0 },
+    ),
+    escapeHtml,
+  });
+  assert.match(coordinates, /<dt>Source offset<\/dt><dd>1<\/dd>/);
+});
+
+test("mixed-line hidden media keeps its layout text but removes its action", () => {
+  const source: AnnotatedSourceResult = {
+    document: {
+      text: "ab",
+      nodes: [
+        { id: 0, kind: "Name", medium: "CSharp", spans: [{ start: 0, length: 1 }] },
+        {
+          id: 1,
+          kind: "Instruction",
+          medium: "Il",
+          spans: [{ start: 1, length: 1 }],
+          il_offset: 0,
+        },
+      ],
+      regions: [],
+      facts: [],
+      targets: [],
+    },
+    viewerCatalog: {
+      defaultFindingIds: [],
+      supportedMedia: ["CSharp", "Il"],
+      invocationLikeNodeKinds: [],
+      findingEvidence: {
+        available: false,
+        unavailableReason: "NotProjected",
+      },
+      destinations: {
+        available: false,
+        unavailableReason: "NotProjected",
+      },
+    },
+    provenance: "mixed media",
+    contextLimitation: null,
+  };
+  const html = modalHtml(source);
+  const hidden = html.match(
+    /<span\s+class="annotated-source-segment medium-hidden"[^>]*>b<\/span>/,
+  )?.[0] ?? "";
+
+  assert.ok(hidden);
+  assert.doesNotMatch(hidden, /role="button"|tabindex|data-annotated-source-start/);
+  assert.match(html, /id="annotated-source-modal-segment-0"[\s\S]*>a<\/span>/);
 });
 
 test("source text is escaped while source actions and chrome remain separate", () => {

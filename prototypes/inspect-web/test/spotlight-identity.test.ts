@@ -2008,6 +2008,21 @@ test("annotated source owns its rendered control bindings", () => {
   }
 });
 
+test("annotated source validation failures stay visible at the shell boundary", () => {
+  assert.match(
+    appSource,
+    /function renderAnnotatedSource\(result: AnnotatedSourceResult\) \{\s*try \{[\s\S]*renderAnnotatedSourcePure\([\s\S]*catch \(error\) \{\s*if \(!\(error instanceof TypeError\)\) throw error;\s*return renderAnnotatedSourceRejection\(error\)/,
+  );
+  assert.match(
+    appSource,
+    /function renderAnnotatedSourceModal\(\) \{[\s\S]*try \{[\s\S]*renderAnnotatedSourceModalPure\([\s\S]*catch \(error\) \{\s*if \(!\(error instanceof TypeError\)\) throw error;[\s\S]*Annotated source document rejected[\s\S]*data-annotated-action="close-modal"/,
+  );
+  assert.match(
+    appSource,
+    /function renderAnnotatedSourceRejection\(error: TypeError\) \{[\s\S]*Annotated source document rejected[\s\S]*escapeHtml\(errorMessage\(error\)\)/,
+  );
+});
+
 test("annotated source Escape and history ownership track the mounted surface", () => {
   assert.match(
     appSource,

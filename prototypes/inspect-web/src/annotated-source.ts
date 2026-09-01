@@ -330,18 +330,28 @@ function renderSource(context: SourceRenderContext): string {
             <code>${line.segments.length
               ? line.segments.map(segment => {
                   const actionable =
-                    session.surface === "modal" && segment.nodeIds.length > 0;
+                    session.surface === "modal"
+                    && segment.visible
+                    && segment.nodeIds.length > 0;
                   const invocation = segment.nodeIds.some(id => {
                     const node = model.document.nodes[id];
                     return node && model.invocationLikeNodeKinds.has(node.kind);
                   });
+                  const segmentMedium = line.medium === "Mixed"
+                    ? segment.media.find(medium => visible.has(medium))
+                      ?? segment.media[0]
+                      ?? "CSharp"
+                    : line.medium;
                   return `<span
-                    class="annotated-source-segment${segment.selected ? " selected" : ""}${actionable ? " addressable" : ""}${invocation ? " invocation" : ""}"
+                    ${actionable
+                      ? `id="annotated-source-${session.surface}-segment-${segment.start}"`
+                      : ""}
+                    class="annotated-source-segment${segment.selected ? " selected" : ""}${segment.visible ? "" : " medium-hidden"}${actionable ? " addressable" : ""}${invocation ? " invocation" : ""}"
                     ${actionable
                       ? `role="button" tabindex="0"
                           aria-label="Select source node"
                           data-annotated-source-start="${segment.start}"
-                          data-medium="${line.medium === "Mixed" ? segment.media[0] ?? "CSharp" : line.medium}"`
+                          data-medium="${segmentMedium}"`
                       : ""}
                     >${escapeHtml(segment.text)}</span>`;
                 }).join("")
@@ -515,7 +525,7 @@ function renderDetail(context: SourceRenderContext): string {
         ${detailRow("Conditionality", fact.conditionality, escapeHtml)}
         ${fact.detail ? detailRow("Detail", fact.detail, escapeHtml) : ""}
         ${detailRow("Origin", fact.origin, escapeHtml)}
-        ${fact.source_offset >= 0
+        ${session.coordinatesVisible && fact.source_offset >= 0
           ? detailRow("Source offset", String(fact.source_offset), escapeHtml)
           : ""}
       </dl>
