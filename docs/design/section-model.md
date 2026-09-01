@@ -193,15 +193,16 @@ direct references as a flat table by default. `-S References --tree` renders
 the resolved transitive reference graph; `--depth N` limits that graph, with
 depth 1 containing direct references only. Omitting `--depth` traverses the
 complete resolvable graph. The current implementation also lowers the former
-`Dependencies` spelling to `References`; its retention follows the CLI
-compatibility policy rather than this projection contract.
+`Dependencies` spelling to `References` and requests its tree projection; its
+retention follows the CLI compatibility policy rather than this projection
+contract.
 
 Package `Dependencies` follows the same projection model: the section is a flat
 table of declared dependencies by target framework by default, while
 `-S Dependencies --tree` resolves the transitive graph for the selected or
 highest target framework. The current implementation also accepts the former
-package `--dependencies` flag; its retention follows the CLI compatibility
-policy rather than this projection contract.
+package `--dependencies` flag as `-S Dependencies --tree`; its retention
+follows the CLI compatibility policy rather than this projection contract.
 
 ## Section axes
 
