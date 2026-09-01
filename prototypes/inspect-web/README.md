@@ -674,6 +674,32 @@ the same worker-safe path and exercises build identity plus
 `asyncLoweringCanary()`, a genuinely awaited operation with a fixed typed
 result and no network, package-cache, server-API, or user-data dependency.
 
+The purpose-built `multi-facade-canary` proves that this lifecycle composes
+across independently generated modules. Its Alpha and Beta assemblies
+deliberately use the same namespace, declaring-type names, method names,
+overload shapes, record name, and enum name. Each checked-in facade is generated
+from only its own assembly and acquires only that assembly's export root. A
+consumer-owned single-flight coordinator serializes first initialization:
+Alpha initializes before Beta, while concurrent readiness callers share that
+one sequence. The second facade relies on the SDK builder's completed-runtime
+reuse; neither generated module coordinates with the other or exposes the
+runtime.
+
+`eng/generate-inspect-web-multi-facade-canary.sh --check` gates independent
+generation and drift for both facades. The
+`eng/test-inspect-web-multi-facade-canary.sh` Browser/Wasm gate publishes both
+assemblies into one runtime, requests readiness concurrently, and then invokes
+both facades. It requires exactly one live SDK runtime, assembly-distinct
+results through both declaring types and exact overload keys, a genuinely
+awaited operation from each assembly, and independent record and enum
+declarations. Its negative cases prove that the gate fails for a wrong assembly
+root, a separately loaded runtime module, both operational paths routed through
+one facade, an uninitialized second facade, or a dropped managed invocation.
+This canary does not split the production engine binding or expose raw
+`ILInspector` APIs; that production partition remains [#4497].
+
+[#4497]: https://github.com/richlander/dotnet-inspect/issues/4497
+
 The home page identifies the browser stack below its search surface and links
 to the client-rendered `/credits` route. `src/credits-panel.ts` owns that page's
 markup, route recognition, and rendered control bindings. Azure Static Web Apps
@@ -721,27 +747,32 @@ Spotlight scopes are literal unions derived from their UI catalogs. DOM and URL
 tokens are decoded before they reach typed state or actions; the scope-bar and
 workspace-navigation tests gate rejection of unknown values.
 
-Oxlint checks both compiler-derived facade artifacts as consumer contracts:
+Oxlint checks the compiler-derived production facade artifacts and both
+multi-facade canary source modules as consumer contracts:
 `src/inspect-web-engine.d.ts` receives the TypeScript rules, while
 `engine/wwwroot/inspect-web-engine.js` receives the JavaScript correctness and
-suspicious rules described below. TypeScript compilation and the generated
-facade drift gate provide independent source and declaration coverage. The
-toolchain test pins both derived lint inputs so a generator change cannot
-silently leave analysis coverage. The configuration disables four non-correctness
-rules: underscore spelling, function relocation, listener API preference, and
-`Array.prototype.sort`. Those rules prescribe naming/layout churn or, for
-sorting, the ES2023 `toSorted` API while this project targets ES2022. Those
-four, plus the generated-facade overrides, are the *complete* set of disabled
-rules. The compiler-derived JavaScript disables the five unsafe-operation
-rules and the catch-callback annotation rule that JavaScript cannot satisfy.
-The authoritative TypeScript disables those unsafe-operation rules, unsafe
-type-assertion analysis for authenticated JSON envelopes, and the redundant
-constituent diagnostic that lacks the temporary SDK declaration used by its
-separate compiler gate. A toolchain test pins these against Oxlint's resolved
-configuration, so another disable — written at the top level or inside an
-`overrides` entry — fails rather than passing quietly. Turning a rule off is
-not the only way to lose it, so options, plugin settings and the global
-environment are pinned beside the severities; those are described below.
+suspicious rules described below. The checked-in production and canary
+TypeScript facades are compiled separately against the exact SDK-owned
+`dotnet.d.ts`; the canary gate compiles its authored coordinator and exercise
+modules in that same program. TypeScript compilation and the generated facade
+drift gates provide independent source and declaration coverage. The toolchain
+test pins every separately compiled and derived lint input so a generator
+change cannot silently leave analysis coverage. The configuration disables
+four non-correctness rules: underscore spelling, function relocation, listener
+API preference, and `Array.prototype.sort`. Those rules prescribe
+naming/layout churn or, for sorting, the ES2023 `toSorted` API while this
+project targets ES2022. Those four, plus the generated-facade overrides, are
+the *complete* set of disabled rules. The compiler-derived JavaScript disables
+the five unsafe-operation rules and the catch-callback annotation rule that
+JavaScript cannot satisfy. The authoritative generated TypeScript facades
+disable those unsafe-operation rules, unsafe type-assertion analysis for
+authenticated JSON envelopes, and the redundant constituent diagnostic that
+lacks the temporary SDK declaration used by their separate compiler gates. A
+toolchain test pins these against Oxlint's resolved configuration, so another
+disable — written at the top level or inside an `overrides` entry — fails
+rather than passing quietly. Turning a rule off is not the only way to lose it,
+so options, plugin settings and the global environment are pinned beside the
+severities; those are described below.
 
 Existing JavaScript tests and verification scripts remain covered by Oxlint's
 correctness and suspicious rules, but not by its unsafe-operation type rules:
