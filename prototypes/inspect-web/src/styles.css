@@ -137,6 +137,16 @@ body {
   height: 28px;
   object-fit: contain;
 }
+.inspected-target {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 15px;
+  overflow: hidden;
+}
 
 .framework-select, .version-select { display: flex; align-items: center; gap: 6px; }
 .framework-select > span, .version-select > span {
@@ -252,8 +262,8 @@ body {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 0 15px;
+  gap: 6px;
+  padding: 0 10px 0 0;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
@@ -1250,7 +1260,7 @@ kbd {
   body { min-width: 0; }
   .brand { width: 48px; padding: 0 14px; }
   .brand span:last-child { display: none; }
-  .subject-zone { gap: 6px; padding: 0 10px; }
+  .inspected-target { gap: 6px; padding: 0 10px; }
   .subject-path-separator { margin: 0 6px; }
   .subject-search { width: 34px; justify-content: center; padding: 0; }
   .subject-search-label, .subject-search kbd { display: none; }

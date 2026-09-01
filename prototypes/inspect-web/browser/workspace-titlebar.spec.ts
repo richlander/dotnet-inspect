@@ -6,7 +6,7 @@ async function box(page: Page, selector: string) {
   return value!;
 }
 
-test("the title bar contains no tab-like active package identity", async ({
+test("the title bar contains the inspected target without tab-like workspace identity", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -15,6 +15,9 @@ test("the title bar contains no tab-like active package identity", async ({
   const titleActions = await box(page, ".title-actions");
 
   expect(titleActions.x + titleActions.width).toBeCloseTo(1440, 0);
+  await expect(page.locator(".titlebar .inspected-target")).toBeVisible();
+  await expect(page.locator(".titlebar .subject-path-segment.root"))
+    .toHaveText("System.Text.Json");
   await expect(page.locator(".workspace-title")).toHaveCount(0);
   await expect(page.locator(".titlebar")).not.toContainText("0:");
   await expect(page.locator(".titlebar")).not.toContainText("Platform");
@@ -25,28 +28,31 @@ test("the title bar contains no tab-like active package identity", async ({
     "/assets/dotnet-inspect-bot.png");
 });
 
-test("subjects and inspectors share the title bar without package selectors", async ({
+test("the inspected target precedes global actions and package selectors stay in content", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/browser/workspace-titlebar.html?package=1");
 
   const brand = await box(page, ".brand");
+  const target = await box(page, ".inspected-target");
   const lensbar = await box(page, ".lensbar");
+  const subjectZone = await box(page, ".subject-zone");
 
-  expect(lensbar.x).toBeGreaterThanOrEqual(brand.x + brand.width);
+  expect(target.x).toBeGreaterThanOrEqual(brand.x + brand.width);
+  expect(target.y).toBeCloseTo(brand.y, 0);
+  expect(lensbar.y).toBeCloseTo(subjectZone.y, 0);
+  await expect(page.locator(".titlebar .lensbar")).toHaveCount(0);
+  await expect(page.locator(".subject-zone .lensbar")).toBeVisible();
   await expect(page.locator(".titlebar #package-version")).toHaveCount(0);
   await expect(page.locator(".titlebar #framework")).toHaveCount(0);
   await expect(page.locator(".detail-scroll #package-version")).toBeVisible();
   await expect(page.locator(".detail-scroll #framework")).toBeVisible();
   await expect(page.locator("#go-home")).toHaveCount(0);
 
-  const productName = await box(page, ".brand > span:last-child");
-  const packageName = await box(page, ".subject-path-segment.root");
-  const productIcon = await box(page, ".brand-icon");
   const packageIcon = await box(page, ".subject-icon");
-  expect(packageName.x).toBeCloseTo(productName.x, 0);
-  expect(packageIcon.width).toBeCloseTo(productIcon.width, 0);
+  expect(packageIcon.width).toBeCloseTo(20, 0);
+  expect(packageIcon.height).toBeCloseTo(20, 0);
   await expect(page.locator(".subject-icon img")).toHaveAttribute(
     "src",
     /^data:image\/png;base64,/);
@@ -86,6 +92,9 @@ test("narrow layout preserves the two-line hierarchy and primary actions", async
     "System.Text.Json",
     "System.Text.Json.JsonSerializer",
   ]);
+  await expect(page.locator(".titlebar .subject-path")).toBeVisible();
+  await expect(page.locator(".subject-zone .subject-path")).toHaveCount(0);
+  await expect(page.locator(".subject-zone .scope-switch")).toBeVisible();
   await expect(page.locator(".subject-zone #share")).toBeVisible();
   await expect(page.locator("#copy-name")).toHaveCount(0);
   await expect(page.locator("#taste-btn")).toHaveCount(0);
@@ -95,10 +104,13 @@ test("narrow layout preserves the two-line hierarchy and primary actions", async
   expect(titleActions.x + titleActions.width).toBeCloseTo(760, 0);
   expect(subjectZone.x).toBe(0);
   expect(subjectZone.x + subjectZone.width).toBeCloseTo(760, 0);
+  const horizontalOverflow = await page.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(horizontalOverflow).toBeLessThanOrEqual(0);
   expect(namespacePicker.y + namespacePicker.height).toBeLessThanOrEqual(typeList.y);
 });
 
-test("the subject zone advertises the typed Package, Type, and Member path", async ({
+test("the title line advertises the typed Package, Type, and Member path", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -111,6 +123,9 @@ test("the subject zone advertises the typed Package, Type, and Member path", asy
   ]);
   await expect(page.locator(".subject-path-separator")).toHaveCount(2);
   await expect(page.locator("[data-subject-copy]")).toHaveCount(3);
+  await expect(page.locator(".titlebar .subject-path")).toBeVisible();
+  await expect(page.locator(".subject-zone .scope-switch")).toBeVisible();
+  await expect(page.locator(".subject-zone .lens")).toHaveCount(2);
   await expect(page.locator(".subject-path-segment.current")).toHaveCSS(
     "color",
     "rgb(229, 102, 63)");
@@ -132,7 +147,9 @@ test("the subject zone advertises the typed Package, Type, and Member path", asy
   expect(forward.x + forward.width).toBeLessThanOrEqual(search.x);
   expect(search.x - (forward.x + forward.width)).toBeLessThanOrEqual(7);
   const zone = await box(page, ".subject-zone");
+  const target = await box(page, ".inspected-target");
   const workspace = await box(page, ".workspace");
+  expect(target.y).toBeLessThan(zone.y);
   expect(zone.x).toBe(0);
   expect(zone.width).toBeCloseTo(1440, 0);
   expect(zone.y + zone.height).toBeLessThanOrEqual(workspace.y);

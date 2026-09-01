@@ -1228,7 +1228,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /#(?:retry-load|error-package-query|error-package-input|toggle-error-detail)|"\.load-error-detail"/);
 });
 
-test("the full-width subject zone advertises the typed subject hierarchy", () => {
+test("the title line advertises the typed target above the subject strip", () => {
   const renderNode = functionDeclaration("render");
   const subjectPathNode = functionDeclaration("inspectedSubjectPath");
   const subjectPathRenderer = functionDeclaration("renderInspectedSubjectPath");
@@ -1243,7 +1243,7 @@ test("the full-width subject zone advertises the typed subject hierarchy", () =>
 
   assert.match(
     render,
-    /<header class="subject-zone"[\s\S]*renderInspectedSubjectIcon\(pkg\)[\s\S]*class="subject-path"[\s\S]*class="subject-advertisements"[\s\S]*class="subject-navigation"[\s\S]*id="nav-back"[\s\S]*id="nav-forward"[\s\S]*id="open-search"[\s\S]*id="share"[\s\S]*<main class="workspace">/);
+    /workbenchShellHtml\(\{[\s\S]*inspectedTargetHtml:[\s\S]*class="inspected-target"[\s\S]*renderInspectedSubjectIcon\(pkg\)[\s\S]*class="subject-path"[\s\S]*<header class="subject-zone"[\s\S]*renderScopeBar\(\)[\s\S]*class="subject-advertisements"[\s\S]*class="subject-navigation"[\s\S]*id="nav-back"[\s\S]*id="nav-forward"[\s\S]*id="open-search"[\s\S]*id="share"[\s\S]*<main class="workspace">/);
   assert.doesNotMatch(render, /id="copy-name"|id="taste-btn"/);
   assert.doesNotMatch(
     render,

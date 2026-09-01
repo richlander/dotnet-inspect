@@ -16,7 +16,7 @@ This owner defines:
 - the persistent shell's visible text actions (`Search`, `Open`, `Help`,
   `Settings`) and the `dotnet-inspect` Home control;
 - the title line's allocation among the product root, the navigation-
-  presentation-owned subject/inspector content and trailing global actions;
+  presentation-owned inspected target, and trailing global actions;
 - the generic modal-dialog contract (accessible name, initial focus, inert
   background, tab containment, Escape, one-modal-at-a-time, and
   ordinary-dismissal focus return) shared by Spotlight, Open, Settings, the
@@ -73,15 +73,15 @@ This document consumes, without redefining:
 The first persistent row is one non-wrapping title line:
 
 ```text
-dotnet-inspect  Workspace Package Type Member  API Metadata Source  Help Settings
+dotnet-inspect  [package icon] Package > Type > Member  Help Settings
 ```
 
 It follows the product's CLI grammar without becoming an editable command:
 
 1. `dotnet-inspect` is the stable product and Home control.
-2. Navigation Presentation renders the subject ladder and the active subject's
-   inspectors immediately after the product root. Package coordinate controls
-   belong to the Package working surface.
+2. Navigation Presentation renders the icon-backed typed inspected target
+   immediately after the product root. Package coordinate controls belong to
+   the Package working surface.
 3. Fixed global actions remain reachable at the trailing edge. Help and
    Settings are removed from visual layout as width narrows; the product Home
    control remains.
@@ -93,29 +93,31 @@ management belongs to the Workspace subject rather than permanent
 high-distraction chrome. Platform libraries are capabilities or content of the
 current workspace.
 
-The title line does not show the fully qualified Library, Type, or Member
-identity. [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md)
-owns the full-width subject zone beneath it.
+The title line shows the applicable Package, Library, Type, and Member identity
+as one typed path.
 
-Search is a visible input-like control in the subject zone that opens
-Spotlight. It is not editable in place and does not become a dominant centered
-command control. Compact Back and Forward buttons sit immediately to its left,
-following VS Code only for this bounded adjacency and arrow treatment. The
-global title line exposes:
+The second persistent row begins with the Workspace, Package, Type, and Member
+subject ladder and the active subject's inspectors. Search remains a visible
+input-like control at the trailing side of that row and opens Spotlight. It is
+not editable in place and does not become a dominant centered command control.
+Compact Back and Forward buttons sit immediately to its left, following VS Code
+only for this bounded adjacency and arrow treatment. This action placement is
+provisional while the row hierarchy is evaluated. The global title line
+exposes:
 
 ```text
-dotnet-inspect (Home)   Open   Help   Settings
+dotnet-inspect (Home)   inspected target   Open   Help   Settings
 ```
 
 The subject zone exposes:
 
 ```text
-Back   Forward   Search types, members, packages   Share
+Workspace Package Type Member   inspectors   Back   Forward   Search   Share
 ```
 
-The dotnet-bot image is the product mark and occupies the same fixed-width icon
-slot used by the subject-zone root mark. The visible `dotnet-inspect` label
-remains; the image does not replace it.
+The dotnet-bot image is the product mark. The visible `dotnet-inspect` label
+remains; the image does not replace it. The inspected target owns a separate
+fixed-width root-mark slot immediately after the product control.
 
 For a NuGet package, that root mark is the bounded embedded JPEG or PNG declared
 by the package nuspec, with NuGet Gallery's default package icon as the
@@ -292,15 +294,15 @@ outcomes.
 
 ### Workspace title bar
 
-1. Confirm that Workspace, Package, Type, Member, and active inspectors follow
-   `dotnet-inspect` in the title line, with no active-package title or Package
-   coordinate controls.
+1. Confirm that the icon-backed typed Package, Type, and Member path follows
+   `dotnet-inspect` in the title line, with no Package coordinate controls.
 2. Confirm that the line contains no workspace tabs, numeric workspace
    selectors, or separate Platform workspace.
 3. Open Workspace and confirm that retained coordinates move into its working
    surface with activation and Close actions.
-4. Select a Type or Member and confirm that the full-width subject zone below
-   the title line advertises the Package, Type, and Member path in order.
+4. Select a Type or Member and confirm that the title line advertises the
+   Package, Type, and Member path in order while the full-width row below
+   contains the subject and inspector strip.
 5. Select Package and confirm that Version and Framework appear in its working
    surface. Confirm that every product-issued subject-path segment copies its
    own typed canonical name, there is no separate Copy name action, and Share
@@ -309,8 +311,8 @@ outcomes.
 6. Narrow the viewport and confirm that Help and Settings disappear before
    Search, the product Home control, the subject controls, or the
    inspected-subject actions.
-7. Confirm that the product bot and subject root use equal icon slots and the
-   Package name begins in the same column as `dotnet-inspect`.
+7. Confirm that the product bot and inspected-target root mark retain distinct
+   bounded icon slots and the current target leaf uses the shared accent.
 8. Confirm that no persistent package-query input or centered command-center
    control appears, and that Back and Forward sit immediately left of the
    visible Search control, which opens Spotlight.

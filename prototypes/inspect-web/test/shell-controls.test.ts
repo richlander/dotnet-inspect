@@ -125,14 +125,15 @@ test("workbench shell binds every rendered control without eager work", () => {
   assert.equal(searchArgumentCount, 0);
 });
 
-test("workbench shell renders subjects after the product root and before identity", () => {
+test("workbench shell renders the inspected target after the product root", () => {
   const html = workbenchShellHtml({
-    subjectInspectorHtml: '<nav class="lensbar" data-test="subjects">Workspace Package Type</nav>',
+    inspectedTargetHtml: '<div class="inspected-target" data-test="target">System.Text.Json</div>',
   });
 
   assert.match(
     html,
-    /class="titlebar"[\s\S]*class="brand"[\s\S]*data-test="subjects"[\s\S]*class="title-actions"/);
+    /class="titlebar"[\s\S]*class="brand"[\s\S]*data-test="target"[\s\S]*class="title-actions"/);
+  assert.doesNotMatch(html, /class="lensbar"/);
   assert.doesNotMatch(html, /workspace-window|workspace-strip/);
   assert.doesNotMatch(
     html,

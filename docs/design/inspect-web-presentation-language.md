@@ -191,11 +191,11 @@ one restrictive dimension.
 
 ## Shared heading rules
 
-The title line identifies the active subject and inspector. The full-width
-subject zone immediately below it advertises the ordered Package, Library,
-Type, and Member path. Package coordinate options belong to Package content.
-Content headings may use the shorter local name. This section defines how
-lenses retain that orientation without restoring duplicated hero metadata.
+The title line advertises the ordered Package, Library, Type, and Member path.
+The full-width subject zone immediately below it identifies the active subject
+and inspector. Package coordinate options belong to Package content. Content
+headings may use the shorter local name. This section defines how lenses retain
+that orientation without restoring duplicated hero metadata.
 
 Within the subject path, Package is the largest and strongest text. Type and
 Member are smaller than Package but use emphasized text and weight above

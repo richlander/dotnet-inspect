@@ -96,7 +96,24 @@ const navigationHtml = workspaceMode
 app.innerHTML = `
   <div class="workbench">
     ${workbenchShellHtml({
-      subjectInspectorHtml: renderScopeBar({
+      inspectedTargetHtml: `
+        <div class="inspected-target" aria-label="Inspected target">
+          <span class="subject-icon" aria-hidden="true">${workspaceMode
+            ? "W"
+            : `<img src="${packageIcon}" alt="" data-package-icon>`}</span>
+          <div class="subject-path" aria-label="${subjectPathLabel}" title="${subjectPathLabel}">
+            ${subjectPath.map((segment, index) => {
+              const className = `subject-path-segment${index === 0 ? " root" : ""}${index === subjectPath.length - 1 ? " current" : ""}`;
+              const content = segment.copyable
+                ? `<button type="button" class="${className}" data-subject-copy="${index}" title="Copy ${escapeHtml(segment.label)}" aria-label="Copy ${segment.kind} name ${escapeHtml(segment.label)}">${escapeHtml(segment.label)}</button>`
+                : `<span class="${className}">${escapeHtml(segment.label)}</span>`;
+              return `${index === 0 ? "" : '<span class="subject-path-separator" aria-hidden="true">&gt;</span>'}${content}`;
+            }).join("")}
+          </div>
+        </div>`,
+    })}
+    <header class="subject-zone" aria-label="Subjects and inspectors">
+      ${renderScopeBar({
         scope: workspaceMode
           ? "workspace"
           : packageMode
@@ -125,21 +142,7 @@ app.innerHTML = `
             : "data-lens",
         showMemberScope: memberMode,
         escapeHtml,
-      }),
-    })}
-    <header class="subject-zone" aria-label="Inspected subject">
-      <span class="subject-icon" aria-hidden="true">${workspaceMode
-        ? "W"
-        : `<img src="${packageIcon}" alt="" data-package-icon>`}</span>
-      <div class="subject-path" aria-label="${subjectPathLabel}" title="${subjectPathLabel}">
-        ${subjectPath.map((segment, index) => {
-          const className = `subject-path-segment${index === 0 ? " root" : ""}${index === subjectPath.length - 1 ? " current" : ""}`;
-          const content = segment.copyable
-            ? `<button type="button" class="${className}" data-subject-copy="${index}" title="Copy ${escapeHtml(segment.label)}" aria-label="Copy ${segment.kind} name ${escapeHtml(segment.label)}">${escapeHtml(segment.label)}</button>`
-            : `<span class="${className}">${escapeHtml(segment.label)}</span>`;
-          return `${index === 0 ? "" : '<span class="subject-path-separator" aria-hidden="true">&gt;</span>'}${content}`;
-        }).join("")}
-      </div>
+      })}
       <div class="subject-advertisements"></div>
       <div class="subject-navigation">
         <div class="nav-history">

@@ -217,12 +217,13 @@ One information hierarchy adapts across viewport sizes:
 - wide layouts retain Type or Member navigation beside a full working surface;
 - narrow layouts replace the navigation pane with a visible
   `Types` or `Members` button that opens the shared modal navigation drawer;
-- the title line and full-width subject zone each remain one line;
+- the title line and full-width subject/inspector zone each remain one line;
 - the subject zone remains outside and above the navigation/content grid;
-- the product and subject-root icon slots have equal width and padding so their
-  following text shares one left alignment;
+- the product and inspected-target root marks retain bounded icon slots in the
+  title line;
 - Back and Forward remain immediately left of the subject-zone Search control,
-  and Share remains visible;
+  and Share remains visible; their placement is provisional while the shell
+  rows are evaluated;
 - Help and Settings disappear before Search, the `dotnet-inspect` Home
   control, subject navigation, or inspected-subject actions;
 - subject and inspector navigation scroll horizontally instead of wrapping;
@@ -340,9 +341,9 @@ with the absence of a synthesized `Default feed` control.
 3. Activate the visible `Types` button and confirm the drawer's accessible
    dialog name, initial focus, focus containment, Escape dismissal, and focus
    return.
-4. Confirm that the workspace title bar, subject/inspector strip, and target
-   selector remain single-line scrolling or truncating surfaces rather than
-   wrapping.
+4. Confirm that the title-line inspected target and second-row
+   subject/inspector strip remain single-line scrolling or truncating surfaces
+   rather than wrapping.
 5. With focus in the wide navigation pane, narrow the viewport and confirm that
    focus moves to the new drawer button without opening it.
 6. Open the drawer, restore the wide viewport, and confirm that the drawer

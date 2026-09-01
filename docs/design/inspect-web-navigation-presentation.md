@@ -16,7 +16,8 @@ browser history; that model belongs to
 This owner defines:
 
 - the Workspace, Package, Library, Type, and Member subject hierarchy, the
-  title-line subject/inspector region, and the subject zone;
+  title-line inspected-target region, and the second-row subject/inspector
+  strip;
 - the Workspace subject that owns retained-coordinate management;
 - lens-tab rendering, roving-tabindex interaction, and no-effective-lens
   status presentation;
@@ -93,14 +94,15 @@ Type, or Member is active. This document does not invent package lenses for it.
 
 An inspection workspace has two persistent lines before its primary content:
 
-1. The title line begins with `dotnet-inspect`, then renders the subject ladder,
-   active inspectors, and global actions.
-2. The full-width **subject zone** advertises the ordered active subject path,
-   then history, Search, and Share actions, before the working-content grid.
+1. The title line begins with `dotnet-inspect`, then renders the icon-backed
+   ordered active subject path and global actions.
+2. The full-width **subject zone** renders the subject ladder, active
+   inspectors, then history, Search, and Share actions before the
+   working-content grid.
 
-The title line follows the CLI's product-to-subject-to-inspector grammar but is
-not command text. Inventories, hierarchy menus, and other target navigation
-stay inside the working surface.
+The two rows together follow the CLI's product-to-subject-to-inspector grammar
+but are not command text. Inventories, hierarchy menus, and other target
+navigation stay inside the working surface.
 
 ### Subject and inspector strip
 
@@ -117,14 +119,13 @@ Subject changes replace the inspector set; inspectors never become workspace
 coordinate switchers or inspected-subject identities.
 
 The combined subject/inspector region consumes only the width it needs and may
-scroll horizontally under pressure. Remaining title-line width stays empty
-rather than carrying a tab-like active-package label.
+scroll horizontally under pressure. Remaining second-row width stays available
+for direct shell actions rather than carrying a tab-like active-package label.
 
-### Subject zone
+### Inspected target
 
-The subject zone is the second shell row, spanning both navigation and working
-content. It is not part of either pane. Its primary advertisement is an ordered
-typed path:
+The inspected target follows the product root in the first shell row. It is not
+part of either pane. Its primary advertisement is an ordered typed path:
 
 ```text
 System.Text.Json > System.Text.Json.JsonSerializer > DeserializeSync
@@ -136,10 +137,10 @@ presentation does not parse one display string to derive another, and the
 segments are orientation rather than inert navigation breadcrumbs.
 
 The Package segment receives the strongest visual emphasis, following
-npmx.dev's useful placement of the current package in large lettering directly
-below its top row. Narrower segments follow in order and the current leaf
-remains visually identifiable. The complete path remains in the accessible
-name and title when visible segments elide.
+npmx.dev's useful emphasis and direct-copy treatment for current package
+identity. Narrower segments follow in order and the current leaf remains
+visually identifiable with the shared accent. The complete path remains in the
+accessible name and title when visible segments elide.
 
 Each product-issued Package, Library, Type, or Member segment is an individually
 copyable control. Activating one copies that segment's owner-issued canonical
@@ -147,7 +148,7 @@ name, not the combined rendered path or text parsed from another segment.
 Workspace is presentation-owned retained-coordinate management and remains
 plain orientation text rather than inventing a canonical name.
 
-The subject zone begins with a fixed-width root-icon slot. A package uses the
+The inspected target begins with a fixed-width root-icon slot. A package uses the
 embedded JPEG or PNG named by its validated nuspec `<icon>` declaration. The
 package entry is read under NuGet's 1 MB icon limit and admitted by image
 content, not by its filename extension. A 2048-by-2048 decoded-dimension limit
@@ -156,9 +157,9 @@ encoded-file contract because the shell renders the image at 20 CSS pixels.
 The UI never fetches the deprecated nuspec `<iconUrl>`. When no usable embedded
 icon exists, the package uses NuGet Gallery's default package icon:
 `https://nuget.org/Content/gallery/img/default-package-icon-256x256.png`.
-Platform and other root subjects may use their own marks. The title line gives
-the `dotnet-inspect` bot the same fixed-width slot, left padding, and text gap,
-so the Package name begins in the same column as `dotnet-inspect`.
+Platform and other root subjects may use their own marks. The
+`dotnet-inspect` bot retains its product-mark slot before the adjacent inspected
+target.
 
 NuGet Gallery's header logo is recorded separately for a future
 source-attribution affordance:
@@ -166,10 +167,11 @@ source-attribution affordance:
 identity, not a package icon, and must not replace either an owner-issued
 package icon or the default package fallback.
 
-The zone reserves elastic space between the subject path and actions for
-concise owner-issued advertisements. Advertisements yield space before the
-subject path or direct actions and may not become another persistent tab strip,
-coordinate selector, or independently reconstructed identity.
+The title line reserves elastic space after the inspected target for concise
+owner-issued advertisements or direct global actions. Advertisements yield
+space before the target path or direct actions and may not become another
+persistent tab strip, coordinate selector, or independently reconstructed
+identity.
 
 Trailing `Share` copies the canonical workspace link. A separate `Copy name`
 action is absent because copy belongs to the segment whose typed identity is
@@ -177,8 +179,10 @@ being copied.
 
 Browser Back and Forward own navigation history. Compact Back and Forward
 buttons sit immediately to the left of the visible Spotlight Search control at
-the trailing side of the subject zone. They are outside the subject path and
-do not become breadcrumbs.
+the trailing side of the second-row subject zone. They are outside the subject
+and inspector strip and do not become breadcrumbs. This trailing placement is
+provisional while the top-down shell composition is evaluated; this revision
+does not settle a broader Search or history location.
 
 ### Workspace surface
 
@@ -293,8 +297,9 @@ Each row's product-issued activation state governs any later commit. Opening
 the choices changes no snapshot, URL, or history and does not invent a default
 Member.
 
-The Workspace subject, title-line subject/inspector region, inspected-subject
-line, and content region all render the same returned navigation snapshot.
+The Workspace subject, second-row subject/inspector region, title-line
+inspected target, and content region all render the same returned navigation
+snapshot.
 The UI does not infer initial, fallback, or reconciliation policy from
 descriptor order, assembly order, current filters, package kind, or display
 text.

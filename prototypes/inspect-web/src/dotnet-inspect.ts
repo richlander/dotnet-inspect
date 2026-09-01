@@ -2683,14 +2683,17 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal ? " inert" : ""}>
       ${workbenchShellHtml({
-        subjectInspectorHtml: renderScopeBar(),
+        inspectedTargetHtml: `
+          <div class="inspected-target" aria-label="Inspected target">
+            ${renderInspectedSubjectIcon(pkg)}
+            <div class="subject-path" aria-label="${escapeHtml(subjectPathLabel)}" title="${escapeHtml(subjectPathLabel)}">
+              ${renderInspectedSubjectPath(subjectPath)}
+            </div>
+          </div>`,
       })}
 
-      <header class="subject-zone" aria-label="Inspected subject">
-        ${renderInspectedSubjectIcon(pkg)}
-        <div class="subject-path" aria-label="${escapeHtml(subjectPathLabel)}" title="${escapeHtml(subjectPathLabel)}">
-          ${renderInspectedSubjectPath(subjectPath)}
-        </div>
+      <header class="subject-zone" aria-label="Subjects and inspectors">
+        ${renderScopeBar()}
         <div class="subject-advertisements"></div>
         <div class="subject-navigation">
           <div class="nav-history">
