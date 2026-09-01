@@ -40,7 +40,8 @@ internal abstract class TypeNode
 
     /// <summary>
     /// Whether this node or a descendant carries identity that <see cref="Render"/>
-    /// erases: a custom modifier, pinned wrapper, or function-pointer header.
+    /// erases: an exact metadata name, non-SZ array, custom modifier, pinned
+    /// wrapper, or function-pointer header.
     /// </summary>
     internal virtual bool HasStructuralPayload => false;
 
@@ -346,6 +347,13 @@ internal sealed class NamedTypeNode(
     public override bool IsReferenceType => isReferenceType;
     public override long EstimatedRenderedLength => name.Length + 1L;
 
+    internal override bool HasStructuralPayload =>
+        metadataName is not null
+        && !string.Equals(
+            StructuralIdentity(),
+            base.StructuralIdentity(),
+            StringComparison.Ordinal);
+
     public override string Render(bool canonicalTuples)
     {
         string effective = IsDynamic ? "dynamic" : name;
@@ -395,7 +403,11 @@ internal sealed class GenericTypeNode(
     public override bool IsReferenceType => isReferenceType;
     public override bool IsDegraded => degradedGenericType || arguments.Any(argument => argument.IsDegraded);
     internal override bool HasStructuralPayload =>
-        arguments.Any(argument => argument.HasStructuralPayload);
+        arguments.Any(argument => argument.HasStructuralPayload)
+        || !string.Equals(
+            StructuralIdentity(),
+            base.StructuralIdentity(),
+            StringComparison.Ordinal);
     public override long EstimatedRenderedLength => estimatedRenderedLength;
 
     internal override string StructuralIdentity()

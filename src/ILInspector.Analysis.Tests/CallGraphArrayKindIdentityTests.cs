@@ -138,7 +138,7 @@ public sealed class CallGraphArrayKindIdentityTests
     }
 
     [Fact]
-    public void Resolve_EscapesLiteralArraySyntaxInNamedElements()
+    public void Resolve_EscapesLiteralArraySyntaxAcrossTypeShapes()
     {
         byte[] image = BuildLiteralArrayNameImage();
         using var peReader = new PEReader(new MemoryStream(image));
@@ -156,11 +156,18 @@ public sealed class CallGraphArrayKindIdentityTests
                 .OrderBy(member => member.MetadataToken),
         ];
 
-        Assert.Equal(2, members.Length);
+        Assert.Equal(9, members.Length);
         string[] expected =
         [
             "N.A[][*]",
             @"N.A\[\][*]",
+            @"N.A\[\][]",
+            "N.A[][]",
+            @"System.Collections.Generic.List{N.A\[\]}",
+            "System.Collections.Generic.List{N.A[]}",
+            @"N.A\[\]",
+            "N.A[]",
+            @"N.G\[\]{N.A}",
         ];
         var selectors = new List<CallGraphMemberSelector>(members.Length);
         for (int index = 0; index < members.Length; index++)
@@ -198,7 +205,9 @@ public sealed class CallGraphArrayKindIdentityTests
                     .Member);
         }
 
-        Assert.NotEqual(selectors[0].Key, selectors[1].Key);
+        Assert.Equal(
+            selectors.Count,
+            selectors.Select(selector => selector.Key).Distinct().Count());
     }
 
     static void AssertStructuralParameter(
@@ -316,6 +325,14 @@ public sealed class CallGraphArrayKindIdentityTests
             systemRuntime,
             metadata.GetOrAddString("System"),
             metadata.GetOrAddString("Object"));
+        TypeReferenceHandle list = metadata.AddTypeReference(
+            systemRuntime,
+            metadata.GetOrAddString("System.Collections.Generic"),
+            metadata.GetOrAddString("List`1"));
+        TypeReferenceHandle literalGeneric = metadata.AddTypeReference(
+            systemRuntime,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("G[]`1"));
         TypeDefinitionHandle ordinary = metadata.AddTypeDefinition(
             TypeAttributes.Public | TypeAttributes.Sealed,
             metadata.GetOrAddString("N"),
@@ -341,6 +358,50 @@ public sealed class CallGraphArrayKindIdentityTests
                 new(
                     "M",
                     MdArray(Class(literal), rank: 1),
+                    Void,
+                    IsGeneric: false),
+                new(
+                    "M",
+                    Sz(Class(literal)),
+                    Void,
+                    IsGeneric: false),
+                new(
+                    "M",
+                    Sz(Sz(Class(ordinary))),
+                    Void,
+                    IsGeneric: false),
+                new(
+                    "M",
+                    GenericInstance(
+                        isValueType: false,
+                        list,
+                        Class(literal)),
+                    Void,
+                    IsGeneric: false),
+                new(
+                    "M",
+                    GenericInstance(
+                        isValueType: false,
+                        list,
+                        Sz(Class(ordinary))),
+                    Void,
+                    IsGeneric: false),
+                new(
+                    "M",
+                    Class(literal),
+                    Void,
+                    IsGeneric: false),
+                new(
+                    "M",
+                    Sz(Class(ordinary)),
+                    Void,
+                    IsGeneric: false),
+                new(
+                    "M",
+                    GenericInstance(
+                        isValueType: false,
+                        literalGeneric,
+                        Class(ordinary)),
                     Void,
                     IsGeneric: false),
             ],
