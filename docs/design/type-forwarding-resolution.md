@@ -2260,6 +2260,12 @@ selection, admission, composition, fallback, and presentation. New consumers
 change this document only when they expose a missing resolver invariant, not to
 record their internal protocol.
 
+Issue #5273 inventories structured type-forwarding resolution as one precedent
+for a possible generalized Metadata semantic-substrate pattern. That
+investigation, not this design, owns any cross-cutting admission test, shared
+result vocabulary, or adoption by other Metadata helpers. It is not a consumer
+scenario and creates no forwarding-resolver requirement.
+
 | Consumer scenario | Baseline resolution demand | Unique demand beyond the baseline |
 | --- | --- | --- |
 | Cross-assembly definition and body lookup | Reach one exact terminal definition or retain the exact typed reason resolution stopped. | Body acquisition, reader/session lifetime, and method selection remain with the body or acquisition owner. |
