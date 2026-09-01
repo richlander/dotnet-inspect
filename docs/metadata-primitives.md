@@ -306,7 +306,14 @@ applies the same rule across its selected assemblies rather than aborting the
 scan: `CommandExecutionTests.DependsTypeProbe_RejectedLibraryDoesNotHideHealthyNeighbor`
 gates the scoped scan, and `DependsTypeProbe_SoleRejectedSelectionUsesBoundedError`
 gates the bounded typed error when the single selected target framework is
-rejected.
+rejected. A participant that passes admission but whose metadata does not
+decode is an ordinary invalid-image outcome rather than an admission failure,
+and it stays visible on both sides of the same rule: it is recorded as a
+per-participant receipt beside surviving neighbours
+(`MetadataAdmissionCleanupTests.DependencyScan_InvalidImageDoesNotHideHealthyNeighbor`)
+and remains the caller's exact outcome, rather than degrading into "type not
+found", when no participant survives
+(`MetadataAdmissionCleanupTests.DependencyScan_SoleInvalidImageStaysExact`).
 Frozen `TypeResolutionContext` binding outcomes construct their public
 `AssemblyBindingFailure` from the retained `CandidateOpenFailure`; selected,
 multi-candidate, and requesting-origin failures therefore keep the candidate

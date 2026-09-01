@@ -424,6 +424,34 @@ public partial class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
+    /// <summary>
+    /// Builds a package whose highest target framework holds both a healthy and
+    /// a rejected assembly. Target-framework selection keeps only that group, so
+    /// this is the shape that exercises a scoped rejection under
+    /// <c>--package</c>.
+    /// </summary>
+    private static (string PackagePath, string TempDir)
+        CreateSameTfmMixedPackage()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"same-tfm-admission-package-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string libDirectory = Path.Combine(packageRoot, "lib", "net10.0");
+        Directory.CreateDirectory(libDirectory);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(libDirectory, "Good.dll"));
+        WriteUnsupportedMetadataAssembly(
+            Path.Combine(libDirectory, "Bad.dll"));
+
+        string packagePath = Path.Combine(
+            tempDir,
+            "Mixed.Neighbor.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
     private static void WriteMalformedTypeNameAssembly(
         string path,
         bool includeHealthyType = false)
@@ -25134,6 +25162,43 @@ public partial class CommandExecutionTests
                 "Library inspection failed for 'Unsupported.dll': "
                 + "unsupported metadata format",
                 result.Error);
+            Assert.DoesNotContain(
+                "UnsupportedMetadataFormatException",
+                result.Error);
+            Assert.DoesNotContain(".cs:line", result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        DependsTypeProbe_PackageRejectionUsesPackageRelativeIdentity()
+    {
+        var (packagePath, tempDir) = CreateSameTfmMixedPackage();
+        try
+        {
+            var result = await RunAppAsync(
+                "depends",
+                "CommandExecutionTests",
+                "--package",
+                packagePath,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+
+            // The rejected participant is named the way every other package
+            // command names it: relative to the extraction directory, with no
+            // temporary-directory scaffolding and no absolute host path.
+            Assert.Contains(
+                "Library inspection failed for 'lib/net10.0/Bad.dll': "
+                + "unsupported metadata format",
+                result.Error);
+            Assert.DoesNotContain("extracted/", result.Error);
+            Assert.DoesNotContain(Path.GetTempPath(), result.Error);
             Assert.DoesNotContain(
                 "UnsupportedMetadataFormatException",
                 result.Error);

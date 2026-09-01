@@ -250,6 +250,64 @@ public sealed class MetadataAdmissionCleanupTests
     }
 
     [Fact]
+    public void DependencyScan_InvalidImageDoesNotHideHealthyNeighbor()
+    {
+        string malformed = WriteTempImage(
+            BuildOverflowingMetadataStreamCount());
+        string healthy =
+            typeof(MetadataAdmissionCleanupTests).Assembly.Location;
+        try
+        {
+            TypeDependencyResult result =
+                TypeDependencyScanner.BuildDependencyTree(
+                    typeof(MetadataAdmissionCleanupTests).FullName!,
+                    [malformed, healthy]);
+
+            Assert.True(result.Found);
+            TypeDependencyRejection rejection = Assert.Single(
+                result.Rejections);
+            Assert.Equal(malformed, rejection.AssemblyPath);
+            Assert.Equal(
+                TypeDependencyRejectionKind.InvalidImage,
+                rejection.Kind);
+        }
+        finally
+        {
+            File.Delete(malformed);
+        }
+    }
+
+    [Fact]
+    public void DependencyScan_SoleInvalidImageStaysExact()
+    {
+        string malformed = WriteTempImage(
+            BuildOverflowingMetadataStreamCount());
+        try
+        {
+            // The scan must not degrade a decode failure into "type not
+            // found": with no surviving participant the invalid-image
+            // outcome is the caller's exact result.
+            Assert.Throws<BadImageFormatException>(
+                () => TypeDependencyScanner.BuildDependencyTree(
+                    "Missing.Type",
+                    [malformed]));
+        }
+        finally
+        {
+            File.Delete(malformed);
+        }
+    }
+
+    static string WriteTempImage(byte[] image)
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"dependency-scan-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, image);
+        return path;
+    }
+
+    [Fact]
     public void ApiSurface_CleanupCannotReplaceFormatRejection()
     {
         var stream = new DisposeCountingMemoryStream(

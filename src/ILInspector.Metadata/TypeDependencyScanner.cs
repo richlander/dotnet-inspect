@@ -1,4 +1,5 @@
 using System.Reflection.Metadata;
+using System.Runtime.ExceptionServices;
 using System.Reflection.PortableExecutable;
 using CSharpText;
 
@@ -16,6 +17,7 @@ public enum TypeDependencyRejectionKind
 {
     UnsupportedMetadataFormat,
     MalformedMetadataRoot,
+    InvalidImage,
 }
 
 /// <summary>
@@ -63,6 +65,7 @@ public static class TypeDependencyScanner
         var peReaders = new List<PEReader>();
         var rejections = new List<TypeDependencyRejection>();
         var admittedAny = false;
+        ExceptionDispatchInfo? firstInvalidImage = null;
 
         try
         {
@@ -83,26 +86,52 @@ public static class TypeDependencyScanner
                     }
                     peReaders.Add(peReader);
 
-                    if (!MetadataFormatAdmission.AdmitImage(peReader))
-                        continue;
-
-                    var mdReader = MetadataFormatAdmission.GetMetadataReader(peReader);
-                    admittedAny = true;
-                    foreach (var typeDefHandle in mdReader.TypeDefinitions)
+                    try
                     {
-                        var typeDef = mdReader.GetTypeDefinition(typeDefHandle);
-                        if (!typeDef.IsPublic)
+                        if (!MetadataFormatAdmission.AdmitImage(peReader))
                             continue;
 
-                        var name = mdReader.GetString(typeDef.Name);
-                        if (TypeFilters.IsCompilerGenerated(name))
-                            continue;
+                        MetadataReader mdReader =
+                            MetadataFormatAdmission.GetMetadataReader(peReader);
+                        foreach (var typeDefHandle in mdReader.TypeDefinitions)
+                        {
+                            var typeDef = mdReader.GetTypeDefinition(typeDefHandle);
+                            if (!typeDef.IsPublic)
+                                continue;
 
-                        var ns = mdReader.GetString(typeDef.Namespace);
-                        var fullName = TypeResolver.GetFullName(ns, name);
+                            var name = mdReader.GetString(typeDef.Name);
+                            if (TypeFilters.IsCompilerGenerated(name))
+                                continue;
 
-                        // Index by ECMA name for lookup
-                        typeIndex.TryAdd(fullName, (peReader, mdReader, typeDef));
+                            var ns = mdReader.GetString(typeDef.Namespace);
+                            var fullName = TypeResolver.GetFullName(ns, name);
+
+                            // Index by ECMA name for lookup
+                            typeIndex.TryAdd(fullName, (peReader, mdReader, typeDef));
+                        }
+
+                        // Only a participant that decoded all the way through
+                        // counts as surviving. A partially indexed one cannot
+                        // scope another participant's rejection.
+                        admittedAny = true;
+                    }
+                    // Admission passed but the metadata itself did not decode.
+                    // That is an ordinary invalid-image outcome rather than an
+                    // admission failure, and it still has to stay visible
+                    // instead of silently dropping the participant.
+                    catch (Exception invalidImage) when (
+                        invalidImage is BadImageFormatException
+                            or OverflowException)
+                    {
+                        firstInvalidImage ??= ExceptionDispatchInfo.Capture(
+                            invalidImage as BadImageFormatException
+                            ?? new BadImageFormatException(
+                                "The selected image metadata is invalid.",
+                                invalidImage));
+                        rejections.Add(
+                            new TypeDependencyRejection(
+                                path,
+                                TypeDependencyRejectionKind.InvalidImage));
                     }
                 }
                 // A rejected candidate scopes to itself: record it exactly and
@@ -138,6 +167,14 @@ public static class TypeDependencyScanner
             // rejection against, so it stays the caller's exact outcome.
             if (!admittedAny && rejections.FirstOrDefault() is { } soleRejection)
             {
+                // The captured invalid-image exception carries the decoder's
+                // exact detail, which a reconstructed one would lose.
+                if (soleRejection.Kind
+                    == TypeDependencyRejectionKind.InvalidImage)
+                {
+                    firstInvalidImage?.Throw();
+                }
+
                 throw soleRejection.Kind switch
                 {
                     TypeDependencyRejectionKind.UnsupportedMetadataFormat =>

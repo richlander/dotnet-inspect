@@ -63,18 +63,32 @@ internal static class DependencyGraphService
             })];
     }
 
+    // Package extraction nests the payload under this directory inside the
+    // owned temporary directory (see PackageExtractor). The other package
+    // commands relativize against that directory, so rejection paths have to
+    // resolve against it first to print the same identity.
+    private const string PackageExtractionDirectoryName = "extracted";
+
     private static string PackageRelativePath(
         string assemblyPath,
         IReadOnlyList<string> roots)
     {
         foreach (var root in roots)
         {
-            var relative = Path.GetRelativePath(root, assemblyPath)
-                .Replace('\\', '/');
-            if (!relative.StartsWith("../", StringComparison.Ordinal)
-                && !Path.IsPathRooted(relative))
+            string[] candidates =
+            [
+                Path.Combine(root, PackageExtractionDirectoryName),
+                root,
+            ];
+            foreach (var candidate in candidates)
             {
-                return relative;
+                var relative = Path.GetRelativePath(candidate, assemblyPath)
+                    .Replace('\\', '/');
+                if (!relative.StartsWith("../", StringComparison.Ordinal)
+                    && !Path.IsPathRooted(relative))
+                {
+                    return relative;
+                }
             }
         }
 

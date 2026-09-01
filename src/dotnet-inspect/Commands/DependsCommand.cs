@@ -29,6 +29,7 @@ public class DependsCommand
             TypeDependencyRejectionKind.MalformedMetadataRoot
                 when rejection.MetadataRootReason is { } reason =>
                 $"malformed metadata root ({reason})",
+            TypeDependencyRejectionKind.InvalidImage => "invalid image",
             _ => throw new ArgumentException(
                 "The rejection is not a metadata-format failure.",
                 nameof(rejection)),
