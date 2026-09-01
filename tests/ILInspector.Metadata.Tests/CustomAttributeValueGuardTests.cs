@@ -315,13 +315,14 @@ public sealed class CustomAttributeValueGuardTests
             $"A legal 80-byte blob must stay bounded, charged {charged}.");
 
         // Fail closed rather than allocate. The guard approved above using its
-        // own classification test, but DecodeValue below classifies through
-        // ArgTypeProvider, and nothing structurally ties the two together
-        // (gap 8, #5393). If they ever diverge, SRM reads 1,868,786,036 as the
-        // string[] count and requests roughly 28,515 MiB -- the very failure
-        // this canary exists to prevent, which must never run in CI. Assert
-        // the agreement here instead of discovering it by exhausting the
-        // runner's memory.
+        // own "System.Type" comparison, while DecodeValue below classifies
+        // through ArgTypeProvider's. Both render the name from the same handle
+        // through the same resolver functions, but the final predicate is
+        // written twice (gap 8, #5393). If those two spellings ever diverge,
+        // SRM reads 1,868,786,036 as the string[] count and requests roughly
+        // 28,515 MiB -- the failure this canary exists to prevent, which must
+        // never run in CI. Ask the product provider itself, rather than
+        // spelling the comparison a third time here.
         TypeReferenceHandle systemType =
             FindTypeReference(image.Reader, "System", "Type");
         Assert.False(systemType.IsNil);

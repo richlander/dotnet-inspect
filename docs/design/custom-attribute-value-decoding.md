@@ -301,10 +301,11 @@ Two consequences follow, and both are load-bearing:
    through the same handle and the same resolution function, or through the
    same provider instance — never through two implementations believed to be
    equivalent. The next section states which mechanism applies where, because
-   they are not the same on both paths. The guard satisfies this for width
-   through both of them — a shared handle and resolution function, or a shared
-   provider instance — and satisfies it for classification through neither,
-   because it re-implements that decision. That is gap 8.
+   equivalent. The next section states which mechanism applies where, because
+   no two of them are the same: a resolved handle shares the handle and the
+   resolution functions, a serialized name shares the provider instance, and
+   classification shares its rendering while duplicating the final
+   `"System.Type"` predicate. That last duplication is gap 8.
 2. **Fail open to SRM only where we genuinely cannot judge.** Where the guard
    *runs out of bytes*, or a parser exception reaches the public boundary, it
    hands the blob to SRM rather than inventing a judgment, because SRM's own
@@ -379,7 +380,7 @@ component with eight open violations.
 | 5 | The resolver-less `IsSafeToDecode` overload resolves widths through a different order, so its `true` does not carry I1 for a caller decoding with a resolver-backed provider. | I1 scope | #5120 |
 | 6 | Every memo in the guard is a **single slot keyed on the previous input**, so alternating two values defeats all four — including a guard-side `Θ(P × G)` that mirrors gap 1. | I3 | #5130 |
 | 7 | `A` attribute rows sharing one `B`-byte blob are guarded and decoded independently, costing `Θ(A × B)` in work and retained values from `Θ(A + B)` of metadata. Absent a shared `MaterializationContext`, each `TryDecode` also builds a fresh provider and rebuilds the type-definition index, adding `Θ(A × T)`. | I3 | #5132 |
-| 8 | The guard re-implements the `System.Type` classification test (`name == "System.Type"`) rather than accepting it from the caller, though it accepts enum width through `enumUnderlyingType`. A caller whose provider classifies differently receives `true` for a blob that then drifts. | I1 | #5393 |
+| 8 | The guard and `ArgTypeProvider` render the argument's type name through the same resolver functions, but each applies its own `"System.Type"` comparison, so the predicate can diverge. A caller whose provider classifies differently receives `true` for a blob that then drifts. | I1 | #5393 |
 
 Gaps 1, 2, 3, and 6 share a root cause worth naming: **the guard and SRM
 memoize different things.** Where the guard caches work SRM repeats, the guard is fast
@@ -398,13 +399,13 @@ caller whose classification matches the guard's; see
 [Resolution order](#resolution-order-and-what-int32-actually-means).
 
 Gap 8 is the sharper of the two, because it is the rule stated above turned on
-its own component. Width agreement has a structural mechanism on both paths — a
-shared handle and resolution function, or a shared provider instance — while
-classification agreement has none: the guard decides it independently and SRM
-decides it through the provider. Classification also runs first and selects
-which reading rule applies, so the decision left to belief is the one that
-opens the larger hole. See
-[Classification](#classification-no-shared-mechanism-on-either-path).
+its own component — though the divergence is narrower than a second
+classification path. Both sides render the name from the same handle through
+the same resolver functions; only the final `"System.Type"` comparison is
+written twice. Classification also runs first and selects which reading rule
+applies, so even that one duplicated predicate is the one that opens the larger
+hole. See
+[Classification](#classification-shared-rendering-duplicated-predicate).
 
 Gaps 1, 2, 4, 5, 6, 7, and 8 were all found while writing or reviewing this document,
 against a component that had already been through eight rounds of
@@ -756,28 +757,32 @@ and it cannot make a stateful resolver stable. Same-provider decoding is
 guaranteed only on the `TryDecode` path, which is the supported product path.
 The resolver-less overload is a conservative test-only path.
 
-### Classification: no shared mechanism on either path
+### Classification: shared rendering, duplicated predicate
 
-Both mechanisms above concern width. Classification — whether an argument is a
-`System.Type` at all — has neither of them. SRM always asks the provider
-instance (`ArgTypeProvider.IsSystemType`, `AttributeDecoder.cs:395`); the guard
-always answers independently, by rendering the type name and comparing it to
-`"System.Type"` (`CustomAttributeValueGuard.IsSrmSystemType`, `:1375`). No
-shared handle, function, or object connects them, so their agreement rests on
-two implementations having been written to match — exactly what rule 1 forbids.
-That is gap 8, filed as #5393.
+The two mechanisms above concern width. Classification — whether an argument is
+a `System.Type` at all — is a third case, and it is neither fully shared nor
+fully independent.
 
-This is worse than a width disagreement rather than merely analogous to one.
-Classification runs first and selects which reading rule applies, so a width
-disagreement misreads one argument, while a classification disagreement
-re-frames every byte after it. `dotnet/runtime#57531` is that difference
-measured: 28,515 MiB from one misclassified argument.
+The *rendering* is shared. Both sides turn the same handle into a name through
+the same functions: `TypeResolver.GetTypeNameFromDefinition` for a `TypeDef`
+and `TypeResolver.GetTypeName` for a `TypeRef`. The guard does this in
+`IsSrmSystemType`; SRM reaches the same two functions through
+`ArgTypeProvider.GetTypeFromDefinition` and `GetTypeFromReference`. A
+definition that renders one way for one side renders the same way for the
+other.
 
-`TryDecode` closes the width half structurally by passing
-`provider.GetUnderlyingEnumType` into the guard, so both walkers use one
-provider instance. It cannot close the classification half, because the guard
-takes no classifier. A caller therefore cannot make the two agree by
-construction even when it wants to.
+The *predicate* is not shared. The guard compares that rendered name to
+`"System.Type"` itself; SRM asks `ArgTypeProvider.IsSystemType`, which makes
+its own comparison. One rule, spelled twice, in two files, with nothing holding
+the two spellings equal. That narrow duplication is the whole of gap 8, filed
+as #5393 — which means the repair is to share the predicate, not to build a
+second classification path or add a classifier parameter.
+
+Narrow is not the same as harmless. Classification runs first and selects which
+reading rule applies, so a width disagreement misreads one argument while a
+classification disagreement re-frames every byte after it.
+`dotnet/runtime#57531` is that difference measured: 28,515 MiB from one
+misclassified argument.
 
 ### Frozen cross-assembly enum-width adapter
 
