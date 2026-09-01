@@ -602,10 +602,9 @@ lists them.
 portable `AnnotatedSourceDocument` contract, and `QueryMemberAnnotatedSource` now
 feeds it a real document.
 
-The proposed
 [Annotated Source viewer interaction](../../docs/design/annotated-source-viewer-interaction.md)
-design owns disclosure, actions, selection, annotations, media, Escape, and
-focus inside the embedded reader and modal viewer. The shared
+owns disclosure, actions, selection, annotations, media, Escape, and focus
+inside the embedded reader and modal viewer. The shared
 [Inspect Web UI](../../docs/design/inspect-web-ui.md) design continues to own
 modal composition, browser-history behavior, and destination focus.
 
@@ -613,15 +612,28 @@ The viewer reuses the owner's module rather than copying it.
 `prototypes/annotated-source-viewer/src/document-model.js` owns validation,
 UTF-16 coordinates, line derivation, segmentation, and the fact → target → node →
 span walk. `src/document-model.ts` provides typed aliases over that owner for
-Vite and the Node tests; Vite bundles the shared implementation into the
-deployable browser artifact without copying its logic. On top of it the typed
-view module adds only selection state:
-canonical lines, C#/IL medium toggles that hide lines without rebasing a
-coordinate, fact selection that highlights every targeted node across both
-media without selecting the text between one node's separated spans,
-click-to-tightest-node, explicitly unanchored facts, and a copy action that
-copies `document.text` so the copied artifact is source and never annotations.
-A payload the model rejects is reported as rejected, not rendered.
+Vite and the tests; Vite bundles the shared implementation into the deployable
+browser artifact without copying its logic.
+
+The embedded reader shows complete product-issued C# with the catalog's default
+Finding annotations, Finding detail, source-only copy, and **Explore**. Each
+**Explore** activation creates a fresh full-bleed modal session with C# visible,
+IL and UTF-16 ranges hidden, default annotations active, and no transferred
+detail. The modal adds catalog-driven annotation and medium controls,
+product-issued structure, deterministic invocation-preferred source hit
+testing, node selection, and one persistent inspector action for every Finding,
+including unanchored Findings. Annotation rows preserve the product-issued
+source prefix as layout geometry, so each CodeLens-like row appears immediately
+before its target line and begins at the anchored span without flattening the
+language's visible indentation. Dismissal destroys modal-local presentation
+and annotation state while retaining only an eligible embedded Finding primary.
+
+`src/annotated-source-session.ts` owns the viewer-local state transitions;
+`src/annotated-source.ts` owns markup, browser hit testing, native drag
+selection protection, detail, and focus-target identities; and
+`dotnet-inspect.ts` composes the modal with shell history, inert background,
+focus restoration, and layered Escape. A payload the portable model rejects
+remains a visible failure rather than rendering success-shaped empty output.
 
 ## Run
 
@@ -1127,6 +1139,8 @@ npm ci
 npm run analyze
 npm run build
 npm test
+npx playwright install firefox
+npm run test:browser
 cd ../..
 dotnet run --project prototypes/inspect-web/engine.Tests -c Release
 ```
@@ -1135,8 +1149,12 @@ dotnet run --project prototypes/inspect-web/engine.Tests -c Release
 central-directory entry limit before archive enumeration, role preflight before identity decoding, malformed selected-participant
 visibility, reference-only retained-image budget, duplicate XML parameter
 handling, Mermaid label containment, and complete call-graph navigation targets.
-The frontend tests gate the annotated view helper against the shared sample
-document and keep Spotlight candidate/cache identity coordinate-complete.
+The frontend tests gate the Annotated Source session/action matrix against the
+shared sample document and keep Spotlight candidate/cache identity
+coordinate-complete. The Playwright Firefox gate exercises real pointer
+coordinates, invocation-preferred hit testing, keyboard activation, native
+drag selection, focus trapping and restoration, layered Escape, pointer
+**Close**, backdrop dismissal, and source-only copy.
 `call graph diagnostics distinguish failures from expected bounds` gates that
 catalog and body-analysis failures remain visible while an expected finite
 traversal boundary does not become a global error.
