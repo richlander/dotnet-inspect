@@ -183,8 +183,8 @@ superset belongs to `@Package` instead because selecting `@Files` must not
 duplicate every matching path.
 
 `SelectResolver.LegacySectionAliases` currently lowers former spellings to
-canonical sections. [CLI compatibility and
-deprecation](cli-compatibility.md) owns whether any entry has independent
+canonical sections. [CLI change classification and obsolete
+inputs](cli-change-classification.md) owns whether any entry has independent
 current utility or remains compatibility-only debt; a section rename does not
 itself justify retaining the former spelling.
 

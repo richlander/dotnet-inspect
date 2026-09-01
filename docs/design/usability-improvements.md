@@ -4,8 +4,10 @@ Findings from observing LLM sessions using dotnet-inspect to migrate a project f
 
 > [!NOTE]
 > This document records historical observations, not compatibility policy.
-> [CLI compatibility and deprecation](cli-compatibility.md) owns current
-> publication and migration rules. [Item and line
+> [Development practices](../development-practices.md#prefer-current-agent-guidance-over-cli-compatibility)
+> owns agent-first compatibility policy. [CLI change classification and
+> obsolete inputs](cli-change-classification.md) owns published-surface change
+> classification and input-transition mechanics. [Item and line
 > limits](item-and-line-limits.md) owns count-bearing options and the short
 > `-m`/`-t` selector aliases.
 
@@ -123,9 +125,10 @@ new syntax can collide with implicit routing or parser binding, added JSON can
 break strict consumers, and changed output volume can alter cost and
 automation.
 
-Use [CLI compatibility and deprecation](cli-compatibility.md) to classify and
-disclose a change, update current guidance, and test pathological neighboring
-inputs without preserving obsolete syntax solely for historical consumers.
+Use [CLI change classification and obsolete
+inputs](cli-change-classification.md) to classify and disclose a change and
+test pathological neighboring inputs. Use development practices for the
+agent-first current-guidance policy.
 
 ### The ilspy-decompile precedent
 

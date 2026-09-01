@@ -1,17 +1,20 @@
-# CLI compatibility and deprecation
+# CLI change classification and obsolete inputs
 
-The **CLI compatibility policy** is the normative owner for classifying an
-observable `dotnet-inspect` command-line change as compatible, corrective but
-breaking, or intentionally breaking. It also owns CLI change disclosure and
-the narrow conditions under which an obsolete input remains recognized,
+The **CLI change-classification design** is the normative owner for classifying
+an observable `dotnet-inspect` command-line change as compatible, corrective
+but breaking, or intentionally breaking. It also owns CLI change disclosure
+and the narrow conditions under which an obsolete input remains recognized,
 diagnosed, or reserved.
+
+[Development practices](../development-practices.md#prefer-current-agent-guidance-over-cli-compatibility)
+is the normative owner for the agent-first compatibility policy: current
+product guidance moves with the tool, and obsolete CLI paths are not retained
+solely for historical callers. This design applies that decision; it does not
+restate or replace it.
 
 It does not enumerate current commands or define each command's semantics.
 Those responsibilities remain with:
 
-- [Development practices](../development-practices.md), which owns the
-  repository-wide preference for current agent guidance, simple current
-  command shapes, and low carrying cost over retaining obsolete CLI syntax;
 - the root [`README.md`](../../README.md), visible `--help`, and embedded
   product skills for current supported invocations;
 - [CLI host architecture](../cli-architecture.md) for parsing, routing,
@@ -27,19 +30,6 @@ Those responsibilities remain with:
 
 This document classifies changes to those owner-issued contracts. It does not
 redefine them.
-
-## Current guidance is the CLI compatibility layer
-
-Embedded product skills are the authoritative current agent guides. The root
-README is the current human and general-purpose guide. A change to command
-syntax, defaults, workflows, or output shapes they teach must update every
-affected guide in the same PR and rerun the affected examples against the
-changed tool.
-
-An older skill or README invocation is evidence that a release consumer may
-need a migration note. It is not a reason to retain the old parser path. A
-stale shipped skill is a compatibility failure even when the old invocation
-still happens to work.
 
 ## Publication boundary
 
@@ -143,13 +133,16 @@ that is useful now. Historical acceptance alone is insufficient.
 
 ## Deprecation and removal
 
-Deprecation is release disclosure that a current spelling or behavior is being
-replaced. It does not imply a runtime grace period.
+Development practices owns the default: remove obsolete syntax and update
+current product guidance rather than carrying compatibility-only paths.
+Deprecation here means release disclosure that a current spelling or behavior
+is being replaced; it does not imply a runtime grace period.
 
 When the best current command shape changes:
 
-1. Remove the obsolete spelling rather than add or retain an alias, shim, dual
-   parser, or warning solely for compatibility.
+1. Apply the development-practices rule: remove the obsolete spelling rather
+   than add or retain an alias, shim, dual parser, or warning solely for
+   compatibility.
 2. Update visible help, the root README, and every affected product skill in
    the same change.
 3. Add a **Breaking** release-note entry that names the current replacement or

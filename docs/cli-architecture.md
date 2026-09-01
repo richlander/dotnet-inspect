@@ -8,8 +8,9 @@ metadata, Analysis, source, decompilation, or comparison facts it presents.
 See:
 
 - [Architecture](architecture.md) for the whole-product map;
-- [CLI compatibility and deprecation](design/cli-compatibility.md) for current
-  guidance, change classification, disclosure, and transition guards;
+- [CLI change classification and obsolete
+  inputs](design/cli-change-classification.md) for published surfaces, change
+  disclosure, invalid-input guards, and routing reservations;
 - [Command transitions](design/command-transition-model.md) for command versus
   option boundaries;
 - [Progressive disclosure](design/progressive-disclosure.md) for verbosity,
