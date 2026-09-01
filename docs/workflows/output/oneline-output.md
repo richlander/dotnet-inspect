@@ -28,12 +28,12 @@ List JsonSerializer members in a compact one-per-line format.
 ```
 
 ```bash
-dotnet-inspect type System.Text.Json JsonSerializer --table -m 3 --no-headers
+dotnet-inspect type System.Text.Json JsonSerializer -S "Member Index" -n 3 --table --no-headers
 ```
 
 ```expect
-property
-method
+IsReflectionEnabledByDefault
+Deserialize
 ```
 
 ```expect-not
@@ -43,13 +43,13 @@ Tips:
 ### 1b. With header
 
 ```bash
-dotnet-inspect type System.Text.Json JsonSerializer --table -m 3
+dotnet-inspect type System.Text.Json JsonSerializer -S "Member Index" -n 3 --table
 ```
 
 ```expect
-Kind
-property
-method
+Selector
+IsReflectionEnabledByDefault
+Deserialize
 ```
 
 ```expect-not
@@ -91,7 +91,7 @@ wc -l
 ### 2b. Limited results
 
 ```bash
-dotnet-inspect type System.Text.Json --table -t 3 --no-headers
+dotnet-inspect type System.Text.Json -S Classes --table -n 3 --no-headers
 ```
 
 ```expect

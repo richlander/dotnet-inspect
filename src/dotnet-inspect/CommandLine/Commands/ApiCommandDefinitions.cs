@@ -70,7 +70,7 @@ public static class ApiCommandDefinitions
         };
         var memberOption = new Option<string[]>("-m")
         {
-            Description = "Filter members by name or limit count (-m 5)",
+            Description = "Filter members by name or glob (for example, -m Serialize or -m 'Get*')",
             AllowMultipleArgumentsPerToken = false
         };
         memberOption.Aliases.Add("--member");

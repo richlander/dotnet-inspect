@@ -211,6 +211,7 @@ public static class PackageCommandDefinitions
         searchCommand.Options.Add(compactOption);
         searchCommand.Options.Add(opts.Verbose);
         searchCommand.Options.Add(opts.Limit);
+        searchCommand.Options.Add(opts.Rows);
         searchCommand.Options.Add(opts.Lines);
         searchCommand.Options.Add(opts.TailLines);
         searchCommand.Options.Add(opts.Head);

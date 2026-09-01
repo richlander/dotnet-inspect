@@ -250,12 +250,12 @@ dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
-dotnet-inspect find --package-prefix Azure.AI -t 100 --tsv
+dotnet-inspect find --package-prefix Azure.AI -n 100 --tsv
 ```
 
 Patternless `find --package-prefix PREFIX` streams latest listed package
 metadata and exact `.nuspec` manifests without downloading package archives.
-`-t` limits packages rather than flattened dependency rows. Supplying a pattern
+`-n` limits package rows rather than flattened dependency rows. Supplying a pattern
 keeps API-search behavior and may acquire package archives:
 
 ```bash

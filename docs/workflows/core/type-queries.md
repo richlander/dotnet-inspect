@@ -76,7 +76,7 @@ Source: NuGet
 ### 1b. Using `type` with table output
 
 ```bash
-dotnet-inspect type System.CommandLine@2.0.3 --table -t 5 --no-headers --tips q
+dotnet-inspect type System.CommandLine@2.0.3 -S Classes --table -n 5 --no-headers --tips q
 ```
 
 ```expect-not
@@ -541,7 +541,7 @@ grep -E 'Deserialize(Async)? \([0-9]+ overloads\)'
 ### 11b. Limit member count
 
 ```bash
-dotnet-inspect type --package System.CommandLine@2.0.3 Command -m 3 --tips q
+dotnet-inspect type --package System.CommandLine@2.0.3 Command -S "Member Index" -n 3 --tips q
 ```
 
 ```expect
@@ -599,11 +599,11 @@ descending-five
 > Goal: The `--unsafe` flag filters to types that have members with pointer signatures.
 
 ```bash
-dotnet-inspect type System.Runtime --unsafe -t 5 --table --no-headers
+dotnet-inspect type System.Runtime --unsafe -S Structs -n 5 --table --no-headers
 ```
 
 ```expect
-class
+struct
 System.ArgIterator
 ```
 

@@ -549,6 +549,48 @@ public class CommandLineTests
         Assert.Empty(result.Errors);
     }
 
+    [Theory]
+    [InlineData("type", "-m")]
+    [InlineData("find", "-t")]
+    [InlineData("implements", "-t")]
+    [InlineData("extensions", "-t")]
+    public void FilterOptionsDoNotAdvertiseNumericLimits(
+        string commandName,
+        string optionName)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var command = root.Subcommands.Single(
+            command => command.Name == commandName);
+        var option = CommandLineModel.FindOption(
+            root,
+            command,
+            optionName);
+
+        Assert.NotNull(option);
+        Assert.DoesNotContain(
+            "limit",
+            option.Description ?? "",
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void PackageProfileAcceptsTheDocumentedItemLimit()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args = CommandLineBuilder.PreprocessArgs(
+            [
+                "find",
+                "--package-prefix",
+                "Azure.AI",
+                "-n",
+                "100",
+                "--tsv",
+            ],
+            root);
+
+        Assert.Empty(root.Parse(args).Errors);
+    }
+
     [Fact]
     public void VersionOption_IsAvailable()
     {

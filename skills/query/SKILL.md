@@ -183,7 +183,9 @@ Prefer built-in limits to shell pipes:
   `--head`/`--tail` require `-n`.
 - `--rows 2..10` is an absolute 1-based inclusive range (nine rows), `2+10`
   means ten rows starting at row 2, and `10..` runs from row 10 to the end.
-  `--rows` has no count form and does not take an item direction.
+  `--rows` has no count form and does not take an item direction. The current
+  CLI rejects item-mode `-n` plus `--rows`; ordered row-stage composition is a
+  separate pending adoption.
 - `-n N --lines` limits rendered lines instead of items. `--tail-lines` is
   sugar for `--lines --tail`; for multi-item `--print`, the line window applies
   independently to each payload.
@@ -193,9 +195,9 @@ Prefer built-in limits to shell pipes:
   sliding. Item/range windows remain unavailable with these shape projections;
   use `--row` for exact selection.
 - `--top N` is a ranked selection and requires sections with a ranking default.
+  The current CLI rejects `--top` plus `--rows`.
 - `--count` counts the full selected/filter cohort before CLI windows and
   rejects `-n`, `--rows`, `--top`, `--row`, direction, and line gestures.
 
-Prefer `-n N` for result caps. Numeric legacy `-t N`/`-m N` limits remain
-accepted without Count but reject `--count`; `--versions N` remains the package
-version-list cap.
+Use `-n N` for result caps. `-t`/`--type` and `-m`/`--member` are filters;
+`--versions N` remains the package version-list cap.

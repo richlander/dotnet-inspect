@@ -167,7 +167,7 @@ Show me the source code for Command.Add in System.CommandLine.
 ```
 
 ```bash
-dotnet-inspect member --package System.CommandLine@2.0.3 Command Add:1 -S "Decompiled Source" -n 30 --tips q
+dotnet-inspect member --package System.CommandLine@2.0.3 Command Add:1 -S "Decompiled Source" -n 30 --lines --tips q
 ```
 
 ```expect
@@ -182,7 +182,7 @@ Tips:
 ### 3b. Member with overloads (first overload)
 
 ```bash
-dotnet-inspect member --package System.CommandLine@2.0.3 Command SetAction:1 -S "Decompiled Source" -n 30 --tips q
+dotnet-inspect member --package System.CommandLine@2.0.3 Command SetAction:1 -S "Decompiled Source" -n 30 --lines --tips q
 ```
 
 ```expect
@@ -217,7 +217,7 @@ dotnet-inspect member --package Microsoft.Extensions.Options@10.0.2 OptionsFacto
 ### 4b. Select constructor overload
 
 ```bash
-dotnet-inspect member --package Microsoft.Extensions.Options@10.0.2 OptionsFactory .ctor:1 -S "PDB Source" -n 30 --tips q
+dotnet-inspect member --package Microsoft.Extensions.Options@10.0.2 OptionsFactory .ctor:1 -S "PDB Source" -n 30 --lines --tips q
 ```
 
 ```expect
@@ -268,7 +268,7 @@ Methods:
 ### 6b. Filter to specific method
 
 ```bash
-dotnet-inspect member System.Text.Json JsonSerializer Deserialize:1 -S "Decompiled Source" -n 50 --tips q
+dotnet-inspect member System.Text.Json JsonSerializer Deserialize:1 -S "Decompiled Source" -n 50 --lines --tips q
 ```
 
 ```expect
@@ -287,7 +287,7 @@ Tips:
 > (C# with hidden-fact comments and the IL interleaved beneath each statement).
 
 ```bash
-dotnet-inspect member --package System.CommandLine@2.0.3 Command SetAction:2 -S "Annotated Source,IL" -n 80 --tips q
+dotnet-inspect member --package System.CommandLine@2.0.3 Command SetAction:2 -S "Annotated Source,IL" -n 80 --lines --tips q
 ```
 
 ```expect

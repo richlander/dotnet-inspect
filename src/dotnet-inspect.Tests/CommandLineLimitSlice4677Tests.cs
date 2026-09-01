@@ -322,35 +322,47 @@ public class CommandLineLimitSlice4677Tests
     }
 
     [Fact]
-    public void LineModeDetectionRecognizesAttachedOptionValueForms()
+    public void ParsedLineWindowRecognizesSupportedOptionValueForms()
     {
         // Round 15 (Opus): --lines/--tail-lines/--tail line-mode detection compared raw tokens
         // for exact equality, missing the "=" and ":" attached-value forms System.CommandLine
         // accepts for boolean flags and -n's value -- silently dropping the requested line
         // window with no error, rather than reporting one of these unrecognized.
-        CommandLineBuilder.PreprocessArgs(["package", "System.Text.Json", "-n", "5", "--lines"]);
+        ApplyLineWindow(["package", "System.Text.Json", "-n", "5", "--lines"]);
         Assert.Equal(5, CommandLineBuilder.HeadLines);
 
-        CommandLineBuilder.PreprocessArgs(["package", "System.Text.Json", "-n", "5", "--lines=true"]);
+        ApplyLineWindow(["package", "System.Text.Json", "-n", "5", "--lines=true"]);
         Assert.Equal(5, CommandLineBuilder.HeadLines);
 
-        CommandLineBuilder.PreprocessArgs(["package", "System.Text.Json", "-n", "5", "--lines:true"]);
+        ApplyLineWindow(["package", "System.Text.Json", "-n", "5", "--lines:true"]);
         Assert.Equal(5, CommandLineBuilder.HeadLines);
 
-        CommandLineBuilder.PreprocessArgs(["package", "System.Text.Json", "-n:5", "--lines"]);
+        ApplyLineWindow(["package", "System.Text.Json", "-n:5", "--lines"]);
         Assert.Equal(5, CommandLineBuilder.HeadLines);
 
-        CommandLineBuilder.PreprocessArgs(["package", "System.Text.Json", "-n5", "--lines"]);
+        ApplyLineWindow(["package", "System.Text.Json", "-n5", "--lines"]);
         Assert.Equal(5, CommandLineBuilder.HeadLines);
 
-        CommandLineBuilder.PreprocessArgs(["package", "System.Text.Json", "-n", "5", "--tail-lines=true"]);
+        ApplyLineWindow(["package", "System.Text.Json", "-n", "5", "--tail-lines=true"]);
         Assert.Equal(5, CommandLineBuilder.TailLines);
         Assert.Null(CommandLineBuilder.HeadLines);
 
         // An explicit "=false"/":false" must not enable line mode.
-        CommandLineBuilder.PreprocessArgs(["package", "System.Text.Json", "-n", "5", "--lines=false"]);
+        ApplyLineWindow(["package", "System.Text.Json", "-n", "5", "--lines=false"]);
         Assert.Null(CommandLineBuilder.HeadLines);
         Assert.Null(CommandLineBuilder.TailLines);
+
+        ApplyLineWindow(["package", "System.Text.Json", "-n", "5", "--lines", "false"]);
+        Assert.Null(CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+
+        static void ApplyLineWindow(string[] arguments)
+        {
+            var root = CommandLineBuilder.CreateRootCommand();
+            string[] processed =
+                CommandLineBuilder.PreprocessArgs(arguments, root);
+            CommandLineBuilder.ApplyParsedLineWindow(root.Parse(processed));
+        }
     }
 
     [Fact]
@@ -747,9 +759,50 @@ public class CommandLineLimitSlice4677Tests
 
         string[] processed = CommandLineBuilder.PreprocessArgs(args);
         var result = CommandLineBuilder.CreateRootCommand().Parse(processed);
+        CommandLineBuilder.ApplyParsedLineWindow(result);
 
         Assert.NotEmpty(result.Errors);
         Assert.Null(CommandLineBuilder.HeadLines);
         Assert.Null(CommandLineBuilder.TailLines);
+    }
+
+    [Fact]
+    public void CurrentCliExplainsUnavailableOrderedRangeComposition()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var ranked = root.Parse(
+            [
+                "library",
+                "System.Text.Json",
+                "-S",
+                "Performance: Arrays",
+                "--top",
+                "1",
+                "--rows",
+                "2..3",
+            ]);
+        Assert.Contains(
+            ranked.Errors,
+            error => error.Message.Contains(
+                "--top cannot be combined with --rows because ordered row-stage "
+                + "composition is not available yet.",
+                StringComparison.Ordinal));
+
+        var item = root.Parse(
+            [
+                "package",
+                "System.Text.Json",
+                "-n",
+                "1",
+                "--rows",
+                "2..3",
+            ]);
+        Assert.Contains(
+            item.Errors,
+            error => error.Message.Contains(
+                "--rows 2..3 cannot be combined with item-mode -n because "
+                + "ordered row-stage composition is not available yet.",
+                StringComparison.Ordinal));
     }
 }

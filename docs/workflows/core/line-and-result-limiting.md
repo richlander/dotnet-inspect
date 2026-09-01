@@ -109,14 +109,14 @@ grep '^|' | tail -n +3 | wc -l | tr -d ' '
 
 > Goal: Return only the first N types from a type listing.
 
-### 3a. Using `type -t N`
+### 3a. Using `type -n N`
 
 ```prompt
 Show me just 3 types from System.Text.Json.
 ```
 
 ```bash
-dotnet-inspect type System.Text.Json -t 3 --tips q
+dotnet-inspect type System.Text.Json -S Classes -n 3 --tips q
 ```
 
 ```expect

@@ -16,14 +16,12 @@ namespace DotnetInspector;
 public static class CommandLineBuilder
 {
     /// <summary>
-    /// When the -NN shorthand is used (e.g. -30), stores the line limit.
-    /// Delegates to <see cref="ArgumentPreprocessor.HeadLines"/> for backward compatibility.
+    /// Stores the parsed head line window for the active invocation.
     /// </summary>
     public static int? HeadLines => ArgumentPreprocessor.HeadLines;
 
     /// <summary>
-    /// When --tail N is used, stores the tail line count.
-    /// Delegates to <see cref="ArgumentPreprocessor.TailLines"/> for backward compatibility.
+    /// Stores the parsed tail line window for the active invocation.
     /// </summary>
     public static int? TailLines => ArgumentPreprocessor.TailLines;
 

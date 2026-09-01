@@ -223,64 +223,8 @@ public static class ArgumentPreprocessor
             }
         }
 
-        if (IsLineModeFlagSet(args, endOfOptions, "--lines")
-            || IsLineModeFlagSet(args, endOfOptions, "--tail-lines"))
-        {
-            CaptureLineWindow(rootCommand.Parse(args), rootCommand);
-        }
         return args;
     }
-
-    private static void CaptureLineWindow(
-        ParseResult parseResult,
-        RootCommand rootCommand)
-    {
-        if (parseResult.Errors.Count > 0)
-            return;
-
-        Command command = parseResult.CommandResult.Command;
-        bool linesRequested =
-            GetBooleanOptionValue(parseResult, rootCommand, command, "--lines");
-        bool tailLinesRequested =
-            GetBooleanOptionValue(parseResult, rootCommand, command, "--tail-lines");
-        if (!linesRequested && !tailLinesRequested)
-            return;
-
-        int? count = CommandLineModel.FindOption(
-            rootCommand,
-            command,
-            "-n") is Option<int?> limitOption
-            ? parseResult.GetValue(limitOption)
-            : null;
-        bool tailRequested =
-            tailLinesRequested
-            || GetBooleanOptionValue(
-                parseResult,
-                rootCommand,
-                command,
-                "--tail");
-        if (tailRequested)
-        {
-            TailLines = count;
-            HeadLines = null;
-        }
-        else
-        {
-            HeadLines = count;
-            TailLines = null;
-        }
-    }
-
-    private static bool GetBooleanOptionValue(
-        ParseResult parseResult,
-        RootCommand rootCommand,
-        Command command,
-        string optionName) =>
-        CommandLineModel.FindOption(
-            rootCommand,
-            command,
-            optionName) is Option<bool> option
-        && parseResult.GetValue(option);
 
     private static bool IsFollowingRequiredOptionValue(
         string[] args,

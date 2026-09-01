@@ -314,7 +314,9 @@ public class SharedOptions
             }
 
             if (topSpecified && result.GetResult(Rows) is { Implicit: false })
-                result.AddError("--top cannot be combined with --rows in this slice.");
+                result.AddError(
+                    "--top cannot be combined with --rows because ordered row-stage "
+                    + "composition is not available yet.");
 
             if (countOutputRequested
                 && (countSpecified
@@ -388,7 +390,9 @@ public class SharedOptions
                 result.AddError($"--rows {token} already names which rows to keep, so it cannot combine with bare --head or --tail.");
 
             if (result.GetResult(Limit) is { Implicit: false } && !IsLinesRequested(result))
-                result.AddError($"--rows {token} cannot be combined with item-mode -n in this slice.");
+                result.AddError(
+                    $"--rows {token} cannot be combined with item-mode -n because "
+                    + "ordered row-stage composition is not available yet.");
         });
     }
 

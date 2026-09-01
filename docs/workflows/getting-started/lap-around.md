@@ -226,7 +226,7 @@ JsonSerializer.Helpers.cs
 Fetch selected member source text when source content is the desired artifact:
 
 ```bash
-dotnet-inspect member JsonSerializer --platform System.Text.Json Serialize:1 -S "PDB Source" --bare -n 20
+dotnet-inspect member JsonSerializer --platform System.Text.Json Serialize:1 -S "PDB Source" --bare -n 20 --lines
 dotnet-inspect member JsonSerializer --platform System.Text.Json -m Serialize -S "Source Locations" --print --row 1
 ```
 

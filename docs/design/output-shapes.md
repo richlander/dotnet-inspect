@@ -430,8 +430,13 @@ remain unchanged:
 - `--rows 10..` keeps row 10 through the last row.
 
 Count-form `--rows 6` and `--rows 6 --tail` retire in favor of `-n 6` and
-`-n 6 --tail`. A range may intersect an `-n` or `--top` result without
-renumbering stable row addresses.
+`-n 6 --tail`. The target
+[semantic row-selection](semantic-row-selection.md) contract allows an
+absolute range stage to intersect an item or ranked stage without renumbering
+stable row addresses. The current CLI has not adopted that ordered stage
+executor: it rejects item-mode `-n` plus `--rows` and `--top` plus `--rows`.
+Rendered-line `-n --lines` remains independent and may combine with
+`--rows`.
 
 In `package --all-libraries`, singular sections retain one table per library
 for windowing even when a row format flattens them with provenance; aggregate
@@ -446,9 +451,10 @@ gate selected-row identity at the window boundary.
 
 A count and a range are different kinds, not two spellings of one: a count
 anchors to an end and a range does not. Bare `--rows 2..10 --tail` is rejected.
-`-n 20 --tail --rows 90..95` is valid because `--tail` belongs to the item
-count; `--rows 2..10 --print -n 20 --lines --tail` is valid because it belongs
-to the independent line window.
+The target executor can represent `-n 20 --tail --rows 90..95`, but the current
+CLI rejects that ordered item/range composition.
+`--rows 2..10 --print -n 20 --lines --tail` is valid now because `--tail`
+belongs to the independent line window.
 
 `--lines` changes the unit carried by `-n` from items to rendered lines. For an
 ordinary report it windows the report; for multi-item `--print` it windows each

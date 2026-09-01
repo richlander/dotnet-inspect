@@ -11647,6 +11647,32 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchPlainCountRejectsBeforeNetwork(
+        bool trailing)
+    {
+        string[] args = trailing
+            ? [
+                "package", "search", "ThisQueryMustNotReachTheNetwork",
+                "--count",
+                "--source", "http://127.0.0.1:9/index.json",
+            ]
+            : [
+                "package", "--count",
+                "search", "ThisQueryMustNotReachTheNetwork",
+                "--source", "http://127.0.0.1:9/index.json",
+            ];
+
+        var (exit, output, error) = await RunAppAsync(args);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("package search does not support --count", error);
+        Assert.DoesNotContain("NuGet source", error);
+    }
+
+    [Theory]
     [InlineData("--columns=", "--columns requires at least one name")]
     [InlineData("--columns=Package,package", "Duplicate --columns entry")]
     [InlineData("--fields=Package;package", "Duplicate --fields entry")]
@@ -11773,6 +11799,27 @@ public partial class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains("requested row window", error);
         Assert.DoesNotContain("No packages found", error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchRangeWorksBeforeOrAfterSubcommand()
+    {
+        var inherited = await RunPackageSearchFixtureAsync(
+            "package", "--rows", "2..3",
+            "search", "Fixture", "--json");
+        var trailing = await RunPackageSearchFixtureAsync(
+            "package", "search", "Fixture",
+            "--rows", "2..3", "--json");
+
+        Assert.Equal(0, inherited.Exit);
+        Assert.Equal(inherited, trailing);
+        Assert.Equal(
+            2,
+            inherited.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries).Length);
+        Assert.Contains("Fixture.Two", inherited.Output, StringComparison.Ordinal);
+        Assert.Contains("Fixture.Three", inherited.Output, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -38,8 +38,11 @@ public class OutputFormatterTests
         string[] lineArguments = tail
             ? ["-n", "1", "--tail-lines"]
             : ["-n", "1", "--lines"];
-        CommandLineBuilder.PreprocessArgs(
-            ["package", "Example", .. lineArguments]);
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args = CommandLineBuilder.PreprocessArgs(
+            ["package", "Example", .. lineArguments],
+            root);
+        CommandLineBuilder.ApplyParsedLineWindow(root.Parse(args));
         try
         {
             var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
