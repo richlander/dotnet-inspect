@@ -7,10 +7,13 @@
 //
 // Vite 8's Rolldown context exposes the module graph but no longer exposes Rollup's
 // `getWatchFiles`. The main and worker graphs cover modules, entry HTML and CSS;
-// query-bearing module IDs are normalized back to their physical source path. A second
-// build with asset inlining disabled makes every asset source visible through output
-// provenance. Both answers come from Vite builds using the project's real config and
-// plugins rather than from parsing source or enumerating extensions.
+// query-bearing module IDs are normalized back to their physical source path. Vite's CSS
+// plugin reports `@import` targets and `url()` assets through `addWatchFile`, so the audit
+// records those calls while preserving them for Rolldown. A second build with asset
+// inlining disabled makes every other asset source visible through output provenance,
+// including provenance captured inside nested worker builds before Vite re-emits them.
+// Every answer comes from Vite builds using the project's real config and plugins rather
+// than from parsing source or enumerating extensions.
 //
 // The project's own `vite.config.ts` is used rather than a restatement of it, so the
 // audit reads what the real build reads. Only the output is suppressed: `write: false`
@@ -21,8 +24,14 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { build, type Rolldown } from "vite";
 
+export interface BuildArtifact {
+  readonly fileName: string;
+  readonly contents: Buffer;
+}
+
 export interface AuditedBuild {
   readonly readFiles: string[];
+  readonly artifacts: BuildArtifact[];
   readonly chunks: string[];
   readonly mode: string;
   readonly publicDir: string;
@@ -117,17 +126,99 @@ function recordModuleGraph(context: Rolldown.PluginContext, read: Set<string>): 
   }
 }
 
-function workerGraphAudit(read: Set<string>): Rolldown.Plugin {
+function recordOutputAssets(
+  root: string,
+  bundle: Rolldown.OutputBundle,
+  read: Set<string>,
+): void {
+  for (const output of Object.values(bundle)) {
+    if (output.type !== "asset") {
+      continue;
+    }
+    for (const source of output.originalFileNames) {
+      const file = isAbsolute(source) ? source : resolve(root, source);
+      if (existsSync(file)) {
+        read.add(file);
+      }
+    }
+  }
+}
+
+function workerGraphAudit(root: string, read: Set<string>): Rolldown.Plugin {
   return {
     name: `${auditPluginName}-worker`,
     buildEnd(this: Rolldown.PluginContext) {
       recordModuleGraph(this, read);
     },
+    generateBundle(_options, bundle) {
+      recordOutputAssets(root, bundle, read);
+    },
   };
+}
+
+function recordWatchFileCalls(
+  context: Rolldown.TransformPluginContext,
+  root: string,
+  read: Set<string>,
+  recorded: WeakSet<Rolldown.TransformPluginContext>,
+): void {
+  if (recorded.has(context)) {
+    return;
+  }
+  recorded.add(context);
+  const addWatchFile = context.addWatchFile.bind(context);
+  Object.defineProperty(context, "addWatchFile", {
+    configurable: true,
+    value(id: string): void {
+      const candidate = isAbsolute(id) ? id : resolve(root, id);
+      const path = physicalModulePath(candidate);
+      if (path !== undefined) {
+        read.add(path);
+      }
+      addWatchFile(id);
+    },
+  });
+}
+
+function recordTransformWatchFiles(
+  plugin: Rolldown.Plugin,
+  root: string,
+  read: Set<string>,
+  wrapped: WeakSet<object>,
+  recordedContexts: WeakSet<Rolldown.TransformPluginContext>,
+): void {
+  if (wrapped.has(plugin) || plugin.transform === undefined) {
+    return;
+  }
+  wrapped.add(plugin);
+  const hook = plugin.transform;
+  const handler = typeof hook === "function" ? hook : hook.handler;
+  const recordingHandler = function (
+    this: ThisParameterType<typeof handler>,
+    ...args: Parameters<typeof handler>
+  ): ReturnType<typeof handler> {
+    recordWatchFileCalls(this, root, read, recordedContexts);
+    return handler.apply(this, args);
+  };
+  plugin.transform = typeof hook === "function"
+    ? recordingHandler
+    : { ...hook, handler: recordingHandler };
+}
+
+function artifactsOf(results: readonly Rolldown.RolldownOutput[]): BuildArtifact[] {
+  return results
+    .flatMap(result => result.output)
+    .map(output => ({
+      fileName: output.fileName,
+      contents: Buffer.from(output.type === "chunk" ? output.code : output.source),
+    }))
+    .sort((left, right) => left.fileName.localeCompare(right.fileName));
 }
 
 export async function auditedBuild(root: string): Promise<AuditedBuild> {
   const read = new Set<string>();
+  const wrappedTransforms = new WeakSet();
+  const recordedWatchContexts = new WeakSet<Rolldown.TransformPluginContext>();
   let observed: { mode: string; publicDir: string; pluginNames: string[]; workerPluginCount: number }
     | undefined;
   let workerPluginCount = 0;
@@ -146,12 +237,21 @@ export async function auditedBuild(root: string): Promise<AuditedBuild> {
           worker: {
             plugins: () => [
               ...(workerPlugins?.() ?? []),
-              workerGraphAudit(read),
+              workerGraphAudit(root, read),
             ],
           },
         };
       },
       configResolved(config) {
+        for (const plugin of config.plugins) {
+          recordTransformWatchFiles(
+            plugin,
+            root,
+            read,
+            wrappedTransforms,
+            recordedWatchContexts,
+          );
+        }
         rollupInputNames = configuredPluginNames(config.build.rolldownOptions.plugins);
         rollupOutputNames = configuredOutputPluginNames(config.build.rolldownOptions.output);
         observed = {
@@ -167,31 +267,39 @@ export async function auditedBuild(root: string): Promise<AuditedBuild> {
     }],
   });
   const results = outputsOf(result);
+  const artifacts = artifactsOf(results);
   const chunks = results
     .flatMap(one => one.output)
     .flatMap(one => one.type === "chunk" ? [one.code] : [])
     .sort();
-  const assetResults = outputsOf(await build({
+  await build({
     root,
     logLevel: "error",
     build: { write: false, sourcemap: false, assetsInlineLimit: 0 },
-  }));
-  for (const asset of assetResults.flatMap(one => one.output)) {
-    if (asset.type !== "asset") {
-      continue;
-    }
-    for (const source of asset.originalFileNames) {
-      const file = isAbsolute(source) ? source : resolve(root, source);
-      if (existsSync(file)) {
-        read.add(file);
-      }
-    }
-  }
+    plugins: [{
+      name: `${auditPluginName}-assets`,
+      config(config) {
+        const workerPlugins = config.worker?.plugins;
+        return {
+          worker: {
+            plugins: () => [
+              ...(workerPlugins?.() ?? []),
+              workerGraphAudit(root, read),
+            ],
+          },
+        };
+      },
+      generateBundle(_options, bundle) {
+        recordOutputAssets(root, bundle, read);
+      },
+    }],
+  });
   if (observed === undefined) {
     throw new Error("the audited build never resolved a config");
   }
   return {
     readFiles: [...read],
+    artifacts,
     chunks,
     ...observed,
     unaccountedRollupPlugins: rollupInputNames,
@@ -213,16 +321,30 @@ export async function bundlerReadFiles(root: string): Promise<string[]> {
 // The audit cannot out-model a config that is a function of its own environment, so it
 // stops trying. It runs the project's real build command in its own process -- the same
 // command that produces what ships, with whatever environment npm gives it -- and the
-// gate requires the audited build and that one to emit identical chunks. The audit then
+// gate requires the audited build and that one to emit an identical artifact. Comparing
+// only JavaScript chunks is insufficient: an HTML transform or a non-JavaScript output
+// plugin can otherwise change shipped bytes while the compared chunks remain equal. The
+// audit then
 // either describes the shipped bundle or the build fails, and no config can be one thing
 // under test and another under `npm run build` without the two disagreeing.
-export function shippedChunks(root: string): string[] {
+export function shippedArtifacts(root: string): BuildArtifact[] {
   execFileSync("npm", ["run", "build"], { cwd: root, stdio: "ignore" });
-  const assets = join(root, "dist", "assets");
-  return readdirSync(assets)
-    .filter(name => name.endsWith(".js"))
-    .map(name => readFileSync(join(assets, name), "utf8"))
-    .sort();
+  const dist = join(root, "dist");
+  const artifacts: BuildArtifact[] = [];
+  const visit = (directory: string, prefix: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      const fileName = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+      if (entry.isDirectory()) {
+        visit(path, fileName);
+      }
+      else if (entry.isFile()) {
+        artifacts.push({ fileName, contents: readFileSync(path) });
+      }
+    }
+  };
+  visit(dist, "");
+  return artifacts.sort((left, right) => left.fileName.localeCompare(right.fileName));
 }
 
 // Round 9 pinned `publicDir: false` and the absence of plugins by matching the text of

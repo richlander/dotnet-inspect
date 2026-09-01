@@ -34,7 +34,12 @@ import {
   typeScriptSourceExtensions,
 } from "./project-source-inventory.ts";
 import { verifySiteArtifact } from "../scripts/verify-site-artifact.ts";
-import { auditedBuild, builtinPluginNames, bundlerReadFiles } from "./vite-audit.ts";
+import {
+  auditedBuild,
+  builtinPluginNames,
+  bundlerReadFiles,
+  shippedArtifacts,
+} from "./vite-audit.ts";
 
 interface PackageLockEntry {
   readonly link?: boolean;
@@ -1181,6 +1186,113 @@ test("the bundler input audit includes worker module sources", async () => {
     const read = (await bundlerReadFiles(root)).map(file => resolve(file));
 
     assert.ok(read.includes(resolve(root, "worker-payload.js")));
+  }
+  finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the bundler input audit includes CSS imports and explicitly inlined assets", async () => {
+  const root = mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-"));
+  try {
+    writeFileSync(
+      join(root, "index.html"),
+      '<link rel="stylesheet" href="/styles.css">'
+        + '<script type="module" src="/main.js"></script>',
+    );
+    writeFileSync(join(root, "main.js"), "globalThis.main = true;");
+    writeFileSync(
+      join(root, "styles.css"),
+      '@import "./more.css"; .asset { background: url("./payload.svg?inline"); }',
+    );
+    writeFileSync(join(root, "more.css"), ".imported { color: green; }");
+    writeFileSync(join(root, "payload.svg"), "<svg>unchecked payload</svg>");
+
+    const read = (await bundlerReadFiles(root)).map(file => resolve(file));
+
+    assert.ok(read.includes(resolve(root, "more.css")));
+    assert.ok(read.includes(resolve(root, "payload.svg")));
+  }
+  finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the bundler input audit includes worker asset sources", async () => {
+  const root = mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-"));
+  try {
+    writeFileSync(
+      join(root, "index.html"),
+      '<script type="module" src="/main.js"></script>',
+    );
+    writeFileSync(
+      join(root, "main.js"),
+      'new Worker(new URL("./worker.js", import.meta.url), { type: "module" });',
+    );
+    writeFileSync(
+      join(root, "worker.js"),
+      'import "./worker.css"; self.asset = new URL("./payload.svg", import.meta.url).href;',
+    );
+    writeFileSync(join(root, "payload.svg"), "<svg>unchecked payload</svg>");
+    writeFileSync(
+      join(root, "worker.css"),
+      '@import "./worker-more.css"; .asset { background: url("./worker-inline.svg?inline"); }',
+    );
+    writeFileSync(join(root, "worker-more.css"), ".imported { color: purple; }");
+    writeFileSync(join(root, "worker-inline.svg"), "<svg>worker inline payload</svg>");
+
+    const read = (await bundlerReadFiles(root)).map(file => resolve(file));
+
+    assert.ok(read.includes(resolve(root, "payload.svg")));
+    assert.ok(read.includes(resolve(root, "worker-more.css")));
+    assert.ok(read.includes(resolve(root, "worker-inline.svg")));
+  }
+  finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the shipped comparison includes HTML and non-JavaScript output", async () => {
+  const parent = fileURLToPath(new URL("../", import.meta.url));
+  const root = mkdtempSync(join(parent, ".vite-audit-"));
+  try {
+    writeFileSync(
+      join(root, "package.json"),
+      JSON.stringify({ type: "module", scripts: { build: "vite build" } }),
+    );
+    writeFileSync(
+      join(root, "index.html"),
+      '<script type="module" src="/main.js"></script>',
+    );
+    writeFileSync(join(root, "main.js"), "globalThis.main = true;");
+    writeFileSync(
+      join(root, "vite.config.js"),
+      "export default { plugins: process.env.npm_lifecycle_event === \"build\""
+        + " ? [{ name: \"conditional-html\", transformIndexHtml(html) {"
+        + " return html + \"<!-- conditional payload -->\"; } }] : [] };\n",
+    );
+
+    const audited = await auditedBuild(root);
+    const shipped = shippedArtifacts(root);
+    const auditedJavaScript = audited.artifacts
+      .filter(artifact => artifact.fileName.endsWith(".js"));
+    const shippedJavaScript = shipped
+      .filter(artifact => artifact.fileName.endsWith(".js"));
+    const auditedHtml = audited.artifacts
+      .find(artifact => artifact.fileName === "index.html");
+    const shippedHtml = shipped
+      .find(artifact => artifact.fileName === "index.html");
+
+    assert.deepEqual(shippedJavaScript, auditedJavaScript,
+      "the fixture must differ only outside JavaScript output");
+    assert.ok(auditedHtml !== undefined);
+    assert.ok(shippedHtml !== undefined,
+      "the shipped snapshot must include non-JavaScript output");
+    assert.ok(!auditedHtml.contents.includes("conditional payload"));
+    assert.ok(shippedHtml.contents.includes("conditional payload"),
+      "the shipped snapshot must expose the conditional HTML change");
+    assert.notDeepEqual(shipped, audited.artifacts,
+      "an HTML-only conditional plugin must change the complete shipped artifact");
   }
   finally {
     rmSync(root, { recursive: true, force: true });
