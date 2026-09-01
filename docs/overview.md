@@ -30,6 +30,9 @@ substrates, and inspection producers that will extend that space.
 
 - `src/dotnet-inspect/` contains the CLI, command routing, parsers, options,
   output views, section descriptors, and inspectors. Its
+  [CLI row-selection grammar](design/cli-row-selection.md) owns item, Window,
+  Top, direction, rendered-line, shorthand, capability, and typed
+  operation-intent lowering at the L3 boundary. Its
   [Find type-search service](design/find-search-service.md) owns the
   CLI-scoped boundary from host-authorized candidate collection through typed
   exact, glob, namespace-prefix, partial, and miss classification; Metadata
