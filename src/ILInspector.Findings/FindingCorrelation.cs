@@ -374,6 +374,13 @@ static class FindingCorrelationValidation
         where T : notnull
     {
         ArgumentNullException.ThrowIfNull(inspections);
+        if (inspections is ImmutableArray<VersionedFindingInspection<T>> inspectionArray
+            && inspectionArray.IsDefault)
+        {
+            throw new ArgumentException(
+                "Inspections must be initialized.",
+                nameof(inspections));
+        }
 
         var evaluated = inspections.ToImmutableArray();
         if (evaluated.Any(item => item is null))

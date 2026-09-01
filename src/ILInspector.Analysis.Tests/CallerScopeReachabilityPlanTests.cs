@@ -133,6 +133,267 @@ public class CallerScopeReachabilityPlanTests
             plan.Resolution.GetRelation(caller, callerType));
     }
 
+    [Fact]
+    public void ScopeFirstBindingPolicy_PreservesDelegatedTerminalResults()
+    {
+        ResolvedAssemblyReference requested =
+            Descriptor(BuildTarget(new Version(1, 0, 0, 0)));
+        ResolvedAssemblyReference target =
+            Descriptor(BuildTarget(new Version(2, 0, 0, 0)));
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(requested.Identity),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Any);
+        AssemblyBindingSelection[] terminalResults =
+        [
+            AssemblyBindingSelection.Found(requested),
+            AssemblyBindingSelection.NotFound(),
+            AssemblyBindingSelection.NameOwnedButNoMatch(),
+            AssemblyBindingSelection.CannotSelect(
+                new AssemblyBindingFailure(
+                    AssemblyBindingFailureKind.CandidateUnavailable)),
+            AssemblyBindingSelection.Multiple([requested, target]),
+            AssemblyBindingSelection.Invalid(
+                new AssemblyBindingFailure(
+                    AssemblyBindingFailureKind.InvalidPolicyResult)),
+        ];
+
+        foreach (AssemblyBindingSelection terminal in terminalResults)
+        {
+            var policy =
+                new CallerScopeReachabilityPlan.ScopeFirstBindingPolicy(
+                    new FixedPolicy(terminal),
+                    target,
+                    []);
+
+            Assert.Same(terminal, policy.Select(request));
+        }
+    }
+
+    [Fact]
+    public void ScopeFirstBindingPolicy_NoNameOwnerRequiresIdentityPolicy()
+    {
+        ResolvedAssemblyReference requested =
+            Descriptor(BuildTarget(new Version(1, 0, 0, 0)));
+        ResolvedAssemblyReference target =
+            Descriptor(BuildTarget(new Version(2, 0, 0, 0)));
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(requested.Identity),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Any);
+        var policy =
+            new CallerScopeReachabilityPlan.ScopeFirstBindingPolicy(
+                new FixedPolicy(
+                    AssemblyBindingSelection.NameNotOwned()),
+                target,
+                []);
+
+        var unavailable =
+            Assert.IsType<AssemblyBindingSelection.Unavailable>(
+                policy.Select(request));
+        Assert.Equal(
+            AssemblyBindingFailureKind.IdentityPolicyRequired,
+            unavailable.Failure.Kind);
+    }
+
+    [Fact]
+    public void ScopeFirstBindingPolicy_ExactRootWinsOverSameNameTargetSkew()
+    {
+        ResolvedAssemblyReference target =
+            Descriptor(BuildTarget(new Version(2, 0, 0, 0)));
+        ResolvedAssemblyReference root =
+            Descriptor(BuildTarget(new Version(1, 0, 0, 0)));
+        var fallback = new FixedPolicy(
+            AssemblyBindingSelection.NameNotOwned());
+        var policy =
+            new CallerScopeReachabilityPlan.ScopeFirstBindingPolicy(
+                fallback,
+                target,
+                [root]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(root.Identity),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Any);
+
+        var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
+            policy.Select(request));
+
+        Assert.Same(root, selected.Assembly);
+        Assert.Equal(0, fallback.CallCount);
+    }
+
+    [Fact]
+    public void ScopeFirstBindingPolicy_SameNameOwnersRemainAmbiguous()
+    {
+        ResolvedAssemblyReference target =
+            Descriptor(BuildTarget(new Version(3, 0, 0, 0)));
+        ResolvedAssemblyReference root =
+            Descriptor(BuildTarget(new Version(2, 0, 0, 0)));
+        var fallback = new FixedPolicy(
+            AssemblyBindingSelection.NameNotOwned());
+        var policy =
+            new CallerScopeReachabilityPlan.ScopeFirstBindingPolicy(
+                fallback,
+                target,
+                [root]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(
+                target.Identity with
+                {
+                    Version = new Version(1, 0, 0, 0),
+                }),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Any);
+
+        var ambiguous =
+            Assert.IsType<AssemblyBindingSelection.Ambiguous>(
+                policy.Select(request));
+
+        Assert.Equal([target, root], ambiguous.Assemblies);
+        Assert.Equal(1, fallback.CallCount);
+    }
+
+    [Fact]
+    public void ScopeFirstBindingPolicy_SkewedRootRequiresIdentityPolicy()
+    {
+        ResolvedAssemblyReference target = Descriptor(BuildTarget());
+        ResolvedAssemblyReference root =
+            Descriptor(
+                BuildFacade(
+                    new Version(2, 0, 0, 0),
+                    target.Identity));
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(
+                root.Identity with
+                {
+                    Version = new Version(1, 0, 0, 0),
+                }),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Any);
+        var fallback = new FixedPolicy(
+            AssemblyBindingSelection.NameNotOwned());
+        var policy =
+            new CallerScopeReachabilityPlan.ScopeFirstBindingPolicy(
+                fallback,
+                target,
+                [root]);
+
+        var unavailable =
+            Assert.IsType<AssemblyBindingSelection.Unavailable>(
+                policy.Select(request));
+
+        Assert.Equal(
+            AssemblyBindingFailureKind.IdentityPolicyRequired,
+            unavailable.Failure.Kind);
+        Assert.Equal(1, fallback.CallCount);
+    }
+
+    [Fact]
+    public void VersionSkewedFacadeRoots_ReportAmbiguous()
+    {
+        byte[] targetImage = BuildTarget();
+        ResolvedAssemblyReference target = Descriptor(targetImage);
+        byte[] firstFacadeImage = BuildFacade(
+            new Version(2, 0, 0, 0),
+            target.Identity);
+        byte[] secondFacadeImage = BuildFacade(
+            new Version(3, 0, 0, 0),
+            target.Identity);
+        ResolvedAssemblyReference first = Descriptor(firstFacadeImage);
+        ResolvedAssemblyReference second = Descriptor(secondFacadeImage);
+        byte[] callerImage = BuildCaller(
+            first.Identity with
+            {
+                Version = new Version(1, 0, 0, 0),
+            });
+        ResolvedAssemblyReference caller = Descriptor(callerImage);
+        var fallback = new FixedPolicy(
+            AssemblyBindingSelection.NameNotOwned());
+
+        CallerScopeReachabilityPlan plan =
+            CallerScopeReachabilityPlan.Create(
+                fallback,
+                target,
+                ReadTargetDefinition(targetImage),
+                [caller, first, second]);
+
+        var relation =
+            Assert.IsType<CandidateTypeRelation.Indeterminate>(
+                plan.Resolution.GetRelation(
+                    caller,
+                    ReadCallerReference(callerImage)));
+        var resolution =
+            Assert.IsType<TypeCorrespondenceFailure.Resolution>(
+                relation.Failure);
+        Assert.IsType<TypeResolutionOutcome.Ambiguous>(
+            resolution.NonSuccess);
+        Assert.Equal(1, fallback.CallCount);
+    }
+
+    [Fact]
+    public void EcmaEquivalentTargetIdentity_ResolvesToTargetDefinition()
+    {
+        byte[] targetImage = BuildTarget();
+        ResolvedAssemblyReference target = Descriptor(targetImage);
+        AssemblyReferenceIdentity equivalent =
+            target.Identity with
+            {
+                Name = target.Identity.Name.ToLowerInvariant(),
+                Culture = "neutral",
+            };
+        byte[] callerImage = BuildCaller(equivalent);
+        ResolvedAssemblyReference caller = Descriptor(callerImage);
+        var fallback = new FixedPolicy(
+            AssemblyBindingSelection.NameNotOwned());
+
+        CallerScopeReachabilityPlan plan =
+            CallerScopeReachabilityPlan.Create(
+                fallback,
+                target,
+                ReadTargetDefinition(targetImage),
+                [caller]);
+
+        Assert.IsType<CandidateTypeRelation.SameDefinition>(
+            plan.Resolution.GetRelation(
+                caller,
+                ReadCallerReference(callerImage)));
+        Assert.Equal(0, fallback.CallCount);
+    }
+
+    [Fact]
+    public void EcmaEquivalentFacadeIdentity_ResolvesToTargetDefinition()
+    {
+        byte[] targetImage = BuildTarget();
+        ResolvedAssemblyReference target = Descriptor(targetImage);
+        byte[] facadeImage = BuildFacade(
+            new Version(1, 0, 0, 0),
+            target.Identity);
+        ResolvedAssemblyReference facade = Descriptor(facadeImage);
+        AssemblyReferenceIdentity equivalent =
+            facade.Identity with
+            {
+                Name = facade.Identity.Name.ToLowerInvariant(),
+                Culture = "neutral",
+            };
+        byte[] callerImage = BuildCaller(equivalent);
+        ResolvedAssemblyReference caller = Descriptor(callerImage);
+        var fallback = new FixedPolicy(
+            AssemblyBindingSelection.NameNotOwned());
+
+        CallerScopeReachabilityPlan plan =
+            CallerScopeReachabilityPlan.Create(
+                fallback,
+                target,
+                ReadTargetDefinition(targetImage),
+                [caller, facade]);
+
+        Assert.IsType<CandidateTypeRelation.SameDefinition>(
+            plan.Resolution.GetRelation(
+                caller,
+                ReadCallerReference(callerImage)));
+        Assert.Equal(0, fallback.CallCount);
+    }
+
     static TypeRef ReadTargetDefinition(byte[] image)
     {
         using var stream = new MemoryStream(image, writable: false);
@@ -317,5 +578,20 @@ public class CallerScopeReachabilityPlanTests
         public AssemblyBindingSelection Select(
             AssemblyBindingRequest request) =>
             AssemblyBindingSelection.Found(selected);
+    }
+
+    sealed class FixedPolicy(AssemblyBindingSelection selection)
+        : IAssemblyBindingPolicy
+    {
+        public int CallCount { get; private set; }
+
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request)
+        {
+            CallCount++;
+            return selection;
+        }
     }
 }
