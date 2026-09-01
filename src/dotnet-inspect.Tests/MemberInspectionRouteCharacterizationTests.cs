@@ -129,6 +129,31 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             OverloadIndex = 1,
         };
         ApiType apiType = LoadFixtureApiType();
+        string fixtureAssemblyPath = typeof(BodyShapeFixture).Assembly.Location;
+        var resolvedTypeMemberOptions = typeMemberOptions with
+        {
+            DllPath = apiType.SourceAssemblyPath ?? fixtureAssemblyPath,
+        };
+        var resolvedMemberTypeOptions = memberTypeOptions with
+        {
+            DllPath = apiType.SourceAssemblyPath ?? fixtureAssemblyPath,
+        };
+        ApiType detailApiType = LoadFixtureApiType();
+        ResolvedMemberTarget detailTarget = MemberTargetResolver.Resolve(
+            detailApiType,
+            new MemberTargetSelector(
+                nameof(BodyShapeFixture.Classify),
+                nameof(BodyShapeFixture.Classify),
+                detailOptions.OverloadIndex),
+            detailOptions.KindFilter).Target!;
+        detailApiType.Members = [detailTarget.ApiMember.Member];
+        var resolvedDetailOptions = detailOptions with
+        {
+            DllPath = detailApiType.SourceAssemblyPath ?? fixtureAssemblyPath,
+            OverloadIndex =
+                detailTarget.Body?.DeclaringOverloadIndex
+                ?? detailTarget.DeclaringOverloadIndex,
+        };
         ApiType overloadedApiType =
             LoadFixtureApiType(typeof(OverloadedIndexerBodyShapeFixture));
 
@@ -179,16 +204,16 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 await ObserveApiDiscoveryAsync(typeMemberOptions),
                 MemberPipeline(typeMemberOptions),
                 typeMemberOptions.IncludeSections!,
-                $"focus:pdb={TypeCommand.AuthorizesPdbAcquisition(apiType, typeMemberOptions)};"
+                $"focus:pdb={TypeCommand.AuthorizesPdbAcquisition(apiType, resolvedTypeMemberOptions)};"
                     + $"source={TypeCommand.AuthorizesSourceInfoAcquisition(
                         apiType,
-                        typeMemberOptions)}"),
+                        resolvedTypeMemberOptions)}"),
             Observe(
                 "member-type-view",
                 await ObserveApiDiscoveryAsync(memberTypeOptions),
                 MemberPipeline(memberTypeOptions),
                 memberTypeOptions.IncludeSections!,
-                $"focus:{MemberCapabilities(apiType, memberTypeOptions)}"),
+                $"focus:{MemberCapabilities(apiType, resolvedMemberTypeOptions)}"),
             Observe(
                 "overload-inventory",
                 await ObserveOverloadInventoryAsync(overloadOptions),
@@ -200,7 +225,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 await ObserveApiDiscoveryAsync(detailOptions),
                 MemberPipeline(detailOptions),
                 detailOptions.IncludeSections!,
-                $"focus:{MemberCapabilities(apiType, detailOptions)}"),
+                $"focus:{MemberCapabilities(detailApiType, resolvedDetailOptions)}"),
             await ObserveHiddenRouterAsync(),
         ];
 
