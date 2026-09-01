@@ -57,20 +57,64 @@ public sealed class BrowserPackageQueryOperationsTests
         BrowserPackageQueryEvent projectedCompletion =
             BrowserPackageQueryOperations.Project(
                 new PackageQueryEvent.Completed(summary));
+        var profile = new PackageProfileMatch(
+            "Contoso.Package",
+            "1.0.0",
+            [],
+            42,
+            Verified: true,
+            source.Source,
+            new PackageManifestFacts(
+                PackageSourceCoordinate.Create(
+                    "Contoso.Package",
+                    "1.0.0"),
+                ManifestVersion: "nuspec",
+                Description: null,
+                Authors: null,
+                Repository: null,
+                RepositoryType: null,
+                RepositoryCommit: null,
+                License: null,
+                LicenseUrl: null,
+                PackageTypes: [],
+                IsToolPackage: false,
+                ReadmeFile: null,
+                DependencyGroups: []));
+        BrowserPackageQueryEvent projectedMatch =
+            BrowserPackageQueryOperations.Project(
+                new PackageQueryEvent.Match(
+                    new PackageQueryMatch(
+                        profile,
+                        PackageQueryFacetTier.Nuspec,
+                        [])));
+        string expectedProducer =
+            source.Source.Producer.Display.ToString();
 
+        Assert.Equal(
+            "https://api.nuget.org:443/v3/index.json",
+            expectedProducer);
         Assert.Equal(BrowserPackageQueryEventKind.Failure, projectedFailure.Kind);
         Assert.Equal(
             BrowserPackageQueryFailureKind.ManifestAcquisition,
             projectedFailure.Failure!.Kind);
         Assert.Equal("manifest unavailable", projectedFailure.Failure.Message);
         Assert.Equal(
+            expectedProducer,
+            projectedFailure.Failure.Producer);
+        Assert.Equal(
             BrowserPackageQueryEventKind.Completed,
             projectedCompletion.Kind);
         Assert.Equal(
             BrowserPackageQueryCompletionKind.CandidateLimitReached,
             projectedCompletion.Completion!.Kind);
+        Assert.Equal(
+            expectedProducer,
+            projectedCompletion.Completion.Producer);
         Assert.Equal(200, projectedCompletion.Completion.CandidateLimit);
         Assert.Equal(100, projectedCompletion.Completion.MatchLimit);
+        Assert.Equal(
+            expectedProducer,
+            projectedMatch.Row!.Producer);
     }
 
     [Fact]
@@ -82,7 +126,7 @@ public sealed class BrowserPackageQueryOperationsTests
             Failure: null,
             Completion: new BrowserPackageQueryCompletion(
                 "Contoso.",
-                PackageProducerIdentity.NuGetOrg.Key,
+                PackageProducerIdentity.NuGetOrg.Display.ToString(),
                 CandidateLimit: 200,
                 MatchLimit: 100,
                 Candidates: 5,

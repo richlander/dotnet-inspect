@@ -94,7 +94,7 @@ namespace InspectWeb.Engine
                         ],
                         match.Value.Package.TotalDownloads,
                         match.Value.Package.Verified,
-                        match.Value.Package.Source.Producer.Key),
+                        match.Value.Package.Source.Producer.Display.ToString()),
                     Failure: null,
                     Completion: null),
             PackageQueryEvent.Failure failure =>
@@ -104,7 +104,7 @@ namespace InspectWeb.Engine
                     Failure: new BrowserPackageQueryFailure(
                         failure.Value.PackageId,
                         failure.Value.Version,
-                        failure.Value.Source.Producer.Key,
+                        failure.Value.Source.Producer.Display.ToString(),
                         failure.Value.Kind switch
                         {
                             PackageProfileFailureKind.Search =>
@@ -129,7 +129,7 @@ namespace InspectWeb.Engine
                     Failure: null,
                     Completion: new BrowserPackageQueryCompletion(
                         completed.Value.Prefix.ToString(),
-                        completed.Value.Source.Producer.Key,
+                        completed.Value.Source.Producer.Display.ToString(),
                         completed.Value.CandidateLimit,
                         completed.Value.MatchLimit,
                         completed.Value.Candidates,
