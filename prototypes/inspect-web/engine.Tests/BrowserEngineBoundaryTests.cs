@@ -4265,6 +4265,9 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Equal(
             typeof(BrowserEngineBoundaryTests).Assembly.GetName().Version?.ToString(),
             target.GetProperty("assemblyVersion").GetString());
+        Assert.Equal(
+            type.GetProperty("assemblyId").GetString(),
+            target.GetProperty("surfaceAssemblyId").GetString());
     }
 
     [Fact]
@@ -4305,7 +4308,7 @@ public sealed class BrowserEngineBoundaryTests
                 PackageId,
                 "1.0.0",
                 "net11.0",
-                surfaceAsset.AssemblyName,
+                surfaceAsset.Id,
                 typeof(BrowserEngineBoundaryTests).FullName!,
                 method.Name,
                 "stale-selector",
@@ -4323,6 +4326,9 @@ public sealed class BrowserEngineBoundaryTests
             Assert.Equal(
                 typeof(BrowserEngineBoundaryTests).FullName,
                 type.GetProperty("definitionId").GetString());
+            Assert.Equal(
+                $"{surfaceAsset.AssemblyName}:{typeof(BrowserEngineBoundaryTests).FullName}",
+                type.GetProperty("id").GetString());
             Assert.Single(type.GetProperty("api").EnumerateArray());
         }
     }

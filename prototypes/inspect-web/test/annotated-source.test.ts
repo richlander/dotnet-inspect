@@ -756,7 +756,7 @@ test("Annotated Source destination actions use typed graph routes and exact sect
 
   assert.match(
     appSource,
-    /case "destination-open":[\s\S]*model\.invocationDestinations\[action\.destinationIndex\][\s\S]*callGraphTargetBinding\(destination\.target, action\.destination\)[\s\S]*dismissAnnotatedSourceModal\(false\)[\s\S]*binding\.onSelect\(\)/,
+    /case "destination-open":[\s\S]*model\.invocationDestinations\[action\.destinationIndex\][\s\S]*callGraphTargetBinding\([\s\S]*destination\.target,[\s\S]*action\.destination,[\s\S]*"annotated"\)[\s\S]*dismissAnnotatedSourceModal\(false\)[\s\S]*binding\.onSelect\(\)/,
   );
   assert.match(
     appSource,
@@ -777,5 +777,27 @@ test("Annotated Source destination actions use typed graph routes and exact sect
   assert.match(
     appSource,
     /if \(section === "source"\) \{\s*observeAsync\(loadSelectedMemberSource\(\), "Loading member source"\)/,
+  );
+  assert.match(
+    appSource,
+    /failureSurface === "annotated"[\s\S]*state\.annotatedDestinationError[\s\S]*renderAndFocusAnnotated\(\{ kind: "explore" \}, "embedded"\)/,
+  );
+  assert.match(
+    appSource,
+    /id="annotated-destination-error"[\s\S]*role="alert"/,
+  );
+  assert.match(
+    appSource,
+    /function openAnnotatedSourceModal\(\) \{[\s\S]*invalidateMemberCallGraphWork\(state\);[\s\S]*invalidateGraphMemberNavigation\(\);/,
+  );
+  assert.match(
+    appSource,
+    /case "destination-open":[\s\S]*invalidateMemberCallGraphWork\(state\);[\s\S]*invalidateGraphMemberNavigation\(\);[\s\S]*callGraphTargetBinding/,
+  );
+  assert.equal(
+    appSource.match(
+      /state\.memberAnnotated = null;\s*state\.memberAnnotated(?:Key = "";\s*state\.memberAnnotated)?Error = "";\s*state\.annotatedDestinationError = "";/g,
+    )?.length,
+    7,
   );
 });

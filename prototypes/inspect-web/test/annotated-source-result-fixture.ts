@@ -20,6 +20,7 @@ export const sampleInvocationTarget = {
   selectorKey: "method:Target",
   kind: "definition",
   platformPack: null,
+  surfaceAssemblyId: "compile:ref/net11.0/Example.dll",
 } as const satisfies BrowserCallGraphTarget;
 
 export const sampleViewerCatalog = {

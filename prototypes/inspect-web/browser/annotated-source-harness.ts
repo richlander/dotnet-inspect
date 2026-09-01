@@ -88,6 +88,7 @@ const result: AnnotatedSourceResult = {
         selectorKey: "method:.ctor",
         kind: "definition",
         platformPack: "Microsoft.NETCore.App.Ref",
+        surfaceAssemblyId: null,
       },
     }],
     findingEvidence: {

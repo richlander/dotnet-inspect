@@ -174,6 +174,7 @@ export interface BrowserCallGraphTarget {
   readonly selectorKey: string;
   readonly kind: string;
   readonly platformPack: string | null;
+  readonly surfaceAssemblyId: string | null;
 }
 
 export interface BrowserCompileLibraryAvailability {

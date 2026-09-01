@@ -1282,7 +1282,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /callGraph\.targets\?\.find\(candidate => candidate\.id === nodeId\)[\s\S]*const drilled =\s*state\.platformStack\.length > 0 \|\| Boolean\(state\.package\?\.isRuntimePack\);[\s\S]*resolveRuntimeGraphTargetCandidate\(pack, target\)[\s\S]*runtimeGraphTargetNavigationDisposition\([\s\S]*blockedCallGraphNodeBinding/);
   assert.match(
     callGraphBinding,
-    /if \(disposition === "member" && pack && resident\) \{[\s\S]*navigateToRuntimeMember\([\s\S]*\} else if \(disposition === "lookup"\) \{[\s\S]*navigateOrDrillPlatform\(target, runtimeSection\)[\s\S]*\} else if \(destination === "member"\)[\s\S]*startPlatformDrill\(target\)/);
+    /if \(disposition === "member" && pack && resident\) \{[\s\S]*navigateToRuntimeMember\([\s\S]*\} else if \(disposition === "lookup"\) \{[\s\S]*navigateOrDrillPlatform\([\s\S]*target,[\s\S]*runtimeSection,[\s\S]*failureSurface\)[\s\S]*\} else if \(destination === "member"\)[\s\S]*startPlatformDrill\(target\)/);
   assert.match(
     callGraphBinding,
     /const loaded = disposition === "loaded" && candidate\.status === "unique"\s*\? resolveLoadedGraphTarget\(target, candidate\)\s*: null/);
@@ -1291,7 +1291,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /combinedGraphTargetNavigationDisposition\(\s*candidate,\s*runtimeCandidate,\s*target,\s*runtimeResident\)/);
   assert.match(
     callGraphBinding,
-    /if \(loaded\) \{[\s\S]*navigateToGraphMember\(loaded, target, loadedSection\)[\s\S]*\} else if \(disposition === "resident"\) \{[\s\S]*startPlatformDrill\(target\)[\s\S]*\} else if \(platform\) \{[\s\S]*navigateOrDrillPlatform\(target, runtimeSection\)/);
+    /if \(loaded\) \{[\s\S]*navigateToGraphMember\([\s\S]*loaded,[\s\S]*target,[\s\S]*loadedSection,[\s\S]*failureSurface\)[\s\S]*\} else if \(disposition === "resident"\) \{[\s\S]*startPlatformDrill\(target\)[\s\S]*\} else if \(platform\) \{[\s\S]*navigateOrDrillPlatform\([\s\S]*target,[\s\S]*runtimeSection,[\s\S]*failureSurface\)/);
   assert.match(
     graphInteractionsSource,
     /resolveCallGraphNode[\s\S]*setAttribute\("tabindex", "0"\)[\s\S]*setAttribute\("role", "button"\)[\s\S]*setAttribute\("aria-label", binding\.label\)[\s\S]*addEventListener\("click"[\s\S]*id: "call-graph-node\.activate"[\s\S]*key: \["Enter", " "\]/);
@@ -4067,7 +4067,7 @@ test("graph-only members open through the typed member surface", () => {
     ?? "";
   assert.match(
     binding,
-    /navigateToGraphMember\(loaded, target, loadedSection\)/);
+    /navigateToGraphMember\([\s\S]*loaded,[\s\S]*target,[\s\S]*loadedSection,[\s\S]*failureSurface\)/);
   assert.doesNotMatch(binding, /openGraphSource\(/);
   assert.match(
     openMember,
@@ -4183,7 +4183,7 @@ test("stale graph-only navigation clears progress without surfacing its error", 
     /if \(seq === state\.graphMemberNavigationSeq\) \{\s*state\.graphMemberNavigationTitle = "";\s*render\(\);/);
   assert.match(
     navigation,
-    /state\.graphMemberNavigationError\s*=\s*`Could not open/);
+    /showGraphMemberNavigationError\([\s\S]*errorMessage\(error\),[\s\S]*failureSurface\)/);
   assert.match(
     appSource,
     /const callGraphError = callGraphErrorForView\(state\);/);
@@ -4996,6 +4996,37 @@ test("surface asset currency makes repeated graph navigation reuse its type", ()
     });
   }
   assert.equal(pkg.types.length, 1);
+});
+
+test("graph-member projection carries exact surface currency and a collision-safe id", () => {
+  assert.match(
+    appSource,
+    /"surfaceAssemblyId" in target && target\.surfaceAssemblyId[\s\S]*inspectGraphMemberSurface\([\s\S]*surfaceAssembly/,
+  );
+  assert.match(
+    readFileSync(
+      new URL("../engine/InspectionEngine.cs", import.meta.url),
+      "utf8"),
+    /BrowserSurfaceProjection\.Type\([\s\S]*qualifyId: true,[\s\S]*selectedMembers:/,
+  );
+
+  const projected = {
+    id: "Surface.A:Shared.Internal",
+    definitionId: "Shared.Internal",
+    assemblyId: "compile:ref/net11.0/Surface.A.dll",
+  };
+  const types = [
+    {
+      id: "Shared.Internal",
+      definitionId: "Shared.Internal",
+      assemblyId: "compile:ref/net11.0/Surface.B.dll",
+    },
+    projected,
+  ];
+
+  assert.equal(
+    types.find(type => type.id === projected.id)?.assemblyId,
+    projected.assemblyId);
 });
 
 test("an exact resident runtime target wins over package identity skew", () => {

@@ -1014,7 +1014,8 @@ public sealed record BrowserCallGraphTarget(
     int? MetadataToken,
     string SelectorKey,
     string Kind,
-    string? PlatformPack);
+    string? PlatformPack,
+    string? SurfaceAssemblyId);
 
 public sealed record BrowserCallGraphNode(
     string Label,

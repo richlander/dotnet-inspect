@@ -53,6 +53,10 @@ different from a capability that was not projected.
 The browser envelope converts the target to its existing
 `BrowserCallGraphTarget` wire currency. It must not reconstruct assembly, type,
 member, signature, selector, or version identity from source or display text.
+When exactly one loaded surface participant matches the target's assembly
+identity, the browser envelope also carries that participant's asset id. This
+coordinate-specific routing currency stays at the browser boundary rather than
+entering the portable call-graph identity.
 
 ## Exact join
 
@@ -100,8 +104,11 @@ the product-issued destination row identity, not source text.
 **Member** requests the resolved member Overview. **Source** requests that
 member's Source section. The host may reject either route when the exact target
 cannot support it in the current workspace; rejection is visible and never
-falls back to the other destination. Successful navigation closes the modal,
-then the host owns history and focus at the destination.
+falls back to the other destination. The modal dismisses when the action is
+accepted. A failed transition retains Annotated Source and its history entry,
+reports the error on that surface, and returns focus to **Explore**; it does not
+reopen the modal. A successful transition commits the requested destination,
+then the host owns history and focus there.
 
 ## Evidence
 
@@ -114,7 +121,11 @@ The implementation is gated by compiled-product fixtures for:
 - indirect invocation;
 - absent projection and available-empty projection; and
 - browser validation that rejects nonexistent, non-C#, non-invocation, or
-  duplicate node mappings.
+  duplicate node mappings;
+- exact surface-asset routing for dotted assembly names and collision-safe ids
+  for graph-only type projection; and
+- failed browser transitions retaining Annotated Source, visible error state,
+  history, and focus.
 
 The canonical demo selects
 `JsonReaderHelper.UnescapeAndCompareBothInputs(...)` inside

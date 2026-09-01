@@ -436,7 +436,8 @@ public static partial class InspectionEngine
                             Target(
                                 destination.Target,
                                 [participant.Assembly.Identity],
-                                null))),
+                                null,
+                                scope.SurfaceParticipants))),
                 ]
                 : null;
 
@@ -1393,7 +1394,8 @@ public static partial class InspectionEngine
             Targets(
                 projection.Nodes,
                 scope.ImplementationParticipants.Select(
-                    participant => participant.Assembly.Identity)),
+                    participant => participant.Assembly.Identity),
+                surfaceParticipants: scope.SurfaceParticipants),
             Diagnostics(
                 view.Diagnostics,
                 projection.HasUnexploredTraversalBoundary,
@@ -1440,6 +1442,7 @@ public static partial class InspectionEngine
                 surfaceParticipant.Asset.Id,
                 surfaceParticipant.Assembly.Identity.Name,
                 textBudget,
+                qualifyId: true,
                 selectedMembers: [resolution.Member]);
         BrowserMemberSurface member = type.Api.Single();
         BrowserMemberBodySelector selectedBody =
@@ -2099,7 +2102,8 @@ public static partial class InspectionEngine
     static BrowserCallGraphTarget Target(
         CallGraphNode node,
         IReadOnlyList<AssemblyReferenceIdentity> loadedIdentities,
-        Func<string, string?>? platformPackForAssembly)
+        Func<string, string?>? platformPackForAssembly,
+        IReadOnlyList<BrowserWorkspaceParticipant>? surfaceParticipants = null)
     {
         Analysis.TypeRef? definition = DeclaringTypeDefinition(node.Member.DeclaringType);
         // The metadata origin may be a facade; the resolved definition identifies the browsable
@@ -2128,6 +2132,17 @@ public static partial class InspectionEngine
             ?? definition?.Assembly
             ?? node.Member.DeclaringType.Assembly
             ?? "";
+        string? surfaceAssemblyId = null;
+        if (identity is not null && surfaceParticipants is not null)
+        {
+            BrowserWorkspaceParticipant[] matches =
+            [
+                .. surfaceParticipants.Where(participant =>
+                    participant.Assembly.Identity.IsEquivalentTo(identity)),
+            ];
+            if (matches.Length == 1)
+                surfaceAssemblyId = matches[0].Asset.Id;
+        }
         return new BrowserCallGraphTarget(
             $"n{node.Id}",
             assembly,
@@ -2144,7 +2159,8 @@ public static partial class InspectionEngine
             null,
             Analysis.CallGraphMemberResolver.CreateSelector(node.Member).Key,
             node.Kind.ToString().ToLowerInvariant(),
-            platformPackForAssembly?.Invoke(assembly));
+            platformPackForAssembly?.Invoke(assembly),
+            surfaceAssemblyId);
     }
 
     /// <summary>
@@ -2177,7 +2193,8 @@ public static partial class InspectionEngine
     internal static BrowserCallGraphTarget[] Targets(
         IEnumerable<CallGraphNode> nodes,
         IEnumerable<AssemblyReferenceIdentity>? loadedIdentities = null,
-        Func<string, string?>? platformPackForAssembly = null)
+        Func<string, string?>? platformPackForAssembly = null,
+        IReadOnlyList<BrowserWorkspaceParticipant>? surfaceParticipants = null)
     {
         ArgumentNullException.ThrowIfNull(nodes);
         AssemblyReferenceIdentity[] identities = [.. loadedIdentities ?? []];
@@ -2187,7 +2204,8 @@ public static partial class InspectionEngine
                 Target(
                     node,
                     identities,
-                    platformPackForAssembly)),
+                    platformPackForAssembly,
+                    surfaceParticipants)),
         ];
     }
 

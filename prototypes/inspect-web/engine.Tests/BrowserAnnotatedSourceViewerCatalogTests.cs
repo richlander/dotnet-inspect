@@ -394,7 +394,8 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
             MetadataToken: null,
             SelectorKey: $"method:{memberName}",
             "definition",
-            PlatformPack: null);
+            PlatformPack: null,
+            SurfaceAssemblyId: null);
 
     private static AnnotatedSourceDocument CreateMixedDocument()
     {
