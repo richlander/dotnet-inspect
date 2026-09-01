@@ -1,6 +1,7 @@
 # Design scope and composition
 
-[How work runs on this repo](../AGENTS.md#how-work-runs-on-this-repo) and
+[Development practices](development-practices.md#design-establishes-the-footing)
+and
 [Design scope and composition](../AGENTS.md#design-scope-and-composition) state
 the binding rules: one architectural owner per design effort, and a broad,
 multi-component design requires explicit user approval. This document owns the
