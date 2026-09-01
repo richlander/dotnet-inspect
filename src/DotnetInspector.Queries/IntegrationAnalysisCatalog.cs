@@ -93,7 +93,7 @@ public sealed class IntegrationProducerPolicyBinding
 /// </summary>
 public static class IntegrationAnalysisCatalog
 {
-    const int AnalysisRevision = 1;
+    const int AnalysisRevision = 2;
 
     static readonly Dictionary<
         IntegrationConceptDescriptor,
@@ -148,7 +148,7 @@ public static class IntegrationAnalysisCatalog
             "Ordered source participants with typed outcomes and authoritative provenance.");
         BindingContexts = Capability(
             "universe.integration.binding-contexts",
-            "Stable comparable binding-context identity and deterministic context order.");
+            "Stable comparable binding-context identity, deterministic context order, and authoritative source incidence.");
         PeerBinding = Capability(
             "universe.integration.peer-binding",
             "Structured peer-reference binding in each declared context.");
@@ -167,7 +167,7 @@ public static class IntegrationAnalysisCatalog
             Requirement(
                 "requirement.integration.ordered-participants",
                 OrderedParticipants),
-            Requirement(
+            BindingContextsRequirement = Requirement(
                 "requirement.integration.binding-contexts",
                 BindingContexts),
             Requirement(
@@ -255,6 +255,8 @@ public static class IntegrationAnalysisCatalog
     public static AnalysisUniverseCapabilityDescriptor SelectedTypes { get; }
     public static AnalysisUniverseCapabilityDescriptor OrderedParticipants { get; }
     public static AnalysisUniverseCapabilityDescriptor BindingContexts { get; }
+    public static AnalysisUniverseRequirementDescriptor
+        BindingContextsRequirement { get; }
     public static AnalysisUniverseCapabilityDescriptor PeerBinding { get; }
     public static AnalysisUniverseCapabilityDescriptor ExactPeerResolution { get; }
     public static AnalysisUniverseCapabilityDescriptor Completeness { get; }
@@ -286,6 +288,16 @@ public static class IntegrationAnalysisCatalog
         return ProducerPolicyByRequirement.TryGetValue(
             requirement,
             out policy);
+    }
+
+    public static IntegrationBindingContextAccess GetBindingContextAccess(
+        AnalysisUniverseExecutionAccess executionAccess)
+    {
+        ArgumentNullException.ThrowIfNull(executionAccess);
+        return executionAccess
+            .GetBinding<IntegrationBindingContextAccess>(
+                BindingContextsRequirement)
+            .Access;
     }
 
     static IntegrationProducerPolicyBinding Bind(
