@@ -349,10 +349,9 @@ internal sealed class NamedTypeNode(
 
     internal override bool HasStructuralPayload =>
         metadataName is not null
-        && !string.Equals(
-            StructuralIdentity(),
-            base.StructuralIdentity(),
-            StringComparison.Ordinal);
+        && StructuralTypeIdentity.RequiresEscapedNameIdentity(
+            metadataName.Namespace,
+            metadataName.Segments);
 
     public override string Render(bool canonicalTuples)
     {
@@ -404,10 +403,10 @@ internal sealed class GenericTypeNode(
     public override bool IsDegraded => degradedGenericType || arguments.Any(argument => argument.IsDegraded);
     internal override bool HasStructuralPayload =>
         arguments.Any(argument => argument.HasStructuralPayload)
-        || !string.Equals(
-            StructuralIdentity(),
-            base.StructuralIdentity(),
-            StringComparison.Ordinal);
+        || (metadataName is not null
+            && StructuralTypeIdentity.RequiresEscapedNameIdentity(
+                metadataName.Namespace,
+                metadataName.Segments));
     public override long EstimatedRenderedLength => estimatedRenderedLength;
 
     internal override string StructuralIdentity()

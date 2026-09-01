@@ -183,6 +183,35 @@ public static class StructuralTypeIdentity
             : $"{Escape(@namespace, escapeDot: false)}.{typeName}";
     }
 
+    internal static bool RequiresEscapedNameIdentity(
+        string @namespace,
+        IEnumerable<string> metadataSegments)
+    {
+        if (!string.Equals(
+            Escape(@namespace, escapeDot: false),
+            @namespace,
+            StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        foreach (string segment in metadataSegments)
+        {
+            string name = MetadataNameArity.StripFromSegment(segment);
+            if (!string.Equals(
+                EscapeSegment(
+                    name,
+                    escapeGenericParameterMarker: @namespace.Length == 0),
+                name,
+                StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     static string EscapeSegment(
         string value,
         bool escapeGenericParameterMarker)
