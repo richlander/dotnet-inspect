@@ -2023,6 +2023,57 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void ToDisplayRows_DoesNotDescribeUnrelatedCalleeRenameWhenDeclarationNameIsModifierKeyword()
+    {
+        // Round-8 review (reviewer A): `async` is a contextual keyword,
+        // legal unescaped as an ordinary local-function name
+        // (`void async() { }`). Before this fix, the scanner mistook that
+        // name for the `async` modifier it also recognizes as legitimately
+        // prefixing a tuple return type, and continued scanning past what
+        // was actually the declaration's own (empty) parameter list and
+        // into its body, where it could pick up an unrelated call there
+        // (`New`) and misattribute it as this declaration's own name. Here
+        // the added `async` declaration's body happens to invoke `New`,
+        // matching this comparison's own unrelated call-site rename, but
+        // the declaration's actual name is `async`, not `New` -- the
+        // caption must not fire.
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return New(value);\nvoid async() { New(0); }",
+            new NodeSpec("InvocationExpression", "New(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "void async() { New(0); }", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> New(value)", changed.Detail);
+    }
+
+    [Fact]
+    public void ToDisplayRows_DoesNotDescribeUnrelatedCalleeRenameWhenExpressionBodiedDeclarationNameIsModifierKeyword()
+    {
+        // Same shape as above, but expression-bodied (`=>`) rather than
+        // block-bodied (`{ }`) -- the body-start probe after a
+        // modifier-keyword match must recognize both, not only `{`.
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return New(value);\nint async() => New(0);",
+            new NodeSpec("InvocationExpression", "New(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "int async() => New(0);", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> New(value)", changed.Detail);
+    }
+
+    [Fact]
     public void IssueCorrespondence_DoesNotInferDeclarationWithoutMatchedCallSiteRewrite()
     {
         // Close negative: a new local-function declaration with no IL origin

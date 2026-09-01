@@ -724,6 +724,32 @@ public static class CSharpStructuralDiffPrinter
 
                     if (Array.IndexOf(LocalFunctionModifiers, text[tokenStart..tokenEnd]) >= 0)
                     {
+                        // Only a genuine modifier prefixing a return type or
+                        // tuple-return type is followed by more header text
+                        // -- another identifier or parenthesized group --
+                        // before the body opens. A local function whose own
+                        // declared name merely spells a modifier keyword
+                        // (`void async() { New(); }`; `async` is a
+                        // contextual keyword, legal unescaped as an
+                        // ordinary identifier here) has its own real
+                        // parameter list mistaken for this modifier-prefixed
+                        // group instead, and the body opens immediately
+                        // after -- round-8 review, reviewer A. Peeking past
+                        // the closing paren for an immediate body start
+                        // (`{` or `=>`) distinguishes the two: only bail in
+                        // that case, rather than fall through into the body
+                        // and misattribute a call found there as this
+                        // declaration's own name.
+                        int probe = index + 1;
+                        while (probe < text.Length && char.IsWhiteSpace(text[probe]))
+                            probe++;
+                        if (probe < text.Length
+                            && (text[probe] == '{'
+                                || (text[probe] == '=' && probe + 1 < text.Length && text[probe + 1] == '>')))
+                        {
+                            return false;
+                        }
+
                         groupStart = -1;
                         continue;
                     }
