@@ -602,10 +602,9 @@ lists them.
 portable `AnnotatedSourceDocument` contract, and `QueryMemberAnnotatedSource` now
 feeds it a real document.
 
-The proposed
 [Annotated Source viewer interaction](../../docs/design/annotated-source-viewer-interaction.md)
-design owns disclosure, actions, selection, annotations, media, Escape, and
-focus inside the embedded reader and modal viewer. The shared
+owns disclosure, actions, selection, annotations, media, Escape, and focus
+inside the embedded reader and modal viewer. The shared
 [Inspect Web UI](../../docs/design/inspect-web-ui.md) design continues to own
 modal composition, browser-history behavior, and destination focus.
 
@@ -613,15 +612,28 @@ The viewer reuses the owner's module rather than copying it.
 `prototypes/annotated-source-viewer/src/document-model.js` owns validation,
 UTF-16 coordinates, line derivation, segmentation, and the fact → target → node →
 span walk. `src/document-model.ts` provides typed aliases over that owner for
-Vite and the Node tests; Vite bundles the shared implementation into the
-deployable browser artifact without copying its logic. On top of it the typed
-view module adds only selection state:
-canonical lines, C#/IL medium toggles that hide lines without rebasing a
-coordinate, fact selection that highlights every targeted node across both
-media without selecting the text between one node's separated spans,
-click-to-tightest-node, explicitly unanchored facts, and a copy action that
-copies `document.text` so the copied artifact is source and never annotations.
-A payload the model rejects is reported as rejected, not rendered.
+Vite and the tests; Vite bundles the shared implementation into the deployable
+browser artifact without copying its logic.
+
+The embedded reader shows complete product-issued C# with the catalog's default
+Finding annotations, Finding detail, source-only copy, and **Explore**. Each
+**Explore** activation creates a fresh full-bleed modal session with C# visible,
+IL and UTF-16 ranges hidden, default annotations active, and no transferred
+detail. The modal adds catalog-driven annotation and medium controls,
+product-issued structure, deterministic invocation-preferred source hit
+testing, node selection, and one persistent inspector action for every Finding,
+including unanchored Findings. Annotation rows preserve the product-issued
+source prefix as layout geometry, so each CodeLens-like row appears immediately
+before its target line and begins at the anchored span without flattening the
+language's visible indentation. Dismissal destroys modal-local presentation
+and annotation state while retaining only an eligible embedded Finding primary.
+
+`src/annotated-source-session.ts` owns the viewer-local state transitions;
+`src/annotated-source.ts` owns markup, browser hit testing, native drag
+selection protection, detail, and focus-target identities; and
+`dotnet-inspect.ts` composes the modal with shell history, inert background,
+focus restoration, and layered Escape. A payload the portable model rejects
+remains a visible failure rather than rendering success-shaped empty output.
 
 ## Run
 
@@ -674,6 +686,32 @@ the same worker-safe path and exercises build identity plus
 `asyncLoweringCanary()`, a genuinely awaited operation with a fixed typed
 result and no network, package-cache, server-API, or user-data dependency.
 
+The purpose-built `multi-facade-canary` proves that this lifecycle composes
+across independently generated modules. Its Alpha and Beta assemblies
+deliberately use the same namespace, declaring-type names, method names,
+overload shapes, record name, and enum name. Each checked-in facade is generated
+from only its own assembly and acquires only that assembly's export root. A
+consumer-owned single-flight coordinator serializes first initialization:
+Alpha initializes before Beta, while concurrent readiness callers share that
+one sequence. The second facade relies on the SDK builder's completed-runtime
+reuse; neither generated module coordinates with the other or exposes the
+runtime.
+
+`eng/generate-inspect-web-multi-facade-canary.sh --check` gates independent
+generation and drift for both facades. The
+`eng/test-inspect-web-multi-facade-canary.sh` Browser/Wasm gate publishes both
+assemblies into one runtime, requests readiness concurrently, and then invokes
+both facades. It requires exactly one live SDK runtime, assembly-distinct
+results through both declaring types and exact overload keys, a genuinely
+awaited operation from each assembly, and independent record and enum
+declarations. Its negative cases prove that the gate fails for a wrong assembly
+root, a separately loaded runtime module, both operational paths routed through
+one facade, an uninitialized second facade, or a dropped managed invocation.
+This canary does not split the production engine binding or expose raw
+`ILInspector` APIs; that production partition remains [#4497].
+
+[#4497]: https://github.com/richlander/dotnet-inspect/issues/4497
+
 The home page identifies the browser stack below its search surface and links
 to the client-rendered `/credits` route. `src/credits-panel.ts` owns that page's
 markup, route recognition, and rendered control bindings. Azure Static Web Apps
@@ -721,27 +759,32 @@ Spotlight scopes are literal unions derived from their UI catalogs. DOM and URL
 tokens are decoded before they reach typed state or actions; the scope-bar and
 workspace-navigation tests gate rejection of unknown values.
 
-Oxlint checks both compiler-derived facade artifacts as consumer contracts:
+Oxlint checks the compiler-derived production facade artifacts and both
+multi-facade canary source modules as consumer contracts:
 `src/inspect-web-engine.d.ts` receives the TypeScript rules, while
 `engine/wwwroot/inspect-web-engine.js` receives the JavaScript correctness and
-suspicious rules described below. TypeScript compilation and the generated
-facade drift gate provide independent source and declaration coverage. The
-toolchain test pins both derived lint inputs so a generator change cannot
-silently leave analysis coverage. The configuration disables four non-correctness
-rules: underscore spelling, function relocation, listener API preference, and
-`Array.prototype.sort`. Those rules prescribe naming/layout churn or, for
-sorting, the ES2023 `toSorted` API while this project targets ES2022. Those
-four, plus the generated-facade overrides, are the *complete* set of disabled
-rules. The compiler-derived JavaScript disables the five unsafe-operation
-rules and the catch-callback annotation rule that JavaScript cannot satisfy.
-The authoritative TypeScript disables those unsafe-operation rules, unsafe
-type-assertion analysis for authenticated JSON envelopes, and the redundant
-constituent diagnostic that lacks the temporary SDK declaration used by its
-separate compiler gate. A toolchain test pins these against Oxlint's resolved
-configuration, so another disable — written at the top level or inside an
-`overrides` entry — fails rather than passing quietly. Turning a rule off is
-not the only way to lose it, so options, plugin settings and the global
-environment are pinned beside the severities; those are described below.
+suspicious rules described below. The checked-in production and canary
+TypeScript facades are compiled separately against the exact SDK-owned
+`dotnet.d.ts`; the canary gate compiles its authored coordinator and exercise
+modules in that same program. TypeScript compilation and the generated facade
+drift gates provide independent source and declaration coverage. The toolchain
+test pins every separately compiled and derived lint input so a generator
+change cannot silently leave analysis coverage. The configuration disables
+four non-correctness rules: underscore spelling, function relocation, listener
+API preference, and `Array.prototype.sort`. Those rules prescribe
+naming/layout churn or, for sorting, the ES2023 `toSorted` API while this
+project targets ES2022. Those four, plus the generated-facade overrides, are
+the *complete* set of disabled rules. The compiler-derived JavaScript disables
+the five unsafe-operation rules and the catch-callback annotation rule that
+JavaScript cannot satisfy. The authoritative generated TypeScript facades
+disable those unsafe-operation rules, unsafe type-assertion analysis for
+authenticated JSON envelopes, and the redundant constituent diagnostic that
+lacks the temporary SDK declaration used by their separate compiler gates. A
+toolchain test pins these against Oxlint's resolved configuration, so another
+disable — written at the top level or inside an `overrides` entry — fails
+rather than passing quietly. Turning a rule off is not the only way to lose it,
+so options, plugin settings and the global environment are pinned beside the
+severities; those are described below.
 
 Existing JavaScript tests and verification scripts remain covered by Oxlint's
 correctness and suspicious rules, but not by its unsafe-operation type rules:
@@ -1096,6 +1139,8 @@ npm ci
 npm run analyze
 npm run build
 npm test
+npx playwright install firefox
+npm run test:browser
 cd ../..
 dotnet run --project prototypes/inspect-web/engine.Tests -c Release
 ```
@@ -1104,8 +1149,12 @@ dotnet run --project prototypes/inspect-web/engine.Tests -c Release
 central-directory entry limit before archive enumeration, role preflight before identity decoding, malformed selected-participant
 visibility, reference-only retained-image budget, duplicate XML parameter
 handling, Mermaid label containment, and complete call-graph navigation targets.
-The frontend tests gate the annotated view helper against the shared sample
-document and keep Spotlight candidate/cache identity coordinate-complete.
+The frontend tests gate the Annotated Source session/action matrix against the
+shared sample document and keep Spotlight candidate/cache identity
+coordinate-complete. The Playwright Firefox gate exercises real pointer
+coordinates, invocation-preferred hit testing, keyboard activation, native
+drag selection, focus trapping and restoration, layered Escape, pointer
+**Close**, backdrop dismissal, and source-only copy.
 `call graph diagnostics distinguish failures from expected bounds` gates that
 catalog and body-analysis failures remain visible while an expected finite
 traversal boundary does not become a global error.

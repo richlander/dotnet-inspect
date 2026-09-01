@@ -11,12 +11,14 @@
     "build": "npm run typecheck && vite build && node scripts/verify-site-artifact.ts dist",
     "preview": "vite preview",
     "test": "npm run typecheck && node --test",
+    "test:browser": "playwright test --project=firefox",
     "inspect-web-typescript-semantic-facts": "node --test test/typescript-semantic-facts.test.ts test/typescript-semantic-facts-artifact.test.ts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p test/tsconfig.json && tsc --noEmit -p tsconfig.node.json",
-    "lint": "node scripts/verify-analysis-host.ts && oxlint --no-ignore --disable-nested-config src test scripts engine/inspect-web-engine.ts engine/wwwroot/inspect-web-engine.js vite.config.ts && html-validate --config .htmlvalidate.json \"**/*.{html,htm,xhtml}\"",
+    "lint": "node scripts/verify-analysis-host.ts && oxlint --no-ignore --disable-nested-config src test browser scripts multi-facade-canary/coordinator.ts multi-facade-canary/exercise.ts multi-facade-canary/facades engine/inspect-web-engine.ts engine/wwwroot/inspect-web-engine.js vite.config.ts playwright.config.ts && html-validate --config .htmlvalidate.json \"**/*.{html,htm,xhtml}\"",
     "analyze": "npm run lint && knip"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/node": "^24.13.3",
     "html-validate": "^11.10.0",
     "knip": "^6.32.2",

@@ -172,7 +172,10 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
   assert.deepEqual(browserTsconfig.include, ["src/**/*.ts"]);
   assert.equal(testTsconfig.extends, "../tsconfig.json");
   assert.deepEqual(testTsconfig.compilerOptions.types, ["node"]);
-  assert.deepEqual(testTsconfig.include, ["./**/*.ts"]);
+  assert.deepEqual(
+    testTsconfig.include,
+    ["./**/*.ts", "../browser/**/*.ts", "../playwright.config.ts"],
+  );
   // The toolchain scripts and the Vite config are Node programs rather than browser
   // source, so they get Node globals from their own project instead of widening the
   // browser one. Without this project the Vite config would be checked by nothing: no
@@ -910,6 +913,10 @@ test("no HTML document carries script the gates cannot read", () => {
 const compilerProjects = ["tsconfig.json", "test/tsconfig.json", "tsconfig.node.json"];
 const separatelyCompiledTypeScript = new Set([
   "engine/inspect-web-engine.ts",
+  "multi-facade-canary/coordinator.ts",
+  "multi-facade-canary/exercise.ts",
+  "multi-facade-canary/facades/alpha.ts",
+  "multi-facade-canary/facades/beta.ts",
 ]);
 
 function programFiles(): Set<string> {
@@ -995,26 +1002,55 @@ test("every TypeScript file belongs to a compiler project", () => {
       + "pinned separate compiler gate");
 });
 
-test("the generated engine TypeScript uses its SDK-owned compiler gate", () => {
-  const generationScript = readFileSync(
+test("the generated facade TypeScript uses its SDK-owned compiler gates", () => {
+  const engineGenerationScript = readFileSync(
     new URL("../../../eng/generate-inspect-web-engine-facade.sh", import.meta.url),
     "utf8");
+  const multiFacadeGenerationScript = readFileSync(
+    new URL(
+      "../../../eng/generate-inspect-web-multi-facade-canary.sh",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
   assert.deepEqual([...separatelyCompiledTypeScript], [
     "engine/inspect-web-engine.ts",
+    "multi-facade-canary/coordinator.ts",
+    "multi-facade-canary/exercise.ts",
+    "multi-facade-canary/facades/alpha.ts",
+    "multi-facade-canary/facades/beta.ts",
   ]);
   assert.match(
-    generationScript,
+    engineGenerationScript,
     /ts_output_file="\$repo_root\/prototypes\/inspect-web\/engine\/inspect-web-engine\.ts"/);
   assert.match(
-    generationScript,
+    engineGenerationScript,
     /Microsoft\.NETCore\.App\.Runtime\.Mono\.browser-wasm[\s\S]*dotnet\.d\.ts/);
   assert.match(
-    generationScript,
+    engineGenerationScript,
     /-target:ProcessFrameworkReferences[\s\S]*-getItem:RuntimePack/);
-  assert.doesNotMatch(generationScript, /DOTNET_ROOT|sort -V/);
-  assert.match(generationScript, /"newLine": "lf"/);
-  assert.match(generationScript, /"\$tsc" -p "\$scratch\/tsconfig\.json"/);
+  assert.doesNotMatch(engineGenerationScript, /DOTNET_ROOT|sort -V/);
+  assert.match(engineGenerationScript, /"newLine": "lf"/);
+  assert.match(engineGenerationScript, /"\$tsc" -p "\$scratch\/tsconfig\.json"/);
+
+  assert.match(
+    multiFacadeGenerationScript,
+    /canary="\$repo_root\/prototypes\/inspect-web\/multi-facade-canary"/);
+  assert.match(
+    multiFacadeGenerationScript,
+    /Microsoft\.NETCore\.App\.Runtime\.Mono\.browser-wasm[\s\S]*dotnet\.d\.ts/);
+  assert.match(
+    multiFacadeGenerationScript,
+    /-target:ProcessFrameworkReferences[\s\S]*-getItem:RuntimePack/);
+  assert.doesNotMatch(multiFacadeGenerationScript, /DOTNET_ROOT|sort -V/);
+  assert.match(multiFacadeGenerationScript, /"newLine": "lf"/);
+  assert.match(
+    multiFacadeGenerationScript,
+    /"include": \["facades\/\*\.ts", "coordinator\.ts", "exercise\.ts"\]/);
+  assert.match(
+    multiFacadeGenerationScript,
+    /"\$tsc" -p "\$scratch\/tsconfig\.json"/);
 });
 
 // And the same question for the lint, which is invoked on an explicit list of paths
@@ -1766,6 +1802,11 @@ test("the lint runs the categories, plugins and named rules it claims", () => {
 test("the oxlint configuration relaxes only the rules it documents", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const printed = printedOxlintConfig(root);
+  const generatedTypeScriptFacadeScope = [
+    "engine/inspect-web-engine.ts",
+    "multi-facade-canary/facades/alpha.ts",
+    "multi-facade-canary/facades/beta.ts",
+  ].join(", ");
 
   const relaxed = Object.entries(printed.rules)
     .filter(([, entry]) => severityOf(entry) === "allow")
@@ -1791,10 +1832,11 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
       .sort(),
   ]);
 
-  // The scoped exceptions are the generated TypeScript handoff and its compiler-derived
-  // publish artifact. The source is compiled separately against the SDK-owned runtime
-  // declaration; the JavaScript import resolves only after Wasm publish. Authored source
-  // keeps the complete rule set held by the gates above.
+  // The scoped exceptions are the generated TypeScript handoffs and the production
+  // facade's compiler-derived publish artifact. The TypeScript sources are compiled
+  // separately against the SDK-owned runtime declaration; the JavaScript import resolves
+  // only after Wasm publish. Authored source keeps the complete rule set held by the
+  // gates above.
   assert.deepEqual(scopedRelaxations, [
     ["scripts/*.ts, test/**/*.ts, **/vite.config.ts", []],
     ["engine/wwwroot/inspect-web-engine.js", [
@@ -1805,7 +1847,7 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
       "typescript/no-unsafe-return",
       "typescript/use-unknown-in-catch-callback-variable",
     ]],
-    ["engine/inspect-web-engine.ts", [
+    [generatedTypeScriptFacadeScope, [
       "typescript/no-redundant-type-constituents",
       "typescript/no-unsafe-argument",
       "typescript/no-unsafe-assignment",
@@ -1900,7 +1942,7 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
       env: {},
       globals: {},
     },
-    "engine/inspect-web-engine.ts": {
+    [generatedTypeScriptFacadeScope]: {
       env: {},
       globals: {},
     },
@@ -2350,16 +2392,12 @@ test("static hosting serves credits links through the application entry point", 
   const creditsRoutes = staticWebAppConfig.routes
     .filter(route => route.route === "/credits" || route.route === "/credits/");
 
+  // Azure Static Web Apps normalizes a trailing slash away when matching routes, so a
+  // separate "/credits/" rule collides with "/credits" and fails deployment (#4634,
+  // reintroduced by #5039 and refixed here). One rule covers both forms.
   assert.deepEqual(creditsRoutes, [
     {
       route: "/credits",
-      rewrite: "/index.html",
-      headers: {
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-      },
-    },
-    {
-      route: "/credits/",
       rewrite: "/index.html",
       headers: {
         "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -2522,14 +2560,16 @@ test("the analysis host check matches locked native packages and lint wiring", (
   assert.equal(
     packageJson.scripts.lint,
     "node scripts/verify-analysis-host.ts && "
-      + "oxlint --no-ignore --disable-nested-config src test scripts "
-      + "engine/inspect-web-engine.ts engine/wwwroot/inspect-web-engine.js "
-      + "vite.config.ts && "
+      + "oxlint --no-ignore --disable-nested-config src test browser scripts "
+      + "multi-facade-canary/coordinator.ts multi-facade-canary/exercise.ts "
+      + "multi-facade-canary/facades engine/inspect-web-engine.ts "
+      + "engine/wwwroot/inspect-web-engine.js vite.config.ts "
+      + "playwright.config.ts && "
       + "html-validate --config .htmlvalidate.json \"**/*.{html,htm,xhtml}\"",
   );
 });
 
-test("the lint gate includes both compiler-derived facade artifacts", () => {
+test("the lint gate includes all compiler-derived facade artifacts", () => {
   assert.ok(
     !(oxlintConfig.ignorePatterns ?? []).includes("src/inspect-web-engine.d.ts"),
   );
@@ -2539,6 +2579,15 @@ test("the lint gate includes both compiler-derived facade artifacts", () => {
   const lintScript = packageJson.scripts.lint;
   assert.ok(lintScript !== undefined, "package.json must define a lint script");
   assert.match(lintScript, /(?:^| )src(?: |$)/);
+  assert.match(
+    lintScript,
+    /(?:^| )multi-facade-canary\/coordinator\.ts(?: |$)/,
+  );
+  assert.match(
+    lintScript,
+    /(?:^| )multi-facade-canary\/exercise\.ts(?: |$)/,
+  );
+  assert.match(lintScript, /(?:^| )multi-facade-canary\/facades(?: |$)/);
   assert.match(
     lintScript,
     /(?:^| )engine\/wwwroot\/inspect-web-engine\.js(?: |$)/,

@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
+using CSharpText;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
@@ -221,6 +222,170 @@ public class ApiMemberIdentityTests
         Assert.All(anchors, anchor => Assert.Contains("op_Explicit", anchor.CanonicalSignature, StringComparison.Ordinal));
         Assert.Contains(anchors, anchor => anchor.CanonicalSignature.EndsWith("~int", StringComparison.Ordinal));
         Assert.Contains(anchors, anchor => anchor.CanonicalSignature.EndsWith("~long", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ConversionOperatorNames_AreClosedAndRecognized()
+    {
+        string[] expected =
+        [
+            "op_Implicit",
+            "op_Explicit",
+            "op_CheckedImplicit",
+            "op_CheckedExplicit",
+        ];
+
+        Assert.Equal(expected, ApiMemberIdentity.ConversionOperatorNames);
+        Assert.All(
+            ApiMemberIdentity.ConversionOperatorNames,
+            name => Assert.True(ApiMemberIdentity.IsConversionOperator(name)));
+        Assert.False(ApiMemberIdentity.IsConversionOperator("op_Addition"));
+        Assert.False(ApiMemberIdentity.IsConversionOperator("op_CheckedAddition"));
+    }
+
+    [Fact]
+    public void ConversionOperatorIdentity_PreservesReturnTypeForEveryDeclaredName()
+    {
+        byte[] image = BuildConversionOperatorIdentityImage();
+        using var peReader = new PEReader(new MemoryStream(image));
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition metadataType = reader.GetTypeDefinition(
+            Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(
+                    reader.GetTypeDefinition(handle).Name) == "C"));
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name == "C");
+
+        foreach (string name in ApiMemberIdentity.ConversionOperatorNames)
+        {
+            List<MemberSignatureShape> shapes = [];
+            foreach (MethodDefinitionHandle handle in
+                metadataType.GetMethods().Where(
+                    handle => reader.GetString(
+                        reader.GetMethodDefinition(handle).Name) == name))
+            {
+                MemberSignatureShapeResult result =
+                    MetadataMemberSignatureShape.Create(reader, handle);
+                Assert.True(result.IsAvailable, result.UnavailableReason);
+                Assert.NotNull(result.Shape!.ConversionReturnType);
+                shapes.Add(result.Shape);
+            }
+            Assert.Equal(2, shapes.Distinct().Count());
+
+            List<ApiMember> conversions =
+            [
+                .. type.Members.Where(member => member.Name == name),
+            ];
+            Assert.Equal(2, conversions.Count);
+            Assert.All(conversions, member => Assert.NotNull(member.ReturnType));
+
+            List<MemberAnchor> anchors =
+            [
+                .. conversions.Select(
+                    member => ApiMemberIdentity.GetMemberAnchor(type, member)),
+            ];
+            Assert.Equal(
+                2,
+                anchors
+                    .Select(anchor => anchor.CanonicalSignature)
+                    .Distinct(StringComparer.Ordinal)
+                    .Count());
+            Assert.Equal(
+                2,
+                anchors
+                    .Select(anchor => anchor.Fingerprint)
+                    .Distinct(StringComparer.Ordinal)
+                    .Count());
+            Assert.Equal(
+                2,
+                anchors
+                    .Select(anchor => anchor.StableSelector)
+                    .Distinct(StringComparer.Ordinal)
+                    .Count());
+            Assert.Contains(
+                anchors,
+                anchor => anchor.CanonicalSignature.EndsWith(
+                    "~int",
+                    StringComparison.Ordinal));
+            Assert.Contains(
+                anchors,
+                anchor => anchor.CanonicalSignature.EndsWith(
+                    "~long",
+                    StringComparison.Ordinal));
+
+            foreach (MemberAnchor anchor in anchors)
+            {
+                MemberTargetResolution resolution =
+                    MemberTargetResolver.Resolve(
+                        type,
+                        MemberTargetSelector.Parse(anchor.StableSelector));
+                Assert.True(resolution.Found);
+                Assert.Equal(anchor, resolution.Target!.Anchor);
+            }
+
+            List<CSharpText.XmlDocMemberIdentity> xmlIdentities = [];
+            foreach (ApiMember conversion in conversions)
+            {
+                Assert.True(
+                    ApiMemberIdentity.TryGetXmlDocMemberIdentity(
+                        type,
+                        conversion,
+                        out CSharpText.XmlDocMemberIdentity identity));
+                xmlIdentities.Add(identity);
+            }
+            Assert.Equal(
+                2,
+                xmlIdentities
+                    .Select(identity => identity.NormalizedReturnType)
+                    .Distinct(StringComparer.Ordinal)
+                    .Count());
+        }
+
+        List<ApiMember> additions =
+        [
+            .. type.Members.Where(member => member.Name == "op_Addition"),
+        ];
+        Assert.Equal(2, additions.Count);
+        Assert.All(additions, member => Assert.Null(member.ReturnType));
+        Assert.Single(
+            additions
+                .Select(member =>
+                    ApiMemberIdentity
+                        .GetMemberAnchor(type, member)
+                        .CanonicalSignature)
+                .Distinct(StringComparer.Ordinal));
+
+        string json = JsonSerializer.Serialize(surface);
+        ApiSurface roundTripped =
+            JsonSerializer.Deserialize<ApiSurface>(json)!;
+        ApiType roundTrippedType = Assert.Single(
+            roundTripped.Types,
+            candidate => candidate.Name == "C");
+        foreach (string name in ApiMemberIdentity.ConversionOperatorNames)
+        {
+            List<ApiMember> conversions =
+            [
+                .. roundTrippedType.Members.Where(
+                    member => member.Name == name),
+            ];
+            Assert.Equal(2, conversions.Count);
+            Assert.All(conversions, member => Assert.Null(member.SignatureModel));
+            Assert.All(conversions, member => Assert.NotNull(member.ReturnType));
+            Assert.Equal(
+                2,
+                conversions
+                    .Select(member =>
+                        ApiMemberIdentity.GetCanonicalSignature(
+                            roundTrippedType,
+                            member))
+                    .Distinct(StringComparer.Ordinal)
+                    .Count());
+        }
     }
 
     [Fact]
@@ -714,6 +879,115 @@ public class ApiMemberIdentityTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    static byte[] BuildConversionOperatorIdentityImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("ConversionOperators.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("ConversionOperators"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("C"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var intInstructions = new BlobBuilder();
+        var intEncoder = new InstructionEncoder(
+            intInstructions,
+            new ControlFlowBuilder());
+        intEncoder.OpCode(ILOpCode.Ldc_i4_0);
+        intEncoder.OpCode(ILOpCode.Ret);
+        var longInstructions = new BlobBuilder();
+        var longEncoder = new InstructionEncoder(
+            longInstructions,
+            new ControlFlowBuilder());
+        longEncoder.OpCode(ILOpCode.Ldc_i4_0);
+        longEncoder.OpCode(ILOpCode.Conv_i8);
+        longEncoder.OpCode(ILOpCode.Ret);
+        var methodBodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(methodBodies);
+        int intBodyOffset = bodyEncoder.AddMethodBody(
+            intEncoder,
+            maxStack: 1);
+        int longBodyOffset = bodyEncoder.AddMethodBody(
+            longEncoder,
+            maxStack: 1);
+
+        BlobHandle intSignature = AddConversionSignature(
+            metadata,
+            returnElementType: 0x08);
+        BlobHandle longSignature = AddConversionSignature(
+            metadata,
+            returnElementType: 0x0A);
+        foreach (string name in
+            ApiMemberIdentity.ConversionOperatorNames.Add("op_Addition"))
+        {
+            StringHandle methodName = metadata.GetOrAddString(name);
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL,
+                methodName,
+                intSignature,
+                intBodyOffset,
+                MetadataTokens.ParameterHandle(1));
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL,
+                methodName,
+                longSignature,
+                longBodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            methodBodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static BlobHandle AddConversionSignature(
+        MetadataBuilder metadata,
+        byte returnElementType)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteByte(0x01);
+        signature.WriteByte(returnElementType);
+        signature.WriteByte(0x12);
+        // TypeDef row 2 encoded as a TypeDefOrRef coded index.
+        signature.WriteByte(0x08);
+        return metadata.GetOrAddBlob(signature);
     }
 
     static void AssertProjectionStageExhaustion(

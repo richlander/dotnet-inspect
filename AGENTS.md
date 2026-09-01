@@ -16,42 +16,45 @@ documentation.
 
 ### How work runs on this repo
 
-- **Design first and state the basis.** Before starting new work, visibly name
-  one normative owner and exact owned claim, then supporting designs and models
-  by role. If ownership is unclear or multiple, apply the design-scope rules or
-  ask the user; finding design defects is cheaper than finding them in code.
-- **Requested work hot-starts through PR and review.** Agents may branch, commit,
-  push, and open its PR without separate approval. Once eligible, round 1 and
-  replacements inside the current six-round block dispatch automatically; only
-  a new block requires approval. Merge remains separately authorized.
-- **Markdown-only PRs hot-start immediately at non-boundary rounds.** When every
-  changed file is `*.md`, `markdownlint` is the pre-review and per-round gate.
-  Open the PR and dispatch review without asking or waiting for `ci-required`.
-- **Complicated features need extraordinary evidence and pre-work** before
-  code is written: corpus evidence, an established oracle, a TLA+ model, or a
-  spec developed with close user input are examples of high-value levers.
-  Much of this work is about bounding or making invariant a component's
-  contract — defining those bounds well *is* the design and the architecture.
-  The code itself is easy once the bounds are right.
-- **We practice demo-driven development.** Every PR demonstrates a demo (a
-  mockup for docs-only PRs). Demos find bugs and let later readers grasp the
-  goal quickly. Demos are the accessibility lever; a missing demo is usually a
-  sign that user scenarios were never defined, though we avoid over-fitting to
-  the demo itself.
-- **Adversarial review is the primary way we find unaddressed defects.** Most
-  changes get two-seat review (see [How many reviewers, and from which
-  models](#how-many-reviewers-and-from-which-models)).
-- **Adversarial review is bounded.** Unbounded rounds are themselves a signal
-  that the design doesn't close. When reviewers keep finding things, we listen
-  and often switch back to a design phase to clarify goals, bounds, and
-  approach (see [Stop after six rounds](#stop-after-six-rounds)).
-- **Security focus is targeted, not general-purpose.** The primary scenario is
-  untrusted internet-origin data (packages, symbols, source); the tool never
-  executes code, which narrows the threat model. We don't defend against
-  local or intra-repo actors. `InertString` and `HardenedJson` are the model:
-  construction-time containment threaded through the object model (see
-  [Keep design and adversarial review within
-  scope](#keep-design-and-adversarial-review-within-scope)).
+These practices serve one purpose: build robust, capable features that provide
+foundational capabilities or compelling user experiences. The result should be
+recognizable as conventionally sound, delightfully new or unique, or both.
+
+[`docs/development-practices.md`](docs/development-practices.md) owns the full
+development model and rationale. The binding summary:
+
+- **Start from convention and best practice.** Name and justify any deliberate
+  divergence, whether stricter or looser, and document its scope.
+- **Design first and state the basis.** Name one normative owner and exact
+  claim, then supporting designs, models, constraints, and evidence by role.
+- **Demonstrate the pathological case.** Build boundary and failure fixtures;
+  run contract-defining cases in CI and preserve valuable non-CI probes as
+  reproducible design evidence.
+- **Survey analogous implementations.** Use their behavior, omissions, and
+  boundaries as evidence, not authority; transfer code or architecture only
+  when license, provenance, assumptions, and architectural fit all transfer.
+- **Bias toward progress and low carrying cost.** Land independently coherent
+  slices; never present unfinished behavior as supported or preserve CLI flags
+  solely for compatibility. Shipped product skills must match current behavior.
+- **Lead with a demo.** Every PR demonstrates the scenario (a mockup for
+  docs-only PRs) without fitting the implementation only to that example.
+- **Treat critical review feedback as a design question first.** Ask whether
+  the owning design addresses it before repairing code; keep paired design
+  work moving quickly when the contract needs clarification.
+- **Use extraordinary pre-work for complicated features.** Corpus evidence,
+  an established oracle, a TLA+ model, or a closely developed specification
+  should bound the contract before implementation.
+- **Hot-start requested work through PR and review.** Agents may branch,
+  commit, push, open the PR, and dispatch eligible rounds without separate
+  approval; merge remains separately authorized.
+- **Use the Markdown fast path.** For Markdown-only PRs at non-boundary rounds,
+  `markdownlint` replaces `ci-required` as the pre-review and per-round gate.
+- **Use bounded adversarial review to find design and implementation gaps.**
+  Every non-trivial change gets two seats; repeated findings are evidence to
+  revisit design, and six rounds ends the current review block.
+- **Keep security work inside the repository threat model.** Focus on
+  untrusted internet-origin data and construction-time containment, not local
+  or intra-repository actors unless an owning design explicitly opts in.
 
 > A change spanning Markout and this repo is rare and uses a separate
 > co-development loop: read
@@ -119,10 +122,10 @@ readiness from its presence (see [Forming a candidate](#forming-a-candidate)).
 - **Base movement alone does not remove it.** Classify the landed range per
   [Clean reviews are not spent by main
   moving](#clean-reviews-are-not-spent-by-main-moving); a no-interaction
-  classification keeps the label through the integration.
-- **Remove it** before a new round, author change, conflict recovery, restack,
-  unresolved finding, or draft transition — anything that spends the clean
-  reviews or reopens the head to a fresh finding.
+  classification keeps the label on the unchanged reviewed head.
+- **Remove it and expire recorded merge authorization** before a new round,
+  author change, conflict recovery, restack, base-ref retarget, unresolved
+  finding, or draft transition — anything that spends the clean reviews.
 
 ## User-directed workflow adjustments
 
@@ -136,29 +139,32 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
 - **Review ordinary non-Markdown changes in parallel with CI:** requires user
   approval; conflict recovery is the explicit exception. A CI failure requiring
   an author change still supersedes the attempt, and all findings carry forward.
-- **Auto-merge on the final push:** once every required review is review-clean,
-  or the intended final head/base carries an approved exact-head
-  trivial-interaction waiver, the user may authorize auto-merge for that exact
-  candidate; the agent may ask. If the head or base moves after arming, disarm
-  and ask again before arming the new exact candidate. Review that head first
-  unless the user approves its exact-head trivial-interaction waiver.
+- **Pre-authorize merge for the final head:** after clean reviews or a waiver,
+  the user may authorize its exact head and base ref. Keep auto-merge unarmed
+  while gates are pending; after green preflight, use the [exact-head
+  precondition](docs/github-api-operations.md#bind-merge-mutations-to-the-head).
+  Head/base-ref change or invalidated evidence expires authorization;
+  no-interaction tip movement within the same base ref preserves it.
 - **"CI is ready":** the user's statement that CI has no failures and the PR is
   mergeable. Trust it without re-checking and move to the next task, such as
   dispatching the next round's reviewers.
 - **Authorizing the next round before CI completes:** the agent does not need
   to check CI status first; proceed with the authorized round.
 - **Skip re-review after a trivial base interaction:** requires the user's
-  approval for one exact integration head against one exact analyzed base tip,
-  offered only for a `main`-targeting PR or bottom open stack slice whose
-  waiver lineage starts at one immutable review-clean head and recorded base
-  (a renewal may only integrate a further moved base from that same lineage).
+  approval for one exact integration head and its mechanically resolved
+  interaction at one exact analyzed base tip, offered only for a
+  `main`-targeting PR or bottom open stack slice whose waiver lineage starts at
+  one immutable review-clean head and recorded base (a renewal may only
+  integrate a further moved base from that same lineage).
   Every overlap must resolve mechanically — analyzed base side verbatim, or
   drop the PR's change to that file — and the cumulative diff against the
   newest base must stay a subset of the original reviewed diff with no
   surviving reviewed claim, contract, or behavior changed. `review-clean` stays
-  absent on the integration head; any later head or base movement expires the
-  decision, and any semantic conflict resolution or new authored change
-  requires ordinary re-review. Evidence to publish before asking:
+  absent on the integration head. Later no-interaction base movement extends
+  the waiver and recorded merge authorization to the analyzed tip without
+  moving the head or asking again; head movement or any other interaction
+  expires both. Semantic conflict resolution or new authored change requires
+  ordinary re-review. Evidence to publish:
   [Trivial-interaction re-review waiver](docs/round-orchestration.md#trivial-interaction-re-review-waiver).
 
 ## Before changing files
@@ -285,7 +291,9 @@ trust-boundary and containment guidance:
 [`docs/design/untrusted-data-threat-model.md`](docs/design/untrusted-data-threat-model.md#trust-boundaries).
 For a credible external-input threat, first define its actor, input path,
 boundary, containment invariant, and enforcement gate in the owning design.
-Prefer construction-time containment (`HardenedJson`, `InertText.InertString`).
+Prefer typed construction-time containment such as `InertText.InertString`;
+when that shape is unavailable, a centralized entry point such as
+`HardenedJson` is weaker but still auditable.
 
 ### Platform compatibility
 
@@ -392,8 +400,7 @@ section and [round orchestration](docs/round-orchestration.md) explain them.
 4. **A round that pushes a fix is not review-clean.** Only the replacement head
    can earn that.
 5. **Never claim merge readiness from label state alone.** Confirm current-head
-   CI and GitHub's live mergeability immediately before every merge attempt,
-   even when `review-clean` is present.
+   CI and GitHub's live mergeability immediately before every merge attempt.
 6. **A round closes only when reconciled and its applicable gates are green.**
    For a non-Markdown-only PR, known-red `ci-required` blocks; pending status follows
    [Bounded status waiting](docs/round-orchestration.md#bounded-status-waiting).
@@ -402,7 +409,7 @@ section and [round orchestration](docs/round-orchestration.md) explain them.
    author change restarts the *same* round.
 7. **Six rounds, then stop** and ask for another block.
 8. **Never merge without explicit user authorization** for that specific PR.
-   Auto-merge armed at the user's direction is that authorization; see
+   A recorded exact-head merge authorization satisfies this rule; see
    [Standing adjustments](#standing-adjustments).
 
 ### Canonical round flow
@@ -439,37 +446,42 @@ returned finding forward.
 
 Spend review only on a pushed, settled head formed by the canonical cycle.
 Record the exact head and effective base. If a conflict, author change,
-finding, or restack moves the head, form a replacement through the cycle again
-unless the user approves the exact-head trivial-interaction waiver below. While
-a candidate is locked, do not push or integrate other than for recovery; a
-non-mutating fetch is allowed to re-establish state after a resume and for
-carry-forward analysis. Before merge, confirm live GitHub readiness — see
-[Merge preflight](docs/round-orchestration.md#merge-preflight).
+finding, restack, or base-ref retarget changes the candidate, form a replacement
+through the cycle unless the user approves the exact-head waiver below. While a
+candidate is locked, do not push or integrate other than for recovery; a
+non-mutating fetch is allowed for resume and carry-forward analysis. Before
+merge, confirm live GitHub readiness — see [Merge preflight](docs/round-orchestration.md#merge-preflight).
 
 ### Clean reviews are not spent by main moving
 
 When a `main`-targeting PR (or the bottom open stack slice) has a review-clean
 head, or a head with a pending/approved trivial-interaction waiver, and
-`origin/main` moves, assess the landed range before doing anything else — do
-not integrate blindly and do not start another round by default. A base
-movement beyond a waiver's recorded base expires it before classification. An
-upper stack slice follows its parent instead: parent movement is a restack
-requiring review at the new head.
+an agent observes that `origin/main` moved while the PR remains open, assess the
+landed range before an agent-driven merge or mutation — do not integrate
+blindly and do not start another round by default. An upper stack slice follows
+its parent instead: parent movement is a restack requiring review at the new
+head.
 
 After a non-mutating fetch, classify the landed range into exactly one
 outcome, act on it, and report the classification and action as normal session
 output before changing labels or dispatching reviewers; re-classify only when
 the landed range itself changes, not on every poll. Merging still needs a live
-readiness check and explicit user authorization regardless of classification.
+readiness check and explicit user authorization.
+The analysis is a point-in-time decision aid, not an exact-base lock: later base
+movement does not trigger branch integration or CI chasing; exact-base
+revalidation needs a merge queue, not repeated branch updates.
 Full detection, classification, and action procedure:
 [Carry-forward after clean reviews](docs/round-orchestration.md#carry-forward-after-clean-reviews).
-The four outcomes: **no interaction** (keep `review-clean`, integrate by SHA,
-skip re-running anything — the common case), **trivial interaction**
-(overlaps resolve mechanically; remove `review-clean`, integrate, run affected
-gates, offer the exact-head re-review waiver), **significant interaction, no
-conflict** (remove `review-clean`, re-run validation and CI, re-dispatch
-reviewers as a normal round), and **merge conflict requiring semantic
-resolution** (treat as an author change under
+The four outcomes: **no interaction** (keep the reviewed or waived head
+unchanged, preserve its state and merge authorization, and start no new CI run
+or other gate — the common case), **trivial interaction** (if still open,
+expire authorization, disable any armed auto-merge first, remove
+`review-clean`, integrate, run affected gates, and offer the exact-head
+re-review waiver), **significant interaction, no conflict** (if still open,
+expire authorization, disable any armed auto-merge first, remove
+`review-clean`, integrate, re-run validation and CI, and re-dispatch reviewers
+as a normal round), and **merge conflict requiring semantic resolution**
+(expire authorization, disable any armed auto-merge first, and recover under
 [Recovery transitions](#recovery-transitions)).
 
 ### How many reviewers, and from which models
@@ -561,12 +573,11 @@ Put it under `## Demo` above validation in the PR body.
   non-action boundary, and exact validation.
 - `review-clean` is advisory, not a merge-eligibility claim (see
   [Keep the review-clean label current](#keep-the-review-clean-label-current)).
-  Confirm current-head CI and GitHub's live mergeability at the moment of any
+  Confirm current-head CI and GitHub's live mergeability for every agent-driven
   merge attempt or readiness statement.
 - Never merge without explicit authorization for that PR. A clean review,
-  green CI, or readiness comment is not authorization. User-directed auto-merge
-  authorizes only the exact reviewed head or an approved trivial-interaction
-  waiver's exact head/base pair.
+  green CI, or readiness comment is not authorization. A recorded merge
+  authorization applies only to its exact head/base ref and valid evidence.
 
 ### Stacked PRs for multi-slice issues
 

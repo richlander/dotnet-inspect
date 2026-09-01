@@ -461,7 +461,9 @@ deferring the empty-session decision, a checkpoint diagnostic is the same
 first diagnostic that sealing the same required state under the same
 cancellation observations would produce. Sessions that never call
 supplemental acquisition retain the existing required-add and seal-time
-materialization behavior. The supplemental model treats this correctly derived
+materialization behavior for ordinary sources. A duplicate identity now
+reports the documented identity-collision diagnostic instead of an incidental
+materialization failure. The supplemental model treats this correctly derived
 checkpoint result as an owner input; the implementation gate, not that model,
 proves the simulation.
 
@@ -616,7 +618,7 @@ lease cleanup, convert failure to empty success, or commit an empty result
 violated their paired properties. These results establish the bounded model
 claims, not implementation conformance.
 
-Implementation is complete when focused gates prove:
+Implementation conformance is enforced by these focused gates:
 
 - `SupplementalAcquisition_RequiredCheckpointPreservesSealOutcome`
 - `SupplementalAcquisition_SealUsesCheckpointedSnapshots`
@@ -2002,6 +2004,14 @@ workspace
 
 The query owns session use. A host or presentation layer cannot open raw
 readers and invoke producers around the query registry.
+
+For an accepted analysis plan,
+[analysis universe realization](analysis-universe-realization.md) owns the
+operation-scoped binding from the plan's exact finite universe description to
+its authenticated Workspace offer and the capability-owner-issued access
+required by the plan. Workspace retains ownership of admission, groups, query
+authorization, and close behavior; the analysis consumer receives no mutable
+Workspace or group enumeration surface.
 
 Operations that do not inspect assemblies remain narrower. Package metadata,
 feed discovery, archive listing, and artifact inventory queries do not create

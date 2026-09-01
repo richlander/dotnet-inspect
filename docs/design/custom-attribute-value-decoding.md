@@ -71,6 +71,29 @@ execution but resource exhaustion and misread memory: a small download that
 costs disproportionate CPU or memory, or a decode that reads a length from the
 wrong offset.
 
+### Prior art: there is no upstream bound to inherit
+
+Every mainstream .NET consumer of custom-attribute blobs allocates on the
+attacker-declared count before reading a single element.
+
+| Consumer | Decoder | Bounds the declared count first? |
+| --- | --- | --- |
+| `System.Reflection.Metadata` | own | No — `ImmutableArray.CreateBuilder<CustomAttributeTypedArgument<T>>(count)` |
+| Roslyn `MetadataDecoder` | own, not SRM | No — `new TypedConstant[count]` |
+| ILSpy, ILCompiler (Native AOT) | SRM `DecodeValue` | No; inherited from SRM |
+| ILLink | Mono.Cecil | No — `new CustomAttributeArgument[uint32]` |
+| CoreCLR `ParseCaValue` | native | Effectively yes — appends into a dynamic `SArray`, never sized upfront |
+
+The prevailing model is "decode and throw; the caller catches
+`BadImageFormatException`." That model is correct for a compiler or an
+interactive decompiler, whose inputs the developer chose to reference. It is not
+correct here, where the assembly author is the adversary and the tool inspects
+whatever a public feed serves.
+
+`BlobReader.RemainingBytes` is public and would answer the question, but no
+decode path consults it before sizing an allocation. So the pre-walk in this
+component is not redundant with an upstream check; there is no upstream check.
+
 ## The containment invariants
 
 Three properties must hold together. They are independent: any one can break
@@ -246,6 +269,44 @@ Two consequences follow, and both are load-bearing:
    element code or an unsupported serialized form is refused, not deferred.
    Widening the rule past that distinction would convert a deliberate refusal
    into approval.
+
+#### Width agreement is a resource property, not only a fidelity one
+
+This is the documented root cause of `dotnet/runtime#57531`, filed against SRM
+in August 2021 by a NuGet engineer scanning packages on nuget.org — the same
+tool category as this one. A shipping package on the feed drove the reporter's
+scanner to a 28.5 GB allocation:
+
+```text
+Reading attribute 'RegisterPageBuilderLocalizationResourceAttribute'... found bad image format!
+Memory is at 28517.114097595215 MB
+BIG MEMORY!
+```
+
+The reporter's provider resolved every enum as `Int32`:
+
+```csharp
+public PrimitiveTypeCode GetUnderlyingEnumType(object type) => PrimitiveTypeCode.Int32;
+```
+
+The issue was closed on exactly that basis: an incorrect `GetUnderlyingEnumType`
+makes the decoder consume the wrong number of bytes, the cursor drifts, and a
+later field is then read as an array count. The pre-allocation itself was never
+changed, and the current source still has no length check.
+
+Two things follow. A width disagreement does not merely produce a wrong value —
+it relocates every subsequent read, so it can convert a valid blob into a
+multi-gigabyte allocation request. And the published position of the decoder's
+owner is that width agreement is a **caller obligation**. I1 is therefore
+load-bearing for I2, and the asymmetry recorded as Gap 5 is a bound defect
+rather than a fidelity nicety.
+
+Roslyn, which maintains its own decoder rather than calling SRM, resolves the
+same two width paths — the value-side serialized name and the signature-side
+type — through a single symbol-model lookup, and treats an unresolvable
+underlying type as a hard failure (`throw new UnsupportedSignatureContent()`)
+rather than defaulting to `Int32`. That is the same discipline stated as
+consequence 1 above, reached independently by the other production decoder.
 
 ## Known gaps
 
@@ -627,6 +688,89 @@ and it cannot make a stateful resolver stable. Same-provider decoding is
 guaranteed only on the `TryDecode` path, which is the supported product path.
 The resolver-less overload is a conservative test-only path.
 
+### Frozen cross-assembly enum-width adapter
+
+Custom-attribute enum width can consume one frozen
+[`TypeResolutionContext`](type-forwarding-resolution.md) through
+`TypeResolutionEnumWidth`: planned serialized names become structured
+requests, `Resolve` locates an already-retained defining image, and the
+resolved definition's authenticated kind plus
+`TypeResolutionContext.TryGetEnumUnderlyingType` establish a sealed
+core-library-derived `System.Enum` definition and read its single valid
+`value__` field without exposing a reader. Reflection-name escapes are
+projected back to exact metadata namespace and type segments, and the
+pre-decode guard applies SRM's own serialized-name projection before consulting
+the width table, so a name that only parses once its assembly suffix is removed
+cannot give the guard and the decoder different widths. Unplanned, unbound,
+malformed, or callback-ambiguous names stay `Int32`.
+
+Explicit assembly qualifiers stay constraints rather than widening to
+wildcards: an explicit `Culture=neutral` is spelled so it cannot match a
+culture-specific candidate, and an explicit `PublicKeyToken=null` names an
+unsigned assembly. Because an empty token reads as a wildcard during binding,
+the adapter records it on the request and then drops a resolved candidate that
+turned out to be signed, keeping the qualifier a constraint without changing
+the identity contract that `AssemblyDependencyResolver` and `MetadataSource`
+also consume. The qualifier constrains the assembly the reference bound to, so
+when forwarding hops were followed the narrowing inspects the first hop's
+source rather than the terminal definition. A definition that is not a
+CLI-valid enum -- unsealed, not directly derived from `System.Enum`, generic,
+carrying a non-public, non-special, or literal `value__`, or carrying a
+non-literal static field -- supplies no width.
+
+An argument whose signature names a type by handle is resolved from the
+definition that handle denotes, on both sides, never from its rendered name. A
+definition handle denotes itself; a reference is matched structurally, by name
+and resolution scope. Distinct definitions can render to one string: a nested
+type joins its declaring type with `.`, exactly as a namespace joins a type
+name, so a nested `Kind` declared in `Samples.E` and a top-level `Kind` in
+namespace `Samples.E` both render `Samples.E.Kind`. A reference additionally
+carries a resolution scope that its flattened spelling discards. Any
+name-keyed index must therefore drop one colliding definition, and routing
+either side through a name would let the guard and the decode select different
+definitions and skip different widths. Both sides ask
+`EnumUnderlyingPrimitive.TryResolveDefinition` about the same handle and take
+the width from the definition it returns;
+`NestedTypeNameCollision_GuardSkipMatchesDecodeWidth` gates both handle forms
+and `CollidingTypeDefNames_EachResolveTheirOwnWidth` gates the premise. A
+supplied name resolver never overrides a definition the signature already
+named, on either side. Structural matching walks a reference's nested scope
+chain but does not consult its terminal assembly or module scope, so a
+reference whose chain matches a definition in this reader resolves to that
+definition even when it nominally denotes another assembly. That is
+long-standing behavior, gated by
+`TypeRefEnumMatchingLocalInt64_SeesFollowingArrayCount`, and it is what keeps
+this side aligned with a decode that would otherwise reach the same local
+definition through its rendered name. A reference whose chain matches no
+definition here resolves by name as before.
+
+A name that has no pending handle -- a reference to a type this reader does not
+define, or a name the blob authored -- is looked up by spelling, and that
+lookup depends on where the name came from. A handle-derived name is an exact
+metadata spelling that reaches the provider verbatim, and metadata names may
+contain characters a reflection type name treats as escapes, so it is matched
+by its exact spelling before its reflection-normalized one. A blob-authored
+name is reflection syntax whose escapes are meaningful -- `E\+Kind` names the
+metadata type `E+Kind`, not one spelled with a backslash -- so it is normalized
+first and never matched verbatim. Both sides of the guard/decode pair classify
+a name the same way, so the two remain aligned either way. That classification
+belongs to a single pending lookup, not to a spelling: the provider records
+only that the name it produced most recently came from the blob, and clears
+that mark when it produces a handle-derived name. Remembering spellings instead
+would let a blob-authored occurrence change how a later handle-derived
+occurrence of the same spelling resolves, making a consumed width depend on
+argument order. The guard also resolves a repeated enum name once rather than
+once per array element, because the element count is attacker-chosen and
+per-element parsing is the amplification the guard exists to prevent.
+
+Product extract does not yet collect custom-attribute enum names into a
+generation; that remains residual on
+[#4741](https://github.com/richlander/dotnet-inspect/issues/4741).
+`TypeResolutionEnumWidthTests` gates the adapter, and
+`CustomAttributeValueGuardTests` gates guard/decoder width alignment through
+`EscapedTypeDefEnumName_GuardSkipMatchesDecodeWidth` and
+`EnumArrayElements_ResolveTheWidthOncePerName`.
+
 ### Resolution order, and what `Int32` actually means
 
 `ResolveEnum` tries the structural definition path first and consults the
@@ -755,6 +899,25 @@ product decode at depth 200 for exactly this reason.
 consequence for tests: a fixture built with more than 512 custom modifiers is
 refused before any behavior under test is reached.
 
+### What a declared count can claim
+
+The bounds above are ours. The ceilings that make them necessary are SRM's, and
+they are not uniform:
+
+| Declared count | Read as | Ceiling | Slot |
+| --- | --- | --- | --- |
+| `SZARRAY` element count | `Int32` from the value blob | `int.MaxValue` | `CustomAttributeTypedArgument<T>`, two references |
+| Fixed-argument count | compressed integer from the constructor signature | 0x1FFFFFFF | same |
+| Named-argument count | `UInt16` from the value blob | 65,535 | `CustomAttributeNamedArgument<T>` |
+
+Only the array count is a serious amplifier: a blob of a dozen bytes can ask for
+tens of gigabytes. The named-argument count is capped by its own encoding at
+roughly two megabytes and should not be described as an equivalent threat. The
+fixed-argument count is sometimes assumed safe because it comes from the
+constructor signature rather than the value blob, but in a hostile assembly that
+signature is attacker-written too, so it is bounded only by the compressed-integer
+encoding.
+
 ### Charging is refusal accounting, not materialization
 
 The guard reports work through a `beforeMaterialize` observer *before* doing
@@ -854,6 +1017,7 @@ malformed blob.
 | #5132 | Quadratic cost across attribute rows sharing one value blob. Gap 7. Found while reviewing this document. |
 | #4879 | Enum constants whose signature does not match `value__`. Fidelity. |
 | #5062 | Signature decode laundering internal errors into `SignatureRejected`. |
+| #4741 | Product extraction does not yet plan custom-attribute enum names into a frozen type-resolution generation. |
 
 Issue #5067 tracks this space as a whole.
 
