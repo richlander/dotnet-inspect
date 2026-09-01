@@ -331,6 +331,20 @@ public class TfmSelectorTests : IDisposable
     }
 
     [Fact]
+    public void FindAssemblyInPackage_PathQualifiedCaseMismatchIsNotAnExactAsset()
+    {
+        WriteDll("lib/net8.0/Target.dll");
+        string differentlyCased = "lib/net8.0/target.dll";
+
+        var (path, tfm) = TfmSelector.FindAssemblyInPackage(
+            _tempDir,
+            differentlyCased);
+
+        Assert.Null(path);
+        Assert.Null(tfm);
+    }
+
+    [Fact]
     public void FindAssemblyByTfm_FiltersResourceAssemblies()
     {
         var primary = WriteDll("tools/net8.0/any/MyTool.dll");

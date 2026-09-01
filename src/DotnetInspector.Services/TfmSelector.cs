@@ -529,17 +529,7 @@ public static class TfmSelector
                 .Equals(normalizedWithExtension, StringComparison.Ordinal));
         if (exact is not null)
             return exact;
-
-        string[] caseInsensitive = paths
-            .Where(path =>
-                Path.GetRelativePath(extractPath, path)
-                    .Replace('\\', '/')
-                    .Equals(normalizedWithExtension, StringComparison.OrdinalIgnoreCase))
-            .Take(2)
-            .ToArray();
-        return caseInsensitive.Length == 1
-            ? caseInsensitive[0]
-            : null;
+        return null;
     }
 
     public static (string? path, string? tfm) FindAssemblyContainingType(string extractPath, string typeName, string? tfm = null)

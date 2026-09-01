@@ -1226,6 +1226,162 @@ public sealed class MatchDiscoveryTests
         }
     }
 
+    [Fact]
+    public async Task Similar_UnavailableForwardedSeed_ReportsTheTypedFailureAndTarget()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"match-missing-forwarder-{Guid.NewGuid():N}");
+        string facade = Path.Combine(directory, "Facade.dll");
+        Directory.CreateDirectory(directory);
+
+        try
+        {
+            File.WriteAllBytes(
+                facade,
+                BuildForwarderFacade(
+                    "Facade",
+                    new AssemblyReferenceIdentity(
+                        "Missing.Target",
+                        new Version(1, 0, 0, 0),
+                        "fr-FR",
+                        "0011223344556677"),
+                    "Missing",
+                    "Forwarded"));
+            var options = new MatchOptions
+            {
+                LeftSelector = "Missing.Forwarded.Member",
+                AssemblyPath = facade,
+                IncludeAll = true,
+                Similar = true,
+            };
+
+            var (exitCode, output, error) = await RunAsync(options);
+
+            Assert.Equal(1, exitCode);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Forwarded type 'Missing.Forwarded' could not be resolved: UnboundBinding.",
+                error);
+            Assert.Contains(
+                "Target: Missing.Target, Version=1.0.0.0, Culture=fr-FR, "
+                    + "PublicKeyToken=0011223344556677.",
+                error);
+            Assert.DoesNotContain("must name a Type.Member selector", error);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ResolveSelector_AmbiguousUnavailableForwardedTypeDoesNotInventATarget()
+    {
+        var api = new ApiSurface();
+        api.InspectionFailures.Add(ForwardingFailure(
+            DefinitionName("A", "Widget"),
+            "A.Target"));
+        api.InspectionFailures.Add(ForwardingFailure(
+            DefinitionName("B", "Widget"),
+            "B.Target"));
+
+        MatchCommand.ResolvedSelector resolved =
+            MatchCommand.ResolveSelector(api, "/images/Facade.dll", "Widget.Member");
+
+        Assert.Contains("must name a Type.Member selector", resolved.Error);
+        Assert.DoesNotContain("A.Target", resolved.Error);
+        Assert.DoesNotContain("B.Target", resolved.Error);
+    }
+
+    [Fact]
+    public void ResolveSelector_ExactHealthyTypeDoesNotReportAFailedForwarderPrefix()
+    {
+        var api = new ApiSurface();
+        api.Types.Add(new ApiType
+        {
+            Namespace = "A.Widget",
+            Name = "Member",
+        });
+        api.InspectionFailures.Add(ForwardingFailure(
+            DefinitionName("A", "Widget"),
+            "Failed.Target"));
+
+        MatchCommand.ResolvedSelector resolved =
+            MatchCommand.ResolveSelector(api, "/images/Facade.dll", "A.Widget.Member");
+
+        Assert.Contains("must name a Type.Member selector", resolved.Error);
+        Assert.DoesNotContain("Forwarded type", resolved.Error);
+        Assert.DoesNotContain("Failed.Target", resolved.Error);
+    }
+
+    [Fact]
+    public void ResolveSelector_MalformedDoubleDotDoesNotReportAForwarderFailure()
+    {
+        var api = new ApiSurface();
+        api.InspectionFailures.Add(ForwardingFailure(
+            DefinitionName("A", "Widget"),
+            "Failed.Target"));
+
+        MatchCommand.ResolvedSelector resolved =
+            MatchCommand.ResolveSelector(api, "/images/Facade.dll", "A.Widget..Bogus");
+
+        Assert.Contains("must name a Type.Member selector", resolved.Error);
+        Assert.DoesNotContain("Forwarded type", resolved.Error);
+        Assert.DoesNotContain("Failed.Target", resolved.Error);
+    }
+
+    [Fact]
+    public void ResolveSelector_TrailingDotDoesNotReportAForwarderFailure()
+    {
+        var api = new ApiSurface();
+        api.InspectionFailures.Add(ForwardingFailure(
+            DefinitionName("A", "Widget"),
+            "Failed.Target"));
+
+        MatchCommand.ResolvedSelector resolved =
+            MatchCommand.ResolveSelector(api, "/images/Facade.dll", "A.Widget.");
+
+        Assert.Contains("must name a Type.Member selector", resolved.Error);
+        Assert.DoesNotContain("Forwarded type", resolved.Error);
+        Assert.DoesNotContain("Failed.Target", resolved.Error);
+    }
+
+    [Theory]
+    [InlineData("A.Widget...ctor")]
+    [InlineData("A.Widget...cctor")]
+    public void ResolveSelector_RepeatedDotConstructorDoesNotReportAForwarderFailure(
+        string selector)
+    {
+        var api = new ApiSurface();
+        api.InspectionFailures.Add(ForwardingFailure(
+            DefinitionName("A", "Widget"),
+            "Failed.Target"));
+
+        MatchCommand.ResolvedSelector resolved =
+            MatchCommand.ResolveSelector(api, "/images/Facade.dll", selector);
+
+        Assert.Contains("must name a Type.Member selector", resolved.Error);
+        Assert.DoesNotContain("Forwarded type", resolved.Error);
+        Assert.DoesNotContain("Failed.Target", resolved.Error);
+    }
+
+    [Fact]
+    public void ResolveSelector_ExplicitGenericArityDoesNotReportAnotherForwardedType()
+    {
+        var api = new ApiSurface();
+        api.InspectionFailures.Add(ForwardingFailure(
+            DefinitionName("A", "Widget`2"),
+            "Failed.Target"));
+
+        MatchCommand.ResolvedSelector resolved =
+            MatchCommand.ResolveSelector(api, "/images/Facade.dll", "Widget<T>.Member");
+
+        Assert.Contains("must name a Type.Member selector", resolved.Error);
+        Assert.DoesNotContain("Forwarded type", resolved.Error);
+        Assert.DoesNotContain("Failed.Target", resolved.Error);
+    }
+
     /// <summary>
     /// The directly named library keeps its full path, which is already replayable. Only the
     /// package case may substitute a package-relative spelling.
@@ -1423,7 +1579,23 @@ public sealed class MatchDiscoveryTests
         using var targetPe = new PEReader(File.OpenRead(targetAssemblyPath));
         MetadataReader targetReader = targetPe.GetMetadataReader();
         AssemblyDefinition target = targetReader.GetAssemblyDefinition();
+        return BuildForwarderFacade(
+            assemblyName,
+            new AssemblyReferenceIdentity(
+                targetReader.GetString(target.Name),
+                target.Version,
+                null,
+                null),
+            forwardedType.Namespace!,
+            forwardedType.Name);
+    }
 
+    static byte[] BuildForwarderFacade(
+        string assemblyName,
+        AssemblyReferenceIdentity target,
+        string typeNamespace,
+        string typeName)
+    {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             generation: 0,
@@ -1447,16 +1619,23 @@ public sealed class MatchDiscoveryTests
             methodList: MetadataTokens.MethodDefinitionHandle(1));
 
         AssemblyReferenceHandle targetReference = metadata.AddAssemblyReference(
-            metadata.GetOrAddString(targetReader.GetString(target.Name)),
-            target.Version,
-            culture: default,
-            publicKeyOrToken: default,
+            metadata.GetOrAddString(target.Name),
+            target.Version
+                ?? throw new InvalidOperationException(
+                    "The forwarder fixture requires a target assembly version."),
+            culture: target.Culture is null
+                ? default
+                : metadata.GetOrAddString(target.Culture),
+            publicKeyOrToken: target.PublicKeyToken is null
+                ? default
+                : metadata.GetOrAddBlob(
+                    Convert.FromHexString(target.PublicKeyToken)),
             flags: default,
             hashValue: default);
         metadata.AddExportedType(
             TypeAttributes.Public | (TypeAttributes)0x00200000,
-            metadata.GetOrAddString(forwardedType.Namespace!),
-            metadata.GetOrAddString(forwardedType.Name),
+            metadata.GetOrAddString(typeNamespace),
+            metadata.GetOrAddString(typeName),
             targetReference,
             typeDefinitionId: 0);
 
@@ -1469,6 +1648,27 @@ public sealed class MatchDiscoveryTests
         builder.Serialize(image);
         return image.ToArray();
     }
+
+    static ApiSurfaceInspectionFailure ForwardingFailure(
+        MetadataTypeDefinitionName type,
+        string targetAssembly)
+        => new(
+            "resolve forwarded type",
+            0,
+            MetadataTypeNameFailureMechanism.Metadata,
+            "UnboundBinding",
+            $"Forwarded type '{type.ToMetadataFullName()}' could not be resolved: UnboundBinding.",
+            new AssemblyReferenceIdentity("Facade", new Version(1, 0, 0, 0), null, null),
+            new AssemblyReferenceIdentity(targetAssembly, new Version(1, 0, 0, 0), null, null))
+        {
+            AffectedTypeDefinitions = [type],
+        };
+
+    static MetadataTypeDefinitionName DefinitionName(
+        string @namespace,
+        string name)
+        => Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(@namespace, [name])).Name;
 
     /// <summary>
     /// The README tells same-image callers to confirm a candidate with the pairwise form. That

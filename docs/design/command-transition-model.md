@@ -446,6 +446,11 @@ different images, the run is refused before retrieval, naming both images
 projected only from the rows an image defines, so a forwarded type can never
 label a local row with a name from another assembly
 (`Names_DoNotLabelALocalRowWithAForwardedTypesName`).
+When a named seed addresses a forwarded type whose target is unavailable,
+selection reports the retained typed resolver failure and exact target assembly
+identity rather than misclassifying the valid `Type.Member` selector as
+malformed
+(`Similar_UnavailableForwardedSeed_ReportsTheTypedFailureAndTarget`).
 
 The disclosed address must also still exist once the command exits. Package
 extraction and cache paths are implementation details, so naming the extracted
