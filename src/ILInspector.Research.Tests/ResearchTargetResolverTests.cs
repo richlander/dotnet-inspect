@@ -1001,8 +1001,8 @@ public class ResearchTargetResolverTests
     {
         TargetFixture fixture = TargetFixture.Create(
             [(
-                Diff(FixtureCatalog.DiffV1),
-                Diff(FixtureCatalog.DiffV2),
+                Diff(FixtureCatalog.ResearchTargetCorrespondenceV1),
+                Diff(FixtureCatalog.ResearchTargetCorrespondenceV2),
                 null)]);
         var paired = Assert.IsType<
             ResearchTargetCorrespondenceOutcome.Paired>(
@@ -1027,8 +1027,8 @@ public class ResearchTargetResolverTests
     {
         TargetFixture fixture = TargetFixture.Create(
             [(
-                Diff(FixtureCatalog.DiffV1),
-                Diff(FixtureCatalog.DiffV2),
+                Diff(FixtureCatalog.ResearchTargetCorrespondenceV1),
+                Diff(FixtureCatalog.ResearchTargetCorrespondenceV2),
                 null)]);
 
         var namedType = Assert.IsType<

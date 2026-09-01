@@ -106,6 +106,10 @@ public static class FixtureIds
     public const string SourceLinkNormalized = "sourcelink.normalized";
 
     public const string ResearchTargetSample = "research.target-sample";
+    public const string ResearchTargetCorrespondenceV1 =
+        "research.target-correspondence.v1";
+    public const string ResearchTargetCorrespondenceV2 =
+        "research.target-correspondence.v2";
 
     public const string RunFasterAllocation = "runfaster.allocation";
 }
@@ -174,6 +178,22 @@ public static class FixtureCatalog
         "ILInspector.Research.TargetFixtures.dll",
         Boundaries(FixtureBoundary.CompilerLowering),
         "research", "target", "accessor-role", "type-forwarder");
+
+    public static readonly FixtureDefinition ResearchTargetCorrespondenceV1 =
+        Fixture(
+            FixtureIds.ResearchTargetCorrespondenceV1,
+            "ResearchTargetCorrespondenceFixtures.V1",
+            "ResearchTargetCorrespondenceFixtures.dll",
+            Boundaries(FixtureBoundary.VersionPair),
+            "research", "target-correspondence", "version-pair");
+
+    public static readonly FixtureDefinition ResearchTargetCorrespondenceV2 =
+        Fixture(
+            FixtureIds.ResearchTargetCorrespondenceV2,
+            "ResearchTargetCorrespondenceFixtures.V2",
+            "ResearchTargetCorrespondenceFixtures.dll",
+            Boundaries(FixtureBoundary.VersionPair),
+            "research", "target-correspondence", "version-pair");
 
     public static readonly FixtureDefinition DiffAsmCaller = Fixture(
         FixtureIds.DiffAsmCaller,
@@ -542,6 +562,8 @@ public static class FixtureCatalog
         DecompilerVbFinalizer,
         RunFasterAllocation,
         ResearchTargetSample,
+        ResearchTargetCorrespondenceV1,
+        ResearchTargetCorrespondenceV2,
     ];
 
     public static readonly FixturePair DiffPair = new("diff", DiffV1, DiffV2);
