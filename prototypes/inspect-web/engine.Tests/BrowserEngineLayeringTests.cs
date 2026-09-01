@@ -624,6 +624,34 @@ public sealed class BrowserEngineLayeringTests
                 .IsAssignableFrom(type));
     }
 
+    [Fact]
+    public void EngineCoreAssembly_OwnsSharedWorkspaceState()
+    {
+        Assembly core = typeof(BrowserSourceOperationCoordinator).Assembly;
+        Type[] workspaceTypes =
+        [
+            typeof(BrowserPackageWorkspace),
+            typeof(BrowserInspectionScope),
+            typeof(BrowserPlatformWorkspace),
+            typeof(BrowserApiSurfacePolicy),
+        ];
+        Type[] internalResultTypes =
+        [
+            typeof(BrowserPackageCacheSnapshot),
+            typeof(BrowserPackageDocumentEntry),
+            typeof(BrowserPackageDocumentPayload),
+        ];
+
+        Assert.All(workspaceTypes, type => Assert.Same(core, type.Assembly));
+        Assert.All(
+            internalResultTypes,
+            type =>
+            {
+                Assert.Same(core, type.Assembly);
+                Assert.False(type.IsPublic);
+            });
+    }
+
     static Type? Resolve(string fullName) => ProductAssemblies
         .Select(assembly => assembly.GetType(fullName, throwOnError: false))
         .OfType<Type>()

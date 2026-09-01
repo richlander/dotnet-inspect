@@ -99,6 +99,7 @@ internal sealed class BrowserPlatformScope(
     }
 }
 
+[SupportedOSPlatform("browser")]
 internal sealed record BrowserPlatformScopeResolution(
     BrowserPlatformScope Scope,
     WorkspaceContextMember Participant,

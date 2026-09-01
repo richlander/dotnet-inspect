@@ -403,11 +403,10 @@ public sealed class StateMachineCompletenessTests
                 it reports Rejected regardless of whether anything claimed it
                 (see #4833).
 
-                A known cause of the first is trimming: ILLink removes
-                SetStateMachine, which both ClassicAsync and AsyncIterator require,
-                so every async claim in a trimmed assembly is refused (see #4827).
-                If this corpus contains trimmed output, that is expected rather than
-                a regression.
+                A known cause of the first is trimming a must-be-present role.
+                ClassicAsync admits an absent SetStateMachine support role, but
+                AsyncIterator still requires it. A trimmed async iterator may
+                therefore be refused when that role is removed.
 
                 {Truncated(offenders)}
                 """);
@@ -677,21 +676,21 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// Renames <c>SetStateMachine</c> in place so claims remain decodable but
-    /// fail role authentication.
+    /// Renames <c>MoveNext</c> in place so claims remain decodable but fail
+    /// required execution-role authentication.
     /// </summary>
     static byte[] Unauthenticatable(byte[] image)
     {
         byte[] copy = (byte[])image.Clone();
-        ReadOnlySpan<byte> role = "SetStateMachine"u8;
+        ReadOnlySpan<byte> role = "MoveNext\0"u8;
         int at = copy.AsSpan().IndexOf(role);
         Assert.True(
             at >= 0,
-            "The specimen carries no SetStateMachine to rename, so it cannot "
+            "The specimen carries no MoveNext to rename, so it cannot "
                 + "produce a refused claim.");
 
         // The heap deduplicates strings, so one edit reaches every reference.
-        copy[at + role.Length - 1] = (byte)'Z';
+        copy[at + role.Length - 2] = (byte)'Z';
         return copy;
     }
 

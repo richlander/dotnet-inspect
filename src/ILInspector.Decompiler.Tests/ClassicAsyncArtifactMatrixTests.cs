@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
@@ -27,38 +28,55 @@ public sealed class ClassicAsyncArtifactMatrixTests
 
     [Fact]
     public async Task
-        TrimmedArtifactWithoutRolePreservation_RetainsKickoffButCannotFormRequest()
+        TrimmedArtifactWithoutRolePreservation_AuthenticatesAbsentSupport()
     {
         ArtifactMatrix matrix = await s_matrix.Value;
 
         using ArtifactEvidence artifact = ArtifactEvidence.Open(matrix.Trimmed);
-        StateMachineRelationshipResult result =
-            artifact.Relationship(FixtureType, RecoverableMethod);
-
-        var rejected =
-            Assert.IsType<StateMachineRelationshipResult.Rejected>(result);
-        Assert.Equal(
-            StateMachineRelationshipFailureKind.Unresolved,
-            rejected.Failure.Kind);
-        Assert.Contains(
-            "required state-machine interface role",
-            rejected.Failure.Detail,
-            StringComparison.Ordinal);
-
-        var stateMachine = Assert.Single(
-            rejected.Failure.StateMachineCandidates);
+        var resolved = AssertClassicRelationship(
+            artifact.Relationship(FixtureType, RecoverableMethod),
+            expectSetStateMachine: false);
+        MetadataTypeDefinitionAddress stateMachine =
+            resolved.Relationship.StateMachineType;
         Assert.True(
             stateMachine.TryResolve(
                 artifact.Reader,
                 out TypeDefinitionHandle stateMachineHandle));
         TypeDefinition definition = artifact.Reader.GetTypeDefinition(
             stateMachineHandle);
-        string[] methods = definition.GetMethods()
-            .Select(handle => artifact.Reader.GetString(
-                artifact.Reader.GetMethodDefinition(handle).Name))
-            .ToArray();
-        Assert.Contains("MoveNext", methods);
-        Assert.DoesNotContain("SetStateMachine", methods);
+        AssertDirectAsyncStateMachineInterface(
+            artifact.Reader,
+            definition);
+        Assert.DoesNotContain(
+            definition.GetMethodImplementations(),
+            handle => IsMethodDeclaration(
+                artifact.Reader,
+                artifact.Reader.GetMethodImplementation(handle)
+                    .MethodDeclaration,
+                "System.Runtime.CompilerServices",
+                "IAsyncStateMachine",
+                "SetStateMachine"));
+
+        var moveNext = Assert.IsType<
+            StateMachineRoleDisposition.Present>(
+                resolved.Relationship.GetRole(
+                    StateMachineMethodRole.MoveNext));
+        MethodDefinition moveNextDefinition =
+            artifact.Reader.GetMethodDefinition(moveNext.Method.Handle);
+        Assert.Equal(
+            stateMachineHandle,
+            moveNextDefinition.GetDeclaringType());
+        Assert.True(
+            artifact.Reader.StringComparer.Equals(
+                moveNextDefinition.Name,
+                "MoveNext"));
+        AssertManagedIlBody(moveNextDefinition);
+
+        Assert.DoesNotContain(
+            definition.GetMethods(),
+            handle => artifact.Reader.StringComparer.Equals(
+                artifact.Reader.GetMethodDefinition(handle).Name,
+                "SetStateMachine"));
     }
 
     [Fact]
@@ -119,8 +137,13 @@ public sealed class ClassicAsyncArtifactMatrixTests
 
         AssertBodyReplacing(artifact, resolved.Relationship.Kickoff.Handle);
         Assert.All(
-            resolved.Relationship.Methods,
-            method => AssertBodyReplacing(artifact, method.Method.Handle));
+            resolved.Relationship.Roles,
+            disposition =>
+            {
+                var present = Assert.IsType<
+                    StateMachineRoleDisposition.Present>(disposition);
+                AssertBodyReplacing(artifact, present.Method.Handle);
+            });
     }
 
     [Fact]
@@ -138,22 +161,142 @@ public sealed class ClassicAsyncArtifactMatrixTests
     }
 
     static StateMachineRelationshipResult.Resolved AssertClassicRelationship(
-        StateMachineRelationshipResult result)
+        StateMachineRelationshipResult result,
+        bool expectSetStateMachine = true)
     {
         var resolved =
             Assert.IsType<StateMachineRelationshipResult.Resolved>(result);
         Assert.Equal(
             StateMachineClaimKind.ClassicAsync,
             resolved.Relationship.Kind);
-        Assert.Collection(
-            resolved.Relationship.Methods.OrderBy(method => method.Role),
-            method => Assert.Equal(
-                StateMachineMethodRole.MoveNext,
-                method.Role),
-            method => Assert.Equal(
-                StateMachineMethodRole.SetStateMachine,
-                method.Role));
+        var moveNext = Assert.IsType<
+            StateMachineRoleDisposition.Present>(
+                resolved.Relationship.GetRole(
+                    StateMachineMethodRole.MoveNext));
+        Assert.Equal(StateMachineMethodRole.MoveNext, moveNext.Role);
+        StateMachineRoleDisposition setStateMachine =
+            resolved.Relationship.GetRole(
+                StateMachineMethodRole.SetStateMachine);
+        if (expectSetStateMachine)
+        {
+            Assert.IsType<StateMachineRoleDisposition.Present>(
+                setStateMachine);
+        }
+        else
+        {
+            Assert.IsType<
+                StateMachineRoleDisposition.AbsentFromArtifact>(
+                    setStateMachine);
+            Assert.False(
+                resolved.Relationship.TryGetMethod(
+                    StateMachineMethodRole.SetStateMachine,
+                    out _));
+        }
+
+        Assert.Equal(2, resolved.Relationship.Roles.Length);
         return resolved;
+    }
+
+    static void AssertDirectAsyncStateMachineInterface(
+        MetadataReader reader,
+        TypeDefinition definition)
+    {
+        Assert.Contains(
+            definition.GetInterfaceImplementations(),
+            handle =>
+            {
+                InterfaceImplementation implementation =
+                    reader.GetInterfaceImplementation(handle);
+                return IsNamedType(
+                    reader,
+                    implementation.Interface,
+                    "System.Runtime.CompilerServices",
+                    "IAsyncStateMachine");
+            });
+    }
+
+    static bool IsNamedType(
+        MetadataReader reader,
+        EntityHandle handle,
+        string @namespace,
+        string name)
+    {
+        StringHandle namespaceHandle;
+        StringHandle nameHandle;
+        if (handle.Kind == HandleKind.TypeReference)
+        {
+            TypeReference type =
+                reader.GetTypeReference((TypeReferenceHandle)handle);
+            namespaceHandle = type.Namespace;
+            nameHandle = type.Name;
+        }
+        else if (handle.Kind == HandleKind.TypeDefinition)
+        {
+            TypeDefinition type =
+                reader.GetTypeDefinition((TypeDefinitionHandle)handle);
+            namespaceHandle = type.Namespace;
+            nameHandle = type.Name;
+        }
+        else
+        {
+            return false;
+        }
+
+        return reader.StringComparer.Equals(namespaceHandle, @namespace)
+            && reader.StringComparer.Equals(nameHandle, name);
+    }
+
+    static bool IsMethodDeclaration(
+        MetadataReader reader,
+        EntityHandle handle,
+        string @namespace,
+        string typeName,
+        string methodName)
+    {
+        EntityHandle declaringType;
+        StringHandle name;
+        if (handle.Kind == HandleKind.MemberReference)
+        {
+            MemberReference member =
+                reader.GetMemberReference((MemberReferenceHandle)handle);
+            declaringType = member.Parent;
+            name = member.Name;
+        }
+        else if (handle.Kind == HandleKind.MethodDefinition)
+        {
+            MethodDefinition method =
+                reader.GetMethodDefinition((MethodDefinitionHandle)handle);
+            declaringType = method.GetDeclaringType();
+            name = method.Name;
+        }
+        else
+        {
+            return false;
+        }
+
+        return reader.StringComparer.Equals(name, methodName)
+            && IsNamedType(
+                reader,
+                declaringType,
+                @namespace,
+                typeName);
+    }
+
+    static void AssertManagedIlBody(MethodDefinition method)
+    {
+        Assert.NotEqual(0, method.RelativeVirtualAddress);
+        Assert.Equal(
+            MethodImplAttributes.IL,
+            method.ImplAttributes & MethodImplAttributes.CodeTypeMask);
+        Assert.Equal(
+            MethodImplAttributes.Managed,
+            method.ImplAttributes & MethodImplAttributes.ManagedMask);
+        Assert.False(
+            (method.Attributes & MethodAttributes.PinvokeImpl) != 0);
+        Assert.False(
+            (method.ImplAttributes
+                & (MethodImplAttributes.Runtime
+                    | MethodImplAttributes.InternalCall)) != 0);
     }
 
     static void AssertBodyReplacing(
