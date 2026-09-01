@@ -21,6 +21,32 @@ certificate transferred to another instance. A consumer gains confidence by
 rechecking the owner's properties under the consumer's additional states,
 actions, schedules, and fairness assumptions.
 
+Start a composition model from the product's join boundary. When the product
+combines facts by an owner-issued version, generation, identity, receipt,
+handle, or composite key, the model must represent and reason about that same
+conceptual **join currency**. The TLA+ value need not reproduce the concrete
+implementation type or spelling, but it must preserve every distinction that
+makes the modeled join sound:
+
+- which owner or operation issued the currency;
+- which evidence was captured under it;
+- which values may match and which must remain distinct;
+- when replacement creates a fresh value; and
+- what mismatch, staleness, or retirement prevents.
+
+A join currency may be a tuple when the product join requires several
+owner-issued dimensions. Do not collapse such a tuple to one nominal identity
+when that would admit combinations the product rejects. Conversely, do not
+copy representation details that cannot affect the modeled association.
+Replacing a product join currency with unrelated consumer-local atoms removes
+the very cross-component behavior the composition is meant to check.
+
+The owner model defines the currency's lifecycle. A consumer binds that
+lifecycle to its local state, uses the owner action instead of duplicating the
+transition, and rechecks the imported behavior under its additional actions and
+schedules. Import only this smallest stable boundary; modeling the join
+currency does not require importing the owner's entire state machine.
+
 Keep reusable modules with the component that owns the corresponding product
 contract. Give every repository module a globally unique, owner-specific name,
 and keep the import graph acyclic and pointed in the same direction as product
@@ -51,6 +77,13 @@ BindingVersionAdvanceIsFresh ==
 BindingVersionBehaviorRefinesOwner ==
     BindingVersion!SafetySpec
 ```
+
+Here `AssemblyBindingPolicyVersion` is the product join currency represented by
+`liveVersion`: the binding owner defines how it advances, and both the
+composite-binding and workspace consumers check that evidence from
+incompatible generations cannot be combined. The abstract `VersionOne` and
+`VersionTwo` values preserve freshness and association without reproducing the
+implementation type.
 
 The owner module keeps its own finite harness and configurations. A consumer
 then:
