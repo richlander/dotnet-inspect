@@ -5,9 +5,13 @@ import {
   bindAnnotatedSource,
   renderAnnotatedSource,
   renderAnnotatedSourceModal,
+  renderAnnotatedSourcePageActions,
   type AnnotatedSourceAction,
   type AnnotatedSourceBindingActions,
 } from "../src/annotated-source.ts";
+import {
+  createCSharpRangeHighlighter,
+} from "../src/csharp-highlighting.ts";
 import {
   createAnnotatedSourceViewerModel,
   createEmbeddedSession,
@@ -20,7 +24,11 @@ import {
 import type {
   AnnotatedSourceResult,
 } from "../src/annotated-source-session.ts";
-import { validateAnnotatedSourceDocument } from "../src/annotated-source-view.ts";
+import {
+  csharpHighlightingInput,
+  csharpHighlightingText,
+  validateAnnotatedSourceDocument,
+} from "../src/annotated-source-view.ts";
 import type { AnnotatedSourceDocument } from "../src/annotated-source-view.ts";
 import { sampleDocument as sampleDocumentFixture } from "../../annotated-source-viewer/src/sample-document.js";
 import {
@@ -202,19 +210,187 @@ test("the pure renderer rejects an invalid document for the shell to surface", (
   );
 });
 
-test("embedded reader renders complete C# defaults, source copy, and Explore", () => {
+test("inline working surface starts with complete C# and ends with provenance", () => {
   const html = embeddedHtml();
+  const source = html.indexOf("medium-csharp");
+  const provenance = html.indexOf("decompiled from IL");
 
-  assert.match(html, /id="annotated-reader-title">C# with default findings/);
-  assert.match(html, /decompiled from IL/);
-  assert.match(html, /id="copy-annotated"[^>]*data-annotated-action="copy"/);
-  assert.match(html, /id="explore-annotated"[^>]*data-annotated-action="explore"/);
+  assert.doesNotMatch(html, /Annotated Source|C# with default findings/);
+  assert.doesNotMatch(html, /data-annotated-action="(?:copy|explore)"/);
+  assert.match(html, /class="annotated-reader-footer"/);
+  assert.ok(source >= 0);
+  assert.ok(provenance > source);
   assert.match(html, /medium-csharp/);
   assert.doesNotMatch(html, /medium-il/);
   assert.match(html, /annotated-chip-embedded-0-1-CSharp/);
   assert.match(html, /annotated-chip-embedded-1-0-CSharp/);
   assert.doesNotMatch(html, /annotated-chip-embedded-0-3-Il/);
   assert.doesNotMatch(html, /data-annotated-source-start/);
+});
+
+test("page-owned actions expose Copy and Explore only when the document is ready", () => {
+  const enabled = renderAnnotatedSourcePageActions(true);
+  const disabled = renderAnnotatedSourcePageActions(false);
+
+  assert.match(
+    enabled,
+    /id="copy-annotated"[^>]*data-annotated-action="copy"[^>]*>Copy<\/button>/,
+  );
+  assert.match(
+    enabled,
+    /id="explore-annotated"[^>]*data-annotated-action="explore"[^>]*>Explore<\/button>/,
+  );
+  assert.doesNotMatch(enabled, / disabled/);
+  assert.match(disabled, /id="copy-annotated"[^>]* disabled/);
+  assert.match(disabled, /id="explore-annotated"[^>]* disabled/);
+});
+
+test("C# highlighting crosses product segments without changing source text", () => {
+  const source = 'return Widget.Create("x");';
+  const highlighter = createCSharpRangeHighlighter(
+    source,
+    {
+      languages: { csharp: {} },
+      tokenize: () => [
+        { type: "keyword", content: "return" },
+        " ",
+        { type: "class-name", content: "Widget" },
+        { type: "punctuation", content: "." },
+        { type: "function", content: "Create" },
+        { type: "punctuation", content: "(" },
+        { type: "string", content: '"x"' },
+        { type: "punctuation", content: ");" },
+      ],
+    },
+    escapeHtml,
+  );
+  const start = 2;
+  const length = source.length - 4;
+  const html = highlighter.render(start, length);
+
+  assert.match(html, /class="token keyword">turn<\/span>/);
+  assert.match(html, /class="token class-name">Widget<\/span>/);
+  assert.match(html, /class="token function">Create<\/span>/);
+  assert.equal(
+    html
+      .replaceAll(/<[^>]+>/g, "")
+      .replaceAll("&quot;", '"'),
+    source.slice(start, start + length),
+  );
+});
+
+test("C# highlighting leaves excluded IL ranges unstyled inside one Prism token", () => {
+  const source = 'var s = @"start\nIL_0000: nop\nend";';
+  const ilStart = source.indexOf("IL_0000");
+  const ilLength = "IL_0000: nop".length;
+  const tokenizationSource =
+    source.slice(0, ilStart)
+    + " ".repeat(ilLength)
+    + source.slice(ilStart + ilLength);
+  const highlighter = createCSharpRangeHighlighter(
+    source,
+    {
+      languages: { csharp: {} },
+      tokenize: value => [{ type: "string", content: value }],
+    },
+    escapeHtml,
+    tokenizationSource,
+    [{ start: ilStart, length: ilLength }],
+  );
+  const html = highlighter.render(0, source.length);
+
+  assert.match(html, /class="token string">var s = @&quot;start\n<\/span>IL_0000: nop/);
+  assert.doesNotMatch(html, /class="token string">IL_0000: nop/);
+  assert.equal(
+    html
+      .replaceAll(/<[^>]+>/g, "")
+      .replaceAll("&quot;", '"'),
+    source,
+  );
+});
+
+test("annotated source renderer keeps syntax tokens inside structural spans", () => {
+  const html = renderAnnotatedSource({
+    result,
+    session: createEmbeddedSession(createAnnotatedSourceViewerModel(result)),
+    escapeHtml,
+    highlightCSharp: source => createCSharpRangeHighlighter(
+      source,
+      {
+        languages: { csharp: {} },
+        tokenize: () => [{ type: "keyword", content: source }],
+      },
+      escapeHtml,
+    ),
+  });
+
+  assert.match(
+    html,
+    /class="annotated-source-segment"[^>]*><span class="token keyword">/,
+  );
+});
+
+test("C# tokenization masks IL while preserving document UTF-16 offsets", () => {
+  const document: AnnotatedSourceDocument = {
+    text: "cs\nil\nab",
+    nodes: [
+      {
+        id: 0,
+        kind: "CSharp",
+        medium: "CSharp",
+        spans: [{ start: 0, length: 2 }],
+      },
+      {
+        id: 1,
+        kind: "Instruction",
+        medium: "Il",
+        spans: [{ start: 3, length: 2 }],
+        il_offset: 0,
+      },
+      {
+        id: 2,
+        kind: "CSharp",
+        medium: "CSharp",
+        spans: [{ start: 6, length: 1 }],
+      },
+      {
+        id: 3,
+        kind: "Instruction",
+        medium: "Il",
+        spans: [{ start: 7, length: 1 }],
+        il_offset: 1,
+      },
+    ],
+    regions: [],
+    facts: [],
+    targets: [],
+  };
+  const highlightingInput = csharpHighlightingInput(document);
+  const tokenizationSource = csharpHighlightingText(document);
+
+  assert.equal(tokenizationSource, "cs\n  \na ");
+  assert.equal(tokenizationSource.length, document.text.length);
+  assert.deepEqual(highlightingInput, {
+    text: tokenizationSource,
+    excludedRanges: [
+      { start: 3, length: 2 },
+      { start: 7, length: 1 },
+    ],
+  });
+});
+
+test("C# highlighting falls back to escaped source when token text diverges", () => {
+  const source = '<T value="x">';
+  const highlighter = createCSharpRangeHighlighter(
+    source,
+    {
+      languages: { csharp: {} },
+      tokenize: () => ["x".repeat(source.length)],
+    },
+    escapeHtml,
+  );
+
+  assert.equal(highlighter.render(0, source.length), "&lt;T value=&quot;x&quot;&gt;");
 });
 
 test("annotation rows begin at their product-issued source span", () => {
@@ -415,7 +591,7 @@ test("source text is escaped while source actions and chrome remain separate", (
 
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   assert.doesNotMatch(html, /<script>alert/);
-  assert.match(html, />copy source<\/button>/);
+  assert.doesNotMatch(html, /data-annotated-action="(?:copy|explore)"/);
 });
 
 test("every chip-shaped rendered action is a button with one documented verb", () => {
@@ -436,7 +612,9 @@ test("every chip-shaped rendered action is a button with one documented verb", (
     ),
     escapeHtml,
   });
-  const html = `${embeddedHtml()}${modalHtml()}${selectedModal}${detailedModal}`;
+  const html =
+    `${renderAnnotatedSourcePageActions(true)}${embeddedHtml()}`
+    + `${modalHtml()}${selectedModal}${detailedModal}`;
   const actionTags = [...html.matchAll(
     /<([a-z]+)[^>]*data-annotated-action="([^"]+)"[^>]*>/g,
   )];
@@ -477,4 +655,24 @@ test("persistent source affordances use no underline treatment", () => {
     /\.annotated-row-items\s*\{([^}]*)\}/.exec(styles)?.[1] ?? "";
   assert.ok(annotationRows.length > 0);
   assert.doesNotMatch(annotationRows, /border-left|padding-left/);
+});
+
+test("Annotated Source composition requires a concrete overload and validated session", () => {
+  const appSource = readFileSync(
+    new URL("../src/dotnet-inspect.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    appSource,
+    /const annotatedPageContext =\s*scope\(\) === "member"\s*&& state\.memberSection === "annotated"\s*&& memberSourceHasConcreteOverload\(\);/);
+  assert.match(
+    appSource,
+    /const annotatedWorkingSurface =\s*annotatedPageContext && state\.memberAnnotatedEmbedded !== null;/);
+  assert.match(
+    appSource,
+    /detail-actions\$\{annotatedPageContext \? " annotated-page-actions" : ""\}/);
+  assert.match(
+    appSource,
+    /detail-scroll\$\{annotatedWorkingSurface \? " annotated-working-surface" : ""\}/);
 });

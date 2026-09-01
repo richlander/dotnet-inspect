@@ -167,6 +167,82 @@ export function factsForNode(
   return document.facts.filter(fact => factIds.has(fact.id));
 }
 
+export interface CSharpHighlightingInput {
+  text: string;
+  excludedRanges: readonly {
+    start: number;
+    length: number;
+  }[];
+}
+
+export function csharpHighlightingInput(
+  document: AnnotatedSourceDocument,
+): CSharpHighlightingInput {
+  validateDocument(document);
+  const text = document.text.split("");
+  const excluded = Array.from(
+    { length: document.text.length },
+    () => false);
+  for (const line of buildLines(document.text)) {
+    const medium = lineMedium(document, line);
+    if (medium === "CSharp") continue;
+    if (medium === "Il") {
+      maskRange(text, excluded, line.start, line.end);
+      continue;
+    }
+    for (const segment of segmentsForLine(document, line, [])) {
+      if (segment.media.length > 0
+        && !segment.media.includes("CSharp")) {
+        maskRange(
+          text,
+          excluded,
+          segment.start,
+          segment.start + segment.text.length);
+      }
+    }
+  }
+  return {
+    text: text.join(""),
+    excludedRanges: exclusionRanges(excluded),
+  };
+}
+
+export function csharpHighlightingText(
+  document: AnnotatedSourceDocument,
+): string {
+  return csharpHighlightingInput(document).text;
+}
+
+function maskRange(
+  text: string[],
+  excluded: boolean[],
+  start: number,
+  end: number,
+): void {
+  for (let index = start; index < end; index++) {
+    text[index] = " ";
+    excluded[index] = true;
+  }
+}
+
+function exclusionRanges(
+  excluded: readonly boolean[],
+): CSharpHighlightingInput["excludedRanges"] {
+  const ranges: { start: number; length: number }[] = [];
+  let start = -1;
+  for (let index = 0; index <= excluded.length; index++) {
+    if (excluded[index] === true) {
+      if (start < 0) start = index;
+      continue;
+    }
+    if (start >= 0) {
+      ranges.push({ start, length: index - start });
+      start = -1;
+    }
+  }
+  return ranges;
+}
+
 function isVisible(
   medium: LineMedium,
   media: Readonly<Record<SourceMedium, boolean | undefined>>,
