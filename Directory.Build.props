@@ -15,6 +15,20 @@
     <EnablePreviewFeatures>true</EnablePreviewFeatures>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <!--
+      Audit the full transitive package closure, not just direct references.
+      The SDK already defaults NuGetAuditMode to "all" at net10.0 and above, so
+      this matches what nearly every project here already evaluated; it is set
+      explicitly so the audit posture follows repository policy rather than
+      whichever target framework a project happens to use. Without it, a project
+      below the SDK's version threshold silently falls back to "direct" and its
+      transitive dependencies go unaudited, which is the state msdl-proxy was
+      in, pinned to net8.0 because Azure Static Web Apps managed functions do not
+      yet support .NET 10 (issue #5364). Audit findings are NU1901-NU1904, so
+      TreatWarningsAsErrors above makes a known vulnerability fail the build.
+    -->
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <!--
       Only tools are packable or publishable, and those are project properties
       rather than consequences of whichever SDK command was run (issue #3330).
       Internal libraries have no versioning story, no API stability commitment,
