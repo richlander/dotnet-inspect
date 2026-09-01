@@ -56,7 +56,7 @@ import {
   type GraphMemberShareIdentity,
   type PackageIdentity,
   type PlatformPack,
-  type WorkspaceTab,
+  type WorkspaceCoordinate,
   uniqueTypeByQueryId,
   workspaceCoordinatesMatch
 } from "./data.ts";
@@ -223,6 +223,10 @@ import {
   renderScopeBar as renderScopeBarPure,
 } from "./scope-bar.ts";
 import {
+  bindWorkspaceSubject,
+  renderWorkspaceSubject,
+} from "./workspace-subject.ts";
+import {
   bindDocViewer,
   renderDocViewer as renderDocViewerPure,
   renderPackageDocuments,
@@ -258,12 +262,11 @@ import {
   typeSourceSignature,
 } from "./type-panel.ts";
 import {
-  assignPackageWorkspaceIndex,
-  createPackageBar,
-  findPackageTabForQuery,
-  type PackageBarPackage,
+  createPackageControls,
+  findOpenPackageForQuery,
+  type PackageControlPackage,
   type ParsedPackageQuery,
-} from "./package-bar.ts";
+} from "./package-controls.ts";
 import {
   bindMetadataExplorer,
   cssEscape,
@@ -718,6 +721,7 @@ const initialState = {
   memberDocumentationKey: "",
   lens: "api" as const,
   packageLens: "overview" as const,
+  workspaceSubjectOpen: false,
   atPackageRoot: false,
   typeFilter: "",
   namespaceFilter: "",
@@ -1556,16 +1560,7 @@ function closeSpotlight() {
   spotlight.close();
 }
 
-const packageBar = createPackageBar({
-  keybindings,
-  state,
-  escapeHtml,
-  packageIdentityKey,
-  runtimePackPackage,
-  selectPackageTab,
-  closePackageTab,
-  openRuntimePack: () =>
-    observeAsync(openRuntimePackFromHome(), "Opening the .NET Platform"),
+const packageControls = createPackageControls({
   selectFramework: framework =>
     observeAsync(
       switchPackageFramework(framework),
@@ -1809,11 +1804,6 @@ function retainPackageModel(
   packageModel: AppPackage,
   replacedPackage: AppPackage | null = null,
 ) {
-  assignPackageWorkspaceIndex(
-    packageModel,
-    state.packages,
-    replacedPackage,
-    packageIdentityKey);
   const activeWasReplaced = packageIdentityEquals(state.package, packageModel);
   const retained = retainWorkspacePackage(
     state.packages,
@@ -1859,7 +1849,7 @@ function resetLocationFilters() {
   resetMemberFilters();
 }
 
-function selectPackageTab(pkg: PackageBarPackage | null) {
+function selectWorkspacePackage(pkg: PackageControlPackage | null) {
   const packageModel = pkg
     ? state.packages.find(item => packageIdentityKey(item) === packageIdentityKey(pkg))
     : null;
@@ -1881,7 +1871,7 @@ function selectPackageTab(pkg: PackageBarPackage | null) {
   render();
 }
 
-function closePackageTab(packageKey: string) {
+function closeWorkspacePackage(packageKey: string) {
   const removal = removeWorkspacePackage(state.packages, state.package, packageKey);
   if (!removal.closed) return;
   if (!removal.active && !clearWorkspaceRouteFailure()) {
@@ -1892,7 +1882,7 @@ function closePackageTab(packageKey: string) {
   state.packages = removal.packages;
   releasePackageModelCaches(removal.closed);
   if (removal.active) {
-    selectPackageTab(removal.active);
+    selectWorkspacePackage(removal.active);
     return;
   }
 
@@ -1905,6 +1895,7 @@ function activatePackage(
   { resetAccessibility = false }: { resetAccessibility?: boolean } = {},
 ) {
   const changed = !packageIdentityEquals(state.package, pkg);
+  state.workspaceSubjectOpen = false;
   state.package = pkg;
   if (changed)
     state.dependenciesGroupIndex = null;
@@ -2168,16 +2159,18 @@ function selectedMember(type: AppTypeSurface | null | undefined) {
   return memberGroups(type).find(group => group.key === state.selectedMemberKey);
 }
 
-// Selection sits on a scope ladder: package (a whole NuGet package / its assemblies),
-// type (one public type), or member (a member + its overloads under the API lens). The
-// lens strip, detail pane, and arrow keys all react to the active scope.
+// Selection sits on a scope ladder: workspace, package, type, or member. Library joins
+// this ladder when its product-issued navigation descriptors are available.
 function scope(): WorkspaceScope {
+  if (state.workspaceSubjectOpen && state.atPackageRoot) return "workspace";
   if (state.atPackageRoot) return "package";
   return memberScopeIsActive(state, selectedType()?.id) ? "member" : "type";
 }
 
 function selectScopeLensByIndex(index: number, workspaceScope: WorkspaceScope): void {
-  if (workspaceScope === "package") {
+  if (workspaceScope === "workspace") {
+    return;
+  } else if (workspaceScope === "package") {
     const selected = packageLensesFor(state.package)[index];
     if (selected) {
       state.packageLens = selected[0];
@@ -2466,6 +2459,7 @@ function stepNav(delta: number) {
 // ←/→ act on the horizontal tab strip at your depth: sections when a concrete
 // overload is open, otherwise the lens strip.
 function stepHorizontal(delta: number) {
+  if (scope() === "workspace") return;
   if (state.atPackageRoot) {
     const strip = packageLensesFor(state.package);
     const index = strip.findIndex(([id]) => id === state.packageLens);
@@ -2499,6 +2493,12 @@ function stepHorizontal(delta: number) {
 
 // Enter drills one level deeper; Escape/Backspace pops back out.
 function drillIn() {
+  if (scope() === "workspace") {
+    state.workspaceSubjectOpen = false;
+    state.atPackageRoot = true;
+    render();
+    return;
+  }
   if (state.atPackageRoot) {
     state.atPackageRoot = false;
     render();
@@ -2532,6 +2532,11 @@ function drillOut() {
   }
   if (!state.atPackageRoot) {
     state.atPackageRoot = true;
+    render();
+    return true;
+  }
+  if (!state.workspaceSubjectOpen) {
+    state.workspaceSubjectOpen = true;
     render();
     return true;
   }
@@ -2644,27 +2649,15 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     annotatedPageContext && state.memberAnnotatedEmbedded !== null;
   const annotatedActionsEnabled =
     annotatedWorkingSurface;
+  const subjectName = inspectedSubjectName(pkg, current);
 
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal ? " inert" : ""}>
       ${workbenchShellHtml({
-        workspaceStripHtml: packageBar.html(),
+        subjectInspectorHtml: renderScopeBar(),
         workspaceTitleHtml: `
           <span>${pkg.isRuntimePack ? "platform" : "package"}</span>
           <strong title="${escapeHtml(`${packageDisplayName(pkg)}@${pkg.version} · ${pkg.activeFramework}`)}">${escapeHtml(packageDisplayName(pkg))}</strong>`,
-        coordinateSelectorsHtml: `
-          <label class="version-select">
-            <span>version</span>
-            <select id="package-version">
-              ${versionOptionsHtml(pkg)}
-            </select>
-          </label>
-          <label class="framework-select">
-            <span>framework</span>
-            <select id="framework"${pkg.frameworks.length <= 1 ? " disabled" : ""}>
-              ${pkg.frameworks.map(item => `<option ${item === pkg.activeFramework ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
-            </select>
-          </label>`,
       })}
 
       ${visibleQueryNotice()
@@ -2685,8 +2678,6 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           </div>`
         : ""}
 
-      ${renderScopeBar()}
-
       <main class="workspace">
         ${renderNavPane(current, visible)}
 
@@ -2696,15 +2687,15 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
               <button id="nav-back" ${navigationHistory.canBack() ? "" : "disabled"} title="Back (Alt+← or Shift+←)" aria-label="Back">‹</button>
               <button id="nav-forward" ${navigationHistory.canForward() ? "" : "disabled"} title="Forward (Alt+→ or Shift+→)" aria-label="Forward">›</button>
             </div>
-            <div class="breadcrumbs">
-              ${state.atPackageRoot
-                ? `<strong>${escapeHtml(packageDisplayName(pkg))}</strong><b>/</b><span>${escapeHtml(packageLenses.find(([id]) => id === state.packageLens)?.[1] || "Overview")}</span>`
-                : `<span>${escapeHtml(packageDisplayName(pkg))}</span><b>/</b><span>${escapeHtml(current?.namespace ?? "")}</span><b>/</b><strong>${escapeHtml(typeDisplayName(current))}</strong>
-              ${state.selectedMemberKey ? `<b>/</b><strong>${escapeHtml(selectedMember(current)?.name ?? "")}</strong>` : ""}`}
+            <div class="subject-identity" title="${escapeHtml(subjectName)}">
+              <strong>${escapeHtml(subjectName)}</strong>
             </div>
             <div class="detail-actions${annotatedPageContext ? " annotated-page-actions" : ""}">
+              <button id="share" type="button">Share</button>
               ${annotatedPageContext
                 ? renderAnnotatedSourcePageActions(annotatedActionsEnabled)
+                : scope() === "workspace"
+                ? ""
                 : `<button id="copy-name" type="button">copy name</button><button id="taste-btn" class="${state.taste.length ? "active" : ""}" title="Decompiler style (taste)">taste${state.taste.length ? ` · ${state.taste.length}` : ""}</button>`}
             </div>
           </header>
@@ -2814,9 +2805,34 @@ function renderNavPane(
   current: AppTypeSurface | null | undefined,
   visible: readonly AppTypeSurface[],
 ) {
+  if (scope() === "workspace") return renderWorkspaceNavPane();
   return navMode() === "member" && current
     ? renderMemberNavPane(current)
     : renderTypeNavPane(current, visible);
+}
+
+function inspectedSubjectName(
+  pkg: AppPackage,
+  current: AppTypeSurface | null | undefined,
+): string {
+  if (scope() === "workspace") return "Workspace";
+  if (state.atPackageRoot)
+    return `${packageDisplayName(pkg)}@${pkg.version}`;
+  if (!current) return packageDisplayName(pkg);
+  const typeName = current.namespace
+    ? `${current.namespace}.${typeDisplayName(current)}`
+    : typeDisplayName(current);
+  const member = scope() === "member" ? selectedMember(current) : null;
+  return member ? `${typeName}.${member.name}` : typeName;
+}
+
+function renderWorkspaceNavPane() {
+  return renderWorkspaceSubject({
+    packages: state.packages,
+    activePackage: state.package,
+    escapeHtml,
+    packageIdentityKey,
+  });
 }
 
 function renderTypeNavPane(
@@ -2869,14 +2885,39 @@ function renderMemberNavPane(type: AppTypeSurface) {
 function renderScopeBar() {
   const sc = scope();
   const selected = selectedType();
+  const pkg = currentPackage();
+  const coordinateControlsHtml = `
+    <label class="version-select">
+      <span>version</span>
+      <select id="package-version">
+        ${versionOptionsHtml(pkg)}
+      </select>
+    </label>
+    <label class="framework-select">
+      <span>framework</span>
+      <select id="framework"${pkg.frameworks.length <= 1 ? " disabled" : ""}>
+        ${pkg.frameworks.map(item => `<option ${item === pkg.activeFramework ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
+      </select>
+    </label>`;
   const showMemberScope =
     !state.atPackageRoot && Boolean(selected && memberGroups(selected).length);
+  if (sc === "workspace") {
+    return renderScopeBarPure({
+      scope: sc,
+      strip: [],
+      activeStripId: null,
+      stripAttribute: "data-workspace-lens",
+      showMemberScope,
+      escapeHtml,
+    });
+  }
   if (sc === "package") {
     return renderScopeBarPure({
       scope: sc,
       strip: packageLensesFor(state.package),
       activeStripId: state.packageLens,
       stripAttribute: "data-package-lens",
+      coordinateControlsHtml,
       showMemberScope,
       escapeHtml,
     });
@@ -2888,6 +2929,7 @@ function renderScopeBar() {
       strip: member ? memberSectionsFor(member) : [],
       activeStripId: state.memberSection,
       stripAttribute: "data-member-section",
+      coordinateControlsHtml,
       showMemberScope,
       emptyStripLabel: "Filtered member list",
       escapeHtml,
@@ -2901,6 +2943,7 @@ function renderScopeBar() {
       strip: typeLensesFor(state.package),
       activeStripId: state.lens,
       stripAttribute: "data-lens",
+      coordinateControlsHtml,
       showMemberScope,
       escapeHtml,
     });
@@ -2929,6 +2972,29 @@ function packageHeading() {
 function renderPackageView() {
   const body = packageLensBody();
   return `${packageHeading()}${body}`;
+}
+
+function renderWorkspaceView() {
+  const packages = state.packages.filter(item => !item.isRuntimePack);
+  const current = state.package && !state.package.isRuntimePack
+    ? state.package
+    : packages[0] ?? null;
+  const platform = runtimePackPackage();
+  return `<header class="type-heading workspace-heading">
+    <div class="type-badge">W</div>
+    <div>
+      <div class="type-namespace">Inspection workspace</div>
+      <h1>Workspace</h1>
+      <code class="type-signature">${packages.length} coordinate${packages.length === 1 ? "" : "s"} · platform ${platform ? "available" : "not loaded"}</code>
+    </div>
+  </header>
+  <section class="workspace-overview">
+    <h2>Current coordinate</h2>
+    ${current
+      ? `<p><strong>${escapeHtml(current.id)}</strong> ${escapeHtml(current.version)} · ${escapeHtml(current.activeFramework)}</p>`
+      : "<p>No package coordinate is open.</p>"}
+    <p>Use Search to open another package. Platform libraries are included when the workspace requires them.</p>
+  </section>`;
 }
 
 function packageLensBody() {
@@ -3988,6 +4054,7 @@ function renderTypeSourceHtml(item: AppTypeSurface) {
 }
 
 function renderLens(item: AppTypeSurface | null | undefined) {
+  if (scope() === "workspace") return renderWorkspaceView();
   if (state.atPackageRoot) return renderPackageView();
   if (!item) return "";
   switch (state.lens) {
@@ -4901,9 +4968,17 @@ function bindScopeBarEvents() {
       render();
     },
     onScopeSelect: target => {
-      if (target === "package") {
+      if (target === "workspace") {
+        state.workspaceSubjectOpen = true;
+        state.atPackageRoot = true;
+        state.selectedMemberKey = "";
+        state.memberBrowseTypeId = "";
+        state.selectedOverloadIndex = null;
+      } else if (target === "package") {
+        state.workspaceSubjectOpen = false;
         state.atPackageRoot = true;
       } else if (target === "type") {
+        state.workspaceSubjectOpen = false;
         // Pop out to the type level: leave the package root and drop any open member so the
         // type lenses (API / Metadata / Source) take the strip. Ensure a type is selected.
         state.atPackageRoot = false;
@@ -4915,6 +4990,7 @@ function bindScopeBarEvents() {
         state.memberBrowseTypeId = "";
         state.selectedOverloadIndex = null;
       } else if (target === "member") {
+        state.workspaceSubjectOpen = false;
         enterMemberScope();
       } else {
         // A new scope used to be accepted here and then do nothing at all.
@@ -5174,9 +5250,21 @@ const graphBackActions: GraphBackBindingActions = {
   onBack: popPlatformDrill,
 };
 
+function bindWorkspaceSubjectEvents() {
+  bindWorkspaceSubject(document, {
+    onActivate: key => {
+      const packageModel = state.packages.find(
+        item => packageIdentityKey(item) === key);
+      if (packageModel) selectWorkspacePackage(packageModel);
+    },
+    onClose: closeWorkspacePackage,
+  });
+}
+
 function bindEvents() {
   bindStatusBarEvents();
-  packageBar.bind(document);
+  packageControls.bind(document);
+  bindWorkspaceSubjectEvents();
   bindTypePanelEvents();
   bindScopeBarEvents();
   bindSettingsPanelEvents();
@@ -5607,20 +5695,6 @@ function persistRecentPackages() {
   } catch {
     // Persistence is best-effort; the in-memory list still works this session.
   }
-}
-
-// The most-recently-opened library that is actually available in the active
-// platform framework's roster, or null. Lets the Platform land on the library you
-// were last looking at instead of the aggregate overview.
-function mostRecentAvailableLibrary() {
-  const roster = platformLibraryRoster("");
-  if (!roster.length) return null;
-  const byAssembly = new Map(roster.map(lib => [lib.assembly, lib]));
-  for (const entry of state.platformRecent || []) {
-    const hit = byAssembly.get(entry.assembly);
-    if (hit) return { assembly: hit.assembly, pack: hit.pack };
-  }
-  return null;
 }
 
 // Blends the four targets into one ordered result list, honouring the active scope chip.
@@ -7487,55 +7561,6 @@ function renderPackageQueryPage() {
   packageQueryLiveAnnouncer.enqueue(announcement);
 }
 
-// Loads the resident runtime pack and lands on its package Overview (the runtime pack has no
-// nupkg, so this goes through loadRuntimePack rather than loadPackage).
-async function openRuntimePackFromHome() {
-  const navigationSeq = navigationSequence.begin();
-  state.home = false;
-  state.loading = true;
-  state.error = "";
-  state.retryAction = null;
-  state.loadingMessage = "Loading the .NET Platform…";
-  state.loadingSubtitle = ".NET Platform · net10.0";
-  render();
-  const { packageModel: pack } = await loadRuntimePack(
-    "net10.0",
-    () => navigationSequence.isCurrent(navigationSeq));
-  if (!navigationSequence.isCurrent(navigationSeq)) return;
-  if (!pack) {
-    state.loading = false;
-    state.error = "Couldn’t load the .NET runtime pack. Retry, or open a different package.";
-    state.errorTitle = "Runtime pack failed";
-    state.retryAction = openRuntimePackFromHome;
-    render();
-    return;
-  }
-  activatePackage(pack, { resetAccessibility: true });
-  state.home = false;
-  state.loading = false;
-  // Start on the library you were last looking at, not the aggregate overview,
-  // when one is available in this framework's roster.
-  const recent = mostRecentAvailableLibrary();
-  if (recent) {
-    await openPlatformLibrary(recent.assembly, recent.pack, { navigationSeq });
-    return;
-  }
-  state.atPackageRoot = true;
-  state.packageLens = "overview";
-  state.typeFilter = "";
-  state.namespaceFilter = "";
-  state.kindFilter = "";
-  state.libraryScope = null;
-  resetMemberFilters();
-  state.selectedTypeId = defaultVisibleTypeId(pack);
-  reconcileAccessibilityFilter(pack.types.find(item => item.id === state.selectedTypeId));
-  state.selectedMemberKey = "";
-  state.memberBrowseTypeId = "";
-  state.selectedOverloadIndex = null;
-  render();
-  observeAsync(loadSelectionData(), "Loading selection data");
-}
-
 // The inspector-bot mascot series shown on interstitial (loading) screens. Each entry is a
 // color variant of the same dotnet-bot-inspector character living in /assets/bots/. To grow
 // the series, drop a new PNG in that folder and add its basename here — nothing else needed.
@@ -7561,14 +7586,14 @@ function interstitialBotSrc(): string {
 }
 
 function openPackageQuery(query: ParsedPackageQuery) {
-  const packageTab = findPackageTabForQuery(state, query);
-  if (packageTab) {
+  const openPackage = findOpenPackageForQuery(state, query);
+  if (openPackage) {
     state.loading = false;
     state.error = "";
     state.errorTitle = "";
     state.errorDetail = "";
     state.retryAction = null;
-    selectPackageTab(packageTab);
+    selectWorkspacePackage(openPackage);
     return;
   }
 
@@ -9778,7 +9803,7 @@ async function restoreWorkspaceFromLocation(
   resetLocationFilters();
   clearWorkspacePackages();
   render();
-  const target: WorkspaceTab = {
+  const target: WorkspaceCoordinate = {
     id: loc.package,
     version: loc.version || "latest",
     framework: loc.framework || ""
@@ -9865,8 +9890,8 @@ async function restoreWorkspaceFromLocation(
         || (failedTabCount > 0
           ? "The shared workspace could not be restored completely."
           : canonicalTabCountPreserved
-            ? "A shared workspace tab resolved to a different version or framework than the packet requested."
-            : "The shared workspace tabs did not remain distinct after resolution."),
+            ? "A shared workspace coordinate resolved to a different version or framework than the packet requested."
+            : "The shared workspace coordinates did not remain distinct after resolution."),
       canonicalSnapshot);
     return;
   }

@@ -1,7 +1,7 @@
 import {
   parsePackageQuery,
   type ParsedPackageQuery,
-} from "./package-bar.ts";
+} from "./package-controls.ts";
 import {
   isProductHomeDemoId,
   type ProductHomeDemoId,
@@ -35,9 +35,8 @@ export interface LoadErrorShellBindingActions {
 }
 
 export interface WorkbenchShellHtmlOptions {
-  workspaceStripHtml: string;
+  subjectInspectorHtml: string;
   workspaceTitleHtml: string;
-  coordinateSelectorsHtml: string;
 }
 
 export function workbenchShellHtml(
@@ -46,15 +45,11 @@ export function workbenchShellHtml(
   return `
       <header class="titlebar">
         <a class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
-        ${options.workspaceStripHtml}
+        ${options.subjectInspectorHtml}
         <div class="workspace-title" aria-label="Active workspace">
           ${options.workspaceTitleHtml}
         </div>
-        <div class="coordinate-selectors" aria-label="Active coordinate">
-          ${options.coordinateSelectorsHtml}
-        </div>
         <nav class="title-actions" aria-label="Application">
-          <button id="share" type="button">Share</button>
           <button id="help" type="button" aria-label="Keyboard help">?</button>
           <button id="open-search" type="button" aria-haspopup="dialog" title="Search (Ctrl/Command+P)">Search</button>
           <button id="go-home" type="button">Home</button>

@@ -166,9 +166,9 @@ From the full-bleed Annotated Source viewer, that action closes the viewer and
 opens Settings. Closing Settings returns to inline Annotated Source without
 reopening the viewer; any changed style regenerates the affected inline output.
 
-Changing style regenerates only affected decompiler output. The preference is
-not part of the workspace title or target selector, and a shared workspace does
-not impose the sender's style preference on its recipient.
+Changing style regenerates only affected decompiler output. The preference is not part of the title line or inspected-subject line, and a
+shared workspace does not impose the sender's style preference on its
+recipient.
 
 ## Unified Settings
 
@@ -216,14 +216,14 @@ One information hierarchy adapts across viewport sizes:
 - wide layouts retain Type or Member navigation beside a full working surface;
 - narrow layouts replace the navigation pane with a visible
   `Types` or `Members` button that opens the shared modal navigation drawer;
-- the workspace title bar, subject/inspector strip, and target-selector row
-  each remain one line;
-- `Copy target` remains a visible trailing action;
-- the broad workspace identity truncates before coordinate selectors or fixed
-  shell actions disappear;
-- target-selector intermediate qualification elides before the exact target
-  heading loses its accessible identity;
-- lens navigation scrolls horizontally instead of wrapping; and
+- the combined title line and inspected-subject line each remain one line;
+- Share and Copy name remain visible on the inspected-subject line;
+- Help and Settings disappear before Search, Home, subject navigation, or
+  inspected-subject actions;
+- broad workspace context truncates before the subject/inspector region;
+- subject and inspector navigation scroll horizontally instead of wrapping;
+- the inspected-subject identity elides visually without losing its complete
+  accessible identity; and
 - full identities remain available through accessible labels and focused or
   expanded states.
 

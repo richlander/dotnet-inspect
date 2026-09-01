@@ -6,42 +6,43 @@ async function box(page: Page, selector: string) {
   return value!;
 }
 
-test("workspace windows use natural width and leave room for the broad title", async ({
+test("the title bar gives the active workspace identity the available space", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/browser/workspace-titlebar.html");
 
-  const workspaceStrip = await box(page, ".workspace-strip");
   const workspaceTitle = await box(page, ".workspace-title");
   const titleActions = await box(page, ".title-actions");
-  const workspaceWindows =
-    await page.locator(".workspace-window").evaluateAll(elements =>
-      elements.map(element => element.getBoundingClientRect().width));
 
-  expect(workspaceStrip.width).toBeLessThan(400);
   expect(workspaceTitle.width).toBeGreaterThan(100);
-  expect(workspaceWindows[0]).not.toBe(workspaceWindows[1]);
   expect(titleActions.x + titleActions.width).toBeCloseTo(1440, 0);
+  await expect(page.locator(".titlebar")).not.toContainText("0:");
+  await expect(page.locator(".titlebar")).not.toContainText("Platform");
+  await expect(page.locator(".workspace-window")).toHaveCount(0);
 });
 
-test("crowded workspaces scroll before title-bar controls move", async ({
+test("subjects, inspectors, and package selectors share the title bar", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html?count=12");
+  await page.goto("/browser/workspace-titlebar.html");
 
-  const overflow = await page.locator(".workspace-strip").evaluate(element => ({
-    clientWidth: element.clientWidth,
-    scrollWidth: element.scrollWidth,
-  }));
-  const titleActions = await box(page, ".title-actions");
+  const titlebar = await box(page, ".titlebar");
+  const brand = await box(page, ".brand");
+  const lensbar = await box(page, ".lensbar");
+  const version = await box(page, "#package-version");
+  const framework = await box(page, "#framework");
 
-  expect(overflow.scrollWidth).toBeGreaterThan(overflow.clientWidth);
-  expect(titleActions.x + titleActions.width).toBeCloseTo(1440, 0);
+  expect(lensbar.x).toBeGreaterThanOrEqual(brand.x + brand.width);
+  expect(version.y).toBeGreaterThanOrEqual(titlebar.y);
+  expect(framework.y + framework.height).toBeLessThanOrEqual(
+    titlebar.y + titlebar.height);
+  await expect(page.locator(".titlebar #package-version")).toBeVisible();
+  await expect(page.locator(".titlebar #framework")).toBeVisible();
 });
 
-test("narrow layout preserves the three-row hierarchy and app controls", async ({
+test("narrow layout preserves the two-line hierarchy and primary actions", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 760, height: 900 });
@@ -49,16 +50,25 @@ test("narrow layout preserves the three-row hierarchy and app controls", async (
 
   const titleActions = await box(page, ".title-actions");
   const titlebar = await box(page, ".titlebar");
-  const lensbar = await box(page, ".lensbar");
-  const targetSelector = await box(page, ".detail-head");
+  const inspectedSubjectLine = await box(page, ".detail-head");
+  const version = await box(page, "#package-version");
+  const namespacePicker = await box(page, ".namespace-picker");
+  const typeList = await box(page, ".type-list");
 
   await expect(page.locator("#package-version")).toBeVisible();
   await expect(page.locator("#framework")).toBeVisible();
   await expect(page.locator("#open-search")).toBeVisible();
   await expect(page.locator("#go-home")).toBeVisible();
-  await expect(page.locator("#open-settings")).toBeVisible();
-  expect(titlebar.y).toBeLessThan(lensbar.y);
-  expect(lensbar.y).toBeLessThan(targetSelector.y);
+  await expect(page.locator(".subject-identity")).toContainText(
+    "System.Text.Json.JsonSerializer");
+  await expect(page.locator(".detail-head #share")).toBeVisible();
+  await expect(page.locator("#copy-name")).toBeVisible();
+  await expect(page.locator("#help")).toBeHidden();
+  await expect(page.locator("#open-settings")).toBeHidden();
+  expect(titlebar.y).toBeLessThan(inspectedSubjectLine.y);
+  expect(version.y).toBeGreaterThanOrEqual(titlebar.y);
+  expect(version.y + version.height).toBeLessThanOrEqual(titlebar.y + titlebar.height);
   expect(titleActions.x + titleActions.width).toBeCloseTo(760, 0);
-  expect(targetSelector.x + targetSelector.width).toBeLessThanOrEqual(760);
+  expect(inspectedSubjectLine.x + inspectedSubjectLine.width).toBeLessThanOrEqual(760);
+  expect(namespacePicker.y + namespacePicker.height).toBeLessThanOrEqual(typeList.y);
 });

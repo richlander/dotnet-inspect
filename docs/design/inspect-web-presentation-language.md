@@ -191,18 +191,19 @@ one restrictive dimension.
 
 ## Shared heading rules
 
-The workspace title bar identifies the broad inspection scope. The active
-working surface identifies the exact Package, Library, Type, or Member target
-with one visible level-one heading. This section defines how lenses retain that
+The title line identifies the active subject, coordinate options, inspector,
+and broad workspace context. The inspected-subject line immediately below it
+identifies the exact Package, Library, Type, or Member in full. Content headings
+may use the shorter local name. This section defines how lenses retain that
 orientation without restoring duplicated hero metadata.
 
 ### API and Source lenses
 
-API and Source render the product-owned qualified active-target identity as a
-compact visible level-one heading, followed by their primary content. When the
-snapshot has an effective lens, the lens panel's accessible heading
-relationship includes that target heading and the active lens label. The lens
-panel's `aria-labelledby` references the target heading and active lens tab.
+API and Source render a compact local heading followed by their primary
+content. The inspected-subject line remains the visible owner of the complete
+qualified identity. When the snapshot has an effective lens, the lens panel's
+accessible heading relationship includes the inspected-subject identity and
+the active inspector label.
 
 When the snapshot has no effective lens, the UI renders no `tabpanel`. A status
 region references the target heading and its visible `Lens unavailable`

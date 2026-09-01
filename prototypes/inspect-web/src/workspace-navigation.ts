@@ -9,7 +9,7 @@ import {
   type PlatformPack,
   type GraphMemberShareIdentity,
   type TypeLens,
-  type WorkspaceTab,
+  type WorkspaceCoordinate,
 } from "./data.ts";
 import {
   encodeBodyTarget,
@@ -561,7 +561,7 @@ export function retainedMissingPlatformTarget(
 
 export interface DecodedShareState {
   state: BrowserWorkspaceShareState;
-  tabs: WorkspaceTab[];
+  tabs: WorkspaceCoordinate[];
   active: number;
   contexts: readonly BrowserWorkspaceShareContext[];
   selectedContextId: string;
@@ -616,7 +616,7 @@ function decodeWorkspaceShareState(
   }
 
   const state = result.state;
-  const tabs: WorkspaceTab[] = [];
+  const tabs: WorkspaceCoordinate[] = [];
   let platformTabCount = 0;
   for (const tab of state.tabs) {
     if (tab.runtimeIdentifier) {
@@ -794,7 +794,7 @@ function resolveWorkspaceLocation(
     : null;
   let bodyTarget: BodyTarget | null = null;
   let viewToken = location.hash.slice(1);
-  let tabs: WorkspaceTab[] = [];
+  let tabs: WorkspaceCoordinate[] = [];
   let active = 0;
   let contexts: readonly BrowserWorkspaceShareContext[] = [];
   let selectedContextId = "";

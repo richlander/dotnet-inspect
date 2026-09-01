@@ -75,12 +75,12 @@ independent cosmetic changes.
 
 | Area | Direction |
 | ---- | --------- |
-| Persistent hierarchy | Use three rows before content: workspace title bar, subject/inspector strip, and target selector |
-| Workspace title bar | Show the broad workspace identity, compact indexed workspace switching, applicable coordinate selectors, and app controls |
-| Subject navigation | Keep subject selection and subject-specific inspectors together without repeating the workspace identity |
-| Target selection | Put target navigation in the working surface and let its heading identify the exact Library, Type, or Member |
-| Workspace selection | Give loaded coordinates stable session-local indexes; use a Workspace surface for broader management |
-| Package coordinate | Keep version and TFM selectors with the broad package/workspace identity |
+| Persistent hierarchy | Use one title line for product, subjects, coordinate controls, inspectors, context, and global actions; use one inspected-subject line before content |
+| Workspace title bar | Follow the CLI grammar after `dotnet-inspect`: subject, coordinate options, and inspector, followed by elastic context and global actions |
+| Subject navigation | Establish Workspace, Package, Type, and Member in the title line now; add Library when product descriptors are ready |
+| Inspected subject | Show the exact Package, Library, Type, or Member identity in full on the line below, with Share and Copy name |
+| Workspace selection | Keep ordinary single-workspace use free of tabs; manage retained coordinates inside the Workspace subject |
+| Package coordinate | Keep version and TFM selectors with the Package subject; platform is workspace content, not a workspace |
 | Library inspection | Select all libraries or one library within Library |
 | Type headings | Use a compact exact-target heading in API and Source; retain detail in Metadata |
 | Filters | Collapse selector rows by default and summarize hidden restrictions |
@@ -90,13 +90,13 @@ independent cosmetic changes.
 | Settings | Use one Settings experience with contextual entry points |
 | Data bar | Show build identity, acquired source, CLI, and skill links on one line |
 
-Together, these decisions separate two identities that must remain visible
-without competing for one label. The workspace title bar describes the broad
-inspection scope: a named workspace when available, otherwise the active
-package, platform, project, file, or other coordinate. The working surface
-describes the exact target through its own heading. Between them, the
-subject/inspector strip selects the kind of evidence, and the target-selector
-row provides navigation without becoming a second title.
+Together, these decisions make the web shell read like the CLI without
+rendering a command string. The title line progresses from `dotnet-inspect` to
+the active subject, applicable coordinate options, and inspector. Its elastic
+region may show broad workspace context. The line below renders the exact
+inspected subject in full and owns Share and Copy name. Target inventories and
+navigation remain inside the working surface rather than consuming another
+persistent band.
 
 ## Cross-document relationships
 
@@ -144,18 +144,19 @@ normative. Reference applications supply evidence for individual capabilities:
 
 | Capability | Reference evidence |
 | ---------- | ------------------ |
-| Workspace title-bar allocation | tmux indexed windows and its elastic status-line space |
+| Product-to-subject-to-inspector grammar | the `dotnet-inspect` CLI |
 | Spotlight, command palette, keyboard navigation, and focus | Visual Studio Code |
 | Dense web-native package exploration and shareable state | npmx.dev |
 | Assembly, Type, and Member hierarchy | ILSpy and Visual Studio Object Browser |
 | Read-only inspection posture and evidence panes | Chrome DevTools |
 | URLs, browser history, and familiar web conventions | GitHub |
 
-These references are neither architectural owners nor templates to copy. tmux
-does not imply terminal styling or pane management; Visual Studio Code does not
-imply an editor workbench, command center, Activity Bar, file Explorer, editor
-tabs, movable regions, or desktop-window assumptions; and Chrome DevTools does
-not imply a browser-debugging information architecture.
+These references are neither architectural owners nor templates to copy. The
+CLI correspondence does not turn the title line into editable command text;
+Visual Studio Code does not imply an editor workbench, command center, Activity
+Bar, file Explorer, editor tabs, movable regions, or desktop-window
+assumptions; and Chrome DevTools does not imply a browser-debugging information
+architecture.
 
 [npmx.dev](https://npmx.dev/) contributes fast package exploration, density,
 code-first working surfaces, keyboard access, and persistent package context.

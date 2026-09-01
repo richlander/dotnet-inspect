@@ -550,8 +550,11 @@ const scopeBarSource = readFileSync(
 const settingsPanelSource = readFileSync(
   new URL("../src/settings-panel.ts", import.meta.url),
   "utf8");
-const packageBarSource = readFileSync(
-  new URL("../src/package-bar.ts", import.meta.url),
+const packageControlsSource = readFileSync(
+  new URL("../src/package-controls.ts", import.meta.url),
+  "utf8");
+const workspaceSubjectSource = readFileSync(
+  new URL("../src/workspace-subject.ts", import.meta.url),
   "utf8");
 const metadataViewerSource = readFileSync(
   new URL("../src/metadata-viewer.ts", import.meta.url),
@@ -560,7 +563,7 @@ const packageOpportunitiesSource = readFileSync(
   new URL("../src/package-opportunities.ts", import.meta.url),
   "utf8");
 const applicationSources =
-  `${appSource}\n${graphSource}\n${packageBarSource}\n${metadataViewerSource}`;
+  `${appSource}\n${graphSource}\n${packageControlsSource}\n${workspaceSubjectSource}\n${metadataViewerSource}`;
 const stylesSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const indexSource = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const generatedEngineModuleUrl =
@@ -886,27 +889,27 @@ test("typed status bar owns its rendered toggle binding", () => {
     3);
 });
 
-test("typed package bar owns package framework and version selection bindings", () => {
-  const packageBarCreation =
-    appSource.match(/const packageBar = createPackageBar\(\{[\s\S]*?\n}\);/)?.[0]
+test("typed package controls own framework and version selection bindings", () => {
+  const packageControlsCreation =
+    appSource.match(/const packageControls = createPackageControls\(\{[\s\S]*?\n}\);/)?.[0]
     ?? "";
-  const packageBarBinding =
-    packageBarSource.match(/  function bind\(root: ParentNode\): void \{[\s\S]*?\n  }(?=\n\n  return)/)?.[0]
+  const packageControlsBinding =
+    packageControlsSource.match(/  function bind\(root: ParentNode\): void \{[\s\S]*?\n  }(?=\n\n  return)/)?.[0]
     ?? "";
   const workspaceBinding =
     appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
     ?? "";
   assert.match(
-    packageBarCreation,
+    packageControlsCreation,
     /selectFramework: framework =>\s*observeAsync\(\s*switchPackageFramework\(framework\),\s*"Switching the package framework"\),[\s\S]*selectVersion: version => \{[\s\S]*state\.package\?\.isRuntimePack[\s\S]*observeAsync\(\s*switchPlatformVersion\(version\),\s*"Switching the platform version"\);[\s\S]*else\s*observeAsync\(\s*switchPackageVersion\(version\),\s*"Switching the package version"\)/);
   assert.match(
-    packageBarSource,
+    packageControlsSource,
     /export function bindPackageSelections\([\s\S]*\[data-framework-chip\][\s\S]*#framework[\s\S]*#package-version/);
   assert.match(
-    packageBarBinding,
+    packageControlsBinding,
     /bindPackageSelections\(root, \{\s*onFrameworkSelect: selectFramework,\s*onVersionSelect: selectVersion,\s*\}\)/);
   assert.equal(
-    workspaceBinding.match(/\bpackageBar\.bind\(document\)/g)?.length,
+    workspaceBinding.match(/\bpackageControls\.bind\(document\)/g)?.length,
     1);
   assert.doesNotMatch(
     workspaceBinding,
@@ -1182,7 +1185,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /export function bindLoadErrorShell\([\s\S]*#retry-load[\s\S]*#error-package-query[\s\S]*#error-package-input[\s\S]*#toggle-error-detail[\s\S]*\.load-error-detail/);
   assert.match(
     shellControlsSource,
-    /import \{\s*parsePackageQuery,\s*type ParsedPackageQuery,\s*\} from "\.\/package-bar\.ts"/);
+    /import \{\s*parsePackageQuery,\s*type ParsedPackageQuery,\s*\} from "\.\/package-controls\.ts"/);
   assert.equal(
     workspaceBinding.match(/\bbindWorkbenchShell\(\b/g)?.length,
     1);
@@ -1392,7 +1395,7 @@ test("typed type panel owns its rendered control bindings", () => {
     1);
   assert.match(
     appSource,
-    /function bindEvents\(\) \{\s*bindStatusBarEvents\(\);\s*packageBar\.bind\(document\);\s*bindTypePanelEvents\(\);/);
+    /function bindEvents\(\) \{\s*bindStatusBarEvents\(\);\s*packageControls\.bind\(document\);\s*bindWorkspaceSubjectEvents\(\);\s*bindTypePanelEvents\(\);/);
   assert.match(
     typePanelSource,
     /export function bindTypePanel\([\s\S]*\[data-type\][\s\S]*\[data-namespace\][\s\S]*\[data-kind-filter\][\s\S]*\[data-nav-member\][\s\S]*\[data-nav-overload\][\s\S]*#nav-to-types[\s\S]*#clear-filter[\s\S]*#namespace-jump[\s\S]*#type-list[\s\S]*#type-filter/);
@@ -1533,37 +1536,56 @@ test("typed scope bar owns its rendered control bindings", () => {
     statementSignatures(scope.body.body),
     [
       {
-        if: 'target === "package"',
-        whenTrue: ["assign:state.atPackageRoot = true"],
+        if: 'target === "workspace"',
+        whenTrue: [
+          "assign:state.workspaceSubjectOpen = true",
+          "assign:state.atPackageRoot = true",
+          'assign:state.selectedMemberKey = ""',
+          'assign:state.memberBrowseTypeId = ""',
+          "assign:state.selectedOverloadIndex = null",
+        ],
         whenFalse: [
           {
-            if: 'target === "type"',
+            if: 'target === "package"',
             whenTrue: [
-              "assign:state.atPackageRoot = false",
-              {
-                if: "!state.selectedTypeId",
-                whenTrue: [
-                  "declare:const first = filteredTypes()[0]",
-                  {
-                    if: "first",
-                    whenTrue: ["assign:state.selectedTypeId = first.id"],
-                    whenFalse: [],
-                  },
-                ],
-                whenFalse: [],
-              },
-              'assign:state.selectedMemberKey = ""',
-              'assign:state.memberBrowseTypeId = ""',
-              "assign:state.selectedOverloadIndex = null",
+              "assign:state.workspaceSubjectOpen = false",
+              "assign:state.atPackageRoot = true",
             ],
             whenFalse: [
               {
-                if: 'target === "member"',
-                whenTrue: ["call:enterMemberScope()"],
-                // A scope this dispatch does not handle is now a compile error rather
-                // than a silently ignored click.
-                whenFalse: ['call:assertNever(target, "workspace scope")'],
-              },
+                if: 'target === "type"',
+                whenTrue: [
+                  "assign:state.workspaceSubjectOpen = false",
+                  "assign:state.atPackageRoot = false",
+                  {
+                    if: "!state.selectedTypeId",
+                    whenTrue: [
+                      "declare:const first = filteredTypes()[0]",
+                      {
+                        if: "first",
+                        whenTrue: ["assign:state.selectedTypeId = first.id"],
+                        whenFalse: [],
+                      },
+                    ],
+                    whenFalse: [],
+                  },
+                  'assign:state.selectedMemberKey = ""',
+                  'assign:state.memberBrowseTypeId = ""',
+                  "assign:state.selectedOverloadIndex = null",
+                ],
+                whenFalse: [
+                  {
+                    if: 'target === "member"',
+                    whenTrue: [
+                      "assign:state.workspaceSubjectOpen = false",
+                      "call:enterMemberScope()",
+                    ],
+                    // A scope this dispatch does not handle is now a compile error rather
+                    // than a silently ignored click.
+                    whenFalse: ['call:assertNever(target, "workspace scope")'],
+                  },
+                ],
+              }
             ],
           },
         ],
@@ -2150,7 +2172,7 @@ test("global workbench shortcuts respect the topmost modal", () => {
     [
       appSource,
       graphInteractionsSource,
-      packageBarSource,
+      packageControlsSource,
       spotlightSource,
       typePanelSource,
     ].join("\n").match(/addEventListener\(\s*"keydown"/g)?.length ?? 0,
@@ -2298,7 +2320,7 @@ test("bare home paints before wasm engine download", () => {
     /state\.retryAction = \(\) => window\.location\.reload\(\)/);
   assert.match(
     errorPackageRecovery,
-    /findPackageTabForQuery\(state, query\)[\s\S]*selectPackageTab\(packageTab\);[\s\S]*return;[\s\S]*if \(!state\.engineReady\) \{[\s\S]*window\.location\.assign\(url\);[\s\S]*return;[\s\S]*\}\s*observeAsync\(\s*loadPackage\(query\.packageId, query\.version, ""\)/);
+    /findOpenPackageForQuery\(state, query\)[\s\S]*selectWorkspacePackage\(openPackage\);[\s\S]*return;[\s\S]*if \(!state\.engineReady\) \{[\s\S]*window\.location\.assign\(url\);[\s\S]*return;[\s\S]*\}\s*observeAsync\(\s*loadPackage\(query\.packageId, query\.version, ""\)/);
   assert.match(
     loadingView,
     /id="error-package-query"[\s\S]*bindLoadErrorShell\(document, loadErrorShellActions\)/);
@@ -2648,9 +2670,9 @@ test("member entry controls move focus into the resulting member navigation", ()
     /onMemberCompositionAccessibilitySelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*enterMemberScope\(\);[\s\S]*onMemberCompositionKindSelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*onMemberCompositionTraitSelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*onMemberGroupOpen: memberKey => \{[\s\S]*enterMemberNavigation\(\(\) => openMemberGroup/);
 });
 
-test("package tab selection resets type-specific member filters", () => {
+test("workspace package selection resets type-specific member filters", () => {
   const selection =
-    appSource.match(/function selectPackageTab\([\s\S]*?\n}\n\nfunction closePackageTab/)?.[0]
+    appSource.match(/function selectWorkspacePackage\([\s\S]*?\n}\n\nfunction closeWorkspacePackage/)?.[0]
     ?? "";
   assert.match(
     selection,
@@ -2659,7 +2681,7 @@ test("package tab selection resets type-specific member filters", () => {
 
 test("last package close recovers a route before releasing the workspace", () => {
   const close =
-    appSource.match(/function closePackageTab\([\s\S]*?\n}\n\nfunction activatePackage/)?.[0]
+    appSource.match(/function closeWorkspacePackage\([\s\S]*?\n}\n\nfunction activatePackage/)?.[0]
     ?? "";
 
   assert.match(
@@ -2720,15 +2742,6 @@ test("home demos restore the complete parsed location", () => {
   assert.match(
     runtimeHistory,
     /await applyPlatformLibraryScope\([\s\S]*applyLocationView\(loc\);\s*applyDeepLink\(deep\)/);
-});
-
-test("opening an already-resident Platform resets type-specific member filters", () => {
-  const openPlatform =
-    appSource.match(/async function openRuntimePackFromHome\([\s\S]*?\n}\n\n\/\/ The inspector-bot/)?.[0]
-    ?? "";
-  assert.match(
-    openPlatform,
-    /state\.atPackageRoot = true;\s*state\.packageLens = "overview";[\s\S]*resetMemberFilters\(\);\s*state\.selectedTypeId = defaultVisibleTypeId\(pack\);/);
 });
 
 test("lens-scoped Platform library changes reset type-specific member state", () => {
@@ -5444,7 +5457,7 @@ test("workspace package replacement reuses its slot at the package limit", () =>
   assert.deepEqual(retained.evicted, [active]);
 });
 
-test("closing a package removes its coordinate and selects the adjacent tab", () => {
+test("closing a package removes its coordinate and selects the adjacent coordinate", () => {
   const first = packageAt("1.0.0", "net8.0");
   const active = packageAt("2.0.0", "net9.0");
   const last = packageAt("3.0.0", "net10.0");
@@ -5476,7 +5489,7 @@ test("closing a package removes its coordinate and selects the adjacent tab", ()
 
 test("workspace UI routes replacements and restore notices through bounded paths", () => {
   assert.match(
-    packageBarSource,
+    packageControlsSource,
     /onFrameworkSelect\(button\.dataset\.frameworkChip \?\? ""\)/);
   assert.match(
     appSource,
@@ -5517,9 +5530,6 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /onRetry: \(\) => \{\s*if \(state\.retryAction === retryUnavailable\) return;\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\);\s*\}/);
   assert.match(
     appSource,
-    /state\.retryAction = openRuntimePackFromHome/);
-  assert.match(
-    appSource,
     /state\.retryAction = options\.retryAction/);
   assert.match(
     appSource,
@@ -5528,11 +5538,11 @@ test("workspace UI routes replacements and restore notices through bounded paths
     appSource,
     /appendQueryNotice\(\s+friendly\.message,\s+options\.retryAction/);
   assert.match(
-    packageBarSource,
-    /data-package-close=/);
+    workspaceSubjectSource,
+    /data-workspace-close=/);
   assert.match(
-    packageBarSource,
-    /closePackageTab\(key\)/);
+    appSource,
+    /onClose: closeWorkspacePackage/);
   assert.match(
     appSource,
     /const key = assemblyId \|\| `legacy:\$\{asm\}`/);
@@ -5565,7 +5575,7 @@ test("dependency selection exposes a missing exact framework", () => {
 test("dependency group selection resets when package identity changes", () => {
   assert.match(
     appSource,
-    /const changed = !packageIdentityEquals\(state\.package, pkg\);\s+state\.package = pkg;\s+if \(changed\)\s+state\.dependenciesGroupIndex = null;/);
+    /const changed = !packageIdentityEquals\(state\.package, pkg\);\s+state\.workspaceSubjectOpen = false;\s+state\.package = pkg;\s+if \(changed\)\s+state\.dependenciesGroupIndex = null;/);
 });
 
 test("missing exact dependency groups never create graph edges", () => {

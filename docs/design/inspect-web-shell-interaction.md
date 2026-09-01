@@ -14,10 +14,10 @@ are separately owned.
 This owner defines:
 
 - the persistent shell's visible text actions (`Home`, `Search`, `Open`,
-  `Settings`);
-- the workspace title bar's allocation among the product root, compact
-  workspace switcher, broad workspace identity, coordinate selectors, and
-  trailing shell actions;
+  `Help`, `Settings`);
+- the title line's allocation among the product root, the navigation-
+  presentation-owned subject/inspector content, broad workspace identity, and
+  trailing global actions;
 - the generic modal-dialog contract (accessible name, initial focus, inert
   background, tab containment, Escape, one-modal-at-a-time, and
   ordinary-dismissal focus return) shared by Spotlight, Open, Settings, the
@@ -71,55 +71,44 @@ This document consumes, without redefining:
 
 ## Workspace title bar and shell actions
 
-The first persistent row is one non-wrapping workspace title bar:
+The first persistent row is one non-wrapping title line:
 
 ```text
-dotnet-inspect  [0:Platform  1:System.Text.Json*]  System.Text.Json@10.0.0  version 10.0.0  framework net10.0  Search Home Open Settings
+dotnet-inspect  Workspace Package version 10.0.0 framework net10.0 Type Member  API Metadata Source  System.Text.Json  Search Home Help Settings
 ```
 
-It describes the broad inspection scope, not the deepest selected target:
+It follows the product's CLI grammar without becoming an editable command:
 
 1. `dotnet-inspect` is the stable product and Workspace root control.
-2. The **workspace switcher** identifies retained open coordinates. Platform
-   owns session-local index `0`; other coordinates receive stable session-local
-   numeric indexes. Selecting a coordinate does not change its index. Replacing
-   its version or framework preserves its index, and closing one coordinate
-   does not renumber the others.
-3. The **workspace identity** receives the elastic space. It renders an
+2. Navigation Presentation renders the subject ladder, applicable Package
+   coordinate controls, and the active subject's inspectors immediately after
+   the product root.
+3. The **workspace identity** receives any remaining elastic space. It renders an
    owner-issued workspace name when one exists. Otherwise it renders the
    active coordinate identity for a singular or provisionally unnamed
    workspace. A composite identity may be meaningful, such as an owner-issued
    package-prefix description; the shell does not derive one by parsing member
    or display text.
-4. Applicable coordinate selectors, such as package version and target
-   framework, immediately qualify that broad identity. Their descriptors and
-   effects remain owned by navigation presentation and its product inputs.
-5. Fixed shell actions remain reachable at the trailing edge.
+4. Fixed global actions remain reachable at the trailing edge. Help and
+   Settings are the first actions removed from visual layout as width narrows;
+   Search and Home remain.
 
-Workspace selectors consume their natural width rather than stretching to
-divide the row like browser tabs. The active coordinate is unmistakable in
-both visual and accessibility state. When the switcher crowds the title bar,
-the elastic workspace identity truncates first, coordinate selector labels may
-compact next, and fixed shell actions remain reachable. Every workspace remains
-available through horizontal scrolling.
+The title line contains no workspace tabs, indexed workspace selectors, or
+separate Platform workspace. Most sessions contain one workspace, so retained
+coordinate management belongs to the Workspace subject rather than permanent
+high-distraction chrome. Platform libraries are capabilities or content of the
+current workspace.
 
-This allocation uses tmux's indexed-window status line as structural evidence:
-compact indexed workspaces spend only the width they need and return remaining
-width to useful title or status information. Inspect Web does not copy tmux's
-terminal styling, command model, pane management, key prefix, or status
-variables.
-
-The title bar does not show the fully qualified Library, Type, or Member
+The title line does not show the fully qualified Library, Type, or Member
 identity. [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md)
-owns the subject/inspector row and target selector beneath it, and the active
-working surface owns the visible heading for the exact target.
+owns the inspected-subject line beneath it.
 
 Search is a visible trailing action that opens Spotlight, not an
 always-editable query input or a visually dominant command center. The global
 shell exposes:
 
 ```text
-Home   Search   Open   Settings
+Home   Search   Open   Help   Settings
 ```
 
 An optional decorative glyph does not replace any visible label.
@@ -134,11 +123,11 @@ The shell may land before adjacent redesign owners. During that transition:
   success-shaped placeholder action;
 - the `dotnet-inspect` root control may retain its current Home destination
   until the routed Workspace surface exists;
-- existing Share and keyboard-help actions may remain at the trailing edge
-  until their contextual replacements land; and
-- retained packages may provisionally supply the indexed workspace switcher,
-  active coordinate identity, version selector, and framework selector before
-  product-issued Workspace and coordinate descriptors replace that data.
+- Share moves to the inspected-subject line while keyboard Help remains a
+  global title-line action; and
+- retained packages may provisionally supply Workspace entries and Package
+  version/framework controls before product-issued descriptors replace that
+  data.
 
 This sequencing changes no package-selection or acquisition semantics and does
 not claim completion of the redesign.
@@ -292,25 +281,19 @@ outcomes.
 
 ### Workspace title bar
 
-1. Load Platform and two packages and confirm that the workspace switcher renders
-   indexes `0`, `1`, and `2` in retained-session order without stretching the
-   selectors to equal widths.
-2. Change the active package's version and framework and confirm that its
-   workspace index is preserved.
-3. Close the lower-index package and confirm that the remaining package is not
-   renumbered.
-4. Confirm that the active workspace is exposed visually and with
-   `aria-selected`, and that pointer and keyboard activation use the same
-   workspace-selection action.
-5. Confirm that the broad workspace or active-coordinate identity appears in
-   the elastic title region, followed by applicable version and framework
-   selectors.
-6. Select a Type or Member and confirm that its fully qualified identity does
-   not replace the workspace title; the working surface heading identifies it.
-7. Add workspaces until the switcher crowds the row and confirm that the title
-   truncates before selectors or fixed shell actions disappear, with every
-   workspace remaining reachable by horizontal scrolling.
-8. Confirm that no persistent package-query input or centered command-center
+1. Confirm that Workspace, Package, Type, Member, applicable Package coordinate
+   controls, and active inspectors follow `dotnet-inspect` in the title line.
+2. Confirm that the line contains no workspace tabs, numeric workspace
+   selectors, or separate Platform workspace.
+3. Open Workspace and confirm that retained coordinates move into its working
+   surface with activation and Close actions.
+4. Select a Type or Member and confirm that its fully qualified identity
+   appears on the inspected-subject line below the title line.
+5. Confirm that Share and Copy name appear with that exact identity, while Help
+   and Settings remain global title-line actions.
+6. Narrow the viewport and confirm that Help and Settings disappear before
+   Search, Home, the subject controls, or the inspected-subject actions.
+7. Confirm that no persistent package-query input or centered command-center
    control appears, and that the visible Search action opens Spotlight.
 
 ### Search input

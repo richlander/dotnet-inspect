@@ -66,25 +66,43 @@ const typeLenses = [
 
 test("package scope bindings dispatch only scope and package-lens controls", () => {
   const root = new FakeRoot();
+  const workspaceScope = new FakeElement({ scope: "workspace" });
   const packageScope = new FakeElement({ scope: "package" });
   const typeScope = new FakeElement({ scope: "type" });
   const dependencies = new FakeElement({ packageLens: "dependencies" });
-  root.add("[data-scope]", packageScope, typeScope);
+  root.add("[data-scope]", workspaceScope, packageScope, typeScope);
   root.add("[data-package-lens]", dependencies);
   const calls: string[] = [];
   bindScopeBar(
     fakeDom.parentNode(root),
     recordingActions(calls));
 
+  workspaceScope.dispatch("click");
   packageScope.dispatch("click");
   typeScope.dispatch("click");
   dependencies.dispatch("click");
 
   assert.deepEqual(calls, [
+    "scope:workspace",
     "scope:package",
     "scope:type",
     "package:dependencies",
   ]);
+});
+
+test("workspace scope leads the subject ladder without an inspector", () => {
+  const html = renderScopeBar({
+    scope: "workspace",
+    strip: [],
+    activeStripId: null,
+    stripAttribute: "data-workspace-lens",
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /data-scope="workspace" role="tab" aria-selected="true"[\s\S]*data-scope="package"[\s\S]*data-scope="type"/);
+  assert.doesNotMatch(html, /package-coordinate-controls|class="lens /);
 });
 
 test("type scope bindings dispatch only scope and type-lens controls", () => {
@@ -163,6 +181,23 @@ test("scope bar bindings ignore missing and unknown dataset values", () => {
   }
 
   assert.deepEqual(calls, []);
+});
+
+test("package coordinate selectors render between subjects and inspectors", () => {
+  const html = renderScopeBar({
+    scope: "type",
+    strip: typeLenses,
+    activeStripId: "api",
+    stripAttribute: "data-lens",
+    coordinateControlsHtml:
+      '<label class="version-select"><select id="package-version"></select></label>'
+      + '<label class="framework-select"><select id="framework"></select></label>',
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /class="scope-switch"[\s\S]*class="package-coordinate-controls"[\s\S]*id="package-version"[\s\S]*id="framework"[\s\S]*class="lens-separator"[\s\S]*data-lens="api"/);
 });
 
 test("package scope marks only the package segment and the active package lens", () => {

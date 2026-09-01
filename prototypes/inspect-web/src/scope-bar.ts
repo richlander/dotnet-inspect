@@ -21,6 +21,7 @@ export interface RenderScopeBarOptions<TId extends string = string> {
   strip: readonly LensDefinition<TId>[];
   activeStripId: NoInfer<TId> | null;
   stripAttribute: string;
+  coordinateControlsHtml?: string;
   showMemberScope?: boolean;
   emptyStripLabel?: string;
   escapeHtml: (value: unknown) => string;
@@ -74,12 +75,9 @@ function scopeSegment(id: string, label: string, active: boolean): string {
   return `<button class="scope-seg ${active ? "active" : ""}" data-scope="${id}" role="tab" aria-selected="${active}">${label}</button>`;
 }
 
-// The scope switcher + lens strip. The leading segmented control is the scope ladder —
-// Package (whole package), Types (one public type), and Member (a member of that type,
-// shown only once you drill in). Each segment is selectable and swaps the strip beside it:
-//   package → package lenses   type → type lenses   member → member sections
-// Keeping all three families of buttons on one strip means the member modes (Overview,
-// Call graph, …) live here too instead of inside the detail pane.
+// The leading control is the subject ladder. Workspace manages retained coordinates;
+// Package, Type, and Member swap in their applicable inspectors. Library joins once its
+// product-issued descriptor and behavior are available.
 export function renderScopeBar<TId extends string>(
   options: RenderScopeBarOptions<TId>,
 ): string {
@@ -88,6 +86,7 @@ export function renderScopeBar<TId extends string>(
     strip,
     activeStripId,
     stripAttribute,
+    coordinateControlsHtml = "",
     showMemberScope = scope === "member",
     emptyStripLabel = "",
     escapeHtml,
@@ -98,12 +97,16 @@ export function renderScopeBar<TId extends string>(
       ? `<span class="lens-context">${escapeHtml(emptyStripLabel)}</span>`
       : "");
   return `
-    <nav class="lensbar" aria-label="Scope and lenses">
-      <div class="scope-switch" role="tablist" aria-label="Scope">
+    <nav class="lensbar" aria-label="Subjects and inspectors">
+      <div class="scope-switch" role="tablist" aria-label="Subject">
+        ${scopeSegment("workspace", "Workspace", scope === "workspace")}
         ${scopeSegment("package", "Package", scope === "package")}
-        ${scopeSegment("type", "Types", scope === "type")}
+        ${scopeSegment("type", "Type", scope === "type")}
         ${showMemberScope ? scopeSegment("member", "Member", scope === "member") : ""}
       </div>
+      ${coordinateControlsHtml
+        ? `<div class="package-coordinate-controls" aria-label="Package coordinate">${coordinateControlsHtml}</div>`
+        : ""}
       <span class="lens-separator"></span>
       ${stripHtml}
     </nav>`;

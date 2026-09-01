@@ -120,20 +120,21 @@ test("workbench shell binds every rendered control without eager work", () => {
   assert.equal(searchArgumentCount, 0);
 });
 
-test("workbench shell renders workspace identity and selectors before app actions", () => {
+test("workbench shell renders subjects after the product root and before identity", () => {
   const html = workbenchShellHtml({
-    workspaceStripHtml: '<div data-test="workspaces">0:Platform 1:Package*</div>',
+    subjectInspectorHtml: '<nav class="lensbar" data-test="subjects">Workspace Package Type</nav>',
     workspaceTitleHtml: '<strong data-test="title">Package workspace</strong>',
-    coordinateSelectorsHtml: '<div data-test="coordinate">version framework</div>',
   });
 
   assert.match(
     html,
-    /class="titlebar"[\s\S]*class="brand"[\s\S]*data-test="workspaces"[\s\S]*class="workspace-title"[\s\S]*data-test="title"[\s\S]*class="coordinate-selectors"[\s\S]*data-test="coordinate"[\s\S]*class="title-actions"/);
+    /class="titlebar"[\s\S]*class="brand"[\s\S]*data-test="subjects"[\s\S]*class="workspace-title"[\s\S]*data-test="title"[\s\S]*class="title-actions"/);
+  assert.doesNotMatch(html, /workspace-window|workspace-strip/);
+  assert.doesNotMatch(html, /coordinate-selectors|package-version|framework-select/);
   assert.match(html, /id="open-search"[^>]*>Search<\/button>/);
   assert.match(html, /id="go-home"[^>]*>Home<\/button>/);
   assert.match(html, /id="open-settings"[^>]*>Settings<\/button>/);
-  assert.match(html, /id="share"[^>]*>Share<\/button>/);
+  assert.doesNotMatch(html, /id="share"/);
   assert.match(html, /id="help"/);
   assert.doesNotMatch(
     html,

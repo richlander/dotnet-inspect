@@ -16,10 +16,9 @@ browser history; that model belongs to
 This owner defines:
 
 - the Workspace, Package, Library, Type, and Member subject hierarchy, the
-  subject/inspector strip, and the target selector within the working surface;
-- the compact workspace-switcher and broad-identity descriptors consumed by
-  the shell title bar;
-- the Workspace surface that complements the compact title-bar switcher;
+  title-line subject/inspector region, and the inspected-subject line;
+- the broad-identity descriptor consumed by the shell title bar;
+- the Workspace subject that owns retained-coordinate management;
 - lens-tab rendering, roving-tabindex interaction, and no-effective-lens
   status presentation;
 - the subject/hierarchy menu and coordinate menu, including their
@@ -93,68 +92,54 @@ Type, or Member is active. This document does not invent package lenses for it.
 
 ### Persistent navigation composition
 
-An inspection workspace has three persistent rows before its primary content:
+An inspection workspace has two persistent lines before its primary content:
 
-1. The workspace title bar owned by
-   [Inspect Web Shell Interaction](inspect-web-shell-interaction.md#workspace-title-bar-and-shell-actions)
-   identifies the broad workspace or active coordinate.
-2. The **subject/inspector strip** identifies the active subject level and its
-   applicable lenses or member sections.
-3. The **target selector** belongs to the working surface and navigates within
-   the active subject.
+1. The title line begins with `dotnet-inspect`, then renders the subject ladder,
+   applicable Package coordinate controls, and active inspectors before its
+   elastic context and global actions.
+2. The **inspected-subject line** renders the exact Package, Library, Type, or
+   Member identity in full with its direct Share and Copy name actions.
 
-The broad and deep identities have distinct owners. The shell title bar renders
-the owner-issued workspace name, or the active coordinate identity when the
-workspace has no meaningful name. It does not display the fully qualified
-Library, Type, or Member target. The primary working surface renders that exact
-target as its visible level-one heading.
+The title line follows the CLI's product-to-subject-to-inspector grammar but is
+not command text. Inventories, hierarchy menus, and other target navigation
+stay inside the working surface.
 
 ### Subject and inspector strip
 
-The subject strip contains the ordered applicable root, Library, Type, and
+The subject strip contains the ordered Workspace, root, Library, Type, and
 Member subject descriptors supplied by Inspection Subject Navigation. The
-prototype may provisionally expose its existing `Package`, `Types`, and
-`Member` scopes until the product descriptors replace them. The current
+prototype establishes `Workspace`, `Package`, `Type`, and `Member` now;
+Library joins when its product descriptor and behavior are ready. The current
 subject is selected programmatically and is not conveyed by color alone.
 
 The inspector strip immediately follows the subject strip. It contains the
 active subject's owner-ordered lenses or, for Member, its applicable sections.
 Subject changes replace the inspector set; inspectors never become workspace
-switchers or target selectors.
+coordinate switchers or inspected-subject identities.
 
-The remainder of the row is elastic and may stay empty. A later design may use
-it for concise status, but it does not duplicate the workspace identity or the
-fully qualified target merely because width is available.
+The combined subject/inspector region consumes only the width it needs and may
+scroll horizontally under pressure. Remaining title-line width belongs to
+broad workspace context rather than an empty dedicated row.
 
-### Target selector
+### Inspected-subject line
 
-The target-selector row is part of the active working surface. It provides the
-parent path, inventory context, Library/Type/Member selectors, and contextual
-actions needed to move or act within the current subject. Each selectable role
-is a real control that submits the product-issued identity or action; inert
-breadcrumb text does not acquire click behavior.
+The inspected-subject line renders one product-owned canonical display identity
+without decomposing it into inert breadcrumbs. It may elide visually under
+pressure, but its complete identity remains in the accessible name and title.
 
-The row may compact or elide intermediate qualification, but the content
-heading remains the primary visible identity for the exact target. A defining
-Library appears when it is selected or when the product reports that
-qualification is required to disambiguate a Type or Member. The complete
-product-owned identity remains in the heading's accessible name and focused or
-expanded selector presentation.
-
-One trailing visible `Copy target` action copies the product-issued canonical
-current target. Copying a target and copying a restorable workspace URL are
-different actions; the `share` command continues to copy the canonical
-workspace link. Neither action reconstructs identity from display text.
+Trailing `Share` copies the canonical workspace link. `Copy name` copies the
+product-issued canonical current subject. Neither action reconstructs identity
+from display text.
 
 Browser Back and Forward own navigation history. Existing in-surface history
 buttons may remain during incremental adoption, but they are not part of the
-target-selector contract.
+inspected-subject-line contract.
 
 ### Workspace surface
 
-The Workspace surface complements the compact indexed switcher in the title
-bar. It consumes product-issued descriptors for every open coordinate and
-shows:
+Workspace is the first subject and the only persistent entry point for retained
+coordinate management. Its working surface consumes product-issued descriptors
+for every open coordinate and shows:
 
 - coordinate identity and acquisition kind;
 - optional owner-issued current-subject context;
@@ -258,8 +243,8 @@ Each row's product-issued activation state governs any later commit. Opening
 the choices changes no snapshot, URL, or history and does not invent a default
 Member.
 
-The workspace switcher, Workspace surface, subject/inspector strip, target
-selector, and content region all render the same returned navigation snapshot.
+The Workspace subject, title-line subject/inspector region, inspected-subject
+line, and content region all render the same returned navigation snapshot.
 The UI does not infer initial, fallback, or reconciliation policy from
 descriptor order, assembly order, current filters, package kind, or display
 text.
@@ -365,9 +350,9 @@ or retention from assembly membership.
 
 When the product surface identifies colliding types under `All libraries`, type
 navigation qualifies only those rows with their product-owned defining library.
-If a colliding Type is selected, the target selector also shows its defining
-library. API and Source continue to rely on the working-surface heading for
-that identity; disambiguation does not restore the removed metadata block.
+If a colliding Type is selected, the inspected-subject line also shows its
+defining library. API and Source continue to rely on that line for the complete
+identity; disambiguation does not restore the removed metadata block.
 
 ### Aggregate results
 
@@ -388,12 +373,12 @@ arity.
 
 ## Package coordinate controls
 
-The old full-width `PACKAGE` row remains removed. Package identity, version,
-and TFM are instead one compact coordinate argument immediately after
-`dotnet-inspect`:
+The old full-width `PACKAGE` row remains removed. Package version and TFM
+controls follow the Package subject in the title line:
 
 ```text
-dotnet-inspect  System.Text.Json@10.0.0/net10.0  System.Text.Json.JsonSerializer
+dotnet-inspect  Workspace Package version 10.0.0 framework net10.0 Type Member  API Metadata Source
+System.Text.Json.JsonSerializer  Share  copy name
 ```
 
 The coordinate remains visible across Package, Library, Type, and Member
@@ -410,6 +395,9 @@ coordinate or Package Overview.
 
 Non-package inputs use their product-owned coordinate display instead of
 inventing package/version/TFM fields.
+
+Platform libraries may be present in the workspace, but Platform is not a
+workspace entry or subject.
 
 ## Type navigation
 
