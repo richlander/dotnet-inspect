@@ -1514,6 +1514,25 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
+    public void GetSourceKey_UsesCompleteWindowsOrdinalCaseIdentity()
+    {
+        if (!OperatingSystem.IsWindows())
+            Assert.Skip("Windows case semantics require a Windows host.");
+
+        string root = Path.GetTempPath();
+
+        Assert.Equal(
+            NuGetCache.GetSourceKey(Path.Combine(root, "\u00b5")),
+            NuGetCache.GetSourceKey(Path.Combine(root, "\u039c")));
+        Assert.Equal(
+            NuGetCache.GetSourceKey(Path.Combine(root, "\U00010d50")),
+            NuGetCache.GetSourceKey(Path.Combine(root, "\U00010d70")));
+        Assert.NotEqual(
+            NuGetCache.GetSourceKey(Path.Combine(root, "s")),
+            NuGetCache.GetSourceKey(Path.Combine(root, "\u017f")));
+    }
+
+    [Fact]
     public void GetSourceKey_PathAndFileUriShareLocalFolderIdentity()
     {
         string path = Path.Combine(
@@ -1531,6 +1550,19 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         Assert.Throws<ArgumentException>(
             () => NuGetCache.GetSourceKey(
                 Path.Combine("relative", "feed")));
+    }
+
+    [Fact]
+    public void GetSourceKey_RejectsIllFormedUtf16BeforeEncoding()
+    {
+        string validReplacement =
+            NuGetCache.GetSourceKey(
+                Path.Combine(Path.GetTempPath(), "\ufffd"));
+
+        Assert.NotEmpty(validReplacement);
+        Assert.Throws<ArgumentException>(
+            () => NuGetCache.GetSourceKey(
+                Path.Combine(Path.GetTempPath(), "\ud800")));
     }
 
     [Theory]

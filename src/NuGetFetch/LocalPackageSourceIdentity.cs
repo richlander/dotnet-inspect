@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace NuGetFetch;
@@ -18,6 +20,11 @@ public sealed class LocalPackageSourceIdentity
             ? StringComparer.OrdinalIgnoreCase
             : StringComparer.Ordinal;
 
+    private static readonly string s_windowsPersistentProfile =
+        OperatingSystem.IsWindows()
+            ? CreateWindowsPersistentProfile()
+            : string.Empty;
+
     private LocalPackageSourceIdentity(string canonicalPath)
     {
         CanonicalPath = canonicalPath;
@@ -28,43 +35,57 @@ public sealed class LocalPackageSourceIdentity
 
     internal string PersistentValue =>
         OperatingSystem.IsWindows()
-            ? FoldOrdinalIgnoreCase(CanonicalPath)
+            ? $"{s_windowsPersistentProfile}:{FoldOrdinalIgnoreCase(CanonicalPath)}"
             : CanonicalPath;
 
     internal static string FoldOrdinalIgnoreCase(string value)
     {
+        ThrowIfIllFormedUtf16(value, nameof(value));
+
         var builder = new StringBuilder(value.Length);
         for (int index = 0; index < value.Length; index++)
         {
             if (!Rune.TryCreate(value[index], out Rune rune))
             {
-                if (index + 1 >= value.Length
-                    || !Rune.TryCreate(
-                        value[index],
-                        value[index + 1],
-                        out rune))
-                {
-                    builder.Append(value[index]);
-                    continue;
-                }
-
-                index++;
+                _ = Rune.TryCreate(
+                    value[index],
+                    value[++index],
+                    out rune);
             }
 
-            Rune representative = rune;
             string runeText = rune.ToString();
-            Consider(Rune.ToUpperInvariant(rune));
-            Consider(Rune.ToLowerInvariant(rune));
+            Rune upper = Rune.ToUpperInvariant(rune);
+            Rune lower = Rune.ToLowerInvariant(rune);
+            Rune representative = Rune.ToLowerInvariant(upper);
+            if (!StringComparer.OrdinalIgnoreCase.Equals(
+                runeText,
+                representative.ToString()))
+            {
+                representative = rune;
+            }
+
+            // Some ordinal pairs are newer than the public casing tables. Case
+            // ranges conventionally differ by 0x20; admit that relation only
+            // when both public mappings are identity and the live comparer
+            // confirms it.
+            if (upper == rune && lower == rune)
+            {
+                ConsiderOffset(-0x20);
+                ConsiderOffset(0x20);
+            }
+
             builder.Append(representative.ToString());
 
-            void Consider(Rune candidate)
+            void ConsiderOffset(int offset)
             {
-                if (candidate.Value < representative.Value
+                int candidateValue = rune.Value + offset;
+                if (Rune.IsValid(candidateValue)
+                    && candidateValue < representative.Value
                     && StringComparer.OrdinalIgnoreCase.Equals(
                         runeText,
-                        candidate.ToString()))
+                        new Rune(candidateValue).ToString()))
                 {
-                    representative = candidate;
+                    representative = new Rune(candidateValue);
                 }
             }
         }
@@ -81,7 +102,9 @@ public sealed class LocalPackageSourceIdentity
         if (string.IsNullOrWhiteSpace(source))
             return true;
 
-        return !Uri.TryCreate(source.Trim(), UriKind.Absolute, out Uri? uri)
+        string value = source.Trim();
+        return value.StartsWith("file:", StringComparison.OrdinalIgnoreCase)
+            || !Uri.TryCreate(value, UriKind.Absolute, out Uri? uri)
             || uri.IsFile;
     }
 
@@ -102,6 +125,7 @@ public sealed class LocalPackageSourceIdentity
                 nameof(baseDirectory));
         }
 
+        ThrowIfIllFormedUtf16(baseDirectory, nameof(baseDirectory));
         return CreateCore(source, Path.GetFullPath(baseDirectory));
     }
 
@@ -121,9 +145,22 @@ public sealed class LocalPackageSourceIdentity
         string? baseDirectory)
     {
         string value = source.Trim();
+        ThrowIfIllFormedUtf16(value, nameof(source));
         string path = value;
+        bool hasFileScheme =
+            value.StartsWith("file:", StringComparison.OrdinalIgnoreCase);
+        bool hasAbsoluteUri =
+            Uri.TryCreate(value, UriKind.Absolute, out Uri? uri);
 
-        if (Uri.TryCreate(value, UriKind.Absolute, out Uri? uri))
+        if (hasFileScheme
+            && (!hasAbsoluteUri || uri is null || !uri.IsFile))
+        {
+            throw new ArgumentException(
+                "A local package source file URI is malformed.",
+                nameof(source));
+        }
+
+        if (hasAbsoluteUri && uri is not null)
         {
             if (!uri.IsFile)
             {
@@ -132,7 +169,7 @@ public sealed class LocalPackageSourceIdentity
                     nameof(source));
             }
 
-            if (value.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+            if (hasFileScheme)
             {
                 if (uri.UserInfo.Length > 0
                     || uri.Query.Length > 0
@@ -151,6 +188,12 @@ public sealed class LocalPackageSourceIdentity
                 }
 
                 path = uri.LocalPath;
+                if (!Path.IsPathFullyQualified(path))
+                {
+                    throw new ArgumentException(
+                        "A local package source file URI must identify an absolute path.",
+                        nameof(source));
+                }
             }
         }
 
@@ -171,7 +214,40 @@ public sealed class LocalPackageSourceIdentity
         }
 
         canonicalPath = Path.TrimEndingDirectorySeparator(canonicalPath);
+        ThrowIfIllFormedUtf16(canonicalPath, nameof(source));
         return new LocalPackageSourceIdentity(canonicalPath);
+    }
+
+    private static string CreateWindowsPersistentProfile()
+    {
+        SortVersion sortVersion =
+            CultureInfo.InvariantCulture.CompareInfo.Version;
+        return FormattableString.Invariant(
+            $"windows-ordinal-ignore-case-v1:{RuntimeInformation.FrameworkDescription}:{sortVersion.FullVersion:X8}:{sortVersion.SortId:N}");
+    }
+
+    private static void ThrowIfIllFormedUtf16(
+        string value,
+        string parameterName)
+    {
+        for (int index = 0; index < value.Length; index++)
+        {
+            char current = value[index];
+            if (!char.IsSurrogate(current))
+                continue;
+
+            if (char.IsHighSurrogate(current)
+                && index + 1 < value.Length
+                && char.IsLowSurrogate(value[index + 1]))
+            {
+                index++;
+                continue;
+            }
+
+            throw new ArgumentException(
+                "A local package source must contain well-formed UTF-16.",
+                parameterName);
+        }
     }
 
     /// <inheritdoc />

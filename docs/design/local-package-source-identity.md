@@ -73,13 +73,25 @@ deliberately does not probe the current volume for a more permissive comparison:
 identity must be deterministic before filesystem access, and a probe on one
 volume cannot authorize a path on another mounted volume.
 
-The persistent Windows spelling selects a stable Unicode-scalar representative
-only when ordinal case-insensitive equality admits that representative. It
-does not use culture-invariant uppercasing by itself because that broader
-operation collapses some Unicode characters that ordinal case-insensitive
-identity keeps distinct.
+The persistent Windows spelling selects one Unicode-scalar representative for
+each equivalence class admitted by the active ordinal case-insensitive
+comparer. It uses validated invariant casing plus comparer-admitted adjacent
+case-range candidates; it does not use invariant casing by itself because that
+broader operation collapses distinctions the ordinal relation retains. The
+full runtime product/build description and invariant sort version namespace
+the persistent value. A runtime or globalization-profile change therefore
+produces a safe cache miss rather than reusing a key whose former equivalence
+class had different members.
+
+Source text, its resolution base, and the resulting canonical path must contain
+well-formed UTF-16. Rejecting isolated surrogate code units keeps the
+Unicode-scalar identity total and makes strict UTF-8 persistence lossless over
+every admitted path. Such input cannot silently collapse to `U+FFFD`.
 
 An explicit file URI must not carry user information, a query, or a fragment.
+A `file:`-prefixed value that cannot be parsed as an absolute file URI, or whose
+local path is not absolute, is rejected rather than reinterpreted as a plain
+path.
 A UNC file URI is admitted only on Windows, where the host path implementation
 can preserve UNC root semantics. Windows drive and UNC paths otherwise follow
 Windows path normalization; Unix paths follow Unix normalization. A test run
@@ -90,8 +102,11 @@ on one host is evidence only for that host's path semantics.
 `RootRetainsItsDirectorySeparator`,
 `CaseComparisonUsesHostPathSemantics`, and
 `SymbolicLinkDoesNotCollapseToItsTarget` are the cross-platform Release gates.
-`StableOrdinalIgnoreCaseFoldDoesNotBroadenIdentity` gates stable persistent
-Windows folding.
+`OrdinalIgnoreCaseFoldMatchesComparerForPathologicalClasses` and
+`OrdinalIgnoreCaseFoldMatchesComparerForEveryUnicodeScalar` gate complete
+non-broadening persistent Windows folding against the active comparer.
+`IllFormedUtf16IsRejected` gates the scalar boundary, and
+`MalformedOrRelativeFileUriIsRejected` gates the explicit file-URI boundary.
 `ResolutionBaseMustBeAbsolute` gates explicit base ownership.
 `WindowsDrivePathAndFileUriShareIdentity` and
 `WindowsUncPathAndFileUriShareIdentity` are the Windows-host gates.
@@ -124,6 +139,8 @@ authorize the matching local identity.
 
 `NuGetSearchSourcesTests.ResolveSourcesForPackage_MappingCollapsesEquivalentLocalAliases`,
 `PackageAcquisitionConcurrencyTests.GetSourceKey_PathAndFileUriShareLocalFolderIdentity`,
+`GetSourceKey_UsesCompleteWindowsOrdinalCaseIdentity`,
+`GetSourceKey_RejectsIllFormedUtf16BeforeEncoding`,
 `GetSourceKey_RejectsRelativeLocalFolderWithoutBase`,
 `GlobalPackageContent_FileUriProvenanceMatchesPathAuthorization`, and
 `GlobalPackageContent_RejectsRelativeLocalProvenanceWithoutBase` are the Release
@@ -144,7 +161,8 @@ admission, and operation deadlines belong to later owners. An unusable local
 value is a source failure, not package absence.
 
 `SourceResolverTests.ResolveSources_UnsupportedSchemeFailsBeforeClientCreation`
-gates the scheme boundary. The existing
+and `ResolveSources_MalformedFileUriFailsBeforeClientCreation` gate the scheme
+and malformed-file-URI boundaries. The existing
 `PackageSourceClientTests.LegacyLocalSourceRemainsAnExplicitUnsupportedKind`
 gate remains evidence that the not-yet-implemented local client cannot fall
 through to HTTP.

@@ -37,6 +37,10 @@ public static class NuGetCache
     private const string PackageContentCategory = "package-content-v5";
     private const string PackageContentCategoryPrefix = "package-content-v";
     public const string CommitMarkerFileName = ".dotnet-inspect.complete";
+    private static readonly Encoding s_utf8Strict =
+        new UTF8Encoding(
+            encoderShouldEmitUTF8Identifier: false,
+            throwOnInvalidBytes: true);
     private static string? _appName;
     private static bool _skipNuGetCache;
 
@@ -921,7 +925,7 @@ public static class NuGetCache
             normalized = NuGetCredentialScope.CanonicalizeEndpoint(uri);
         }
 
-        var digest = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
+        var digest = SHA256.HashData(s_utf8Strict.GetBytes(normalized));
         return Convert.ToHexStringLower(digest.AsSpan(0, 16));
     }
 

@@ -1,3 +1,5 @@
+using System.Text;
+
 using NuGetFetch;
 
 namespace NuGetFetch.Tests;
@@ -103,7 +105,7 @@ public sealed class LocalPackageSourceIdentityTests : IDisposable
     }
 
     [Fact]
-    public void StableOrdinalIgnoreCaseFoldDoesNotBroadenIdentity()
+    public void OrdinalIgnoreCaseFoldMatchesComparerForPathologicalClasses()
     {
         Assert.Equal(
             LocalPackageSourceIdentity.FoldOrdinalIgnoreCase("feed"),
@@ -111,12 +113,67 @@ public sealed class LocalPackageSourceIdentityTests : IDisposable
         Assert.Equal(
             LocalPackageSourceIdentity.FoldOrdinalIgnoreCase("\u00e4"),
             LocalPackageSourceIdentity.FoldOrdinalIgnoreCase("\u00c4"));
+        Assert.Equal(
+            LocalPackageSourceIdentity.FoldOrdinalIgnoreCase("\u00b5"),
+            LocalPackageSourceIdentity.FoldOrdinalIgnoreCase("\u039c"));
+        Assert.Equal(
+            LocalPackageSourceIdentity.FoldOrdinalIgnoreCase("\U00010d50"),
+            LocalPackageSourceIdentity.FoldOrdinalIgnoreCase("\U00010d70"));
         Assert.NotEqual(
             LocalPackageSourceIdentity.FoldOrdinalIgnoreCase("s"),
             LocalPackageSourceIdentity.FoldOrdinalIgnoreCase("\u017f"));
-        Assert.NotEqual(
-            LocalPackageSourceIdentity.FoldOrdinalIgnoreCase("\ud800"),
-            LocalPackageSourceIdentity.FoldOrdinalIgnoreCase("\ufffd"));
+    }
+
+    [Fact]
+    public void OrdinalIgnoreCaseFoldMatchesComparerForEveryUnicodeScalar()
+    {
+        var foldByClass =
+            new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        for (int value = 0; value <= 0x10ffff; value++)
+        {
+            if (!Rune.IsValid(value))
+                continue;
+
+            string text = new Rune(value).ToString();
+            string folded =
+                LocalPackageSourceIdentity.FoldOrdinalIgnoreCase(text);
+            int foldedValue = Rune.GetRuneAt(folded, 0).Value;
+
+            if (foldByClass.TryGetValue(text, out int expected))
+            {
+                Assert.Equal(expected, foldedValue);
+            }
+            else
+            {
+                foldByClass.Add(text, foldedValue);
+            }
+        }
+
+        var observedRepresentatives = new bool[0x110000];
+        foreach (int representative in foldByClass.Values)
+        {
+            Assert.False(observedRepresentatives[representative]);
+            observedRepresentatives[representative] = true;
+        }
+    }
+
+    [Fact]
+    public void IllFormedUtf16IsRejected()
+    {
+        string highSurrogate = new((char)0xd800, 1);
+        string lowSurrogate = new((char)0xdc00, 1);
+
+        foreach (string suffix in
+            new[] { highSurrogate, lowSurrogate, $"feed{highSurrogate}tail" })
+        {
+            Assert.Throws<ArgumentException>(
+                () => LocalPackageSourceIdentity.Create(
+                    Path.Combine(_root, suffix),
+                    _root));
+            Assert.Throws<ArgumentException>(
+                () => LocalPackageSourceIdentity.FoldOrdinalIgnoreCase(suffix));
+        }
     }
 
     [Fact]
@@ -190,6 +247,16 @@ public sealed class LocalPackageSourceIdentityTests : IDisposable
     [InlineData("file:///tmp/feed#fragment")]
     public void FileUriQueryOrFragmentIsRejected(string source)
     {
+        Assert.Throws<ArgumentException>(
+            () => LocalPackageSourceIdentity.Create(source, _root));
+    }
+
+    [Theory]
+    [InlineData("file://user@server/share")]
+    [InlineData("file:relative")]
+    public void MalformedOrRelativeFileUriIsRejected(string source)
+    {
+        Assert.True(LocalPackageSourceIdentity.IsLocalSource(source));
         Assert.Throws<ArgumentException>(
             () => LocalPackageSourceIdentity.Create(source, _root));
     }

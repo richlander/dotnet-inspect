@@ -428,6 +428,16 @@ public class SourceResolverTests : IDisposable
     }
 
     [Fact]
+    public void ResolveSources_MalformedFileUriFailsBeforeClientCreation()
+    {
+        const string Source = "file://user@server/share";
+
+        Assert.False(SourceResolver.IsSupportedSource(Source));
+        Assert.Throws<UnsupportedSourceException>(
+            () => SourceResolver.ResolveSources(explicitSource: Source));
+    }
+
+    [Fact]
     public void ResolveSources_NonExistentExplicitConfig_DoesNotUseDefaults()
     {
         var sources = SourceResolver.ResolveSources(
