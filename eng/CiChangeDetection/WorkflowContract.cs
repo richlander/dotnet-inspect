@@ -323,7 +323,7 @@ internal static partial class WorkflowContract
         RequireScalarValue(
             checkoutStep,
             "uses",
-            "actions/checkout@v6",
+            "actions/checkout@v7",
             "jobs.changes checkout step");
         RequireExactScalarValues(
             GetRequiredMapping(
