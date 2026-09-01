@@ -253,8 +253,22 @@ public static class TypeCommand
                     if (effectiveOptions.DllPath is { } dllForPdb
                         && AuthorizesPdbAcquisition(apiType, effectiveOptions))
                     {
-                        var pdbPath = await ApiCommand.TryAcquirePdbPathAsync(
-                            dllForPdb, effectiveOptions, logger, context.HttpClient);
+                        ResolvedAssemblyReference? sourceAssembly =
+                            loaded.TryGetSourceAssembly(apiType);
+                        var pdbPath = sourceAssembly is null
+                            ? await ApiCommand.TryAcquirePdbPathAsync(
+                                dllForPdb,
+                                effectiveOptions,
+                                logger,
+                                context.HttpClient)
+                            : await ApiCommand.TryAcquirePdbPathAsync(
+                                dllForPdb,
+                                sourceAssembly,
+                                effectiveOptions,
+                                logger,
+                                context.HttpClient,
+                                fallbackPackageName: packageName,
+                                fallbackPackageVersion: packageVersion);
                         effectiveOptions = effectiveOptions with { PdbPath = pdbPath };
                     }
 
@@ -318,7 +332,10 @@ public static class TypeCommand
                             sourceFilesDllPath,
                             effectiveOptions,
                             logger,
-                            context.HttpClient);
+                            context.HttpClient,
+                            loaded.TryGetSourceAssembly(apiType),
+                            fallbackPackageName: packageName,
+                            fallbackPackageVersion: packageVersion);
                     }
 
                     bool hasProjection = effectiveOptions.Columns is { Length: > 0 } || effectiveOptions.Fields is { Length: > 0 };

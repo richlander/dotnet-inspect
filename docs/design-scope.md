@@ -115,6 +115,17 @@ claims must still follow
 [Asserted properties name their gate](evidence-and-validation.md#asserted-properties-name-their-gate).
 The model supplements rather than replaces the readable specification.
 
+When a higher-layer model consumes a stable contract already owned by a
+lower-layer component, instantiate the owner-issued TLA+ module instead of
+copying its definitions or transition rules. Keep the module dependency graph
+acyclic and aligned with product dependencies: a consumer may bind and exercise
+an owner's contract, but may not redefine it. Recheck the imported safety
+properties under the composed behavior and add the composition-specific
+properties separately. Model checking one finite instance does not produce a
+proof artifact that transfers to another instance. The module layout,
+configuration, and validation mechanics live in
+[Compose models along product boundaries](tla-plus-methodology.md#compose-models-along-product-boundaries).
+
 ## Reviewing focused designs
 
 Review a focused design against its named owner, owning document, immediate
