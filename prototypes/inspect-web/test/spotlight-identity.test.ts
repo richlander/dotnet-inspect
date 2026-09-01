@@ -2021,6 +2021,18 @@ test("annotated source validation failures stay visible at the shell boundary", 
     appSource,
     /function renderAnnotatedSourceRejection\(error: TypeError\) \{[\s\S]*Annotated source document rejected[\s\S]*escapeHtml\(errorMessage\(error\)\)/,
   );
+  assert.match(
+    appSource,
+    /function dismissAnnotatedSourceModal\(restoreExploreFocus: boolean\) \{[\s\S]*try \{\s*model = createAnnotatedSourceViewerModel\(state\.memberAnnotated\);\s*\} catch \(error\) \{\s*if \(!\(error instanceof TypeError\)\) throw error;\s*state\.memberAnnotatedEmbedded = null;\s*state\.memberAnnotatedModal = null;[\s\S]*renderAndFocusAnnotated\("#annotated-source-rejection-title", "embedded"\);[\s\S]*return true;\s*\}[\s\S]*dismissModalSession\(model, state\.memberAnnotatedModal\)/,
+  );
+  assert.match(
+    appSource,
+    /if \(action\.kind === "close-modal"\) \{\s*dismissAnnotatedSourceModal\(true\);\s*return;\s*\}\s*const model = createAnnotatedSourceViewerModel\(result\)/,
+  );
+  assert.match(
+    appSource,
+    /catch \(error\) \{\s*if \(!\(error instanceof TypeError\) \|\| session\.surface !== "modal"\) throw error;\s*return dismissAnnotatedSourceModal\(true\);/,
+  );
 });
 
 test("annotated source Escape and history ownership track the mounted surface", () => {

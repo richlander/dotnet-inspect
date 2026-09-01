@@ -208,6 +208,7 @@ import {
   toggleMedium,
   type AnnotatedFocusTarget,
   type AnnotatedSourceSession,
+  type AnnotatedSourceViewerModel,
 } from "./annotated-source-session.ts";
 import {
   bindScopeBar,
@@ -4309,7 +4310,7 @@ function renderAnnotatedSourceModal() {
 
 function renderAnnotatedSourceRejection(error: TypeError) {
   return `<section class="document-section empty-member-section">
-    <h2>Annotated source document rejected</h2>
+    <h2 id="annotated-source-rejection-title" tabindex="-1">Annotated source document rejected</h2>
     <p>${escapeHtml(errorMessage(error))}</p>
   </section>`;
 }
@@ -5016,7 +5017,18 @@ function openAnnotatedSourceModal() {
 
 function dismissAnnotatedSourceModal(restoreExploreFocus: boolean) {
   if (!state.memberAnnotated || !state.memberAnnotatedModal) return false;
-  const model = createAnnotatedSourceViewerModel(state.memberAnnotated);
+  let model: AnnotatedSourceViewerModel;
+  try {
+    model = createAnnotatedSourceViewerModel(state.memberAnnotated);
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+    state.memberAnnotatedEmbedded = null;
+    state.memberAnnotatedModal = null;
+    if (restoreExploreFocus) {
+      renderAndFocusAnnotated("#annotated-source-rejection-title", "embedded");
+    }
+    return true;
+  }
   state.memberAnnotatedEmbedded =
     dismissModalSession(model, state.memberAnnotatedModal);
   state.memberAnnotatedModal = null;
@@ -5027,6 +5039,10 @@ function dismissAnnotatedSourceModal(restoreExploreFocus: boolean) {
 function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
   const result = state.memberAnnotated;
   if (!result) return;
+  if (action.kind === "close-modal") {
+    dismissAnnotatedSourceModal(true);
+    return;
+  }
   const model = createAnnotatedSourceViewerModel(result);
   const surface = state.memberAnnotatedModal ? "modal" : "embedded";
   const session = state.memberAnnotatedModal
@@ -5043,9 +5059,6 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
       return;
     case "explore":
       openAnnotatedSourceModal();
-      return;
-    case "close-modal":
-      dismissAnnotatedSourceModal(true);
       return;
     case "close-detail": {
       const closed = closeFindingDetail(model, session);
@@ -10370,10 +10383,16 @@ keybindings.register({
   when: annotatedSourceEscapeContextIsActive,
   run: () => {
     if (!state.memberAnnotated) return false;
-    const model = createAnnotatedSourceViewerModel(state.memberAnnotated);
     const session =
       state.memberAnnotatedModal ?? state.memberAnnotatedEmbedded;
     if (!session) return false;
+    let model: AnnotatedSourceViewerModel;
+    try {
+      model = createAnnotatedSourceViewerModel(state.memberAnnotated);
+    } catch (error) {
+      if (!(error instanceof TypeError) || session.surface !== "modal") throw error;
+      return dismissAnnotatedSourceModal(true);
+    }
     const escaped = escapeAnnotatedSource(model, session);
     if (session.surface === "modal") state.memberAnnotatedModal = escaped.state;
     else state.memberAnnotatedEmbedded = escaped.state;

@@ -344,7 +344,9 @@ reconstruct C# from an API signature, identity, or body.
 The portable document is validated before rendering. A rejected document
 remains a visible failure at the shell boundary; it does not abort the global
 render or become an empty success. A rejected modal remains dismissible and
-inside the shell-owned modal focus contract.
+inside the shell-owned modal focus contract. Dismissal does not require
+revalidating the rejected document; when the embedded **Explore** control is
+unavailable, focus moves to the embedded rejection heading instead.
 
 ## Adjacent integrations
 
@@ -463,7 +465,8 @@ Conformance requires:
   drag-selection non-activation;
 - source-copy tests proving annotations and chrome are excluded;
 - replacement-render tests proving stable addressable-source focus, plus shell
-  containment tests proving rejected documents remain visible and dismissible;
+  containment tests proving rejected documents remain visible, dismissible
+  without revalidation, and focused at the embedded rejection after dismissal;
 - a style gate rejecting persistent source-text underlines; and
 - a CI-integrated real-browser gate for pointer hit testing, focus, Escape,
   modal trapping, backdrop dismissal, and drag selection.
