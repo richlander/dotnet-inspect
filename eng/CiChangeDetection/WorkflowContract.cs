@@ -629,7 +629,8 @@ internal static partial class WorkflowContract
             {
                 ["BASH_ENV"] = "",
                 ["CI_BEFORE_SHA"] =
-                    "${{ github.event.merge_group.base_sha || " +
+                    "${{ github.event.pull_request.base.sha || " +
+                    "github.event.merge_group.base_sha || " +
                     "github.event.before }}",
                 ["CI_PR_NUMBER"] =
                     "${{ github.event.pull_request.number }}",

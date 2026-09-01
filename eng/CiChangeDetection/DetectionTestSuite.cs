@@ -1045,6 +1045,48 @@ internal static class DetectionTestSuite
                 FormatValues(tlaConfig));
         }
 
+        Dictionary<string, string> baseRenamedIntoModel = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "prototypes/X.tla",
+            outputs,
+            tlaCandidateFiles: "docs/models/x/X.tla");
+        if (baseRenamedIntoModel["tla"] != "true")
+        {
+            throw new InvalidOperationException(
+                "A base rename into a model path hid the candidate TLA+ change: " +
+                FormatValues(baseRenamedIntoModel));
+        }
+
+        Dictionary<string, string> baseRenamedOutOfModel = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "docs/models/x/X.tla",
+            outputs,
+            tlaCandidateFiles: "prototypes/X.tla");
+        if (baseRenamedOutOfModel["tla"] != "false")
+        {
+            throw new InvalidOperationException(
+                "A base rename out of a model path selected unchanged model content: " +
+                FormatValues(baseRenamedOutOfModel));
+        }
+
+        Dictionary<string, string> unresolvedTlaCandidate = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "README.md",
+            outputs,
+            tlaCandidateResolutionSucceeds: false);
+        if (unresolvedTlaCandidate["tla"] != "true")
+        {
+            throw new InvalidOperationException(
+                "An unresolved TLA+ candidate diff did not fail closed: " +
+                FormatValues(unresolvedTlaCandidate));
+        }
+
         Dictionary<string, string> tlaRunner = RunDetection(
             repository,
             body,
@@ -1274,7 +1316,9 @@ internal static class DetectionTestSuite
         int failDecodeAt = 0,
         bool truncateRecordStream = false,
         bool truncatePushStream = false,
-        bool emptyPushRecord = false) =>
+        bool emptyPushRecord = false,
+        string? tlaCandidateFiles = null,
+        bool tlaCandidateResolutionSucceeds = true) =>
         new DetectionHarness(repository, body, expectedOutputs).Run(
             new DetectionScenario(
                 eventName,
@@ -1291,5 +1335,7 @@ internal static class DetectionTestSuite
                 failDecodeAt,
                 truncateRecordStream,
                 truncatePushStream,
-                emptyPushRecord));
+                emptyPushRecord,
+                tlaCandidateFiles,
+                tlaCandidateResolutionSucceeds));
 }

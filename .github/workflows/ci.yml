@@ -115,7 +115,7 @@ jobs:
           # The runner honors BASH_ENV even with --noprofile and --norc.
           # Clear inherited workflow/job values before executing this gate.
           BASH_ENV: ""
-          CI_BEFORE_SHA: ${{ github.event.merge_group.base_sha || github.event.before }}
+          CI_BEFORE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
           CI_PR_NUMBER: ${{ github.event.pull_request.number }}
           GH_TOKEN: ${{ github.token }}
 
