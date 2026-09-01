@@ -40,41 +40,73 @@ It produces exactly one of these outcomes:
 - **delegate** — transfer that vector to xUnit-owned runner dispatch without
   changing runner behavior; or
 - **refuse** — return a nonzero result with a diagnostic identifying an
-  explicit selection that cannot produce the requested evidence.
+  explicit selection that cannot select the requested evidence.
 
 xUnit remains the execution owner. Delegation must preserve its console-runner
 and Microsoft Testing Platform dispatch behavior.
 
 ## Explicit-selection contract
 
-The contract applies when the delegated console argument vector contains an
+The host first classifies whether xUnit will execute tests or perform a
+non-execution operation such as help, listing, assembly information, or
+Microsoft Testing Platform server dispatch. The contract applies only to a
+test-execution invocation whose delegated console argument vector contains an
 explicit inclusion by namespace, class, method, trait, query filter, test-case
 identity, or serialized test case.
 
+The **witness set** is the set of test cases xUnit would submit to its execution
+path after filter, direct-selection, identity-resolution, and explicit-test
+policy. Static or dynamic skips, cancellation, stop-on-failure, and test
+outcomes do not change preflight membership in that set.
+
 Before delegation:
 
-1. Every named namespace, class, method, trait, or query inclusion must retain
-   at least one runnable witness after every other active selector and xUnit's
-   explicit-test policy are applied.
-2. Every requested test-case identity must identify a runnable discovered test
-   selected by the other active filters.
-3. Every serialized test-case selection must decode as a runnable test case
-   accepted by xUnit and selected by the other active filters.
-4. The combined selection must contain at least one runnable test.
+1. Every named namespace, class, method, or trait inclusion, and every query
+   selection, must retain at least one matching case in the witness set.
+2. Every requested test-case identity must identify a discovered case selected
+   by the active filters and admitted to the witness set, matching xUnit's
+   filtered identity resolution.
+3. Every serialized test-case selection must decode as a test case admitted to
+   the witness set under xUnit's direct-selection explicit policy. Filters do
+   not apply to a serialized selection when xUnit does not apply them.
+4. The witness set must contain at least one test case.
 
 These are semantic discovery obligations. The host must use xUnit's parser,
 discovery, filter, identity, serialization, and explicit-test semantics rather
 than infer selection from argument spelling, source text, test names, console
 output, or result XML.
 
+A query argument is one atomic explicit selection, including a query composed
+only of negation. The host does not parse a query into positive and negative
+subclaims or reproduce xUnit's query grammar. The exclusion-only category below
+is limited to xUnit's simple negative namespace, class, method, and trait
+switches.
+
 ## Delegation and failure
 
-Unfiltered runs, exclusion-only filters, help, discovery listings, assembly
-information, and Microsoft Testing Platform server operation delegate without
-acquiring a minimum-test-count requirement from this design. Suite-owned
-argument expansion occurs before this partition, so an expansion that produces
-an explicit xUnit inclusion is subject to the same contract as a directly
-supplied inclusion.
+Help, discovery listings, assembly information, and Microsoft Testing Platform
+server operation are non-execution modes and delegate before selection
+preflight. Unfiltered test execution and runs containing only simple negative
+namespace, class, method, or trait switches also delegate without acquiring a
+minimum-test-count requirement from this design. Suite-owned argument expansion
+occurs before this partition, so an expansion that produces an explicit xUnit
+selection is subject to the same contract as a directly supplied selection.
+
+Direct selection changes the set xUnit executes. Serialized `-run` cases bypass
+the ordinary filters, while `-id` cases resolve through them. The host preserves
+that asymmetry:
+
+- without `-run` or `-id`, the witness set contains the filter-selected
+  discovered cases admitted by xUnit's explicit-test policy;
+- with either direct selector, the witness set contains only valid deserialized
+  `-run` cases plus filter-selected discovered cases named by `-id`, after
+  xUnit's direct-selection explicit policy; ordinary discovered cases are not
+  added; and
+- every separately named simple inclusion or query selection must match a case
+  in that final witness set.
+
+A direct case does not make an unrelated named inclusion non-vacuous merely
+because some other test will run.
 
 Selection preflight must not consume or mutate the runner's execution state.
 When discovery can materialize disposable theory data, preflight uses an
@@ -94,9 +126,9 @@ zero-test execution.
 
 ## Convention and divergence
 
-xUnit v3 conventionally owns its generated executable entry point, command-line
-grammar, discovery, and execution. The repository preserves that owner and
-delegates successful selections back to the generated entry point.
+xUnit v3 conventionally owns its command-line grammar, discovery, execution,
+and console and Microsoft Testing Platform dispatch. The repository preserves
+that owner and delegates successful selections without changing those paths.
 
 The pinned xUnit v3.2.2 in-process console runner has no exposed option that
 makes an unmatched explicit selector fail; the repository probe for #5379
@@ -109,6 +141,12 @@ explicit inclusions because those commands claim named evidence. It does not
 make the stronger and different claim that every unfiltered or
 exclusion-filtered run must execute a test.
 
+The repository also treats each query argument as one atomic selection, even
+when the query is wholly negative. This is deliberately stricter than the
+equivalent simple negative switches: the xUnit runner exposes the query as one
+selection expression, and classifying its internal polarity would require the
+host to reproduce query-language semantics it does not own.
+
 The existing decompiler test host demonstrates the compatible process-isolated
 preflight and xUnit-semantic approach. Its current selector coverage is only a
 partial precedent; the repository contract also closes namespace, trait, and
@@ -119,18 +157,26 @@ partially disjoint inclusion paths.
 The pathological fixture is an ordinary test executable invoked with a method
 selector that names no test. Before adoption it reports zero tests and exits
 successfully. An adoption must make that invocation fail and must also
-demonstrate a neighboring valid selector that executes normally.
+demonstrate a neighboring valid selector that reaches normal xUnit execution.
 
 The implementation gate for an adoption must cover:
 
-- unmatched class, method, and query inclusions;
+- unmatched class and method inclusions and query selections;
 - unmatched namespace and trait inclusions;
+- a wholly negated query that contributes no case to the witness set;
+- simple negative switches that intentionally select no test and still
+  delegate;
 - individually valid inclusions whose full intersection is empty;
 - a nonempty combined selection in which any named inclusion has no final
-  runnable witness;
+  witness;
 - missing and filter-disjoint test-case identities;
-- invalid serialized test cases;
-- explicit-only selection with no runnable explicit test;
+- invalid serialized test cases and serialized cases excluded by xUnit's
+  direct-selection explicit policy;
+- a serialized test case that xUnit runs without applying an otherwise active
+  filter;
+- a direct selection that leaves a separately named inclusion without a case
+  in the witness set;
+- explicit-only selection with an empty witness set;
 - isolated-preflight startup or protocol failure;
 - delegated xUnit-owned parse or discovery failure;
 - a valid explicit selection;
