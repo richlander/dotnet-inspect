@@ -19,7 +19,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
-    "@types/node": "^24.13.3",
+    "@types/node": "^26.4.0",
     "html-validate": "^11.10.0",
     "knip": "^6.32.2",
     "oxc-parser": "^0.143.0",
