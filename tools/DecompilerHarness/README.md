@@ -444,7 +444,7 @@ sets, the Valid/Correct prerequisites, and Printer-exact opt-in.
 The enrolled third-party rows and manifest live on the
 `vendor/authored-source-corpus` orphan branch under `oracle/`, beside CIVIL and
 EVIL but independently gated. Restore that branch, prepare the pinned oracle
-assembly, and run the gate with:
+assemblies, and run the gate with:
 
 ```bash
 bash eng/restore-authored-source-corpus.sh
@@ -455,6 +455,12 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
   --source-oracle-manifest external/authored-source-corpus/oracle/manifest.json \
   "${oracle_assemblies[@]}"
 ```
+
+The preparation script restores version 10.0.10 of
+`System.Text.Encodings.Web`, `System.Runtime.Serialization.Formatters`,
+`System.Reflection.Context`, and `System.Reflection.Metadata`. It selects the
+exact enrolled package assets, verifies every assembly SHA-256, and emits all
+four paths for the benchmark.
 
 The periodic authored-corpus Deep Inspect lane runs this perfection gate before
 the separate EVIL regression ratchet. `DeepInspect_RunsTheWholeFileSourceOracleGate`
