@@ -601,6 +601,15 @@ public static class CSharpStructuralDiffPrinter
                     while (tokenStart > 0 && IsIdentifierChar(text[tokenStart - 1]))
                         tokenStart--;
 
+                    // Include a verbatim identifier's leading '@' (e.g. the
+                    // escaped local function `@return`) so the declared name
+                    // matches the callee text, which likewise keeps the '@'
+                    // (round-2 review: an escaped name was silently dropped
+                    // here, permanently mismatching a correctly-escaped
+                    // callee and losing the caption).
+                    if (tokenStart > 0 && text[tokenStart - 1] == '@')
+                        tokenStart--;
+
                     if (tokenStart < tokenEnd
                         && !char.IsDigit(text[tokenStart])
                         && Array.IndexOf(LocalFunctionModifiers, text[tokenStart..tokenEnd]) < 0)

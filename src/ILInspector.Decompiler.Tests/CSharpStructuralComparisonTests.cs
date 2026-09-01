@@ -1707,6 +1707,57 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void ToDisplayRows_DescribesCallTargetRenamedToEscapedKeywordLocalFunction()
+    {
+        // Round-2 review (reviewers A and B): a local function whose declared
+        // name is a C#-keyword must be @-escaped at both its declaration and
+        // its call site (#1465). The declared-name extraction must keep the
+        // leading '@' so it exactly matches the callee text (which likewise
+        // keeps the '@'), or the caption is silently lost for every escaped
+        // name.
+        var before = TrustedDocument(
+            "return Synthesized(value);",
+            new NodeSpec("InvocationExpression", "Synthesized(value)", [0x10]));
+        var after = TrustedDocument(
+            "return @return(value);\nstatic int @return(int value) => value;",
+            new NodeSpec("InvocationExpression", "@return(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static int @return(int value) => value;", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Contains("local function `@return`", changed.Detail);
+    }
+
+    [Fact]
+    public void ToDisplayRows_DoesNotDescribeUnrelatedCalleeRenameWhenDeclarationNameIsEscapedModifierKeyword()
+    {
+        // Round-2 review (reviewer A): before the '@'-inclusion fix, an
+        // escaped declaration literally named a modifier keyword (`@static`)
+        // was wrongly rejected as if it were the unescaped modifier itself,
+        // and the scan then continued past it into the declaration's body,
+        // where it could find and falsely match an unrelated call's renamed
+        // callee. Here the added `@static` declaration's body invokes `New`,
+        // matching this comparison's own unrelated call-site rename, but the
+        // declaration's own name is `@static`, not `New` -- the caption must
+        // not fire.
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return New(value);\nstatic void @static() { New(0); }",
+            new NodeSpec("InvocationExpression", "New(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void @static() { New(0); }", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> New(value)", changed.Detail);
+    }
+
+    [Fact]
     public void IssueCorrespondence_DoesNotInferDeclarationWithoutMatchedCallSiteRewrite()
     {
         // Close negative: a new local-function declaration with no IL origin
