@@ -251,13 +251,7 @@ public static class TypeCommand
                     // PDB the same way the member command does — only when the
                     // section is actually requested (network).
                     if (effectiveOptions.DllPath is { } dllForPdb
-                        && effectiveOptions.IncludeSections is { Count: > 0 }
-                        && ApiCommand.GetRequestedMemberSections(apiType, effectiveOptions)
-                            .Overlaps(
-                            [
-                                SectionNames.DecompiledSource,
-                                SectionNames.BodyShapes,
-                            ]))
+                        && AuthorizesPdbAcquisition(apiType, effectiveOptions))
                     {
                         var pdbPath = await ApiCommand.TryAcquirePdbPathAsync(
                             dllForPdb, effectiveOptions, logger, context.HttpClient);
@@ -314,8 +308,9 @@ public static class TypeCommand
                     }
 
                     if (effectiveOptions.DllPath is { } sourceFilesDllPath
-                        && ApiCommand.GetRequestedMemberSections(apiType, effectiveOptions)
-                            .Contains(SectionNames.SourceFiles))
+                        && AuthorizesSourceInfoAcquisition(
+                            apiType,
+                            effectiveOptions))
                     {
                         await SourceEnricher.EnrichTypeWithSourceInfoAsync(
                             apiType,
@@ -578,6 +573,23 @@ public static class TypeCommand
            && !options.Bare
            && !options.Count
            && !options.MarkdownExplicitlySet;
+
+    internal static bool AuthorizesPdbAcquisition(
+        ApiType apiType,
+        TypeOptions options)
+        => options.IncludeSections is { Count: > 0 }
+           && ApiCommand.GetRequestedMemberSections(apiType, options)
+               .Overlaps(
+               [
+                   SectionNames.DecompiledSource,
+                   SectionNames.BodyShapes,
+               ]);
+
+    internal static bool AuthorizesSourceInfoAcquisition(
+        ApiType apiType,
+        TypeOptions options)
+        => ApiCommand.GetRequestedMemberSections(apiType, options)
+            .Contains(SectionNames.SourceFiles);
 
     private static bool ShouldRejectQuietShape(TypeOptions options)
     {
