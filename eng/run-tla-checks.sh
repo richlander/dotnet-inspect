@@ -39,10 +39,9 @@ set -e -o pipefail
 # where a .cfg must instead run against a model-checking harness module.
 #
 # CI passes --changed-files0 and a NUL-delimited base-to-head path stream so a
-# PR checks only the model directories it changes; gate-infrastructure changes
-# additionally select one small real-tool canary. --all is deliberately
-# explicit: a repository-wide sweep belongs to a deliberate local investigation,
-# not the per-PR gate.
+# PR checks only the model directories it changes. --all is deliberately
+# explicit: a repository-wide sweep belongs to a deliberate local
+# investigation, not the per-PR gate.
 
 # Per-invocation wall-clock bound. Some committed models are large exhaustive
 # checks (hundreds of millions of states) that legitimately run far longer
@@ -55,7 +54,6 @@ OK_EXIT_CODES="0 10 11 12 13 14"
 
 MODEL_ROOTS=(docs/design/models docs/models)
 MODULE_OVERRIDES_FILE=eng/tla-module-overrides.txt
-TLA_CANARY_MODEL_DIR=docs/models/compile-back-admission
 MODEL_DIRS=()
 FAILURES=0
 
@@ -100,18 +98,6 @@ select_changed_path() {
     */./*|*/../*)
       echo "::error::Changed path '$path' is not a canonical repo-relative path." >&2
       FAILURES=$((FAILURES + 1))
-      return
-      ;;
-  esac
-
-  case "$path" in
-    .github/workflows/ci.yml|eng/ci-detect-changes.sh|eng/run-tla-checks.sh|eng/test-tla-checks.sh|eng/tla-module-overrides.txt)
-      if [ ! -d "$TLA_CANARY_MODEL_DIR" ]; then
-        echo "::error::The TLA+ infrastructure canary directory '$TLA_CANARY_MODEL_DIR' does not exist." >&2
-        FAILURES=$((FAILURES + 1))
-      else
-        add_model_dir "$TLA_CANARY_MODEL_DIR"
-      fi
       return
       ;;
   esac

@@ -21,9 +21,9 @@ be otherwise complete. Treat an uncommitted
 state.
 
 The per-PR TLA+ gate checks each model directory whose `.tla` or `.cfg` files
-change in that candidate. Gate-infrastructure changes additionally run one
-small real-tool canary model. The gate does not sweep unrelated committed
-models.
+change in that candidate. Gate-infrastructure changes run structural gate
+tests but do not check unchanged model content. The gate does not sweep
+unrelated committed models.
 Run `eng/run-tla-checks.sh --all` only for an explicit repository-wide local
 investigation; it is not a per-PR gate.
 

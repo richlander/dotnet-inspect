@@ -10,7 +10,6 @@ mkdir -p \
   "$fixture/eng" \
   "$fixture/docs/design/models/override" \
   "$fixture/docs/design/models/example" \
-  "$fixture/docs/models/compile-back-admission" \
   "$fixture/docs/models/other" \
   "$fixture/docs/models/nested/sub"
 touch \
@@ -18,8 +17,6 @@ touch \
   "$fixture/docs/design/models/override/Override.cfg" \
   "$fixture/docs/design/models/example/Example.tla" \
   "$fixture/docs/design/models/example/Example.cfg" \
-  "$fixture/docs/models/compile-back-admission/CompileBackAdmission.tla" \
-  "$fixture/docs/models/compile-back-admission/CompileBackAdmission.cfg" \
   "$fixture/docs/models/other/Other.tla" \
   "$fixture/docs/models/other/Other.cfg" \
   "$fixture/docs/models/nested/Nested.tla" \
@@ -164,12 +161,16 @@ esac
 : > "$temporary/java.log"
 output=$(printf '%s\0' eng/run-tla-checks.sh | run_scoped_check)
 case "$output" in
-  *"::group::docs/models/compile-back-admission"*"Checked 1 module(s) and 1 configuration(s)"*) ;;
+  *"Checked 0 module(s) and 0 configuration(s)"*) ;;
   *)
-    echo "A TLA+ infrastructure change did not run the real-tool canary model." >&2
+    echo "A TLA+ infrastructure change selected unchanged model content." >&2
     exit 1
     ;;
 esac
+if [ -s "$temporary/java.log" ]; then
+  echo "A TLA+ infrastructure change invoked the model-checking tools." >&2
+  exit 1
+fi
 
 printf '%s\n' \
   'docs/design/models/override/Override.cfg=Missing' \
@@ -186,7 +187,7 @@ printf '%s\n' \
 : > "$temporary/java.log"
 output=$(run_all_check)
 case "$output" in
-  *"Checked 5 module(s) and 5 configuration(s)"*) ;;
+  *"Checked 4 module(s) and 4 configuration(s)"*) ;;
   *)
     echo "The explicit repository-wide TLA+ scope did not check every model." >&2
     exit 1

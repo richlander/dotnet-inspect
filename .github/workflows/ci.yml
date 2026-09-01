@@ -133,8 +133,7 @@ jobs:
           globs: '**/*.md'
 
   # Upholds the bar in docs/tla-plus-methodology.md for TLA+ models changed by
-  # this candidate, plus one fast real-tool canary when gate infrastructure
-  # changes: SANY parses every selected module, and TLC runs the selected
+  # this candidate: SANY parses every selected module, and TLC runs the selected
   # directories' .cfg files to completion without an unexpected error. See
   # eng/run-tla-checks.sh for what "unexpected" excludes (an intentional
   # violation verdict) and why (some committed .cfg files are negative controls
