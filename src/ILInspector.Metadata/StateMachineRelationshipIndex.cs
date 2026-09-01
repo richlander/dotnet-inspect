@@ -1151,10 +1151,20 @@ public sealed class StateMachineRelationshipIndex
                 Charge();
                 MethodImplementation implementation =
                     _reader.GetMethodImplementation(handle);
-                bool isCandidate = allowAbsent
-                    && _signatures.IsDeclarationCandidate(
-                        implementation.MethodDeclaration,
-                        role);
+                DeclarationCandidateKind candidateKind =
+                    allowAbsent
+                        ? _signatures.ClassifyDeclarationCandidate(
+                            implementation.MethodDeclaration,
+                            role)
+                        : DeclarationCandidateKind.NotCandidate;
+                if (candidateKind
+                    == DeclarationCandidateKind.Rejected)
+                {
+                    return RoleResolution.Rejected(
+                        StateMachineRelationshipFailureKind.Malformed,
+                        "A state-machine MethodImpl declaration type could not be read.");
+                }
+
                 if (!_signatures.MatchesDeclaration(
                         implementation.MethodDeclaration,
                         role,
@@ -1165,7 +1175,8 @@ public sealed class StateMachineRelationshipIndex
                             implementedInterface,
                             declaredInterface))
                 {
-                    if (isCandidate)
+                    if (candidateKind
+                        == DeclarationCandidateKind.Candidate)
                     {
                         return RoleResolution.Rejected(
                             StateMachineRelationshipFailureKind.Unresolved,
@@ -1858,7 +1869,7 @@ public sealed class StateMachineRelationshipIndex
                 && Matches(value, role);
         }
 
-        internal bool IsDeclarationCandidate(
+        internal DeclarationCandidateKind ClassifyDeclarationCandidate(
             EntityHandle declaration,
             RoleSpec role)
         {
@@ -1883,11 +1894,20 @@ public sealed class StateMachineRelationshipIndex
             }
             else
             {
-                return false;
+                return DeclarationCandidateKind.NotCandidate;
             }
 
-            return _reader.StringComparer.Equals(name, role.Name)
-                && IsKnownType(declaringType, role.Interface);
+            if (!_reader.StringComparer.Equals(name, role.Name))
+                return DeclarationCandidateKind.NotCandidate;
+
+            SignatureType type =
+                DecodeType(declaringType, ClassTypeCode);
+            if (type.TypeNameFailure is not null)
+                return DeclarationCandidateKind.Rejected;
+
+            return type.Type == role.Interface
+                ? DeclarationCandidateKind.Candidate
+                : DeclarationCandidateKind.NotCandidate;
         }
 
         internal bool MatchesMethod(
@@ -2376,6 +2396,13 @@ public sealed class StateMachineRelationshipIndex
         Primitive,
         Class,
         ValueType,
+    }
+
+    enum DeclarationCandidateKind
+    {
+        NotCandidate,
+        Candidate,
+        Rejected,
     }
 
     enum KnownStateMachineType

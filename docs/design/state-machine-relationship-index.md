@@ -241,7 +241,8 @@ Release gates enforce the certificate:
   invalid or missing `MoveNext` to reject and prevents malformed, bodyless,
   ambiguous, or contradictory `SetStateMachine` candidates from becoming
   absence. Its explicit wrong-signature arm uses a body name that cannot enter
-  implicit matching.
+  implicit matching, and its malformed-interface arm rejects a self-cyclic
+  declaration parent rather than certifying absence.
 - `AsyncLoweringFixtureMatrixTests.IdenticalSource_ProducesClassicAndRuntimeAsyncPhysicalShapes`
   preserves runtime async as `Absent` while the identical classic source
   produces a resolved relationship with every role present.

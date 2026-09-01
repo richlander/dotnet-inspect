@@ -981,6 +981,9 @@ public sealed class StateMachineRelationshipIndexTests
         ClassicRelationshipMutation.ExplicitWrongSignatureSetStateMachine,
         StateMachineRelationshipFailureKind.Unresolved)]
     [InlineData(
+        ClassicRelationshipMutation.ExplicitMalformedInterfaceSetStateMachine,
+        StateMachineRelationshipFailureKind.Malformed)]
+    [InlineData(
         ClassicRelationshipMutation.DuplicateSetStateMachine,
         StateMachineRelationshipFailureKind.Ambiguous)]
     [InlineData(
@@ -2949,6 +2952,18 @@ public sealed class StateMachineRelationshipIndexTests
                 metadata.GetOrAddString(
                     "System.Runtime.CompilerServices"),
                 metadata.GetOrAddString("IsReadOnlyAttribute"));
+        TypeReferenceHandle malformedAsyncStateMachine = default;
+        if (mutation
+            == ClassicRelationshipMutation
+                .ExplicitMalformedInterfaceSetStateMachine)
+        {
+            malformedAsyncStateMachine =
+                metadata.AddTypeReference(
+                    MetadataTokens.TypeReferenceHandle(5),
+                    metadata.GetOrAddString(
+                        "System.Runtime.CompilerServices"),
+                    metadata.GetOrAddString("IAsyncStateMachine"));
+        }
 
         var staticVoidSignature = new BlobBuilder();
         new BlobEncoder(staticVoidSignature)
@@ -3066,6 +3081,12 @@ public sealed class StateMachineRelationshipIndexTests
             mutation
                 == ClassicRelationshipMutation
                     .ExplicitWrongSignatureSetStateMachine;
+        bool explicitMalformedInterface =
+            mutation
+                == ClassicRelationshipMutation
+                    .ExplicitMalformedInterfaceSetStateMachine;
+        bool explicitSetStateMachine =
+            explicitWrongSignature || explicitMalformedInterface;
         MethodDefinitionHandle setStateMachine = default;
         if (!omitSetStateMachine)
         {
@@ -3079,7 +3100,7 @@ public sealed class StateMachineRelationshipIndexTests
                         ? MethodImplAttributes.Runtime
                         : MethodImplAttributes.IL,
                     metadata.GetOrAddString(
-                        explicitWrongSignature
+                        explicitSetStateMachine
                             ? "IAsyncStateMachine.SetStateMachine"
                             : "SetStateMachine"),
                     metadata.GetOrAddBlob(
@@ -3134,13 +3155,18 @@ public sealed class StateMachineRelationshipIndexTests
                 moveNext,
                 declaration);
         }
-        if (explicitWrongSignature)
+        if (explicitSetStateMachine)
         {
             MemberReferenceHandle declaration =
                 metadata.AddMemberReference(
-                    asyncStateMachine,
+                    explicitMalformedInterface
+                        ? malformedAsyncStateMachine
+                        : asyncStateMachine,
                     metadata.GetOrAddString("SetStateMachine"),
-                    metadata.GetOrAddBlob(instanceVoidSignature));
+                    metadata.GetOrAddBlob(
+                        explicitWrongSignature
+                            ? instanceVoidSignature
+                            : setStateMachineSignature));
             metadata.AddMethodImplementation(
                 machine,
                 setStateMachine,
@@ -3674,6 +3700,7 @@ public sealed class StateMachineRelationshipIndexTests
         ValueTypeSetStateMachine,
         NonIlSetStateMachine,
         ExplicitWrongSignatureSetStateMachine,
+        ExplicitMalformedInterfaceSetStateMachine,
         DuplicateSetStateMachine,
         StaticMoveNext,
         NonIlMoveNext,
