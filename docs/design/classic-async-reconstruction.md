@@ -132,16 +132,21 @@ The request adapter supplies an authenticated value with these roles:
 ClassicInverseRequest
   DeclaredMethod       guarded owner-issued identity
   ExecutionMethod      guarded owner-issued identity
-  Relationship         successful owner-issued classic relationship
+  Relationship         resolved owner-issued classic relationship certificate
   KickoffBody          unmodified import snapshot bound to DeclaredMethod
   ExecutionBody        unmodified import snapshot bound to ExecutionMethod
 ```
 
 The names describe roles, not a required implementation shape. The core treats
-the relationship and guards as opaque owner evidence. It neither recreates
-them from names or IR nor selects replacement identities. A missing, rejected,
-or filtered owner result never becomes a core request; preserving those result
-arms is #5277's responsibility.
+the relationship, its role dispositions, and the guards as opaque owner
+evidence. It neither recreates them from names or IR nor selects replacement
+identities. A missing, rejected, or filtered owner result never becomes a core
+request; preserving those result arms is #5277's responsibility. A resolved
+relationship may record an absent classic support role under the
+Metadata-owned
+[relationship contract](state-machine-relationship-index.md#evidence-carrying-certificate);
+the inverse requires the certified kickoff and execution identities, not a
+support MethodDef.
 
 ### Body availability and post-build artifacts
 
@@ -165,8 +170,8 @@ A request cannot be formed from the inspected artifact when:
 - a required MethodDef fails Metadata's managed-IL-body predicate because it
   has RVA zero, is P/Invoke, uses a non-IL code type, is unmanaged, is
   runtime-implemented, or is an internal call; or
-- trimming retains a relationship claim but removes role evidence, so the
-  Metadata relationship is rejected.
+- Metadata rejects the relationship because identity evidence is missing,
+  ambiguous, malformed, or contradictory.
 
 Artifact category alone never decides availability. Abstract members and
 bodyless interface declarations ordinarily have RVA zero, but a default
@@ -181,11 +186,95 @@ MethodDefs or relationship evidence fail the boundary above.
 The inverse core cannot repair these unavailable inputs. When a method or its
 body is absent, the current artifact no longer contains the executable
 operations, evaluation order, and exception structure that a reconstruction
-proof must account for. When only relationship evidence is missing, its
-Metadata owner may extend that relationship contract if the artifact retains
-enough evidence; the inverse cannot infer it locally. Supplying an authenticated
-pre-trim assembly or another body source would require a separate acquisition
-and request-adapter contract.
+proof must account for. An absent `SetStateMachine` support MethodDef does not
+remove the retained kickoff or execution operations and therefore does not
+block a request when Metadata certifies the relationship with
+`AbsentFromArtifact`. The inverse cannot infer that identity or disposition
+locally. Supplying an authenticated pre-trim assembly or another body source
+would require a separate acquisition and request-adapter contract.
+
+### Recipe demonstration matrix
+
+The existing compiler-produced `ClassicAsync` fixture family provides the
+recipe-level inputs that the proof-carrying core will consume:
+
+| Case | Fixture method | Current observable outcome |
+| --- | --- | --- |
+| Neighboring accepted recipe | `TwoSequentialAwaits` | `Full`; both awaits and their ordering are reconstructed. |
+| Effect nested in a conditional result | `AwaitConditionalWithWrappedResult` | `Partial` with visible `DEC0004`; the kickoff remains. |
+| Effectful await operand inside a loop | `AwaitInLoopWithWrappedOperand` | `Partial` with visible `DEC0004`; the kickoff remains. |
+| Store nested in loop control | `LoopWithAccumulatorWrite` | `Partial` with visible `DEC0004`; the kickoff remains. |
+| Guarded effect in `finally` | `AwaitInTryFinallyWithGuardedCall` | `Partial` with visible `DEC0004`; the kickoff remains. |
+
+`ClassicAsyncReconstructionHonestyTests` gates those current outcomes. A
+single-method demonstration uses the same built assembly and product pipeline:
+
+```bash
+dotnet build src/ILInspector.Decompiler.Fixtures.ClassicAsync -c Release
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicAsync/release/ILInspector.Decompiler.Fixtures.ClassicAsync.dll \
+  --dump \
+  'ILInspector.Decompiler.Fixtures.ClassicAsync.AsyncFixtures::LoopWithAccumulatorWrite' \
+  --lowered --remarks
+```
+
+The broader `ClassicStateMachines` fixture and
+`--corpus-profile classic-state-machines` process retain the neighboring
+builder, exception, iterator, and async-iterator population. These fixtures
+make the cases repeatable; their current honesty outcomes do not by themselves
+prove the new physical, semantic, or structured-ancestor ledgers.
+
+### Artifact demonstration matrix
+
+`ILInspector.Decompiler.Fixtures.ClassicAsyncArtifacts` compiles one classic
+async source population into implementation and SDK reference assemblies.
+`ClassicAsyncArtifactMatrixTests` additionally publishes that project twice
+with full trimming: once under ordinary reachability and once with the fixture
+assembly rooted so every classic role remains available.
+
+The resulting matrix separates artifact availability from reconstruction:
+
+| Artifact | Observed method evidence | Relationship/core boundary |
+| --- | --- | --- |
+| Implementation | Kickoff, `MoveNext`, and `SetStateMachine` retain compiler IL. | Authenticated request; the neighboring accepted recipe reconstructs. |
+| SDK reference | The same MethodDefs retain synthesized `ldnull; throw` bodies. | Authenticated request; `ClassicInverseBodyReplacingReferenceAssembliesDecline` remains the core gate. |
+| Ordinary trim, reachable method | Kickoff and `MoveNext` remain, but ILLink removes `SetStateMachine`. | Target contract: authenticated request with `SetStateMachine: AbsentFromArtifact`; the inverse proves or declines the retained bodies. Current Metadata still rejects pending #5307 implementation. |
+| Ordinary trim, unused method | The kickoff and generated state machine are removed. | No core request forms. |
+| Role-preserved trim | All required MethodDefs retain post-trim IL. | Authenticated request; the accepted recipe reconstructs from the trimmed artifact. |
+| Default-interface implementation | The kickoff and execution MethodDefs carry managed IL. | Authenticated request without a declaring-type category exclusion. |
+
+Run the slow Release fixture gate to build and prove all artifacts:
+
+```bash
+dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- \
+  -class '*ClassicAsyncArtifactMatrixTests*'
+```
+
+The cross-platform publish recipe is owned by
+`eng/classic-async-artifact-matrix.proj`; the test invokes that project with
+the current host RID rather than assembling a test-local compiler command.
+The publish outputs remain under
+`artifacts/classic-async-artifact-matrix/<host-rid>/`. They can be passed
+directly to `DecompilerHarness --dump` for the PR demo. These fixture gates
+prove the stated artifact premises; they do not substitute for the unverified
+inverse-core decision gates below.
+
+Before #5277 supplies the authenticated request boundary, the legacy
+`ClassicAsyncReconstructionPass` still reports `Full` for both trimmed
+variants: it discovers the generated execution sibling directly and therefore
+bypasses Metadata's rejection in the ordinary-trim case. That measured
+pre-implementation behavior is not a valid core request. Under the target
+Metadata contract, #5277 must attach the resolved relationship and explicit
+support-role disposition rather than preserve that sibling inference. The
+eventual end-to-end demo must reconstruct both retained-body trim variants
+through authenticated requests, while the unused and body-replacing cases
+continue to decline:
+
+```csharp
+int left = await first;
+int right = await second;
+GC.KeepAlive((left, right));
+```
 
 The terminal result is:
 
