@@ -1,9 +1,10 @@
-using ILInspector.MetadataPrimitives;
 using System.Collections.Immutable;
+using DotnetInspector.Output;
 using DotnetInspector.Queries;
 using ILInspector.Analysis;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using Markout;
 
 namespace DotnetInspector.Views;
@@ -18,7 +19,8 @@ internal sealed record MatchDiscoveryRequest(
     string? CandidateAssembly,
     StructuralCloneRetrievalLimits Limits,
     int? Top,
-    string? CandidatePackage = null);
+    string? CandidatePackage = null,
+    string? CandidateTfm = null);
 
 /// <summary>
 /// Token-to-display names for one candidate assembly, projected from the already-extracted
@@ -408,8 +410,12 @@ internal static class MatchDiscoveryFormatter
                 + ", which defines them rather than the assembly named on the command line; run "
                 + "pairwise `match` on a candidate with `"
                 + (request.CandidatePackage is string candidatePackage
-                    ? "--package " + candidatePackage + " --library " + candidateAssembly
-                    : "--library " + candidateAssembly)
+                    ? "--package " + ShellCommandText.Quote(candidatePackage)
+                        + " --library " + ShellCommandText.Quote(candidateAssembly)
+                        + (request.CandidateTfm is string candidateTfm
+                            ? " --tfm " + ShellCommandText.Quote(candidateTfm)
+                            : "")
+                    : "--library " + ShellCommandText.Quote(candidateAssembly))
                 + "` to obtain a checked relation."
             : Disclosure;
 

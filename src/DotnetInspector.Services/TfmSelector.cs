@@ -463,6 +463,15 @@ public static class TfmSelector
         var dlls = !string.IsNullOrEmpty(tfm)
             ? SelectAssembliesByTfmFromPackage(extractPath, tfm).paths
             : GetPackageAssemblies(extractPath);
+        return FindAssemblyInPackage(dlls, extractPath, assemblyName, tfm);
+    }
+
+    internal static (string? path, string? tfm) FindAssemblyInPackage(
+        IReadOnlyList<string> dlls,
+        string extractPath,
+        string assemblyName,
+        string? tfm)
+    {
         if (dlls.Count == 0)
             return (null, null);
 
@@ -475,13 +484,24 @@ public static class TfmSelector
             ? assemblyLeaf
             : $"{bareName}.dll";
 
+        string? exactMatch = FindExactPackageAsset(
+            dlls,
+            extractPath,
+            normalizedAssemblyName);
+        if (exactMatch is not null)
+        {
+            string? exactTfm = TfmResolver.ExtractTfmFromPath(
+                Path.GetRelativePath(extractPath, exactMatch).Replace('\\', '/'));
+            return (exactMatch, exactTfm ?? tfm);
+        }
+
+        if (normalizedAssemblyName.Contains('/'))
+            return (null, null);
+
         var matchingFiles = dlls
             .Where(dll =>
             {
-                var relativePath = Path.GetRelativePath(extractPath, dll).Replace('\\', '/');
-                return relativePath.Equals(normalizedAssemblyName, StringComparison.OrdinalIgnoreCase)
-                    || relativePath.Equals(normalizedAssemblyName + ".dll", StringComparison.OrdinalIgnoreCase)
-                    || Path.GetFileName(dll).Equals(fileName, StringComparison.OrdinalIgnoreCase)
+                return Path.GetFileName(dll).Equals(fileName, StringComparison.OrdinalIgnoreCase)
                     || Path.GetFileNameWithoutExtension(dll).Equals(bareName, StringComparison.OrdinalIgnoreCase);
             })
             .ToList();
@@ -491,6 +511,35 @@ public static class TfmSelector
 
         var (selectedPath, selectedTfm) = SelectHighestTfmAssembly(matchingFiles, extractPath);
         return (selectedPath ?? matchingFiles[0], selectedTfm ?? tfm);
+    }
+
+    internal static string? FindExactPackageAsset(
+        IReadOnlyList<string> paths,
+        string extractPath,
+        string normalizedAssemblyName)
+    {
+        string normalizedWithExtension = normalizedAssemblyName.EndsWith(
+            ".dll",
+            StringComparison.OrdinalIgnoreCase)
+            ? normalizedAssemblyName
+            : normalizedAssemblyName + ".dll";
+        string? exact = paths.FirstOrDefault(path =>
+            Path.GetRelativePath(extractPath, path)
+                .Replace('\\', '/')
+                .Equals(normalizedWithExtension, StringComparison.Ordinal));
+        if (exact is not null)
+            return exact;
+
+        string[] caseInsensitive = paths
+            .Where(path =>
+                Path.GetRelativePath(extractPath, path)
+                    .Replace('\\', '/')
+                    .Equals(normalizedWithExtension, StringComparison.OrdinalIgnoreCase))
+            .Take(2)
+            .ToArray();
+        return caseInsensitive.Length == 1
+            ? caseInsensitive[0]
+            : null;
     }
 
     public static (string? path, string? tfm) FindAssemblyContainingType(string extractPath, string typeName, string? tfm = null)

@@ -1,16 +1,18 @@
+using System.CommandLine;
+using System.IO.Compression;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
+using CSharpText;
+using DotnetInspector.CommandLine;
+using DotnetInspector.Commands;
+using DotnetInspector.Fixtures;
+using DotnetInspector.Options;
 using DotnetInspector.Views;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
-using DotnetInspector.Commands;
-using DotnetInspector.Options;
-using System.CommandLine;
-using DotnetInspector.CommandLine;
-using DotnetInspector.Fixtures;
-using CSharpText;
 
 namespace DotnetInspector.Tests;
 
@@ -1153,14 +1155,75 @@ public sealed class MatchDiscoveryTests
         var request = new MatchDiscoveryRequest(
             "A.Type.Member",
             "A.Type",
-            "Target.dll",
+            "lib/net10.0/Target.dll",
             new ILInspector.Analysis.StructuralCloneRetrievalLimits(1, 1),
             null,
-            CandidatePackage: "Fixture.1.0.0.nupkg");
+            CandidatePackage: "Fixture@1.0.0",
+            CandidateTfm: "net10.0");
 
         string disclosure = MatchDiscoveryFormatter.DisclosureFor(request);
 
-        Assert.Contains("`--package Fixture.1.0.0.nupkg --library Target.dll`", disclosure);
+        Assert.Contains(
+            "`--package 'Fixture@1.0.0' --library 'lib/net10.0/Target.dll' --tfm 'net10.0'`",
+            disclosure);
+    }
+
+    [Fact]
+    public async Task Similar_PackageForwardedPopulation_DisclosesTheExactReplayAddress()
+    {
+        string fixtureDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"match-replay-{Guid.NewGuid():N}");
+        string package = Path.Combine(fixtureDirectory, "Forwarding.Fixture.1.0.0.nupkg");
+        Directory.CreateDirectory(fixtureDirectory);
+
+        try
+        {
+            using (ZipArchive archive = ZipFile.Open(package, ZipArchiveMode.Create))
+            {
+                ZipArchiveEntry facade = archive.CreateEntry("lib/net10.0/Facade.dll");
+                await using (Stream stream = facade.Open())
+                {
+                    await stream.WriteAsync(BuildForwarderFacade(
+                        "Facade",
+                        TestAssembly,
+                        typeof(MatchDiscoverySample)),
+                        TestContext.Current.CancellationToken);
+                }
+                archive.CreateEntryFromFile(
+                    TestAssembly,
+                    $"lib/net10.0/{Path.GetFileName(TestAssembly)}");
+            }
+
+            var options = new MatchOptions
+            {
+                LeftSelector = SampleSeed,
+                RightSelector = typeof(MatchDiscoverySample).FullName,
+                PackagePath = package,
+                AssemblyPath = "lib/net10.0/Facade.dll",
+                IncludeAll = true,
+                Similar = true,
+                JsonOutput = true,
+            };
+
+            var (exitCode, output, error) = await RunAsync(options);
+
+            Assert.Equal(0, exitCode);
+            Assert.Empty(error);
+            JsonElement document = Parse(output);
+            Assert.Equal(
+                $"lib/net10.0/{Path.GetFileName(TestAssembly)}",
+                document.GetProperty("candidate_assembly").GetString());
+            Assert.Contains(
+                $"--package '{package}' "
+                    + $"--library 'lib/net10.0/{Path.GetFileName(TestAssembly)}' "
+                    + "--tfm 'net10.0'",
+                document.GetProperty("disclosure").GetString());
+        }
+        finally
+        {
+            Directory.Delete(fixtureDirectory, recursive: true);
+        }
     }
 
     /// <summary>
@@ -1179,27 +1242,28 @@ public sealed class MatchDiscoveryTests
 
         string disclosure = MatchDiscoveryFormatter.DisclosureFor(request);
 
-        Assert.Contains("`--library /images/Target.dll`", disclosure);
+        Assert.Contains("`--library '/images/Target.dll'`", disclosure);
         Assert.DoesNotContain("--package", disclosure);
     }
 
     /// <summary>
-    /// The candidate image that came out of a package extraction is addressed by the package the
-    /// caller named plus the library's own name, because the extraction directory is deleted as
-    /// this command exits.
+    /// The candidate image that came out of a package extraction is addressed by its exact
+    /// package-relative asset and TFM, so another same-named assembly cannot win during replay.
     /// </summary>
     [Fact]
-    public void ReplayableCandidateAddress_ForAnImageInsideTheExtraction_NamesThePackage()
+    public void ReplayableCandidateAddress_ForAnImageInsideTheExtraction_RetainsTheExactAsset()
     {
-        string extraction = Path.Combine(Path.GetTempPath(), "inspect-api-xyz");
+        string extraction = Path.Combine(Path.GetTempPath(), "inspect-api-xyz", "extracted");
 
-        (string? package, string library) = MatchDiscovery.ReplayableCandidateAddress(
-            "Fixture.1.0.0.nupkg",
-            extraction,
-            Path.Combine(extraction, "extracted", "lib", "net10.0", "Target.dll"));
+        MatchDiscovery.ReplayableCandidateAddress address =
+            MatchDiscovery.GetReplayableCandidateAddress(
+                "Fixture@1.0.0",
+                extraction,
+                Path.Combine(extraction, "lib", "net10.0", "Target.dll"));
 
-        Assert.Equal("Fixture.1.0.0.nupkg", package);
-        Assert.Equal("Target.dll", library);
+        Assert.Equal("Fixture@1.0.0", address.Package);
+        Assert.Equal("lib/net10.0/Target.dll", address.Library);
+        Assert.Equal("net10.0", address.Tfm);
     }
 
     /// <summary>
@@ -1209,11 +1273,12 @@ public sealed class MatchDiscoveryTests
     [Fact]
     public void ReplayableCandidateAddress_ForADirectlyNamedLibrary_KeepsThePathIntact()
     {
-        (string? package, string library) =
-            MatchDiscovery.ReplayableCandidateAddress(null, null, "/images/Target.dll");
+        MatchDiscovery.ReplayableCandidateAddress address =
+            MatchDiscovery.GetReplayableCandidateAddress(null, null, "/images/Target.dll");
 
-        Assert.Null(package);
-        Assert.Equal("/images/Target.dll", library);
+        Assert.Null(address.Package);
+        Assert.Equal("/images/Target.dll", address.Library);
+        Assert.Null(address.Tfm);
     }
 
     /// <summary>
@@ -1224,13 +1289,185 @@ public sealed class MatchDiscoveryTests
     [Fact]
     public void ReplayableCandidateAddress_ForAnImageOutsideTheExtraction_KeepsThePathIntact()
     {
-        (string? package, string library) = MatchDiscovery.ReplayableCandidateAddress(
-            "Fixture.1.0.0.nupkg",
-            Path.Combine(Path.GetTempPath(), "inspect-api-xyz"),
-            "/images/Target.dll");
+        MatchDiscovery.ReplayableCandidateAddress address =
+            MatchDiscovery.GetReplayableCandidateAddress(
+                "Fixture.1.0.0.nupkg",
+                Path.Combine(Path.GetTempPath(), "inspect-api-xyz"),
+                "/images/Target.dll");
 
-        Assert.Null(package);
-        Assert.Equal("/images/Target.dll", library);
+        Assert.Null(address.Package);
+        Assert.Equal("/images/Target.dll", address.Library);
+        Assert.Null(address.Tfm);
+    }
+
+    [Fact]
+    public void ReplayableCandidateAddress_RejectsAnExtractionSiblingWithTheSamePrefix()
+    {
+        string extraction = Path.Combine(Path.GetTempPath(), "inspect-api-xyz");
+        string candidate = Path.Combine(
+            Path.GetTempPath(),
+            "inspect-api-xyz-other",
+            "lib",
+            "net10.0",
+            "Target.dll");
+
+        MatchDiscovery.ReplayableCandidateAddress address =
+            MatchDiscovery.GetReplayableCandidateAddress(
+                "Fixture@1.0.0",
+                extraction,
+                candidate);
+
+        Assert.Null(address.Package);
+        Assert.Equal(candidate, address.Library);
+        Assert.Null(address.Tfm);
+    }
+
+    [Fact]
+    public void ReplayableCandidateAddress_ForAGlobalPackageDependency_UsesItsOwnCoordinate()
+    {
+        string candidate = Path.Combine(
+            DotnetInspector.Packages.NuGetCache.GetNuGetCachePath(),
+            "dependency.fixture",
+            "2.3.4",
+            "lib",
+            "net10.0",
+            "Dependency.dll");
+
+        MatchDiscovery.ReplayableCandidateAddress address =
+            MatchDiscovery.GetReplayableCandidateAddress(
+                "facade.fixture@1.0.0",
+                Path.Combine(Path.GetTempPath(), "facade-fixture"),
+                candidate);
+
+        Assert.Equal("dependency.fixture@2.3.4", address.Package);
+        Assert.Equal("lib/net10.0/Dependency.dll", address.Library);
+        Assert.Equal("net10.0", address.Tfm);
+    }
+
+    [Fact]
+    public void ReplayableCandidateAddress_ChecksTheDefaultRootAfterAnOverride()
+    {
+        string overrideRoot = Path.Combine(Path.GetTempPath(), "override-packages");
+        string defaultRoot = Path.Combine(Path.GetTempPath(), "default-packages");
+        string candidate = Path.Combine(
+            defaultRoot,
+            "dependency.fixture",
+            "2.3.4",
+            "lib",
+            "net10.0",
+            "Dependency.dll");
+
+        MatchDiscovery.ReplayableCandidateAddress address =
+            MatchDiscovery.GetReplayableCandidateAddress(
+                "facade.fixture@1.0.0",
+                Path.Combine(Path.GetTempPath(), "facade-fixture"),
+                candidate,
+                [overrideRoot, defaultRoot]);
+
+        Assert.Equal("dependency.fixture@2.3.4", address.Package);
+        Assert.Equal("lib/net10.0/Dependency.dll", address.Library);
+        Assert.Equal("net10.0", address.Tfm);
+    }
+
+    [Fact]
+    public void ReplayablePackage_ReplacesARangeWithTheResolvedExactVersion()
+    {
+        string? package = MatchDiscovery.GetReplayablePackage(
+            "Fixture@1.0.0..2.0.0",
+            "Fixture",
+            "1.2.3");
+
+        Assert.Equal("Fixture@1.2.3", package);
+    }
+
+    [Fact]
+    public void Disclosure_ShellQuotesPackageAssetAndTfm()
+    {
+        var request = new MatchDiscoveryRequest(
+            "A.Type.Member",
+            "A.Type",
+            "lib/net10.0/Target's build.dll",
+            new ILInspector.Analysis.StructuralCloneRetrievalLimits(1, 1),
+            null,
+            CandidatePackage: "/packages/Fixture's build.nupkg",
+            CandidateTfm: "net10.0");
+
+        string disclosure = MatchDiscoveryFormatter.DisclosureFor(request);
+
+        Assert.Contains(
+            "--package '/packages/Fixture'\"'\"'s build.nupkg' "
+                + "--library 'lib/net10.0/Target'\"'\"'s build.dll' --tfm 'net10.0'",
+            disclosure);
+    }
+
+    [Fact]
+    public void PhysicalImageLoad_ClearsPackageRangeCoordinates()
+    {
+        var options = new MatchOptions
+        {
+            PackagePath = "Fixture@1.0.0..2.0.0",
+            PackageRangeAddress = "#3",
+        };
+
+        MatchOptions physical = MatchDiscovery.ForPhysicalImageLoad(options);
+
+        Assert.Null(physical.PackagePath);
+        Assert.Null(physical.PackageRangeAddress);
+    }
+
+    static byte[] BuildForwarderFacade(
+        string assemblyName,
+        string targetAssemblyPath,
+        Type forwardedType)
+    {
+        using var targetPe = new PEReader(File.OpenRead(targetAssemblyPath));
+        MetadataReader targetReader = targetPe.GetMetadataReader();
+        AssemblyDefinition target = targetReader.GetAssemblyDefinition();
+
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString($"{assemblyName}.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        AssemblyReferenceHandle targetReference = metadata.AddAssemblyReference(
+            metadata.GetOrAddString(targetReader.GetString(target.Name)),
+            target.Version,
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        metadata.AddExportedType(
+            TypeAttributes.Public | (TypeAttributes)0x00200000,
+            metadata.GetOrAddString(forwardedType.Namespace!),
+            metadata.GetOrAddString(forwardedType.Name),
+            targetReference,
+            typeDefinitionId: 0);
+
+        var builder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        return image.ToArray();
     }
 
     /// <summary>

@@ -13,6 +13,7 @@ internal sealed record ApiSourceResult(
     string? PackageName,
     string? PackageVersion,
     string? ResolvedPackagePath,
+    string? PackageExtractPath,
     string? ApiSource,
     string? ApiVersion,
     string? PlatformFramework,
@@ -35,6 +36,7 @@ internal static class ApiSourceResolver
         string? runtimeAssemblyPath = null;
         string? packageName = null;
         string? packageVersion = null;
+        string? packageExtractPath = null;
         string? apiSource = null;
         string? apiVersion = null;
         string? platformFramework = null;
@@ -121,6 +123,7 @@ internal static class ApiSourceResolver
             }
             var extracted = outcome.Result!;
             (searchPath, tempDir, packageName, packageVersion) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
+            packageExtractPath = extracted.ExtractPath;
             apiSource = SourceKind.NuGet;
             apiVersion = packageVersion;
 
@@ -364,6 +367,7 @@ internal static class ApiSourceResolver
         }
 
         return (new ApiSourceResult(searchPath, runtimeAssemblyPath, packageName, packageVersion, packagePath,
-            apiSource, apiVersion, platformFramework, selectedTfm, projectAssetsPath, tempDir, typeName, context), null);
+            packageExtractPath, apiSource, apiVersion, platformFramework, selectedTfm, projectAssetsPath,
+            tempDir, typeName, context), null);
     }
 }

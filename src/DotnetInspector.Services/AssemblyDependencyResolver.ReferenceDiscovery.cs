@@ -175,12 +175,8 @@ public sealed partial class AssemblyDependencyResolver
             yield break;
         }
 
-        if (Environment.GetEnvironmentVariable("NUGET_PACKAGES") is { Length: > 0 } envRoot)
-            yield return envRoot;
-
-        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (!string.IsNullOrEmpty(home))
-            yield return Path.Combine(home, ".nuget", "packages");
+        foreach (string root in NuGetCache.GetNuGetPackageRoots())
+            yield return root;
     }
 
     static IEnumerable<XElement> SelectNuGetDependencies(XDocument document, string? tfm)

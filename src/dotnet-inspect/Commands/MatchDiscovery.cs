@@ -1,12 +1,14 @@
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
 using Markout;
+using NuGetFetch;
 
 namespace DotnetInspector.Commands;
 
@@ -156,7 +158,7 @@ internal static class MatchDiscovery
         if (!tokensIndexCallerImage)
         {
             (populationSide, int? populationError) =
-                await LoadSideAsync(options with { PackagePath = null }, candidateImage);
+                await LoadSideAsync(ForPhysicalImageLoad(options), candidateImage);
             if (populationError.HasValue)
                 return populationError.Value;
         }
@@ -184,20 +186,23 @@ internal static class MatchDiscovery
             AssemblyContextStructuralCloneRetrievalResult result =
                 AssemblyContextStructuralCloneRetrievalQuery.Execute(input);
 
-            // A package is extracted to a temporary directory that this command deletes as it
-            // exits, so that extraction path addresses nothing by the time the caller could type
-            // it. Disclose the package and the library within it, which is what actually replays.
-            (string? candidatePackage, string candidateLibrary) =
-                ReplayableCandidateAddress(options.PackagePath, seed.TempDir, candidateImage);
+            // Extraction and cache paths are implementation details, not stable CLI addresses.
+            // Preserve the exact package and asset identity needed to select this image again.
+            ReplayableCandidateAddress candidateAddress =
+                GetReplayableCandidateAddress(
+                    seed.ReplayPackage,
+                    seed.PackageExtractPath,
+                    candidateImage);
 
             var view = MatchDiscoveryFormatter.BuildView(
                 new MatchDiscoveryRequest(
                     resolvedSeed.Display!,
                     scopeDisplay!,
-                    tokensIndexCallerImage ? null : candidateLibrary,
+                    tokensIndexCallerImage ? null : candidateAddress.Library,
                     limits,
                     options.Top,
-                    tokensIndexCallerImage ? null : candidatePackage),
+                    tokensIndexCallerImage ? null : candidateAddress.Package,
+                    tokensIndexCallerImage ? null : candidateAddress.Tfm),
                 result,
                 MatchDiscoveryNames.Build(namesSurface, candidateImage));
 
@@ -259,24 +264,99 @@ internal static class MatchDiscovery
     /// Chooses an address for the candidate image that the caller can still use after this command
     /// exits.
     /// <para>
-    /// A package is extracted to a temporary directory that <see cref="LoadedSide.Dispose"/>
-    /// deletes, so disclosing the extraction path handed back an address that had already stopped
-    /// existing: discovery reported success and the command it printed failed with "File not
-    /// found". When the candidate image came out of that extraction, the replayable address is the
-    /// package plus the library's name within it. Every other candidate image is a path the caller
-    /// supplied and is disclosed unchanged.
+    /// Package extraction and cache paths are implementation details rather than caller-owned
+    /// addresses. When the candidate image came from a package, the replayable address retains the
+    /// exact package version, package-relative asset path, and target framework. Every other
+    /// candidate image is a path the caller supplied and is disclosed unchanged.
     /// </para>
     /// </summary>
-    internal static (string? Package, string Library) ReplayableCandidateAddress(
+    internal static ReplayableCandidateAddress GetReplayableCandidateAddress(
         string? packagePath,
-        string? extractionDirectory,
-        string candidateImage)
-        => packagePath is not null
-            && extractionDirectory is not null
-            && candidateImage.StartsWith(
-                Path.GetFullPath(extractionDirectory), StringComparison.Ordinal)
-                ? (packagePath, Path.GetFileName(candidateImage))
-                : (null, candidateImage);
+        string? packageExtractPath,
+        string candidateImage,
+        IReadOnlyList<string>? packageRoots = null)
+    {
+        if (packagePath is not null
+            && packageExtractPath is not null
+            && TryGetRelativeAsset(packageExtractPath, candidateImage, out string? packageAsset))
+        {
+            return PackageCandidateAddress(packagePath, packageAsset);
+        }
+
+        IEnumerable<string> roots = packageRoots ?? NuGetCache.GetNuGetPackageRoots();
+        foreach (string packagesRoot in roots.OrderByDescending(
+            root => Path.GetFullPath(root).Length))
+        {
+            if (TryGetRelativeAsset(packagesRoot, candidateImage, out string? cacheRelative))
+            {
+                string[] segments = cacheRelative.Split(
+                    '/',
+                    StringSplitOptions.RemoveEmptyEntries);
+                if (segments.Length >= 3)
+                {
+                    string dependencyPackage = $"{segments[0]}@{segments[1]}";
+                    string dependencyAsset = string.Join('/', segments[2..]);
+                    return PackageCandidateAddress(dependencyPackage, dependencyAsset);
+                }
+            }
+        }
+
+        return new(null, candidateImage, null);
+    }
+
+    static ReplayableCandidateAddress PackageCandidateAddress(
+        string package,
+        string packageRelativePath)
+        => new(
+            package,
+            packageRelativePath,
+            TfmResolver.ExtractTfmFromPath(packageRelativePath));
+
+    static bool TryGetRelativeAsset(
+        string root,
+        string candidateImage,
+        out string relativeAsset)
+    {
+        string relativePath = Path.GetRelativePath(
+            Path.GetFullPath(root),
+            Path.GetFullPath(candidateImage));
+        if (Path.IsPathRooted(relativePath)
+            || relativePath.Equals(".", StringComparison.Ordinal)
+            || relativePath.Equals("..", StringComparison.Ordinal)
+            || relativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+            || relativePath.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal))
+        {
+            relativeAsset = "";
+            return false;
+        }
+
+        relativeAsset = relativePath.Replace('\\', '/');
+        return true;
+    }
+
+    internal static string? GetReplayablePackage(
+        string? resolvedPackagePath,
+        string? packageName,
+        string? packageVersion)
+    {
+        if (resolvedPackagePath is null)
+            return null;
+        if (File.Exists(resolvedPackagePath)
+            || packageName is null
+            || packageVersion is null)
+        {
+            return resolvedPackagePath;
+        }
+
+        return $"{packageName}@{packageVersion}";
+    }
+
+    internal static MatchOptions ForPhysicalImageLoad(MatchOptions options)
+        => options with
+        {
+            PackagePath = null,
+            PackageRangeAddress = null,
+        };
 
     /// <summary>
     /// Resolves the seed to a MethodDef token. A raw <c>0x06......</c> token passes through; any
@@ -439,7 +519,15 @@ internal static class MatchDiscovery
             return (null, 1);
         }
 
-        return (new LoadedSide(loaded.Api, loaded.ApiDllPath, source.TempDir), null);
+        return (new LoadedSide(
+            loaded.Api,
+            loaded.ApiDllPath,
+            source.TempDir,
+            GetReplayablePackage(
+                source.ResolvedPackagePath,
+                source.PackageName,
+                source.PackageVersion),
+            source.PackageExtractPath), null);
     }
 
     internal static bool TryParseMethodToken(string selector, out int token)
@@ -503,16 +591,27 @@ internal static class MatchDiscovery
         ApiType? DeclaringType,
         string? Error);
 
-    sealed class LoadedSide(ApiSurface api, string apiDllPath, string? tempDir) : IDisposable
+    internal readonly record struct ReplayableCandidateAddress(
+        string? Package,
+        string Library,
+        string? Tfm);
+
+    sealed class LoadedSide(
+        ApiSurface api,
+        string apiDllPath,
+        string? tempDir,
+        string? replayPackage,
+        string? packageExtractPath) : IDisposable
     {
         internal ApiSurface Api { get; } = api;
         internal string ApiDllPath { get; } = apiDllPath;
 
         /// <summary>
-        /// The extraction root when this side came from a package, so a disclosure can tell that
-        /// an image path is ephemeral rather than replayable. Null for a directly named library.
+        /// The temporary package directory, when one must be cleaned up after the command.
         /// </summary>
         internal string? TempDir { get; } = tempDir;
+        internal string? ReplayPackage { get; } = replayPackage;
+        internal string? PackageExtractPath { get; } = packageExtractPath;
 
         public void Dispose() => TryDeleteTempDir(TempDir);
     }

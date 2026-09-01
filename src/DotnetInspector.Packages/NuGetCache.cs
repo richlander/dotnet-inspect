@@ -105,6 +105,35 @@ public static class NuGetCache
     }
 
     /// <summary>
+    /// Gets every NuGet global-packages root dependency resolution can read, with an explicit
+    /// <c>NUGET_PACKAGES</c> override first and the platform-default root second.
+    /// </summary>
+    public static IReadOnlyList<string> GetNuGetPackageRoots()
+    {
+        List<string> roots = [];
+        StringComparer comparer = OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+
+        void Add(string? root)
+        {
+            if (string.IsNullOrWhiteSpace(root))
+                return;
+
+            string fullPath = Path.GetFullPath(root);
+            if (!roots.Contains(fullPath, comparer))
+                roots.Add(fullPath);
+        }
+
+        Add(Environment.GetEnvironmentVariable("NUGET_PACKAGES"));
+        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        Add(string.IsNullOrEmpty(home)
+            ? null
+            : Path.Combine(home, ".nuget", "packages"));
+        return roots;
+    }
+
+    /// <summary>
     /// Gets the base path for application caches (read-write).
     /// Delegates to <see cref="CoreCache.GetBasePath"/>.
     /// </summary>
