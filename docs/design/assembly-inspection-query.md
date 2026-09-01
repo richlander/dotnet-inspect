@@ -1016,6 +1016,51 @@ layering used by
 [`StateMachineRelationshipIndex`](state-machine-relationship-index.md): Metadata
 authenticates shared structure, then each higher layer owns its distinct policy.
 
+#### Derivation rules
+
+Every clause below instantiates four rules. They are stated once because each
+was otherwise rediscovered a clause at a time, and because a new clause is
+correct only if it names the rule it follows.
+
+**R1 — Authenticate a carrier by structured identity, at the strength its
+provenance permits.** A carrier is identified by the structured top-level name
+of its constructor's *declaring type* — never by flattened display text, by the
+constructor token's kind, or by one component of an assembly identity. The
+required strength depends on whether the compiler can emit the construct
+locally. A marker the compiler synthesizes whenever the framework lacks it, as
+with the rules markers, can be authenticated only by name, because a locally
+defined unsigned TypeDef is legitimate output and demanding more would reject
+real assemblies. A construct the compiler never synthesizes, as with
+`FixedBufferAttribute`, must additionally arrive through the shape real
+compiler output uses: a core contract carrying a platform key. Neither test is
+a trust anchor, because single-file inspection can verify neither a name nor a
+key; both are fidelity filters that stop a lookalike from being read as the
+construct it resembles.
+
+**R2 — Derive an answer only from rows proven observable.** SRM's owner-range
+lookups and accessor projections can silently omit physical rows: a false
+sorted claim hides `CustomAttribute` rows from every range lookup, and
+`PropertyAccessors`/`EventAccessors` expose one slot per semantic role while
+counting a single owner's rows in a `ushort`. Any table an answer depends on is
+therefore proven whole before it is read — by verifying physical ordering, or
+by accounting projected rows against the physical row count.
+
+**R3 — Validate a relationship before inheriting through it.** A projected edge
+is not a validated edge. Inheriting a contract requires the relationship itself
+to satisfy its spec constraints, and an ambiguous edge inherits nothing.
+
+**R4 — Never render a refusal as a negative answer, and scope a failure to what
+it actually invalidates.** Budget exhaustion, an undecodable signature, and a
+malformed row are refusals: none may present as absence, and none may suppress
+evidence that was already definitely observed. A defect confined to one
+identifiable row drops that row and records the failure while the rest of the
+map survives; a defect that makes a whole projection untrustworthy makes every
+dependent answer `Unavailable`. Never the reverse.
+
+These rules are candidates for the shared substrate pattern tracked by
+[#5273](https://github.com/richlander/dotnet-inspect/issues/5273); this section
+binds only `MemorySafetyMetadataIndex`.
+
 The module result is based only on
 `System.Runtime.CompilerServices.MemorySafetyRulesAttribute` rows attached to the
 ModuleDef. AssemblyDef, TypeDef, and member rows with the same attribute name do
