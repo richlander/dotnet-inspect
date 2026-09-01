@@ -1536,7 +1536,9 @@ public static class ResearchDiff
             if (request.Target
                 is not AssemblyBindingTarget.AssemblyReference reference)
             {
-                return AssemblyBindingSelection.NotFound();
+                return AssemblyBindingSelection.CannotSelect(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind.UnsupportedScope));
             }
 
             ImmutableArray<ResolvedAssemblyReference> matches =
@@ -1547,7 +1549,13 @@ public static class ResearchDiff
                     .ToImmutableArray();
             return matches.Length switch
             {
-                0 => AssemblyBindingSelection.NotFound(),
+                0 => assemblies.Any(assembly =>
+                        string.Equals(
+                            assembly.Identity.Name,
+                            reference.Identity.Name,
+                            StringComparison.OrdinalIgnoreCase))
+                    ? AssemblyBindingSelection.NameOwnedButNoMatch()
+                    : AssemblyBindingSelection.NameNotOwned(),
                 1 => AssemblyBindingSelection.Found(
                     matches[0]),
                 _ => AssemblyBindingSelection.Multiple(matches),

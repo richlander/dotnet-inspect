@@ -252,7 +252,7 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_RealQueryOmitsAbsentExtensionEndpoint()
+    public async Task ExecuteAsync_RealQueryReportsIntrinsicBindingUnavailableAndOmitsAbsentExtensionEndpoint()
     {
         bool observedMissingPeer = false;
         Execution execution = await ExecuteAsync(
@@ -308,11 +308,25 @@ public sealed class InspectionGraphCommandTests
             });
 
         Assert.True(observedMissingPeer);
-        Assert.Equal(0, execution.ExitCode);
-        Assert.Empty(execution.Error);
+        Assert.Equal(1, execution.ExitCode);
+        Assert.Contains(
+            "extensions: BindingUnavailable (2 graph targets)",
+            execution.Error,
+            StringComparison.Ordinal);
         using JsonDocument json = JsonDocument.Parse(execution.Output);
         JsonElement root = json.RootElement;
-        Assert.Empty(root.GetProperty("failures").EnumerateArray());
+        Assert.Equal(
+            2,
+            root.GetProperty("failures").GetArrayLength());
+        Assert.All(
+            root.GetProperty("failures").EnumerateArray(),
+            static failure => Assert.Equal(
+                "BindingUnavailable",
+                Assert.Single(
+                    failure.GetProperty("details")
+                        .EnumerateArray())
+                    .GetProperty("kind")
+                    .GetString()));
         Assert.DoesNotContain(
             root.GetProperty("nodes").EnumerateArray(),
             static node => node.GetProperty("label").GetString()!
