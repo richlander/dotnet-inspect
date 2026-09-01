@@ -36,15 +36,17 @@ capacity:
 pr_number=1234
 gh api "repos/{owner}/{repo}/pulls/$pr_number" \
   --include \
-  --jq '{head:.head.sha,state,merged,draft,mergeable,mergeable_state}'
+  --jq '{head:.head.sha,base:.base.ref,state,merged,draft,mergeable,mergeable_state}'
 ```
 
-Handle lifecycle, head mismatch, and `mergeable: false` before querying checks:
+Handle lifecycle, candidate mismatch, and `mergeable: false` before checks:
 
 - Classify a merged PR as terminal success.
 - Classify a closed, unmerged PR or a draft as requiring workflow action.
 - Classify a returned head different from the expected head as a head mismatch
   that invalidates all fixed-head evidence.
+- Classify a returned base ref different from the expected base ref as a
+  candidate mismatch that invalidates all review and merge authorization.
 - Treat `mergeable: false` as not conflict-free. GitHub's GraphQL
   `MergeableState.CONFLICTING` documents the corresponding conflict meaning.
 
@@ -94,8 +96,8 @@ and response headers; `--jq` selects values from the response body. See
 
 When GraphQL is justified, request the lifecycle and fixed-head fields needed
 by the same interpretation rules: `state`, `merged`, `headRefOid`,
-`baseRefOid`, `baseRef { target { oid } }`, `isDraft`, `mergeable`,
-`mergeStateStatus`, and `statusCheckRollup` state and contexts with
+`baseRefName`, `baseRefOid`, `baseRef { target { oid } }`, `isDraft`,
+`mergeable`, `mergeStateStatus`, and `statusCheckRollup` state and contexts with
 `pageInfo`. Request enough contexts for the normal check matrix; if another
 page exists and `ci-required` is absent, page before concluding that the check
 is missing. These fields and the `MergeableState` and `MergeStateStatus` enums
@@ -138,8 +140,8 @@ of the query contract. See [REST API rate limits][rate-limits].
 
 ## Interpret a successful snapshot
 
-Confirm the returned head before using any state. A run or check identifier is
-pinned to one commit and cannot detect a later push.
+Confirm the returned head and base ref before using any state. A run or check
+identifier is pinned to one commit and cannot detect a later push.
 
 Keep these distinctions:
 

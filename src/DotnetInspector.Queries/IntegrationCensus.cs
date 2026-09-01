@@ -313,6 +313,137 @@ public interface IIntegrationBindingContextIdentity
 {
 }
 
+/// <summary>
+/// One source participant and the binding contexts in which its evidence is
+/// evaluated.
+/// </summary>
+public sealed class IntegrationSourceBindingContextIncidence
+{
+    public IntegrationSourceBindingContextIncidence(
+        IntegrationSourceParticipantIdentity participant,
+        IEnumerable<IIntegrationBindingContextIdentity> bindingContexts)
+    {
+        ArgumentNullException.ThrowIfNull(participant);
+        ArgumentNullException.ThrowIfNull(bindingContexts);
+        Participant = participant;
+        BindingContexts = [.. bindingContexts];
+        if (BindingContexts.IsEmpty)
+        {
+            throw new ArgumentException(
+                "A source participant requires at least one incident context.",
+                nameof(bindingContexts));
+        }
+        var identities =
+            new HashSet<IIntegrationBindingContextIdentity>();
+        foreach (IIntegrationBindingContextIdentity context in BindingContexts)
+        {
+            if (context is null)
+            {
+                throw new ArgumentException(
+                    "Context incidence cannot contain null.",
+                    nameof(bindingContexts));
+            }
+            if (!identities.Add(context))
+            {
+                throw new ArgumentException(
+                    "Context incidence cannot contain duplicate identities.",
+                    nameof(bindingContexts));
+            }
+        }
+    }
+
+    public IntegrationSourceParticipantIdentity Participant { get; }
+    public ImmutableArray<IIntegrationBindingContextIdentity> BindingContexts
+        { get; }
+}
+
+/// <summary>
+/// Immutable owner-issued binding-context roster and source incidence.
+/// </summary>
+public sealed class IntegrationBindingContextAccess
+{
+    public IntegrationBindingContextAccess(
+        IEnumerable<IIntegrationBindingContextIdentity> bindingContexts,
+        IEnumerable<IntegrationSourceBindingContextIncidence> sourceIncidence)
+    {
+        ArgumentNullException.ThrowIfNull(bindingContexts);
+        ArgumentNullException.ThrowIfNull(sourceIncidence);
+
+        BindingContexts = [.. bindingContexts];
+        var contextIdentities =
+            new HashSet<IIntegrationBindingContextIdentity>();
+        foreach (IIntegrationBindingContextIdentity context in BindingContexts)
+        {
+            if (context is null)
+            {
+                throw new ArgumentException(
+                    "The binding-context roster cannot contain null.",
+                    nameof(bindingContexts));
+            }
+            if (!contextIdentities.Add(context))
+            {
+                throw new ArgumentException(
+                    "The binding-context roster cannot contain duplicate identities.",
+                    nameof(bindingContexts));
+            }
+        }
+
+        ImmutableArray<IntegrationSourceBindingContextIncidence> incidence =
+            [.. sourceIncidence];
+        var participants =
+            new HashSet<IntegrationSourceParticipantIdentity>();
+        var canonical =
+            ImmutableArray.CreateBuilder<
+                IntegrationSourceBindingContextIncidence>(incidence.Length);
+        foreach (IntegrationSourceBindingContextIncidence entry in incidence)
+        {
+            if (entry is null)
+            {
+                throw new ArgumentException(
+                    "Source incidence cannot contain null.",
+                    nameof(sourceIncidence));
+            }
+            if (!participants.Add(entry.Participant))
+            {
+                throw new ArgumentException(
+                    "Source incidence cannot contain duplicate participants.",
+                    nameof(sourceIncidence));
+            }
+
+            var remaining =
+                entry.BindingContexts.ToHashSet();
+            var ordered =
+                ImmutableArray.CreateBuilder<
+                    IIntegrationBindingContextIdentity>(
+                        entry.BindingContexts.Length);
+            foreach (IIntegrationBindingContextIdentity context
+                in BindingContexts)
+            {
+                if (remaining.Remove(context))
+                    ordered.Add(context);
+            }
+            if (remaining.Count != 0)
+            {
+                throw new ArgumentException(
+                    "Source incidence cannot reference a foreign binding context.",
+                    nameof(sourceIncidence));
+            }
+
+            canonical.Add(
+                new IntegrationSourceBindingContextIncidence(
+                    entry.Participant,
+                    ordered));
+        }
+
+        SourceIncidence = canonical.MoveToImmutable();
+    }
+
+    public ImmutableArray<IIntegrationBindingContextIdentity> BindingContexts
+        { get; }
+    public ImmutableArray<IntegrationSourceBindingContextIncidence>
+        SourceIncidence { get; }
+}
+
 /// <summary>One terminal source-participant receipt.</summary>
 public abstract class IntegrationSourceParticipantAttempt
 {
@@ -744,7 +875,7 @@ public sealed class IntegrationCensusSnapshot
         AnalysisRequestPlan plan,
         IEnumerable<IntegrationSourceParticipantIdentity> sourceParticipants,
         IEnumerable<IntegrationTypeIdentity> selectedTypes,
-        IEnumerable<IIntegrationBindingContextIdentity> bindingContexts,
+        IntegrationBindingContextAccess bindingContextAccess,
         IEnumerable<IntegrationSourceParticipantAttempt> sourceAttempts,
         IEnumerable<IntegrationProducerPolicyAttempt> producerPolicyAttempts,
         IEnumerable<IntegrationCandidateAttempt> candidateAttempts)
@@ -768,10 +899,17 @@ public sealed class IntegrationCensusSnapshot
             EqualityComparer<IntegrationTypeIdentity>.Default,
             nameof(selectedTypes));
         _selectedTypeSet = SelectedTypes.ToHashSet();
-        BindingContexts = CopyUnique(
-            bindingContexts,
-            EqualityComparer<IIntegrationBindingContextIdentity>.Default,
-            nameof(bindingContexts));
+        ArgumentNullException.ThrowIfNull(bindingContextAccess);
+        BindingContexts = bindingContextAccess.BindingContexts;
+        SourceContextIncidence = CanonicalizeIncidence(
+            SourceParticipants,
+            bindingContextAccess.SourceIncidence,
+            nameof(bindingContextAccess));
+        Dictionary<
+            IntegrationSourceParticipantIdentity,
+            IntegrationSourceBindingContextIncidence>
+            incidenceByParticipant = SourceContextIncidence.ToDictionary(
+                static incidence => incidence.Participant);
 
         SourceAttempts = Canonicalize(
             SourceParticipants,
@@ -799,24 +937,25 @@ public sealed class IntegrationCensusSnapshot
         ValidateProducerAttempts();
 
         Candidates = BuildCandidates();
-        if (!Candidates.IsEmpty && BindingContexts.IsEmpty)
+        var expectedCandidateAddresses =
+            ImmutableArray.CreateBuilder<
+                IntegrationCandidateAttemptAddress>();
+        foreach (IntegrationCensusCandidate candidate in Candidates)
         {
-            throw new ArgumentException(
-                "Candidate evidence requires at least one binding context.",
-                nameof(bindingContexts));
+            IntegrationSourceBindingContextIncidence incidence =
+                incidenceByParticipant[candidate.Identity.Source.Participant];
+            foreach (IIntegrationBindingContextIdentity context
+                in incidence.BindingContexts)
+            {
+                expectedCandidateAddresses.Add(
+                    new IntegrationCandidateAttemptAddress(
+                        candidate.Identity,
+                        context));
+            }
         }
 
-        ImmutableArray<IntegrationCandidateAttemptAddress>
-            expectedCandidateAddresses =
-            [
-                .. Candidates.SelectMany(candidate =>
-                    BindingContexts.Select(context =>
-                        new IntegrationCandidateAttemptAddress(
-                            candidate.Identity,
-                            context))),
-            ];
         CandidateAttempts = Canonicalize(
-            expectedCandidateAddresses,
+            expectedCandidateAddresses.ToImmutable(),
             candidateAttempts,
             static attempt => attempt.Address,
             EqualityComparer<IntegrationCandidateAttemptAddress>.Default,
@@ -854,6 +993,8 @@ public sealed class IntegrationCensusSnapshot
     public ImmutableArray<IntegrationTypeIdentity> SelectedTypes { get; }
     public ImmutableArray<IIntegrationBindingContextIdentity> BindingContexts
         { get; }
+    public ImmutableArray<IntegrationSourceBindingContextIncidence>
+        SourceContextIncidence { get; }
     public ImmutableArray<IntegrationProducerPolicyBinding>
         RequiredProducerPolicies { get; }
     public ImmutableArray<IntegrationSourceParticipantAttempt> SourceAttempts
@@ -1043,9 +1184,14 @@ public sealed class IntegrationCensusSnapshot
 
         if (!_candidateAttemptsByAddress.TryGetValue(
                 attempt.FulfilledBy,
-                out IntegrationCandidateAttempt? fulfillingAttempt)
-            || fulfillingAttempt
-                is not IntegrationCandidateAttempt.Classified classified)
+                out IntegrationCandidateAttempt? fulfillingAttempt))
+        {
+            throw new ArgumentException(
+                "Suppression requires a retained fulfilling candidate attempt in the same incident context.",
+                nameof(CandidateAttempts));
+        }
+        if (fulfillingAttempt
+            is not IntegrationCandidateAttempt.Classified classified)
         {
             throw new ArgumentException(
                 "Suppression requires a successfully classified fulfilling observation.",
@@ -1109,6 +1255,9 @@ public sealed class IntegrationCensusSnapshot
             || plan.ReportSurface.Kind
                 != AnalysisReportSurfaceKind.Workspace
             || !plan.Universe.IsFinite
+            || !plan.UniverseRequirements.Contains(
+                IntegrationAnalysisCatalog.BindingContextsRequirement,
+                ReferenceEqualityComparer.Instance)
             || plan.UniverseRequirements.Any(requirement =>
                 !IntegrationAnalysisCatalog.UniverseRequirements.Contains(
                     requirement,
@@ -1143,6 +1292,56 @@ public sealed class IntegrationCensusSnapshot
                 nameof(plan));
         }
         return policies.ToImmutable();
+    }
+
+    static ImmutableArray<IntegrationSourceBindingContextIncidence>
+        CanonicalizeIncidence(
+            ImmutableArray<IntegrationSourceParticipantIdentity> participants,
+            ImmutableArray<IntegrationSourceBindingContextIncidence> supplied,
+            string parameterName)
+    {
+        var incidenceByParticipant = new Dictionary<
+            IntegrationSourceParticipantIdentity,
+            IntegrationSourceBindingContextIncidence>();
+        foreach (IntegrationSourceBindingContextIncidence incidence in supplied)
+        {
+            if (!incidenceByParticipant.TryAdd(
+                    incidence.Participant,
+                    incidence))
+            {
+                throw new ArgumentException(
+                    "Source incidence cannot contain duplicate participants.",
+                    parameterName);
+            }
+        }
+
+        var ordered =
+            ImmutableArray.CreateBuilder<
+                IntegrationSourceBindingContextIncidence>(
+                    participants.Length);
+        foreach (IntegrationSourceParticipantIdentity participant
+            in participants)
+        {
+            if (!incidenceByParticipant.Remove(
+                    participant,
+                    out IntegrationSourceBindingContextIncidence? incidence))
+            {
+                throw new ArgumentException(
+                    "Source incidence is missing a declared participant.",
+                    parameterName);
+            }
+            ordered.Add(
+                new IntegrationSourceBindingContextIncidence(
+                    participant,
+                    incidence.BindingContexts));
+        }
+        if (incidenceByParticipant.Count != 0)
+        {
+            throw new ArgumentException(
+                "Source incidence contains an extraneous participant.",
+                parameterName);
+        }
+        return ordered.MoveToImmutable();
     }
 
     static ImmutableArray<T> CopyUnique<T>(
