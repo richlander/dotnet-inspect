@@ -88,14 +88,17 @@ outcomes, reconciliation, and retained-session behavior. Issue
 focused recommendation residual exposed while designing this registry.
 
 [Workspace definitions](workspace-definitions.md) consumes canonical IDs and
-owns persisted registry binding. Issue
-[#4787](https://github.com/richlander/dotnet-inspect/issues/4787) owns which
-portable fields carry them, version migration, combination validation,
-projection, and complete restoration.
+owns persisted registry binding. It also owns which portable fields carry
+them, version migration, combination validation, projection, and complete
+restoration, tracked by
+[#4787](https://github.com/richlander/dotnet-inspect/issues/4787).
 
-[Inspect Web UI](inspect-web-ui.md) consumes the descriptors returned through
-Navigation. It owns rendering, accessibility, focus, interaction, and the
-removal of current browser-local catalogs. Issue
+[Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md)
+consumes the descriptors returned through Navigation. It owns rendering,
+accessibility, and the removal of current browser-local catalogs. [Inspect
+Web Navigation Consumer](inspect-web-navigation-consumer.md) owns post-result
+effect-authority validation, snapshot/history commitment, and
+result-authorized focus/announcement ordering. Issue
 [#4917](https://github.com/richlander/dotnet-inspect/issues/4917) owns that
 consumer contract.
 
@@ -303,8 +306,10 @@ own surface. It must not slug a label or accept an ambiguous mapping.
 
 This owner does not decide the Workspace Definitions or canonical-packet
 version boundary, whether `lens` and `section` survive as separate fields, or
-which combinations are valid. #4787 owns those decisions and consumes this
-canonical ID space.
+which combinations are valid. [Workspace Definitions](workspace-definitions.md)
+owns those decisions, tracked by
+[#4787](https://github.com/richlander/dotnet-inspect/issues/4787), and
+consumes this canonical ID space.
 
 ## Host and platform contract
 

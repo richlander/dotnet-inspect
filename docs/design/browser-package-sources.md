@@ -1051,7 +1051,8 @@ Registration and selection are different:
 - an **eligible source** is active and authorized for the package ID after
   package source mapping or an equivalent host policy.
 
-Inspect Web UI owns where package-source operations appear. The package-source
+[Inspect Web Surface Composition](inspect-web-surface-composition.md#package-source-presentation)
+owns where package-source operations appear. The package-source
 owner supplies descriptors and typed actions for:
 
 - viewing the built-in NuGet Gallery source;
@@ -1671,7 +1672,8 @@ never rendered.
 
 The website renders the owner-issued compact producer label on every
 source-bearing surface designated by
-[Inspect Web UI](inspect-web-ui.md#package-source-presentation), including
+[Inspect Web Surface Composition](inspect-web-surface-composition.md#package-source-presentation),
+including
 search results and version choices. A version advertised upstream but
 unavailable from a selected mirror is shown as a source-specific availability
 fact, not as a contradictory global package state.
