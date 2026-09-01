@@ -299,6 +299,57 @@ public sealed class CustomAttributeValueGuardTests
     }
 
     [Fact]
+    public void SystemTypeArgument_FromShippedAttribute_DecodesAndStaysBounded()
+    {
+        using var image = Open(BuildSystemTypeThenStringArrayImage(declareSystemType: true));
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        int charged = 0;
+        Assert.True(
+            CustomAttributeValueGuard.IsSafeToDecode(
+                image.Reader,
+                attribute,
+                count => charged = checked(charged + count)));
+        Assert.True(
+            charged < 1_000,
+            $"A legal 80-byte blob must stay bounded, charged {charged}.");
+
+        CustomAttributeValue<string>? decoded =
+            AttributeDecoder.TryDecode(image.Reader, attribute);
+        Assert.NotNull(decoded);
+        Assert.Equal(
+            "Kentico.Content.Web.Mvc.Builder.Localization.Resx.Kentico.Builder",
+            decoded.Value.FixedArguments[0].Value);
+        var elements = Assert.IsType<ImmutableArray<CustomAttributeTypedArgument<string>>>(
+            decoded.Value.FixedArguments[1].Value);
+        Assert.Equal("en-us", Assert.Single(elements).Value);
+    }
+
+    [Fact]
+    public void SystemTypeArgumentReadAsEnum_ChargesTheAmplifiedCount_AndIsUnsafe()
+    {
+        // Non-vacuity for the System.Type classification half of I1, using the
+        // byte sequence from dotnet/runtime#57531 rather than an invented one.
+        // Only the first parameter's declared type changes: reading it as an
+        // Int32-width enum consumes the SerString length byte and "Ken", so the
+        // following string[] count is read from "tico" (0x6F636974) instead of
+        // the real 1. That is 1,868,786,036 declared slots -- 28,515 MiB at
+        // DeclaredSlotCharge, matching the 28,517 MiB the issue reported.
+        //
+        // The guard must refuse before anything is materialized. This test
+        // never calls DecodeValue, so the amplified allocation is asserted
+        // through the declared charge and never attempted.
+        using var image = Open(BuildSystemTypeThenStringArrayImage(declareSystemType: false));
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        int charged = 0;
+        Assert.False(
+            CustomAttributeValueGuard.IsSafeToDecode(
+                image.Reader,
+                attribute,
+                count => charged = checked(charged + count)));
+        Assert.Equal(int.MaxValue, charged);
+    }
+
+    [Fact]
     public void LocalInt64EnumFixedArgument_IsSafe()
     {
         using var image = Open(BuildLocalInt64EnumImage());
@@ -1191,6 +1242,70 @@ public sealed class CustomAttributeValueGuardTests
             attributed,
             constructor,
             metadata.GetOrAddBlob(value));
+        return Serialize(metadata);
+    }
+
+    /// <summary>
+    /// The verbatim 80-byte value blob of
+    /// <c>RegisterPageBuilderLocalizationResourceAttribute</c> as shipped in
+    /// <c>Kentico.Content.Web.Mvc.dll</c>
+    /// (kentico.xperience.aspnet.mvc5.libraries 13.0.18), the assembly that
+    /// produced the 28,517 MiB allocation in dotnet/runtime#57531. Captured
+    /// rather than reconstructed, so the fixture is the artifact and not a
+    /// re-derivation of it; <see cref="SystemTypeArgument_FromShippedAttribute_DecodesAndStaysBounded"/>
+    /// asserts the decoded content, which is what keeps these bytes honest.
+    /// Layout: prolog, SerString(65) type name, Int32 array count 1,
+    /// SerString(5) "en-us", named-argument count 0.
+    /// </summary>
+    static ReadOnlySpan<byte> ShippedSystemTypeBlob =>
+    [
+        0x01, 0x00, 0x41, 0x4B, 0x65, 0x6E, 0x74, 0x69, 0x63, 0x6F, 0x2E, 0x43, 0x6F, 0x6E, 0x74, 0x65,
+        0x6E, 0x74, 0x2E, 0x57, 0x65, 0x62, 0x2E, 0x4D, 0x76, 0x63, 0x2E, 0x42, 0x75, 0x69, 0x6C, 0x64,
+        0x65, 0x72, 0x2E, 0x4C, 0x6F, 0x63, 0x61, 0x6C, 0x69, 0x7A, 0x61, 0x74, 0x69, 0x6F, 0x6E, 0x2E,
+        0x52, 0x65, 0x73, 0x78, 0x2E, 0x4B, 0x65, 0x6E, 0x74, 0x69, 0x63, 0x6F, 0x2E, 0x42, 0x75, 0x69,
+        0x6C, 0x64, 0x65, 0x72, 0x01, 0x00, 0x00, 0x00, 0x05, 0x65, 0x6E, 0x2D, 0x75, 0x73, 0x00, 0x00,
+    ];
+
+    /// <summary>
+    /// Builds an image carrying <see cref="ShippedSystemTypeBlob"/> against a
+    /// two-parameter constructor. <paramref name="declareSystemType"/> selects
+    /// the real shape, <c>(System.Type, string[])</c>, or the misclassified one
+    /// that reads the first argument as an enum. Only the first parameter's
+    /// declared type differs, which is what makes the pair a controlled
+    /// comparison over one variable.
+    /// </summary>
+    static byte[] BuildSystemTypeThenStringArrayImage(bool declareSystemType)
+    {
+        var metadata = CreateMetadata("ShippedSystemType");
+        AssemblyReferenceHandle other = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle firstParameter = declareSystemType
+            ? metadata.AddTypeReference(
+                other,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Type"))
+            : metadata.AddTypeReference(
+                other,
+                metadata.GetOrAddString("Samples"),
+                metadata.GetOrAddString("E"));
+        MemberReferenceHandle constructor = AddConstructor(
+            metadata,
+            parameters =>
+            {
+                parameters.AddParameter().Type().Type(
+                    firstParameter,
+                    isValueType: !declareSystemType);
+                parameters.AddParameter().Type().SZArray().String();
+            },
+            parameterCount: 2);
+        var value = new BlobBuilder();
+        value.WriteBytes(ShippedSystemTypeBlob.ToArray());
+        AddAttributedType(metadata, constructor, value);
         return Serialize(metadata);
     }
 

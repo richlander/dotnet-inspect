@@ -124,9 +124,40 @@ and two have open violations.
 I1 is about *agreement*; I2 is about *what the decode costs*; I3 is about *what
 asking costs*.
 
+**I1's surface is argument type classification, not only enum width.** The
+width question — how many bytes an enum-typed argument occupies — is the most
+frequent way the walkers disagree, but it is not the boundary of the invariant.
+Deciding *whether* an argument is an enum at all is part of the same agreement,
+because SRM reaches `GetUnderlyingEnumType` only after
+`ICustomAttributeTypeProvider.IsSystemType` returns `false`. A `System.Type`
+argument misclassified as an enum is read as four bytes instead of a
+length-prefixed `SerString`, and every subsequent field is read from the wrong
+offset — the identical failure mode as a wrong width, reached through a
+different decision.
+
+dotnet/runtime#57531 is that case in the wild, and it is worth stating in
+concrete terms because it bounds how much the classification decision is worth.
+In `Kentico.Content.Web.Mvc.dll`, misclassifying the `System.Type` argument of
+`RegisterPageBuilderLocalizationResourceAttribute` consumes the `SerString`
+length byte and the first three characters of the type name, so the following
+`string[]` element count is read from the middle of that name — `"tico"`,
+`0x6F636974`, 1,868,786,036 declared slots. At
+`CustomAttributeValueGuard.DeclaredSlotCharge` that is 28,515 MiB, which is the
+28,517 MiB the reporter observed. The blob is entirely legal; only the
+classification is wrong.
+
+`CustomAttributeValueGuardTests`'s
+`SystemTypeArgumentReadAsEnum_ChargesTheAmplifiedCount_AndIsUnsafe` is the gate
+for the refusal, paired with
+`SystemTypeArgument_FromShippedAttribute_DecodesAndStaysBounded` for the
+fidelity half. Both run over the captured 80-byte blob and differ only in the
+first parameter's declared type; neither materializes the amplified array,
+because the charge is asserted through `beforeMaterialize` and `DecodeValue` is
+never called on the misclassified image.
+
 | Invariant | Holds today? | Basis |
 | --- | --- | --- |
-| **I1 — Alignment** | Believed to hold on the resolver-supplied path; unverified | Pinned by example only. The resolver-less overload is explicitly out of scope; see [Known gaps](#known-gaps). |
+| **I1 — Alignment** | Believed to hold on the resolver-supplied path; unverified | Pinned by example only. One example is now a captured real-world artifact: see the classification pair above. The resolver-less overload is explicitly out of scope; see [Known gaps](#known-gaps). |
 | **I2 — Bounding the decoder** | **No.** Violated by #5098 | SRM's per-argument re-derivation of the generic context is not bounded by anything the guard checks. |
 | **I3 — Bounding ourselves** | **No.** Violated by #5091, #5047, #5130, and #5132 | Four independent amplifications on our own side, spanning one walk and the cross-row loop. |
 
