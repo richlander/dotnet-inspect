@@ -35,6 +35,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Overview](overview.md) | Minimum system and architecture context for humans and agents. |
 | [Architecture](architecture.md) | Current host-neutral composition, logical layers, project regions, currencies, and code-navigation map. |
 | [CLI Host Architecture](cli-architecture.md) | CLI command-host responsibilities, request lifetime, selection, and presentation composition. |
+| [CLI Compatibility and Deprecation](design/cli-compatibility.md) | Published syntax and output boundaries, compatibility classification, migration states, and removal evidence. |
 | [LLM Design](llm-design.md) | Current agent-facing output and workflow design. |
 | [Progressive Disclosure](design/progressive-disclosure.md) | Current model for base/domain scope, discovery budgets, `-D`/`-S`, capabilities, counts, and row limits. |
 | [Bare `-S` Default View](design/info-view.md) | Bullseye questions and section profiles for curated high-density default views. |

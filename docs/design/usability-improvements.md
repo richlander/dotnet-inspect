@@ -3,13 +3,19 @@
 Findings from observing LLM sessions using dotnet-inspect to migrate a project from System.CommandLine v1 (beta) to v2. Two separate sessions were recorded, both attempting the same task. The tool was effective but several friction points caused unnecessary round-trips and reasoning spirals.
 
 > [!NOTE]
-> This document records the compatibility assumptions of that investigation.
-> [Item and line limits](item-and-line-limits.md) supersedes them specifically
-> for count-bearing options and the short `-m`/`-t` selector aliases.
+> This document records historical observations, not compatibility policy.
+> [CLI compatibility and deprecation](cli-compatibility.md) owns current
+> publication and migration rules. [Item and line
+> limits](item-and-line-limits.md) owns count-bearing options and the short
+> `-m`/`-t` selector aliases.
 
 ## Context
 
-People are building skills on top of dotnet-inspect (e.g., [davidfowl/dotnet-skillz](https://github.com/davidfowl/dotnet-skillz), [richlander/dotnet-skills](https://github.com/richlander/dotnet-skills)). Changes must be backward-compatible — existing skill docs and invocation patterns should continue to work. Where new behavior is added, it should be additive (new options, new defaults for omitted arguments) rather than changing the meaning of existing flags.
+People are building skills on top of dotnet-inspect (e.g.,
+[davidfowl/dotnet-skillz](https://github.com/davidfowl/dotnet-skillz) and
+[richlander/dotnet-skills](https://github.com/richlander/dotnet-skills)).
+Those consumers make compatibility evidence important, but they do not make
+every apparently additive change safe.
 
 LLMs will always thrash a bit — they try things, get errors, and adapt. The tool should be resilient to this by accepting reasonable inputs gracefully and guiding users toward better queries via tips on stderr.
 
@@ -106,26 +112,25 @@ Tips are the primary mechanism for guiding LLMs toward efficient next steps with
 - After any error → suggest the correct syntax or a related command
 - After `diff` → suggest `type` for types that changed significantly
 
-## Compatibility Considerations
+## Historical compatibility assumptions
 
-### What must not change
+The investigation assumed that command spellings, argument positions, stdout,
+and JSON should remain stable for skill consumers, while new options, stderr
+tips, richer signatures, lenient parsing, and larger outputs were safe. Those
+categories are useful consumer evidence but are not sound compatibility rules:
+new syntax can collide with implicit routing or parser binding, added JSON can
+break strict consumers, and changed output volume can alter cost and
+automation.
 
-- Existing stdout output format for all commands (skills parse this)
-- Existing option names and their behavior
-- Command names and argument positions
-- JSON output schema
-
-### Safe changes
-
-- **Adding new options** (e.g., `--table` for columnar output)
-- **Adding new tips on stderr** (skills ignore stderr)
-- **Enriching signatures** with params/defaults (more information in the same format)
-- **Making commands more lenient** (accepting `*` as glob in diff, optional type argument)
-- **Removing truncation limits** (more output is fine; less would break)
+Use [CLI compatibility and deprecation](cli-compatibility.md) to classify a
+change against its current owner and pathological neighboring inputs.
 
 ### The ilspy-decompile precedent
 
-David Fowler's [ilspy-decompile skill](https://github.com/davidfowl/dotnet-skillz) wraps `ilspycmd` — a separate tool. Our skill wraps `dotnet-inspect`. Both are consumed via `dnx`. The key lesson: skill authors pin to known-good invocation patterns from SKILL.md. We should version SKILL.md carefully and document breaking changes in GitHub releases.
+David Fowler's [ilspy-decompile skill](https://github.com/davidfowl/dotnet-skillz) wraps `ilspycmd` — a separate tool. Our skill wraps `dotnet-inspect`. Both are consumed via `dnx`. The key lesson
+is that skill authors pin to known-good invocation patterns from `SKILL.md`.
+Product skills must move with their release, and breaking changes need explicit
+release-note migrations.
 
 ## Priority Order
 

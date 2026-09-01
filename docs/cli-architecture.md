@@ -8,6 +8,8 @@ metadata, Analysis, source, decompilation, or comparison facts it presents.
 See:
 
 - [Architecture](architecture.md) for the whole-product map;
+- [CLI compatibility and deprecation](design/cli-compatibility.md) for
+  publication, change classification, migration, and removal policy;
 - [Command transitions](design/command-transition-model.md) for command versus
   option boundaries;
 - [Progressive disclosure](design/progressive-disclosure.md) for verbosity,
@@ -181,5 +183,6 @@ This document does not:
 - define producer algorithms or typed-result semantics;
 - make the CLI the owner of the inspection space;
 - require other hosts to copy command syntax or presentation models; or
-- replace the command, progressive-disclosure, output-shape, or focused
+- replace the compatibility, command-transition, progressive-disclosure,
+  output-shape, or focused
   producer designs.

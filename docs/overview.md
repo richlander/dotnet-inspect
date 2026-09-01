@@ -142,6 +142,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   logical layers, project regions, currencies, and code-navigation map.
 - [CLI host architecture](cli-architecture.md): command-host responsibilities,
   request lifetime, selection, and presentation composition.
+- [CLI compatibility and deprecation](design/cli-compatibility.md): published
+  surfaces, compatibility classification, migration states, routing-collision
+  analysis, and removal evidence.
 - [Find type-search service](design/find-search-service.md): CLI-scoped
   candidate collection, classification precedence, source ordering, limits,
   failure visibility, and typed result boundary for `find`.
