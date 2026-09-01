@@ -4,9 +4,9 @@ This document describes the conceptual model for how dotnet-inspect commands con
 
 See also [Output Composition Model](output-composition.md) for how section
 selection, filtering, and writer capabilities compose end-to-end.
-[Item and line limits](item-and-line-limits.md) owns the approved target for
-multi-item print projection; released behavior remains unary until that
-implementation lands.
+The historical #4677 target proposed multi-item print projection; the
+[item-and-line composition](item-and-line-limits.md) records that focused L3
+ownership is still pending. Released behavior remains unary.
 
 ## Two Axes of Control
 
