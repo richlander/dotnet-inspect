@@ -781,6 +781,8 @@ by these named non-vacuity gates:
 - `ResearchTargetKeys_AreOwnerIssuedAndNotDisplayDerived`
 - `ResearchTargetKeys_EraseOnlyAddressAndSideLocalIdentity`
 - `ResearchTargetKeys_PreserveDomainSignatureExtensionAndRelationshipRole`
+- `ResearchTargetKeys_UseTupleErasedCanonicalTypes`
+- `ResearchTargetKeys_UseTypedBodyIdentityForGenericAndNestedCollisions`
 - `ResearchTargetCensus_DerivesCompleteAttemptAndCorrespondenceDomains`
 - `ResearchTargetCensus_BlockedDomainTaintsResolvedTargetsOnBothSides`
 - `ResearchTargetCensus_BlockedDomainWithoutResolvedTargetsIsVisible`

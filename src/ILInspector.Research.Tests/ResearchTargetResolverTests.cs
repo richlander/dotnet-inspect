@@ -1836,6 +1836,9 @@ public class ResearchTargetResolverTests
             typeof(ResolvedAssemblyReference),
             typeof(IAssemblyReferenceResolver),
             typeof(LibraryBodyIndex),
+            typeof(MethodIdentity),
+            typeof(TypeRef),
+            typeof(ResolvableTypeReference),
             typeof(ImplementationAssemblyInput),
             typeof(MetadataReader),
             typeof(System.Reflection.PortableExecutable.PEReader),
@@ -1863,12 +1866,30 @@ public class ResearchTargetResolverTests
                 typeof(ResearchTargetOutcome.Unavailable),
                 typeof(ResearchTargetOutcome.Failed),
                 typeof(ResearchTargetDiagnostic),
+                typeof(ResearchTargetCorrespondenceKey),
+                typeof(ResearchTargetBodyIdentity),
+                typeof(ResearchTargetTypeIdentity),
             ])
         {
             Assert.Contains(reached, closure);
         }
 
         Assert.Empty(Violations(closure, forbidden));
+
+        Assert.Equal(
+            [
+                nameof(ResearchTargetTypeIdentity.AssemblyName),
+                nameof(ResearchTargetTypeIdentity.DefinitionName),
+                nameof(ResearchTargetTypeIdentity.ElementType),
+                nameof(ResearchTargetTypeIdentity.GenericParameterIndex),
+                nameof(ResearchTargetTypeIdentity.Kind),
+                nameof(ResearchTargetTypeIdentity.Rank),
+                nameof(ResearchTargetTypeIdentity.TypeArguments),
+            ],
+            typeof(ResearchTargetTypeIdentity)
+                .GetProperties(BindingFlags.Instance | BindingFlags.Public)
+                .Select(property => property.Name)
+                .Order(StringComparer.Ordinal));
 
         // The same walk reports a deliberate violation, so it cannot pass by
         // reaching nothing.
