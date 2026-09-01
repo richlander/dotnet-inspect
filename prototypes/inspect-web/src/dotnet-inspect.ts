@@ -188,11 +188,34 @@ import {
   type GraphBackBindingActions,
 } from "./graph-interactions.ts";
 import {
-  factsForNode,
-  MEDIA,
-  nodeAtOffset,
   validateAnnotatedSourceDocument,
 } from "./annotated-source-view.ts";
+import {
+  createCSharpRangeHighlighter,
+} from "./csharp-highlighting.ts";
+import type {
+  CSharpHighlightExclusion,
+} from "./csharp-highlighting.ts";
+import {
+  clearAnnotations,
+  closeFindingDetail,
+  createAnnotatedSourceViewerModel,
+  createEmbeddedSession,
+  dismissModalSession,
+  escapeAnnotatedSource,
+  hitTestAnnotatedNode,
+  openModalSession,
+  selectAllAnnotations,
+  selectDefaultAnnotations,
+  selectFinding,
+  selectNode as selectAnnotatedNode,
+  toggleCoordinates,
+  toggleFindingAnnotation,
+  toggleMedium,
+  type AnnotatedFocusTarget,
+  type AnnotatedSourceSession,
+  type AnnotatedSourceViewerModel,
+} from "./annotated-source-session.ts";
 import {
   bindScopeBar,
   renderScopeBar as renderScopeBarPure,
@@ -208,8 +231,12 @@ import {
   renderGraphSource as renderGraphSourcePure,
 } from "./graph-source.ts";
 import {
+  annotatedFocusSelector,
+  renderAnnotatedSourcePageActions,
   bindAnnotatedSource,
   renderAnnotatedSource as renderAnnotatedSourcePure,
+  renderAnnotatedSourceModal as renderAnnotatedSourceModalPure,
+  type AnnotatedSourceAction,
   type AnnotatedSourceResult,
 } from "./annotated-source.ts";
 import {
@@ -431,10 +458,6 @@ async function loadEngineModule() {
 
 declare global {
   interface Window {
-    Prism?: {
-      languages: { csharp?: unknown };
-      highlight: (value: string, grammar: unknown, language: string) => string;
-    };
     __platformIndex?: Promise<PlatformIndex | null>;
   }
 }
@@ -585,10 +608,6 @@ interface Diagnostics {
   assets: number;
 }
 
-function isAnnotatedMedium(value: string): value is (typeof MEDIA)[number] {
-  return MEDIA.some(medium => medium === value);
-}
-
 let spotlightCache: SpotlightCache | null = null;
 const HOME_BOT_ANIMATION_DURATION_MS = 5500;
 const DEFAULT_REQUESTED_FRAMEWORK = "net10.0";
@@ -636,9 +655,8 @@ const initialState = {
   memberAnnotatedLoading: false,
   memberAnnotatedError: "",
   memberAnnotatedKey: "",
-  memberAnnotatedMedia: { CSharp: true, Il: true },
-  memberAnnotatedFactId: null,
-  memberAnnotatedNodeIds: [],
+  memberAnnotatedEmbedded: null,
+  memberAnnotatedModal: null,
   typeSource: null,
   typeSourceLoading: false,
   typeSourceError: "",
@@ -766,8 +784,8 @@ interface StateOverrides {
   selectedOverloadIndex: number | null;
   memberSource: BrowserSource | null;
   memberAnnotated: AnnotatedSourceResult | null;
-  memberAnnotatedFactId: number | null;
-  memberAnnotatedNodeIds: number[];
+  memberAnnotatedEmbedded: AnnotatedSourceSession | null;
+  memberAnnotatedModal: AnnotatedSourceSession | null;
   typeSource: BrowserSource | null;
   typeMetadata: BrowserTypeMetadata | null;
   packageDependencies: BrowserPackageDependencies | null;
@@ -865,8 +883,12 @@ CanonicalWorkspaceRestoreSnapshot {
         ? new Set(state.libraryScope)
         : null,
       accessibilityFilter: new Set(state.accessibilityFilter),
-      memberAnnotatedMedia: { ...state.memberAnnotatedMedia },
-      memberAnnotatedNodeIds: [...state.memberAnnotatedNodeIds],
+      memberAnnotatedEmbedded: state.memberAnnotatedEmbedded
+        ? structuredClone(state.memberAnnotatedEmbedded)
+        : null,
+      memberAnnotatedModal: state.memberAnnotatedModal
+        ? structuredClone(state.memberAnnotatedModal)
+        : null,
       platformStack: structuredClone(state.platformStack),
       platformRecent: structuredClone(state.platformRecent),
       recentPackages: structuredClone(state.recentPackages),
@@ -1282,10 +1304,12 @@ function recordNav() {
 }
 
 function navBack() {
+  dismissAnnotatedSourceModal(false);
   navigationHistory.back();
 }
 
 function navForward() {
+  dismissAnnotatedSourceModal(false);
   navigationHistory.forward();
 }
 
@@ -2526,7 +2550,7 @@ function typeDisplayName(
   return item?.displayName || item?.name || "";
 }
 
-function render() {
+function render(options: { synchronizeUrl?: boolean } = {}) {
   sourceInspection.cancelHiddenRequest();
   document.body.classList.remove("package-query-route");
 
@@ -2606,9 +2630,17 @@ function render() {
     state.lens = "api";
   }
   state.typeCursor = Math.min(state.typeCursor, Math.max(visible.length - 1, 0));
+  const annotatedPageContext =
+    scope() === "member"
+    && state.memberSection === "annotated"
+    && memberSourceHasConcreteOverload();
+  const annotatedWorkingSurface =
+    annotatedPageContext && state.memberAnnotatedEmbedded !== null;
+  const annotatedActionsEnabled =
+    annotatedWorkingSurface;
 
   app.innerHTML = `
-    <div class="workbench">
+    <div class="workbench"${state.memberAnnotatedModal ? " inert" : ""}>
       <header class="titlebar">
         <a class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
         ${packageBar.html()}
@@ -2681,9 +2713,13 @@ function render() {
                 : `<span>${escapeHtml(packageDisplayName(pkg))}</span><b>/</b><span>${escapeHtml(current?.namespace ?? "")}</span><b>/</b><strong>${escapeHtml(typeDisplayName(current))}</strong>
               ${state.selectedMemberKey ? `<b>/</b><strong>${escapeHtml(selectedMember(current)?.name ?? "")}</strong>` : ""}`}
             </div>
-            <div class="detail-actions"><button id="copy-name" type="button">copy name</button><button id="taste-btn" class="${state.taste.length ? "active" : ""}" title="Decompiler style (taste)">taste${state.taste.length ? ` · ${state.taste.length}` : ""}</button></div>
+            <div class="detail-actions${annotatedPageContext ? " annotated-page-actions" : ""}">
+              ${annotatedPageContext
+                ? renderAnnotatedSourcePageActions(annotatedActionsEnabled)
+                : `<button id="copy-name" type="button">copy name</button><button id="taste-btn" class="${state.taste.length ? "active" : ""}" title="Decompiler style (taste)">taste${state.taste.length ? ` · ${state.taste.length}` : ""}</button>`}
+            </div>
           </header>
-          <article class="detail-scroll">
+          <article class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}">
             ${renderLens(current)}
           </article>
         </section>
@@ -2702,13 +2738,14 @@ function render() {
       ${state.graphSourceOpen ? renderGraphSource() : ""}
       ${state.docViewerOpen ? renderDocViewer() : ""}
       ${state.tasteOpen ? renderTastePopoverHtml() : ""}
-    </div>`;
+    </div>
+    ${renderAnnotatedSourceModal()}`;
 
   bindEvents();
   restorePackageQueryReturnFocus();
   restorePackageQueryWorkspaceFocus();
   recordNav();
-  syncUrl();
+  if (options.synchronizeUrl !== false) syncUrl();
   maybeAutoLoadVisibleSource();
   maybeAutoLoadTypeMetadata();
   maybeAutoLoadPackageDependencies();
@@ -4241,13 +4278,58 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
 // lines from its text buffer, structural segments from its nodes, and the fact -> target -> node ->
 // span walk it defines. Coordinates, validation, and segmentation belong to document-model.ts.
 function renderAnnotatedSource(result: AnnotatedSourceResult) {
-  return renderAnnotatedSourcePure({
-    result,
-    media: state.memberAnnotatedMedia,
-    selectedFactId: state.memberAnnotatedFactId,
-    selectedNodeIds: state.memberAnnotatedNodeIds,
-    escapeHtml,
-  });
+  try {
+    const session = state.memberAnnotatedEmbedded
+      ?? createEmbeddedSession(createAnnotatedSourceViewerModel(result));
+    return renderAnnotatedSourcePure({
+      result,
+      session,
+      escapeHtml,
+      highlightCSharp: annotatedSourceHighlighter,
+    });
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+    return renderAnnotatedSourceRejection(error);
+  }
+}
+
+function renderAnnotatedSourceModal() {
+  if (!state.memberAnnotated || !state.memberAnnotatedModal) return "";
+  try {
+    return renderAnnotatedSourceModalPure({
+      result: state.memberAnnotated,
+      session: state.memberAnnotatedModal,
+      escapeHtml,
+      highlightCSharp: annotatedSourceHighlighter,
+    });
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+    return `<div id="annotated-source-backdrop" class="annotated-modal-backdrop">
+      <section id="annotated-source-modal" class="annotated-modal"
+        role="dialog" aria-modal="true" aria-labelledby="annotated-modal-title">
+        <header class="annotated-modal-head">
+          <div>
+            <p class="section-eyebrow">Explore Annotated Source</p>
+            <h2 id="annotated-modal-title" tabindex="-1">Annotated source document rejected</h2>
+          </div>
+          <div class="annotated-modal-head-actions">
+            <button id="annotated-modal-close" type="button"
+              data-annotated-action="close-modal">Close</button>
+          </div>
+        </header>
+        <section class="annotated-modal-failure" role="alert">
+          <p>${escapeHtml(errorMessage(error))}</p>
+        </section>
+      </section>
+    </div>`;
+  }
+}
+
+function renderAnnotatedSourceRejection(error: TypeError) {
+  return `<section class="document-section empty-member-section">
+    <h2 id="annotated-source-rejection-title" tabindex="-1">Annotated source document rejected</h2>
+    <p>${escapeHtml(errorMessage(error))}</p>
+  </section>`;
 }
 
 function renderMemberFacts(
@@ -4418,6 +4500,20 @@ function highlightCSharp(value: string) {
       "csharp");
   }
   return escapeHtml(source);
+}
+
+function annotatedSourceHighlighter(
+  source: string,
+  tokenizationSource: string,
+  excludedRanges: readonly CSharpHighlightExclusion[],
+) {
+  return createCSharpRangeHighlighter(
+    source,
+    window.Prism,
+    escapeHtml,
+    tokenizationSource,
+    excludedRanges,
+  );
 }
 
 const packageViewActions: PackageViewBindingActions = {
@@ -4915,50 +5011,150 @@ function bindDocViewerEvents() {
   });
 }
 
+function scheduleAnnotatedFocus(
+  target: AnnotatedFocusTarget | string,
+  surface: "embedded" | "modal" = "modal",
+) {
+  const selector = typeof target === "string"
+    ? target
+    : annotatedFocusSelector(target, surface);
+  requestAnimationFrame(() => {
+    document.querySelector<HTMLElement>(selector)?.focus();
+  });
+}
+
+function renderAndFocusAnnotated(
+  target: AnnotatedFocusTarget | string,
+  surface: "embedded" | "modal" = "modal",
+) {
+  render();
+  scheduleAnnotatedFocus(target, surface);
+}
+
+function openAnnotatedSourceModal() {
+  if (!state.memberAnnotated) return;
+  const model = createAnnotatedSourceViewerModel(state.memberAnnotated);
+  const embedded = state.memberAnnotatedEmbedded
+    ?? createEmbeddedSession(model);
+  const opened = openModalSession(model, embedded);
+  state.memberAnnotatedEmbedded = opened.embedded;
+  state.memberAnnotatedModal = opened.modal;
+  state.tasteOpen = false;
+  spotlight.reset();
+  sourceInspection.clearGraphSource();
+  documentInspection.clear();
+  renderAndFocusAnnotated(opened.focus);
+}
+
+function dismissAnnotatedSourceModal(restoreExploreFocus: boolean) {
+  if (!state.memberAnnotated || !state.memberAnnotatedModal) return false;
+  let model: AnnotatedSourceViewerModel;
+  try {
+    model = createAnnotatedSourceViewerModel(state.memberAnnotated);
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+    state.memberAnnotatedEmbedded = null;
+    state.memberAnnotatedModal = null;
+    if (restoreExploreFocus) {
+      renderAndFocusAnnotated("#annotated-source-rejection-title", "embedded");
+    }
+    return true;
+  }
+  state.memberAnnotatedEmbedded =
+    dismissModalSession(model, state.memberAnnotatedModal);
+  state.memberAnnotatedModal = null;
+  if (restoreExploreFocus) renderAndFocusAnnotated({ kind: "explore" }, "embedded");
+  return true;
+}
+
+function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
+  const result = state.memberAnnotated;
+  if (!result) return;
+  if (action.kind === "close-modal") {
+    dismissAnnotatedSourceModal(true);
+    return;
+  }
+  const model = createAnnotatedSourceViewerModel(result);
+  const surface = state.memberAnnotatedModal ? "modal" : "embedded";
+  const session = state.memberAnnotatedModal
+    ?? state.memberAnnotatedEmbedded
+    ?? createEmbeddedSession(model);
+  const setSession = (next: AnnotatedSourceSession) => {
+    if (surface === "modal") state.memberAnnotatedModal = next;
+    else state.memberAnnotatedEmbedded = next;
+  };
+
+  switch (action.kind) {
+    case "copy":
+      void copyText(result.document.text, "annotated source copied");
+      return;
+    case "explore":
+      openAnnotatedSourceModal();
+      return;
+    case "close-detail": {
+      const closed = closeFindingDetail(model, session);
+      setSession(closed.state);
+      renderAndFocusAnnotated(closed.focus, surface);
+      return;
+    }
+    case "annotation-open":
+      setSession(selectFinding(session, action.opener));
+      renderAndFocusAnnotated("#annotated-detail-title", surface);
+      return;
+    case "inspector-open":
+      setSession(selectFinding(session, {
+        kind: "inspector",
+        factId: action.factId,
+      }));
+      renderAndFocusAnnotated("#annotated-detail-title");
+      return;
+    case "annotation-set": {
+      const transition = action.value === "Default"
+        ? selectDefaultAnnotations(model, session)
+        : action.value === "All"
+          ? selectAllAnnotations(model, session)
+          : clearAnnotations(session);
+      setSession(transition.state);
+      renderAndFocusAnnotated(transition.focus);
+      return;
+    }
+    case "finding-toggle": {
+      const transition =
+        toggleFindingAnnotation(model, session, action.factId);
+      setSession(transition.state);
+      renderAndFocusAnnotated(transition.focus);
+      return;
+    }
+    case "medium-toggle": {
+      const transition = toggleMedium(model, session, action.medium);
+      setSession(transition.state);
+      renderAndFocusAnnotated(transition.focus);
+      return;
+    }
+    case "coordinate-toggle": {
+      const transition = toggleCoordinates(session);
+      setSession(transition.state);
+      renderAndFocusAnnotated(transition.focus);
+      return;
+    }
+    case "node-select":
+      setSession(selectAnnotatedNode(session, action.nodeId));
+      renderAndFocusAnnotated({ kind: "node", nodeId: action.nodeId });
+      return;
+    case "source-select": {
+      const node =
+        hitTestAnnotatedNode(model, action.offset, action.medium);
+      if (!node) return;
+      setSession(selectAnnotatedNode(session, node.id));
+      renderAndFocusAnnotated({ kind: "node", nodeId: node.id });
+      return;
+    }
+  }
+}
+
 function bindAnnotatedSourceEvents() {
   bindAnnotatedSource(document, {
-    onClearSelection: () => {
-      state.memberAnnotatedFactId = null;
-      state.memberAnnotatedNodeIds = [];
-      render();
-    },
-    onCopy: () => {
-      if (state.memberAnnotated) {
-        void copyText(
-          state.memberAnnotated.document.text,
-          "annotated source copied");
-      }
-    },
-    onFactSelect: factId => {
-      state.memberAnnotatedFactId =
-        state.memberAnnotatedFactId === factId ? null : factId;
-      state.memberAnnotatedNodeIds = [];
-      render();
-    },
-    onMediumToggle: medium => {
-      if (!isAnnotatedMedium(medium)) return;
-      const typedMedium = medium;
-      const next = {
-        ...state.memberAnnotatedMedia,
-        [typedMedium]: !state.memberAnnotatedMedia[typedMedium],
-      };
-      // Both media off would look like a successful empty result.
-      if (!MEDIA.some(candidate => next[candidate])) return;
-      state.memberAnnotatedMedia = next;
-      render();
-    },
-    onOffsetSelect: offset => {
-      if (!state.memberAnnotated) return;
-      const node = nodeAtOffset(state.memberAnnotated.document, offset);
-      state.memberAnnotatedFactId = null;
-      state.memberAnnotatedNodeIds = node ? [node.id] : [];
-      const owning = node
-        ? factsForNode(state.memberAnnotated.document, node.id)
-        : [];
-      const fact = owning.length === 1 ? owning[0] : undefined;
-      if (fact) state.memberAnnotatedFactId = fact.id;
-      render();
-    },
+    onAction: applyAnnotatedSourceAction,
   });
 }
 
@@ -6158,7 +6354,8 @@ function workbenchOverlayOwnsFocus() {
 function workbenchModalOwnsFocus() {
   return state.spotlightOpen
     || state.graphSourceOpen
-    || state.docViewerOpen;
+    || state.docViewerOpen
+    || state.memberAnnotatedModal !== null;
 }
 
 function resolvedWorkspaceShareTabs():
@@ -8925,8 +9122,8 @@ function invalidateSourceCaches() {
   state.memberAnnotated = null;
   state.memberAnnotatedKey = "";
   state.memberAnnotatedError = "";
-  state.memberAnnotatedFactId = null;
-  state.memberAnnotatedNodeIds = [];
+  state.memberAnnotatedEmbedded = null;
+  state.memberAnnotatedModal = null;
 }
 
 function reloadVisibleSource() {
@@ -10106,6 +10303,7 @@ function workspaceKeyboardContextIsActive(): boolean {
     && !state.error
     && !state.graphSourceOpen
     && !state.docViewerOpen
+    && state.memberAnnotatedModal === null
     && !state.spotlightOpen;
 }
 
@@ -10113,6 +10311,16 @@ const workspaceModalContextIsAvailable = () =>
   !state.home && !state.packageQueryOpen && !state.loading && !state.error;
 const graphSourceContextIsActive = () =>
   workspaceModalContextIsAvailable() && state.graphSourceOpen;
+const annotatedSourceContextIsActive = () =>
+  workspaceModalContextIsAvailable() && state.memberAnnotatedModal !== null;
+const embeddedAnnotatedSourceDetailContextIsActive = () =>
+  workspaceKeyboardContextIsActive()
+  && !workbenchOverlayOwnsFocus()
+  && state.memberSection === "annotated"
+  && Boolean(state.memberAnnotatedEmbedded?.detail);
+const annotatedSourceEscapeContextIsActive = () =>
+  annotatedSourceContextIsActive()
+  || embeddedAnnotatedSourceDetailContextIsActive();
 const documentViewerContextIsActive = () =>
   workspaceModalContextIsAvailable() && state.docViewerOpen;
 const spotlightContextIsActive = () =>
@@ -10196,6 +10404,39 @@ registerContainedShortcuts(
   "graph-source.contain-browser-shortcut",
   WORKBENCH_KEYBINDING_PRIORITY.graphSource,
   graphSourceContextIsActive,
+);
+
+keybindings.register({
+  id: "annotated-source.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.annotatedSource,
+  when: annotatedSourceEscapeContextIsActive,
+  run: () => {
+    if (!state.memberAnnotated) return false;
+    const session =
+      state.memberAnnotatedModal ?? state.memberAnnotatedEmbedded;
+    if (!session) return false;
+    let model: AnnotatedSourceViewerModel;
+    try {
+      model = createAnnotatedSourceViewerModel(state.memberAnnotated);
+    } catch (error) {
+      if (!(error instanceof TypeError) || session.surface !== "modal") throw error;
+      return dismissAnnotatedSourceModal(true);
+    }
+    const escaped = escapeAnnotatedSource(model, session);
+    if (session.surface === "modal") state.memberAnnotatedModal = escaped.state;
+    else state.memberAnnotatedEmbedded = escaped.state;
+    if (escaped.dismissModal) dismissAnnotatedSourceModal(true);
+    else if (escaped.focus)
+      renderAndFocusAnnotated(escaped.focus, session.surface);
+    return escaped.handled;
+  },
+});
+registerContainedShortcuts(
+  "annotated-source.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.annotatedSource,
+  annotatedSourceContextIsActive,
 );
 
 keybindings.register({
@@ -10477,21 +10718,24 @@ function clearNavigationError() {
 }
 
 function dismissModalsForRoutedNavigation() {
+  const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal(false);
   state.settings = false;
   state.explorer = null;
   state.tasteOpen = false;
   spotlight.reset();
   sourceInspection.clearGraphSource();
   documentInspection.clear();
+  return dismissedAnnotatedSourceModal;
 }
 
 window.addEventListener("popstate", () => {
   const leftPackageQueryHandoff = currentPackageQueryHandoff();
   const navigationSeq = navigationSequence.begin();
   let leftPackageQueryForWorkspaceSuccessor = false;
-  dismissModalsForRoutedNavigation();
+  const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation();
   invalidateMemberCallGraphWork(state);
   invalidateGraphMemberNavigation();
+  if (dismissedAnnotatedSourceModal) render({ synchronizeUrl: false });
   if (isPackageQueryPath(location.pathname)) {
     clearNavigationError();
     applyPackageQueryHistory(history.state);

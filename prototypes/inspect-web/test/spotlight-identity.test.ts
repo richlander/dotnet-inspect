@@ -1981,17 +1981,14 @@ test("annotated source owns its rendered control bindings", () => {
     ?? "";
   assert.match(
     binding,
-    /bindAnnotatedSource\(document, \{[\s\S]*onClearSelection: \(\) => \{[\s\S]*memberAnnotatedFactId = null;[\s\S]*memberAnnotatedNodeIds = \[\];[\s\S]*onCopy: \(\) => \{[\s\S]*void copyText\([\s\S]*memberAnnotated\.document\.text[\s\S]*onFactSelect: factId => \{[\s\S]*memberAnnotatedFactId === factId \? null : factId[\s\S]*onMediumToggle: medium => \{[\s\S]*isAnnotatedMedium\(medium\)[\s\S]*MEDIA\.some\(candidate => next\[candidate\]\)[\s\S]*onOffsetSelect: offset => \{[\s\S]*nodeAtOffset\(state\.memberAnnotated\.document, offset\)[\s\S]*factsForNode/);
-  assert.match(
-    binding,
-    /\[typedMedium\]: !state\.memberAnnotatedMedia\[typedMedium\],[\s\S]*if \(!MEDIA\.some\(candidate => next\[candidate\]\)\) return;/);
+    /bindAnnotatedSource\(document, \{\s*onAction: applyAnnotatedSourceAction,\s*}\);/);
   assert.doesNotMatch(
     binding,
     /\b(?:getElementById|querySelector|querySelectorAll)\s*\(|\.addEventListener\s*\(/);
   assert.equal(binding.match(/(?<!\.)\bdocument\b/g)?.length, 1);
   assert.match(
     annotatedSourceModule,
-    /export function bindAnnotatedSource\([\s\S]*#copy-annotated[\s\S]*\[data-annotated-medium\][\s\S]*\[data-annotated-fact\][\s\S]*\[data-annotated-offset\][\s\S]*#annotated-clear/);
+    /export function bindAnnotatedSource\([\s\S]*\[data-annotated-action\][\s\S]*\[data-annotated-source-start\][\s\S]*#annotated-source-backdrop[\s\S]*#annotated-source-modal/);
   for (const [identifier, count] of [
     ["bindAnnotatedSourceEvents", 2],
     ["bindAnnotatedSource", 2],
@@ -2002,14 +1999,66 @@ test("annotated source owns its rendered control bindings", () => {
       identifier);
   }
   for (const selector of [
-    "#copy-annotated",
-    "[data-annotated-medium]",
-    "[data-annotated-fact]",
-    "[data-annotated-offset]",
-    "#annotated-clear",
+    "[data-annotated-action]",
+    "[data-annotated-source-start]",
+    "#annotated-source-backdrop",
+    "#annotated-source-modal",
   ]) {
     assert.equal(appSource.split(selector).length - 1, 0, selector);
   }
+});
+
+test("annotated source validation failures stay visible at the shell boundary", () => {
+  assert.match(
+    appSource,
+    /function renderAnnotatedSource\(result: AnnotatedSourceResult\) \{\s*try \{[\s\S]*renderAnnotatedSourcePure\([\s\S]*catch \(error\) \{\s*if \(!\(error instanceof TypeError\)\) throw error;\s*return renderAnnotatedSourceRejection\(error\)/,
+  );
+  assert.match(
+    appSource,
+    /function renderAnnotatedSourceModal\(\) \{[\s\S]*try \{[\s\S]*renderAnnotatedSourceModalPure\([\s\S]*catch \(error\) \{\s*if \(!\(error instanceof TypeError\)\) throw error;[\s\S]*Annotated source document rejected[\s\S]*data-annotated-action="close-modal"/,
+  );
+  assert.match(
+    appSource,
+    /function renderAnnotatedSourceRejection\(error: TypeError\) \{[\s\S]*Annotated source document rejected[\s\S]*escapeHtml\(errorMessage\(error\)\)/,
+  );
+  assert.match(
+    appSource,
+    /function dismissAnnotatedSourceModal\(restoreExploreFocus: boolean\) \{[\s\S]*try \{\s*model = createAnnotatedSourceViewerModel\(state\.memberAnnotated\);\s*\} catch \(error\) \{\s*if \(!\(error instanceof TypeError\)\) throw error;\s*state\.memberAnnotatedEmbedded = null;\s*state\.memberAnnotatedModal = null;[\s\S]*renderAndFocusAnnotated\("#annotated-source-rejection-title", "embedded"\);[\s\S]*return true;\s*\}[\s\S]*dismissModalSession\(model, state\.memberAnnotatedModal\)/,
+  );
+  assert.match(
+    appSource,
+    /if \(action\.kind === "close-modal"\) \{\s*dismissAnnotatedSourceModal\(true\);\s*return;\s*\}\s*const model = createAnnotatedSourceViewerModel\(result\)/,
+  );
+  assert.match(
+    appSource,
+    /catch \(error\) \{\s*if \(!\(error instanceof TypeError\) \|\| session\.surface !== "modal"\) throw error;\s*return dismissAnnotatedSourceModal\(true\);/,
+  );
+});
+
+test("annotated source Escape and history ownership track the mounted surface", () => {
+  assert.match(
+    appSource,
+    /const embeddedAnnotatedSourceDetailContextIsActive = \(\) =>\s*workspaceKeyboardContextIsActive\(\)\s*&& !workbenchOverlayOwnsFocus\(\)\s*&& state\.memberSection === "annotated"\s*&& Boolean\(state\.memberAnnotatedEmbedded\?\.detail\);\s*const annotatedSourceEscapeContextIsActive = \(\) =>\s*annotatedSourceContextIsActive\(\)\s*\|\| embeddedAnnotatedSourceDetailContextIsActive\(\)/);
+
+  const dismiss =
+    appSource.match(
+      /function dismissModalsForRoutedNavigation\(\) \{[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    dismiss,
+    /const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\)/);
+  assert.match(dismiss, /return dismissedAnnotatedSourceModal/);
+
+  const popstate =
+    appSource.match(
+      /window\.addEventListener\("popstate",[\s\S]*?\n}\);/)?.[0]
+    ?? "";
+  assert.match(
+    popstate,
+    /const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberCallGraphWork\(state\);\s*invalidateGraphMemberNavigation\(\);\s*if \(dismissedAnnotatedSourceModal\) render\(\{ synchronizeUrl: false \}\);\s*if \(isPackageQueryPath/);
+  assert.match(
+    appSource,
+    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\)[\s\S]*if \(options\.synchronizeUrl !== false\) syncUrl\(\)/);
 });
 
 test("leaving package search clears its pending loading state", () => {
@@ -2201,7 +2250,9 @@ test("ready status shows versioned linked build provenance", () => {
 
 test("bare home paints before wasm engine download", () => {
   const renderDispatch =
-    appSource.match(/function render\(\) \{[\s\S]*?const pkg = state\.package;/)?.[0] ?? "";
+    appSource.match(
+      /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{[\s\S]*?const pkg = state\.package;/,
+    )?.[0] ?? "";
   const bootstrap =
     appSource.match(/async function bootstrap\(\) \{[\s\S]*?\n}\n\nfunction computeDiagnostics/)?.[0] ?? "";
   const homePaintWait =
@@ -2745,7 +2796,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
   assert.doesNotMatch(route, /packageQueryController\.run/);
   assert.match(
     appSource,
-    /function render\(\) \{\s*sourceInspection\.cancelHiddenRequest\(\);\s*document\.body\.classList\.remove\("package-query-route"\);[\s\S]*if \(state\.packageQueryOpen\s*&& state\.engineReady\s*&& !state\.loading\s*&& !state\.error\) \{\s*document\.body\.classList\.add\("package-query-route"\)/);
+    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{\s*sourceInspection\.cancelHiddenRequest\(\);\s*document\.body\.classList\.remove\("package-query-route"\);[\s\S]*if \(state\.packageQueryOpen\s*&& state\.engineReady\s*&& !state\.loading\s*&& !state\.error\) \{\s*document\.body\.classList\.add\("package-query-route"\)/);
   assert.match(
     stylesSource,
     /@media \(max-width: 860px\) \{\s*body\.package-query-route \{ min-width: 0; \}/);
@@ -2774,10 +2825,10 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /const leftPackageQueryHandoff = currentPackageQueryHandoff\(\);\s*const navigationSeq = navigationSequence\.begin\(\)/);
   assert.match(
     popstate,
-    /const navigationSeq = navigationSequence\.begin\(\);\s*let leftPackageQueryForWorkspaceSuccessor = false;\s*dismissModalsForRoutedNavigation\(\)/);
+    /const navigationSeq = navigationSequence\.begin\(\);\s*let leftPackageQueryForWorkspaceSuccessor = false;\s*const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\)/);
   assert.match(
     appSource,
-    /function dismissModalsForRoutedNavigation\(\) \{\s*state\.settings = false;\s*state\.explorer = null;\s*state\.tasteOpen = false;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\)/);
+    /function dismissModalsForRoutedNavigation\(\) \{\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.explorer = null;\s*state\.tasteOpen = false;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
   assert.match(
     route,
     /dismissModalsForRoutedNavigation\(\);\s*navigationSequence\.begin\(\)/);
@@ -3036,7 +3087,7 @@ test("Type Source completion settles behind workbench overlays", () => {
     ?? "";
   assert.match(
     appSource,
-    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\)\s*\|\| state\.tasteOpen;[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| state\.graphSourceOpen\s*\|\| state\.docViewerOpen;/);
+    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\)\s*\|\| state\.tasteOpen;[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| state\.graphSourceOpen\s*\|\| state\.docViewerOpen\s*\|\| state\.memberAnnotatedModal !== null;/);
   assert.match(
     appSource,
     /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*currentSourceOperationKind\(\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);
@@ -3409,7 +3460,9 @@ test("source operations cancel when superseded or hidden", () => {
     /cancelSourceQuery: cancelSourceInspection/);
 
   const renderBody =
-    appSource.match(/function render\(\)[\s\S]*?\n}/)?.[0]
+    appSource.match(
+      /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\)[\s\S]*?\n}/,
+    )?.[0]
     ?? "";
   assert.match(renderBody, /sourceInspection\.cancelHiddenRequest\(\)/);
   assert.match(

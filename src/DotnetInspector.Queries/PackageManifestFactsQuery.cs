@@ -7,6 +7,16 @@ using NuGetFetch;
 
 namespace DotnetInspector.Queries;
 
+/// <summary>Identifies the evidence used to establish a manifest coordinate.</summary>
+public enum PackageManifestIdentityProvenance
+{
+    /// <summary>The manifest identity matched an independently supplied coordinate.</summary>
+    ExpectedCoordinate,
+
+    /// <summary>The coordinate was validated and normalized from the manifest itself.</summary>
+    SelfAttested,
+}
+
 /// <summary>
 /// Immutable facts declared by one validated package manifest.
 /// </summary>
@@ -23,7 +33,11 @@ public sealed record PackageManifestFacts(
     ImmutableArray<string> PackageTypes,
     bool IsToolPackage,
     string? ReadmeFile,
-    ImmutableArray<DeclaredPackageDependencyGroup> DependencyGroups);
+    ImmutableArray<DeclaredPackageDependencyGroup> DependencyGroups)
+{
+    public PackageManifestIdentityProvenance IdentityProvenance { get; init; } =
+        PackageManifestIdentityProvenance.ExpectedCoordinate;
+}
 
 /// <summary>
 /// The stable reason one package manifest could not be projected.
@@ -35,6 +49,7 @@ public enum PackageManifestFailureReason
     IdentityMismatch,
     InvalidDependencyContract,
     ConfiguredLimitExceeded,
+    InvalidIdentityContract,
 }
 
 /// <summary>
@@ -82,6 +97,8 @@ public sealed record PackageManifestFailure
             "The package manifest has an unsupported document shape or namespace.",
         PackageManifestFailureReason.IdentityMismatch =>
             "The package manifest identity does not match the requested package.",
+        PackageManifestFailureReason.InvalidIdentityContract =>
+            "The package manifest contains an invalid package identity.",
         PackageManifestFailureReason.InvalidDependencyContract =>
             "The package manifest contains an invalid dependency declaration.",
         PackageManifestFailureReason.ConfiguredLimitExceeded =>
@@ -111,9 +128,11 @@ public abstract record PackageManifestFactsResult
 /// </summary>
 /// <remarks>
 /// The query owns manifest identity and dependency-contract validation, but
-/// not acquisition. Callers supply the expected coordinate and exact manifest
-/// bytes so Browser/Wasm and CLI hosts share one projection without granting
-/// this query network or package-payload capabilities.
+/// not acquisition. Package/source callers supply an expected coordinate;
+/// direct-content callers explicitly request self-attested identity. Both
+/// paths supply exact manifest bytes so Browser/Wasm and CLI hosts share one
+/// projection without granting this query network or package-payload
+/// capabilities.
 /// </remarks>
 public static class PackageManifestFactsQuery
 {
@@ -133,7 +152,21 @@ public static class PackageManifestFactsQuery
         PackageSourceCoordinate expectedCoordinate)
     {
         ArgumentNullException.ThrowIfNull(expectedCoordinate);
+        return ExecuteCore(manifestBytes, expectedCoordinate);
+    }
 
+    /// <summary>
+    /// Projects manifest facts using a validated coordinate declared by the
+    /// manifest itself.
+    /// </summary>
+    public static PackageManifestFactsResult ExecuteSelfAttested(
+        ReadOnlyMemory<byte> manifestBytes) =>
+        ExecuteCore(manifestBytes, expectedCoordinate: null);
+
+    private static PackageManifestFactsResult ExecuteCore(
+        ReadOnlyMemory<byte> manifestBytes,
+        PackageSourceCoordinate? expectedCoordinate)
+    {
         try
         {
             if (manifestBytes.Length > MaxManifestBytes)
@@ -148,14 +181,29 @@ public static class PackageManifestFactsQuery
             NuspecData nuspec = NuspecParser.Parse(
                 buffer,
                 MaxManifestCharacters);
-            ValidateIdentity(nuspec, expectedCoordinate);
+            PackageSourceCoordinate coordinate;
+            PackageManifestIdentityProvenance identityProvenance;
+            if (expectedCoordinate is null)
+            {
+                coordinate = CreateSelfAttestedCoordinate(nuspec);
+                identityProvenance =
+                    PackageManifestIdentityProvenance.SelfAttested;
+            }
+            else
+            {
+                ValidateIdentity(nuspec, expectedCoordinate);
+                coordinate = expectedCoordinate;
+                identityProvenance =
+                    PackageManifestIdentityProvenance.ExpectedCoordinate;
+            }
+
             ValidateScalarFacts(nuspec);
 
             ImmutableArray<DeclaredPackageDependencyGroup> dependencyGroups =
                 ProjectDependencyGroups(nuspec.DependencyGroups);
             return new PackageManifestFactsResult.Available(
                 new PackageManifestFacts(
-                    expectedCoordinate,
+                    coordinate,
                     nuspec.ManifestVersion ?? "nuspec",
                     nuspec.Description,
                     nuspec.Authors,
@@ -167,7 +215,10 @@ public static class PackageManifestFactsQuery
                     [.. nuspec.PackageTypes ?? []],
                     nuspec.IsToolPackage,
                     nuspec.ReadmeFile,
-                    dependencyGroups));
+                    dependencyGroups)
+                {
+                    IdentityProvenance = identityProvenance,
+                });
         }
         catch (ManifestValidationException exception)
         {
@@ -184,6 +235,32 @@ public static class PackageManifestFactsQuery
         {
             return Failed(
                 PackageManifestFailureReason.UnsupportedDocumentShape);
+        }
+    }
+
+    private static PackageSourceCoordinate CreateSelfAttestedCoordinate(
+        NuspecData nuspec)
+    {
+        if (string.IsNullOrWhiteSpace(nuspec.PackageName)
+            || string.IsNullOrWhiteSpace(nuspec.Version))
+        {
+            throw Failure(
+                PackageManifestFailureReason.UnsupportedDocumentShape);
+        }
+
+        ValidateScalar(nuspec.PackageName);
+        ValidateScalar(nuspec.Version);
+
+        try
+        {
+            return PackageSourceCoordinate.Create(
+                nuspec.PackageName,
+                nuspec.Version.Trim());
+        }
+        catch (ArgumentException)
+        {
+            throw Failure(
+                PackageManifestFailureReason.InvalidIdentityContract);
         }
     }
 

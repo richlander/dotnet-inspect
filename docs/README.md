@@ -35,6 +35,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Overview](overview.md) | Minimum system and architecture context for humans and agents. |
 | [Architecture](architecture.md) | Current host-neutral composition, logical layers, project regions, currencies, and code-navigation map. |
 | [CLI Host Architecture](cli-architecture.md) | CLI command-host responsibilities, request lifetime, selection, and presentation composition. |
+| [Repository xUnit Test Host](design/xunit-test-host.md) | Explicit-selection non-vacuity for the delegated xUnit argument vector while preserving xUnit-owned discovery, execution, reporting, and server dispatch. |
 | [LLM Design](llm-design.md) | Current agent-facing output and workflow design. |
 | [Progressive Disclosure](design/progressive-disclosure.md) | Current model for base/domain scope, discovery budgets, `-D`/`-S`, capabilities, counts, and row limits. |
 | [Bare `-S` Default View](design/info-view.md) | Bullseye questions and section profiles for curated high-density default views. |
@@ -93,6 +94,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Analysis Universe Realization](design/analysis-universe-realization.md) | Operation-scoped binding from one exact finite analysis universe and validated plan to owner-issued executable capabilities, deterministic access, retained lifetimes, and visible failure. |
 | [Artifact Acquisition and Workspaces](design/artifact-acquisition-and-workspaces.md) | How artifacts are acquired and composed into an inspection workspace. |
 | [Inspect-web Managed Operation Bridge](design/inspect-web-managed-operation-bridge.md) | Dynamic managed-operation admission, keyed cancellation, progress callback release, typed outcomes, shared-waiter detachment, and epoch-work leases. |
+| [Inspect-web Worker Runtime](design/inspect-web-worker-runtime.md) | Long-lived worker epochs, bootstrap readiness, held starts, closed protocol and replay validation, liveness, draining, restart, and hard realm release. |
 | [Platform Composition and Overlays](design/platform-composition-and-overlays.md) | Platform library composition, overlays, and core-library entitlement. |
 | [Type, Member, and API Representation](design/type-member-api-representation.md) | Canonical type, member, and API identity model. |
 | [C# Type-Declaration Identifier Admission](design/csharp-type-declaration-identifier-admission.md) | Compiler-characterized model-free admission from exact identity text to a legal C# declared-type identifier spelling or typed refusal. |
@@ -110,7 +112,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 
 | Document | Need served |
 | -------- | ----------- |
-| [Development Practices](development-practices.md) | How convention, design, pathological fixtures, analogous implementations, narrow slices, demos, and review work together. |
+| [Development Practices](development-practices.md) | How convention, design, pathological fixtures, analogous implementations, narrow slices, agent-current compatibility, demos, and review work together. |
 | [Design Scope and Composition](../docs/design-scope.md) | Full mechanics for one-owner-per-design, broad-design gating, TLA+ modeling, and over-broad-design recovery. |
 | [Evidence and Validation](evidence-and-validation.md) | Matching evidence to claims, the style-oracle consultation procedure, and the harness/product boundary. |
 | [Round Orchestration](round-orchestration.md) | Running an adversarial review round: status discovery, dispatch, reconciliation, carry-forward, and block boundaries. |

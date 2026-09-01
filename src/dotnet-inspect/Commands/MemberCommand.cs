@@ -434,10 +434,10 @@ public static class MemberCommand
 
             // Resolve PDB/source only when selected detail sections need them.
             if (effectiveOptions.OverloadIndex.HasValue && apiDllPath != null
-                && NeedsMemberSourceResolution(apiType, effectiveOptions))
+                && AuthorizesMemberSourceResolution(apiType, effectiveOptions))
             {
-                bool fetchSource = ApiCommand.GetRequestedMemberSections(apiType, effectiveOptions)
-                    .Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]);
+                bool fetchSource =
+                    AuthorizesMemberSourceContent(apiType, effectiveOptions);
                 var selectedMember = apiType.Members.Count == 1 ? apiType.Members[0] : null;
                 // A property/event (including an indexer) has no body of its own: its PDB source
                 // is located through the accessor the selected ordinal addresses, so resolve by that
@@ -911,6 +911,19 @@ public static class MemberCommand
                    || sections.Contains(SectionNames.BodyShapes)
                    || sections.Contains(SectionNames.Facts));
     }
+
+    internal static bool AuthorizesMemberSourceResolution(
+        ApiType apiType,
+        MemberOptions options)
+        => options.OverloadIndex.HasValue
+           && NeedsMemberSourceResolution(apiType, options);
+
+    internal static bool AuthorizesMemberSourceContent(
+        ApiType apiType,
+        MemberOptions options)
+        => AuthorizesMemberSourceResolution(apiType, options)
+           && ApiCommand.GetRequestedMemberSections(apiType, options)
+               .Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]);
 
     private static bool NeedsMemberSourceLocationResolution(MemberOptions options)
         => options.IncludeSections?.Contains(SectionNames.SourceLocations) == true;

@@ -14,7 +14,7 @@ internal static class PromotionWorkflowContract
     private const string SetupDotnetAction =
         "actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1";
     private const string SetupNodeAction =
-        "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38";
+        "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020";
     private const string UploadArtifactAction =
         "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a";
     private const string CompilerAsyncDeploymentCheck =
