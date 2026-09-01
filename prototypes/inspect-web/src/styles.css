@@ -1281,6 +1281,9 @@ kbd {
   .brand span:last-child { display: none; }
   .inspected-target { gap: 6px; padding: 0 10px; }
   .subject-path-separator { margin: 0 6px; }
+  .lensbar button.lens { width: 28px; padding: 0; }
+  .lensbar .lens-label { display: none; }
+  .lensbar .lens kbd { margin-left: 0; }
   .workspace { grid-template-columns: 44% 56%; }
   .type-browser:not(.member-nav) .namespace-chips, .pane-footer { display: none; }
   .type-browser { grid-template-rows: 40px 38px auto auto minmax(0, 1fr); }

@@ -67,7 +67,8 @@ function lensButton(
   index: number,
   escapeHtml: (value: unknown) => string,
 ): string {
-  return `<button class="lens ${active ? "active" : ""}" ${attribute}="${id}">${escapeHtml(label)}<kbd>${index + 1}</kbd></button>`;
+  const escapedLabel = escapeHtml(label);
+  return `<button class="lens ${active ? "active" : ""}" ${attribute}="${id}" aria-label="${escapedLabel}" title="${escapedLabel}"><span class="lens-label">${escapedLabel}</span><kbd aria-hidden="true">${index + 1}</kbd></button>`;
 }
 
 function scopeSegment(id: string, label: string, active: boolean): string {

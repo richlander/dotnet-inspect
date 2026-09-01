@@ -226,6 +226,9 @@ test("type scope marks the type segment and renders the fixed type lenses", () =
   assert.match(html, /data-scope="type" role="tab" aria-selected="true"/);
   assert.doesNotMatch(html, /data-scope="member"/);
   assert.match(html, /class="lens active" data-lens="api"/);
+  assert.match(
+    html,
+    /aria-label="API" title="API"><span class="lens-label">API<\/span><kbd aria-hidden="true">1<\/kbd>/);
   assert.match(html, /data-lens="metadata"/);
   assert.match(html, /data-lens="source"/);
 });
@@ -269,7 +272,7 @@ test("member scope names an empty filtered strip", () => {
   assert.match(html, /<span class="lens-context">Filtered member list<\/span>/);
 });
 
-test("lens button labels carry their keyboard shortcut index", () => {
+test("lens buttons separate accessible labels from compact order symbols", () => {
   const html = renderScopeBar({
     scope: "type",
     strip: typeLenses,
@@ -278,9 +281,15 @@ test("lens button labels carry their keyboard shortcut index", () => {
     escapeHtml,
   });
 
-  assert.match(html, /API<kbd>1<\/kbd>/);
-  assert.match(html, /Metadata<kbd>2<\/kbd>/);
-  assert.match(html, /Source<kbd>3<\/kbd>/);
+  assert.match(
+    html,
+    /aria-label="API" title="API"><span class="lens-label">API<\/span><kbd aria-hidden="true">1<\/kbd>/);
+  assert.match(
+    html,
+    /aria-label="Metadata" title="Metadata"><span class="lens-label">Metadata<\/span><kbd aria-hidden="true">2<\/kbd>/);
+  assert.match(
+    html,
+    /aria-label="Source" title="Source"><span class="lens-label">Source<\/span><kbd aria-hidden="true">3<\/kbd>/);
 });
 
 test("lens button labels are escaped", () => {

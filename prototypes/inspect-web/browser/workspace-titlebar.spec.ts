@@ -113,6 +113,19 @@ test("right-side actions yield from labels to arrows to nothing", async ({
     .toHaveText("Search");
   await expect(page.locator(".title-search-label-compact")).toBeVisible();
   await expect(page.locator(".title-navigation .nav-history")).toBeVisible();
+  const compactInspectorLabels = page.locator(".lensbar .lens-label");
+  await expect(compactInspectorLabels).toHaveCount(5);
+  expect(await compactInspectorLabels.evaluateAll(labels =>
+    labels.every(label => getComputedStyle(label).display === "none")))
+    .toBe(true);
+  await expect(page.locator(".lensbar .lens kbd")).toHaveText([
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+  ]);
+  await expect(page.getByRole("button", { name: "Call graph" })).toBeVisible();
   await expect(page.locator("#go-home")).toHaveCount(0);
   await expect(page.locator(".subject-path-segment")).toHaveText([
     "System.Text.Json",
@@ -122,8 +135,8 @@ test("right-side actions yield from labels to arrows to nothing", async ({
   await expect(page.locator(".titlebar .subject-path")).toBeVisible();
   await expect(page.locator(".subject-zone .subject-path")).toHaveCount(0);
   await expect(page.locator(".subject-zone .scope-switch")).toBeVisible();
-  await expect(page.locator(".subject-zone #share")).toBeHidden();
-  await expect(page.locator(".subject-zone #open-settings")).toBeHidden();
+  await expect(page.locator(".subject-zone #share")).toBeVisible();
+  await expect(page.locator(".subject-zone #open-settings")).toBeVisible();
   await expect(page.locator(".subject-zone #help")).toBeVisible();
   await expect(page.locator("#copy-name")).toHaveCount(0);
   await expect(page.locator("#taste-btn")).toHaveCount(0);
@@ -135,15 +148,18 @@ test("right-side actions yield from labels to arrows to nothing", async ({
   await expect(page.locator("#open-search")).toBeHidden();
   await expect(page.locator(".title-navigation .nav-history")).toBeVisible();
   await expect(page.locator("#share")).toBeHidden();
-  await expect(page.locator("#open-settings")).toBeHidden();
-  await expect(page.locator("#help")).toBeHidden();
+  await expect(page.locator("#open-settings")).toBeVisible();
+  await expect(page.locator("#help")).toBeVisible();
 
   await page.setViewportSize({ width: 560, height: 900 });
   await expect(page.locator(".title-navigation .nav-history")).toBeHidden();
   await expect(page.locator("#open-settings")).toBeHidden();
-  await expect(page.locator("#help")).toBeHidden();
+  await expect(page.locator("#help")).toBeVisible();
 
   await page.setViewportSize({ width: 480, height: 900 });
+  await expect(page.locator("#help")).toBeVisible();
+
+  await page.setViewportSize({ width: 400, height: 900 });
   await expect(page.locator("#help")).toBeHidden();
   const horizontalOverflow = await page.evaluate(() =>
     document.documentElement.scrollWidth - document.documentElement.clientWidth);

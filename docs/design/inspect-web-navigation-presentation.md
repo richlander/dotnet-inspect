@@ -118,6 +118,12 @@ active subject's owner-ordered lenses or, for Member, its applicable sections.
 Subject changes replace the inspector set; inspectors never become workspace
 coordinate switchers or inspected-subject identities.
 
+At the narrow shell breakpoint, each inspector collapses from its visible
+label-and-order pair to the single boxed order symbol. The owner-issued label
+remains the control's accessible name and hover title, and the current
+inspector remains selected programmatically. Compact rendering does not change
+descriptor identity, order, activation, or keyboard behavior.
+
 The combined subject/inspector region consumes only the width it needs and may
 scroll horizontally under pressure. Remaining second-row width stays available
 for Share, Settings, contextual actions, and the trailing Help action rather
