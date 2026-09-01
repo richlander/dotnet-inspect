@@ -70,7 +70,7 @@ jobs:
       skills: ${{ steps.filter.outputs.skills }}
       tla: ${{ steps.filter.outputs.tla }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # Full history. Change detection diffs against github.event.before,
           # which is not always the immediate parent: a push advances main by
@@ -125,7 +125,7 @@ jobs:
     if: needs.changes.outputs.docs == 'true'
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Run markdownlint
         uses: DavidAnson/markdownlint-cli2-action@v19
@@ -145,7 +145,7 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # Ubuntu 26.04's default-jre metapackage resolves to OpenJDK 25,
       # matching the Java pin in docs/runbooks/tla-plus-setup.md.
@@ -205,7 +205,7 @@ jobs:
   # not need the full product matrix, but it must still prove that every
   # focused skill is registered and embedded and that every resource resolves.
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -399,7 +399,7 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -459,7 +459,7 @@ jobs:
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -727,7 +727,7 @@ jobs:
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -799,7 +799,7 @@ jobs:
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -920,7 +920,7 @@ jobs:
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -1021,7 +1021,7 @@ jobs:
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -1125,7 +1125,7 @@ jobs:
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -1321,7 +1321,7 @@ jobs:
           )
         | "\(.key)=\(.value.result)"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # A hand-maintained `needs` list is an allow list, and an allow list that
       # nothing checks goes stale silently: add a job to this workflow, forget

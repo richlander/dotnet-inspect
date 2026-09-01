@@ -42,7 +42,7 @@ jobs:
       inputs.lane == 'package-sweep'
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -106,7 +106,7 @@ jobs:
       inputs.lane == 'all'
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -188,7 +188,7 @@ jobs:
     # lane gets the same larger budget until its runtime variance is known.
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -284,7 +284,7 @@ jobs:
       inputs.lane == 'all'
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -340,7 +340,7 @@ jobs:
     if: inputs.lane == 'census' || inputs.lane == 'all'
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -501,7 +501,7 @@ jobs:
       DOTNET_ROOT: ${{ github.workspace }}/.dotnet-nightly
       DOTNET_DOTNETUP_DATA_DIR: ${{ github.workspace }}/artifacts/.dotnetup
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install nightly .NET SDK with dotnetup
         shell: bash
@@ -682,7 +682,7 @@ jobs:
     # loose for restore and runner variance.
     timeout-minutes: 240
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
