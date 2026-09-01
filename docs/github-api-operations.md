@@ -46,6 +46,10 @@ gh pr merge "$pr_number" --squash \
   --match-head-commit "$head_sha"
 ```
 
+The authorization also names the base ref. Verify that name in the final PR
+snapshot; GitHub exposes no expected-base-ref parameter, so this is the same
+point-in-time boundary as base-tip carry-forward rather than an atomic lock.
+
 The stacked-PR asynchronous merge endpoint uses its `sha` field:
 
 ```bash

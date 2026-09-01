@@ -101,12 +101,14 @@ forward.
 ### Merge preflight
 
 Before an agent-driven merge, re-read GitHub state and confirm the expected
-head, non-draft status, positive mergeability, and successful current-head
-`ci-required`. A true draft flag, REST `mergeable: null` or GraphQL
-`mergeable: UNKNOWN`, a missing gate, or a gate from another head is not ready.
-Use a GraphQL snapshot so documented `mergeStateStatus: BLOCKED` can also block
-the action; do not infer that enum from undocumented REST `mergeable_state`
-values. Follow [GitHub status queries](github-status-queries.md).
+head and base-ref name, valid review-clean or approved-waiver evidence,
+non-draft status, positive mergeability, and successful current-head
+`ci-required`. A mismatch, invalid evidence, true draft flag, REST
+`mergeable: null`, GraphQL `mergeable: UNKNOWN`, missing gate, or gate from
+another head is not ready. Use a GraphQL snapshot so documented
+`mergeStateStatus: BLOCKED` can also block the action; do not infer that enum
+from undocumented REST `mergeable_state` values. Follow
+[GitHub status queries](github-status-queries.md).
 
 GitHub merge and auto-merge bind an expected head, not an expected base. This
 preflight and carry-forward analysis are point-in-time observations, not an
@@ -138,10 +140,10 @@ applies the round transition below.
 
 ### Apply the result
 
-Handle lifecycle, head mismatch, and conflict outcomes in the order defined by
-[GitHub status queries](github-status-queries.md). Clear status predicates,
-`schedule`, `status-deadline`, and `goal` when the workflow leaves that wait.
-Preserve unrelated members such as `review`.
+Handle lifecycle, head/base mismatch, and conflict outcomes in the order
+defined by [GitHub status queries](github-status-queries.md). Clear status
+predicates, `schedule`, `status-deadline`, and `goal` when the workflow leaves
+that wait. Preserve unrelated members such as `review`.
 
 Evaluate `waiting` as a set, not an exact string. Normalize new CI waits to
 `check:ci-required`, remove only predicates the result resolves, and preserve
@@ -152,6 +154,7 @@ unrelated members such as `review`. In the table, **status members** means
 | --- | --- |
 | PR is merged | Leave the status wait, relinquish ownership, and end. |
 | PR is closed or draft | Leave the status wait, publish the human action or stopped state, and end. |
+| Base ref changed | Leave the status wait; expire merge authorization and route the unchanged head through candidate formation without inheriting fixed-head evidence. |
 | Head changed | Leave the status wait; disable auto-merge first, handle an already-merged result as terminal, then route the returned head through candidate formation without inheriting fixed-head evidence. |
 | REST `mergeable: false` or GraphQL `mergeable: CONFLICTING` | Leave the status wait; apply conflict recovery before considering CI. |
 | `ci-required` completed without `success` while required for the current round or goal | Leave the status wait; classify the result and apply the applicable recovery transition. |

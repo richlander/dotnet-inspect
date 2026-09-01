@@ -119,9 +119,9 @@ readiness from its presence (see [Forming a candidate](#forming-a-candidate)).
   [Clean reviews are not spent by main
   moving](#clean-reviews-are-not-spent-by-main-moving); a no-interaction
   classification keeps the label on the unchanged reviewed head.
-- **Remove it** before a new round, author change, conflict recovery, restack,
-  unresolved finding, or draft transition — anything that spends the clean
-  reviews or reopens the head to a fresh finding.
+- **Remove it and expire recorded merge authorization** before a new round,
+  author change, conflict recovery, restack, base-ref retarget, unresolved
+  finding, or draft transition — anything that spends the clean reviews.
 
 ## User-directed workflow adjustments
 
@@ -135,12 +135,12 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
 - **Review ordinary non-Markdown changes in parallel with CI:** requires user
   approval; conflict recovery is the explicit exception. A CI failure requiring
   an author change still supersedes the attempt, and all findings carry forward.
-- **Pre-authorize merge for the final head:** after clean reviews or an
-  approved waiver, the user may authorize merging that exact head once ready.
-  Record the authorization; do not arm GitHub auto-merge while gates are
-  pending. After green preflight, merge with the [exact-head
+- **Pre-authorize merge for the final head:** after clean reviews or a waiver,
+  the user may authorize its exact head and base ref. Keep auto-merge unarmed
+  while gates are pending; after green preflight, use the [exact-head
   precondition](docs/github-api-operations.md#bind-merge-mutations-to-the-head).
-  Head movement expires it; no-interaction base movement preserves it.
+  Head/base-ref change or invalidated evidence expires authorization;
+  no-interaction tip movement within the same base ref preserves it.
 - **"CI is ready":** the user's statement that CI has no failures and the PR is
   mergeable. Trust it without re-checking and move to the next task, such as
   dispatching the next round's reviewers.
@@ -442,12 +442,11 @@ returned finding forward.
 
 Spend review only on a pushed, settled head formed by the canonical cycle.
 Record the exact head and effective base. If a conflict, author change,
-finding, or restack moves the head, form a replacement through the cycle again
-unless the user approves the exact-head trivial-interaction waiver below. While
-a candidate is locked, do not push or integrate other than for recovery; a
-non-mutating fetch is allowed to re-establish state after a resume and for
-carry-forward analysis. Before merge, confirm live GitHub readiness — see
-[Merge preflight](docs/round-orchestration.md#merge-preflight).
+finding, restack, or base-ref retarget changes the candidate, form a replacement
+through the cycle unless the user approves the exact-head waiver below. While a
+candidate is locked, do not push or integrate other than for recovery; a
+non-mutating fetch is allowed for resume and carry-forward analysis. Before
+merge, confirm live GitHub readiness — see [Merge preflight](docs/round-orchestration.md#merge-preflight).
 
 ### Clean reviews are not spent by main moving
 
@@ -574,7 +573,7 @@ Put it under `## Demo` above validation in the PR body.
   merge attempt or readiness statement.
 - Never merge without explicit authorization for that PR. A clean review,
   green CI, or readiness comment is not authorization. A recorded merge
-  authorization applies only to the exact reviewed or approved-waiver head.
+  authorization applies only to its exact head/base ref and valid evidence.
 
 ### Stacked PRs for multi-slice issues
 
