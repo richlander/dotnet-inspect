@@ -26,6 +26,7 @@ public class AssemblyReferenceBindingPolicyTests
     {
         var resolver = new RecordingResolver((_, _) => null);
         var policy = new AssemblyReferenceBindingPolicy(resolver);
+        AssemblyBindingPolicyVersion version = policy.Version;
         var firstRequest = Request(AssemblyBindingTarget.Reference(Reference));
         var equivalentRequest = Request(AssemblyBindingTarget.Reference(Reference));
 
@@ -38,6 +39,7 @@ public class AssemblyReferenceBindingPolicyTests
             Assert.IsType<AssemblyBindingSelection.Missing>(first)
                 .Disposition);
         Assert.Equal(Reference, Assert.Single(resolver.Requests).Identity);
+        Assert.Same(version, policy.Version);
     }
 
     [Fact]
@@ -91,8 +93,8 @@ public class AssemblyReferenceBindingPolicyTests
     [Fact]
     public void CoreLibrary_IsUnavailableThroughReferenceResolverAdapter()
     {
-        var policy = new AssemblyReferenceBindingPolicy(
-            new RecordingResolver((_, _) => null));
+        var resolver = new RecordingResolver((_, _) => null);
+        var policy = new AssemblyReferenceBindingPolicy(resolver);
 
         var unavailable = Assert.IsType<AssemblyBindingSelection.Unavailable>(
             policy.Select(Request(AssemblyBindingTarget.CoreLibrary())));
@@ -100,6 +102,43 @@ public class AssemblyReferenceBindingPolicyTests
         Assert.Equal(
             AssemblyBindingFailureKind.UnsupportedScope,
             unavailable.Failure.Kind);
+        Assert.Empty(resolver.Requests);
+    }
+
+    [Fact]
+    public void AssemblyReferenceBindingPolicy_PreservesDelegatedSelection()
+    {
+        ResolvedAssemblyReference assembly = Descriptor(
+            AssemblyResolutionProvenance.Designated("selected"));
+        AssemblyBindingSelection referenceSelection =
+            AssemblyBindingSelection.Found(assembly);
+        AssemblyBindingSelection coreSelection =
+            AssemblyBindingSelection.CannotSelect(
+                new AssemblyBindingFailure(
+                    AssemblyBindingFailureKind.UnsupportedScope));
+        var resolver = new RecordingResolverPolicy(
+            request => request.Target
+                    is AssemblyBindingTarget.AssemblyReference
+                ? referenceSelection
+                : coreSelection);
+        var policy = new AssemblyReferenceBindingPolicy(resolver);
+        AssemblyBindingRequest referenceRequest =
+            Request(AssemblyBindingTarget.Reference(Reference));
+        AssemblyBindingRequest coreRequest =
+            Request(AssemblyBindingTarget.CoreLibrary());
+
+        AssemblyBindingSelection first = policy.Select(referenceRequest);
+        AssemblyBindingSelection second = policy.Select(referenceRequest);
+        AssemblyBindingSelection core = policy.Select(coreRequest);
+
+        Assert.Same(referenceSelection, first);
+        Assert.Same(referenceSelection, second);
+        Assert.Same(coreSelection, core);
+        Assert.Equal(
+            [referenceRequest, referenceRequest, coreRequest],
+            resolver.Requests);
+        Assert.Equal(3, resolver.SelectionCount);
+        Assert.Equal(0, resolver.ResolutionCount);
     }
 
     [Fact]
@@ -111,7 +150,7 @@ public class AssemblyReferenceBindingPolicyTests
                 frameworkVersion: null,
                 "intrinsic"));
         var resolver = new RecordingResolverPolicy(
-            AssemblyBindingSelection.Found(selected));
+            _ => AssemblyBindingSelection.Found(selected));
         var policy = new AssemblyReferenceBindingPolicy(resolver);
 
         var result = Assert.IsType<AssemblyBindingSelection.Selected>(
@@ -133,7 +172,7 @@ public class AssemblyReferenceBindingPolicyTests
                 frameworkVersion: null,
                 "shadow"));
         var resolver = new RecordingResolverPolicy(
-            AssemblyBindingSelection.Found(selected, [shadow]));
+            _ => AssemblyBindingSelection.Found(selected, [shadow]));
         var policy = new AssemblyReferenceBindingPolicy(resolver);
 
         var result = Assert.IsType<AssemblyBindingSelection.Selected>(
@@ -154,7 +193,7 @@ public class AssemblyReferenceBindingPolicyTests
         ResolvedAssemblyReference second = Descriptor(
             AssemblyResolutionProvenance.Designated("second"));
         var resolver = new RecordingResolverPolicy(
-            AssemblyBindingSelection.Multiple([first, second]));
+            _ => AssemblyBindingSelection.Multiple([first, second]));
         var policy = new AssemblyReferenceBindingPolicy(resolver);
 
         var result = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
@@ -162,6 +201,36 @@ public class AssemblyReferenceBindingPolicyTests
                 Request(AssemblyBindingTarget.Reference(Reference))));
 
         Assert.Equal([first, second], result.Assemblies);
+        Assert.Equal(1, resolver.SelectionCount);
+        Assert.Equal(0, resolver.ResolutionCount);
+    }
+
+    [Fact]
+    public void StructuredPolicy_ExposesCurrentDelegateVersion()
+    {
+        var resolver = new RecordingResolverPolicy(
+            _ => AssemblyBindingSelection.NotFound());
+        var policy = new AssemblyReferenceBindingPolicy(resolver);
+
+        Assert.Same(resolver.Version, policy.Version);
+
+        resolver.AdvanceVersion();
+
+        Assert.Same(resolver.Version, policy.Version);
+    }
+
+    [Fact]
+    public void StructuredPolicy_ExceptionPropagatesUnchanged()
+    {
+        var expected = new IOException("delegate failure");
+        var resolver = new RecordingResolverPolicy(_ => throw expected);
+        var policy = new AssemblyReferenceBindingPolicy(resolver);
+
+        Exception actual = Assert.Throws<IOException>(
+            () => policy.Select(
+                Request(AssemblyBindingTarget.Reference(Reference))));
+
+        Assert.Same(expected, actual);
         Assert.Equal(1, resolver.SelectionCount);
         Assert.Equal(0, resolver.ResolutionCount);
     }
@@ -183,22 +252,19 @@ public class AssemblyReferenceBindingPolicyTests
     }
 
     [Fact]
-    public void Select_RejectsNullPolicyResultWithoutResolverFallback()
+    public void ValidateForRequest_RejectsNullPolicyResult()
     {
-        ResolvedAssemblyReference fallback = Descriptor(
-            AssemblyResolutionProvenance.Designated("fallback"));
-        var resolver = new NullReturningResolverPolicy(fallback);
-        var policy = new AssemblyReferenceBindingPolicy(resolver);
+        AssemblyBindingRequest request =
+            Request(AssemblyBindingTarget.Reference(Reference));
 
         var rejected = Assert.IsType<AssemblyBindingSelection.Rejected>(
-            policy.Select(
-                Request(AssemblyBindingTarget.Reference(Reference))));
+            AssemblyBindingSelection.ValidateForRequest(
+                request,
+                selection: null));
 
         Assert.Equal(
             AssemblyBindingFailureKind.InvalidPolicyResult,
             rejected.Failure.Kind);
-        Assert.Equal(1, resolver.SelectionCount);
-        Assert.Equal(0, resolver.ResolutionCount);
     }
 
     [Fact]
@@ -231,6 +297,30 @@ public class AssemblyReferenceBindingPolicyTests
                     request,
                     selection));
         }
+    }
+
+    [Fact]
+    public void StructuredPolicy_ForwardsSelectionBeforeFinalValidation()
+    {
+        AssemblyBindingSelection missing =
+            AssemblyBindingSelection.NameNotOwned();
+        var resolver = new RecordingResolverPolicy(_ => missing);
+        var policy = new AssemblyReferenceBindingPolicy(resolver);
+        AssemblyBindingRequest request =
+            Request(AssemblyBindingTarget.CoreLibrary());
+
+        AssemblyBindingSelection selection = policy.Select(request);
+
+        Assert.Same(missing, selection);
+        var rejected = Assert.IsType<AssemblyBindingSelection.Rejected>(
+            AssemblyBindingSelection.ValidateForRequest(
+                request,
+                selection));
+        Assert.Equal(
+            AssemblyBindingFailureKind.InvalidPolicyResult,
+            rejected.Failure.Kind);
+        Assert.Equal(1, resolver.SelectionCount);
+        Assert.Equal(0, resolver.ResolutionCount);
     }
 
     [Fact]
@@ -286,10 +376,12 @@ public class AssemblyReferenceBindingPolicyTests
     }
 
     sealed class RecordingResolverPolicy(
-        AssemblyBindingSelection selection)
+        Func<AssemblyBindingRequest, AssemblyBindingSelection> select)
         : IAssemblyReferenceResolver, IAssemblyBindingPolicy
     {
-        public AssemblyBindingPolicyVersion Version { get; } = new();
+        public AssemblyBindingPolicyVersion Version { get; private set; } =
+            new();
+        public List<AssemblyBindingRequest> Requests { get; } = [];
         public int ResolutionCount { get; private set; }
         public int SelectionCount { get; private set; }
 
@@ -305,31 +397,12 @@ public class AssemblyReferenceBindingPolicyTests
             AssemblyBindingRequest request)
         {
             SelectionCount++;
-            return selection;
+            Requests.Add(request);
+            return select(request);
         }
+
+        public void AdvanceVersion() =>
+            Version = new AssemblyBindingPolicyVersion();
     }
 
-    sealed class NullReturningResolverPolicy(
-        ResolvedAssemblyReference fallback)
-        : IAssemblyReferenceResolver, IAssemblyBindingPolicy
-    {
-        public AssemblyBindingPolicyVersion Version { get; } = new();
-        public int ResolutionCount { get; private set; }
-        public int SelectionCount { get; private set; }
-
-        public ResolvedAssemblyReference? Resolve(
-            AssemblyReferenceIdentity identity,
-            AssemblyResolutionScope scope)
-        {
-            ResolutionCount++;
-            return fallback;
-        }
-
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request)
-        {
-            SelectionCount++;
-            return null!;
-        }
-    }
 }
