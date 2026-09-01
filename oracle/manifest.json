@@ -1,6 +1,7 @@
 {
   "version": 1,
   "printerComparisonVersion": 1,
+  "syntaxInventoryVersion": 1,
   "files": [
     {
       "sourceUrl": "https://raw.githubusercontent.com/dotnet/dotnet/f7d90799ce4ef09a0bb257852a57248d2a8fb8dd/src/runtime/src/libraries/System.Text.Encodings.Web/src/System/Text/Encodings/Web/JavaScriptEncoder.cs",
@@ -8,6 +9,11 @@
       "checksum": "CD1085BF738003442ABE2532A2693D2C14E608423A8D477ABD0055E0DDB14730",
       "printerProfile": "default-v1",
       "requirePrinterExact": true,
+      "expectedFeatures": [
+        "expression.identifier-name",
+        "expression.object-creation",
+        "statement.return"
+      ],
       "members": [
         {
           "assembly": "System.Text.Encodings.Web",
