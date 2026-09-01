@@ -1,4 +1,5 @@
 using System.Text;
+using InertText;
 using NuGetFetch;
 
 namespace DotnetInspector.Queries.Tests;
@@ -38,6 +39,9 @@ public sealed class PackageManifestFactsQueryTests
                 coordinate));
 
         Assert.Equal(coordinate, facts.Coordinate);
+        Assert.Equal(
+            PackageManifestIdentityProvenance.ExpectedCoordinate,
+            facts.IdentityProvenance);
         Assert.Equal("2013/05", facts.ManifestVersion);
         Assert.Equal("Example Authors", facts.Authors);
         Assert.Equal("Example description", facts.Description?.ToString());
@@ -58,6 +62,229 @@ public sealed class PackageManifestFactsQueryTests
             Assert.Single(group.Dependencies);
         Assert.Equal("Example.Dependency", dependency.Id);
         Assert.Equal("[2.0.0]", dependency.VersionRange);
+    }
+
+    [Fact]
+    public void ExecuteSelfAttested_ProjectsEquivalentFactsWithTypedProvenance()
+    {
+        byte[] manifestBytes = Encoding.UTF8.GetBytes(
+            """
+            <package>
+              <metadata>
+                <id>Example.Package</id>
+                <version>1.0</version>
+                <authors>Example Authors</authors>
+                <description>Example description</description>
+                <dependencies>
+                  <group targetFramework="net8.0">
+                    <dependency id="Example.Dependency" version="[2.0.0]" />
+                  </group>
+                </dependencies>
+              </metadata>
+            </package>
+            """);
+        PackageManifestFacts expected = Available(
+            PackageManifestFactsQuery.Execute(
+                manifestBytes,
+                PackageSourceCoordinate.Create(
+                    "Example.Package",
+                    "1.0.0")));
+        PackageManifestFacts selfAttested = Available(
+            PackageManifestFactsQuery.ExecuteSelfAttested(
+                manifestBytes));
+
+        Assert.Equal(
+            PackageManifestIdentityProvenance.ExpectedCoordinate,
+            expected.IdentityProvenance);
+        Assert.Equal(
+            PackageManifestIdentityProvenance.SelfAttested,
+            selfAttested.IdentityProvenance);
+        AssertEquivalentFacts(expected, selfAttested);
+    }
+
+    [Fact]
+    public void ExecuteSelfAttested_PreservesHostileDescriptionAsInertText()
+    {
+        const string Hostile = "first\u202E\nsecond";
+        PackageManifestFacts facts = Available(
+            PackageManifestFactsQuery.ExecuteSelfAttested(
+                Encoding.UTF8.GetBytes(
+                    $$"""
+                    <package>
+                      <metadata>
+                        <id>Example.Package</id>
+                        <version>1.0.0</version>
+                        <description>{{Hostile}}</description>
+                      </metadata>
+                    </package>
+                    """)));
+
+        InertString description = Assert.IsType<InertString>(
+            facts.Description);
+        string text = description.ToString();
+        Assert.True(
+            InertString.IsPermitted(
+                TextPolicy.Prose,
+                text));
+        Assert.DoesNotContain(
+            '\u202E',
+            text);
+        Assert.Contains(
+            @"\u202E",
+            text,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            '\n',
+            text);
+    }
+
+    [Theory]
+    [InlineData("$id$", "1.0.0")]
+    [InlineData("Example.Package", "$version$")]
+    [InlineData("evil/../other", "1.0.0")]
+    [InlineData("Example.Package", "not-a-version")]
+    public void ExecuteSelfAttested_RejectsInvalidIdentity(
+        string packageId,
+        string version)
+    {
+        PackageManifestFactsResult.Failed failure = Assert.IsType<
+            PackageManifestFactsResult.Failed>(
+                PackageManifestFactsQuery.ExecuteSelfAttested(
+                    Encoding.UTF8.GetBytes(
+                        $$"""
+                        <package>
+                          <metadata>
+                            <id>{{packageId}}</id>
+                            <version>{{version}}</version>
+                          </metadata>
+                        </package>
+                        """)));
+
+        Assert.Equal(
+            PackageManifestFailureReason.InvalidIdentityContract,
+            failure.Failure.Reason);
+        Assert.DoesNotContain(
+            packageId,
+            failure.Failure.Message,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            version,
+            failure.Failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("<version>1.0.0</version>")]
+    [InlineData("<id>Example.Package</id>")]
+    public void ExecuteSelfAttested_RejectsMissingIdentity(
+        string identityElement)
+    {
+        PackageManifestFactsResult.Failed failure = Assert.IsType<
+            PackageManifestFactsResult.Failed>(
+                PackageManifestFactsQuery.ExecuteSelfAttested(
+                    Encoding.UTF8.GetBytes(
+                        $$"""
+                        <package>
+                          <metadata>
+                            {{identityElement}}
+                          </metadata>
+                        </package>
+                        """)));
+
+        Assert.Equal(
+            PackageManifestFailureReason.UnsupportedDocumentShape,
+            failure.Failure.Reason);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ExecuteSelfAttested_EnforcesIdentityScalarLimit(
+        bool oversizedPackageId)
+    {
+        string oversized = new(
+            'a',
+            PackageManifestFactsQuery.MaxScalarCharacters + 1);
+        string packageId = oversizedPackageId
+            ? oversized
+            : "Example.Package";
+        string version = oversizedPackageId
+            ? "1.0.0"
+            : oversized;
+        PackageManifestFactsResult.Failed failure = Assert.IsType<
+            PackageManifestFactsResult.Failed>(
+                PackageManifestFactsQuery.ExecuteSelfAttested(
+                    Encoding.UTF8.GetBytes(
+                        $$"""
+                        <package>
+                          <metadata>
+                            <id>{{packageId}}</id>
+                            <version>{{version}}</version>
+                          </metadata>
+                        </package>
+                        """)));
+
+        Assert.Equal(
+            PackageManifestFailureReason.ConfiguredLimitExceeded,
+            failure.Failure.Reason);
+    }
+
+    [Fact]
+    public void ExecuteSelfAttested_EnforcesManifestByteLimit()
+    {
+        PackageManifestFactsResult.Failed failure = Assert.IsType<
+            PackageManifestFactsResult.Failed>(
+                PackageManifestFactsQuery.ExecuteSelfAttested(
+                    new byte[
+                        PackageManifestFactsQuery.MaxManifestBytes + 1]));
+
+        Assert.Equal(
+            PackageManifestFailureReason.ConfiguredLimitExceeded,
+            failure.Failure.Reason);
+    }
+
+    [Fact]
+    public void ExecuteSelfAttested_RejectsManifestBeyondDecodedCharacterLimit()
+    {
+        string description = new(
+            'a',
+            PackageManifestFactsQuery.MaxManifestCharacters + 1);
+        PackageManifestFactsResult.Failed failure = Assert.IsType<
+            PackageManifestFactsResult.Failed>(
+                PackageManifestFactsQuery.ExecuteSelfAttested(
+                    Encoding.UTF8.GetBytes(
+                        $$"""
+                        <package>
+                          <metadata>
+                            <id>Example.Package</id>
+                            <version>1.0.0</version>
+                            <description>{{description}}</description>
+                          </metadata>
+                        </package>
+                        """)));
+
+        Assert.Equal(
+            PackageManifestFailureReason.MalformedXml,
+            failure.Failure.Reason);
+    }
+
+    [Fact]
+    public void ExecuteSelfAttested_RejectsMalformedXml()
+    {
+        PackageManifestFactsResult.Failed failure = Assert.IsType<
+            PackageManifestFactsResult.Failed>(
+                PackageManifestFactsQuery.ExecuteSelfAttested(
+                    Encoding.UTF8.GetBytes(
+                        """
+                        <package>
+                          <metadata>
+                            <id>Example.Package</id>
+                        </package>
+                        """)));
+
+        Assert.Equal(
+            PackageManifestFailureReason.MalformedXml,
+            failure.Failure.Reason);
     }
 
     [Fact]
@@ -578,6 +805,9 @@ public sealed class PackageManifestFactsQueryTests
         PackageManifestFailureReason.IdentityMismatch,
         "The package manifest identity does not match the requested package.")]
     [InlineData(
+        PackageManifestFailureReason.InvalidIdentityContract,
+        "The package manifest contains an invalid package identity.")]
+    [InlineData(
         PackageManifestFailureReason.InvalidDependencyContract,
         "The package manifest contains an invalid dependency declaration.")]
     [InlineData(
@@ -606,6 +836,45 @@ public sealed class PackageManifestFactsQueryTests
     private static PackageManifestFacts Available(
         PackageManifestFactsResult result) =>
         Assert.IsType<PackageManifestFactsResult.Available>(result).Value;
+
+    private static void AssertEquivalentFacts(
+        PackageManifestFacts expected,
+        PackageManifestFacts actual)
+    {
+        Assert.Equal(expected.Coordinate, actual.Coordinate);
+        Assert.Equal(expected.ManifestVersion, actual.ManifestVersion);
+        Assert.Equal(
+            expected.Description?.ToString(),
+            actual.Description?.ToString());
+        Assert.Equal(expected.Authors, actual.Authors);
+        Assert.Equal(expected.Repository, actual.Repository);
+        Assert.Equal(expected.RepositoryType, actual.RepositoryType);
+        Assert.Equal(expected.RepositoryCommit, actual.RepositoryCommit);
+        Assert.Equal(expected.License, actual.License);
+        Assert.Equal(expected.LicenseUrl, actual.LicenseUrl);
+        Assert.Equal(expected.PackageTypes, actual.PackageTypes);
+        Assert.Equal(expected.IsToolPackage, actual.IsToolPackage);
+        Assert.Equal(expected.ReadmeFile, actual.ReadmeFile);
+        Assert.Equal(
+            expected.DependencyGroups.Length,
+            actual.DependencyGroups.Length);
+        for (int i = 0; i < expected.DependencyGroups.Length; i++)
+        {
+            DeclaredPackageDependencyGroup expectedGroup =
+                expected.DependencyGroups[i];
+            DeclaredPackageDependencyGroup actualGroup =
+                actual.DependencyGroups[i];
+            Assert.Equal(
+                expectedGroup.TargetFramework,
+                actualGroup.TargetFramework);
+            Assert.Equal(
+                expectedGroup.IsImplicitManifestGroup,
+                actualGroup.IsImplicitManifestGroup);
+            Assert.Equal(
+                expectedGroup.Dependencies,
+                actualGroup.Dependencies);
+        }
+    }
 
     private static string MinimalManifest() =>
         """
