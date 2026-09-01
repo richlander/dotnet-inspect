@@ -33,16 +33,25 @@
       to errors directly rather than relying on TreatWarningsAsErrors above,
       because four fixture projects opt out of that default.
 
-      The boundary is projects that restore packages, which is narrower than
-      every file matching a project glob. SDK projects import this file
+      The boundary is projects that import this file, which is narrower than
+      every file matching a project glob. SDK projects import it
       automatically; a bare <Project> with no Sdk attribute does not, and
       eng/classic-async-artifact-matrix.proj is one. That file declares no
-      Restore and only shells out to `dotnet publish` for a child project, so
-      it resolves no packages of its own and there is nothing for an audit to
-      inspect; the child it drives is an ordinary SDK project and is covered.
-      A new non-SDK orchestration project would sit outside this policy the
-      same way, and should stay there. One that does restore packages must
-      declare an Sdk so it picks this up.
+      Restore target and resolves nothing of its own: it has no
+      PackageReference, and restoring it produces no assets file. What it
+      does is drive a child SDK project, building it in-process and invoking
+      `dotnet restore` and `dotnet publish` on it. Those restores are the
+      child's, and the child is an ordinary SDK project covered by this
+      policy, so the packages that actually get resolved are audited.
+
+      Restoring packages is not by itself what brings a project under this
+      policy, so do not read the boundary that way. A non-SDK project can
+      import NuGet.props and NuGet.targets directly and get a working
+      Restore target and PackageReference support while still importing
+      neither of these files; it then evaluates NuGetAuditMode=direct with
+      NU1901-NU1904 unpromoted, and nothing here would catch it. Any new
+      project that resolves packages must therefore import this file;
+      declaring an Sdk is the ordinary way to do that.
     -->
     <NuGetAudit>true</NuGetAudit>
     <NuGetAuditMode>all</NuGetAuditMode>
