@@ -808,11 +808,20 @@ Narrow is not the same as harmless, which is why this was worth closing rather
 than documenting. What a classification disagreement costs when it happens is
 the `dotnet/runtime#57531` case described earlier in this document.
 
-`SharedClassificationRuleTests` is the gate. It parses the metadata assemblies'
-source and fails if the literal is spelled anywhere but its single definition,
-which is what an independent copy of the rule looks like in source. A companion
-test keeps that census from passing vacuously if the definition itself
-disappears.
+`SharedClassificationRuleTests` is the gate, and it takes two checks because
+one is not enough. A census parses the metadata assemblies' source and fails if
+the literal is spelled anywhere but its single definition. That alone would
+only forbid one way of writing a second rule — a site could compare against a
+name it built some other way and the census would never see it — so a second
+check names the sites that classify and fails if any of them stops reaching the
+shared rule. A third test keeps the census from passing vacuously if the
+definition itself disappears.
+
+Stated exactly, the pair guarantees that no other file spells the rule and that
+every known classification site calls the one definition. It does not prove
+that such a site cannot add a further condition beside that call, nor that a
+wholly new site cannot classify without either spelling the literal or joining
+the list.
 
 ### Frozen cross-assembly enum-width adapter
 

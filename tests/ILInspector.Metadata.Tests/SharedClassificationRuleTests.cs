@@ -29,9 +29,19 @@ namespace ILInspector.Metadata.Tests;
 /// in <c>SystemTypeArgumentName</c> and every site calls it.
 /// </para>
 /// <para>
-/// This is the enforcing gate for that claim. It fails if the literal is
-/// spelled anywhere but its single definition, which is what re-introducing an
-/// independent copy of the rule looks like in source.
+/// This is the enforcing gate for that claim, and it takes two checks because
+/// one is not enough. The census fails if the literal is spelled anywhere but
+/// its single definition. On its own that only forbids one way of writing a
+/// second rule: a site could compare against a name it built some other way
+/// and the census would never see it. So the second check names the sites that
+/// classify and requires each to reach the shared rule.
+/// </para>
+/// <para>
+/// What the pair guarantees is that no other file spells the rule and that
+/// every known classification site calls the one definition. What it does not
+/// guarantee is that such a site cannot add a further condition beside that
+/// call, or that a wholly new site cannot classify without either spelling the
+/// literal or appearing in the list below.
 /// </para>
 /// </remarks>
 public class SharedClassificationRuleTests
@@ -47,6 +57,72 @@ public class SharedClassificationRuleTests
 
     // The single file permitted to spell the rule.
     const string DefiningFile = "SystemTypeArgumentName.cs";
+
+    // Every site that classifies a custom-attribute argument as System.Type,
+    // and the member of the shared rule it must reach. The first three decide
+    // safety: the guard and the provider must agree or the guard approves a
+    // blob the decoder then reads by a different rule. The fourth only renders,
+    // but it is listed so that "this rule exists once" is true without an
+    // exception. A site removed or renamed fails here rather than silently
+    // leaving the list stale.
+    static readonly (string File, string Method, string Member)[] ClassifyingSites =
+    {
+        (Path.Combine("src", "ILInspector.MetadataPrimitives", "AttributeDecoder.cs"),
+            "GetSystemType", nameof(SystemTypeArgumentName.Rendered)),
+        (Path.Combine("src", "ILInspector.MetadataPrimitives", "AttributeDecoder.cs"),
+            "IsSystemType", nameof(SystemTypeArgumentName.Matches)),
+        (Path.Combine("src", "ILInspector.MetadataPrimitives", "CustomAttributeValueGuard.cs"),
+            "IsSrmSystemType", nameof(SystemTypeArgumentName.Matches)),
+        (Path.Combine("src", "ILInspector.Metadata", "AttributeReader.Rendering.cs"),
+            "RenderArgument", nameof(SystemTypeArgumentName.Matches)),
+    };
+
+    [Fact]
+    public void ClassifyingSitesReachTheSharedRule()
+    {
+        var root = FindRepoRoot();
+        var failures = new List<string>();
+
+        foreach (var (file, method, member) in ClassifyingSites)
+        {
+            var path = Path.Combine(root, file);
+            if (!File.Exists(path))
+            {
+                failures.Add($"{file}: file no longer exists");
+                continue;
+            }
+
+            var declarations = ParseRoot(path).DescendantNodes()
+                .OfType<MethodDeclarationSyntax>()
+                .Where(declaration => declaration.Identifier.ValueText == method)
+                .ToList();
+
+            if (declarations.Count == 0)
+            {
+                failures.Add($"{file}: no method named {method}");
+                continue;
+            }
+
+            foreach (var declaration in declarations.Where(
+                declaration => !ReachesSharedRule(declaration, member)))
+            {
+                var line = declaration.GetLocation().GetLineSpan()
+                    .StartLinePosition.Line + 1;
+                failures.Add(
+                    $"{file}:{line}: {method} does not call "
+                    + $"{nameof(SystemTypeArgumentName)}.{member}");
+            }
+        }
+
+        Assert.True(
+            failures.Count == 0,
+            "Each site that classifies a custom-attribute argument as "
+            + "System.Type must reach the one definition of that rule. A site "
+            + "that decides for itself — by any spelling, including one the "
+            + "literal census cannot see — puts the guard and the decoder back "
+            + "on separate rules:\n  "
+            + string.Join("\n  ", failures));
+    }
 
     [Fact]
     public void SystemTypeArgumentNameIsSpelledOnce()
@@ -100,6 +176,18 @@ public class SharedClassificationRuleTests
     [InlineData(null, false)]
     public void MatchesClassifiesRenderedNames(string? rendered, bool expected)
         => Assert.Equal(expected, SystemTypeArgumentName.Matches(rendered));
+
+    // A member access naming the shared rule, anywhere inside the method. The
+    // sites differ in shape -- two are expression bodies, one returns after
+    // resolving the name, one is a switch arm -- so the check is that the
+    // shared member is reached, not that the body takes one particular form.
+    static bool ReachesSharedRule(MethodDeclarationSyntax method, string member)
+        => method.DescendantNodes()
+            .OfType<MemberAccessExpressionSyntax>()
+            .Any(access =>
+                access.Name.Identifier.ValueText == member
+                && access.Expression is IdentifierNameSyntax owner
+                && owner.Identifier.ValueText == nameof(SystemTypeArgumentName));
 
     // String literals whose value is the rendered System.Type name. Doc
     // comments are trivia rather than literal expressions, so prose that names
