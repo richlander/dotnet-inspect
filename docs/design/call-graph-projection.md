@@ -110,11 +110,11 @@ The projection owns everything a host must not re-invent in JavaScript:
   spelling remains compatibility-only and does not erase exact array kind.
   Exact metadata-name segments use the same escaping on both producer paths,
   and the Metadata API producer emits a structural payload whenever normalized
-  display would erase that identity. Literal array grammar in a bare name,
-  array element, or generic argument therefore cannot alias an actual array
-  wrapper.
-  `CallGraphArrayKindIdentityTests.Resolve_EscapesLiteralArraySyntaxAcrossTypeShapes`
-  gates those exact-name cases.
+  display would erase that identity. Literal array or generic grammar,
+  canonical arity text on a non-generic name, and raw-name / GenericParam arity
+  disagreement therefore cannot alias another structural shape.
+  `CallGraphArrayKindIdentityTests.Resolve_PreservesExactNamesWhenDisplayIsNonInjective`
+  gates those cases.
   An older surface without that structural payload cannot claim a structural
   match for `T[*]`, but an exact MethodDef-token candidate may still recover
   the body when no structural candidate matches.

@@ -138,9 +138,9 @@ public sealed class CallGraphArrayKindIdentityTests
     }
 
     [Fact]
-    public void Resolve_EscapesLiteralArraySyntaxAcrossTypeShapes()
+    public void Resolve_PreservesExactNamesWhenDisplayIsNonInjective()
     {
-        byte[] image = BuildLiteralArrayNameImage();
+        byte[] image = BuildExactNameImage();
         using var peReader = new PEReader(new MemoryStream(image));
         MetadataReader reader = peReader.GetMetadataReader();
         ApiSurface surface = ApiSurfaceExtractor.Extract(
@@ -156,7 +156,7 @@ public sealed class CallGraphArrayKindIdentityTests
                 .OrderBy(member => member.MetadataToken),
         ];
 
-        Assert.Equal(9, members.Length);
+        Assert.Equal(15, members.Length);
         string[] expected =
         [
             "N.A[][*]",
@@ -168,6 +168,12 @@ public sealed class CallGraphArrayKindIdentityTests
             @"N.A\[\]",
             "N.A[]",
             @"N.G\[\]{N.A}",
+            "N.G<X>",
+            "N.G{X}",
+            @"N.A\`1",
+            @"N.A\`1[]",
+            "#G3:N.H1:12:System.Int32",
+            "#G3:N.H1:12:System.Int32[]",
         ];
         var selectors = new List<CallGraphMemberSelector>(members.Length);
         for (int index = 0; index < members.Length; index++)
@@ -208,6 +214,22 @@ public sealed class CallGraphArrayKindIdentityTests
         Assert.Equal(
             selectors.Count,
             selectors.Select(selector => selector.Key).Distinct().Count());
+
+        Assembly assembly = Assembly.Load(image);
+        Type loadedType = assembly.GetType(
+            "N.ArrayCallGraphKinds",
+            throwOnError: true)!;
+        MethodInfo[] loadedMethods = loadedType.GetMethods(
+            BindingFlags.Public
+                | BindingFlags.Instance
+                | BindingFlags.DeclaredOnly);
+        Assert.Equal(members.Length, loadedMethods.Length);
+        foreach (MethodInfo method in loadedMethods)
+        {
+            _ = method.ReturnType;
+            foreach (ParameterInfo parameter in method.GetParameters())
+                _ = parameter.ParameterType;
+        }
     }
 
     static void AssertStructuralParameter(
@@ -310,7 +332,7 @@ public sealed class CallGraphArrayKindIdentityTests
             metadata);
     }
 
-    static byte[] BuildLiteralArrayNameImage()
+    static byte[] BuildExactNameImage()
     {
         var metadata = CreateMetadata();
         AssemblyReferenceHandle systemRuntime =
@@ -321,18 +343,22 @@ public sealed class CallGraphArrayKindIdentityTests
                 default,
                 default,
                 default);
+        AssemblyReferenceHandle systemCollections =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Collections"),
+                new Version(8, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
         TypeReferenceHandle objectType = metadata.AddTypeReference(
             systemRuntime,
             metadata.GetOrAddString("System"),
             metadata.GetOrAddString("Object"));
         TypeReferenceHandle list = metadata.AddTypeReference(
-            systemRuntime,
+            systemCollections,
             metadata.GetOrAddString("System.Collections.Generic"),
             metadata.GetOrAddString("List`1"));
-        TypeReferenceHandle literalGeneric = metadata.AddTypeReference(
-            systemRuntime,
-            metadata.GetOrAddString("N"),
-            metadata.GetOrAddString("G[]`1"));
         TypeDefinitionHandle ordinary = metadata.AddTypeDefinition(
             TypeAttributes.Public | TypeAttributes.Sealed,
             metadata.GetOrAddString("N"),
@@ -340,6 +366,63 @@ public sealed class CallGraphArrayKindIdentityTests
             objectType,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle argument = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString("X"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle literalGeneric = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("G[]`1"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddGenericParameter(
+            literalGeneric,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
+        TypeDefinitionHandle literalAngle = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("G<X>"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle ordinaryGeneric = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("G`1"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddGenericParameter(
+            ordinaryGeneric,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
+        TypeDefinitionHandle arityNamed = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("A`1"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle noArityGeneric = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("H"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddGenericParameter(
+            noArityGeneric,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
         TypeDefinitionHandle literal = metadata.AddTypeDefinition(
             TypeAttributes.Public | TypeAttributes.Sealed,
             metadata.GetOrAddString("N"),
@@ -402,6 +485,46 @@ public sealed class CallGraphArrayKindIdentityTests
                         isValueType: false,
                         literalGeneric,
                         Class(ordinary)),
+                    Void,
+                    IsGeneric: false),
+                new(
+                    "M",
+                    Class(literalAngle),
+                    Void,
+                    IsGeneric: false),
+                new(
+                    "M",
+                    GenericInstance(
+                        isValueType: false,
+                        ordinaryGeneric,
+                        Class(argument)),
+                    Void,
+                    IsGeneric: false),
+                new(
+                    "M",
+                    Class(arityNamed),
+                    Void,
+                    IsGeneric: false),
+                new(
+                    "M",
+                    Sz(Class(arityNamed)),
+                    Void,
+                    IsGeneric: false),
+                new(
+                    "M",
+                    GenericInstance(
+                        isValueType: false,
+                        noArityGeneric,
+                        Int32),
+                    Void,
+                    IsGeneric: false),
+                new(
+                    "M",
+                    Sz(
+                        GenericInstance(
+                            isValueType: false,
+                            noArityGeneric,
+                            Int32)),
                     Void,
                     IsGeneric: false),
             ],
@@ -514,6 +637,22 @@ public sealed class CallGraphArrayKindIdentityTests
         signature.WriteByte(isValueType ? (byte)0x11 : (byte)0x12);
         signature.WriteCompressedInteger(
             (MetadataTokens.GetRowNumber(definition) << 2) | 1);
+        signature.WriteCompressedInteger(arguments.Length);
+        foreach (byte[] argument in arguments)
+            signature.WriteBytes(argument);
+        return signature.ToArray();
+    }
+
+    static byte[] GenericInstance(
+        bool isValueType,
+        TypeDefinitionHandle definition,
+        params byte[][] arguments)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x15);
+        signature.WriteByte(isValueType ? (byte)0x11 : (byte)0x12);
+        signature.WriteCompressedInteger(
+            MetadataTokens.GetRowNumber(definition) << 2);
         signature.WriteCompressedInteger(arguments.Length);
         foreach (byte[] argument in arguments)
             signature.WriteBytes(argument);

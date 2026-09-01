@@ -349,9 +349,10 @@ internal sealed class NamedTypeNode(
 
     internal override bool HasStructuralPayload =>
         metadataName is not null
-        && StructuralTypeIdentity.RequiresEscapedNameIdentity(
-            metadataName.Namespace,
-            metadataName.Segments);
+        && !string.Equals(
+            StructuralIdentity(),
+            base.StructuralIdentity(),
+            StringComparison.Ordinal);
 
     public override string Render(bool canonicalTuples)
     {
@@ -404,9 +405,9 @@ internal sealed class GenericTypeNode(
     internal override bool HasStructuralPayload =>
         arguments.Any(argument => argument.HasStructuralPayload)
         || (metadataName is not null
-            && StructuralTypeIdentity.RequiresEscapedNameIdentity(
-                metadataName.Namespace,
-                metadataName.Segments));
+            && DefinitionRequiresStructuralPayload(
+                metadataName,
+                arguments.Length));
     public override long EstimatedRenderedLength => estimatedRenderedLength;
 
     internal override string StructuralIdentity()
@@ -418,6 +419,28 @@ internal sealed class GenericTypeNode(
                 metadataName.Namespace,
                 metadataName.Segments,
                 arguments.Select(argument => argument.StructuralIdentity()));
+
+    static bool DefinitionRequiresStructuralPayload(
+        MetadataTypeNameParts metadataName,
+        int argumentCount)
+    {
+        var placeholders = new string[argumentCount];
+        Array.Fill(placeholders, "StructuralArgument");
+        string exact = StructuralTypeIdentity.Generic(
+            metadataName.Namespace,
+            metadataName.Segments,
+            placeholders);
+        string display = TypeResolver.ApplyGenericArguments(
+            metadataName.Segments,
+            placeholders,
+            metadataName.IntroducedTypeParameterCounts,
+            preserveMismatchedArguments: true);
+        if (metadataName.Namespace.Length > 0)
+            display = $"{metadataName.Namespace}.{display}";
+        string normalized =
+            CSharpText.XmlDocumentationNotation.NormalizeParameterType(display);
+        return !string.Equals(exact, normalized, StringComparison.Ordinal);
+    }
 
     static long EstimateRenderedLength(
         string baseName,
