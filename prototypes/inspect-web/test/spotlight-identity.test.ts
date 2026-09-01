@@ -1228,6 +1228,23 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /#(?:retry-load|error-package-query|error-package-input|toggle-error-detail)|"\.load-error-detail"/);
 });
 
+test("the full-width subject zone advertises the typed subject hierarchy", () => {
+  const renderNode = functionDeclaration("render");
+  const subjectPathNode = functionDeclaration("inspectedSubjectPath");
+  const render = appSource.slice(renderNode.start, renderNode.end);
+  const subjectPath = appSource.slice(subjectPathNode.start, subjectPathNode.end);
+
+  assert.match(
+    render,
+    /<header class="subject-zone"[\s\S]*class="subject-path"[\s\S]*class="subject-advertisements"[\s\S]*<main class="workspace">/);
+  assert.doesNotMatch(
+    render,
+    /<section class="detail-pane">\s*<header class="detail-head">/);
+  assert.match(
+    subjectPath,
+    /const path = \[packageDisplayName\(pkg\)\][\s\S]*path\.push\(current\.namespace[\s\S]*if \(member\) path\.push\(member\.name\)/);
+});
+
 test("typed graph interactions own graph controls and Mermaid node bindings", () => {
   const workspaceBinding =
     appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]

@@ -46,7 +46,7 @@ test("narrow layout preserves the two-line hierarchy and primary actions", async
 
   const titleActions = await box(page, ".title-actions");
   const titlebar = await box(page, ".titlebar");
-  const inspectedSubjectLine = await box(page, ".detail-head");
+  const subjectZone = await box(page, ".subject-zone");
   const namespacePicker = await box(page, ".namespace-picker");
   const typeList = await box(page, ".type-list");
 
@@ -54,16 +54,38 @@ test("narrow layout preserves the two-line hierarchy and primary actions", async
   await expect(page.locator("#framework")).toHaveCount(0);
   await expect(page.locator("#open-search")).toBeVisible();
   await expect(page.locator("#go-home")).toHaveCount(0);
-  await expect(page.locator(".subject-identity")).toContainText(
-    "System.Text.Json.JsonSerializer");
-  await expect(page.locator(".detail-head #share")).toBeVisible();
+  await expect(page.locator(".subject-path-segment")).toHaveText([
+    "System.Text.Json",
+    "System.Text.Json.JsonSerializer",
+  ]);
+  await expect(page.locator(".subject-zone #share")).toBeVisible();
   await expect(page.locator("#copy-name")).toBeVisible();
   await expect(page.locator("#help")).toBeHidden();
   await expect(page.locator("#open-settings")).toBeHidden();
-  expect(titlebar.y).toBeLessThan(inspectedSubjectLine.y);
+  expect(titlebar.y).toBeLessThan(subjectZone.y);
   expect(titleActions.x + titleActions.width).toBeCloseTo(760, 0);
-  expect(inspectedSubjectLine.x + inspectedSubjectLine.width).toBeLessThanOrEqual(760);
+  expect(subjectZone.x).toBe(0);
+  expect(subjectZone.x + subjectZone.width).toBeCloseTo(760, 0);
   expect(namespacePicker.y + namespacePicker.height).toBeLessThanOrEqual(typeList.y);
+});
+
+test("the subject zone advertises the typed Package, Type, and Member path", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  await expect(page.locator(".subject-path-segment")).toHaveText([
+    "System.Text.Json",
+    "System.Text.Json.JsonSerializer",
+    "DeserializeSync",
+  ]);
+  await expect(page.locator(".subject-path-separator")).toHaveCount(2);
+  const zone = await box(page, ".subject-zone");
+  const workspace = await box(page, ".workspace");
+  expect(zone.x).toBe(0);
+  expect(zone.width).toBeCloseTo(1440, 0);
+  expect(zone.y + zone.height).toBeLessThanOrEqual(workspace.y);
 });
 
 test("Workspace gives retained coordinates the pane and keeps Share readable", async ({

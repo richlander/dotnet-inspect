@@ -15,6 +15,14 @@ if (!app) throw new Error("The workspace-titlebar harness root is unavailable.")
 const params = new URL(location.href).searchParams;
 const workspaceMode = params.has("workspace");
 const packageMode = params.has("package");
+const memberMode = params.has("member");
+const subjectPath = workspaceMode
+  ? ["Workspace"]
+  : packageMode
+    ? ["System.Text.Json"]
+    : memberMode
+      ? ["System.Text.Json", "System.Text.Json.JsonSerializer", "DeserializeSync"]
+      : ["System.Text.Json", "System.Text.Json.JsonSerializer"];
 const coordinates = [
   {
     id: "System.Text.Json",
@@ -74,27 +82,50 @@ app.innerHTML = `
   <div class="workbench">
     ${workbenchShellHtml({
       subjectInspectorHtml: renderScopeBar({
-        scope: workspaceMode ? "workspace" : packageMode ? "package" : "type",
+        scope: workspaceMode
+          ? "workspace"
+          : packageMode
+            ? "package"
+            : memberMode
+              ? "member"
+              : "type",
         strip: workspaceMode
           ? []
           : packageMode
             ? [["overview", "Overview"], ["dependencies", "Dependencies"]]
-            : [["api", "API"], ["metadata", "Metadata"], ["source", "Source"]],
-        activeStripId: workspaceMode ? null : packageMode ? "overview" : "api",
-        stripAttribute: packageMode ? "data-package-lens" : "data-lens",
-        showMemberScope: !workspaceMode && !packageMode,
+            : memberMode
+              ? [["overview", "Overview"], ["call-graph", "Call graph"]]
+              : [["api", "API"], ["metadata", "Metadata"], ["source", "Source"]],
+        activeStripId: workspaceMode
+          ? null
+          : packageMode
+            ? "overview"
+            : memberMode
+              ? "overview"
+              : "api",
+        stripAttribute: packageMode
+          ? "data-package-lens"
+          : memberMode
+            ? "data-member-section"
+            : "data-lens",
+        showMemberScope: memberMode,
         escapeHtml,
       }),
     })}
+    <header class="subject-zone" aria-label="Inspected subject">
+      <div class="subject-path" aria-label="${subjectPath.join(" > ")}" title="${subjectPath.join(" > ")}">
+        ${subjectPath.map((segment, index) =>
+          `${index === 0 ? "" : '<span class="subject-path-separator" aria-hidden="true">&gt;</span>'}<span class="subject-path-segment${index === 0 ? " root" : ""}${index === subjectPath.length - 1 ? " current" : ""}">${escapeHtml(segment)}</span>`).join("")}
+      </div>
+      <div class="subject-advertisements"></div>
+      <div class="detail-actions"><button id="share">Share</button>${workspaceMode ? "" : '<button id="copy-name">copy name</button>'}</div>
+    </header>
+    <div class="notice-stack"></div>
     <main class="workspace">
       ${navigationHtml}
       <section class="detail-pane">
-        <header class="detail-head">
-          <div class="subject-identity"><strong>${workspaceMode ? "Workspace" : packageMode ? "System.Text.Json@10.0.0" : "System.Text.Json.JsonSerializer"}</strong></div>
-          <div class="detail-actions"><button id="share">Share</button>${workspaceMode ? "" : '<button id="copy-name">copy name</button>'}</div>
-        </header>
         <article class="detail-scroll">
-          <h1>${workspaceMode ? "Workspace" : packageMode ? "System.Text.Json" : "System.Text.Json.JsonSerializer"}</h1>
+          <h1>${subjectPath.at(-1)}</h1>
           ${packageMode ? `
             <section class="document-section package-coordinate-editor">
               <div class="section-title"><h2>Package coordinate</h2><span>1 target framework</span></div>

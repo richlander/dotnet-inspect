@@ -95,7 +95,7 @@ current workspace.
 
 The title line does not show the fully qualified Library, Type, or Member
 identity. [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md)
-owns the inspected-subject line beneath it.
+owns the full-width subject zone beneath it.
 
 Search is a visible trailing action that opens Spotlight, not an
 always-editable query input or a visually dominant command center. The global
@@ -116,7 +116,7 @@ The shell may land before adjacent redesign owners. During that transition:
 - Open remains absent rather than appearing disabled or committing a
   success-shaped placeholder action;
 - the `dotnet-inspect` root control is the sole persistent Home affordance;
-- Share moves to the inspected-subject line while keyboard Help remains a
+- Share moves to the subject zone while keyboard Help remains a
   global title-line action; and
 - retained packages may provisionally supply Workspace entries and Package
   version/framework controls in Package content before product-issued
@@ -281,8 +281,8 @@ outcomes.
    selectors, or separate Platform workspace.
 3. Open Workspace and confirm that retained coordinates move into its working
    surface with activation and Close actions.
-4. Select a Type or Member and confirm that its fully qualified identity
-   appears on the inspected-subject line below the title line.
+4. Select a Type or Member and confirm that the full-width subject zone below
+   the title line advertises the Package, Type, and Member path in order.
 5. Select Package and confirm that Version and Framework appear in its working
    surface. Confirm that Share and Copy name remain with the exact identity,
    while `dotnet-inspect` is the sole Home affordance and Help and Settings

@@ -2662,7 +2662,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     annotatedPageContext && state.memberAnnotatedEmbedded !== null;
   const annotatedActionsEnabled =
     annotatedWorkingSurface;
-  const subjectName = currentInspectedSubjectName();
+  const subjectPath = currentInspectedSubjectPath();
 
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal ? " inert" : ""}>
@@ -2670,45 +2670,49 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
         subjectInspectorHtml: renderScopeBar(),
       })}
 
-      ${visibleQueryNotice()
-        ? `<div class="query-notice" role="alert">
-            <span class="query-notice-glyph">⚠</span>
-            <span class="query-notice-text">${escapeHtml(visibleQueryNotice())}</span>
-            ${state.queryNotice && state.queryNoticeRetryAction
-              ? '<button id="retry-notice" type="button">retry</button>'
-              : ""}
-            <button id="dismiss-notice" type="button" aria-label="Dismiss">×</button>
-          </div>`
-        : ""}
-      ${pkg.inspectionError
-        ? `<div class="query-notice" role="alert">
-            <span class="query-notice-glyph">⚠</span>
-            <span class="query-notice-text">${escapeHtml(`${pkg.id}@${pkg.version}: ${pkg.inspectionError}`)}</span>
-            <button id="dismiss-package-notice" type="button" aria-label="Dismiss">×</button>
-          </div>`
-        : ""}
+      <header class="subject-zone" aria-label="Inspected subject">
+        <div class="nav-history">
+          <button id="nav-back" ${navigationHistory.canBack() ? "" : "disabled"} title="Back (Alt+← or Shift+←)" aria-label="Back">‹</button>
+          <button id="nav-forward" ${navigationHistory.canForward() ? "" : "disabled"} title="Forward (Alt+→ or Shift+→)" aria-label="Forward">›</button>
+        </div>
+        <div class="subject-path" aria-label="${escapeHtml(subjectPath.join(" > "))}" title="${escapeHtml(subjectPath.join(" > "))}">
+          ${renderInspectedSubjectPath(subjectPath)}
+        </div>
+        <div class="subject-advertisements"></div>
+        <div class="detail-actions${annotatedPageContext ? " annotated-page-actions" : ""}">
+          <button id="share" type="button">Share</button>
+          ${annotatedPageContext
+            ? renderAnnotatedSourcePageActions(annotatedActionsEnabled)
+            : scope() === "workspace"
+            ? ""
+            : `<button id="copy-name" type="button">copy name</button><button id="taste-btn" class="${state.taste.length ? "active" : ""}" title="Decompiler style (taste)">taste${state.taste.length ? ` · ${state.taste.length}` : ""}</button>`}
+        </div>
+      </header>
+
+      <div class="notice-stack">
+        ${visibleQueryNotice()
+          ? `<div class="query-notice" role="alert">
+              <span class="query-notice-glyph">⚠</span>
+              <span class="query-notice-text">${escapeHtml(visibleQueryNotice())}</span>
+              ${state.queryNotice && state.queryNoticeRetryAction
+                ? '<button id="retry-notice" type="button">retry</button>'
+                : ""}
+              <button id="dismiss-notice" type="button" aria-label="Dismiss">×</button>
+            </div>`
+          : ""}
+        ${pkg.inspectionError
+          ? `<div class="query-notice" role="alert">
+              <span class="query-notice-glyph">⚠</span>
+              <span class="query-notice-text">${escapeHtml(`${pkg.id}@${pkg.version}: ${pkg.inspectionError}`)}</span>
+              <button id="dismiss-package-notice" type="button" aria-label="Dismiss">×</button>
+            </div>`
+          : ""}
+      </div>
 
       <main class="workspace">
         ${renderNavPane(current, visible)}
 
         <section class="detail-pane">
-          <header class="detail-head">
-            <div class="nav-history">
-              <button id="nav-back" ${navigationHistory.canBack() ? "" : "disabled"} title="Back (Alt+← or Shift+←)" aria-label="Back">‹</button>
-              <button id="nav-forward" ${navigationHistory.canForward() ? "" : "disabled"} title="Forward (Alt+→ or Shift+→)" aria-label="Forward">›</button>
-            </div>
-            <div class="subject-identity" title="${escapeHtml(subjectName)}">
-              <strong>${escapeHtml(subjectName)}</strong>
-            </div>
-            <div class="detail-actions${annotatedPageContext ? " annotated-page-actions" : ""}">
-              <button id="share" type="button">Share</button>
-              ${annotatedPageContext
-                ? renderAnnotatedSourcePageActions(annotatedActionsEnabled)
-                : scope() === "workspace"
-                ? ""
-                : `<button id="copy-name" type="button">copy name</button><button id="taste-btn" class="${state.taste.length ? "active" : ""}" title="Decompiler style (taste)">taste${state.taste.length ? ` · ${state.taste.length}` : ""}</button>`}
-            </div>
-          </header>
           <article class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}">
             ${renderLens(current)}
           </article>
@@ -2840,6 +2844,38 @@ function currentInspectedSubjectName(): string {
   return state.package
     ? inspectedSubjectName(state.package, selectedType())
     : "";
+}
+
+function inspectedSubjectPath(
+  pkg: AppPackage,
+  current: AppTypeSurface | null | undefined,
+): readonly string[] {
+  if (scope() === "workspace") return ["Workspace"];
+  const path = [packageDisplayName(pkg)];
+  if (state.atPackageRoot || !current) return path;
+  path.push(current.namespace
+    ? `${current.namespace}.${typeDisplayName(current)}`
+    : typeDisplayName(current));
+  const member = scope() === "member" ? selectedMember(current) : null;
+  if (member) path.push(member.name);
+  return path;
+}
+
+function currentInspectedSubjectPath(): readonly string[] {
+  return state.package
+    ? inspectedSubjectPath(state.package, selectedType())
+    : [];
+}
+
+function renderInspectedSubjectPath(path: readonly string[]): string {
+  return path.map((segment, index) => {
+    const root = index === 0 ? " root" : "";
+    const current = index === path.length - 1 ? " current" : "";
+    const separator = index === 0
+      ? ""
+      : '<span class="subject-path-separator" aria-hidden="true">&gt;</span>';
+    return `${separator}<span class="subject-path-segment${root}${current}">${escapeHtml(segment)}</span>`;
+  }).join("");
 }
 
 function renderWorkspaceNavPane() {

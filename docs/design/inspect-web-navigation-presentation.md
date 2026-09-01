@@ -16,8 +16,7 @@ browser history; that model belongs to
 This owner defines:
 
 - the Workspace, Package, Library, Type, and Member subject hierarchy, the
-  title-line subject/inspector region, and the inspected-subject line;
-- the broad-identity descriptor consumed by the shell title bar;
+  title-line subject/inspector region, and the subject zone;
 - the Workspace subject that owns retained-coordinate management;
 - lens-tab rendering, roving-tabindex interaction, and no-effective-lens
   status presentation;
@@ -96,9 +95,8 @@ An inspection workspace has two persistent lines before its primary content:
 
 1. The title line begins with `dotnet-inspect`, then renders the subject ladder,
    active inspectors, and global actions.
-2. The **inspected-subject line** renders the exact Workspace, Package,
-   Library, Type, or Member identity in full with its direct Share and Copy
-   name actions.
+2. The full-width **subject zone** advertises the ordered active subject path,
+   then direct Share and Copy name actions, before the working-content grid.
 
 The title line follows the CLI's product-to-subject-to-inspector grammar but is
 not command text. Inventories, hierarchy menus, and other target navigation
@@ -122,11 +120,31 @@ The combined subject/inspector region consumes only the width it needs and may
 scroll horizontally under pressure. Remaining title-line width stays empty
 rather than carrying a tab-like active-package label.
 
-### Inspected-subject line
+### Subject zone
 
-The inspected-subject line renders one product-owned canonical display identity
-without decomposing it into inert breadcrumbs. It may elide visually under
-pressure, but its complete identity remains in the accessible name and title.
+The subject zone is the second shell row, spanning both navigation and working
+content. It is not part of either pane. Its primary advertisement is an ordered
+typed path:
+
+```text
+System.Text.Json > System.Text.Json.JsonSerializer > DeserializeSync
+```
+
+The path contains the applicable Package, Library, Type, and Member display
+identities supplied by their owners. Workspace renders `Workspace`. The
+presentation does not parse one display string to derive another, and the
+segments are orientation rather than inert navigation breadcrumbs.
+
+The Package segment receives the strongest visual emphasis, following
+npmx.dev's useful placement of the current package in large lettering directly
+below its top row. Narrower segments follow in order and the current leaf
+remains visually identifiable. The complete path remains in the accessible
+name and title when visible segments elide.
+
+The zone reserves elastic space between the subject path and actions for
+concise owner-issued advertisements. Advertisements yield space before the
+subject path or direct actions and may not become another persistent tab strip,
+coordinate selector, or independently reconstructed identity.
 
 Trailing `Share` copies the canonical workspace link. `Copy name` appears only
 when the active subject has a product-issued canonical name and copies that
@@ -136,7 +154,7 @@ display text.
 
 Browser Back and Forward own navigation history. Existing in-surface history
 buttons may remain during incremental adoption, but they are not part of the
-inspected-subject-line contract.
+subject-path contract.
 
 ### Workspace surface
 
@@ -358,7 +376,7 @@ or retention from assembly membership.
 
 When the product surface identifies colliding types under `All libraries`, type
 navigation qualifies only those rows with their product-owned defining library.
-If a colliding Type is selected, the inspected-subject line also shows its
+If a colliding Type is selected, the subject zone also shows its
 defining library. API and Source continue to rely on that line for the complete
 identity; disambiguation does not restore the removed metadata block.
 

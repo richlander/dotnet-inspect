@@ -191,19 +191,18 @@ one restrictive dimension.
 
 ## Shared heading rules
 
-The title line identifies the active subject and inspector. The
-inspected-subject line immediately below it identifies the exact Package,
-Library, Type, or Member in full. Package coordinate options belong to Package
-content. Content headings may use the shorter local name. This section defines
-how lenses retain that orientation without restoring duplicated hero metadata.
+The title line identifies the active subject and inspector. The full-width
+subject zone immediately below it advertises the ordered Package, Library,
+Type, and Member path. Package coordinate options belong to Package content.
+Content headings may use the shorter local name. This section defines how
+lenses retain that orientation without restoring duplicated hero metadata.
 
 ### API and Source lenses
 
 API and Source render a compact local heading followed by their primary
-content. The inspected-subject line remains the visible owner of the complete
-qualified identity. When the snapshot has an effective lens, the lens panel's
-accessible heading relationship includes the inspected-subject identity and
-the active inspector label.
+content. The subject zone remains the visible owner of the complete hierarchy.
+When the snapshot has an effective lens, the lens panel's accessible heading
+relationship includes the subject path and the active inspector label.
 
 When the snapshot has no effective lens, the UI renders no `tabpanel`. A status
 region references the target heading and its visible `Lens unavailable`

@@ -166,7 +166,8 @@ From the full-bleed Annotated Source viewer, that action closes the viewer and
 opens Settings. Closing Settings returns to inline Annotated Source without
 reopening the viewer; any changed style regenerates the affected inline output.
 
-Changing style regenerates only affected decompiler output. The preference is not part of the title line or inspected-subject line, and a
+Changing style regenerates only affected decompiler output. The preference is
+not part of the title line or subject zone, and a
 shared workspace does not impose the sender's style preference on its
 recipient.
 
@@ -216,13 +217,14 @@ One information hierarchy adapts across viewport sizes:
 - wide layouts retain Type or Member navigation beside a full working surface;
 - narrow layouts replace the navigation pane with a visible
   `Types` or `Members` button that opens the shared modal navigation drawer;
-- the combined title line and inspected-subject line each remain one line;
-- Share and Copy name remain visible on the inspected-subject line;
+- the title line and full-width subject zone each remain one line;
+- the subject zone remains outside and above the navigation/content grid;
+- Share and Copy name remain visible on the subject zone;
 - Help and Settings disappear before Search, the `dotnet-inspect` Home
   control, subject navigation, or inspected-subject actions;
 - subject and inspector navigation scroll horizontally instead of wrapping;
-- the inspected-subject identity elides visually without losing its complete
-  accessible identity; and
+- subject-path segments and optional advertisements elide visually without
+  losing the complete accessible subject path; and
 - full identities remain available through accessible labels and focused or
   expanded states.
 
