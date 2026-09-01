@@ -412,8 +412,9 @@ and `PackageVersionVectorTests.ResolveAsync_FallsThroughFailedHttpSource`.
 
 `--versions-with-feed` keeps provenance that the merged views discard. It shows
 which feeds carry each coordinate, including a coordinate published by more than
-one feed. Under the target item-limit contract, its declared row is one
-`(version, feed)` observation, so `--versions-with-feed -n N` selects N rows.
+one feed. The historical #4677 target treated one `(version, feed)` observation
+as its declared row, so its proposed `--versions-with-feed -n N` selected N
+rows. This behavior awaits focused CLI ownership and is not released.
 This differs from the released count-valued lens option, which selects N
 distinct versions and then emits every carrying feed. The primary version order
 is the containing Vector's order: newest-first for a bare package and caller

@@ -70,7 +70,7 @@ Related docs:
 typed manifests over a corpus, with an explicit bound and honest truncation
 and partial-source failure, rendered through the shared Sections registry
 just as `library`/`member`/`package` are. Its corpus-limit spelling is still
-`-t`, not yet the target `-n` vocabulary — see
+`-t`; the historical #4677 target proposed `-n` instead — see
 [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing).
 The L1 nuspec facet engine now provides a host-neutral way to ask "and does
 each package satisfy *this*" over facts already available from the source and
@@ -141,7 +141,7 @@ route through the shared pipeline, the same infrastructure `library`/`member`/
 **What did not land alongside it:** the flag-numbering half of this
 recommendation. This document's own "one deliberate, called-out behavior
 change" for this migration step was retiring `-t`-as-package-limit in favor of
-the settled `-n` contract — but `find --package-prefix`'s corpus limit is
+the historical #4677 `-n` proposal — but `find --package-prefix`'s corpus limit is
 still spelled `-t` on `main` (`FindOptions.Limit`, validated as "`-t` must be
 between 1 and..."). `-S` and `--where` are also not yet wired (there is
 currently exactly one section, `Packages`, so `-S` selection is moot until the
@@ -157,9 +157,9 @@ not define how `--count` composes with L2 row windows.
 `-t`→`-n` flag rename were assumed to be one atomic step; in practice they
 decoupled, and the migration landed first. The CLI facet wiring in
 [Landing sequence](#landing-sequence) step 4 should not silently inherit `-t`
-as precedent — it should either retire `-t` for `-n` itself, or explicitly
-hand that retirement to a focused CLI item-limit owner, naming which PR owns it
-so it does not fall through the gap a second time.
+as precedent. It must hand the spelling decision to a focused CLI item-limit
+owner, naming which PR owns it so the decision does not fall through the gap a
+second time.
 
 ### `-t` is the wrong flag to build on; the historical target proposed `-n`
 
@@ -189,8 +189,8 @@ A corpus-match query that names a ranking field (for example, "top 500 by
 download count") uses `--top 500 --order-by "DownloadCount desc"`; a plain
 "first 500 that match" uses `-n 500`.
 
-The Sections-registry migration was the right moment to apply the settled
-contract, but it landed without that part: `find --package-prefix` rows are
+The Sections-registry migration was the intended moment to apply that
+historical proposal, but it landed without that part: `find --package-prefix` rows are
 now declared sections, yet the corpus limit is still `-t`, not `-n`. See
 [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing)
 for the resulting follow-up.
@@ -366,7 +366,7 @@ the CLI's named facets as canonical for the browser's facet rail.
    `SectionPipeline<PackageProfileView>`), so `--count`/`--rows` work the
    same way they do for `library`/`member`/`package`, without a second
    bespoke implementation. What did not land alongside it: retiring
-   `-t`-as-package-limit for the settled `-n` contract, and `-S`/`--where`
+   `-t`-as-package-limit for the historical #4677 `-n` proposal, and `-S`/`--where`
    remain unwired. See
    [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing).
 3. **Product-owned nuspec facet contract — implemented in the current
@@ -376,13 +376,14 @@ the CLI's named facets as canonical for the browser's facet rail.
    evidence and honest completion. `PackageQueryTests` and
    `PackageQueryPlanner_IsReachableFromBrowserConsumer` are the named Release
    gates.
-4. **Retire `-t` for `-n` on `find --package-prefix`**, closing the gap step
-   2 left open, and **wire the product-owned nuspec facets into the CLI**,
-   preserving the filter-before-bound ordering from
+4. **Resolve the corpus-limit spelling under a focused CLI item-limit
+   owner**, closing the gap step 2 left open, and **wire the product-owned
+   nuspec facets into the CLI**, preserving the filter-before-bound ordering from
    [Completion and bound honesty parity](#completion-and-bound-honesty-parity-with-the-browser).
-   The slice must settle a CLI spelling and any product-owned bindings needed
-   to lower that spelling to opaque facet IDs without duplicating predicates.
-   Neither sub-goal has landed yet.
+   The historical #4677 target proposed retiring `-t` for `-n`; the slice must
+   make its own CLI decision and settle any product-owned bindings needed to
+   lower the chosen spelling to opaque facet IDs without duplicating
+   predicates. Neither sub-goal has landed yet.
 5. **Add the promoted-tier capability gate and `--deepen`-bounded IL
    evaluation**, including the L2 tier-gating error for an ungated
    promoted-tier field.
