@@ -688,6 +688,89 @@ and it cannot make a stateful resolver stable. Same-provider decoding is
 guaranteed only on the `TryDecode` path, which is the supported product path.
 The resolver-less overload is a conservative test-only path.
 
+### Frozen cross-assembly enum-width adapter
+
+Custom-attribute enum width can consume one frozen
+[`TypeResolutionContext`](type-forwarding-resolution.md) through
+`TypeResolutionEnumWidth`: planned serialized names become structured
+requests, `Resolve` locates an already-retained defining image, and the
+resolved definition's authenticated kind plus
+`TypeResolutionContext.TryGetEnumUnderlyingType` establish a sealed
+core-library-derived `System.Enum` definition and read its single valid
+`value__` field without exposing a reader. Reflection-name escapes are
+projected back to exact metadata namespace and type segments, and the
+pre-decode guard applies SRM's own serialized-name projection before consulting
+the width table, so a name that only parses once its assembly suffix is removed
+cannot give the guard and the decoder different widths. Unplanned, unbound,
+malformed, or callback-ambiguous names stay `Int32`.
+
+Explicit assembly qualifiers stay constraints rather than widening to
+wildcards: an explicit `Culture=neutral` is spelled so it cannot match a
+culture-specific candidate, and an explicit `PublicKeyToken=null` names an
+unsigned assembly. Because an empty token reads as a wildcard during binding,
+the adapter records it on the request and then drops a resolved candidate that
+turned out to be signed, keeping the qualifier a constraint without changing
+the identity contract that `AssemblyDependencyResolver` and `MetadataSource`
+also consume. The qualifier constrains the assembly the reference bound to, so
+when forwarding hops were followed the narrowing inspects the first hop's
+source rather than the terminal definition. A definition that is not a
+CLI-valid enum -- unsealed, not directly derived from `System.Enum`, generic,
+carrying a non-public, non-special, or literal `value__`, or carrying a
+non-literal static field -- supplies no width.
+
+An argument whose signature names a type by handle is resolved from the
+definition that handle denotes, on both sides, never from its rendered name. A
+definition handle denotes itself; a reference is matched structurally, by name
+and resolution scope. Distinct definitions can render to one string: a nested
+type joins its declaring type with `.`, exactly as a namespace joins a type
+name, so a nested `Kind` declared in `Samples.E` and a top-level `Kind` in
+namespace `Samples.E` both render `Samples.E.Kind`. A reference additionally
+carries a resolution scope that its flattened spelling discards. Any
+name-keyed index must therefore drop one colliding definition, and routing
+either side through a name would let the guard and the decode select different
+definitions and skip different widths. Both sides ask
+`EnumUnderlyingPrimitive.TryResolveDefinition` about the same handle and take
+the width from the definition it returns;
+`NestedTypeNameCollision_GuardSkipMatchesDecodeWidth` gates both handle forms
+and `CollidingTypeDefNames_EachResolveTheirOwnWidth` gates the premise. A
+supplied name resolver never overrides a definition the signature already
+named, on either side. Structural matching walks a reference's nested scope
+chain but does not consult its terminal assembly or module scope, so a
+reference whose chain matches a definition in this reader resolves to that
+definition even when it nominally denotes another assembly. That is
+long-standing behavior, gated by
+`TypeRefEnumMatchingLocalInt64_SeesFollowingArrayCount`, and it is what keeps
+this side aligned with a decode that would otherwise reach the same local
+definition through its rendered name. A reference whose chain matches no
+definition here resolves by name as before.
+
+A name that has no pending handle -- a reference to a type this reader does not
+define, or a name the blob authored -- is looked up by spelling, and that
+lookup depends on where the name came from. A handle-derived name is an exact
+metadata spelling that reaches the provider verbatim, and metadata names may
+contain characters a reflection type name treats as escapes, so it is matched
+by its exact spelling before its reflection-normalized one. A blob-authored
+name is reflection syntax whose escapes are meaningful -- `E\+Kind` names the
+metadata type `E+Kind`, not one spelled with a backslash -- so it is normalized
+first and never matched verbatim. Both sides of the guard/decode pair classify
+a name the same way, so the two remain aligned either way. That classification
+belongs to a single pending lookup, not to a spelling: the provider records
+only that the name it produced most recently came from the blob, and clears
+that mark when it produces a handle-derived name. Remembering spellings instead
+would let a blob-authored occurrence change how a later handle-derived
+occurrence of the same spelling resolves, making a consumed width depend on
+argument order. The guard also resolves a repeated enum name once rather than
+once per array element, because the element count is attacker-chosen and
+per-element parsing is the amplification the guard exists to prevent.
+
+Product extract does not yet collect custom-attribute enum names into a
+generation; that remains residual on
+[#4741](https://github.com/richlander/dotnet-inspect/issues/4741).
+`TypeResolutionEnumWidthTests` gates the adapter, and
+`CustomAttributeValueGuardTests` gates guard/decoder width alignment through
+`EscapedTypeDefEnumName_GuardSkipMatchesDecodeWidth` and
+`EnumArrayElements_ResolveTheWidthOncePerName`.
+
 ### Resolution order, and what `Int32` actually means
 
 `ResolveEnum` tries the structural definition path first and consults the
@@ -934,6 +1017,7 @@ malformed blob.
 | #5132 | Quadratic cost across attribute rows sharing one value blob. Gap 7. Found while reviewing this document. |
 | #4879 | Enum constants whose signature does not match `value__`. Fidelity. |
 | #5062 | Signature decode laundering internal errors into `SignatureRejected`. |
+| #4741 | Product extraction does not yet plan custom-attribute enum names into a frozen type-resolution generation. |
 
 Issue #5067 tracks this space as a whole.
 
