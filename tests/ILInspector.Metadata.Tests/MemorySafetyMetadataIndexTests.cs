@@ -214,6 +214,108 @@ public sealed class MemorySafetyMetadataIndexTests
         Assert.False(result.Evidence.DirectAttribute.HasMalformedRow);
     }
 
+    [Fact]
+    public void UnsortedCustomAttributeRowsFailClosed()
+    {
+        using OpenedMetadata opened = Open(
+            WithSwappedCustomAttributeRows(BuildSyntheticImage([2])));
+        MemorySafetyMetadataIndex index =
+            MemorySafetyMetadataIndex.Create(opened.Reader);
+
+        var rules =
+            Assert.IsType<MemorySafetyRulesResult.Unavailable>(index.Rules);
+        Assert.Equal(
+            MemorySafetyMetadataFailureKind.Malformed,
+            rules.Failure.Kind);
+
+        var member =
+            Assert.IsType<MemorySafetyMemberContractResult.Unavailable>(
+                index.GetMemberContract(
+                    MetadataTokens.MethodDefinitionHandle(4)));
+        Assert.Equal(
+            MemorySafetyMemberContractFailureKind.MetadataUnavailable,
+            member.Failure.Kind);
+    }
+
+    [Theory]
+    [InlineData("System.Int32", true)]
+    [InlineData(
+        "System.Int32, System.Runtime, Version=11.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a",
+        true)]
+    [InlineData(
+        "System.Int32, Attacker, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
+        false)]
+    [InlineData(
+        "System.Int32, System.Runtime, Version=11.0.0.0, Culture=neutral, PublicKeyToken=0123456789abcdef",
+        false)]
+    public void FixedBufferExemptionRequiresPlatformElementTypeIdentity(
+        string serializedElementType,
+        bool exempts)
+    {
+        using OpenedMetadata opened = Open(
+            BuildFixedBufferElementTypeImage(serializedElementType));
+        MemorySafetyMetadataIndex index =
+            MemorySafetyMetadataIndex.Create(opened.Reader);
+
+        MemorySafetyMemberContractResult result =
+            index.GetMemberContract(
+                MetadataTokens.FieldDefinitionHandle(1));
+        if (exempts)
+        {
+            var none =
+                Assert.IsType<MemorySafetyMemberContractResult.None>(result);
+            Assert.Equal(
+                MemorySafetyFixedBufferEvidence.Present,
+                none.Evidence.FixedBuffer);
+            return;
+        }
+
+        var propagated =
+            Assert.IsType<MemorySafetyMemberContractResult.Implicit>(result);
+        Assert.Equal(
+            MemorySafetyPointerEvidence.Present,
+            propagated.Evidence.Pointer);
+        Assert.Equal(
+            MemorySafetyFixedBufferEvidence.Unavailable,
+            propagated.Evidence.FixedBuffer);
+    }
+
+    [Fact]
+    public void UnobservedMethodSemanticsRowsMakeAssociationsUnavailable()
+    {
+        using OpenedMetadata opened = Open(
+            BuildSyntheticImage(
+                [2],
+                duplicatePropertySemantics: true));
+        MemorySafetyMetadataIndex index =
+            MemorySafetyMetadataIndex.Create(opened.Reader);
+
+        Assert.NotNull(index.AssociationFailure);
+        Assert.Equal(
+            MemorySafetyMetadataFailureKind.Malformed,
+            index.AssociationFailure!.Kind);
+
+        var accessor =
+            Assert.IsType<MemorySafetyMemberContractResult.Unavailable>(
+                index.GetMemberContract(
+                    FindMethod(
+                        opened.Reader,
+                        "Samples.Target",
+                        "get_AssociatedProperty")));
+        Assert.Equal(
+            MemorySafetyMemberContractFailureKind.MetadataUnavailable,
+            accessor.Failure.Kind);
+
+        // A direct carrier never consults the association map, so it still
+        // decides the contract while the projection is untrustworthy.
+        Assert.IsType<MemorySafetyMemberContractResult.Explicit>(
+            index.GetMemberContract(
+                FindMethod(
+                    opened.Reader,
+                    "Samples.Target",
+                    "AttributeOnly")));
+    }
+
     [Theory]
     [InlineData(nameof(ContractFixtures.PropertyContract))]
     [InlineData(nameof(ContractFixtures.EventContract))]
@@ -706,7 +808,8 @@ public sealed class MemorySafetyMetadataIndexTests
         bool nestedRulesTypeDefinition = false,
         bool nestedRequiresUnsafeTypeDefinition = false,
         bool nestedRulesTypeReference = false,
-        bool nestedRequiresUnsafeTypeReference = false)
+        bool nestedRequiresUnsafeTypeReference = false,
+        bool duplicatePropertySemantics = false)
     {
         var metadata = new MetadataBuilder();
         ModuleDefinitionHandle module = metadata.AddModule(
@@ -978,6 +1081,15 @@ public sealed class MemorySafetyMetadataIndexTests
             property,
             MethodSemanticsAttributes.Getter,
             propertyGetter);
+        if (duplicatePropertySemantics)
+        {
+            // PropertyAccessors keeps one Getter slot, so this second row is
+            // dropped from the projection without any error surfacing.
+            metadata.AddMethodSemantics(
+                property,
+                MethodSemanticsAttributes.Getter,
+                attributeOnly);
+        }
         EventDefinitionHandle @event = metadata.AddEvent(
             EventAttributes.None,
             metadata.GetOrAddString("AssociatedEvent"),
@@ -1151,6 +1263,130 @@ public sealed class MemorySafetyMetadataIndexTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    static byte[] BuildFixedBufferElementTypeImage(
+        string serializedElementType)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("FixedBufferElementType.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("FixedBufferElementType"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        AssemblyReferenceHandle coreLibrary =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(11, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                    Convert.FromHexString("B03F5F7F11D50A3A")),
+                default,
+                default);
+        TypeReferenceHandle systemType = metadata.AddTypeReference(
+            coreLibrary,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Type"));
+        TypeReferenceHandle fixedBufferAttribute =
+            metadata.AddTypeReference(
+                coreLibrary,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString("FixedBufferAttribute"));
+        BlobHandle constructorSignature = AddMethodSignature(
+            metadata,
+            isInstance: true,
+            parameterCount: 2,
+            parameters =>
+            {
+                parameters.AddParameter().Type().Type(
+                    systemType,
+                    isValueType: false);
+                parameters.AddParameter().Type().Int32();
+            });
+        MemberReferenceHandle constructor =
+            metadata.AddMemberReference(
+                fixedBufferAttribute,
+                metadata.GetOrAddString(".ctor"),
+                constructorSignature);
+        var fieldSignature = new BlobBuilder();
+        new BlobEncoder(fieldSignature)
+            .FieldSignature()
+            .Pointer()
+            .Int32();
+        FieldDefinitionHandle field =
+            metadata.AddFieldDefinition(
+                FieldAttributes.Public,
+                metadata.GetOrAddString("Buffer"),
+                metadata.GetOrAddBlob(fieldSignature));
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            field,
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Target"),
+            default,
+            field,
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteSerializedString(serializedElementType);
+        value.WriteInt32(4);
+        value.WriteUInt16(0);
+        metadata.AddCustomAttribute(
+            field,
+            constructor,
+            metadata.GetOrAddBlob(value));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    /// <summary>
+    /// Swaps the first two physical CustomAttribute rows while leaving the
+    /// tables stream's sorted claim intact, reproducing an image whose owner
+    /// ranges SRM answers with a binary search over unsorted rows.
+    /// </summary>
+    static byte[] WithSwappedCustomAttributeRows(byte[] image)
+    {
+        byte[] mutated = (byte[])image.Clone();
+        using var stream = new MemoryStream(image, writable: false);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        Assert.True(
+            reader.GetTableRowCount(TableIndex.CustomAttribute) >= 2);
+        int rowSize = reader.GetTableRowSize(TableIndex.CustomAttribute);
+        int offset =
+            pe.PEHeaders.MetadataStartOffset
+            + reader.GetTableMetadataOffset(TableIndex.CustomAttribute);
+        Span<byte> rows = mutated.AsSpan(offset, rowSize * 2);
+        byte[] scratch = rows[..rowSize].ToArray();
+        rows[rowSize..].CopyTo(rows[..rowSize]);
+        scratch.CopyTo(rows[rowSize..]);
+        return mutated;
     }
 
     static BlobHandle AddMethodSignature(

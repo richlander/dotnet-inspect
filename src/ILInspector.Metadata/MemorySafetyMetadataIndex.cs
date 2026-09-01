@@ -234,6 +234,16 @@ public sealed class MemorySafetyMetadataIndex
             eventRows = reader.GetTableRowCount(TableIndex.Event);
             methodSemanticsRows =
                 reader.GetTableRowCount(TableIndex.MethodSemantics);
+            if (!CustomAttributeParentsAreOrdered(reader))
+            {
+                return Failed(
+                    reader,
+                    attributeRowBudget,
+                    nameWorkBudget,
+                    MemorySafetyMetadataFailureKind.Malformed,
+                    "The CustomAttribute table is not sorted by parent, so attribute owner lookups cannot observe every row.");
+            }
+
             rules = ReadRules(
                 reader,
                 attributeRowBudget,
@@ -279,8 +289,16 @@ public sealed class MemorySafetyMetadataIndex
                     associationRowBudget,
                     associatedContracts,
                     ambiguousAssociations,
-                    out bool hasMalformedRows);
-                if (hasMalformedRows)
+                    out bool hasMalformedRows,
+                    out bool projectionIsIncomplete);
+                if (projectionIsIncomplete)
+                {
+                    associationsIncomplete = true;
+                    associationFailure = new(
+                        MemorySafetyMetadataFailureKind.Malformed,
+                        "The MethodSemantics table has rows that accessor projection does not observe, so accessor associations cannot be trusted.");
+                }
+                else if (hasMalformedRows)
                 {
                     associationFailure = new(
                         MemorySafetyMetadataFailureKind.Malformed,
@@ -305,6 +323,15 @@ public sealed class MemorySafetyMetadataIndex
                     MemorySafetyMetadataFailureKind.Malformed,
                     "Memory-safety accessor associations could not be read.");
             }
+        }
+
+        if (associationsIncomplete)
+        {
+            // A partial projection can also mis-associate the accessors it did
+            // observe, so no association survives an incomplete scan. Direct
+            // carriers stay decisive because they never depend on this map.
+            associatedContracts.Clear();
+            ambiguousAssociations.Clear();
         }
 
         return new(
@@ -950,6 +977,46 @@ public sealed class MemorySafetyMetadataIndex
         return false;
     }
 
+    /// <summary>
+    /// Proves that the CustomAttribute table is physically sorted by its
+    /// <c>HasCustomAttribute</c> parent coded index, as ECMA-335 II.22
+    /// requires. SRM answers every owner-range lookup with a binary search
+    /// whenever the tables stream claims the table is sorted, so an image that
+    /// asserts that claim over unsorted rows can hide module markers and member
+    /// carriers from <c>GetCustomAttributes</c> entirely. Rows are read once at
+    /// construction and the index fails closed rather than reporting an
+    /// attribute-derived contract it cannot observe completely.
+    /// </summary>
+    static bool CustomAttributeParentsAreOrdered(MetadataReader reader)
+    {
+        if (reader.GetTableRowCount(TableIndex.CustomAttribute)
+            > MetadataSafetyPolicy.MaxMemorySafetyCustomAttributeOrderRows)
+        {
+            throw new MetadataBudgetException();
+        }
+
+        int previous = -1;
+        foreach (CustomAttributeHandle handle in reader.CustomAttributes)
+        {
+            EntityHandle parent = reader.GetCustomAttribute(handle).Parent;
+            int coded;
+            try
+            {
+                coded = CodedIndex.HasCustomAttribute(parent);
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+
+            if (coded < previous)
+                return false;
+            previous = coded;
+        }
+
+        return true;
+    }
+
     static void BuildAssociations(
         MetadataReader reader,
         int methodRowCount,
@@ -959,7 +1026,8 @@ public sealed class MemorySafetyMetadataIndex
         int rowBudget,
         Dictionary<int, EntityHandle> associations,
         HashSet<int> ambiguous,
-        out bool hasMalformedRows)
+        out bool hasMalformedRows,
+        out bool isIncomplete)
     {
         if (checked(
                 propertyRowCount
@@ -968,6 +1036,7 @@ public sealed class MemorySafetyMetadataIndex
             throw new MetadataBudgetException();
 
         hasMalformedRows = false;
+        int projectedRows = 0;
         foreach (PropertyDefinitionHandle propertyHandle
             in reader.PropertyDefinitions)
         {
@@ -979,14 +1048,16 @@ public sealed class MemorySafetyMetadataIndex
                 methodRowCount,
                 associations,
                 ambiguous,
-                ref hasMalformedRows);
+                ref hasMalformedRows,
+                ref projectedRows);
             AddAssociation(
                 accessors.Setter,
                 propertyHandle,
                 methodRowCount,
                 associations,
                 ambiguous,
-                ref hasMalformedRows);
+                ref hasMalformedRows,
+                ref projectedRows);
             foreach (MethodDefinitionHandle other in accessors.Others)
             {
                 AddAssociation(
@@ -995,7 +1066,8 @@ public sealed class MemorySafetyMetadataIndex
                     methodRowCount,
                     associations,
                     ambiguous,
-                    ref hasMalformedRows);
+                    ref hasMalformedRows,
+                    ref projectedRows);
             }
         }
 
@@ -1010,21 +1082,24 @@ public sealed class MemorySafetyMetadataIndex
                 methodRowCount,
                 associations,
                 ambiguous,
-                ref hasMalformedRows);
+                ref hasMalformedRows,
+                ref projectedRows);
             AddAssociation(
                 accessors.Remover,
                 eventHandle,
                 methodRowCount,
                 associations,
                 ambiguous,
-                ref hasMalformedRows);
+                ref hasMalformedRows,
+                ref projectedRows);
             AddAssociation(
                 accessors.Raiser,
                 eventHandle,
                 methodRowCount,
                 associations,
                 ambiguous,
-                ref hasMalformedRows);
+                ref hasMalformedRows,
+                ref projectedRows);
             foreach (MethodDefinitionHandle other in accessors.Others)
             {
                 AddAssociation(
@@ -1033,9 +1108,18 @@ public sealed class MemorySafetyMetadataIndex
                     methodRowCount,
                     associations,
                     ambiguous,
-                    ref hasMalformedRows);
+                    ref hasMalformedRows,
+                    ref projectedRows);
             }
         }
+
+        // PropertyAccessors and EventAccessors expose one slot per semantic
+        // role and SRM counts a single owner's rows in a ushort, so duplicate
+        // rows, rows whose owner is unreachable, and a 65,536-row wrap all
+        // vanish from the projection without any error. Only a row-for-row
+        // accounting against the physical MethodSemantics table proves the
+        // association map observed the whole table.
+        isIncomplete = projectedRows != methodSemanticsRowCount;
     }
 
     static void AddAssociation(
@@ -1044,11 +1128,13 @@ public sealed class MemorySafetyMetadataIndex
         int methodRowCount,
         Dictionary<int, EntityHandle> associations,
         HashSet<int> ambiguous,
-        ref bool hasMalformedRows)
+        ref bool hasMalformedRows,
+        ref int projectedRows)
     {
         if (method.IsNil)
             return;
 
+        projectedRows++;
         int row = MetadataTokens.GetRowNumber(method);
         if (row <= 0 || row > methodRowCount)
         {

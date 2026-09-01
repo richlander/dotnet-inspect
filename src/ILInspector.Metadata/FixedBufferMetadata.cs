@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
 
 namespace ILInspector.Metadata;
@@ -87,7 +89,7 @@ public static class FixedBufferMetadata
                             NamedArguments.Length: 0,
                         }
                     || length <= 0
-                    || ElementTypeFullName(serializedType) is not
+                    || AuthenticElementTypeFullName(serializedType) is not
                         { } elementType)
                 {
                     malformed = true;
@@ -127,6 +129,77 @@ public static class FixedBufferMetadata
             : new(
                 FixedBufferMetadataReadState.Present,
                 found);
+    }
+
+    /// <summary>
+    /// Resolves the buffer element type from a serialized <c>System.Type</c>
+    /// argument, authenticating any assembly qualifier it carries.
+    /// <see cref="ElementTypeFullName"/> keeps only the text before the first
+    /// comma, so on its own it reads
+    /// <c>System.Int32, Attacker, Version=1.0.0.0, ...</c> as the platform
+    /// <c>System.Int32</c> and lets an attacker-defined element type claim the
+    /// compiler fixed-buffer shape. A qualified name must therefore name a core
+    /// contract signed with a platform key; anything else is malformed rather
+    /// than a supported element type. An omitted qualifier stays acceptable
+    /// because that is what the C# compiler emits for these primitives.
+    /// </summary>
+    static string? AuthenticElementTypeFullName(string serializedType)
+    {
+        if (serializedType.Length
+            > MetadataSafetyPolicy.MaxTypeNameCharacters)
+        {
+            return null;
+        }
+
+        var options = new TypeNameParseOptions
+        {
+            MaxNodes = MetadataSafetyPolicy.MaxRelationshipNodes,
+        };
+        if (!TypeName.TryParse(serializedType, out TypeName? parsed, options))
+            return null;
+        if (parsed.IsArray
+            || parsed.IsPointer
+            || parsed.IsByRef
+            || parsed.IsConstructedGenericType
+            || parsed.IsNested)
+        {
+            return null;
+        }
+
+        if (parsed.AssemblyName is { } assembly
+            && !IsPlatformCoreContract(assembly))
+        {
+            return null;
+        }
+
+        return IsSupportedElementType(parsed.FullName)
+            ? parsed.FullName
+            : null;
+    }
+
+    static bool IsPlatformCoreContract(AssemblyNameInfo assembly)
+    {
+        if (assembly.Name is not
+            ("System.Private.CoreLib"
+                or "System.Runtime"
+                or "mscorlib"
+                or "netstandard"))
+        {
+            return false;
+        }
+
+        ImmutableArray<byte> token = assembly.PublicKeyOrToken;
+        if (token.IsDefaultOrEmpty)
+            return false;
+
+        string publicKeyToken =
+            (assembly.Flags & AssemblyNameFlags.PublicKey) != 0
+                ? AssemblyReferenceIdentity.ComputePublicKeyToken(
+                    token.ToArray())
+                : token.Length == 8
+                    ? Convert.ToHexString(token.AsSpan()).ToLowerInvariant()
+                    : string.Empty;
+        return PlatformKeys.IsPlatform(publicKeyToken);
     }
 
     public static string? ElementTypeFullName(string? assemblyQualifiedName)

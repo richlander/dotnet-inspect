@@ -98,6 +98,12 @@ public static class MetadataSafetyPolicy
         MaxStructuralSignatureWorkChars;
 
     /// <summary>
+    /// Maximum CustomAttribute rows walked once while proving that owner-range
+    /// attribute lookups observe every physical row.
+    /// </summary>
+    public const int MaxMemorySafetyCustomAttributeOrderRows = 1024 * 1024;
+
+    /// <summary>
     /// Maximum <see cref="BadImageFormatException"/> failures while decoding
     /// method anchors during one classified-method scan. Each failure is
     /// already bounded per anchor, but catch-and-continue would otherwise

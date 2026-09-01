@@ -1068,18 +1068,44 @@ typed unavailable result rather than absence or an exception.
 - Under Conflicting module rules, every otherwise supported member query is
   `Unavailable`; raw marker and member evidence remain available for diagnosis.
 
-Construction is bounded and fail-closed. Module-marker failure is represented by
+Construction is bounded and fail-closed. Every attribute-derived answer depends
+on SRM's owner-range lookups, which binary-search physical rows whenever the
+tables stream claims the `CustomAttribute` table is sorted. Construction
+therefore walks that table once and proves its `HasCustomAttribute` parent coded
+indices are non-decreasing, as ECMA-335 II.22 requires. An image that asserts the
+sorted claim over unsorted rows can otherwise hide module markers and member
+carriers from every range lookup, so an unordered table makes the whole index
+unavailable instead of reporting a contract derived from rows it cannot observe.
+This conservatively rejects any image whose `CustomAttribute` table is not
+physically sorted by parent, including indirection-table images.
+
+Module-marker failure is represented by
 an unavailable rules result. Accessor-association failure is exposed separately:
 a valid direct member carrier remains decisive, while a method that needs an
-incomplete fallback scan is unavailable. Per-member attribute and signature
+incomplete fallback scan is unavailable. `PropertyAccessors` and `EventAccessors`
+expose one slot per semantic role and SRM counts a single owner's rows in a
+`ushort`, so duplicate rows, rows whose owner is unreachable, and a 65,536-row
+wrap all vanish from the projection without an error. Association construction
+therefore accounts for projected accessor rows against the physical
+`MethodSemantics` row count and, on any shortfall, discards every association and
+makes association-dependent queries unavailable.
+
+Per-member attribute and signature
 failures remain scoped to that member. Fixed-buffer evidence distinguishes
-present, absent, unavailable, and not examined. Dedicated row and name-work budgets bound custom-attribute identity and
+present, absent, unavailable, and not examined, and its serialized
+`System.Type` argument is parsed as a whole assembly-qualified identity rather
+than truncated at the first comma: a qualified element type must name a core
+contract signed with a platform key, so an attacker-qualified `System.Int32`
+cannot claim the fixed-buffer exemption for a definite pointer field. Dedicated row and name-work budgets bound custom-attribute identity and
 association scans, including every PropertyDef, EventDef, and MethodSemantics
 row that contributes accessor relationships.
 `MemorySafetyMetadataIndex_RecognizesCompilerProducedModels`,
 `MemorySafetyMetadataIndex_UsesVersionSpecificMemberContracts`,
 `AccessorFallsBackToAssociatedDefinitionCarrier`,
-`DirectAccessorCarrierWinsBeforeAssociatedFallback`, and
+`DirectAccessorCarrierWinsBeforeAssociatedFallback`,
+`UnsortedCustomAttributeRowsFailClosed`,
+`UnobservedMethodSemanticsRowsMakeAssociationsUnavailable`,
+`FixedBufferExemptionRequiresPlatformElementTypeIdentity`, and
 `MemorySafetyMetadataIndex_InvalidHandlesAreUnavailable` gate the shared
 contract.
 
