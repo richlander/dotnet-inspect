@@ -194,10 +194,12 @@ execution identity.
 ## Contract demonstration
 
 This target mockup uses the ordinary full-trim artifact from
-`ClassicAsyncArtifactMatrixTests`. The artifact retains the trusted kickoff
-claim, unique same-module state-machine type, direct `IAsyncStateMachine`
-interface, and body-bearing `MoveNext`, while ILLink removes
-`SetStateMachine`:
+`ClassicAsyncArtifactMatrixTests`. The current gate records a retained claimed
+state-machine type with a MethodDef named `MoveNext`, no MethodDef named
+`SetStateMachine`, and the current `Rejected(Unresolved)` result. Before the
+target result is implemented, its gate must additionally establish the direct
+`IAsyncStateMachine` declaration, exact body-bearing `MoveNext` role, and
+absence of both explicit and implicit `SetStateMachine` candidates:
 
 ```text
 Relationship: Resolved(ClassicAsync)
@@ -242,7 +244,11 @@ Release gates for:
   explicit declaration whose body does not have the implicit role name.
 
 `ClassicAsyncArtifactMatrixTests.TrimmedArtifactWithoutRolePreservation_RetainsKickoffButCannotFormRequest`
-currently gates the artifact premise and the old rejection behavior.
+currently gates the old rejection, retained `MoveNext` MethodDef name, and
+absent `SetStateMachine` MethodDef name. It does not independently gate the
+direct interface, exact `MoveNext` role and body, or absence of an explicit
+support-role candidate whose body has another name; those target artifact
+premises remain **unverified**.
 `StateMachineRelationshipIndex_RejectsInvalidImplementationShapes` gates
 several present-but-invalid role shapes. Neither gate enforces the target
 certificate.
