@@ -279,6 +279,66 @@ public class ResearchFactRegistryTests
     }
 
     [Fact]
+    public void AnalysisIndexCache_ForPath_ReportsIdentityUnconfirmedOnlyWhenAPriorGenerationDisagreed()
+    {
+        // Regression test for the identity-change signal described in
+        // docs/design/analysis-index-cache.md's "Surfacing identity changes
+        // to callers": this cache must tell a caller when a result should
+        // not be treated as continuous with whatever it (or another caller)
+        // was shown before for this same path, not just silently self-heal.
+        string firstSourcePath = typeof(ResearchFixture).Assembly.Location;
+        string secondSourcePath = typeof(LibraryBodyIndex).Assembly.Location;
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-research-identity-signal-{Guid.NewGuid():N}.dll");
+        File.Copy(firstSourcePath, path);
+        File.SetLastWriteTimeUtc(
+            path,
+            new DateTime(2003, 3, 3, 0, 0, 0, DateTimeKind.Utc));
+        try
+        {
+            ResearchFactRequirements requirements =
+                ResearchFactRequirements.ForAssembly(
+                    LibraryBodyAnalysisFeatures.MethodEvidence);
+
+            // A first, stable observation of a path this cache has never
+            // seen before carries no known-prior generation to disagree
+            // with.
+            AnalysisIndexCache.ForPath(
+                path, requirements, 0, out bool firstIdentityUnconfirmed);
+            Assert.False(firstIdentityUnconfirmed);
+
+            // A repeat hit against unchanged content agrees with the
+            // generation it already cached.
+            AnalysisIndexCache.ForPath(
+                path, requirements, 0, out bool hitIdentityUnconfirmed);
+            Assert.False(hitIdentityUnconfirmed);
+
+            File.Copy(secondSourcePath, path, overwrite: true);
+            File.SetLastWriteTimeUtc(
+                path,
+                new DateTime(2004, 4, 4, 0, 0, 0, DateTimeKind.Utc));
+
+            // The cached generation from the first observation no longer
+            // matches: whatever the earlier caller saw is now stale, and
+            // this cache must say so rather than silently substituting a
+            // fresh generation under the same path.
+            AnalysisIndexCache.ForPath(
+                path, requirements, 0, out bool changedIdentityUnconfirmed);
+            Assert.True(changedIdentityUnconfirmed);
+
+            // The newly cached generation is stable going forward.
+            AnalysisIndexCache.ForPath(
+                path, requirements, 0, out bool settledIdentityUnconfirmed);
+            Assert.False(settledIdentityUnconfirmed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Registry_OrdersProducersAfterTheirDependencies()
     {
         var registry = new ResearchFactRegistry(

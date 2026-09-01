@@ -15,12 +15,39 @@ static class AnalysisIndexCache
             path,
             ResearchFactRequirements.ForAssembly(
                 LibraryBodyAnalysisFeatures.Default),
-            methodToken: 0);
+            methodToken: 0,
+            out _);
 
     public static LibraryBodyIndex ForPath(
         string path,
         ResearchFactRequirements requirements,
         int methodToken)
+        => ForPath(path, requirements, methodToken, out _);
+
+    /// <summary>
+    /// Resolves <paramref name="path"/> the same way as the other overloads, and additionally
+    /// reports whether this result's identity is confirmed continuous with what any earlier
+    /// caller was shown for this same path.
+    /// </summary>
+    /// <param name="identityUnconfirmed">
+    /// <see langword="true"/> when this result should not be treated as confirmed-continuous
+    /// with any earlier observation of <paramref name="path"/> in this process: either a
+    /// previously cached generation for this path was found to no longer match (so a caller
+    /// that saw the earlier generation is now looking at a different one), or this open's own
+    /// bytes could not be confirmed stable for its whole duration (so even a first observation
+    /// carries no confirmed identity to begin with). <see langword="false"/> only when a cache
+    /// hit's fingerprint matched, or a fresh open was internally stable and no earlier cached
+    /// generation for this path disagreed with it.
+    ///
+    /// This cache only reports the fact; deciding whether, or how, to surface it to a user is a
+    /// caller/presentation concern (see docs/design/analysis-index-cache.md's "Surfacing
+    /// identity changes to callers").
+    /// </param>
+    public static LibraryBodyIndex ForPath(
+        string path,
+        ResearchFactRequirements requirements,
+        int methodToken,
+        out bool identityUnconfirmed)
     {
         var fullPath = Path.GetFullPath(path);
         lock (s_indexLock)
@@ -46,8 +73,13 @@ static class AnalysisIndexCache
                 && TryGetFingerprint(fullPath, out var currentFingerprint)
                 && currentFingerprint == cached.Fingerprint)
             {
+                identityUnconfirmed = false;
                 return cached.Index;
             }
+            // A previously cached generation for this path existed but no
+            // longer matches (or could not be re-confirmed): whatever a
+            // caller was shown before is now definitely stale.
+            bool hadPriorGeneration = cached is not null;
             if (cached is not null)
                 s_pathIndexes.Remove(cached);
 
@@ -77,9 +109,11 @@ static class AnalysisIndexCache
                 bodyScope: bodyScope);
             bool hadFingerprintAfterOpen =
                 TryGetFingerprint(fullPath, out var fingerprintAfterOpen);
-            if (hadFingerprintBeforeOpen
+            bool openWasStable =
+                hadFingerprintBeforeOpen
                 && hadFingerprintAfterOpen
-                && fingerprintBeforeOpen == fingerprintAfterOpen)
+                && fingerprintBeforeOpen == fingerprintAfterOpen;
+            if (openWasStable)
             {
                 s_pathIndexes.Add(
                     new PathCachedIndex(
@@ -92,6 +126,16 @@ static class AnalysisIndexCache
             // but deliberately left uncached: a future request re-opens and
             // re-verifies from scratch rather than trusting an identity this
             // open couldn't confirm.
+            //
+            // Report this result as identity-unconfirmed whenever a caller
+            // should not treat it as continuous with anything already known
+            // about this path: a prior cached generation just turned out
+            // stale (hadPriorGeneration), or this open's own bytes could not
+            // be pinned to one stable generation (!openWasStable) -- in
+            // which case even a first-ever observation carries no confirmed
+            // identity. This cache only reports the fact; see
+            // docs/design/analysis-index-cache.md for who acts on it.
+            identityUnconfirmed = hadPriorGeneration || !openWasStable;
             return index;
         }
     }

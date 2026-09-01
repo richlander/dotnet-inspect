@@ -116,6 +116,25 @@ equivalent: a moving path can change from A to B and back to A between
 observations." `ForPath` never compares at all -- it has no fingerprint to
 compare against.
 
+These two scenarios are actually two distinct problems, easy to run together
+but requiring different fixes:
+
+- **Problem 1 -- cache correctness.** Does this cache's own bookkeeping ever
+  hand back bytes it should know are gone? This is purely internal: no
+  caller need be aware it happened, and fixing it only requires the cache to
+  stop trusting stale internal state. "A stale hit" and "a stale reopen"
+  above are both instances of this problem.
+- **Problem 2 -- caller-visible continuity.** Once *any* caller has been
+  handed a result for path `P` (and, transitively, anything that result was
+  used to report or display), that caller now holds an expectation of what
+  `P` means. If a *later* call for the same `P` disagrees -- whether because
+  problem 1 was left unfixed, or even after problem 1 is fixed and the cache
+  correctly self-heals -- nothing today tells anyone that `P`'s identity
+  shifted. A perfectly correct silent reopen is still a silent reopen: two
+  reports about "P" can disagree with no record anywhere that they would.
+  This document addresses this separately in "Surfacing identity changes to
+  callers" below, since fixing problem 1 does not, by itself, fix problem 2.
+
 Today's only caller of `ForPath` (`ResearchViews.ResolveAssemblyContext`, via
 `ILOffsetProjectionProducer.TryOpenAnalysisIndex` when no
 `ResolvedAssemblyReference` is available) reaches it from one-shot CLI
@@ -137,9 +156,13 @@ cross-checks the returned index's module version ID against an independently
 obtained one from `PdbContext`, and would surface a mismatch as a visible
 `InvalidOperationException` -- but that check is caller-side, does not
 apply to any other consumer of `ForAssembly`, and is not part of this
-cache's own contract.
+cache's own contract. Notably, that caller-side check is itself an instance
+of problem 2 solved ad hoc for one caller and one code path; it is not a
+mechanism this cache provides or anything other `ForAssembly` consumers can
+rely on.
 
-**Fixed:** `ForPath` now records a lightweight file-identity fingerprint
+**Fixed (problem 1):** `ForPath` now records a lightweight file-identity
+fingerprint
 (`FileInfo.Length` and `LastWriteTimeUtc`, the same fields
 `LocalArtifactSource.cs` already uses for exactly this purpose). A cache hit
 re-observes the file's current fingerprint and, on any mismatch, evicts the
@@ -179,6 +202,45 @@ undo that scoped/lazy performance choice -- a different owner's contract
 residual open-duration race is therefore **unverified**: no gate proves it
 closed, and it is called out here rather than left implicit.
 
+## Surfacing identity changes to callers
+
+Fixing problem 1 makes the cache self-heal correctly, but a self-heal that
+happens silently is still invisible to problem 2. `ForPath` gains a fourth
+overload:
+
+```csharp
+public static LibraryBodyIndex ForPath(
+    string path,
+    ResearchFactRequirements requirements,
+    int methodToken,
+    out bool identityUnconfirmed)
+```
+
+`identityUnconfirmed` is `true` exactly when this result should not be
+treated as confirmed-continuous with any earlier observation of `path` in
+this process:
+
+- a previously cached generation for this path was found to no longer
+  match (a caller that saw the earlier generation is now looking at a
+  different one -- the stale-hit/stale-reopen scenarios above); or
+- this open's own bytes could not be confirmed stable for the whole
+  duration of the open (so even a first-ever observation of this path
+  carries no confirmed identity to begin with).
+
+It is `false` only when a cache hit's fingerprint matched, or a fresh,
+internally-stable open had no earlier cached generation for this path to
+disagree with.
+
+This is deliberately *only* a fact the cache reports -- the two existing
+overloads without the parameter still discard it (`out _`), and no existing
+caller's behavior changes. Deciding whether, or how, to surface an
+identity change to a user -- a diagnostic, a warning, a re-run prompt -- is
+a presentation/caller concern this document does not own (see
+[layer ownership](../../AGENTS.md#repository-wide-engineering-constraints)):
+the CLI and Research-composition layers, not this cache, decide what a user
+sees. This cache's obligation ends at not discarding information a caller
+would need to make that decision.
+
 ## Non-claims
 
 This document does not define or change:
@@ -189,7 +251,16 @@ This document does not define or change:
 - the eviction *policy* (clear-all vs. LRU) -- a capacity/performance
   concern, not a correctness one addressed here;
 - a guarantee that the fingerprint check detects every possible file
-  mutation (see the known limit above); or
+  mutation (see the known limit above);
 - any session-scoping mechanism for the cache as a whole -- the cache
   remains process-lifetime; only the staleness-detection gap for `ForPath`
-  is closed.
+  is closed;
+- whether, or how, any caller acts on `identityUnconfirmed` -- today's two
+  `ForPath` call sites (`ResearchViews.ResolveAssemblyContext`,
+  `ILOffsetProjectionProducer.TryOpenAnalysisIndex`) continue to discard it
+  unchanged; wiring it through to a user-visible signal is follow-up work,
+  not part of this fix; or
+- a guarantee that `identityUnconfirmed` detects every case where a user's
+  expectation of `P` could be violated -- it reports exactly what this
+  cache's own fingerprinting can observe, not an independent audit of every
+  consumer's assumptions about path identity.
