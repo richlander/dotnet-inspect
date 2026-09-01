@@ -8,6 +8,39 @@ PDBs contain debug information that maps compiled code back to source. Metadata
 owns PE/PDB opening and extracts raw portable-PDB facts. The SourceLink layer
 recognizes and interprets the SourceLink custom-debug-information document.
 
+## PDB source document acquisition
+
+After a Portable PDB maps a member or type to a checksummed source document,
+`PdbSourceAcquisition` looks for the document bytes in this order:
+
+1. The PDB-recorded local path, when local source reads are enabled.
+2. Each caller-supplied local Git clone, addressed by the exact commit and
+   repository-relative path in a `raw.githubusercontent.com` SourceLink URL.
+3. The remote SourceLink URL.
+
+Every successful path must match the Portable PDB checksum before its content
+becomes evidence. Local-clone acquisition reads the committed Git blob rather
+than the working tree, so an outage does not require a pristine checkout and
+uncommitted edits cannot replace the pinned source. A missing commit, path, or
+checksum match in one clone continues through the remaining clones and then to
+the remote source.
+
+At the reusable service boundary, callers supply optional fully qualified
+repository paths to member or type acquisition. The desktop CLI exposes those
+paths through repeated `--repo <fully-qualified-clone-path>` options for
+`member` PDB Source, printable `type` Source Files, printable member Source
+Locations, and implementation-diff PDB source.
+
+Browser/Wasm hosts do not supply filesystem clone paths and continue through
+their host-authorized source fetcher.
+`ServiceLocalClone_SatisfiesMemberAndTypeSourceWithoutRemoteFetch` is the
+non-vacuity gate that member, type, and printable-projection service acquisition
+use a verified local clone with PDB-recorded path reads disabled and without
+dispatching the simulated unavailable remote source.
+`TypeSourceFilesPrint_AcceptsRepoAtCliBoundaryWhileOffline` separately gates the
+CLI parser and dispatch boundary using the product's embedded PDB while all
+network access is disabled.
+
 ## PDB formats
 
 ### Portable PDB
