@@ -85,7 +85,8 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             packagePipeline);
         var packageDiscoveryDemand = new ProducerDemandPlan(
             packageProducerOptions.Verbosity,
-            packageProducerOptions.IncludeSections);
+            packageProducerOptions.IncludeSections,
+            ExcludeUnbounded: true);
 
         var libraryPipeline = LibrarySections.CreateCatalog().Pipeline;
         HashSet<string> librarySections =
@@ -114,12 +115,22 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             TypeName = nameof(BodyShapeFixture),
             IncludeSections = [SectionNames.PdbSource],
         };
-        var overloadOptions = memberTypeOptions with
+        var overloadOptions = new MemberOptions
+        {
+            TypeName = typeof(OverloadedIndexerBodyShapeFixture).FullName!,
+            AssemblyPath = typeof(BodyShapeFixture).Assembly.Location,
+            MemberFilter = ["Item"],
+            IncludeSections = [SectionNames.MemberIndex],
+            TipLevel = TipLevel.Quiet,
+        };
+        var detailOptions = memberTypeOptions with
         {
             MemberFilter = [nameof(BodyShapeFixture.Classify)],
+            OverloadIndex = 1,
         };
-        var detailOptions = overloadOptions with { OverloadIndex = 1 };
         ApiType apiType = LoadFixtureApiType();
+        ApiType overloadedApiType =
+            LoadFixtureApiType(typeof(OverloadedIndexerBodyShapeFixture));
 
         RouteObservation[] actual =
         [
@@ -180,10 +191,10 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 $"focus:{MemberCapabilities(apiType, memberTypeOptions)}"),
             Observe(
                 "overload-inventory",
-                await ObserveApiDiscoveryAsync(overloadOptions),
+                await ObserveOverloadInventoryAsync(overloadOptions),
                 MemberPipeline(overloadOptions),
                 overloadOptions.IncludeSections!,
-                $"focus:{MemberCapabilities(apiType, overloadOptions)}"),
+                $"focus:{MemberCapabilities(overloadedApiType, overloadOptions)}"),
             Observe(
                 "exact-member-detail",
                 await ObserveApiDiscoveryAsync(detailOptions),
@@ -198,7 +209,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "package",
                 "schema-static-without-target/effective-with-target",
-                "Package[schema:21:89E96945321E]",
+                "Package[schema:54:A1719441C232]",
                 "focus=SourceLink: Availability->SourceLink availability;"
                     + "discovery=none",
                 "focus:vulnerability-traffic=True;"
@@ -206,7 +217,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "package-single-library",
                 "schema/discovery-after-package-acquisition",
-                "Library[schema:78:31F48B8AF860]",
+                "Library[schema:166:64FBBBE37EC7]",
                 "focus=Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
@@ -227,7 +238,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "direct-library",
                 "schema-static-without-target/effective-with-target",
-                "Library[schema:78:31F48B8AF860]",
+                "Library[schema:166:64FBBBE37EC7]",
                 "focus=Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
@@ -243,37 +254,37 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "assembly-type-list",
                 "schema-static/effective-deferred",
-                "ApiType[schema:8:48BFB3F24BAF]",
+                "ApiType[schema:16:35B2A603B562]",
                 "focus=none;discovery=none",
                 "focus:none"),
             new(
                 "type-member-list",
                 "schema-static/effective-deferred",
-                "ApiMember[schema:31:FA0DE00248FC]",
+                "ApiMember[schema:66:FE9290184C28]",
                 "focus=none;discovery=none",
                 "focus:pdb=True;source=False"),
             new(
                 "member-type-view",
                 "schema-static/effective-deferred",
-                "ApiMember[schema:31:FA0DE00248FC]",
+                "ApiMember[schema:66:FE9290184C28]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(
                 "overload-inventory",
-                "schema-static/effective-deferred",
-                "ApiMemberOverload[schema:35:2D851DCA3871]",
+                "schema-static/effective-deferred/executed-multiple-overloads",
+                "ApiMemberOverload[schema:81:0B835ECE3CFC]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(
                 "exact-member-detail",
                 "schema-static/effective-deferred",
-                "ApiMemberDetail[schema:25:4AED453578B2]",
+                "ApiMemberDetail[schema:57:9CF9EB2E407B]",
                 "focus=none;discovery=none",
                 "focus:pdb=True;source=True"),
             new(
                 "hidden-router",
                 "router-to-member/schema-static",
-                "ApiMember[schema:31:FA0DE00248FC]",
+                "ApiMember[schema:66:FE9290184C28]",
                 "focus=none;discovery=none",
                 "focus:none"),
         ];
@@ -412,6 +423,15 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         Assert.Equal(0, schema.ExitCode);
         Assert.Contains(PackageSections.PackageInfo, schema.Output);
         Assert.Empty(schema.Error);
+        var schemaTree = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(new InspectionOptions
+            {
+                Discover = [],
+                Schema = true,
+                Tree = true,
+            }));
+        Assert.Equal(0, schemaTree.ExitCode);
+        Assert.Empty(schemaTree.Error);
 
         var effective = await ConsoleCapture.RunAsync(
             () => PackageCommand.ExecuteAsync(discoveryOptions with
@@ -423,7 +443,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         Assert.Empty(effective.Error);
         return new(
             "schema-static-without-target/effective-with-target",
-            IdentifyCatalog(schema.Output));
+            IdentifyCatalog(schema.Output, schemaTree.Output));
     }
 
     private async Task<DiscoveryObservation> ObservePackageLibraryDiscoveryAsync()
@@ -439,6 +459,17 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         Assert.Equal(0, result.ExitCode);
         Assert.Contains(SectionNames.LibraryInfo, result.Output);
         Assert.Empty(result.Error);
+        var schemaTree = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(new InspectionOptions
+            {
+                PackageArgs = [_packagePath],
+                PackageLibrary = "",
+                Discover = [],
+                Schema = true,
+                Tree = true,
+            }));
+        Assert.Equal(0, schemaTree.ExitCode);
+        Assert.Empty(schemaTree.Error);
 
         var discovery = await ConsoleCapture.RunAsync(
             () => PackageCommand.ExecuteAsync(new InspectionOptions
@@ -452,7 +483,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         Assert.Empty(discovery.Error);
         return new(
             "schema/discovery-after-package-acquisition",
-            IdentifyCatalog(result.Output));
+            IdentifyCatalog(result.Output, schemaTree.Output));
     }
 
     private async Task<DiscoveryObservation> ObservePackageAllLibrariesDiscoveryAsync()
@@ -499,6 +530,15 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         Assert.Equal(0, schema.ExitCode);
         Assert.Contains(SectionNames.LibraryInfo, schema.Output);
         Assert.Empty(schema.Error);
+        var schemaTree = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(new LibraryOptions
+            {
+                Discover = [],
+                Schema = true,
+                Tree = true,
+            }));
+        Assert.Equal(0, schemaTree.ExitCode);
+        Assert.Empty(schemaTree.Error);
 
         var effective = await ConsoleCapture.RunAsync(
             () => LibraryCommand.ExecuteAsync(new LibraryOptions
@@ -513,7 +553,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         Assert.Contains("trace: library", effective.Error);
         return new(
             "schema-static-without-target/effective-with-target",
-            IdentifyCatalog(schema.Output),
+            IdentifyCatalog(schema.Output, schemaTree.Output),
             FormatDemandFromTrace(effective.Error));
     }
 
@@ -535,6 +575,21 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         Assert.Equal(0, staticExitCode);
         Assert.NotEmpty(staticOutput.Output);
         Assert.Empty(staticOutput.Error);
+        var treeOutput = await ConsoleCapture.RunAsync(() =>
+        {
+            (ApiCommand.PreambleResult? treePreamble, int? treeExitCode) =
+                ApiCommand.RunPreamble(
+                    options with
+                    {
+                        Discover = [],
+                        Schema = true,
+                        Tree = true,
+                    });
+            Assert.Null(treePreamble);
+            Assert.Equal(0, treeExitCode);
+        });
+        Assert.NotEmpty(treeOutput.Output);
+        Assert.Empty(treeOutput.Error);
 
         var (effectivePreamble, effectiveExitCode) =
             ApiCommand.RunPreamble(options with
@@ -546,7 +601,24 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         Assert.Null(effectiveExitCode);
         return new(
             "schema-static/effective-deferred",
-            IdentifyCatalog(staticOutput.Output));
+            IdentifyCatalog(staticOutput.Output, treeOutput.Output));
+    }
+
+    private static async Task<DiscoveryObservation> ObserveOverloadInventoryAsync(
+        MemberOptions options)
+    {
+        DiscoveryObservation discovery = await ObserveApiDiscoveryAsync(options);
+        var result = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(".Item(int)", result.Output);
+        Assert.Contains(".Item(string)", result.Output);
+        Assert.DoesNotContain(SectionNames.PdbSource, result.Output);
+        Assert.Empty(result.Error);
+        return discovery with
+        {
+            Mode = $"{discovery.Mode}/executed-multiple-overloads",
+        };
     }
 
     private static async Task<RouteObservation> ObserveHiddenRouterAsync()
@@ -563,6 +635,24 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                     "--schema",
                 ]);
         Assert.Equal("router", routedArgs[0]);
+        string[] treeArgs =
+            CommandLineBuilder.PreprocessArgs(
+                [
+                    target,
+                    "--library",
+                    typeof(BodyShapeFixture).Assembly.Location,
+                    "-D",
+                    "--schema",
+                    "--tree",
+                ]);
+        Assert.Equal("router", treeArgs[0]);
+        var treeRoot = CommandLineBuilder.CreateRootCommand();
+        var treeParsed = treeRoot.Parse(treeArgs);
+        Assert.Empty(treeParsed.Errors);
+        var tree = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(treeParsed, treeArgs));
+        Assert.Equal(0, tree.ExitCode);
+        Assert.Empty(tree.Error);
 
         var observations = new ConcurrentQueue<BreadcrumbObservation>();
         using var subscription = BreadcrumbTelemetry.Subscribe(
@@ -589,7 +679,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         return new RouteObservation(
             "hidden-router",
             "router-to-member/schema-static",
-            IdentifyCatalog(routed.Output),
+            IdentifyCatalog(routed.Output, tree.Output),
             "focus=none;discovery=none",
             "focus:none");
     }
@@ -711,17 +801,73 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         return FormatDemand(demand);
     }
 
-    private static string IdentifyCatalog(string schemaOutput)
+    private static string IdentifyCatalog(
+        string schemaOutput,
+        string treeOutput)
     {
-        string[] sections = schemaOutput
+        string[][] rows = schemaOutput
             .Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .Select(line => line.Split('|', StringSplitOptions.TrimEntries))
-            .Where(parts => parts.Length >= 4 && parts[2] == "section")
+            .Where(parts => parts.Length >= 4)
+            .ToArray();
+        string[] sections = rows
+            .Where(parts => parts[2] == "section")
             .Select(parts => parts[1])
             .Order(StringComparer.Ordinal)
             .ToArray();
         Assert.NotEmpty(sections);
-        return FormatCatalog(IdentifyCatalogName(sections), sections);
+        string[] categories = rows
+            .Where(parts => parts[2] == "category")
+            .Select(parts => parts[1])
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        (string[] TreeCategories, string[] Edges) =
+            ParseCategoryStructure(treeOutput);
+        Assert.Equal(categories, TreeCategories);
+
+        string[] structure =
+        [
+            .. sections.Select(section => $"section:{section}"),
+            .. categories.Select(category => $"category:{category}"),
+            .. Edges.Select(edge => $"edge:{edge}"),
+        ];
+        return FormatCatalog(IdentifyCatalogName(sections), structure);
+    }
+
+    private static (string[] Categories, string[] Edges)
+        ParseCategoryStructure(string treeOutput)
+    {
+        List<string> categories = [];
+        List<string> edges = [];
+        string? currentCategory = null;
+        foreach (string line in treeOutput.Split(
+                     '\n',
+                     StringSplitOptions.RemoveEmptyEntries))
+        {
+            int marker = line.LastIndexOf("\u2500 ", StringComparison.Ordinal);
+            if (marker < 0)
+                continue;
+
+            string node = line[(marker + 2)..].TrimEnd('\r');
+            if (marker == 1)
+            {
+                currentCategory = node.EndsWith(
+                    " (category)",
+                    StringComparison.Ordinal)
+                    ? node[..^" (category)".Length]
+                    : null;
+                if (currentCategory is not null)
+                    categories.Add(currentCategory);
+                continue;
+            }
+
+            if (currentCategory is not null)
+                edges.Add($"{currentCategory}->{node}");
+        }
+
+        return (
+            categories.Order(StringComparer.Ordinal).ToArray(),
+            edges.Order(StringComparer.Ordinal).ToArray());
     }
 
     private static string IdentifyCatalogFromRenderedSection(
@@ -763,14 +909,14 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
 
     private static string FormatCatalog(
         string name,
-        IReadOnlyCollection<string> sectionNames)
+        IReadOnlyCollection<string> structure)
     {
         string value = string.Join(
             "\n",
-            sectionNames.Order(StringComparer.Ordinal));
+            structure.Order(StringComparer.Ordinal));
         string fingerprint = Convert.ToHexString(
             SHA256.HashData(Encoding.UTF8.GetBytes(value)))[..12];
-        return $"{name}[schema:{sectionNames.Count}:{fingerprint}]";
+        return $"{name}[schema:{structure.Count}:{fingerprint}]";
     }
 
     private static (string Name, IReadOnlyList<string> Sections)[] Catalogs()
@@ -788,12 +934,15 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         => surface.Types.Single(type => type.MetadataToken == metadataToken);
 
     private static ApiType LoadFixtureApiType()
+        => LoadFixtureApiType(typeof(BodyShapeFixture));
+
+    private static ApiType LoadFixtureApiType(Type type)
     {
         using var stream = File.OpenRead(
             typeof(BodyShapeFixture).Assembly.Location);
         using var pe = new PEReader(stream);
         ApiSurface surface = ApiSurfaceExtractor.Extract(pe);
-        return Find(surface, typeof(BodyShapeFixture).MetadataToken);
+        return Find(surface, type.MetadataToken);
     }
 
     private static ApiType Find(ApiSurface surface, Type type)
