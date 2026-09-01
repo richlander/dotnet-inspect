@@ -113,10 +113,12 @@ substrates, and inspection producers that will extend that space.
   behavior.
 - [`docs/design/ts-jsexport.md`](design/ts-jsexport.md) owns the `ts-jsexport`
   TypeScript facade projected at build time from an
-  `ILInspector.JsExportSurface`. The host-side tool consumes that evidence
-  without entering the inspected application's browser dependency closure,
-  emits one opinionated TypeScript module, and leaves compilation and
-  publication to the consumer.
+  `ILInspector.JsExportSurface`, plus the producer context that selects a
+  closed set of independent facade roots. The host-side tool consumes that
+  evidence without entering the inspected application's browser dependency
+  closure; only its dependency-free root-attribute contract may enter the
+  producer graph. It emits one opinionated TypeScript module per root and
+  leaves naming, compilation, composition, and publication to the consumer.
 - [`docs/design/inspect-web-jsexport-partitioning.md`](design/inspect-web-jsexport-partitioning.md)
   owns the inspect-web production facade partition: exact assignment of
   browser-host exports to generated capability modules, one-runtime
