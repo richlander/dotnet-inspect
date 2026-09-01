@@ -96,10 +96,10 @@ body {
 .workbench {
   height: 100vh;
   display: grid;
-  grid-template-rows: 44px 38px 48px 39px minmax(0, 1fr) auto;
+  grid-template-rows: 44px 39px minmax(0, 1fr) auto;
 }
 
-.titlebar, .workspace-strip, .scopebar, .lensbar {
+.titlebar, .lensbar {
   display: flex;
   align-items: center;
   min-width: 0;
@@ -107,12 +107,11 @@ body {
 }
 
 .titlebar {
-  display: grid;
-  grid-template-columns: minmax(184px, 1fr) minmax(180px, 520px) minmax(max-content, 1fr);
-  gap: 12px;
   background: var(--chrome);
+  overflow: hidden;
 }
 .brand {
+  flex: none;
   width: 184px;
   height: 100%;
   display: flex;
@@ -127,182 +126,137 @@ body {
 }
 .brand-glyph { color: var(--accent); font-size: 18px; }
 
-.shell-command-center {
-  width: 100%;
-  height: 30px;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 9px;
-  padding: 0 9px;
-  border: 1px solid var(--line-strong);
-  border-radius: 6px;
-  background: var(--panel-raised);
-  color: var(--muted);
-  text-align: left;
-}
-.shell-command-center:hover {
-  border-color: var(--muted);
-  background: var(--panel-active);
-  color: var(--text);
-}
-.shell-search-glyph { color: var(--accent); font-size: 16px; }
-.shell-search-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.shell-command-center kbd { justify-self: end; }
-
-.workspace-strip { background: var(--chrome); }
-.package-tabs {
+.workspace-strip {
   min-width: 0;
-  flex: 1 1 0;
+  max-width: 38vw;
+  flex: 0 1 auto;
   height: 100%;
   display: flex;
-  align-items: end;
+  align-items: center;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
+  border-right: 1px solid var(--line);
 }
-.package-tabs::-webkit-scrollbar { height: 0; }
-.package-tab {
-  height: 35px;
-  flex: 1 1 0;
-  min-width: 46px;
-  max-width: 220px;
-  container-type: inline-size;
+.workspace-strip::-webkit-scrollbar { height: 0; }
+.workspace-window {
+  height: 100%;
+  flex: 0 0 auto;
+  max-width: 240px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 11px;
-  border: 1px solid transparent;
-  border-right-color: var(--line);
+  gap: 1px;
+  padding: 0 8px;
+  border: 0;
+  border-right: 1px solid var(--line);
   background: transparent;
   color: var(--muted);
-  font-size: 12px;
+  font: 11px var(--mono);
   white-space: nowrap;
   overflow: hidden;
   cursor: pointer;
 }
-.package-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.package-tab .tab-label { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
-.package-tab small { flex: none; }
-/* Browser-tab style: as a tab is squeezed, shed the version then the icon so the
-   name stays legible down to the min-width floor before the strip scrolls. */
-@container (max-width: 150px) { .package-tab small { display: none; } }
-@container (max-width: 96px) { .package-tab .package-cube { display: none; } }
-.package-tab.active {
-  height: 37px;
-  min-width: 120px;
+.workspace-window:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.workspace-window:hover { background: var(--panel-raised); color: var(--text); }
+.workspace-window.active {
   color: var(--text);
-  border-color: var(--line);
-  border-bottom-color: var(--panel);
-  background: var(--panel);
+  background: var(--accent-soft);
 }
-.package-tab small { color: var(--dim); font: 10px var(--mono); }
-.package-cube { color: var(--accent); font: 13px var(--mono); }
-.tab-close {
+.workspace-index, .workspace-active-marker { color: var(--accent); font-weight: 700; }
+.workspace-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.workspace-active-marker { margin-left: 1px; }
+.workspace-close {
   flex: none;
-  margin-left: 8px;
+  margin-left: 5px;
   padding: 0 2px;
   border: 0;
   background: transparent;
   color: var(--dim);
 }
-.tab-close:hover { color: var(--text); }
-.package-tab:hover { background: var(--panel-raised); color: var(--text); }
-/* The always-present Platform tab: pinned left, non-closable, with a steady width
-   floor and an accent glyph so it reads as the fixed home for platform libraries. */
-.package-tab.platform { flex: 0 1 auto; min-width: 96px; border-right-color: var(--line); }
-.package-tab.platform .package-cube { color: var(--accent); }
-.package-tab.platform .tab-label { font-weight: 600; }
+.workspace-close:hover { color: var(--text); }
+.workspace-window.platform .workspace-label { font-weight: 600; }
 
-.package-query {
-  width: clamp(210px, 24vw, 340px);
-  flex: none;
-  height: 29px;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-right: 8px;
-  padding-left: 9px;
-  border: 1px solid var(--line);
-  border-radius: 2px;
-  background: var(--panel-raised);
-}
-.package-query:focus-within { border-color: var(--line-strong); }
-.package-query > span { color: var(--accent); font: 14px var(--mono); }
-.package-query input {
-  flex: 1;
+.workspace-title {
+  flex: 1 1 140px;
   min-width: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--text);
-  font: 12px var(--mono);
-}
-.package-query input::placeholder { color: var(--dim); }
-.package-query button {
-  align-self: stretch;
-  padding: 0 9px;
-  border: 0;
-  border-left: 1px solid var(--line);
-  background: transparent;
-  color: var(--muted);
-  font: 10px var(--mono);
-  text-transform: uppercase;
-}
-.package-query button:hover { color: var(--text); background: var(--panel-active); }
-
-.title-actions, .workspace-strip-actions {
   display: flex;
-  flex: none;
-  gap: 6px;
+  align-items: baseline;
+  gap: 7px;
   padding: 0 10px;
+  overflow: hidden;
 }
-.title-actions { justify-self: end; }
-.title-actions button, .workspace-strip-actions button, .detail-actions button, .tiny-button {
-  height: 26px;
-  border: 1px solid var(--line);
-  background: transparent;
-  color: var(--muted);
-  border-radius: 2px;
-  font: 10px var(--mono);
-}
-.title-actions button { padding: 0 10px; }
-.title-actions #go-home { color: var(--accent); border-color: #70402f; }
-.workspace-strip-actions button { padding: 0 10px; }
-.workspace-strip-actions #help, .tiny-button { width: 27px; padding: 0; }
-.title-actions button:hover, .workspace-strip-actions button:hover, .detail-actions button:hover, .tiny-button:hover { color: var(--text); border-color: var(--line-strong); }
-
-.scopebar { padding: 0 15px; gap: 20px; background: var(--chrome); }
-.package-title { display: flex; gap: 9px; align-items: baseline; min-width: 305px; }
-.package-title strong { font-size: 14px; }
-.package-title > span:last-child { color: var(--muted); font: 11px var(--mono); }
-.scope-kicker, .framework-select > span, .version-select > span {
+.workspace-title > span {
+  flex: none;
   color: var(--dim);
-  font: 10px var(--mono);
-  letter-spacing: .1em;
+  font: 9px var(--mono);
+  letter-spacing: .08em;
   text-transform: uppercase;
 }
-.framework-select, .version-select { display: flex; align-items: center; gap: 7px; }
-.framework-select select, .version-select select {
-  height: 26px;
-  padding: 0 25px 0 8px;
-  border: 1px solid var(--line);
-  border-radius: 2px;
-  background: var(--panel-raised);
-  font: 11px var(--mono);
-}
-.version-select select:disabled { opacity: .55; cursor: default; }
-.asset-path {
-  flex: 1;
-  min-width: 120px;
+.workspace-title > strong {
+  min-width: 0;
   overflow: hidden;
+  color: var(--text);
+  font: 600 11px var(--mono);
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--dim);
-  font: 11px var(--mono);
 }
-.scope-stats { display: flex; gap: 17px; color: var(--dim); font-size: 10px; white-space: nowrap; }
-.scope-stats strong { color: var(--muted); font: 11px var(--mono); }
+
+.coordinate-selectors {
+  flex: none;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 10px;
+  border-right: 1px solid var(--line);
+}
+.framework-select, .version-select { display: flex; align-items: center; gap: 6px; }
+.framework-select > span, .version-select > span {
+  color: var(--dim);
+  font: 9px var(--mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.framework-select select, .version-select select {
+  height: 26px;
+  max-width: 128px;
+  padding: 0 23px 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--panel-raised);
+  font: 10px var(--mono);
+}
+.version-select select:disabled { opacity: .55; cursor: default; }
+
+.title-actions {
+  display: flex;
+  flex: none;
+  margin-left: auto;
+  gap: 4px;
+  height: 100%;
+  align-items: center;
+  padding: 0 8px;
+  border-left: 1px solid var(--line);
+}
+.title-actions button, .detail-actions button, .tiny-button {
+  height: 26px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 2px;
+  font: 10px var(--mono);
+}
+.title-actions button { padding: 0 8px; }
+.title-actions #open-search, .title-actions #go-home {
+  color: var(--accent);
+  border-color: #70402f;
+}
+.title-actions #help, .tiny-button { width: 27px; padding: 0; }
+.title-actions button:hover, .detail-actions button:hover, .tiny-button:hover { color: var(--text); border-color: var(--line-strong); }
 
 .lensbar { padding: 0 14px; background: var(--chrome); gap: 2px; }
 .lensbar button {
@@ -538,7 +492,7 @@ kbd {
 }
 
 .detail-pane { min-width: 0; min-height: 0; display: grid; grid-template-rows: 40px minmax(0, 1fr); background: var(--bg); }
-.detail-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px 0 17px; border-bottom: 1px solid var(--line); }
+.detail-head { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px 0 17px; border-bottom: 1px solid var(--line); overflow: hidden; }
 .nav-history { display: flex; gap: 2px; flex: none; }
 .nav-history button { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; padding: 0; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--text); font-size: 15px; line-height: 1; cursor: pointer; }
 .nav-history button:hover:not(:disabled) { background: var(--hover); }
@@ -546,7 +500,7 @@ kbd {
 .breadcrumbs { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); font: 10px var(--mono); }
 .breadcrumbs b { padding: 0 7px; color: var(--dim); font-weight: 400; }
 .breadcrumbs strong { color: var(--text); font-weight: 500; }
-.detail-actions { display: flex; gap: 5px; }
+.detail-actions { display: flex; flex: none; gap: 5px; }
 .detail-actions button:first-child { padding: 0 8px; }
 .detail-actions button:last-child { width: 27px; }
 .detail-scroll { overflow: auto; padding: clamp(24px, 4vw, 52px) clamp(26px, 5vw, 72px) 70px; }
@@ -1198,7 +1152,6 @@ kbd {
 .load-error pre, .load-error-detail { max-height: 50vh; overflow: auto; margin-top: 12px; color: var(--muted); font: 11px/1.6 var(--mono); white-space: pre-wrap; }
 
 @media (max-width: 1050px) {
-  .scope-stats, .asset-path { display: none; }
   .workspace { grid-template-columns: 330px minmax(0, 1fr); }
   .type-metrics { display: none; }
   .type-heading p { grid-column: 2; }
@@ -1206,11 +1159,15 @@ kbd {
 
 @media (max-width: 760px) {
   body { min-width: 0; }
-  .titlebar { grid-template-columns: 48px minmax(120px, 1fr) max-content; gap: 8px; }
   .brand { width: 48px; padding: 0 14px; }
-  .brand span:last-child, .scope-kicker { display: none; }
-  .shell-command-center kbd { display: none; }
-  .package-title { min-width: 0; flex: 1; }
+  .brand span:last-child { display: none; }
+  .workspace-strip { max-width: 32vw; }
+  .workspace-title { display: none; }
+  .coordinate-selectors { gap: 5px; padding: 0 6px; }
+  .coordinate-selectors label > span { display: none; }
+  .framework-select select, .version-select select { max-width: 88px; padding-left: 5px; }
+  .title-actions { padding: 0 5px; }
+  .title-actions button { padding: 0 6px; }
   .workspace { grid-template-columns: 44% 56%; }
   .type-browser:not(.member-nav) .namespace-chips, .pane-footer { display: none; }
   .type-browser { grid-template-rows: 40px 38px minmax(0, 1fr); }

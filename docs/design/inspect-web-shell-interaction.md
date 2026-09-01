@@ -1,12 +1,13 @@
 # Inspect Web Shell Interaction
 
 This document owns the persistent `dotnet-inspect` shell and the shared
-transient and routed surfaces it launches: shell actions, shared menu/modal
-semantics, Spotlight Search, Open, Settings entry, the command palette, and
-the routed-versus-modal classification that governs focus return and
-history interaction. It does not own which subject or lens is active, or the
-consumer effect lifecycle that resolves focus after a navigation result
-installs; those are separately owned.
+transient and routed surfaces it launches: the workspace title bar and shell
+actions, shared menu/modal semantics, Spotlight Search, Open, Settings entry,
+the command palette, and the routed-versus-modal classification that governs
+focus return and history interaction. It does not own which subject, target,
+or lens is active, the contents of coordinate selectors, or the consumer
+effect lifecycle that resolves focus after a navigation result installs; those
+are separately owned.
 
 ## Ownership and boundaries
 
@@ -14,6 +15,9 @@ This owner defines:
 
 - the persistent shell's visible text actions (`Home`, `Search`, `Open`,
   `Settings`);
+- the workspace title bar's allocation among the product root, compact
+  workspace switcher, broad workspace identity, coordinate selectors, and
+  trailing shell actions;
 - the generic modal-dialog contract (accessible name, initial focus, inert
   background, tab containment, Escape, one-modal-at-a-time, and
   ordinary-dismissal focus return) shared by Spotlight, Open, Settings, the
@@ -23,7 +27,7 @@ This owner defines:
 - Spotlight Search's input and package-scope behavior;
 - the local-artifact Open overlay; and
 - the command palette's keyboard-driven counterpart to the visible
-  inspection command.
+  workspace, subject, inspector, and target controls.
 
 It does not own:
 
@@ -65,28 +69,54 @@ This document consumes, without redefining:
   [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) that
   govern what a modal's committed navigation action actually focuses.
 
-## Shell actions
+## Workspace title bar and shell actions
 
-The top shell follows a workbench command-center composition:
+The first persistent row is one non-wrapping workspace title bar:
 
 ```text
-dotnet-inspect                 Search                 Home   Open   Settings
+dotnet-inspect  [0:Platform  1:System.Text.Json*]  System.Text.Json@10.0.0  version 10.0.0  framework net10.0  Search Home Open Settings
 ```
 
-- `dotnet-inspect` is the stable root control at the leading edge.
-- Search is the visually central command-center action. It is a button that
-  opens Spotlight, not an always-editable query input.
-- Home, Open, and Settings are trailing visible text actions.
-- The row does not contain package tabs, a package query input, a theme toggle,
-  Share, or keyboard-help chrome. Package and subject context belong to the
-  navigation rows below it; appearance belongs to Settings; target-copying and
-  other contextual actions belong to the active working surface.
+It describes the broad inspection scope, not the deepest selected target:
 
-This composition uses Visual Studio Code's workbench and command center as its
-primary interaction reference without copying its desktop title bar, Activity
-Bar, editable-file tabs, or product styling.
+1. `dotnet-inspect` is the stable product and Workspace root control.
+2. The **workspace switcher** identifies retained open coordinates. Platform
+   owns session-local index `0`; other coordinates receive stable session-local
+   numeric indexes. Selecting a coordinate does not change its index. Replacing
+   its version or framework preserves its index, and closing one coordinate
+   does not renumber the others.
+3. The **workspace identity** receives the elastic space. It renders an
+   owner-issued workspace name when one exists. Otherwise it renders the
+   active coordinate identity for a singular or provisionally unnamed
+   workspace. A composite identity may be meaningful, such as an owner-issued
+   package-prefix description; the shell does not derive one by parsing member
+   or display text.
+4. Applicable coordinate selectors, such as package version and target
+   framework, immediately qualify that broad identity. Their descriptors and
+   effects remain owned by navigation presentation and its product inputs.
+5. Fixed shell actions remain reachable at the trailing edge.
 
-The global shell therefore exposes these visible text actions:
+Workspace selectors consume their natural width rather than stretching to
+divide the row like browser tabs. The active coordinate is unmistakable in
+both visual and accessibility state. When the switcher crowds the title bar,
+the elastic workspace identity truncates first, coordinate selector labels may
+compact next, and fixed shell actions remain reachable. Every workspace remains
+available through horizontal scrolling.
+
+This allocation uses tmux's indexed-window status line as structural evidence:
+compact indexed workspaces spend only the width they need and return remaining
+width to useful title or status information. Inspect Web does not copy tmux's
+terminal styling, command model, pane management, key prefix, or status
+variables.
+
+The title bar does not show the fully qualified Library, Type, or Member
+identity. [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md)
+owns the subject/inspector row and target selector beneath it, and the active
+working surface owns the visible heading for the exact target.
+
+Search is a visible trailing action that opens Spotlight, not an
+always-editable query input or a visually dominant command center. The global
+shell exposes:
 
 ```text
 Home   Search   Open   Settings
@@ -104,9 +134,11 @@ The shell may land before adjacent redesign owners. During that transition:
   success-shaped placeholder action;
 - the `dotnet-inspect` root control may retain its current Home destination
   until the routed Workspace surface exists;
-- the existing package tabs and package query may remain in a clearly separate
-  transitional workspace row until the Workspace surface replaces them; and
-- the transitional row is not part of the target shell contract.
+- existing Share and keyboard-help actions may remain at the trailing edge
+  until their contextual replacements land; and
+- retained packages may provisionally supply the indexed workspace switcher,
+  active coordinate identity, version selector, and framework selector before
+  product-issued Workspace and coordinate descriptors replace that data.
 
 This sequencing changes no package-selection or acquisition semantics and does
 not claim completion of the redesign.
@@ -223,8 +255,8 @@ removed.
 ## Command palette
 
 The existing command palette is the keyboard counterpart to the visible
-inspection command. It uses the same product-issued coordinates, subjects, and
-lenses:
+workspace, subject, inspector, and target controls. It uses the same
+product-issued coordinates, subjects, and lenses:
 
 ```text
 package System.Text.Json
@@ -241,10 +273,10 @@ Command execution uses the same state transitions as pointer interaction and
 applies the same projectable, non-projectable, or failed canonical-state
 classification after commit.
 
-The persistent inspection command is navigation context, not an always-editable
-text input. The site does not introduce a broad set of single-letter page
-shortcuts. One discoverable palette shortcut plus ordinary control-specific
-keyboard behavior is sufficient.
+Persistent navigation controls are not an always-editable command input. The
+site does not introduce a broad set of single-letter page shortcuts. One
+discoverable palette shortcut plus ordinary control-specific keyboard behavior
+is sufficient.
 
 ## Non-claims
 
@@ -257,6 +289,29 @@ or responsive composition.
 
 An implementation claiming this redesign is complete must satisfy these
 outcomes.
+
+### Workspace title bar
+
+1. Load Platform and two packages and confirm that the workspace switcher renders
+   indexes `0`, `1`, and `2` in retained-session order without stretching the
+   selectors to equal widths.
+2. Change the active package's version and framework and confirm that its
+   workspace index is preserved.
+3. Close the lower-index package and confirm that the remaining package is not
+   renumbered.
+4. Confirm that the active workspace is exposed visually and with
+   `aria-selected`, and that pointer and keyboard activation use the same
+   workspace-selection action.
+5. Confirm that the broad workspace or active-coordinate identity appears in
+   the elastic title region, followed by applicable version and framework
+   selectors.
+6. Select a Type or Member and confirm that its fully qualified identity does
+   not replace the workspace title; the working surface heading identifies it.
+7. Add workspaces until the switcher crowds the row and confirm that the title
+   truncates before selectors or fixed shell actions disappear, with every
+   workspace remaining reachable by horizontal scrolling.
+8. Confirm that no persistent package-query input or centered command-center
+   control appears, and that the visible Search action opens Spotlight.
 
 ### Search input
 

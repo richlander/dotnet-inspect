@@ -4,6 +4,7 @@ import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
 export interface PackageBarPackage {
   id: string;
   version: string;
+  workspaceIndex?: number;
   activeFramework: string;
   isRuntimePack: boolean;
 }
@@ -28,10 +29,8 @@ interface PackageBarOptions {
   selectPackageTab: (pkg: PackageBarPackage) => void;
   closePackageTab: (packageKey: string) => void;
   openRuntimePack: () => void;
-  openPackage: (query: ParsedPackageQuery) => void;
   selectFramework: (framework: string) => void;
   selectVersion: (version: string) => void;
-  showToast: (message: string) => void;
 }
 
 export interface PackageSelectionActions {
@@ -65,25 +64,52 @@ export function packageIdentityEquals(
   return Boolean(left && right && packageIdentityKey(left) === packageIdentityKey(right));
 }
 
-// The always-present, non-closable, left-most "Platform" tab. It abstracts the .NET runtime
-// packs (netcore.app, aspnetcore.app, …) behind a single surface: when a pack is resident it
-// activates it; otherwise clicking loads it lazily. Rendered separately from the normal tab
-// map so it is always first and never carries a close affordance.
+export function assignPackageWorkspaceIndex(
+  packageModel: PackageBarPackage,
+  packages: readonly PackageBarPackage[],
+  replacedPackage: PackageBarPackage | null,
+  packageIdentityKey: (pkg: PackageBarPackage) => string,
+): number {
+  if (packageModel.isRuntimePack) {
+    packageModel.workspaceIndex = 0;
+    return 0;
+  }
+
+  const existing = packages.find(item =>
+    packageIdentityKey(item) === packageIdentityKey(packageModel));
+  const retained = replacedPackage?.workspaceIndex ?? existing?.workspaceIndex;
+  if (retained !== undefined && retained > 0) {
+    packageModel.workspaceIndex = retained;
+    return retained;
+  }
+
+  const used = new Set(packages.flatMap(item =>
+    item.workspaceIndex !== undefined && item.workspaceIndex > 0
+      ? [item.workspaceIndex]
+      : []));
+  let candidate = 1;
+  while (used.has(candidate)) candidate++;
+  packageModel.workspaceIndex = candidate;
+  return candidate;
+}
+
+// Platform is the fixed, non-closable subject at index 0. It abstracts the .NET runtime
+// packs behind one surface: when a pack is resident it activates it; otherwise it loads lazily.
 export function platformTabHtml(
   runtimePack: PackageBarPackage | null,
   activePackage: PackageBarPackage | null,
   escapeHtml: (value: unknown) => string,
   packageIdentityKey: (pkg: PackageBarPackage) => string,
 ): string {
-  const active = runtimePack && activePackage && activePackage.id === runtimePack.id ? "active" : "";
-  const framework = runtimePack?.activeFramework || activePackage?.activeFramework || "";
+  const active = Boolean(
+    runtimePack && activePackage && activePackage.id === runtimePack.id);
   const attr = runtimePack
     ? `data-package-key="${escapeHtml(packageIdentityKey(runtimePack))}"`
     : `data-platform-open="1"`;
-  return `<button class="package-tab platform ${active}" ${attr} role="tab" title="Platform · .NET runtime libraries">
-      <span class="package-cube">◎</span>
-      <span class="tab-label">Platform</span>
-      <small>${escapeHtml(framework || "load")}</small>
+  return `<button class="workspace-window platform${active ? " active" : ""}" ${attr} role="tab" aria-selected="${active}" title="0:Platform · .NET runtime libraries">
+      <span class="workspace-index">0:</span>
+      <span class="workspace-label">Platform</span>
+      ${active ? '<span class="workspace-active-marker" aria-hidden="true">*</span>' : ""}
     </button>`;
 }
 
@@ -95,13 +121,14 @@ export function packageTabHtml(
 ): string {
   const active = packageIdentityEquals(item, activePackage, packageIdentityKey);
   const key = escapeHtml(packageIdentityKey(item));
+  const workspaceIndex = item.workspaceIndex ?? 1;
   return `
-            <div class="package-tab ${active ? "active" : ""}" data-package-key="${key}" role="tab" tabindex="0">
-              <span class="package-cube">⬡</span>
-              <span class="tab-label">${escapeHtml(item.id)}</span>
-              <small>${escapeHtml(item.version)} · ${escapeHtml(item.activeFramework)}</small>
+            <div class="workspace-window${active ? " active" : ""}" data-package-key="${key}" role="tab" aria-selected="${active}" tabindex="0" title="${workspaceIndex}:${escapeHtml(item.id)} · ${escapeHtml(item.version)} · ${escapeHtml(item.activeFramework)}">
+              <span class="workspace-index">${workspaceIndex}:</span>
+              <span class="workspace-label">${escapeHtml(item.id)}</span>
+              ${active ? '<span class="workspace-active-marker" aria-hidden="true">*</span>' : ""}
               ${active
-                ? `<button class="tab-close" data-package-close="${key}" type="button" aria-label="Close ${escapeHtml(item.id)}">×</button>`
+                ? `<button class="workspace-close" data-package-close="${key}" type="button" aria-label="Close ${escapeHtml(item.id)}">×</button>`
                 : ""}
             </div>`;
 }
@@ -112,9 +139,24 @@ export function packageTabsHtml(
   escapeHtml: (value: unknown) => string,
   packageIdentityKey: (pkg: PackageBarPackage) => string,
 ): string {
+  const usedIndexes = new Set(state.packages.flatMap(item =>
+    item.workspaceIndex !== undefined && item.workspaceIndex > 0
+      ? [item.workspaceIndex]
+      : []));
+  let fallbackIndex = 1;
   const tabs = state.packages
     .filter(item => !item.isRuntimePack)
-    .map(item => packageTabHtml(item, state.package, escapeHtml, packageIdentityKey))
+    .map(item => {
+      while (usedIndexes.has(fallbackIndex)) fallbackIndex++;
+      const rendered = item.workspaceIndex === undefined
+        ? { ...item, workspaceIndex: fallbackIndex++ }
+        : item;
+      return packageTabHtml(
+        rendered,
+        state.package,
+        escapeHtml,
+        packageIdentityKey);
+    })
     .join("");
   return `${platformTabHtml(runtimePack, state.package, escapeHtml, packageIdentityKey)}${tabs}`;
 }
@@ -126,14 +168,9 @@ export function packageBarHtml(
   packageIdentityKey: (pkg: PackageBarPackage) => string,
 ): string {
   return `
-        <div class="package-tabs" role="tablist" aria-label="Package scope">
+        <div class="workspace-strip" role="tablist" aria-label="Open workspaces">
           ${packageTabsHtml(state, runtimePack, escapeHtml, packageIdentityKey)}
-        </div>
-        <form class="package-query" id="package-query">
-          <span>+</span>
-          <input id="package-query-input" placeholder="Package or Package@version" aria-label="Open NuGet package" autocomplete="off" spellcheck="false" />
-          <button>open</button>
-        </form>`;
+        </div>`;
 }
 
 // Only an empty query or "package@" with nothing after the "@" is rejected, matching the
@@ -180,10 +217,8 @@ export function createPackageBar(options: PackageBarOptions) {
     selectPackageTab,
     closePackageTab,
     openRuntimePack,
-    openPackage,
     selectFramework,
     selectVersion,
-    showToast,
   } = options;
 
   function html(): string {
@@ -205,7 +240,7 @@ export function createPackageBar(options: PackageBarOptions) {
         activate();
       });
       keybindings.register({
-        id: "package-tab.activate",
+        id: "workspace.activate",
         key: ["Enter", " "],
         allowExtraModifiers: true,
         priority: WORKBENCH_KEYBINDING_PRIORITY.element,
@@ -225,32 +260,18 @@ export function createPackageBar(options: PackageBarOptions) {
 
     root.querySelector<HTMLElement>("[data-platform-open]")?.addEventListener("click", () => openRuntimePack());
 
-    // Browser-tab behavior for a crowded strip: keep the active tab in view, and let a
-    // vertical wheel scroll the horizontal strip so hidden tabs stay reachable.
-    const tabStrip = root.querySelector<HTMLElement>(".package-tabs");
+    // Keep the active indexed subject visible and map vertical wheel motion to the
+    // horizontal strip when the subject count exceeds its allocation.
+    const tabStrip = root.querySelector<HTMLElement>(".workspace-strip");
     if (tabStrip) {
       requestAnimationFrame(() =>
-        tabStrip.querySelector(".package-tab.active")?.scrollIntoView({ block: "nearest", inline: "nearest" }));
+        tabStrip.querySelector(".workspace-window.active")?.scrollIntoView({ block: "nearest", inline: "nearest" }));
       tabStrip.addEventListener("wheel", event => {
         if (event.deltaY === 0) return;
         event.preventDefault();
         tabStrip.scrollLeft += event.deltaY;
       }, { passive: false });
     }
-
-    const form = root.querySelector<HTMLFormElement>("#package-query");
-    if (!form) throw new Error("The package bar query form is unavailable.");
-    form.addEventListener("submit", event => {
-      event.preventDefault();
-      const input = root.querySelector<HTMLInputElement>("#package-query-input");
-      if (!input) throw new Error("The package bar query input is unavailable.");
-      const parsed = parsePackageQuery(input.value);
-      if (!parsed) {
-        showToast("enter a package, optionally followed by @version");
-        return;
-      }
-      openPackage(parsed);
-    });
   }
 
   return {

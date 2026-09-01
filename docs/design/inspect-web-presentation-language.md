@@ -21,8 +21,8 @@ This owner defines:
 - the interaction grammar and collapsed-summary rules for progressive filter
   disclosure;
 - the shared heading rules across the API, Source, and Metadata lenses: API
-  and Source suppress duplicated hero identity in favor of the single-line
-  inspection command, while Metadata retains its detailed type-level context;
+  and Source render a compact exact-target heading, while Metadata retains its
+  detailed type-level context;
   and
 - the compact status/action presentation for successful and failed source
   provenance.
@@ -191,38 +191,34 @@ one restrictive dimension.
 
 ## Shared heading rules
 
-The single-line inspection command owned by
-[Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md#single-line-inspection-command)
-is the common orientation point for the current Package, Library, Type, or
-Member subject. This section states the shared rule that a content lens does
-not repeat that identity merely to create a local hero heading.
+The workspace title bar identifies the broad inspection scope. The active
+working surface identifies the exact Package, Library, Type, or Member target
+with one visible level-one heading. This section defines how lenses retain that
+orientation without restoring duplicated hero metadata.
 
 ### API and Source lenses
 
-The API and Source lenses begin with their primary content. When the snapshot
-has an effective lens, their accessible heading relationship includes both the
-product-owned active-subject label from the inspection command and the active
-lens label. While an inspection surface is active, the active-subject token is
-the visible level-one heading for a root, Library, Type, or Member subject. The
-lens panel's `aria-labelledby` references that label and the active lens tab.
+API and Source render the product-owned qualified active-target identity as a
+compact visible level-one heading, followed by their primary content. When the
+snapshot has an effective lens, the lens panel's accessible heading
+relationship includes that target heading and the active lens label. The lens
+panel's `aria-labelledby` references the target heading and active lens tab.
 
 When the snapshot has no effective lens, the UI renders no `tabpanel`. A status
-region references the active-subject label and its visible `Lens unavailable`
+region references the target heading and its visible `Lens unavailable`
 or `Lens failed` heading. It explains the returned outcome without fabricating
 an active tab, panel, or fallback lens.
 
-Home, Workspace, and Diagnostics replace the coordinate, subject, and
-`Copy target` portion of the inspection-command region with their own visible
-level-one heading. The persistent `dotnet-inspect` root control remains
-available and opens Workspace. Returning to an inspection surface restores the
-complete command and its active-subject heading; two visible level-one headings
-are never rendered for one routed surface.
+Home, Workspace, and Diagnostics render their own visible level-one heading.
+The persistent `dotnet-inspect` root control remains available and opens
+Workspace. Returning to an inspection surface restores its exact-target
+heading; two visible level-one headings are never rendered for one routed
+surface.
 
-They do not repeat:
+The compact API and Source heading does not repeat:
 
 - the kind icon;
 - the namespace eyebrow;
-- the type or member name;
 - the declaration signature;
 - the member count;
 - the accessibility summary;
@@ -245,9 +241,9 @@ The Metadata lens retains the detailed type heading. It is the type-level view
 for kind, namespace, declaration shape, target framework, library, package, and
 version context.
 
-The inspection command remains the common orientation point between API,
-Metadata, and Source. Switching lenses changes the amount of surrounding detail,
-not the selected subject or its display identity.
+The exact-target heading remains the common orientation point between API,
+Metadata, and Source. Switching lenses changes the amount of surrounding
+detail, not the selected subject or its display identity.
 
 ## Source provenance
 

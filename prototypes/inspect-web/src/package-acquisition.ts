@@ -44,6 +44,7 @@ export interface AppTypeSurface extends Omit<BrowserTypeSurface, "api"> {
 export interface AppPackage {
   id: string;
   version: string;
+  workspaceIndex?: number;
   frameworks: string[];
   activeFramework: string;
   assembly: string;

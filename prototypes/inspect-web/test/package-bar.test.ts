@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  assignPackageWorkspaceIndex,
   bindPackageSelections,
   createPackageBar,
   findPackageTabForQuery,
@@ -13,7 +14,6 @@ import {
 } from "../src/package-bar.ts";
 import type {
   PackageBarPackage,
-  ParsedPackageQuery,
 } from "../src/package-bar.ts";
 import { KeybindingRegistry } from "../src/keybinding-registry.ts";
 import { fakeDom } from "./fake-dom.ts";
@@ -147,7 +147,6 @@ test("package bar connects package selection controls to its typed options", () 
   framework.value = "net9.0";
   const version = root.add("#package-version", new FakeElement());
   version.value = "10.0.0";
-  root.add("#package-query", new FakeElement());
   const calls: string[] = [];
   const packageBar = createPackageBar({
     keybindings: new KeybindingRegistry(),
@@ -158,10 +157,8 @@ test("package bar connects package selection controls to its typed options", () 
     selectPackageTab: () => {},
     closePackageTab: () => {},
     openRuntimePack: () => {},
-    openPackage: () => {},
     selectFramework: value => calls.push(`framework:${value}`),
     selectVersion: value => calls.push(`version:${value}`),
-    showToast: () => {},
   });
 
   packageBar.bind(fakeDom.parentNode(root));
@@ -181,13 +178,12 @@ test("package bar connects package selection controls to its typed options", () 
   ]);
 });
 
-test("package tabs register keyboard activation with the shared dispatcher", () => {
+test("package workspaces register keyboard activation with the shared dispatcher", () => {
   const root = new FakeRoot();
   const tab = new FakeElement();
   const packageModel = pkg("System.Text.Json");
   tab.dataset.packageKey = packageIdentityKey(packageModel);
   root.addAll("[data-package-key]", tab);
-  root.add("#package-query", new FakeElement());
   const selected: PackageBarPackage[] = [];
   const keybindings = new KeybindingRegistry();
   const packageBar = createPackageBar({
@@ -199,10 +195,8 @@ test("package tabs register keyboard activation with the shared dispatcher", () 
     selectPackageTab: item => selected.push(item),
     closePackageTab: () => {},
     openRuntimePack: () => {},
-    openPackage: () => {},
     selectFramework: () => {},
     selectVersion: () => {},
-    showToast: () => {},
   });
   packageBar.bind(fakeDom.parentNode(root));
 
@@ -220,7 +214,7 @@ test("package tabs register keyboard activation with the shared dispatcher", () 
     preventDefault: () => prevented = true,
   }));
 
-  assert.equal(result.bindingId, "package-tab.activate");
+  assert.equal(result.bindingId, "workspace.activate");
   assert.equal(prevented, true);
   assert.deepEqual(selected, [packageModel]);
 });
@@ -235,17 +229,25 @@ test("package identity equality compares the full coordinate", () => {
   assert.equal(packageIdentityEquals(null, b, packageIdentityKey), false);
 });
 
-test("a package tab marks only the active tab and only the active tab carries a close button", () => {
+test("a package workspace marks only the active coordinate and only it carries a close button", () => {
   const active = pkg("System.Text.Json");
+  active.workspaceIndex = 3;
   const other = pkg("Newtonsoft.Json");
+  other.workspaceIndex = 4;
 
   const activeHtml = packageTabHtml(active, active, escapeHtml, packageIdentityKey);
   const inactiveHtml = packageTabHtml(other, active, escapeHtml, packageIdentityKey);
 
-  assert.match(activeHtml, /class="package-tab active"/);
+  assert.match(activeHtml, /class="workspace-window active"/);
+  assert.match(activeHtml, /aria-selected="true"/);
+  assert.match(activeHtml, /<span class="workspace-index">3:<\/span>/);
+  assert.match(activeHtml, /class="workspace-active-marker"/);
   assert.match(activeHtml, /data-package-close=/);
-  assert.doesNotMatch(inactiveHtml, /class="package-tab active"/);
+  assert.match(inactiveHtml, /aria-selected="false"/);
+  assert.doesNotMatch(inactiveHtml, /class="workspace-window active"/);
+  assert.doesNotMatch(inactiveHtml, /class="workspace-active-marker"/);
   assert.doesNotMatch(inactiveHtml, /data-package-close=/);
+  assert.doesNotMatch(activeHtml, /<small|package-cube/);
 });
 
 test("package tab markup escapes untrusted package identity text", () => {
@@ -260,34 +262,39 @@ test("the platform tab reflects a resident runtime pack, and lazily opens when a
   const runtimePack = pkg("Microsoft.NETCore.App", "10.0.0", "net10.0", true);
 
   const resident = platformTabHtml(runtimePack, runtimePack, escapeHtml, packageIdentityKey);
-  assert.match(resident, /class="package-tab platform active"/);
+  assert.match(resident, /class="workspace-window platform active"/);
+  assert.match(resident, /aria-selected="true"/);
+  assert.match(resident, /<span class="workspace-index">0:<\/span>/);
   assert.match(resident, /data-package-key=/);
   assert.doesNotMatch(resident, /data-platform-open/);
 
   const absent = platformTabHtml(null, null, escapeHtml, packageIdentityKey);
-  assert.match(absent, /class="package-tab platform "/);
+  assert.match(absent, /class="workspace-window platform"/);
+  assert.match(absent, /aria-selected="false"/);
   assert.match(absent, /data-platform-open="1"/);
-  assert.match(absent, /<small>load<\/small>/);
 });
 
-test("the tab strip renders the platform tab first, then only non-runtime packages", () => {
+test("the workspace strip renders Platform first, then only non-runtime packages", () => {
   const runtimePack = pkg("Microsoft.NETCore.App", "10.0.0", "net10.0", true);
   const active = pkg("System.Text.Json");
+  active.workspaceIndex = 1;
   const state = { packages: [runtimePack, active], package: active };
 
   const html = packageTabsHtml(state, runtimePack, escapeHtml, packageIdentityKey);
   assert.ok(html.indexOf("platform") < html.indexOf("System.Text.Json"));
-  assert.equal(html.match(/package-tab/g)?.length, 2);
+  assert.equal(html.match(/workspace-window/g)?.length, 2);
+  assert.match(html, /0:[\s\S]*1:/);
 });
 
-test("the package bar wraps the tab strip and open-package form", () => {
+test("the package bar renders only the indexed workspace strip", () => {
   const active = pkg("System.Text.Json");
+  active.workspaceIndex = 1;
   const state = { packages: [active], package: active };
   const html = packageBarHtml(state, null, escapeHtml, packageIdentityKey);
 
-  assert.match(html, /class="package-tabs" role="tablist"/);
-  assert.match(html, /id="package-query"/);
-  assert.match(html, /id="package-query-input"/);
+  assert.match(html, /class="workspace-strip" role="tablist"/);
+  assert.match(html, /aria-label="Open workspaces"/);
+  assert.doesNotMatch(html, /package-query|Package or Package@version/);
 });
 
 test("parsing the open-package query accepts an id and an id@version, and rejects an empty query or an empty version", () => {
@@ -357,42 +364,26 @@ test("an explicit package version activates only a matching open tab", () => {
   ), null);
 });
 
-test("the package bar preserves whether the submitted version was explicit", () => {
-  const root = new FakeRoot();
-  const form = root.add("#package-query", new FakeElement());
-  const input = root.add("#package-query-input", new FakeElement());
-  const queries: ParsedPackageQuery[] = [];
-  const packageBar = createPackageBar({
-    keybindings: new KeybindingRegistry(),
-    state: { packages: [], package: null },
-    escapeHtml,
-    packageIdentityKey,
-    runtimePackPackage: () => null,
-    selectPackageTab: () => {},
-    closePackageTab: () => {},
-    openRuntimePack: () => {},
-    openPackage: query => queries.push(query),
-    selectFramework: () => {},
-    selectVersion: () => {},
-    showToast: () => {},
-  });
-  packageBar.bind(fakeDom.parentNode(root));
+test("workspace indexes survive replacement and closing another subject", () => {
+  const first = pkg("First.Package");
+  assert.equal(assignPackageWorkspaceIndex(
+    first, [], null, packageIdentityKey), 1);
 
-  input.value = "System.Text.Json";
-  form.dispatch("submit");
-  input.value = "System.Text.Json@10.0.0";
-  form.dispatch("submit");
+  const second = pkg("Second.Package");
+  assert.equal(assignPackageWorkspaceIndex(
+    second, [first], null, packageIdentityKey), 2);
 
-  assert.deepEqual(queries, [
-    {
-      packageId: "System.Text.Json",
-      version: "latest",
-      explicitVersion: false,
-    },
-    {
-      packageId: "System.Text.Json",
-      version: "10.0.0",
-      explicitVersion: true,
-    },
-  ]);
+  const replacement = pkg("Second.Package", "2.0.0", "net9.0");
+  assert.equal(assignPackageWorkspaceIndex(
+    replacement, [first, second], second, packageIdentityKey), 2);
+
+  const afterClose = pkg("After.Close");
+  assert.equal(assignPackageWorkspaceIndex(
+    afterClose, [replacement], null, packageIdentityKey), 1);
+  assert.equal(replacement.workspaceIndex, 2);
+
+  const platform = pkg(
+    "Microsoft.NETCore.App", "10.0.0", "net10.0", true);
+  assert.equal(assignPackageWorkspaceIndex(
+    platform, [afterClose, replacement], null, packageIdentityKey), 0);
 });

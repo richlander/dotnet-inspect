@@ -4,6 +4,7 @@ import {
   bindHomeShell,
   bindLoadErrorShell,
   bindWorkbenchShell,
+  focusWorkbenchSearch,
   workbenchShellHtml,
 } from "../src/shell-controls.ts";
 import { setProductHomeDemoCatalog } from "../src/product-home-demos.ts";
@@ -23,6 +24,7 @@ setProductHomeDemoCatalog([
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
   hidden = true;
+  focused = false;
   value = "";
   private readonly listeners = new Map<string, EventListener[]>();
 
@@ -34,6 +36,10 @@ class FakeElement {
     const listeners = this.listeners.get(type) ?? [];
     listeners.push(listener);
     this.listeners.set(type, listeners);
+  }
+
+  focus() {
+    this.focused = true;
   }
 
   dispatch(type: string, values: Record<string, unknown> = {}) {
@@ -88,6 +94,7 @@ test("workbench shell binds every rendered control without eager work", () => {
     root.add(selector, new FakeElement());
   }
   const calls: string[] = [];
+  let searchArgumentCount = -1;
 
   bindWorkbenchShell(fakeDom.parentNode(root), {
     onDismissNotice: () => calls.push("dismiss-notice"),
@@ -97,7 +104,10 @@ test("workbench shell binds every rendered control without eager work", () => {
     onNavigateBack: () => calls.push("navigate-back"),
     onNavigateForward: () => calls.push("navigate-forward"),
     onRetryNotice: () => calls.push("retry-notice"),
-    onSearch: () => calls.push("search"),
+    onSearch: (...args: unknown[]) => {
+      searchArgumentCount = args.length;
+      calls.push("search");
+    },
     onShare: () => calls.push("share"),
   });
 
@@ -107,16 +117,39 @@ test("workbench shell binds every rendered control without eager work", () => {
     assert.equal(calls.at(-1), call);
   }
   assert.equal(calls.length, controls.size);
+  assert.equal(searchArgumentCount, 0);
 });
 
-test("workbench shell renders the top-level workbench actions", () => {
-  const html = workbenchShellHtml();
+test("workbench shell renders workspace identity and selectors before app actions", () => {
+  const html = workbenchShellHtml({
+    workspaceStripHtml: '<div data-test="workspaces">0:Platform 1:Package*</div>',
+    workspaceTitleHtml: '<strong data-test="title">Package workspace</strong>',
+    coordinateSelectorsHtml: '<div data-test="coordinate">version framework</div>',
+  });
 
-  assert.match(html, /class="brand"[^>]*>[\s\S]*dotnet-inspect/);
-  assert.match(html, /id="open-search"[\s\S]*>[\s\S]*Search[\s\S]*<kbd>Ctrl\/⌘ P<\/kbd>/);
+  assert.match(
+    html,
+    /class="titlebar"[\s\S]*class="brand"[\s\S]*data-test="workspaces"[\s\S]*class="workspace-title"[\s\S]*data-test="title"[\s\S]*class="coordinate-selectors"[\s\S]*data-test="coordinate"[\s\S]*class="title-actions"/);
+  assert.match(html, /id="open-search"[^>]*>Search<\/button>/);
   assert.match(html, /id="go-home"[^>]*>Home<\/button>/);
   assert.match(html, /id="open-settings"[^>]*>Settings<\/button>/);
-  assert.doesNotMatch(html, /Package or Package@version|theme-toggle|id="share"|id="help"/);
+  assert.match(html, /id="share"[^>]*>Share<\/button>/);
+  assert.match(html, /id="help"/);
+  assert.doesNotMatch(
+    html,
+    /Package or Package@version|theme-toggle|shell-command-center/);
+});
+
+test("workbench search focus stays with the shell selector owner", () => {
+  const root = new FakeRoot();
+  const search = new FakeElement();
+  root.add("#open-search", search);
+
+  assert.equal(focusWorkbenchSearch(fakeDom.parentNode(root)), true);
+  assert.equal(search.focused, true);
+  assert.equal(
+    focusWorkbenchSearch(fakeDom.parentNode(new FakeRoot())),
+    false);
 });
 
 test("home shell accepts only known demos", () => {

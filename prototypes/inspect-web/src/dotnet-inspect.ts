@@ -140,6 +140,7 @@ import {
   bindHomeShell,
   bindLoadErrorShell,
   bindWorkbenchShell,
+  focusWorkbenchSearch,
   type HomeShellBindingActions,
   type LoadErrorShellBindingActions,
   type WorkbenchShellBindingActions,
@@ -257,6 +258,7 @@ import {
   typeSourceSignature,
 } from "./type-panel.ts";
 import {
+  assignPackageWorkspaceIndex,
   createPackageBar,
   findPackageTabForQuery,
   type PackageBarPackage,
@@ -1564,7 +1566,6 @@ const packageBar = createPackageBar({
   closePackageTab,
   openRuntimePack: () =>
     observeAsync(openRuntimePackFromHome(), "Opening the .NET Platform"),
-  openPackage: openPackageQuery,
   selectFramework: framework =>
     observeAsync(
       switchPackageFramework(framework),
@@ -1579,7 +1580,6 @@ const packageBar = createPackageBar({
         switchPackageVersion(version),
         "Switching the package version");
   },
-  showToast,
 });
 
 function selectedType() {
@@ -1809,6 +1809,11 @@ function retainPackageModel(
   packageModel: AppPackage,
   replacedPackage: AppPackage | null = null,
 ) {
+  assignPackageWorkspaceIndex(
+    packageModel,
+    state.packages,
+    replacedPackage,
+    packageIdentityKey);
   const activeWasReplaced = packageIdentityEquals(state.package, packageModel);
   const retained = retainWorkspacePackage(
     state.packages,
@@ -2642,14 +2647,25 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
 
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal ? " inert" : ""}>
-      ${workbenchShellHtml()}
-      <section class="workspace-strip" aria-label="Open workspaces">
-        ${packageBar.html()}
-        <div class="workspace-strip-actions">
-          <button id="share" type="button">Share</button>
-          <button id="help" type="button" aria-label="Keyboard help">?</button>
-        </div>
-      </section>
+      ${workbenchShellHtml({
+        workspaceStripHtml: packageBar.html(),
+        workspaceTitleHtml: `
+          <span>${pkg.isRuntimePack ? "platform" : "package"}</span>
+          <strong title="${escapeHtml(`${packageDisplayName(pkg)}@${pkg.version} · ${pkg.activeFramework}`)}">${escapeHtml(packageDisplayName(pkg))}</strong>`,
+        coordinateSelectorsHtml: `
+          <label class="version-select">
+            <span>version</span>
+            <select id="package-version">
+              ${versionOptionsHtml(pkg)}
+            </select>
+          </label>
+          <label class="framework-select">
+            <span>framework</span>
+            <select id="framework"${pkg.frameworks.length <= 1 ? " disabled" : ""}>
+              ${pkg.frameworks.map(item => `<option ${item === pkg.activeFramework ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
+            </select>
+          </label>`,
+      })}
 
       ${visibleQueryNotice()
         ? `<div class="query-notice" role="alert">
@@ -2668,31 +2684,6 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
             <button id="dismiss-package-notice" type="button" aria-label="Dismiss">×</button>
           </div>`
         : ""}
-
-      <section class="scopebar">
-        <div class="package-title">
-          <span class="scope-kicker">${pkg.isRuntimePack ? "platform" : "package"}</span>
-          <strong>${escapeHtml(packageDisplayName(pkg))}</strong>
-          <span>${escapeHtml(pkg.version)}</span>
-        </div>
-        <label class="version-select">
-          <span>version</span>
-          <select id="package-version">
-            ${versionOptionsHtml(pkg)}
-          </select>
-        </label>
-        <label class="framework-select">
-          <span>framework</span>
-          <select id="framework"${pkg.frameworks.length <= 1 ? " disabled" : ""}>
-            ${pkg.frameworks.map(item => `<option ${item === pkg.activeFramework ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
-          </select>
-        </label>
-        <div class="asset-path">${escapeHtml(pkg.assemblyAsset)}</div>
-        <div class="scope-stats">
-          <span><strong>${pkg.totalTypes}</strong> types</span>
-          <span><strong>${pkg.totalMembers.toLocaleString()}</strong> members</span>
-        </div>
-      </section>
 
       ${renderScopeBar()}
 
@@ -5175,7 +5166,7 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
     const retryAction = state.queryNoticeRetryAction;
     if (retryAction) observeAction(retryAction, "Retrying the inspection");
   },
-  onSearch: openSpotlight,
+  onSearch: () => openSpotlight(),
   onShare: () => void share(),
 };
 
@@ -7227,10 +7218,7 @@ function restorePackageQueryReturnFocus() {
   if (!state.packageQueryReturnFocusPending
     || state.packageQueryReturnFocus !== "package-search") return;
   afterCurrentNavigationFrame(() => {
-    const input =
-      document.querySelector<HTMLInputElement>("#package-query-input");
-    if (input) {
-      input.focus();
+    if (focusWorkbenchSearch(document)) {
       state.packageQueryReturnFocus = null;
       state.packageQueryReturnFocusPending = false;
     } else if (focusLevelOneHeading()) {

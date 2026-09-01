@@ -34,16 +34,29 @@ export interface LoadErrorShellBindingActions {
   onRetry: () => void;
 }
 
-export function workbenchShellHtml(): string {
+export interface WorkbenchShellHtmlOptions {
+  workspaceStripHtml: string;
+  workspaceTitleHtml: string;
+  coordinateSelectorsHtml: string;
+}
+
+export function workbenchShellHtml(
+  options: WorkbenchShellHtmlOptions,
+): string {
   return `
       <header class="titlebar">
         <a class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
-        <button id="open-search" class="shell-command-center" type="button" aria-haspopup="dialog" title="Search (Ctrl/Command+P)">
-          <span class="shell-search-glyph" aria-hidden="true">⌕</span>
-          <span class="shell-search-label">Search</span>
-          <kbd>Ctrl/⌘ P</kbd>
-        </button>
+        ${options.workspaceStripHtml}
+        <div class="workspace-title" aria-label="Active workspace">
+          ${options.workspaceTitleHtml}
+        </div>
+        <div class="coordinate-selectors" aria-label="Active coordinate">
+          ${options.coordinateSelectorsHtml}
+        </div>
         <nav class="title-actions" aria-label="Application">
+          <button id="share" type="button">Share</button>
+          <button id="help" type="button" aria-label="Keyboard help">?</button>
+          <button id="open-search" type="button" aria-haspopup="dialog" title="Search (Ctrl/Command+P)">Search</button>
           <button id="go-home" type="button">Home</button>
           <button id="open-settings" type="button">Settings</button>
         </nav>
@@ -69,9 +82,16 @@ export function bindWorkbenchShell(
   root.querySelector("#go-home")
     ?.addEventListener("click", actions.onGoHome);
   root.querySelector("#open-search")
-    ?.addEventListener("click", actions.onSearch);
+    ?.addEventListener("click", () => actions.onSearch());
   root.querySelector("#help")
     ?.addEventListener("click", actions.onHelp);
+}
+
+export function focusWorkbenchSearch(root: ParentNode): boolean {
+  const search = root.querySelector<HTMLElement>("#open-search");
+  if (!search) return false;
+  search.focus();
+  return true;
 }
 
 export function bindHomeShell(

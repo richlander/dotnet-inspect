@@ -75,11 +75,14 @@ independent cosmetic changes.
 
 | Area | Direction |
 | ---- | --------- |
-| Subject navigation | Use one single-line Workspace, coordinate, and current-subject command |
-| Workspace selection | Replace package tabs with a Workspace surface |
-| Package coordinate | Keep a compact package, version, and TFM argument beside `dotnet-inspect` |
+| Persistent hierarchy | Use three rows before content: workspace title bar, subject/inspector strip, and target selector |
+| Workspace title bar | Show the broad workspace identity, compact indexed workspace switching, applicable coordinate selectors, and app controls |
+| Subject navigation | Keep subject selection and subject-specific inspectors together without repeating the workspace identity |
+| Target selection | Put target navigation in the working surface and let its heading identify the exact Library, Type, or Member |
+| Workspace selection | Give loaded coordinates stable session-local indexes; use a Workspace surface for broader management |
+| Package coordinate | Keep version and TFM selectors with the broad package/workspace identity |
 | Library inspection | Select all libraries or one library within Library |
-| Type headings | Let the inspection command identify API and Source; retain detail in Metadata |
+| Type headings | Use a compact exact-target heading in API and Source; retain detail in Metadata |
 | Filters | Collapse selector rows by default and summarize hidden restrictions |
 | Selected controls | Use one accent selected-state treatment across selector families |
 | Source provenance | Use a compact status/action row without validation prose or link glyphs |
@@ -87,12 +90,13 @@ independent cosmetic changes.
 | Settings | Use one Settings experience with contextual entry points |
 | Data bar | Show build identity, acquired source, CLI, and skill links on one line |
 
-Together, these decisions move subject-specific controls and detail into the
-view that owns them. Persistent chrome carries the `dotnet-inspect` Workspace
-root control, shell actions, and one data line. Inspection surfaces add the
-compact coordinate/subject command and lens navigation. Content views spend
-their vertical space on the package, library, type, member, API, metadata, or
-source material the user selected.
+Together, these decisions separate two identities that must remain visible
+without competing for one label. The workspace title bar describes the broad
+inspection scope: a named workspace when available, otherwise the active
+package, platform, project, file, or other coordinate. The working surface
+describes the exact target through its own heading. Between them, the
+subject/inspector strip selects the kind of evidence, and the target-selector
+row provides navigation without becoming a second title.
 
 ## Cross-document relationships
 
@@ -134,28 +138,28 @@ they exchange.
 
 ## Reference-experience boundary
 
-[Visual Studio Code](https://code.visualstudio.com/docs/editing/getting-started/userinterface)
-is the primary reference for the overall workbench experience: a content-first
-working area, persistent navigation context, command-center search, a command
-palette, unified settings, keyboard access, and a compact status line. Inspect
-Web adopts that interaction grammar by role rather than copying VS Code's
-desktop chrome or file-editor information architecture.
+No external application is the overall Inspect Web UX target. The product's
+Workspace -> Package -> Library -> Type -> Member model and its lenses remain
+normative. Reference applications supply evidence for individual capabilities:
 
+| Capability | Reference evidence |
+| ---------- | ------------------ |
+| Workspace title-bar allocation | tmux indexed windows and its elastic status-line space |
+| Spotlight, command palette, keyboard navigation, and focus | Visual Studio Code |
+| Dense web-native package exploration and shareable state | npmx.dev |
+| Assembly, Type, and Member hierarchy | ILSpy and Visual Studio Object Browser |
+| Read-only inspection posture and evidence panes | Chrome DevTools |
+| URLs, browser history, and familiar web conventions | GitHub |
+
+These references are neither architectural owners nor templates to copy. tmux
+does not imply terminal styling or pane management; Visual Studio Code does not
+imply an editor workbench, command center, Activity Bar, file Explorer, editor
+tabs, movable regions, or desktop-window assumptions; and Chrome DevTools does
+not imply a browser-debugging information architecture.
+
+[npmx.dev](https://npmx.dev/) contributes fast package exploration, density,
+code-first working surfaces, keyboard access, and persistent package context.
 Inspect Web does not copy:
-
-- an Activity Bar;
-- editable-file tabs or editor groups;
-- a file-system Explorer as the primary navigation model;
-- terminal, debug, source-control, or extension-host panels;
-- movable workbench regions or desktop-window assumptions; or
-- VS Code branding and component styling.
-
-[npmx.dev](https://npmx.dev/) is a partial reference for fast web-native
-package exploration, shareable URL state, code-first working surfaces, keyboard
-access, and persistent package context. It is not the primary model for the
-overall experience or the website's information architecture.
-
-Inspect Web does not copy from npmx:
 
 - npm-style `main`, `docs`, `code`, `diff`, `changelog`, and `stats` hierarchy;
 - a package-only subject model;
@@ -167,9 +171,8 @@ Inspect Web does not copy from npmx:
 - npmx branding and component styling.
 
 Package, Library, Type, and Member ownership and their local lenses remain the
-dotnet-inspect model. VS Code supplies the overall workbench grammar and npmx
-contributes selected web/package interaction evidence; neither redefines the
-product domain.
+dotnet-inspect model. Every reference is bounded to the capability named above
+and none redefines the product domain.
 
 ## Implementation gates
 

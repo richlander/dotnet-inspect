@@ -15,10 +15,11 @@ browser history; that model belongs to
 
 This owner defines:
 
-- the Workspace, Package, Library, Type, and Member subject hierarchy and the
-  single-line inspection command that identifies the active coordinate and
-  subject;
-- the Workspace surface that replaces the package tab strip;
+- the Workspace, Package, Library, Type, and Member subject hierarchy, the
+  subject/inspector strip, and the target selector within the working surface;
+- the compact workspace-switcher and broad-identity descriptors consumed by
+  the shell title bar;
+- the Workspace surface that complements the compact title-bar switcher;
 - lens-tab rendering, roving-tabindex interaction, and no-effective-lens
   status presentation;
 - the subject/hierarchy menu and coordinate menu, including their
@@ -73,7 +74,7 @@ This document consumes, without redefining:
   [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md)
   validates before this document's rendered focus targets receive focus.
 
-## Subject hierarchy and inspection command
+## Subject hierarchy, inspectors, and target selection
 
 Workspace, Package, Library, Type, and Member are progressively narrower
 inspection subjects:
@@ -90,70 +91,70 @@ one common root subject, not the universal acquisition model. A non-package
 coordinate uses its product-owned root subject and overview when no Library,
 Type, or Member is active. This document does not invent package lenses for it.
 
-### Single-line inspection command
+### Persistent navigation composition
 
-Package workspace tabs and the Package, Library, Type, and Member primary
-tablist are removed. One single-line inspection command identifies the
-Workspace root, active coordinate, and current leaf subject:
+An inspection workspace has three persistent rows before its primary content:
 
-```text
-dotnet-inspect  System.Text.Json@10.0.0/net10.0  System.Text.Json.JsonSerializer.DeserializeAsync  Copy target
-dotnet-inspect  MyAssembly.dll                   MyNamespace.MyType                              Copy target
-dotnet-inspect  DotnetInspect.TestAssets.ToolV2  Package                                         Copy target
-```
+1. The workspace title bar owned by
+   [Inspect Web Shell Interaction](inspect-web-shell-interaction.md#workspace-title-bar-and-shell-actions)
+   identifies the broad workspace or active coordinate.
+2. The **subject/inspector strip** identifies the active subject level and its
+   applicable lenses or member sections.
+3. The **target selector** belongs to the working surface and navigates within
+   the active subject.
 
-The command starts without a separator glyph. Spacing and typography distinguish
-its three identity roles:
+The broad and deep identities have distinct owners. The shell title bar renders
+the owner-issued workspace name, or the active coordinate identity when the
+workspace has no meaningful name. It does not display the fully qualified
+Library, Type, or Member target. The primary working surface renders that exact
+target as its visible level-one heading.
 
-1. `dotnet-inspect` is the Workspace root.
-2. The coordinate identifies the active package, platform, project, file, or
-   other product-owned workspace input.
-3. The current subject identifies the active root, Library, Type, or Member.
-   At a package root its label is `Package`; another coordinate kind uses its
-   owner-issued root label.
+### Subject and inspector strip
 
-One trailing visible `Copy target` button follows those identity roles.
+The subject strip contains the ordered applicable root, Library, Type, and
+Member subject descriptors supplied by Inspection Subject Navigation. The
+prototype may provisionally expose its existing `Package`, `Types`, and
+`Member` scopes until the product descriptors replace them. The current
+subject is selected programmatically and is not conveyed by color alone.
 
-The displayed subject need not mechanically repeat every parent. A Type or
-Member normally uses its product-owned qualified display identity. A defining
-Library appears when it is the active subject or when the product reports that
-qualification is required to disambiguate identity.
+The inspector strip immediately follows the subject strip. It contains the
+active subject's owner-ordered lenses or, for Member, its applicable sections.
+Subject changes replace the inspector set; inspectors never become workspace
+switchers or target selectors.
 
-The command remains one line. When space is constrained, intermediate
-qualification elides before the coordinate or leaf subject. The complete
-product-owned identity remains in the accessible name and focused or expanded
-presentation.
+The remainder of the row is elastic and may stay empty. A later design may use
+it for concise status, but it does not duplicate the workspace identity or the
+fully qualified target merely because width is available.
 
-Each identity role and the trailing action is a real interactive control rather
-than click behavior attached to inert text:
+### Target selector
 
-- activating `dotnet-inspect` opens Workspace;
-- activating the coordinate opens a coordinate menu whose actions include
-  navigation to the Package or other root overview, `Search packages`, and
-  controls for applicable version, TFM, or acquisition detail;
-- activating the always-present current subject opens a hierarchy menu
-  containing every ordered applicable root, Library, Type, and Member
-  descriptor supplied by Inspection Subject Navigation, including unavailable
-  and failed descendants with their evidence; and
-- `Copy target` copies the product-issued canonical current target.
+The target-selector row is part of the active working surface. It provides the
+parent path, inventory context, Library/Type/Member selectors, and contextual
+actions needed to move or act within the current subject. Each selectable role
+is a real control that submits the product-issued identity or action; inert
+breadcrumb text does not acquire click behavior.
 
-The coordinate and subject menus are not primary-view tablists. Their items use
-the product-issued subject identities and availability results. They make root
-and every applicable subject level reachable even when the compact command
-omits other labels.
+The row may compact or elide intermediate qualification, but the content
+heading remains the primary visible identity for the exact target. A defining
+Library appears when it is selected or when the product reports that
+qualification is required to disambiguate a Type or Member. The complete
+product-owned identity remains in the heading's accessible name and focused or
+expanded selector presentation.
 
-Copying a target and copying a restorable workspace URL are different actions.
-`Copy target` does not reconstruct identity from display text. The `share`
-command continues to copy the canonical workspace link.
+One trailing visible `Copy target` action copies the product-issued canonical
+current target. Copying a target and copying a restorable workspace URL are
+different actions; the `share` command continues to copy the canonical
+workspace link. Neither action reconstructs identity from display text.
 
-Browser Back and Forward own navigation history. The secondary row that
-repeated back/forward buttons, package identity, active lens, Copy, and Taste is
-removed.
+Browser Back and Forward own navigation history. Existing in-surface history
+buttons may remain during incremental adoption, but they are not part of the
+target-selector contract.
 
 ### Workspace surface
 
-The Workspace surface replaces the package tab strip. It consumes
-product-issued descriptors for every open coordinate and shows:
+The Workspace surface complements the compact indexed switcher in the title
+bar. It consumes product-issued descriptors for every open coordinate and
+shows:
 
 - coordinate identity and acquisition kind;
 - optional owner-issued current-subject context;
@@ -172,8 +173,8 @@ handling are owned by
 [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md#workspace-result-focus).
 
 Workspace also exposes the same Search and Open actions as the shell. It does
-not infer source identity, package equivalence, or local-file correspondence
-from display labels.
+not infer source identity, package equivalence, local-file correspondence, or
+a composite workspace name from display labels.
 
 ### Lens navigation semantics
 
@@ -183,8 +184,8 @@ or member section is a tab with `role="tab"` and `aria-selected`, including
 identically labelled tabs owned by different subjects. An effective lens is
 selected programmatically rather than conveyed by color alone. When no
 effective lens exists, every tab has `aria-selected="false"`. An empty
-descriptor collection omits the tablist and leaves the no-effective-lens status
-region as the content following the inspection command.
+descriptor collection omits the tablist and leaves the no-effective-lens status region as
+the content following the subject/inspector strip.
 
 Each tablist has the accessible name `<Subject> lenses`. The effective tab
 references its panel with `aria-controls`; the panel uses `role="tabpanel"` and
@@ -257,10 +258,11 @@ Each row's product-issued activation state governs any later commit. Opening
 the choices changes no snapshot, URL, or history and does not invent a default
 Member.
 
-The inspection command, Workspace, lens strip, and content region all render
-the same returned active-subject identity. The UI does not infer initial,
-fallback, or reconciliation policy from descriptor order, assembly order,
-current filters, package kind, or display text.
+The workspace switcher, Workspace surface, subject/inspector strip, target
+selector, and content region all render the same returned navigation snapshot.
+The UI does not infer initial, fallback, or reconciliation policy from
+descriptor order, assembly order, current filters, package kind, or display
+text.
 
 ### Coordinate and subject menu interaction
 
@@ -363,8 +365,8 @@ or retention from assembly membership.
 
 When the product surface identifies colliding types under `All libraries`, type
 navigation qualifies only those rows with their product-owned defining library.
-If a colliding Type is selected, compact workspace context also shows its
-defining library. API and Source continue to rely on the inspection command for
+If a colliding Type is selected, the target selector also shows its defining
+library. API and Source continue to rely on the working-surface heading for
 that identity; disambiguation does not restore the removed metadata block.
 
 ### Aggregate results
@@ -499,8 +501,8 @@ are proved by the gates in
 1. Supply an owner result whose active subject is a Type and whose hierarchy
    contains available, unavailable, and failed descriptors above and below
    that Type.
-2. Confirm that the inspection command uses the active Type as its level-one
-   heading and the subject menu renders every descriptor with its distinct
+2. Confirm that the working surface uses the active Type as its level-one
+   heading and the subject selector renders every descriptor with its distinct
    unavailable reason or failure diagnostic.
 3. Activate a non-current available descriptor and confirm that the UI submits
    only its opaque action ID with the issuing generation, renders the returned
