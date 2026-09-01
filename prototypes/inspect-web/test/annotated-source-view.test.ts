@@ -53,6 +53,42 @@ test("hiding a medium drops only that medium's lines and rebases no coordinate",
   );
 });
 
+test("hiding a medium conceals its segments on a mixed line without rebasing text", () => {
+  const mixed: AnnotatedSourceDocument = {
+    text: "ab",
+    nodes: [
+      { id: 0, kind: "Name", medium: "CSharp", spans: [{ start: 0, length: 1 }] },
+      {
+        id: 1,
+        kind: "Instruction",
+        medium: "Il",
+        spans: [{ start: 1, length: 1 }],
+        il_offset: 0,
+      },
+    ],
+    regions: [],
+    facts: [],
+    targets: [],
+  };
+
+  const view = buildAnnotatedView(mixed, {
+    media: { CSharp: true, Il: false },
+  });
+
+  assert.equal(view.lines[0]?.medium, "Mixed");
+  assert.deepEqual(
+    view.lines[0]?.segments.map(segment => ({
+      text: segment.text,
+      start: segment.start,
+      visible: segment.visible,
+    })),
+    [
+      { text: "a", start: 0, visible: true },
+      { text: "b", start: 1, visible: false },
+    ],
+  );
+});
+
 test("an explicitly undefined medium preserves the JavaScript visibility semantics", () => {
   const view = buildAnnotatedView(sampleDocument, {
     media: { CSharp: undefined, Il: true },
