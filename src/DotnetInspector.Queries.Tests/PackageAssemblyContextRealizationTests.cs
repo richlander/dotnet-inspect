@@ -436,12 +436,16 @@ public sealed class PackageAssemblyContextRealizationTests
         Assert.Equal("linux-x64", binding.Coordinate.RuntimeIdentifier);
         Assert.Equal("net10.0", binding.Root.RequestedTargetFramework);
         Assert.Equal(
-            ["runtimes/linux-x64/lib/net10.0/Net10.dll"],
+            ["lib/net10.0/Net10.dll"],
             binding.Root.AssetSelection.Assets.Select(asset => asset.Path));
         Assert.Equal(
             ["runtimes/linux-x64/lib/net10.0/Net10.dll"],
             binding.Root.AssetSelection.ImplementationAssets.Select(
                 asset => asset.Path));
+        Assert.Equal(
+            "runtimes/linux-x64/lib/net10.0/Net10.dll",
+            binding.Root.AssetSelection.FindImplementationAsset(
+                Assert.Single(binding.Root.AssetSelection.Assets))!.Path);
         Assert.Equal(
             "linux-x64",
             binding.Root.RequestedRuntimeIdentifier);
@@ -567,6 +571,42 @@ public sealed class PackageAssemblyContextRealizationTests
         PackageAssemblyRoleParticipant implementation =
             Assert.Single(realization.ImplementationParticipants);
         Assert.Same(surface.Participant, implementation.Participant);
+        Assert.Same(
+            implementation,
+            realization.ImplementationParticipant(surface));
+    }
+
+    [Fact]
+    public void RidSpecificImplementation_UsesSeparateNeutralCompileRole()
+    {
+        byte[] image =
+            File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
+        PackageRootRealization package = new(
+            new InMemoryPackageContent(
+                Archive(
+                    ("lib/net11.0/Rid.Sample.dll", image),
+                    ("runtimes/linux-x64/lib/net11.0/Rid.Sample.dll", image)),
+                fromCache: false,
+                producerKey: "tests"),
+            "Rid.Sample",
+            "1.0.0",
+            Framework,
+            "linux-x64");
+        using var workspace = new InspectionWorkspace();
+        using PackageAssemblyContextRealization realization =
+            workspace.RealizePackageAssemblyContextRoles(
+                [package],
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.False(realization.SharesGroup);
+        PackageAssemblyRoleParticipant surface =
+            Assert.Single(realization.SurfaceParticipants);
+        PackageAssemblyRoleParticipant implementation =
+            Assert.Single(realization.ImplementationParticipants);
+        Assert.Equal("lib/net11.0/Rid.Sample.dll", surface.Asset.Path);
+        Assert.Equal(
+            "runtimes/linux-x64/lib/net11.0/Rid.Sample.dll",
+            implementation.Asset.Path);
         Assert.Same(
             implementation,
             realization.ImplementationParticipant(surface));

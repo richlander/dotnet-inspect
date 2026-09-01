@@ -1392,6 +1392,49 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void RidSpecificPackage_SeparatesCompileAndImplementationAssets()
+    {
+        const string packageId = "Rid.Specific";
+        byte[] image =
+            File.ReadAllBytes(
+                typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        var package = new BrowserPackage(
+            packageId,
+            "1.0.0",
+            PackageEntries(
+                ("lib/net11.0/Rid.Specific.dll", image),
+                ("runtimes/linux-x64/lib/net11.0/Rid.Specific.dll", image)),
+            fromCache: false);
+        var coordinate = new BrowserPackageCoordinate(
+            package,
+            new PackageRootRealization(
+                package.Content,
+                packageId,
+                package.Version,
+                "net11.0",
+                "linux-x64"));
+
+        PackageCompileAsset compile =
+            coordinate.CompileAsset("Rid.Specific.dll");
+        Assert.Equal("lib/net11.0/Rid.Specific.dll", compile.Path);
+        Assert.Equal(
+            "runtimes/linux-x64/lib/net11.0/Rid.Specific.dll",
+            coordinate.ImplementationAsset("Rid.Specific.dll").Path);
+        using var scope = new BrowserInspectionScope([coordinate]);
+        BrowserWorkspaceParticipant surface =
+            Assert.Single(scope.SurfaceParticipants);
+        BrowserWorkspaceParticipant implementation =
+            Assert.Single(scope.ImplementationParticipants);
+        Assert.Equal(compile.Path, surface.Asset.Path);
+        Assert.Equal(
+            "runtimes/linux-x64/lib/net11.0/Rid.Specific.dll",
+            implementation.Asset.Path);
+        Assert.Same(
+            implementation,
+            scope.ImplementationParticipant(surface));
+    }
+
+    [Fact]
     public async Task PackageFrameworkUnavailability_DoesNotEmitArtifactFramework()
     {
         const char bidi = '\u202E';

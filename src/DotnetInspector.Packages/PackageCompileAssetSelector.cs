@@ -75,8 +75,9 @@ public sealed record PackageCompileAssetSelection(
     }
 
     /// <summary>
-    /// Finds the implementation counterpart of one selected compile asset. A library asset is
-    /// its own counterpart; a reference asset matches by framework and assembly name.
+    /// Finds the implementation counterpart of one selected compile asset. An exact retained
+    /// library asset is its own counterpart; otherwise correspondence uses assembly name so a
+    /// neutral library compile fallback can map to its RID-specific implementation replacement.
     /// </summary>
     public PackageCompileAsset? FindImplementationAsset(PackageCompileAsset compileAsset)
     {
@@ -88,9 +89,9 @@ public sealed record PackageCompileAssetSelection(
                 nameof(compileAsset));
         }
 
-        return compileAsset.Kind == PackageCompileAssetKind.Library
-            ? compileAsset
-            : ImplementationAssets.FirstOrDefault(asset =>
+        return ImplementationAssets.FirstOrDefault(asset =>
+                   asset.Id.Equals(compileAsset.Id, StringComparison.Ordinal))
+            ?? ImplementationAssets.FirstOrDefault(asset =>
                 asset.AssemblyName.Equals(
                     compileAsset.AssemblyName,
                     StringComparison.OrdinalIgnoreCase));
@@ -248,12 +249,21 @@ public static class PackageCompileAssetSelector
 
         bool hasReferenceAssets = frameworkAssets.Any(
             asset => asset.Kind == PackageCompileAssetKind.Reference);
+        PackageCompileAsset[] libraryFallback =
+        [
+            .. frameworkAssets
+                .Where(asset => asset.Kind == PackageCompileAssetKind.Library)
+                .Select(asset =>
+                    implementationAssets.FirstOrDefault(candidate =>
+                        candidate.Id.Equals(asset.Id, StringComparison.Ordinal))
+                    ?? asset),
+        ];
         PackageCompileAsset[] selected =
         [
             .. (hasReferenceAssets
                     ? frameworkAssets.Where(
                         asset => asset.Kind == PackageCompileAssetKind.Reference)
-                    : implementationAssets)
+                    : libraryFallback)
                 .OrderBy(asset => asset.Path, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(asset => asset.Path, StringComparer.Ordinal),
         ];
