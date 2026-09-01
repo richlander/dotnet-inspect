@@ -55,15 +55,18 @@ cleanup.
 
 Build a fixture or reproducible probe early enough to change the design. Record
 the exact input, command or procedure, expected observation, and what the result
-establishes. Prefer a checked-in test when it is deterministic and suitable for
-normal CI.
+establishes. Prefer a checked-in automated test when it is deterministic and
+suitable for normal CI. Run it in CI when accepting or rejecting the fixture is
+an important boundary of the supported contract.
 
-Preserve a useful fixture even when it is too slow, large, environment-specific,
-or tool-dependent for CI. Keep it in the appropriate corpus, harness, sample,
-or focused documentation; pin its inputs; explain why CI does not run it; and
-name the ordinary gate that covers the supported contract. A saved fixture is
-evidence that future design and review can reproduce, not an unrecorded local
-experiment or a substitute for required automated coverage.
+Preserve a useful fixture outside normal CI when it is too slow, large,
+environment-specific, or tool-dependent. Keep it in the appropriate corpus,
+harness, sample, or focused documentation; pin its inputs; and explain why CI
+does not run it. Distinguish the design evidence it provides from an enforcing
+gate: name the ordinary gate for each supported property or mark that property
+unverified. A saved fixture is evidence that future design and review can
+reproduce, not an unrecorded local experiment or a substitute for required
+automated coverage.
 
 Follow the [harness boundary](evidence-and-validation.md#harness-boundary):
 fixtures and harnesses may expose product behavior, but must not manufacture or

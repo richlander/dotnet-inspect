@@ -24,7 +24,8 @@ development model and rationale. The binding summary:
 - **Design first and state the basis.** Name one normative owner and exact
   claim, then supporting designs, models, constraints, and evidence by role.
 - **Demonstrate the pathological case.** Build boundary and failure fixtures;
-  preserve valuable non-CI fixtures as reproducible design evidence.
+  run contract-defining cases in CI and preserve valuable non-CI probes as
+  reproducible design evidence.
 - **Survey analogous implementations.** Use their behavior, omissions, and
   boundaries as evidence, not authority; transfer code or architecture only
   when license, provenance, assumptions, and architectural fit all transfer.
@@ -283,7 +284,9 @@ trust-boundary and containment guidance:
 [`docs/design/untrusted-data-threat-model.md`](docs/design/untrusted-data-threat-model.md#trust-boundaries).
 For a credible external-input threat, first define its actor, input path,
 boundary, containment invariant, and enforcement gate in the owning design.
-Prefer construction-time containment (`HardenedJson`, `InertText.InertString`).
+Prefer typed construction-time containment such as `InertText.InertString`;
+when that shape is unavailable, a centralized entry point such as
+`HardenedJson` is weaker but still auditable.
 
 ### Platform compatibility
 
