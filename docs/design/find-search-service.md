@@ -48,8 +48,10 @@ contract, however, and is not owned here.
 
 The service does not parse comma-separated syntax, choose a default scope,
 authorize network access, select output fields, or choose a renderer. Output
-mode is not a semantic search input. The current `Tabular` check selects an
-implementation path only and must not authorize different logical results.
+mode must not be a semantic search input. The current `Tabular` check violates
+that target: it selects the implementation path, and the paths currently
+produce different typed results for an all-miss single pattern. This gap is
+described under [Implementation and validation status](#implementation-and-validation-status).
 
 ## Candidate collection
 
@@ -65,16 +67,19 @@ implementation path only and must not authorize different logical results.
 The service owns an ephemeral `AssemblySetInspectionWorkspace` for one
 invocation. Each admitted assembly executes
 `AssemblyContextTypeInventoryQuery`; the service projects its type name,
-namespace, full name, kind, assembly name, source, and source version into the
-internal `TypeSearchResult` currency. It does not reopen assemblies, infer
-metadata facts from display text, or replace a typed query failure with a
-candidate.
+namespace, full name, kind, library file base name, source, and source version
+into the internal `TypeSearchResult` currency. The library value is path
+provenance, not metadata assembly identity. The service does not reopen
+assemblies, infer metadata facts from display text, or replace a typed query
+failure with a candidate.
 
 A non-null collection pattern may be pushed into each inventory scan. With a
-single pattern and an active result limit, sources stream in the order above
-and collection stops before resolving later sources once the limit is met.
-Without that safe early-exit shape, the service collects the full authorized
-inventory before classifying patterns.
+non-tabular single pattern and an active result limit, `FindTypesAsync` selects
+the filtered path: sources stream in the order above and collection stops
+before resolving later sources once the limit is met. Tabular, TSV, and JSONL
+output select the census path even for one pattern. Without the filtered
+early-exit shape, the service collects the full authorized inventory before
+classifying patterns.
 
 `CollectTypesAsync` is also a compatibility seam for `TypeCommand`,
 `TypeLookupService`, and `TypeFindIfMissResolver`. Those consumers own their
@@ -103,7 +108,9 @@ contributes results:
    supplies the score carried by `Similarity`. Duplicate full names collapse
    to the first source-ranked candidate.
 4. **Miss.** A pattern with no result on the earlier rungs has the
-   `NotFound` outcome and no type or provenance payload.
+   `NotFound` outcome and no type or provenance payload. The optimized
+   single-pattern path does not yet construct this row, as recorded under
+   [Implementation and validation status](#implementation-and-validation-status).
 
 Exact and glob rows carry similarity `1.0`; partial rows carry their computed
 score; `NotFound` carries no score. Multiple patterns classify independently,
@@ -117,20 +124,21 @@ position.
 ## Limits and work
 
 For direct and namespace-prefix matches, `Limit` is a per-pattern result cap.
-On the optimized single-pattern path it is also an acquisition bound: once
-enough direct matches have been collected, later sources are neither resolved
-nor diagnosed. For multiple patterns, the service must inspect the complete
-authorized source set before applying each pattern's cap because different
-patterns can match different sources.
+On the optimized non-tabular single-pattern path it is also an acquisition
+bound: once enough direct matches have been collected, later sources are
+neither resolved nor diagnosed. For multiple patterns, or one pattern on the
+census path, the service must inspect the complete authorized source set before
+applying each pattern's cap.
 
 Similarity fallback has its own fixed cap of five candidate names. The current
 implementation does not additionally apply `Limit` to partial suggestions;
 whether the command limit should cap that rung is an unresolved contract gap.
 
-The single-pattern fast path first performs filtered collection. If it finds no
-direct result, it performs a full census to evaluate namespace-prefix and
-similarity fallback. This is an execution optimization, not a separate search
-mode.
+The non-tabular single-pattern fast path first performs filtered collection. If
+it finds no direct result, it performs a full census to evaluate
+namespace-prefix and similarity fallback. This is intended as an execution
+optimization, but typed-result equivalence with the census path is not yet
+established.
 
 ## Failure and lifetime
 
@@ -159,7 +167,8 @@ The Release tests in
 `src/dotnet-inspect.Tests/TypeSearchServiceTests.cs` currently verify candidate
 collection and source behavior:
 
-- directory provenance and trailing-separator handling;
+- directory source provenance for a separator-free path;
+- acceptance of a directory path with a trailing separator;
 - visible invalid-assembly warnings;
 - runtime-asset package fallback; and
 - early exit before an unnecessary later source.
@@ -170,6 +179,9 @@ particular, the following properties are unverified or known gaps:
 - the optimized single-pattern path returns an empty list for an all-miss
   pattern, while the census path constructs a `NotFound` row;
 - single-pattern and census paths are not gated for typed-result equivalence;
+- equivalent directory paths with and without a trailing separator produce
+  different `Source` provenance, with the trailing form currently projecting
+  an empty value;
 - partial suggestions are selected by similarity but emitted in collected
   candidate order and are not additionally capped by `Limit`;
 - mixed-pattern result order is grouped by outcome dictionaries rather than

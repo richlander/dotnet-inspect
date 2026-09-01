@@ -108,7 +108,7 @@ on-disk assembly) and **inspection** (read that assembly and produce a result) i
 re-do both by hand: open the PE image itself, and re-derive or manually forward the identity
 the resolver already computed.
 
-## Target: the CLI forms a query, a service returns the final shape
+## Target: the CLI forms a query, a service returns the complete typed result
 
 The CLI should express *what it wants* and receive *the finished result*. It should never
 hold a `PEReader` and never re-derive provenance.
@@ -983,15 +983,16 @@ public sealed class AssemblyInspectionSession : IDisposable
 }
 ```
 
-The CLI collapses to *selection and rendering* — it chooses the source and sections (the
-query) and renders the returned shape, but it does not construct facts, hold PE types, or
-re-derive provenance:
+The CLI collapses to *selection and rendering* — it chooses the source and
+sections (the query), projects the returned typed result through L2, and
+renders it, but it does not construct facts, hold PE types, or re-derive
+provenance:
 
 ```csharp
 foreach (var resolved in await resolver.ResolveAsync(query.Target.Location))  // rich descriptors, nothing discarded
 {
     using var asm = AssemblyInspectionSession.Open(resolved);
-    inspections.Add(InspectionAssembler.Build(query, resolved, asm)); // final, section-shaped result
+    inspections.Add(InspectionAssembler.Build(query, resolved, asm)); // complete typed inspection result
 }
 ```
 
@@ -1023,7 +1024,7 @@ out, over the *same* shared PE-owner (so the body path does not re-open the imag
    MemberQuery / ILCoordinateQuery                 MethodBodyInspection
  CLI  ─────────────────────────────►  Service  ──────────────────────────►  CLI
       (assembly + member or IL coord;        (select member → import body →
-       which body sections)                   source / IL / facts → final shape)
+       which body sections)                   source / IL / facts → typed result)
 ```
 
 `ILOffsetProjectionProducer` is the first concrete body seam: top-level Research request/result
@@ -1073,11 +1074,13 @@ Trace a member query end-to-end — e.g. `member JsonSerializer.Serialize:1 --pl
    `1`, runs the requested facets (source, IL, calls, allocation/safety/cost, decompiled/annotated
    source, …), and returns a section-ready `MethodBodyInspection`. See
    [Method Body Inspection](method-body-inspection.md).
-5. **Render (CLI).** The CLI maps requested sections onto facets and renders the returned shape
-   (Markout / writers). It never opened a `PEReader`, never classified an opcode, never
-   re-derived the assembly's identity. Because the selector narrowed resolution to the one
-   defining assembly (the fan-out rule above), this `InspectionQuery` returns a single
-   `MethodBodyInspection` — not a multi-assembly `InspectionReport`.
+5. **Render (CLI).** The CLI maps requested sections onto facets, projects the
+   returned typed result through L2, and renders the selected shape through
+   Markout or another writer. It never opened a `PEReader`, never classified an
+   opcode, and never re-derived the assembly's identity. Because the selector
+   narrowed resolution to the one defining assembly (the fan-out rule above),
+   this `InspectionQuery` returns a single `MethodBodyInspection` — not a
+   multi-assembly `InspectionReport`.
 
 The positional argument's whole journey: a string the CLI parses once into a typed **selector**
 (`:1` → `MemberQuery.OverloadIndex`), paired with an assembly **location** that resolves to a
@@ -1239,10 +1242,11 @@ alignment above.
 
 ## What legitimately stays in the CLI / elsewhere
 
-- **Selection and rendering:** building the query from options (source + sections/facets) and
-  rendering the returned section-shaped result (Markout / writers) is CLI work. Constructing
-  the inspection facts / section shapes is **not** — that lives in the service (see the
-  boundary note above).
+- **Selection and rendering:** building the query from options (source +
+  sections/facets), projecting typed results through L2, and rendering the
+  selected shape through Markout or another writer are host composition.
+  Constructing inspection facts is **not** CLI work; that remains with the
+  service/query owner (see the boundary note above).
 
 Two things are often *called* "already correct" but really need to be **unified by the
 session**, not left parallel (they are the source of [Symptom 3](#symptom-3-the-same-image-is-parsed-multiple-times)):
