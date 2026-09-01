@@ -210,14 +210,17 @@ PDB source is unavailable.
 
 ## Research admission and target-correspondence boundary
 
-**Status:** target design for #4771.
+**Status:** target design for #4771 with the Research target-resolution boundary
+implemented through complete correspondence.
 [Research admission and identity](#research-admission-and-identity) and
-[Side-local requests and attempts](#side-local-requests-and-attempts) are
-implemented and verified. Complete census, correspondence keys, absence proof,
-and producer handoff remain unimplemented and unverified until their named
-gates in
+[Side-local requests and attempts](#side-local-requests-and-attempts), plus
+complete census, correspondence keys and outcomes, positive absence proof, and
+the retained producer-facing endpoint evidence under
+[Complete census and correspondence](#complete-census-and-correspondence), are
+implemented and verified by their named gates in
 [Target-resolution migration and gates](#target-resolution-migration-and-gates)
-land.
+and the owning sections. Producer-specific adapters and inspection-topology
+classification remain future independently owned work.
 
 This design proposes one place to answer the target question before comparison
 work begins: which member, if any, did each side select; can those targets
