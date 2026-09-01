@@ -138,9 +138,9 @@ public sealed class CallGraphArrayKindIdentityTests
     }
 
     [Fact]
-    public void Resolve_PreservesExactNamesWhenDisplayIsNonInjective()
+    public void Resolve_PreservesLiteralArrayNamesAcrossTypeShapes()
     {
-        byte[] image = BuildExactNameImage();
+        byte[] image = BuildLiteralArrayNameImage();
         using var peReader = new PEReader(new MemoryStream(image));
         MetadataReader reader = peReader.GetMetadataReader();
         ApiSurface surface = ApiSurfaceExtractor.Extract(
@@ -156,7 +156,7 @@ public sealed class CallGraphArrayKindIdentityTests
                 .OrderBy(member => member.MetadataToken),
         ];
 
-        Assert.Equal(15, members.Length);
+        Assert.Equal(9, members.Length);
         string[] expected =
         [
             "N.A[][*]",
@@ -168,12 +168,6 @@ public sealed class CallGraphArrayKindIdentityTests
             @"N.A\[\]",
             "N.A[]",
             @"N.G\[\]{N.A}",
-            "N.G<X>",
-            "N.G{X}",
-            @"N.A\`1",
-            @"N.A\`1[]",
-            "#G3:N.H1:12:System.Int32",
-            "#G3:N.H1:12:System.Int32[]",
         ];
         var selectors = new List<CallGraphMemberSelector>(members.Length);
         for (int index = 0; index < members.Length; index++)
@@ -332,7 +326,7 @@ public sealed class CallGraphArrayKindIdentityTests
             metadata);
     }
 
-    static byte[] BuildExactNameImage()
+    static byte[] BuildLiteralArrayNameImage()
     {
         var metadata = CreateMetadata();
         AssemblyReferenceHandle systemRuntime =
@@ -366,13 +360,6 @@ public sealed class CallGraphArrayKindIdentityTests
             objectType,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
-        TypeDefinitionHandle argument = metadata.AddTypeDefinition(
-            TypeAttributes.Public | TypeAttributes.Sealed,
-            default,
-            metadata.GetOrAddString("X"),
-            objectType,
-            MetadataTokens.FieldDefinitionHandle(1),
-            MetadataTokens.MethodDefinitionHandle(1));
         TypeDefinitionHandle literalGeneric = metadata.AddTypeDefinition(
             TypeAttributes.Public | TypeAttributes.Sealed,
             metadata.GetOrAddString("N"),
@@ -382,44 +369,6 @@ public sealed class CallGraphArrayKindIdentityTests
             MetadataTokens.MethodDefinitionHandle(1));
         metadata.AddGenericParameter(
             literalGeneric,
-            GenericParameterAttributes.None,
-            metadata.GetOrAddString("T"),
-            index: 0);
-        TypeDefinitionHandle literalAngle = metadata.AddTypeDefinition(
-            TypeAttributes.Public | TypeAttributes.Sealed,
-            metadata.GetOrAddString("N"),
-            metadata.GetOrAddString("G<X>"),
-            objectType,
-            MetadataTokens.FieldDefinitionHandle(1),
-            MetadataTokens.MethodDefinitionHandle(1));
-        TypeDefinitionHandle ordinaryGeneric = metadata.AddTypeDefinition(
-            TypeAttributes.Public | TypeAttributes.Sealed,
-            metadata.GetOrAddString("N"),
-            metadata.GetOrAddString("G`1"),
-            objectType,
-            MetadataTokens.FieldDefinitionHandle(1),
-            MetadataTokens.MethodDefinitionHandle(1));
-        metadata.AddGenericParameter(
-            ordinaryGeneric,
-            GenericParameterAttributes.None,
-            metadata.GetOrAddString("T"),
-            index: 0);
-        TypeDefinitionHandle arityNamed = metadata.AddTypeDefinition(
-            TypeAttributes.Public | TypeAttributes.Sealed,
-            metadata.GetOrAddString("N"),
-            metadata.GetOrAddString("A`1"),
-            objectType,
-            MetadataTokens.FieldDefinitionHandle(1),
-            MetadataTokens.MethodDefinitionHandle(1));
-        TypeDefinitionHandle noArityGeneric = metadata.AddTypeDefinition(
-            TypeAttributes.Public | TypeAttributes.Sealed,
-            metadata.GetOrAddString("N"),
-            metadata.GetOrAddString("H"),
-            objectType,
-            MetadataTokens.FieldDefinitionHandle(1),
-            MetadataTokens.MethodDefinitionHandle(1));
-        metadata.AddGenericParameter(
-            noArityGeneric,
             GenericParameterAttributes.None,
             metadata.GetOrAddString("T"),
             index: 0);
@@ -485,46 +434,6 @@ public sealed class CallGraphArrayKindIdentityTests
                         isValueType: false,
                         literalGeneric,
                         Class(ordinary)),
-                    Void,
-                    IsGeneric: false),
-                new(
-                    "M",
-                    Class(literalAngle),
-                    Void,
-                    IsGeneric: false),
-                new(
-                    "M",
-                    GenericInstance(
-                        isValueType: false,
-                        ordinaryGeneric,
-                        Class(argument)),
-                    Void,
-                    IsGeneric: false),
-                new(
-                    "M",
-                    Class(arityNamed),
-                    Void,
-                    IsGeneric: false),
-                new(
-                    "M",
-                    Sz(Class(arityNamed)),
-                    Void,
-                    IsGeneric: false),
-                new(
-                    "M",
-                    GenericInstance(
-                        isValueType: false,
-                        noArityGeneric,
-                        Int32),
-                    Void,
-                    IsGeneric: false),
-                new(
-                    "M",
-                    Sz(
-                        GenericInstance(
-                            isValueType: false,
-                            noArityGeneric,
-                            Int32)),
                     Void,
                     IsGeneric: false),
             ],

@@ -183,6 +183,25 @@ public static class StructuralTypeIdentity
             : $"{Escape(@namespace, escapeDot: false)}.{typeName}";
     }
 
+    internal static bool RequiresArrayNamePayload(
+        string @namespace,
+        IEnumerable<string> metadataSegments)
+    {
+        if (ContainsArrayDelimiter(@namespace))
+            return true;
+
+        foreach (string segment in metadataSegments)
+        {
+            if (ContainsArrayDelimiter(segment))
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool ContainsArrayDelimiter(string value)
+        => value.Contains('[') || value.Contains(']');
+
     static string EscapeSegment(
         string value,
         bool escapeGenericParameterMarker)

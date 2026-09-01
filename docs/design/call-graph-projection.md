@@ -108,13 +108,16 @@ The projection owns everything a host must not re-invent in JavaScript:
   payload whenever a non-SZ array requires it, and the Analysis `MemberRef`
   producer emits the byte-identical payload from `TypeRef`; normalized display
   spelling remains compatibility-only and does not erase exact array kind.
-  Exact metadata-name segments use the same escaping on both producer paths,
-  and the Metadata API producer emits a structural payload whenever normalized
-  display would erase that identity. Literal array or generic grammar,
-  canonical arity text on a non-generic name, and raw-name / GenericParam arity
-  disagreement therefore cannot alias another structural shape.
-  `CallGraphArrayKindIdentityTests.Resolve_PreservesExactNamesWhenDisplayIsNonInjective`
+  Exact metadata-name segments containing literal array brackets use the same
+  escaping on both producer paths, and the Metadata API producer emits that
+  structural payload through bare names, arrays, and generic containers. Such
+  names therefore cannot alias an actual array wrapper.
+  `CallGraphArrayKindIdentityTests.Resolve_PreservesLiteralArrayNamesAcrossTypeShapes`
   gates those cases.
+  General exact-name identity, namespace-versus-nested boundaries, pinned-name
+  compatibility, contextual generic-name shadowing, multidimensional arrays in
+  display-parsed generic arguments, and primitive `TypedReference` identity are
+  outside this array-kind claim and tracked by #5374, #5375, and #5376.
   An older surface without that structural payload cannot claim a structural
   match for `T[*]`, but an exact MethodDef-token candidate may still recover
   the body when no structural candidate matches.

@@ -40,8 +40,8 @@ internal abstract class TypeNode
 
     /// <summary>
     /// Whether this node or a descendant carries identity that <see cref="Render"/>
-    /// erases: an exact metadata name, non-SZ array, custom modifier, pinned
-    /// wrapper, or function-pointer header.
+    /// erases: literal array delimiters in an exact metadata name, a non-SZ
+    /// array, custom modifier, pinned wrapper, or function-pointer header.
     /// </summary>
     internal virtual bool HasStructuralPayload => false;
 
@@ -349,10 +349,9 @@ internal sealed class NamedTypeNode(
 
     internal override bool HasStructuralPayload =>
         metadataName is not null
-        && !string.Equals(
-            StructuralIdentity(),
-            base.StructuralIdentity(),
-            StringComparison.Ordinal);
+        && StructuralTypeIdentity.RequiresArrayNamePayload(
+            metadataName.Namespace,
+            metadataName.Segments);
 
     public override string Render(bool canonicalTuples)
     {
@@ -405,9 +404,9 @@ internal sealed class GenericTypeNode(
     internal override bool HasStructuralPayload =>
         arguments.Any(argument => argument.HasStructuralPayload)
         || (metadataName is not null
-            && DefinitionRequiresStructuralPayload(
-                metadataName,
-                arguments.Length));
+            && StructuralTypeIdentity.RequiresArrayNamePayload(
+                metadataName.Namespace,
+                metadataName.Segments));
     public override long EstimatedRenderedLength => estimatedRenderedLength;
 
     internal override string StructuralIdentity()
@@ -419,28 +418,6 @@ internal sealed class GenericTypeNode(
                 metadataName.Namespace,
                 metadataName.Segments,
                 arguments.Select(argument => argument.StructuralIdentity()));
-
-    static bool DefinitionRequiresStructuralPayload(
-        MetadataTypeNameParts metadataName,
-        int argumentCount)
-    {
-        var placeholders = new string[argumentCount];
-        Array.Fill(placeholders, "StructuralArgument");
-        string exact = StructuralTypeIdentity.Generic(
-            metadataName.Namespace,
-            metadataName.Segments,
-            placeholders);
-        string display = TypeResolver.ApplyGenericArguments(
-            metadataName.Segments,
-            placeholders,
-            metadataName.IntroducedTypeParameterCounts,
-            preserveMismatchedArguments: true);
-        if (metadataName.Namespace.Length > 0)
-            display = $"{metadataName.Namespace}.{display}";
-        string normalized =
-            CSharpText.XmlDocumentationNotation.NormalizeParameterType(display);
-        return !string.Equals(exact, normalized, StringComparison.Ordinal);
-    }
 
     static long EstimateRenderedLength(
         string baseName,
