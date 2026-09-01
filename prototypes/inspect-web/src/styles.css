@@ -261,6 +261,12 @@ body {
   color: var(--accent);
   font: 600 15px var(--mono);
 }
+.subject-icon img {
+  display: block;
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
 .subject-path {
   flex: 0 1 auto;
   min-width: 0;

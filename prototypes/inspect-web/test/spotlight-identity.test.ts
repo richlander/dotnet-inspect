@@ -1232,14 +1232,18 @@ test("the full-width subject zone advertises the typed subject hierarchy", () =>
   const renderNode = functionDeclaration("render");
   const subjectPathNode = functionDeclaration("inspectedSubjectPath");
   const subjectPathRenderer = functionDeclaration("renderInspectedSubjectPath");
+  const subjectIconRenderer =
+    functionDeclaration("renderInspectedSubjectIcon");
   const render = appSource.slice(renderNode.start, renderNode.end);
   const subjectPath = appSource.slice(subjectPathNode.start, subjectPathNode.end);
   const renderer =
     appSource.slice(subjectPathRenderer.start, subjectPathRenderer.end);
+  const iconRenderer =
+    appSource.slice(subjectIconRenderer.start, subjectIconRenderer.end);
 
   assert.match(
     render,
-    /<header class="subject-zone"[\s\S]*class="subject-icon"[\s\S]*class="subject-path"[\s\S]*class="subject-advertisements"[\s\S]*class="subject-navigation"[\s\S]*id="nav-back"[\s\S]*id="nav-forward"[\s\S]*id="open-search"[\s\S]*id="share"[\s\S]*<main class="workspace">/);
+    /<header class="subject-zone"[\s\S]*renderInspectedSubjectIcon\(pkg\)[\s\S]*class="subject-path"[\s\S]*class="subject-advertisements"[\s\S]*class="subject-navigation"[\s\S]*id="nav-back"[\s\S]*id="nav-forward"[\s\S]*id="open-search"[\s\S]*id="share"[\s\S]*<main class="workspace">/);
   assert.doesNotMatch(render, /id="copy-name"|id="taste-btn"/);
   assert.doesNotMatch(
     render,
@@ -1250,6 +1254,13 @@ test("the full-width subject zone advertises the typed subject hierarchy", () =>
   assert.match(
     renderer,
     /segment\.label[\s\S]*segment\.copyable[\s\S]*data-subject-copy="\$\{index\}"[\s\S]*segment\.kind/);
+  assert.match(
+    iconRenderer,
+    /pkg\.icon[\s\S]*data:\$\{pkg\.icon\.mediaType\};base64,\$\{pkg\.icon\.base64\}[\s\S]*NUGET_DEFAULT_PACKAGE_ICON/);
+  assert.doesNotMatch(iconRenderer, /⬡|iconUrl/);
+  assert.match(
+    appSource,
+    /NUGET_DEFAULT_PACKAGE_ICON[\s\S]*default-package-icon-256x256\.png[\s\S]*data-package-icon[\s\S]*packageIcon\.onerror =[\s\S]*packageIcon\.src = NUGET_DEFAULT_PACKAGE_ICON/);
 });
 
 test("typed graph interactions own graph controls and Mermaid node bindings", () => {

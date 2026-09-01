@@ -117,6 +117,10 @@ The dotnet-bot image is the product mark and occupies the same fixed-width icon
 slot used by the subject-zone root mark. The visible `dotnet-inspect` label
 remains; the image does not replace it.
 
+For a NuGet package, that root mark is the bounded embedded JPEG or PNG declared
+by the package nuspec, with NuGet Gallery's default package icon as the
+fallback. Legacy remote nuspec icon URLs are not fetched.
+
 ### Incremental adoption
 
 The shell may land before adjacent redesign owners. During that transition:

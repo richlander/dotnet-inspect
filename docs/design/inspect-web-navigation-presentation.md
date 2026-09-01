@@ -147,11 +147,24 @@ name, not the combined rendered path or text parsed from another segment.
 Workspace is presentation-owned retained-coordinate management and remains
 plain orientation text rather than inventing a canonical name.
 
-The subject zone begins with a fixed-width root-icon slot. A package uses a
-generic package mark until product data supplies an owner-issued package icon;
-platform and other root subjects may use their own marks. The title line gives
+The subject zone begins with a fixed-width root-icon slot. A package uses the
+embedded JPEG or PNG named by its validated nuspec `<icon>` declaration. The
+package entry is read under NuGet's 1 MB icon limit and admitted by image
+content, not by its filename extension. A 2048-by-2048 decoded-dimension limit
+bounds Browser decoder work; this is deliberately stricter than NuGet's
+encoded-file contract because the shell renders the image at 20 CSS pixels.
+The UI never fetches the deprecated nuspec `<iconUrl>`. When no usable embedded
+icon exists, the package uses NuGet Gallery's default package icon:
+`https://nuget.org/Content/gallery/img/default-package-icon-256x256.png`.
+Platform and other root subjects may use their own marks. The title line gives
 the `dotnet-inspect` bot the same fixed-width slot, left padding, and text gap,
 so the Package name begins in the same column as `dotnet-inspect`.
+
+NuGet Gallery's header logo is recorded separately for a future
+source-attribution affordance:
+`https://nuget.org/Content/gallery/img/logo-header-94x29.png`. It is NuGet
+identity, not a package icon, and must not replace either an owner-issued
+package icon or the default package fallback.
 
 The zone reserves elastic space between the subject path and actions for
 concise owner-issued advertisements. Advertisements yield space before the

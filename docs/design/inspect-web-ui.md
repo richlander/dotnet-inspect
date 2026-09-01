@@ -78,7 +78,7 @@ independent cosmetic changes.
 | Persistent hierarchy | Use one title line for product, subjects, inspectors, and global actions; use one full-width subject zone before content |
 | Workspace title bar | Follow the CLI grammar after `dotnet-inspect`: subject and inspector, followed by global actions |
 | Subject navigation | Establish Workspace, Package, Type, and Member in the title line now; add Library when product descriptors are ready |
-| Subject zone | Align a root icon and typed Package > Library > Type > Member path beneath the product mark, make each typed segment copyable, and place Back/Forward directly before Search with Share trailing |
+| Subject zone | Align the bounded nuspec package icon (or NuGet default fallback) and typed Package > Library > Type > Member path beneath the product mark, make each typed segment copyable, and place Back/Forward directly before Search with Share trailing |
 | Workspace selection | Keep ordinary single-workspace use free of tabs; manage retained coordinates inside the Workspace subject |
 | Package coordinate | Render version and TFM selectors in Package content; platform is workspace content, not a workspace |
 | Library inspection | Select all libraries or one library within Library |

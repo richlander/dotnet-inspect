@@ -1435,6 +1435,23 @@ function escapeHtml(value: unknown) {
     .replaceAll('"', "&quot;");
 }
 
+const NUGET_DEFAULT_PACKAGE_ICON =
+  "https://nuget.org/Content/gallery/img/default-package-icon-256x256.png";
+
+function renderInspectedSubjectIcon(pkg: AppPackage): string {
+  if (scope() === "workspace")
+    return '<span class="subject-icon" aria-hidden="true">W</span>';
+  if (pkg.isRuntimePack)
+    return '<span class="subject-icon" aria-hidden="true">◎</span>';
+
+  const source = pkg.icon
+    ? `data:${pkg.icon.mediaType};base64,${pkg.icon.base64}`
+    : NUGET_DEFAULT_PACKAGE_ICON;
+  return `<span class="subject-icon" aria-hidden="true">
+    <img src="${escapeHtml(source)}" alt="" data-package-icon>
+  </span>`;
+}
+
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (isRecord(error) && typeof error.message === "string") return error.message;
@@ -2670,7 +2687,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
       })}
 
       <header class="subject-zone" aria-label="Inspected subject">
-        <span class="subject-icon" aria-hidden="true">${scope() === "workspace" ? "W" : pkg.isRuntimePack ? "◎" : "⬡"}</span>
+        ${renderInspectedSubjectIcon(pkg)}
         <div class="subject-path" aria-label="${escapeHtml(subjectPathLabel)}" title="${escapeHtml(subjectPathLabel)}">
           ${renderInspectedSubjectPath(subjectPath)}
         </div>
@@ -2739,6 +2756,14 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     </div>
     ${renderAnnotatedSourceModal()}`;
 
+  const packageIcon =
+    document.querySelector<HTMLImageElement>("[data-package-icon]");
+  if (packageIcon) {
+    packageIcon.onerror = () => {
+      if (packageIcon.getAttribute("src") === NUGET_DEFAULT_PACKAGE_ICON) return;
+      packageIcon.src = NUGET_DEFAULT_PACKAGE_ICON;
+    };
+  }
   bindEvents();
   restorePackageQueryReturnFocus();
   restorePackageQueryWorkspaceFocus();

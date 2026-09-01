@@ -1393,6 +1393,7 @@ internal sealed class BrowserPackage
 {
     const long MaxTextEntryBytes = 16L * 1024 * 1024;
     readonly AcquiredPackageSourcePayload? _acquiredPayload;
+    readonly Lazy<BrowserPackageIcon?> _icon;
 
     public BrowserPackage(
         string packageId,
@@ -1414,6 +1415,7 @@ internal sealed class BrowserPackage
             retainedBytes,
             fromCache,
             producerKey);
+        _icon = new(ProjectIcon);
     }
 
     internal BrowserPackage(
@@ -1445,6 +1447,7 @@ internal sealed class BrowserPackage
         RetainedBytes = retainedBytes;
         Content = content;
         _acquiredPayload = acquiredPayload;
+        _icon = new(ProjectIcon);
     }
 
     public string PackageId { get; }
@@ -1454,6 +1457,8 @@ internal sealed class BrowserPackage
     public InMemoryPackageContent Content { get; }
 
     internal byte[] RetainedBytes { get; }
+
+    public BrowserPackageIcon? Icon => _icon.Value;
 
     internal PackageRootBinding CreateRootBinding(string? targetFramework) =>
         PackageRootBinding.CreateFromSource(
@@ -1570,6 +1575,18 @@ internal sealed class BrowserPackage
 
     internal bool TryReadText(string path, out byte[] bytes) =>
         TryRead(path, MaxTextEntryBytes, out bytes);
+
+    BrowserPackageIcon? ProjectIcon()
+    {
+        PackageIconResult result =
+            PackageIconQuery.Execute(Content, PackageId, Version);
+        if (result is not PackageIconResult.Available available)
+            return null;
+
+        return new BrowserPackageIcon(
+            available.Value.MediaType,
+            Convert.ToBase64String(available.Value.Bytes.AsSpan()));
+    }
 
     static bool IsUnderSkillsDirectory(string[] segments)
     {

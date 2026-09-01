@@ -47,6 +47,23 @@ test("subjects and inspectors share the title bar without package selectors", as
   const packageIcon = await box(page, ".subject-icon");
   expect(packageName.x).toBeCloseTo(productName.x, 0);
   expect(packageIcon.width).toBeCloseTo(productIcon.width, 0);
+  await expect(page.locator(".subject-icon img")).toHaveAttribute(
+    "src",
+    /^data:image\/png;base64,/);
+  await expect(page.locator(".subject-icon img")).toHaveJSProperty(
+    "naturalWidth",
+    456);
+});
+
+test("packages without an embedded icon use NuGet's package fallback", async ({
+  page,
+}) => {
+  await page.goto("/browser/workspace-titlebar.html?package=1&fallback=1");
+
+  await expect(page.locator(".subject-icon img")).toHaveAttribute(
+    "src",
+    "https://nuget.org/Content/gallery/img/default-package-icon-256x256.png");
+  await expect(page.locator(".subject-icon")).not.toContainText("⬡");
 });
 
 test("narrow layout preserves the two-line hierarchy and primary actions", async ({

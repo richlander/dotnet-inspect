@@ -16,6 +16,13 @@ const params = new URL(location.href).searchParams;
 const workspaceMode = params.has("workspace");
 const packageMode = params.has("package");
 const memberMode = params.has("member");
+const defaultPackageIcon =
+  "https://nuget.org/Content/gallery/img/default-package-icon-256x256.png";
+const systemTextJsonIcon =
+  "data:image/png;base64,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";
+const packageIcon = params.has("fallback")
+  ? defaultPackageIcon
+  : systemTextJsonIcon;
 const subjectPath = workspaceMode
   ? [{ kind: "workspace", label: "Workspace", copyable: false }]
   : packageMode
@@ -121,7 +128,9 @@ app.innerHTML = `
       }),
     })}
     <header class="subject-zone" aria-label="Inspected subject">
-      <span class="subject-icon" aria-hidden="true">${workspaceMode ? "W" : "⬡"}</span>
+      <span class="subject-icon" aria-hidden="true">${workspaceMode
+        ? "W"
+        : `<img src="${packageIcon}" alt="" data-package-icon>`}</span>
       <div class="subject-path" aria-label="${subjectPathLabel}" title="${subjectPathLabel}">
         ${subjectPath.map((segment, index) => {
           const className = `subject-path-segment${index === 0 ? " root" : ""}${index === subjectPath.length - 1 ? " current" : ""}`;
