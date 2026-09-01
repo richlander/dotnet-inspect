@@ -37,6 +37,7 @@ export interface LoadErrorShellBindingActions {
 
 export interface WorkbenchShellHtmlOptions {
   inspectedTargetHtml: string;
+  titleNavigationHtml: string;
 }
 
 export function workbenchShellHtml(
@@ -46,10 +47,7 @@ export function workbenchShellHtml(
       <header class="titlebar">
         ${renderBrand()}
         ${options.inspectedTargetHtml}
-        <nav class="title-actions" aria-label="Application">
-          <button id="help" type="button" aria-label="Keyboard help">?</button>
-          <button id="open-settings" type="button">Settings</button>
-        </nav>
+        ${options.titleNavigationHtml}
       </header>`;
 }
 

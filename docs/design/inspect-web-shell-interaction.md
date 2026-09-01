@@ -16,7 +16,7 @@ This owner defines:
 - the persistent shell's visible text actions (`Search`, `Open`, `Help`,
   `Settings`) and the `dotnet-inspect` Home control;
 - the title line's allocation among the product root, the navigation-
-  presentation-owned inspected target, and trailing global actions;
+  presentation-owned inspected target, and trailing Search/history cluster;
 - the generic modal-dialog contract (accessible name, initial focus, inert
   background, tab containment, Escape, one-modal-at-a-time, and
   ordinary-dismissal focus return) shared by Spotlight, Open, Settings, the
@@ -73,7 +73,7 @@ This document consumes, without redefining:
 The first persistent row is one non-wrapping title line:
 
 ```text
-dotnet-inspect  [package icon] Package > Type > Member  Help Settings
+dotnet-inspect  [package icon] Package > Type > Member  Search  Back Forward
 ```
 
 It follows the product's CLI grammar without becoming an editable command:
@@ -82,9 +82,8 @@ It follows the product's CLI grammar without becoming an editable command:
 2. Navigation Presentation renders the icon-backed typed inspected target
    immediately after the product root. Package coordinate controls belong to
    the Package working surface.
-3. Fixed global actions remain reachable at the trailing edge. Help and
-   Settings are removed from visual layout as width narrows; the product Home
-   control remains.
+3. Search and compact Back and Forward controls occupy a trailing cluster that
+   yields space before the target path. The product Home control remains.
 
 The title line contains no workspace tabs, indexed workspace selectors, or
 separate Platform workspace, active-package title, or package coordinate
@@ -97,22 +96,26 @@ The title line shows the applicable Package, Library, Type, and Member identity
 as one typed path.
 
 The second persistent row begins with the Workspace, Package, Type, and Member
-subject ladder and the active subject's inspectors. Search remains a visible
-input-like control at the trailing side of that row and opens Spotlight. It is
+subject ladder and the active subject's inspectors. Share, Settings, contextual
+actions, and Help occupy its trailing side, with Help last. That action region
+may collapse completely under pressure rather than reducing the subject and
+inspector strip to permanent tab-like chrome.
+
+Search is an input-like control in the title line that opens Spotlight. It is
 not editable in place and does not become a dominant centered command control.
-Compact Back and Forward buttons sit immediately to its left, following VS Code
-only for this bounded adjacency and arrow treatment. This action placement is
-provisional while the row hierarchy is evaluated. The global title line
-exposes:
+Back and Forward sit immediately to its right. As target identity consumes
+width, the cluster progresses from full Search, to a `Search` button plus
+arrows, to arrows alone, and finally to no visible controls. The global title
+line exposes:
 
 ```text
-dotnet-inspect (Home)   inspected target   Open   Help   Settings
+dotnet-inspect (Home)   inspected target   Search   Back   Forward
 ```
 
 The subject zone exposes:
 
 ```text
-Workspace Package Type Member   inspectors   Back   Forward   Search   Share
+Workspace Package Type Member   inspectors   Share   Settings   Help
 ```
 
 The dotnet-bot image is the product mark. The visible `dotnet-inspect` label
@@ -127,13 +130,13 @@ fallback. Legacy remote nuspec icon URLs are not fetched.
 
 The shell may land before adjacent redesign owners. During that transition:
 
-- currently supported Settings may occupy the target top row before
+- currently supported Settings may occupy the second-row action region before
   local-artifact Open is available;
 - Open remains absent rather than appearing disabled or committing a
   success-shaped placeholder action;
 - the `dotnet-inspect` root control is the sole persistent Home affordance;
-- Share moves to the subject zone while keyboard Help remains a
-  global title-line action; and
+- Share, Settings, and keyboard Help occupy the subject zone, with Help last;
+  and
 - retained packages may provisionally supply Workspace entries and Package
   version/framework controls in Package content before product-issued
   descriptors replace that data.
@@ -208,9 +211,10 @@ Spotlight as the one search experience for:
 - platform inputs; and
 - commands.
 
-The subject-zone Search control remains visible beside Back and Forward. It
-advertises the search scope in its label and transfers focus to Spotlight's
-editable input when activated.
+The title-line Search control advertises the search scope in its expanded label
+and transfers focus to Spotlight's editable input when activated. Its compact
+`Search` label and hidden responsive states do not change the keyboard shortcut
+or Spotlight behavior.
 
 Coordinate activation always opens the coordinate menu. That menu contains an
 explicit `Search packages` action that closes the menu and opens Spotlight in
@@ -306,16 +310,17 @@ outcomes.
 5. Select Package and confirm that Version and Framework appear in its working
    surface. Confirm that every product-issued subject-path segment copies its
    own typed canonical name, there is no separate Copy name action, and Share
-   remains with the exact identity. `dotnet-inspect` is the sole Home affordance
-   and Help and Settings remain global title-line actions.
-6. Narrow the viewport and confirm that Help and Settings disappear before
-   Search, the product Home control, the subject controls, or the
-   inspected-subject actions.
+   remains with the exact identity. `dotnet-inspect` is the sole Home
+   affordance.
+6. Narrow the viewport or lengthen the inspected target and confirm that the
+   title-line action cluster progresses from full Search, to `Search`, to
+   arrows, to nothing. Confirm that the second-row actions may also disappear
+   and that Help is their final element.
 7. Confirm that the product bot and inspected-target root mark retain distinct
    bounded icon slots and the current target leaf uses the shared accent.
 8. Confirm that no persistent package-query input or centered command-center
-   control appears, and that Back and Forward sit immediately left of the
-   visible Search control, which opens Spotlight.
+   control appears, and that the visible Search control sits immediately left
+   of Back and Forward and opens Spotlight.
 
 ### Search input
 

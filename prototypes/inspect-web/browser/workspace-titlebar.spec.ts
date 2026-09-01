@@ -12,23 +12,35 @@ test("the title bar contains the inspected target without tab-like workspace ide
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/browser/workspace-titlebar.html?package=1");
 
-  const titleActions = await box(page, ".title-actions");
+  const titleNavigation = await box(page, ".title-navigation");
+  const search = await box(page, "#open-search");
+  const back = await box(page, "#nav-back");
 
-  expect(titleActions.x + titleActions.width).toBeCloseTo(1440, 0);
+  expect(titleNavigation.x + titleNavigation.width).toBeCloseTo(1440, 0);
+  expect(search.x + search.width).toBeLessThanOrEqual(back.x);
   await expect(page.locator(".titlebar .inspected-target")).toBeVisible();
   await expect(page.locator(".titlebar .subject-path-segment.root"))
     .toHaveText("System.Text.Json");
+  await expect(page.locator(".titlebar #open-search")).toBeVisible();
+  await expect(page.locator(".titlebar .nav-history")).toBeVisible();
+  await expect(page.locator(".titlebar #share")).toHaveCount(0);
+  await expect(page.locator(".titlebar #open-settings")).toHaveCount(0);
+  await expect(page.locator(".titlebar #help")).toHaveCount(0);
+  await expect(page.locator(".subject-zone #share")).toBeVisible();
+  await expect(page.locator(".subject-zone #open-settings")).toBeVisible();
+  await expect(page.locator(".subject-zone #help")).toBeVisible();
+  await expect(page.locator(".shell-actions > button").last())
+    .toHaveAttribute("id", "help");
   await expect(page.locator(".workspace-title")).toHaveCount(0);
   await expect(page.locator(".titlebar")).not.toContainText("0:");
   await expect(page.locator(".titlebar")).not.toContainText("Platform");
   await expect(page.locator(".workspace-window")).toHaveCount(0);
-  await expect(page.locator(".titlebar #open-search")).toHaveCount(0);
   await expect(page.locator(".brand-icon img")).toHaveAttribute(
     "src",
     "/assets/dotnet-inspect-bot.png");
 });
 
-test("the inspected target precedes global actions and package selectors stay in content", async ({
+test("the inspected target precedes title navigation and package selectors stay in content", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -72,13 +84,21 @@ test("packages without an embedded icon use NuGet's package fallback", async ({
   await expect(page.locator(".subject-icon")).not.toContainText("⬡");
 });
 
-test("narrow layout preserves the two-line hierarchy and primary actions", async ({
+test("right-side actions yield from labels to arrows to nothing", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 760, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+  await expect(page.locator(".title-search-label-full")).toBeVisible();
+  await expect(page.locator(".title-search-label-compact")).toBeHidden();
 
-  const titleActions = await box(page, ".title-actions");
+  await page.goto("/browser/workspace-titlebar.html?member=1&long=1");
+  await expect(page.locator("#open-search")).toBeHidden();
+  await expect(page.locator(".title-navigation .nav-history")).toBeVisible();
+
+  await page.setViewportSize({ width: 760, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
   const titlebar = await box(page, ".titlebar");
   const subjectZone = await box(page, ".subject-zone");
   const namespacePicker = await box(page, ".namespace-picker");
@@ -87,23 +107,43 @@ test("narrow layout preserves the two-line hierarchy and primary actions", async
   await expect(page.locator("#package-version")).toHaveCount(0);
   await expect(page.locator("#framework")).toHaveCount(0);
   await expect(page.locator("#open-search")).toBeVisible();
+  await expect(page.locator(".title-search-label-full")).toBeHidden();
+  await expect(page.locator(".title-search-label-compact"))
+    .toHaveText("Search");
+  await expect(page.locator(".title-search-label-compact")).toBeVisible();
+  await expect(page.locator(".title-navigation .nav-history")).toBeVisible();
   await expect(page.locator("#go-home")).toHaveCount(0);
   await expect(page.locator(".subject-path-segment")).toHaveText([
     "System.Text.Json",
     "System.Text.Json.JsonSerializer",
+    "DeserializeSync",
   ]);
   await expect(page.locator(".titlebar .subject-path")).toBeVisible();
   await expect(page.locator(".subject-zone .subject-path")).toHaveCount(0);
   await expect(page.locator(".subject-zone .scope-switch")).toBeVisible();
-  await expect(page.locator(".subject-zone #share")).toBeVisible();
+  await expect(page.locator(".subject-zone #share")).toBeHidden();
+  await expect(page.locator(".subject-zone #open-settings")).toBeHidden();
+  await expect(page.locator(".subject-zone #help")).toBeVisible();
   await expect(page.locator("#copy-name")).toHaveCount(0);
   await expect(page.locator("#taste-btn")).toHaveCount(0);
-  await expect(page.locator("#help")).toBeHidden();
-  await expect(page.locator("#open-settings")).toBeHidden();
   expect(titlebar.y).toBeLessThan(subjectZone.y);
-  expect(titleActions.x + titleActions.width).toBeCloseTo(760, 0);
   expect(subjectZone.x).toBe(0);
   expect(subjectZone.x + subjectZone.width).toBeCloseTo(760, 0);
+
+  await page.setViewportSize({ width: 650, height: 900 });
+  await expect(page.locator("#open-search")).toBeHidden();
+  await expect(page.locator(".title-navigation .nav-history")).toBeVisible();
+  await expect(page.locator("#share")).toBeHidden();
+  await expect(page.locator("#open-settings")).toBeHidden();
+  await expect(page.locator("#help")).toBeHidden();
+
+  await page.setViewportSize({ width: 560, height: 900 });
+  await expect(page.locator(".title-navigation .nav-history")).toBeHidden();
+  await expect(page.locator("#open-settings")).toBeHidden();
+  await expect(page.locator("#help")).toBeHidden();
+
+  await page.setViewportSize({ width: 480, height: 900 });
+  await expect(page.locator("#help")).toBeHidden();
   const horizontalOverflow = await page.evaluate(() =>
     document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(horizontalOverflow).toBeLessThanOrEqual(0);
@@ -125,7 +165,7 @@ test("the title line advertises the typed Package, Type, and Member path", async
   await expect(page.locator("[data-subject-copy]")).toHaveCount(3);
   await expect(page.locator(".titlebar .subject-path")).toBeVisible();
   await expect(page.locator(".subject-zone .scope-switch")).toBeVisible();
-  await expect(page.locator(".subject-zone .lens")).toHaveCount(2);
+  await expect(page.locator(".subject-zone .lens")).toHaveCount(5);
   await expect(page.locator(".subject-path-segment.current")).toHaveCSS(
     "color",
     "rgb(229, 102, 63)");
@@ -142,10 +182,10 @@ test("the title line advertises the typed Package, Type, and Member path", async
   await expect(page.locator("body")).toHaveAttribute(
     "data-copied-subject",
     "System.Text.Json.JsonSerializer");
-  const forward = await box(page, "#nav-forward");
   const search = await box(page, "#open-search");
-  expect(forward.x + forward.width).toBeLessThanOrEqual(search.x);
-  expect(search.x - (forward.x + forward.width)).toBeLessThanOrEqual(7);
+  const back = await box(page, "#nav-back");
+  expect(search.x + search.width).toBeLessThanOrEqual(back.x);
+  expect(back.x - (search.x + search.width)).toBeLessThanOrEqual(7);
   const zone = await box(page, ".subject-zone");
   const target = await box(page, ".inspected-target");
   const workspace = await box(page, ".workspace");

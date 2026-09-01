@@ -2690,28 +2690,31 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
               ${renderInspectedSubjectPath(subjectPath)}
             </div>
           </div>`,
+        titleNavigationHtml: `
+          <nav class="title-navigation" aria-label="Search and history">
+            <button id="open-search" class="title-search" type="button" aria-haspopup="dialog" title="Search (Ctrl/Command+P)">
+              <span class="title-search-glyph" aria-hidden="true">⌕</span>
+              <span class="title-search-label title-search-label-full">Search types, members, packages</span>
+              <span class="title-search-label title-search-label-compact">Search</span>
+              <kbd>Ctrl P</kbd>
+            </button>
+            <div class="nav-history">
+              <button id="nav-back" ${navigationHistory.canBack() ? "" : "disabled"} title="Back (Alt+← or Shift+←)" aria-label="Back">←</button>
+              <button id="nav-forward" ${navigationHistory.canForward() ? "" : "disabled"} title="Forward (Alt+→ or Shift+→)" aria-label="Forward">→</button>
+            </div>
+          </nav>`,
       })}
 
       <header class="subject-zone" aria-label="Subjects and inspectors">
         ${renderScopeBar()}
-        <div class="subject-advertisements"></div>
-        <div class="subject-navigation">
-          <div class="nav-history">
-            <button id="nav-back" ${navigationHistory.canBack() ? "" : "disabled"} title="Back (Alt+← or Shift+←)" aria-label="Back">←</button>
-            <button id="nav-forward" ${navigationHistory.canForward() ? "" : "disabled"} title="Forward (Alt+→ or Shift+→)" aria-label="Forward">→</button>
-          </div>
-          <button id="open-search" class="subject-search" type="button" aria-haspopup="dialog" title="Search (Ctrl/Command+P)">
-            <span class="subject-search-glyph" aria-hidden="true">⌕</span>
-            <span class="subject-search-label">Search types, members, packages</span>
-            <kbd>Ctrl P</kbd>
-          </button>
-        </div>
-        <div class="detail-actions${annotatedPageContext ? " annotated-page-actions" : ""}">
+        <nav class="shell-actions${annotatedPageContext ? " annotated-page-actions" : ""}" aria-label="Application">
           <button id="share" type="button">Share</button>
           ${annotatedPageContext
             ? renderAnnotatedSourcePageActions(annotatedActionsEnabled)
             : ""}
-        </div>
+          <button id="open-settings" type="button">Settings</button>
+          <button id="help" type="button" aria-label="Keyboard help">?</button>
+        </nav>
       </header>
 
       <div class="notice-stack">

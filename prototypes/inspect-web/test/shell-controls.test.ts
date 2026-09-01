@@ -128,22 +128,23 @@ test("workbench shell binds every rendered control without eager work", () => {
 test("workbench shell renders the inspected target after the product root", () => {
   const html = workbenchShellHtml({
     inspectedTargetHtml: '<div class="inspected-target" data-test="target">System.Text.Json</div>',
+    titleNavigationHtml: '<nav class="title-navigation"><button id="open-search">Search</button></nav>',
   });
 
   assert.match(
     html,
-    /class="titlebar"[\s\S]*class="brand"[\s\S]*data-test="target"[\s\S]*class="title-actions"/);
+    /class="titlebar"[\s\S]*class="brand"[\s\S]*data-test="target"[\s\S]*class="title-navigation"/);
   assert.doesNotMatch(html, /class="lensbar"/);
   assert.doesNotMatch(html, /workspace-window|workspace-strip/);
   assert.doesNotMatch(
     html,
     /workspace-title|coordinate-selectors|package-version|framework-select/);
   assert.match(html, /class="brand-icon"[\s\S]*dotnet-inspect-bot\.png/);
-  assert.doesNotMatch(html, /id="open-search"/);
+  assert.match(html, /id="open-search"/);
   assert.doesNotMatch(html, /id="go-home"|>Home<\/button>/);
-  assert.match(html, /id="open-settings"[^>]*>Settings<\/button>/);
+  assert.doesNotMatch(html, /id="open-settings"/);
   assert.doesNotMatch(html, /id="share"/);
-  assert.match(html, /id="help"/);
+  assert.doesNotMatch(html, /id="help"/);
   assert.doesNotMatch(
     html,
     /Package or Package@version|theme-toggle|shell-command-center/);

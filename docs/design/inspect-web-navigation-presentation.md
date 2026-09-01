@@ -95,10 +95,10 @@ Type, or Member is active. This document does not invent package lenses for it.
 An inspection workspace has two persistent lines before its primary content:
 
 1. The title line begins with `dotnet-inspect`, then renders the icon-backed
-   ordered active subject path and global actions.
+   ordered active subject path, Search, and browser-history actions.
 2. The full-width **subject zone** renders the subject ladder, active
-   inspectors, then history, Search, and Share actions before the
-   working-content grid.
+   inspectors, then lower-priority shell actions before the working-content
+   grid.
 
 The two rows together follow the CLI's product-to-subject-to-inspector grammar
 but are not command text. Inventories, hierarchy menus, and other target
@@ -120,7 +120,8 @@ coordinate switchers or inspected-subject identities.
 
 The combined subject/inspector region consumes only the width it needs and may
 scroll horizontally under pressure. Remaining second-row width stays available
-for direct shell actions rather than carrying a tab-like active-package label.
+for Share, Settings, contextual actions, and the trailing Help action rather
+than carrying a tab-like active-package label.
 
 ### Inspected target
 
@@ -167,22 +168,21 @@ source-attribution affordance:
 identity, not a package icon, and must not replace either an owner-issued
 package icon or the default package fallback.
 
-The title line reserves elastic space after the inspected target for concise
-owner-issued advertisements or direct global actions. Advertisements yield
-space before the target path or direct actions and may not become another
-persistent tab strip, coordinate selector, or independently reconstructed
-identity.
+The title line gives the inspected target priority over its trailing
+Search/history cluster. That cluster yields space before the target path and
+may not become another persistent tab strip, coordinate selector, or
+independently reconstructed identity.
 
-Trailing `Share` copies the canonical workspace link. A separate `Copy name`
+Second-row `Share` copies the canonical workspace link. A separate `Copy name`
 action is absent because copy belongs to the segment whose typed identity is
 being copied.
 
 Browser Back and Forward own navigation history. Compact Back and Forward
-buttons sit immediately to the left of the visible Spotlight Search control at
-the trailing side of the second-row subject zone. They are outside the subject
-and inspector strip and do not become breadcrumbs. This trailing placement is
-provisional while the top-down shell composition is evaluated; this revision
-does not settle a broader Search or history location.
+buttons are the final controls in the title line, immediately to the right of
+the visible Spotlight Search control. They are outside the typed target and do
+not become breadcrumbs. The right-side cluster yields space when the target
+grows: the input-like Search control first becomes a `Search` button, then
+disappears while the arrows remain, and finally the arrows disappear.
 
 ### Workspace surface
 
@@ -432,8 +432,8 @@ The old full-width `PACKAGE` row remains removed. Package version and TFM
 controls render in the Package working surface:
 
 ```text
-dotnet-inspect  Workspace Package Type Member  Overview Dependencies Metadata
-⬡ System.Text.Json                         ← → Search...  Share
+dotnet-inspect  ⬡ System.Text.Json                         Search...  ← →
+Workspace Package Type Member  Overview Dependencies Metadata  Share Settings ?
 
 Package coordinate
 Version 10.0.0   Framework net10.0

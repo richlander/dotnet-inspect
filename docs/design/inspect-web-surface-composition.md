@@ -221,16 +221,16 @@ One information hierarchy adapts across viewport sizes:
 - the subject zone remains outside and above the navigation/content grid;
 - the product and inspected-target root marks retain bounded icon slots in the
   title line;
-- Back and Forward remain immediately left of the subject-zone Search control,
-  and Share remains visible; their placement is provisional while the shell
-  rows are evaluated;
-- Help and Settings disappear before Search, the `dotnet-inspect` Home
-  control, subject navigation, or inspected-subject actions;
+- title-line Search sits immediately left of Back and Forward; the trailing
+  cluster yields from full Search, to a `Search` button, to arrows, to nothing
+  as the inspected target grows;
+- second-row Share, Settings, contextual actions, and trailing Help may
+  collapse completely before the subject/inspector strip wraps;
 - subject and inspector navigation scroll horizontally instead of wrapping;
 - subject-path segments and optional advertisements elide visually without
   losing the complete accessible subject path or segment-level copy controls;
-  the Search label may collapse to its icon after those semantics are retained;
-  and
+  the Search label may collapse from its scoped label to `Search` before the
+  control disappears; and
 - full identities remain available through accessible labels and focused or
   expanded states.
 

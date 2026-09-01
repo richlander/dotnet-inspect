@@ -75,10 +75,10 @@ independent cosmetic changes.
 
 | Area | Direction |
 | ---- | --------- |
-| Persistent hierarchy | Use one title line for product, the inspected target, and global actions; use one full-width subject/inspector zone before content |
-| Workspace title bar | Follow `dotnet-inspect` with the icon-backed typed Package > Library > Type > Member target path, then global actions |
+| Persistent hierarchy | Use one title line for product, inspected target, and Search/history; use one full-width subject/inspector and application-action zone before content |
+| Workspace title bar | Follow `dotnet-inspect` with the icon-backed typed Package > Library > Type > Member target path, then responsive Search and Back/Forward |
 | Subject navigation | Establish Workspace, Package, Type, and Member in the second row now; add Library when product descriptors are ready |
-| Subject zone | Render the subject and active-inspector strip, with the current Back/Forward, Search, and Share placement explicitly provisional |
+| Subject zone | Render the subject and active-inspector strip, then responsive Share, contextual actions, Settings, and trailing Help |
 | Workspace selection | Keep ordinary single-workspace use free of tabs; manage retained coordinates inside the Workspace subject |
 | Package coordinate | Render version and TFM selectors in Package content; platform is workspace content, not a workspace |
 | Library inspection | Select all libraries or one library within Library |
@@ -86,18 +86,19 @@ independent cosmetic changes.
 | Filters | Collapse selector rows by default and summarize hidden restrictions |
 | Selected controls | Use one accent selected-state treatment across selector families |
 | Source provenance | Use a compact status/action row without validation prose or link glyphs |
-| Search and opening | Open Spotlight from an input-like subject-zone control adjacent to Back/Forward; use a separate local-artifact Open flow |
+| Search and opening | Open Spotlight from a responsive title-line control immediately before Back/Forward; use a separate local-artifact Open flow |
 | Settings | Use one Settings experience with contextual entry points |
 | Data bar | Show build identity, acquired source, CLI, and skill links on one line |
 
 Together, these decisions make the web shell read like the CLI without
 rendering a command string. The title line progresses from `dotnet-inspect` to
-the icon-backed ordered target path, then global actions. The full-width zone
-below owns the subject and active-inspector strip plus the provisionally placed
-Back/Forward, Search, and Share actions. Segment-level copy remains on the
-typed title-line target. Package coordinate editing, target inventories, and
-other navigation remain inside the working surface rather than consuming
-persistent chrome.
+the icon-backed ordered target path, then a responsive Search/history cluster.
+The full-width zone below owns the subject and active-inspector strip plus
+Share, contextual actions, Settings, and trailing Help. Both right-side action
+regions yield space down to nothing rather than crowding the primary identity
+and inspection controls. Segment-level copy remains on the typed title-line
+target. Package coordinate editing, target inventories, and other navigation
+remain inside the working surface rather than consuming persistent chrome.
 
 ## Cross-document relationships
 

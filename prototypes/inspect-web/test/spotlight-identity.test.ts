@@ -1243,7 +1243,7 @@ test("the title line advertises the typed target above the subject strip", () =>
 
   assert.match(
     render,
-    /workbenchShellHtml\(\{[\s\S]*inspectedTargetHtml:[\s\S]*class="inspected-target"[\s\S]*renderInspectedSubjectIcon\(pkg\)[\s\S]*class="subject-path"[\s\S]*<header class="subject-zone"[\s\S]*renderScopeBar\(\)[\s\S]*class="subject-advertisements"[\s\S]*class="subject-navigation"[\s\S]*id="nav-back"[\s\S]*id="nav-forward"[\s\S]*id="open-search"[\s\S]*id="share"[\s\S]*<main class="workspace">/);
+    /workbenchShellHtml\(\{[\s\S]*inspectedTargetHtml:[\s\S]*class="inspected-target"[\s\S]*renderInspectedSubjectIcon\(pkg\)[\s\S]*class="subject-path"[\s\S]*titleNavigationHtml:[\s\S]*class="title-navigation"[\s\S]*id="open-search"[\s\S]*id="nav-back"[\s\S]*id="nav-forward"[\s\S]*<header class="subject-zone"[\s\S]*renderScopeBar\(\)[\s\S]*class="shell-actions[\s\S]*id="share"[\s\S]*id="open-settings"[\s\S]*id="help"[\s\S]*<main class="workspace">/);
   assert.doesNotMatch(render, /id="copy-name"|id="taste-btn"/);
   assert.doesNotMatch(
     render,

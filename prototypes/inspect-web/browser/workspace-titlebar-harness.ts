@@ -16,6 +16,7 @@ const params = new URL(location.href).searchParams;
 const workspaceMode = params.has("workspace");
 const packageMode = params.has("package");
 const memberMode = params.has("member");
+const longMode = params.has("long");
 const defaultPackageIcon =
   "https://nuget.org/Content/gallery/img/default-package-icon-256x256.png";
 const systemTextJsonIcon =
@@ -30,12 +31,30 @@ const subjectPath = workspaceMode
     : memberMode
       ? [
           { kind: "package", label: "System.Text.Json", copyable: true },
-          { kind: "type", label: "System.Text.Json.JsonSerializer", copyable: true },
-          { kind: "member", label: "DeserializeSync", copyable: true },
+          {
+            kind: "type",
+            label: longMode
+              ? "System.Text.Json.Serialization.Metadata.JsonTypeInfoResolverWithAddedModifiers"
+              : "System.Text.Json.JsonSerializer",
+            copyable: true,
+          },
+          {
+            kind: "member",
+            label: longMode
+              ? "DeserializeAsyncEnumerableWithCustomConverterAndCancellation"
+              : "DeserializeSync",
+            copyable: true,
+          },
         ]
       : [
           { kind: "package", label: "System.Text.Json", copyable: true },
-          { kind: "type", label: "System.Text.Json.JsonSerializer", copyable: true },
+          {
+            kind: "type",
+            label: longMode
+              ? "System.Text.Json.Serialization.Metadata.JsonTypeInfoResolverWithAddedModifiers"
+              : "System.Text.Json.JsonSerializer",
+            copyable: true,
+          },
         ];
 const subjectPathLabel = subjectPath.map(segment => segment.label).join(" > ");
 const coordinates = [
@@ -111,6 +130,19 @@ app.innerHTML = `
             }).join("")}
           </div>
         </div>`,
+      titleNavigationHtml: `
+        <nav class="title-navigation" aria-label="Search and history">
+          <button id="open-search" class="title-search" type="button" aria-haspopup="dialog">
+            <span class="title-search-glyph" aria-hidden="true">⌕</span>
+            <span class="title-search-label title-search-label-full">Search types, members, packages</span>
+            <span class="title-search-label title-search-label-compact">Search</span>
+            <kbd>Ctrl P</kbd>
+          </button>
+          <div class="nav-history">
+            <button id="nav-back" disabled aria-label="Back">←</button>
+            <button id="nav-forward" disabled aria-label="Forward">→</button>
+          </div>
+        </nav>`,
     })}
     <header class="subject-zone" aria-label="Subjects and inspectors">
       ${renderScopeBar({
@@ -126,7 +158,13 @@ app.innerHTML = `
           : packageMode
             ? [["overview", "Overview"], ["dependencies", "Dependencies"]]
             : memberMode
-              ? [["overview", "Overview"], ["call-graph", "Call graph"]]
+              ? [
+                  ["overview", "Overview"],
+                  ["call-graph", "Call graph"],
+                  ["facts", "Facts"],
+                  ["source", "Source"],
+                  ["annotated", "Annotated source"],
+                ]
               : [["api", "API"], ["metadata", "Metadata"], ["source", "Source"]],
         activeStripId: workspaceMode
           ? null
@@ -143,19 +181,11 @@ app.innerHTML = `
         showMemberScope: memberMode,
         escapeHtml,
       })}
-      <div class="subject-advertisements"></div>
-      <div class="subject-navigation">
-        <div class="nav-history">
-          <button id="nav-back" disabled aria-label="Back">←</button>
-          <button id="nav-forward" disabled aria-label="Forward">→</button>
-        </div>
-        <button id="open-search" class="subject-search" type="button" aria-haspopup="dialog">
-          <span class="subject-search-glyph" aria-hidden="true">⌕</span>
-          <span class="subject-search-label">Search types, members, packages</span>
-          <kbd>Ctrl P</kbd>
-        </button>
-      </div>
-      <div class="detail-actions"><button id="share">Share</button></div>
+      <nav class="shell-actions" aria-label="Application">
+        <button id="share">Share</button>
+        <button id="open-settings">Settings</button>
+        <button id="help" aria-label="Keyboard help">?</button>
+      </nav>
     </header>
     <div class="notice-stack"></div>
     <main class="workspace">
