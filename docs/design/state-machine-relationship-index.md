@@ -3,12 +3,32 @@
 `StateMachineRelationshipIndex` is the Metadata-owned structural substrate for
 compiler state machines. It authenticates relationships between a kickoff
 `MethodDef`, its claimed same-module state-machine `TypeDef`, and the exact
-`MethodDef` rows that implement required interface roles.
+disposition of each interface role in that relationship.
+
+A resolved relationship is an owner-issued certificate of structural identity,
+not a claim that every generated support method survived post-build processing.
+The certificate separates the evidence required to identify the kickoff,
+state-machine type, and execution method from the completeness of support
+roles.
 
 The index reports physical metadata facts. It does not decide whether a method
 is generated source, whether body evidence should be attributed to a kickoff,
 whether a decompiler can reconstruct a source method, or whether a caller
 should receive a recommendation.
+
+## Status and decision
+
+Design target, advancing
+[#5307](https://github.com/richlander/dotnet-inspect/issues/5307).
+This document is the normative owner for relationship certificate issuance and
+role dispositions. The exact claim is that classic async identity remains
+resolvable when `SetStateMachine` alone is absent, with that absence carried
+explicitly rather than converted to rejection. The
+[classic async inverse design](classic-async-reconstruction.md#immediate-boundary)
+is a consumer map; #5277 and #5276 own adapter and inverse implementation.
+
+The current implementation still requires every role to be present. The target
+contract below is unimplemented unless a section names an existing gate.
 
 ## Contract
 
@@ -20,14 +40,26 @@ relationships using durable module-scoped addresses:
 - `MetadataTypeDefinitionName` for its exact parsed lookup name;
 - `StateMachineClaimKind` for classic async, async iterator, or synchronous
   iterator claims; and
-- `StateMachineMethodRole` for each exact interface role.
+- `StateMachineMethodRole` with one closed disposition for each exact interface
+  role.
+
+A role disposition is `Present(Method)`, carrying the exact
+`MetadataMethodAddress`, or `AbsentFromArtifact` where the claim-kind contract
+explicitly admits absence. There is no omitted, unknown, or inferred role
+state.
 
 Consumers can query by kickoff method, state-machine type, or implementation
 method. Each query returns one closed result:
 
-- `Resolved` carries the authenticated relationship;
+- `Resolved` carries the authenticated relationship certificate and its
+  complete role dispositions;
 - `Absent` means the queried row has no state-machine relationship; and
 - `Rejected` carries typed failure evidence.
+
+Implementation-method queries index `Present(Method)` addresses only.
+`AbsentFromArtifact` has no synthetic address and is observable only through a
+resolved kickoff- or state-machine-keyed relationship or relationship
+enumeration.
 
 `Rejected` is not absence. Its failure identifies unresolved, malformed,
 duplicate, cross-kind, budget-exceeded, or ambiguous metadata and retains the
@@ -48,7 +80,7 @@ the bounded propagation cost.
 
 ## Authentication
 
-A claim enters the index only when all of these conditions hold:
+A claim enters the index only when all of these identity conditions hold:
 
 1. The kickoff has a recognized state-machine attribute from an authenticated
    platform assembly or the authenticated current core library.
@@ -63,8 +95,10 @@ A claim enters the index only when all of these conditions hold:
    directions.
 4. The name resolves to one same-module `TypeDef`.
 5. One kickoff claims that state-machine type, with one claim kind.
-6. The state-machine type directly declares each required interface and each
-   required role resolves to one matching instance IL method with a body.
+6. The kickoff is a managed IL method with a body.
+7. The state-machine type directly declares each required interface.
+8. Every must-be-present role resolves to one matching instance IL method with
+   a body.
 
 Malformed trusted attributes are rejected, while same-named attributes from
 untrusted assemblies are ignored. The distinction is gated by
@@ -75,28 +109,164 @@ compiler-generated names containing escaped commas remain resolvable.
 `StateMachineRelationshipIndex_ResolvesGeneratedAndCustomBuilderKickoffs`
 gates this with explicit implementations of a two-argument generic interface.
 
-The required roles are:
+Role requirements are:
 
-| Claim kind | Required roles |
-| --- | --- |
-| Classic async | `IAsyncStateMachine.MoveNext`, `IAsyncStateMachine.SetStateMachine` |
-| Async iterator | the classic async roles, `IAsyncEnumerator<T>.MoveNextAsync`, and `IAsyncDisposable.DisposeAsync` |
-| Synchronous iterator | `IEnumerator.MoveNext`, `IDisposable.Dispose` |
+| Claim kind | Must be `Present` | May be `AbsentFromArtifact` |
+| --- | --- | --- |
+| Classic async | `IAsyncStateMachine.MoveNext` | `IAsyncStateMachine.SetStateMachine` |
+| Async iterator | `IAsyncStateMachine.MoveNext`, `IAsyncStateMachine.SetStateMachine`, `IAsyncEnumerator<T>.MoveNextAsync`, `IAsyncDisposable.DisposeAsync` | None |
+| Synchronous iterator | `IEnumerator.MoveNext`, `IDisposable.Dispose` | None |
 
-For each role, an exact matching `MethodImpl` declaration wins. Without one,
-the index accepts one implicit public virtual implementation with the exact
-name and signature. An explicit `IAsyncEnumerator<T>` declaration must use the
-same TypeSpec encoding as the implemented interface, preserving its generic
-argument and custom modifiers instead of accepting an erased interface shape.
-The matcher also rejects custom-modified signatures, `class`/`valuetype`
-mismatches, bare or wrong-arity generic interfaces, static methods, non-IL
-methods, and `MethodImpl` bodies declared by another type.
+For a present role, an exact matching `MethodImpl` declaration wins. Without
+one, the index accepts one implicit public virtual implementation with the
+exact name and signature. An explicit `IAsyncEnumerator<T>` declaration must
+use the same TypeSpec encoding as the implemented interface, preserving its
+generic argument and custom modifiers instead of accepting an erased interface
+shape. The matcher also rejects custom-modified signatures,
+`class`/`valuetype` mismatches, bare or wrong-arity generic interfaces, static
+methods, non-IL methods, and `MethodImpl` bodies declared by another type.
 `StateMachineRelationshipIndex_ResolvesExactInterfaceImplementations`,
 `StateMachineRelationshipIndex_ExplicitMethodImplWinsOverNamedDecoy`, and
 `StateMachineRelationshipIndex_RejectsInvalidImplementationShapes` gate these
 positive and negative forms;
 `StateMachineRelationshipIndex_RejectsMalformedAsyncEnumeratorShape` gates the
 constructed-interface distinction.
+
+`AbsentFromArtifact` is narrower than failure to resolve a role. Candidate
+recognition happens before full role validation:
+
+- an explicit candidate is a `MethodImpl` whose readable declaration names the
+  required interface and role, before its signature or body is accepted; and
+- an implicit candidate is a MethodDef on the state-machine type with the exact
+  role name, before its visibility, flags, signature, or body is accepted.
+
+Existing explicit-over-implicit precedence still determines whether a valid
+role resolves. If no valid role resolves, classic `SetStateMachine` receives
+`AbsentFromArtifact` only when the bounded scan found no candidate in either
+tier. Any candidate that fails full validation instead produces `Rejected`.
+That includes an explicit declaration with the right interface and role name
+but a wrong signature, even when its body uses an interface-qualified or
+otherwise non-implicit name.
+
+Unreadable or malformed declarations and exhausted scan or decode budgets also
+remain `Rejected`; they never certify absence.
+
+This narrow rule records what the inspected artifact contains without treating
+post-link incompleteness as missing identity. Extending
+`AbsentFromArtifact` to another claim kind or role requires its own artifact
+evidence and contract change.
+
+## Evidence-carrying certificate
+
+The resolved relationship value is the certificate. It carries a closed,
+typed account of the observations that Metadata accepted:
+
+```text
+StateMachineRelationship
+  Claim
+    Kickoff                    exact module-scoped MethodDef address
+    Kind                       classic async, async iterator, or iterator
+    ClaimedStateMachineName    exact parsed claim name
+    StateMachineType           unique same-module TypeDef address
+    RequiredInterfaces         directly declared recognized interfaces
+  Roles
+    Role -> Present(Method) | AbsentFromArtifact
+```
+
+The claim receipt records the correlation established by the authenticated
+attribute and unique same-module type resolution. Each `Present` receipt binds
+an exact role to an exact MethodDef after the interface and signature checks
+above. Each admitted `AbsentFromArtifact` receipt records a completed negative
+scan under the same bounds. Consumers may rely on those identities and
+dispositions without repeating Metadata matching.
+
+For classic async, `Present(IAsyncStateMachine.MoveNext)` is the certified
+execution identity. `SetStateMachine` is support-role completeness and does not
+participate in that execution identity.
+
+The certificate does not authenticate body semantics. In particular, it does
+not say that the current bodies are original compiler output, that kickoff IL
+contains a builder `Start` correlation, or that a decompiler can reconstruct
+source. Analysis or Decompiler may produce additional body-evidence receipts,
+but may not use them to replace the owner-issued kickoff, state-machine, or
+execution identity.
+
+## Contract demonstration
+
+This target mockup uses the ordinary full-trim artifact from
+`ClassicAsyncArtifactMatrixTests`. The current gate records a retained claimed
+state-machine type with a MethodDef named `MoveNext`, no MethodDef named
+`SetStateMachine`, and the current `Rejected(Unresolved)` result. Before the
+target result is implemented, its gate must additionally establish the direct
+`IAsyncStateMachine` declaration, exact body-bearing `MoveNext` role, and
+absence of both explicit and implicit `SetStateMachine` candidates:
+
+```text
+Relationship: Resolved(ClassicAsync)
+Kickoff:      RecoverableAsync
+StateMachine: <RecoverableAsync>d__0
+Roles:
+  MoveNext:        Present(<RecoverableAsync>d__0.MoveNext)
+  SetStateMachine: AbsentFromArtifact
+```
+
+The role-preserved artifact produces the same certificate with
+`SetStateMachine: Present(...)`. The SDK reference artifact also resolves with
+both roles present; its synthesized `ldnull; throw` bodies are outside this
+Metadata certificate and remain a Decompiler decline. The unused trimmed
+method has no kickoff or state-machine rows and produces no relationship.
+
+A near-negative artifact with a `SetStateMachine` candidate that has the wrong
+signature is not equivalent to the ordinary-trim artifact:
+
+```text
+Relationship: Rejected(Unresolved)
+Evidence:     invalid present SetStateMachine candidate
+```
+
+This distinction prevents a damaged or contradictory role from becoming a
+success-shaped absence.
+
+## Validation status
+
+This design changes no product behavior. The new certificate and classic
+support-role disposition are **unverified** until implementation supplies
+Release gates for:
+
+- a real ordinary full-trim artifact resolving with body-bearing `MoveNext` and
+  `SetStateMachine: AbsentFromArtifact`;
+- the role-preserved and SDK-reference artifacts resolving with both roles
+  present;
+- complete role-disposition publication with no omitted classic role;
+- rejection when `MoveNext` is missing or invalid; and
+- rejection, rather than absence, for malformed, bodyless, ambiguous, or
+  contradictory `SetStateMachine` candidates, including a wrong-signature
+  explicit declaration whose body does not have the implicit role name.
+
+`ClassicAsyncArtifactMatrixTests.TrimmedArtifactWithoutRolePreservation_RetainsKickoffButCannotFormRequest`
+currently gates the old rejection, retained `MoveNext` MethodDef name, and
+absent `SetStateMachine` MethodDef name. It does not independently gate the
+direct interface, exact `MoveNext` role and body, or absence of an explicit
+support-role candidate whose body has another name; those target artifact
+premises remain **unverified**.
+`StateMachineRelationshipIndex_RejectsInvalidImplementationShapes` gates
+several present-but-invalid role shapes. Neither gate enforces the target
+certificate.
+
+## Non-claims
+
+The certificate does not:
+
+- prove that a support role existed before linking or identify which tool
+  removed it;
+- authenticate classic async when the trusted claim, unique same-module type,
+  direct `IAsyncStateMachine` declaration, kickoff body, or execution
+  `MoveNext` is unavailable;
+- admit an absent role for async iterators or synchronous iterators;
+- establish kickoff-body correlation, reconstruction eligibility, source
+  fidelity, or behavioral equivalence; or
+- acquire a pre-transform assembly or infer a replacement identity from names,
+  neighboring types, or body shape.
 
 ## Bounds and malformed input
 
@@ -269,7 +439,9 @@ Each invariant below names the gate that enforces it, or is marked
 
 A published index classifies every structural async state machine the way an
 **independent recount of the population** would: resolved where a claim
-authenticates, rejected where one is refused, absent where none exists.
+authenticates and every role receives an admitted disposition, rejected where
+identity fails or a role cannot receive an admitted disposition, absent where
+no claim exists.
 
 The independence is the entire content of the invariant, and it is easy to
 state too weakly. An index that loses a row does not answer with some
@@ -335,10 +507,11 @@ about which path produced it. Combined with C4, a consumer cannot obtain the
 distinction from keyed-result shape; it must inspect the outer `Relationships`
 result.
 
-Trimming is explicitly **not** evidence for this invariant. A trimmed artifact
-can retain a claim while losing required role evidence, producing per-claim
-refusal rather than whole-module failure. Making that refusal total does not
-change which failure path produced it.
+Trimming is explicitly **not** evidence for this invariant. An admitted absent
+classic support role now produces a resolved relationship. A trimmed artifact
+can still lose identity evidence or retain a malformed role candidate,
+producing per-claim refusal rather than whole-module failure. Making that
+refusal total does not change which failure path produced it.
 
 Gate:
 `StateMachineCompletenessTests.GlobalFailure_RejectsEveryStructuralAsyncStateMachine`.
@@ -459,7 +632,8 @@ own all policy above it:
 - **Analysis** owns scope admission, generated-code policy, lifted-owner
   composition, attribution, fallback, and recommendation eligibility.
 - **Decompiler** owns kickoff-IR correlation, builder recognition,
-  reconstruction eligibility, stage replay, rendering, and honest decline.
+  reconstruction eligibility and proof, stage replay, rendering, and honest
+  decline.
 - **Research and queries** own composition and presentation.
 - **Implementation Diff** owns its populations, correspondence policy, budgets,
   and result shapes.
