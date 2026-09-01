@@ -1054,8 +1054,16 @@ typed unavailable result rather than absence or an exception.
   pointer shape in the callable signature produces `Implicit`. A compiler fixed
   buffer source FieldDef is excluded from pointer-based propagation only after
   its platform `FixedBufferAttribute(Type, int)` carrier and complete value are
-  authenticated within the member attribute and name-work budgets. A malformed
-  or unavailable fixed-buffer carrier cannot become a fixed-buffer exemption.
+  authenticated within the member attribute and name-work budgets. Both the
+  carrier's declaring assembly and any assembly qualification on the serialized
+  element type must be a core contract — `System.Private.CoreLib`,
+  `System.Runtime`, `mscorlib`, or `netstandard` — carrying a platform key.
+  That pairing is a fidelity filter, not a trust anchor: a single-file
+  inspection can verify neither the name nor the key, but it can require the
+  shape the compiler actually emits, so a lookalike reached through an
+  unrelated library is not read as the compiler construct it resembles. A
+  malformed or unavailable fixed-buffer carrier cannot become a fixed-buffer
+  exemption.
   The exemption applies only to a definite pointer, so it never substitutes for
   a signature the index did not decode: a signature that cannot be decoded is
   `Unavailable` unless a definite pointer was already observed, whatever the
@@ -1116,7 +1124,10 @@ row that contributes accessor relationships.
 `UnsortedCustomAttributeRowsFailClosed`,
 `UnobservedMethodSemanticsRowsMakeAssociationsUnavailable`,
 `FixedBufferCarrierCannotSuppressAnUndecodableSignature`,
-`FixedBufferExemptionRequiresPlatformElementTypeIdentity`, and
+`FixedBufferExemptionRequiresPlatformElementTypeIdentity`,
+`FixedBufferExemptionRequiresACoreContractCarrier`,
+`LocalRulesCarrierAuthenticatesThroughEitherConstructorSpelling`,
+`NestedLocalRulesCarrierStaysRejectedThroughAMemberReference`, and
 `MemorySafetyMetadataIndex_InvalidHandlesAreUnavailable` gate the shared
 contract.
 

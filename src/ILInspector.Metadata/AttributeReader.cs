@@ -2202,6 +2202,54 @@ public static partial class AttributeReader
         }
     }
 
+    /// <summary>
+    /// True when the attribute's declaring assembly is one of the core
+    /// contracts that can declare a compiler construct's marker attribute, and
+    /// carries a platform key.
+    /// </summary>
+    /// <remarks>
+    /// This is a fidelity filter rather than a trust anchor. A single-file
+    /// inspection cannot verify either the name or the key, since both are
+    /// artifact-authored; what it can do is require the shape the compiler
+    /// actually emits, so a marker reached through an unrelated library is not
+    /// read as the compiler construct it resembles.
+    /// </remarks>
+    internal static bool IsPlatformCoreContractAttributeType(
+        MetadataReader reader,
+        EntityHandle constructor,
+        string fullTypeName,
+        Action<int>? beforeMaterialize)
+    {
+        try
+        {
+            return TryGetAuthenticAttributeAssembly(
+                    reader,
+                    constructor,
+                    fullTypeName,
+                    beforeMaterialize,
+                    out ApiAssemblyIdentity? identity)
+                && IsCoreContractName(identity.Name)
+                && PlatformKeys.IsPlatform(identity.PublicKeyToken);
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The core contracts through which a compiler emits a reference to a
+    /// marker attribute declared in the runtime's core library.
+    /// </summary>
+    internal static bool IsCoreContractName(string? assemblyName)
+        => assemblyName is
+            "System.Private.CoreLib"
+                or "System.Runtime"
+                or "mscorlib"
+                or "netstandard";
+
     static bool IsSupportedJsonStringEnumConverter(
         string serializedName,
         MetadataTypeDefinitionName enumDefinitionName,

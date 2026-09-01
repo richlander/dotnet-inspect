@@ -321,6 +321,47 @@ public sealed class MemorySafetyMetadataIndexTests
             propagated.Evidence.FixedBuffer);
     }
 
+    [Theory]
+    [InlineData("System.Runtime", true)]
+    [InlineData("mscorlib", true)]
+    [InlineData("netstandard", true)]
+    [InlineData("Attacker", false)]
+    [InlineData("System.Runtime.Extensions", false)]
+    public void FixedBufferExemptionRequiresACoreContractCarrier(
+        string carrierAssemblyName,
+        bool exempts)
+    {
+        using OpenedMetadata opened = Open(
+            BuildFixedBufferElementTypeImage(
+                "System.Int32",
+                undecodableFieldSignature: false,
+                carrierAssemblyName));
+        MemorySafetyMetadataIndex index =
+            MemorySafetyMetadataIndex.Create(opened.Reader);
+
+        MemorySafetyMemberContractResult result =
+            index.GetMemberContract(
+                MetadataTokens.FieldDefinitionHandle(1));
+        if (exempts)
+        {
+            var none =
+                Assert.IsType<MemorySafetyMemberContractResult.None>(result);
+            Assert.Equal(
+                MemorySafetyFixedBufferEvidence.Present,
+                none.Evidence.FixedBuffer);
+            return;
+        }
+
+        var propagated =
+            Assert.IsType<MemorySafetyMemberContractResult.Implicit>(result);
+        Assert.Equal(
+            MemorySafetyPointerEvidence.Present,
+            propagated.Evidence.Pointer);
+        Assert.Equal(
+            MemorySafetyFixedBufferEvidence.Absent,
+            propagated.Evidence.FixedBuffer);
+    }
+
     [Fact]
     public void FixedBufferCarrierCannotSuppressAnUndecodableSignature()
     {
@@ -1353,6 +1394,15 @@ public sealed class MemorySafetyMetadataIndexTests
     static byte[] BuildFixedBufferElementTypeImage(
         string serializedElementType,
         bool undecodableFieldSignature)
+        => BuildFixedBufferElementTypeImage(
+            serializedElementType,
+            undecodableFieldSignature,
+            carrierAssemblyName: "System.Runtime");
+
+    static byte[] BuildFixedBufferElementTypeImage(
+        string serializedElementType,
+        bool undecodableFieldSignature,
+        string carrierAssemblyName)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1377,13 +1427,24 @@ public sealed class MemorySafetyMetadataIndexTests
                     Convert.FromHexString("B03F5F7F11D50A3A")),
                 default,
                 default);
+        AssemblyReferenceHandle carrierAssembly =
+            carrierAssemblyName == "System.Runtime"
+                ? coreLibrary
+                : metadata.AddAssemblyReference(
+                    metadata.GetOrAddString(carrierAssemblyName),
+                    new Version(11, 0, 0, 0),
+                    default,
+                    metadata.GetOrAddBlob(
+                        Convert.FromHexString("B03F5F7F11D50A3A")),
+                    default,
+                    default);
         TypeReferenceHandle systemType = metadata.AddTypeReference(
             coreLibrary,
             metadata.GetOrAddString("System"),
             metadata.GetOrAddString("Type"));
         TypeReferenceHandle fixedBufferAttribute =
             metadata.AddTypeReference(
-                coreLibrary,
+                carrierAssembly,
                 metadata.GetOrAddString(
                     "System.Runtime.CompilerServices"),
                 metadata.GetOrAddString("FixedBufferAttribute"));

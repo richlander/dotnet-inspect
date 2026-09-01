@@ -57,7 +57,7 @@ public static class FixedBufferMetadata
                 {
                     continue;
                 }
-                if (!AttributeReader.IsPlatformAttributeType(
+                if (!AttributeReader.IsPlatformCoreContractAttributeType(
                         reader,
                         attribute.Constructor,
                         AttributeName,
@@ -179,14 +179,8 @@ public static class FixedBufferMetadata
 
     static bool IsPlatformCoreContract(AssemblyNameInfo assembly)
     {
-        if (assembly.Name is not
-            ("System.Private.CoreLib"
-                or "System.Runtime"
-                or "mscorlib"
-                or "netstandard"))
-        {
+        if (!AttributeReader.IsCoreContractName(assembly.Name))
             return false;
-        }
 
         ImmutableArray<byte> token = assembly.PublicKeyOrToken;
         if (token.IsDefaultOrEmpty)
