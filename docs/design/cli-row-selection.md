@@ -100,7 +100,6 @@ An adopted command may expose these gestures:
 | `-n N --head` | explicit `HeadIntent(N)` |
 | `-n N --tail` | `TailIntent(N)` |
 | `--rows A..B` | closed `WindowIntent(A, B)` |
-| `--rows A+K` | closed `WindowIntent(A, A + K - 1)` |
 | `--rows A..` | suffix `WindowIntent(A, null)` |
 | `--rows ..B` | prefix `WindowIntent(null, B)` |
 | `--top N --order-by ORDER` | `TopIntent(N)` with an explicit unresolved ranking-order operation |
@@ -109,10 +108,11 @@ An adopted command may expose these gestures:
 | `-n N --lines --tail` | last *N* rendered lines |
 | `-n N --tail-lines` | exact sugar for `-n N --lines --tail` |
 
-`N`, `A`, `B`, and `K` are unsigned decimal tokens whose values must be
-positive and fit the integer representation used by typed L3 intent. Zero,
-signs, and overflow fail value validation. `A + K - 1` must also fit that
-representation. `A..B` requires `B >= A`.
+`N`, `A`, and `B` are strings of ASCII decimal digits whose parsed values must
+be positive integers that fit the representation used by typed L3 intent.
+Zero, signs, non-ASCII digits, and overflow fail value validation. Elsewhere in
+this design, *signed-decimal* means an optional ASCII `+` or `-` followed by
+ASCII decimal digits. `A..B` requires `B >= A`.
 
 Released System.CommandLine `=` and `:` attached values for current
 value-bearing options remain equivalent to their separated forms. This
@@ -127,6 +127,13 @@ when the active command or active common route envelope supports Head; the
 direction-aware cases follow below. Otherwise it produces capability rejection.
 The boundless semantic identity Window is not exposed as `--rows ..`; a no-op
 option is more likely an incomplete request than useful intent.
+
+The released start-plus-count form, such as `--rows 2+10`, is not part of the
+adopted grammar. Separated and `=`/`:` attached forms are recognized as retired
+Window requests before ordinary malformed-value handling. When Window is
+supported, guidance names `--rows <start>..<end>` without reconstructing the
+caller's end coordinate; otherwise ordinary Window capability rejection
+applies.
 
 Direction-value ownership is established before bare shorthand normalization
 and modifier association. A direction token with its own separated or
@@ -522,6 +529,8 @@ Compatibility is deliberately low. As each command adopts:
   presence and `false` points to omission;
 - integer-only `--rows <count>` and released `--rows <count>` direction
   combinations retire; guidance never recommends an integer-only `--rows`;
+- start-plus-count `--rows <start>+<count>` retires in favor of the inclusive
+  `--rows <start>..<end>` form;
 - a retired spelling fails with its supported `-n`, `--rows`, or `--top`
   replacement form or required omission rather than a reconstructed full argv;
 - when `--top` is present, the one explicit `--order-by` becomes Top's operand
@@ -577,7 +586,7 @@ spelling adds its new diagnostic channels to that gate.
 
 | Gate | Property |
 | --- | --- |
-| `CliRowSelectionGrammarTests` | Positive representable counts, released separated, `=`/`:` attached, and compact current forms, lexical shorthand recognition, zero and overflow across `-n`, bare `-N`, `--rows`, and `--top`, sign-bearing values for value-taking gestures, range-only Window forms, idempotent exact modifier repeats, tolerated equivalent line/tail redundancy, conflicting directions, gesture repetition, and replacement diagnostics follow this grammar. |
+| `CliRowSelectionGrammarTests` | Positive representable ASCII-decimal counts and coordinates, released separated, `=`/`:` attached, and compact current forms, lexical shorthand recognition, zero, signs, non-ASCII digits, and overflow across `-n`, bare `-N`, `--rows`, and `--top`, closed/prefix/suffix Window forms, idempotent exact modifier repeats, tolerated equivalent line/tail redundancy, conflicting directions, gesture repetition, and replacement diagnostics follow this grammar. |
 | `CliRowSelectionOrderTests` | `-n`, `--rows`, and `--top` preserve argv order; modifiers change unit or direction without becoming operation-intent positions. |
 | `CliRowSelectionBareShorthandTests` | Required, optional, boolean, attached, positional, router, parent-option, and `--` cases classify bare `-N` by parsed arity and ownership; signed retired direction values establish ownership before shorthand normalization; normalization precedes retired-form and duplicate-gesture lowering. |
 | `CliRowSelectionCapabilityTests` | Only the active adopted leaf command accepts its declared gestures; shared helpers and parent commands do not imply adoption. |
@@ -586,7 +595,7 @@ spelling adds its new diagnostic channels to that gate.
 | `CliRowSelectionPreExecutionFailureTests` | L3-decidable explicit-command failures occur before command execution or command-owned acquisition, return nonzero, and emit no success-shaped result; L2 ranking failures follow L2-owned timing. |
 | `CliRowSelectionFailurePrecedenceTests` | Explicit and implicit multi-fault invocations, token-completed conflicts, tied end-of-argv absence conflicts, multiple capability rejections, overlapping retired requests, valued-direction ownership, and owned retired-looking values produce the one diagnostic selected by their applicable precedence. |
 | `CliRowSelectionCountHandoffTests` | Semantic intent remains ordered and intact when terminal `--count` is handed to L2; line/Count behavior is not invented by L3. |
-| `CliRowSelectionMigrationTests` | On explicit commands and active common envelopes, adopted commands expose only current count spellings; valued directions own separated and `=`/`:` attached signed-decimal or case-insensitive boolean values before positional/shorthand binding; count values form exclusive retired requests, while boolean `true` contributes effective direction and `false` effective absence to co-occurring selection; bare directions bind `-n` before integer-only `--rows`; multiple retired forms select category-1 guidance in argv order; retired `--take`, `--head N`, `--tail N`, explicit boolean directions, integer-only `--rows`, and `--rows <count>` direction combinations in both argv orders map to supported current-form guidance across Head-only and Tail-only capability matrices before absence lowering; `false` alone names omission, while `false` with selection gates the request remaining after omission; contradictory effective directions retain their scoped conflict; unsupported replacement gestures receive capability rejection; stale preprocessing never recommends integer-only `--rows`; no diagnostic claims a reconstructed runnable argv; unadopted commands retain accurate released help. |
+| `CliRowSelectionMigrationTests` | On explicit commands and active common envelopes, adopted commands expose only current count spellings; valued directions own separated and `=`/`:` attached signed-decimal or case-insensitive boolean values before positional/shorthand binding; count values form exclusive retired requests, while boolean `true` contributes effective direction and `false` effective absence to co-occurring selection; bare directions bind `-n` before integer-only `--rows`; multiple retired forms select category-1 guidance in argv order; retired `--take`, `--head N`, `--tail N`, explicit boolean directions, integer-only `--rows`, `--rows <count>` direction combinations in both argv orders, and separated or attached start-plus-count `--rows` map to supported current-form guidance across Head-only, Tail-only, and Window-only capability matrices before absence or malformed-value lowering; `false` alone names omission, while `false` with selection gates the request remaining after omission; contradictory effective directions retain their scoped conflict; unsupported replacement gestures receive capability rejection; stale preprocessing never recommends integer-only or start-plus-count `--rows`; no diagnostic claims a reconstructed runnable argv; unadopted commands retain accurate released help. |
 | `UntrustedArgumentDiagnosticContainmentTests` | Every argv-derived token echoed by parse-time, pre-routing envelope, or lowering diagnostics is contained at the CLI presentation boundary, including `-n`, `--rows`, `--top`, and retirement failures. |
 | `CliRowSelectionGuidanceTests` | Help, README examples, workflows, and shipped skills teach only behavior available on their named command. |
 
