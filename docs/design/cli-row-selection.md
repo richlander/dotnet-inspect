@@ -103,7 +103,8 @@ An adopted command may expose these gestures:
 | `--rows A+K` | closed `Window(A, A + K - 1)` |
 | `--rows A..` | suffix `Window(A, null)` |
 | `--rows ..B` | prefix `Window(null, B)` |
-| `--top N` | `Top(N)` with L2-resolved ranking order |
+| `--top N --order-by ORDER` | `Top(N)` with explicit L2-resolved ranking order |
+| `--top N` | `Top(N)` with the schema-declared default Top ranking |
 | `-n N --lines` | first *N* rendered lines, not a semantic stage |
 | `-n N --lines --tail` | last *N* rendered lines |
 | `-n N --tail-lines` | exact sugar for `-n N --lines --tail` |
@@ -123,9 +124,21 @@ of the grammar.
 
 `--tail-lines` is a boolean modifier, not a count-bearing option. It requires
 `-n`, conflicts with `--head`, and supplies both line unit and tail direction.
+Combining it with the equivalent `--lines` or `--tail` modifier is tolerated
+redundancy and does not add another operation.
 
 `--top` takes its own positive count. It does not consume `--head` or `--tail`;
-ranking direction belongs to the effective-order request owned by L2.
+ranking direction belongs to its order operand. Because the CLI exposes at most
+one `Top`, one explicit `--order-by` in the same invocation attaches to that
+`Top` stage and is not also promoted to baseline order. Its position in argv
+does not create a stage or change the `Top` stage's position.
+
+Without `--top`, `--order-by` retains its L2-owned baseline-order role. With
+`--top` and no explicit `--order-by`, L2 may use only the schema's declared
+default Top ranking. A default baseline order is not a ranking. This grammar
+does not provide two simultaneous explicit order operands; a command that
+needs both an explicit baseline order and a different explicit Top ranking
+must wait for a separately designed spelling.
 
 Each of `-n`, `--rows`, and `--top` may occur at most once in one invocation.
 This keeps modifier binding unambiguous while still allowing the three
@@ -220,11 +233,15 @@ route-independent envelope:
 
 - the required-value arity union protects a following negative token whenever
   any candidate route must consume it as that option's value;
-- malformed row-selection spellings and route-independent modifier conflicts
-  fail without routing;
-- a requested gesture is accepted for routing only when every possible child
-  route exposes the same grammar meaning and required adjacent capability; and
-- otherwise the invocation fails with guidance to name an explicit command.
+- while every candidate route is unadopted, the released router grammar and
+  behavior remain unchanged;
+- when candidate routes have mixed adoption or assign different meanings to a
+  requested gesture, the invocation fails without routing and directs the
+  caller to name an explicit command;
+- the new route-independent grammar is active only when every candidate route
+  has adopted the same meaning and required adjacent capability; and
+- once active, malformed row-selection spellings and route-independent
+  modifier conflicts fail without routing.
 
 After routing, the authoritative child parse performs ordinary lowering. This
 design does not claim that L2 order or schema resolution happens before target
@@ -232,6 +249,12 @@ acquisition: L2 owns that work and its failure timing. The router guarantee is
 narrower and enforceable — L3 never performs target acquisition merely to
 decide whether a CLI spelling is malformed, ambiguous across routes, or
 unsupported by the common route envelope.
+
+Envelope activation is evaluated per requested gesture. A route whose
+released and adopted spellings happen to overlap is not common-capability
+evidence when their meanings differ. For example, legacy rendered-line `-n`
+and adopted semantic-item `-n` require an explicit command across a mixed
+candidate set.
 
 ## L3 conflicts and failure
 
@@ -245,8 +268,9 @@ The active command validates CLI-decidable conflicts before command execution:
 - `--tail-lines` with `--head`;
 - a gesture the active command has not adopted.
 
-`--top` additionally requires L2 to resolve a ranking order. The absence of a
-ranking is reported through the CLI diagnostic boundary, but L3 does not infer
+`--top` additionally requires L2 to resolve its attached explicit order or the
+schema's default Top ranking. The absence of a ranking is reported through the
+CLI diagnostic boundary at L2-owned resolution timing, but L3 does not infer
 ranking from a field name, display label, or row order.
 
 Payload projections may impose additional combination rules. Those rules
@@ -265,10 +289,25 @@ An implicit route follows the narrower
 [route-independent envelope](#implicit-routing). L2 resolution and adjacent
 payload failures retain their owners and timing.
 
+### Token ownership for retired spellings
+
+A token is eligible for retired-spelling guidance only after L3 determines
+that it is an option token for the active command:
+
+- a token consumed as a required option value is never reinterpreted;
+- a token after `--` is a positional literal;
+- an attached value remains owned by its option; and
+- only an otherwise-unrecognized option spelling may receive the focused
+  retirement diagnostic.
+
+This is the same ownership discipline as bare `-N`. For example,
+`--out --take` preserves `--take` as the output path when `--out` requires a
+value, while an unowned `--take 5` can report its `-n 5` replacement.
+
 ### Failure precedence
 
-One invocation can contain several bad tokens. L3 reports one selection
-diagnostic using this order:
+One explicit-command invocation can contain several bad tokens. L3 reports one
+selection diagnostic using this order:
 
 1. a recognized retired spelling, in argv order;
 2. the first System.CommandLine token, option-arity, or unknown-option failure
@@ -276,9 +315,26 @@ diagnostic using this order:
 3. the first malformed or nonpositive row-selection value in gesture order;
 4. the first repeated gesture or modifier conflict at the token that completes
    the conflict;
-5. route-envelope or active-command capability rejection; and
+5. active-command capability rejection; and
 6. L2 resolution failure, including an unresolved ranking order, in typed
    operation order.
+
+Token-completed conflicts use the position of the token that makes the
+combination invalid. Absence conflicts, such as `--lines` without `-n`,
+complete at end of argv and therefore follow every token-completed conflict in
+the same category.
+
+An implicit invocation has two ordered phases:
+
+1. the route envelope applies required-value and `--` ownership, then reports
+   the first active-envelope malformed value, token-completed modifier conflict,
+   end-of-argv absence conflict, or mixed/non-uniform capability rejection; and
+2. after successful routing, the authoritative child applies the explicit
+   command order above, including child-specific retired and unknown options.
+
+The envelope phase precedes child-specific categories because those categories
+do not exist until the child is known. While every possible child is unadopted,
+the released router path runs instead and this new precedence is inactive.
 
 Earlier categories prevent later lowering work. A diagnostic supplied by an
 adjacent owner is rendered through the CLI boundary without replacing its
@@ -321,6 +377,7 @@ Compatibility is deliberately low. As each command adopts:
 - `--take` and count-bearing `--head`/`--tail` do not remain as compatibility
   aliases;
 - a retired spelling fails with its `-n`, `--rows`, or `--top` replacement;
+- retired-spelling recognition follows required-value and `--` token ownership;
 - nonnumeric selector aliases are outside this design and remain only when
   their command still owns them; and
 - the command's help, README examples, workflows, and shipped skills change in
@@ -365,13 +422,14 @@ All gates run in Release. Until implemented, each property is **unverified**.
 
 | Gate | Property |
 | --- | --- |
-| `CliRowSelectionGrammarTests` | Positive counts, range-only Window forms, modifiers, repetition, overflow, and replacement diagnostics lower according to this grammar. |
+| `CliRowSelectionGrammarTests` | Positive counts, range-only Window forms, modifiers including tolerated line/tail redundancy, repetition, overflow, and replacement diagnostics lower according to this grammar. |
 | `CliRowSelectionOrderTests` | `-n`, `--rows`, and `--top` preserve argv order; modifiers change unit or direction without becoming stages. |
 | `CliRowSelectionBareShorthandTests` | Required, optional, boolean, attached, positional, router, parent-option, and `--` cases classify bare `-N` by parsed arity and ownership. |
 | `CliRowSelectionCapabilityTests` | Only the active adopted leaf command accepts its declared gestures; shared helpers and parent commands do not imply adoption. |
-| `CliRowSelectionRouterPreflightTests` | Implicit routes reject malformed, ambiguous, and non-uniform-capability selection before target resolution while preserving required negative option values. |
-| `CliRowSelectionPreExecutionFailureTests` | Explicit commands reject malformed, conflicting, unranked, and unsupported intent before command execution or command-owned acquisition. |
-| `CliRowSelectionFailurePrecedenceTests` | Multi-fault invocations produce the one diagnostic selected by the owner-defined precedence. |
+| `CliRowSelectionRouterPreflightTests` | All-unadopted routes preserve released behavior; mixed routes require an explicit command; all-adopted routes reject malformed common grammar before target resolution while preserving required negative option values. |
+| `CliRowSelectionTopOrderBindingTests` | One explicit `--order-by` attaches only to the one Top stage; no explicit order uses only a schema default Top ranking; baseline order is not inferred as ranking. |
+| `CliRowSelectionPreExecutionFailureTests` | L3-decidable explicit-command failures occur before command execution or command-owned acquisition, return nonzero, and emit no success-shaped result; L2 ranking failures follow L2-owned timing. |
+| `CliRowSelectionFailurePrecedenceTests` | Explicit and implicit multi-fault invocations, token-completed conflicts, end-of-argv absence conflicts, and owned retired-looking values produce the one diagnostic selected by their applicable precedence. |
 | `CliRowSelectionCountHandoffTests` | Semantic intent remains ordered and intact when terminal `--count` is handed to L2; line/Count behavior is not invented by L3. |
 | `CliRowSelectionMigrationTests` | Adopted commands expose only current count spellings and diagnostics; unadopted commands retain accurate released help. |
 | `CliRowSelectionGuidanceTests` | Help, README examples, workflows, and shipped skills teach only behavior available on their named command. |
