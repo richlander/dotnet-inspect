@@ -244,6 +244,12 @@ over-broad-design recovery procedure live in
   normative changes need focused efforts joined by a thin composition map.
 - State boundaries and contracts as simply as possible. Never translate current
   or planned implementation into prose; code implements the contract.
+- Let TLA+ module dependencies mirror product dependencies: consume stable
+  owner-issued definitions and behaviors through named instances instead of
+  copying them, and recheck the imported properties in each composition. A
+  bounded result for one instance is evidence, not a proof transferred to
+  another; see
+  [TLA+ methodology](docs/tla-plus-methodology.md#compose-models-along-product-boundaries).
 - A **broad design** normatively specifies multiple independently owned
   components (outside that one exception) or sweeps an end-to-end lifecycle.
   Do not start or broaden into one without the user's explicit request or

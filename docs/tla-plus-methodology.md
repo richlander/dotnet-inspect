@@ -11,6 +11,82 @@ owning design's `models/` directory. Keep its `.tla` module and any companion
 TLC artifacts together; do not place standalone model files in the parent
 models directory or combine unrelated models in one directory.
 
+## Compose models along product boundaries
+
+TLA+ modules can share definitions and behavior across model directories.
+TLA+ is untyped, so this is reuse of constants, operators, state variables,
+actions, and temporal formulas rather than Lean-style type or proof import.
+Likewise, TLC's successful bounded check of one instance is not a proof
+certificate transferred to another instance. A consumer gains confidence by
+rechecking the owner's properties under the consumer's additional states,
+actions, schedules, and fairness assumptions.
+
+Keep reusable modules with the component that owns the corresponding product
+contract. Give every repository module a globally unique, owner-specific name,
+and keep the import graph acyclic and pointed in the same direction as product
+dependencies. Do not create a generic common-module collection or move a
+currency away from its product owner merely to make reuse convenient. SANY
+rejects cycles; reviewers enforce the product-dependency direction.
+
+Use a named `INSTANCE` with explicit substitutions when a consumer binds an
+owner module's constants or variables:
+
+```tla
+BindingVersion ==
+    INSTANCE AssemblyBindingPolicyVersionLifecycle WITH
+        InitialVersion <- VersionOne,
+        ReplacementVersion <- VersionTwo,
+        version <- liveVersion,
+        advanced <- versionAdvanced
+```
+
+Named instances preserve the ownership boundary in expressions such as
+`BindingVersion!Advance`. A consumer configuration cannot name a qualified
+operator directly, so expose intentional checks through local aliases:
+
+```tla
+BindingVersionAdvanceIsFresh ==
+    BindingVersion!AdvancedVersionIsFresh
+
+BindingVersionBehaviorRefinesOwner ==
+    BindingVersion!SafetySpec
+```
+
+The owner module keeps its own finite harness and configurations. A consumer
+then:
+
+- uses the owner action rather than duplicating its assignments;
+- restates the owner's assumptions as consumer-local obligations under the
+  chosen substitutions;
+- rechecks owner invariants through local aliases;
+- checks that its projected behavior refines the owner's safety specification;
+- adds separate cross-layer invariants and liveness properties; and
+- records the instance substitutions, inherited checks, and remaining
+  abstractions in its model README.
+
+Keep scenario bounds, mutation switches, and consumer-specific fairness out of
+the reusable owner module. Import the smallest stable boundary that the
+consumer needs rather than an entire lower-layer state machine. A focused
+negative control should bypass or weaken the imported boundary and demonstrate
+that the consuming configuration detects the violation; merely restating the
+same predicate in two modules is not composition evidence.
+
+An imported action brings its guards as well as its assignments. Compare the
+consumer's state graph and action coverage before and after adoption so a
+stronger owner guard cannot silently prune behavior that the prior model
+explored. A direct imported invariant may be implied by the stronger behavior
+refinement and still be useful as a focused diagnostic; do not count the two
+formulas as independent evidence when one entails the other.
+
+`eng/run-tla-checks.sh` supplies every model directory through TLA Tools'
+`TLA-Library` path. For a changed module, it uses SANY's resolved
+`EXTENDS`/`INSTANCE` closure to select direct and transitive consumers.
+Deleting an imported module fails when SANY checks its surviving consumer;
+updated consumers and replacement modules are selected by their own changed
+paths. Duplicate repository module names and names that shadow modules in the
+pinned TLA+ standard library fail before checking because the repository
+library has one module namespace.
+
 A TLA+ model that exists only as uncommitted files in a local worktree is not
 a checked-in asset: it is not backed up, reviewable, or visible to other
 contributors and agents. Commit a model to its branch and push that branch as

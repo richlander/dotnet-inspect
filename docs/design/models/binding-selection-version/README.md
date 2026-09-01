@@ -6,6 +6,9 @@ These TLA+ models are the executable interaction companions to
 binding answer, commit-point validation, and immutable generation publication.
 `CompositeBindingVersion` checks delegated-version drift, transforming
 composite tokens, immutable routing-state replacement, and retry progress.
+Both the composite model and the workspace consumer instantiate the
+owner-issued `AssemblyBindingPolicyVersionLifecycle` module for the modeled
+outer-token replacement.
 
 The models answer these focused questions:
 
@@ -23,6 +26,8 @@ The models answer these focused questions:
 - Does delegate drift retire composite state before propagating a foreign
   snapshot, and can the next generation make progress?
 - Can source-relative route learning change an answer under the old token?
+- Does each consumer mutate the composed policy version only through the
+  owner-issued lifecycle action or a stuttering step?
 
 ## Relationship to the product
 
@@ -51,6 +56,15 @@ returned under `CompositeVersionOne`. Delegate drift atomically publishes
 foreign snapshot without interpreting it. Route learning likewise publishes a
 fresh composite token before the changed answer can be used. Both replacement
 paths retry and complete under the refreshed token.
+
+`AssemblyBindingPolicyVersionLifecycle` owns the reusable two-generation
+abstraction: one initial outer token, one distinct replacement token, and the
+only modeled transition between them. `CompositeBindingVersion` binds that
+module to `compositeVersion` and `refreshed`, uses its `Advance` action for both
+refresh paths, and rechecks its freshness invariant and safety specification.
+The
+[workspace binding-policy realization model](../workspace-binding-policy-realization/README.md)
+binds the same owner module to its current composed-policy token.
 
 ## Assumptions and non-claims
 
@@ -104,6 +118,8 @@ model-to-implementation correspondence is unverified.
 | `CompositeBindingVersionBrokenRelabel.cfg` | Interprets delegate drift and relabels it with the stale composite token. It must violate `OldCompositeTokenNeverGovernsChangedAnswer`. |
 | `CompositeBindingVersionBrokenNoRefresh.cfg` | Forwards drift without refreshing composite state. It must violate `EvaluationConverges`. |
 | `CompositeBindingVersionBrokenRouteToken.cfg` | Changes routing and its answer under the old composite token. It must violate `OldCompositeTokenNeverGovernsChangedAnswer`. |
+| `CompositeBindingVersionBrokenLifecycle.cfg` | Writes the projected lifecycle state without the owner action. It must violate `BindingVersionBehaviorRefinesOwner`. |
+| `AssemblyBindingPolicyVersionLifecycle.cfg` | Checks the owner-issued initial state, fresh replacement, type invariant, and eventual modeled advance independently of either consumer. |
 
 All configurations disable TLC's deadlock check because `Done` is an
 intentional terminal phase. The temporal specifications permit stuttering in
@@ -188,6 +204,11 @@ java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
   -workers 1 -cleanup -noGenerateSpecTE \
   -config CompositeBindingVersionBrokenRouteToken.cfg \
   CompositeBindingVersion.tla
+
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+  -workers 1 -cleanup -noGenerateSpecTE \
+  -config CompositeBindingVersionBrokenLifecycle.cfg \
+  CompositeBindingVersion.tla
 ```
 
 ## Recorded result
@@ -215,20 +236,26 @@ Each selection mutation exited with TLC status 12 on its intended invariant:
 | Broken commit validation | 21 / 20 | 5 | Policy state advanced after a valid answer, commit skipped the current-version comparison, and `commitVersion` differed from the captured token. |
 | Broken pre-commit mutation | 6 / 6 | 3 | Cold evaluation published binding and resolution caches and made the generation current before version validation, violating `UncommittedGenerationHasNoPolicyPublication`. |
 
+The standalone owner lifecycle completed with two generated and two distinct
+states at depth two. `TypeOK`, `AdvancedVersionIsFresh`, and
+`VersionEventuallyAdvances` passed.
+
 The positive composite configurations also completed with no errors:
 
 | Configuration | Generated states | Distinct states | Maximum depth | Result |
 | --- | ---: | ---: | ---: | --- |
-| Safety | 11 | 11 | 4 | All seven invariants passed. |
+| Safety | 11 | 11 | 4 | All eight invariants and the owner-behavior refinement property passed. |
 | Liveness | 11 | 11 | 4 | `EvaluationConverges` passed. |
 
 The composite graph starts all three scenarios. It executed three `Begin`
 transitions, one stable evaluation, one delegate-drift evaluation, one route
-change evaluation, and two refreshed retries.
+change evaluation, and two refreshed retries. Those state and action counts
+match the pre-composition model, proving that the imported `Advance` guard did
+not prune an existing behavior.
 
 The three composite invariant mutations exited with TLC status 12. The broken
-refresh temporal mutation exited with status 13. Every mutation failed on its
-intended property:
+refresh and owner-lifecycle temporal mutations exited with status 13. Every
+mutation failed on its intended property:
 
 | Configuration | Generated / distinct | Maximum depth | Counterexample |
 | --- | ---: | ---: | --- |
@@ -236,11 +263,12 @@ intended property:
 | Broken drift relabel | 8 / 8 | 3 | Delegate drift was interpreted as `AnswerTwo` and relabeled with stale `CompositeVersionOne`, violating `OldCompositeTokenNeverGovernsChangedAnswer`. |
 | Broken drift refresh | 10 / 10 | 4 | Drift was forwarded without publishing fresh composite state, leaving `Retry` unable to progress and violating `EvaluationConverges`. |
 | Broken route token | 9 / 9 | 3 | Route learning changed the answer under stale `CompositeVersionOne`, violating `OldCompositeTokenNeverGovernsChangedAnswer`. |
+| Broken owner lifecycle | 8 / 8 | 3 | The consumer marked the policy refreshed without replacing its token through the owner action, violating `BindingVersionBehaviorRefinesOwner`. |
 
 The runs used the repository-pinned TLA+ v1.8.0 tools, TLC build
-`2026.08.21.155922` revision `9787e65`. The checked
-`tla2tools.jar` SHA-256 was
-`eabd140a70f49eb9305a3bd3f3df944eddf87e5a90d329789085f8953a80533a`.
+`2026.09.01.002747` revision `95b800c`. The checked `tla2tools.jar`
+SHA-256 was
+`dbcc75552f21978a4846688b8e23be1a6b6c0b3fcee35d78fec2df167958ec94`.
 The available runtime was OpenJDK `21.0.12`; the runbook's preferred Java 25
 runtime was not installed on this shared host. Java 21 satisfies the tool's
 Java 11-or-later requirement, so the machine configuration was left unchanged
