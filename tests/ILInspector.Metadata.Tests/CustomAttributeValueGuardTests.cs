@@ -314,6 +314,28 @@ public sealed class CustomAttributeValueGuardTests
             charged < 1_000,
             $"A legal 80-byte blob must stay bounded, charged {charged}.");
 
+        // Fail closed rather than allocate. The guard approved above using its
+        // own classification test, but DecodeValue below classifies through
+        // ArgTypeProvider, and nothing structurally ties the two together
+        // (gap 8, #5393). If they ever diverge, SRM reads 1,868,786,036 as the
+        // string[] count and requests roughly 28,515 MiB -- the very failure
+        // this canary exists to prevent, which must never run in CI. Assert
+        // the agreement here instead of discovering it by exhausting the
+        // runner's memory.
+        TypeReferenceHandle systemType =
+            FindTypeReference(image.Reader, "System", "Type");
+        Assert.False(systemType.IsNil);
+        var provider = new AttributeDecoder.ArgTypeProvider(
+            image.Reader,
+            preserveSerializedTypeNames: false,
+            beforeMaterialize: null,
+            enumUnderlyingType: null);
+        Assert.True(
+            provider.IsSystemType(
+                provider.GetTypeFromReference(image.Reader, systemType, 0)),
+            "ArgTypeProvider must classify this argument as System.Type. "
+                + "Decoding it as an enum would request about 28,515 MiB.");
+
         CustomAttributeValue<string>? decoded =
             AttributeDecoder.TryDecode(image.Reader, attribute);
         Assert.NotNull(decoded);
@@ -1286,6 +1308,24 @@ public sealed class CustomAttributeValueGuardTests
     /// declared type differs, which is what makes the pair a controlled
     /// comparison over one variable.
     /// </summary>
+    static TypeReferenceHandle FindTypeReference(
+        MetadataReader reader,
+        string ns,
+        string name)
+    {
+        foreach (TypeReferenceHandle handle in reader.TypeReferences)
+        {
+            TypeReference reference = reader.GetTypeReference(handle);
+            if (reader.GetString(reference.Namespace) == ns
+                && reader.GetString(reference.Name) == name)
+            {
+                return handle;
+            }
+        }
+
+        return default;
+    }
+
     static byte[] BuildSystemTypeThenStringArrayImage(bool declareSystemType)
     {
         var metadata = CreateMetadata("ShippedSystemType");

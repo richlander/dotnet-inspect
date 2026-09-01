@@ -11,7 +11,7 @@ This document owns the contract that makes that safe.
 
 **Status: descriptive, with known gaps.** The invariants below are the contract
 this component is held to, not a description of what it currently guarantees.
-Seven verified divergences are open against it, listed under [Known
+Eight verified divergences are open against it, listed under [Known
 gaps](#known-gaps). Treat any statement that an invariant *holds* as unverified
 until the differential oracle of issue #5065 exists.
 
@@ -166,7 +166,7 @@ a fixture built for that purpose, which is the differential oracle's job
 
 | Invariant | Holds today? | Basis |
 | --- | --- | --- |
-| **I1 — Alignment** | Believed to hold on the resolver-supplied path; unverified | Pinned by example only. One example is now a captured real-world artifact: see the classification pair above. The resolver-less overload is explicitly out of scope; see [Known gaps](#known-gaps). |
+| **I1 — Alignment** | Believed to hold on the resolver-supplied path, and only for a caller whose `System.Type` classification matches the guard's; unverified | Pinned by example only. One example is now a captured real-world artifact: see the classification pair above. The resolver-less overload is explicitly out of scope, and the classification precondition is gap 8; see [Known gaps](#known-gaps). |
 | **I2 — Bounding the decoder** | **No.** Violated by #5098 | SRM's per-argument re-derivation of the generic context is not bounded by anything the guard checks. |
 | **I3 — Bounding ourselves** | **No.** Violated by #5091, #5047, #5130, and #5132 | Four independent amplifications on our own side, spanning one walk and the cross-row loop. |
 
@@ -301,9 +301,10 @@ Two consequences follow, and both are load-bearing:
    through the same handle and the same resolution function, or through the
    same provider instance — never through two implementations believed to be
    equivalent. The next section states which mechanism applies where, because
-   they are not the same on both paths. The guard satisfies this for width,
-   which it accepts from the caller, and violates it for classification, which
-   it re-implements; that is gap 8.
+   they are not the same on both paths. The guard satisfies this for width
+   through both of them — a shared handle and resolution function, or a shared
+   provider instance — and satisfies it for classification through neither,
+   because it re-implements that decision. That is gap 8.
 2. **Fail open to SRM only where we genuinely cannot judge.** Where the guard
    *runs out of bytes*, or a parser exception reaches the public boundary, it
    hands the blob to SRM rather than inventing a judgment, because SRM's own
@@ -397,10 +398,13 @@ caller whose classification matches the guard's; see
 [Resolution order](#resolution-order-and-what-int32-actually-means).
 
 Gap 8 is the sharper of the two, because it is the rule stated above turned on
-its own component: width is accepted from the caller, classification is
-re-implemented. Classification selects the reading rule before width decides
-how far the cursor moves, so the re-implemented decision is the one that opens
-the larger hole.
+its own component. Width agreement has a structural mechanism on both paths — a
+shared handle and resolution function, or a shared provider instance — while
+classification agreement has none: the guard decides it independently and SRM
+decides it through the provider. Classification also runs first and selects
+which reading rule applies, so the decision left to belief is the one that
+opens the larger hole. See
+[Classification](#classification-no-shared-mechanism-on-either-path).
 
 Gaps 1, 2, 4, 5, 6, 7, and 8 were all found while writing or reviewing this document,
 against a component that had already been through eight rounds of
@@ -421,8 +425,8 @@ and I3 separately, across both the metadata axes and the observer axis. A gate
 that asserts only offset agreement passes both the unbounded and the expensive
 attack; a gate defined only over generated metadata cannot see gap 4 at all.
 
-**This specification is itself partial.** Six of the seven known gaps were
-found by reading rather than by any gate, and five of them were found after
+**This specification is itself partial.** Seven of the eight known gaps were
+found by reading rather than by any gate, and six of them were found after
 this document's first draft — including two found by reviewing this very
 section. That is evidence the enumeration below is incomplete rather than
 evidence it is done. Treat it as the starting corpus for the oracle, not as a
@@ -752,6 +756,29 @@ and it cannot make a stateful resolver stable. Same-provider decoding is
 guaranteed only on the `TryDecode` path, which is the supported product path.
 The resolver-less overload is a conservative test-only path.
 
+### Classification: no shared mechanism on either path
+
+Both mechanisms above concern width. Classification — whether an argument is a
+`System.Type` at all — has neither of them. SRM always asks the provider
+instance (`ArgTypeProvider.IsSystemType`, `AttributeDecoder.cs:395`); the guard
+always answers independently, by rendering the type name and comparing it to
+`"System.Type"` (`CustomAttributeValueGuard.IsSrmSystemType`, `:1375`). No
+shared handle, function, or object connects them, so their agreement rests on
+two implementations having been written to match — exactly what rule 1 forbids.
+That is gap 8, filed as #5393.
+
+This is worse than a width disagreement rather than merely analogous to one.
+Classification runs first and selects which reading rule applies, so a width
+disagreement misreads one argument, while a classification disagreement
+re-frames every byte after it. `dotnet/runtime#57531` is that difference
+measured: 28,515 MiB from one misclassified argument.
+
+`TryDecode` closes the width half structurally by passing
+`provider.GetUnderlyingEnumType` into the guard, so both walkers use one
+provider instance. It cannot close the classification half, because the guard
+takes no classifier. A caller therefore cannot make the two agree by
+construction even when it wants to.
+
 ### Frozen cross-assembly enum-width adapter
 
 Custom-attribute enum width can consume one frozen
@@ -1079,6 +1106,7 @@ malformed blob.
 | #5120 | The resolver-less `IsSafeToDecode` overload does not carry I1. Gap 5. Found while reviewing this document. |
 | #5130 | Every memo is a single slot, so alternating input defeats all four. Gap 6. Found while reviewing this document. |
 | #5132 | Quadratic cost across attribute rows sharing one value blob. Gap 7. Found while reviewing this document. |
+| #5393 | The guard re-implements the `System.Type` classification rather than sharing it. Gap 8. Found while reviewing this document. |
 | #4879 | Enum constants whose signature does not match `value__`. Fidelity. |
 | #5062 | Signature decode laundering internal errors into `SignatureRejected`. |
 | #4741 | Product extraction does not yet plan custom-attribute enum names into a frozen type-resolution generation. |
