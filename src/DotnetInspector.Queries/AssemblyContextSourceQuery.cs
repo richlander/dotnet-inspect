@@ -950,7 +950,9 @@ public static class AssemblyContextSourceQuery
             try
             {
                 AssemblyBindingSelection selection =
-                    inner.Select(request);
+                    AssemblyBindingSelection.ValidateForRequest(
+                        request,
+                        inner.Select(request));
                 EnsureVersion();
                 return ObserveSelectedAssemblies(selection);
             }
