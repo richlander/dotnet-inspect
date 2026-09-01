@@ -163,6 +163,12 @@ not immediate resource disposal.
 | `BrokenReplacementBeforeRetirement.cfg` | Publishes generation two over a still-current generation one; it must violate `ReplacementFollowsRetirement`. |
 | `ReachabilityReplacement.cfg` | Negates replacement publication and fails only after a complete retire-and-replace trace. |
 
+`eng/tla-expected-exit-codes.txt` makes both positive configurations
+exact-success gates and requires the imported-lifecycle bypass configuration to
+produce TLC's liveness-property violation exit. The other legacy mutations
+retain the coherent-verdict runner policy documented in the repository TLA+
+methodology.
+
 ## Running TLC
 
 Follow the repository

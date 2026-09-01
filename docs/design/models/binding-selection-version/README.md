@@ -125,6 +125,11 @@ All configurations disable TLC's deadlock check because `Done` is an
 intentional terminal phase. The temporal specifications permit stuttering in
 that state.
 
+`eng/tla-expected-exit-codes.txt` makes the owner lifecycle and both composite
+positive configurations exact-success gates. It also requires the broken owner
+lifecycle configuration to produce TLC's liveness-property violation exit,
+rather than accepting any coherent verdict.
+
 ## Running TLC
 
 Follow the repository

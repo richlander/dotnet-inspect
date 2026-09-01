@@ -33,6 +33,9 @@ touch \
 printf '%s\n' \
   'docs/design/models/override/Override.cfg=Override' \
   > "$fixture/eng/tla-module-overrides.txt"
+printf '%s\n' \
+  'docs/design/models/example/Example.cfg=0' \
+  > "$fixture/eng/tla-expected-exit-codes.txt"
 printf 'Parsing file %s\n' \
   "$fixture/docs/design/models/foundation/Foundation.tla" \
   > "$fixture/docs/design/models/middle/Middle.deps"
@@ -62,6 +65,20 @@ case " $* " in
           exit 1
         fi
       done < "$dependencies"
+    fi
+    ;;
+  *" tlc2.TLC "*)
+    previous=
+    config=
+    for argument in "$@"; do
+      if [ "$previous" = "-config" ]; then
+        config="$argument"
+        break
+      fi
+      previous="$argument"
+    done
+    if [ -n "$config" ] && [ -f "$config.exit" ]; then
+      exit "$(cat "$config.exit")"
     fi
     ;;
 esac
@@ -216,6 +233,119 @@ if [ -s "$temporary/java.log" ]; then
   echo "A TLA+ infrastructure change invoked the model-checking tools." >&2
   exit 1
 fi
+
+: > "$temporary/java.log"
+output=$(
+  printf '%s\0' eng/tla-expected-exit-codes.txt |
+    run_scoped_check
+)
+case "$output" in
+  *"Checked 1 module(s) and 1 configuration(s) (1 exact outcomes"*) ;;
+  *)
+    echo "An expected-outcome manifest change did not check its listed configuration." >&2
+    exit 1
+    ;;
+esac
+
+printf '%s\n' \
+  'docs/design/models/example/Example.cfg=13' \
+  > "$fixture/eng/tla-expected-exit-codes.txt"
+printf '%s\n' 13 > docs/design/models/example/Example.exit
+output=$(
+  printf '%s\0' eng/tla-expected-exit-codes.txt |
+    run_scoped_check
+)
+case "$output" in
+  *"(1 exact outcomes"*) ;;
+  *)
+    echo "A matching exact violation outcome was not accepted." >&2
+    exit 1
+    ;;
+esac
+
+rm -f docs/design/models/example/Example.exit
+if printf '%s\0' eng/tla-expected-exit-codes.txt |
+  run_scoped_check >/dev/null 2>&1; then
+  echo "An exact semantic outcome mismatch was accepted." >&2
+  exit 1
+fi
+
+printf '%s\n' \
+  'docs/design/models/example/Example.cfg=0' \
+  > "$fixture/eng/tla-expected-exit-codes.txt"
+printf '%s\n' 124 > docs/design/models/example/Example.exit
+if printf '%s\0' eng/tla-expected-exit-codes.txt |
+  run_scoped_check >/dev/null 2>&1; then
+  echo "A timeout satisfied an exact semantic outcome." >&2
+  exit 1
+fi
+rm -f docs/design/models/example/Example.exit
+
+printf '%s\n' \
+  '# No exact outcomes in this fixture case.' \
+  > "$fixture/eng/tla-expected-exit-codes.txt"
+printf '%s\n' 124 > docs/design/models/example/Example.exit
+output=$(
+  printf '%s\0' docs/design/models/example/Example.tla |
+    run_scoped_check 2>/dev/null
+)
+case "$output" in
+  *"(0 exact outcomes, 1 not verified within budget)"*) ;;
+  *)
+    echo "An unlisted legacy timeout did not remain non-fatal." >&2
+    exit 1
+    ;;
+esac
+rm -f docs/design/models/example/Example.exit
+
+assert_manifest_rejected_without_java() {
+  local description="$1"
+  shift
+  printf '%s\n' "$@" > "$fixture/eng/tla-expected-exit-codes.txt"
+  : > "$temporary/java.log"
+  if printf '%s\0' eng/tla-expected-exit-codes.txt |
+    run_scoped_check >/dev/null 2>&1; then
+    echo "$description was accepted." >&2
+    exit 1
+  fi
+  if [ -s "$temporary/java.log" ]; then
+    echo "$description did not fail before Java invocation." >&2
+    exit 1
+  fi
+}
+
+assert_manifest_rejected_without_java \
+  "A malformed expected-outcome entry" \
+  'docs/design/models/example/Example.cfg'
+assert_manifest_rejected_without_java \
+  "A stale expected-outcome entry" \
+  'docs/design/models/example/Missing.cfg=0'
+assert_manifest_rejected_without_java \
+  "A duplicate expected-outcome entry" \
+  'docs/design/models/example/Example.cfg=0' \
+  'docs/design/models/example/Example.cfg=13'
+assert_manifest_rejected_without_java \
+  "An unsupported expected TLC exit code" \
+  'docs/design/models/example/Example.cfg=99'
+assert_manifest_rejected_without_java \
+  "An unsupported expected-outcome path" \
+  'eng/ci-detect-changes.sh=0'
+
+rm -f "$fixture/eng/tla-expected-exit-codes.txt"
+: > "$temporary/java.log"
+if printf '%s\0' eng/tla-expected-exit-codes.txt |
+  run_scoped_check >/dev/null 2>&1; then
+  echo "A missing expected-outcome manifest was accepted." >&2
+  exit 1
+fi
+if [ -s "$temporary/java.log" ]; then
+  echo "A missing expected-outcome manifest did not fail before Java invocation." >&2
+  exit 1
+fi
+
+printf '%s\n' \
+  'docs/design/models/example/Example.cfg=0' \
+  > "$fixture/eng/tla-expected-exit-codes.txt"
 
 : > "$temporary/java.log"
 output=$(

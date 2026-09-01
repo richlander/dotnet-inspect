@@ -5,16 +5,12 @@ set -e -o pipefail
 # every selected module parses (SANY) and TLC runs each selected directory's
 # .cfg files to completion without an unexpected error.
 #
-# Deliberately NOT enforced here: whether TLC's verdict is "no violation
-# found". Several .cfg files in this repository are committed negative
-# controls or mutation probes that are EXPECTED to report a safety or
-# liveness violation (see docs/tla-plus-methodology.md and each model's
-# README "Checked configurations" table). There is no repository-wide,
-# machine-readable convention recording which verdict a given .cfg expects,
-# so this gate cannot safely fail a PR merely because TLC found a violation
-# -- that would break the very configs whose job is to find one. Distinguish
-# "TLC completed its job" from "TLC agrees with the model" by TLC's own exit
-# status, using the codes documented in the tlc2.output.EC.ExitStatus enum:
+# eng/tla-expected-exit-codes.txt sparsely records configurations whose exact
+# semantic verdict is an enforced gate. Unlisted legacy configurations retain
+# the coherent-verdict policy because several are negative controls without a
+# repository-wide machine-readable expectation. Distinguish "TLC completed
+# its job" from "TLC produced the listed result" with the exit codes documented
+# in tlc2.output.EC.ExitStatus:
 #   0  SUCCESS
 #   10 VIOLATION_ASSUMPTION
 #   11 VIOLATION_DEADLOCK
@@ -27,12 +23,8 @@ set -e -o pipefail
 # crashes, or an unrecognized code) is treated as the "unexpected error"
 # this gate exists to catch.
 #
-# Also deliberately NOT a CI failure: a .cfg that does not finish within
-# TLA_CHECK_TIMEOUT_SECONDS. Some committed models are exhaustive checks over
-# hundreds of millions of states and can legitimately run far longer than any
-# per-PR budget this repository is willing to pay on a shared runner (see the
-# timeout branch below). That config is reported unverified this run rather
-# than failing the PR.
+# A timeout remains a warning for an unlisted configuration. It is a failure
+# for a listed configuration because no expected semantic verdict was observed.
 #
 # A .cfg's module is normally inferred (the sole .tla in its directory, or a
 # same-named one); eng/tla-module-overrides.txt overrides that for directories
@@ -60,9 +52,11 @@ STANDARD_MODULE_NAMES="Bags FiniteSets Integers Json Naturals Randomization Real
 
 MODEL_ROOTS=(docs/design/models docs/models)
 MODULE_OVERRIDES_FILE=eng/tla-module-overrides.txt
+EXPECTED_EXIT_CODES_FILE=eng/tla-expected-exit-codes.txt
 MODEL_DIRS=()
 MODEL_FILES=()
 CHANGED_MODULE_PATHS=()
+EXPECTED_EXIT_CODES_CHANGED=false
 TLA_LIBRARY_PATH=
 FAILURES=0
 REPO_ROOT=$(pwd -P)
@@ -156,6 +150,11 @@ select_changed_path() {
       return
       ;;
   esac
+
+  if [ "$path" = "$EXPECTED_EXIT_CODES_FILE" ]; then
+    EXPECTED_EXIT_CODES_CHANGED=true
+    return
+  fi
 
   extension_lower=$(printf '%s' "${path##*.}" | tr '[:upper:]' '[:lower:]')
   case "$extension_lower" in
@@ -292,16 +291,6 @@ if [ ! -f "$TLA_TOOLS_JAR" ]; then
   exit 1
 fi
 
-discover_model_modules
-if [ "$FAILURES" -gt 0 ]; then
-  exit 1
-fi
-if [ "$SCOPE_MODE" = changed ]; then
-  select_transitive_consumers
-  rm -f "$changed_files_file"
-  trap - EXIT
-fi
-
 override_module_for() {
   local cfg_path="$1"
   if [ ! -f "$MODULE_OVERRIDES_FILE" ]; then
@@ -321,6 +310,22 @@ override_module_for() {
   return 1
 }
 
+expected_exit_for() {
+  local cfg_path="$1"
+  local line exit_code
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      ""|"#"*) continue ;;
+    esac
+    if [ "${line%%=*}" = "$cfg_path" ]; then
+      exit_code="${line#*=}"
+      printf '%s\n' "$exit_code"
+      return 0
+    fi
+  done < "$EXPECTED_EXIT_CODES_FILE"
+  return 1
+}
+
 is_ok_exit_code() {
   local code="$1"
   local candidate
@@ -332,9 +337,118 @@ is_ok_exit_code() {
   return 1
 }
 
+validate_expected_exit_codes() {
+  local seen_keys_file line line_no key value trimmed_key trimmed_value
+  local key_dir key_root key_is_supported_root candidate_root
+  local duplicate_keys
+
+  if [ ! -f "$EXPECTED_EXIT_CODES_FILE" ]; then
+    echo "::error::$EXPECTED_EXIT_CODES_FILE is missing; exact TLA+ semantic gates are not optional." >&2
+    FAILURES=$((FAILURES + 1))
+    return
+  fi
+
+  seen_keys_file=$(mktemp)
+  line_no=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line_no=$((line_no + 1))
+    case "$line" in
+      ""|"#"*) continue ;;
+    esac
+    case "$line" in
+      *=*) ;;
+      *)
+        echo "::error::$EXPECTED_EXIT_CODES_FILE:$line_no is malformed ('$line'): expected '<cfg-path>=<TLC-exit-code>'." >&2
+        FAILURES=$((FAILURES + 1))
+        continue
+        ;;
+    esac
+
+    key="${line%%=*}"
+    value="${line#*=}"
+    trimmed_key="${key#"${key%%[![:space:]]*}"}"
+    trimmed_key="${trimmed_key%"${trimmed_key##*[![:space:]]}"}"
+    trimmed_value="${value#"${value%%[![:space:]]*}"}"
+    trimmed_value="${trimmed_value%"${trimmed_value##*[![:space:]]}"}"
+    if [ "$key" != "$trimmed_key" ] || [ "$value" != "$trimmed_value" ]; then
+      echo "::error::$EXPECTED_EXIT_CODES_FILE:$line_no has leading or trailing whitespace around '=' ('$line')." >&2
+      FAILURES=$((FAILURES + 1))
+      continue
+    fi
+    if [ -z "$key" ] || [ -z "$value" ]; then
+      echo "::error::$EXPECTED_EXIT_CODES_FILE:$line_no has an empty cfg path or exit code ('$line')." >&2
+      FAILURES=$((FAILURES + 1))
+      continue
+    fi
+
+    case "$key" in
+      /*|*/|*//*)
+        echo "::error::$EXPECTED_EXIT_CODES_FILE:$line_no names non-canonical path '$key'." >&2
+        FAILURES=$((FAILURES + 1))
+        continue
+        ;;
+    esac
+    case "/$key/" in
+      */./*|*/../*)
+        echo "::error::$EXPECTED_EXIT_CODES_FILE:$line_no names non-canonical path '$key'." >&2
+        FAILURES=$((FAILURES + 1))
+        continue
+        ;;
+    esac
+
+    key_dir="${key%/*}"
+    key_root="${key_dir%/*}"
+    key_is_supported_root=false
+    for candidate_root in "${MODEL_ROOTS[@]}"; do
+      if [ "$key_root" = "$candidate_root" ]; then
+        key_is_supported_root=true
+        break
+      fi
+    done
+    if [ "${key##*.}" != "cfg" ] || [ "$key_is_supported_root" != true ]; then
+      echo "::error::$EXPECTED_EXIT_CODES_FILE:$line_no names '$key', which is not a lowercase .cfg directly inside a supported model directory." >&2
+      FAILURES=$((FAILURES + 1))
+      continue
+    fi
+    if [ ! -f "$key" ]; then
+      echo "::error::$EXPECTED_EXIT_CODES_FILE:$line_no names missing configuration '$key'." >&2
+      FAILURES=$((FAILURES + 1))
+      continue
+    fi
+    if ! is_ok_exit_code "$value"; then
+      echo "::error::$EXPECTED_EXIT_CODES_FILE:$line_no names unsupported TLC exit code '$value' for '$key'." >&2
+      FAILURES=$((FAILURES + 1))
+      continue
+    fi
+
+    printf '%s\n' "$key" >> "$seen_keys_file"
+  done < "$EXPECTED_EXIT_CODES_FILE"
+
+  duplicate_keys=$(sort "$seen_keys_file" | uniq -d)
+  if [ -n "$duplicate_keys" ]; then
+    while IFS= read -r key; do
+      echo "::error::$EXPECTED_EXIT_CODES_FILE has more than one outcome for '$key'." >&2
+      FAILURES=$((FAILURES + 1))
+    done <<< "$duplicate_keys"
+  fi
+  rm -f "$seen_keys_file"
+}
+
+select_expected_outcome_dirs() {
+  local line key
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      ""|"#"*) continue ;;
+    esac
+    key="${line%%=*}"
+    add_model_dir "${key%/*}"
+  done < "$EXPECTED_EXIT_CODES_FILE"
+}
+
 CHECKED_MODULES=0
 CHECKED_CONFIGS=0
 TIMEOUTS=0
+EXACT_OUTCOMES=0
 
 # Validate the whole override file up front, before any model checking
 # begins, so a config mistake in it fails loudly and specifically instead of
@@ -458,6 +572,25 @@ if [ -f "$MODULE_OVERRIDES_FILE" ]; then
     done <<< "$duplicate_keys"
   fi
   rm -f "$seen_keys_file"
+fi
+
+expected_failures_before=$FAILURES
+validate_expected_exit_codes
+if [ "$FAILURES" -gt "$expected_failures_before" ]; then
+  exit 1
+fi
+if [ "$EXPECTED_EXIT_CODES_CHANGED" = true ]; then
+  select_expected_outcome_dirs
+fi
+
+discover_model_modules
+if [ "$FAILURES" -gt 0 ]; then
+  exit 1
+fi
+if [ "$SCOPE_MODE" = changed ]; then
+  select_transitive_consumers
+  rm -f "$changed_files_file"
+  trap - EXIT
 fi
 
 # The discovery loop below only picks up .tla/.cfg files that live exactly
@@ -617,22 +750,31 @@ for dir in "${MODEL_DIRS[@]}"; do
       exit_code=$?
       set -e
       CHECKED_CONFIGS=$((CHECKED_CONFIGS + 1))
+      expected_exit=$(expected_exit_for "$cfg" || true)
 
       if [ "$exit_code" -eq 124 ]; then
-        # Not a CI failure: some committed models are exhaustive checks over
-        # hundreds of millions of states (see PackageCachePublicationSafety's
-        # recorded state count) that legitimately run far longer than this
-        # per-invocation budget on a shared runner. Failing PRs on that would
-        # make an unrelated change's CI time depend on the slowest model in
-        # the repository. This config was not verified this run; the
-        # repository's Deep Inspect lane is the place for a full run.
-        echo "::warning::TLC did not finish $dir/$cfg_basename within ${TLA_CHECK_TIMEOUT_SECONDS}s; not verified this run. Run it directly (see the model's README) or via Deep Inspect for full verification." >&2
-        TIMEOUTS=$((TIMEOUTS + 1))
+        # Unlisted exhaustive checks can legitimately exceed the shared-runner
+        # budget and remain explicitly unverified. A listed exact-outcome gate
+        # cannot pass without producing its declared semantic verdict.
+        if [ -n "$expected_exit" ]; then
+          echo "::error::TLC did not finish exact-outcome gate $dir/$cfg_basename within ${TLA_CHECK_TIMEOUT_SECONDS}s; expected exit $expected_exit." >&2
+          FAILURES=$((FAILURES + 1))
+        else
+          echo "::warning::TLC did not finish $dir/$cfg_basename within ${TLA_CHECK_TIMEOUT_SECONDS}s; not verified this run. Run it directly (see the model's README) or via Deep Inspect for full verification." >&2
+          TIMEOUTS=$((TIMEOUTS + 1))
+        fi
       elif ! is_ok_exit_code "$exit_code"; then
         echo "::error::TLC reported an unexpected error (exit $exit_code) for $dir/$cfg_basename" >&2
         tail -n 60 "$log" >&2
         FAILURES=$((FAILURES + 1))
+      elif [ -n "$expected_exit" ] && [ "$exit_code" -ne "$expected_exit" ]; then
+        echo "::error::TLC reported exit $exit_code for exact-outcome gate $dir/$cfg_basename; expected $expected_exit." >&2
+        tail -n 60 "$log" >&2
+        FAILURES=$((FAILURES + 1))
       else
+        if [ -n "$expected_exit" ]; then
+          EXACT_OUTCOMES=$((EXACT_OUTCOMES + 1))
+        fi
         tail -n 5 "$log"
       fi
       rm -f "$log"
@@ -640,7 +782,7 @@ for dir in "${MODEL_DIRS[@]}"; do
     echo "::endgroup::"
 done
 
-echo "Checked $CHECKED_MODULES module(s) and $CHECKED_CONFIGS configuration(s) ($TIMEOUTS not verified within budget)."
+echo "Checked $CHECKED_MODULES module(s) and $CHECKED_CONFIGS configuration(s) ($EXACT_OUTCOMES exact outcomes, $TIMEOUTS not verified within budget)."
 
 if [ "$FAILURES" -gt 0 ]; then
   echo "::error::$FAILURES TLA+ check(s) failed." >&2

@@ -87,6 +87,16 @@ paths. Duplicate repository module names and names that shadow modules in the
 pinned TLA+ standard library fail before checking because the repository
 library has one module namespace.
 
+List contract-defining configurations in
+`eng/tla-expected-exit-codes.txt`. The per-PR gate requires each listed
+configuration to produce its exact TLC semantic exit code; a different
+coherent verdict and a timeout both fail. Changing the manifest checks every
+model directory it names, and malformed, duplicate, stale, non-canonical, or
+unsupported entries fail before TLA Tools run. Keep this manifest sparse:
+unlisted legacy configurations continue to accept any recognized coherent TLC
+verdict, and an unlisted timeout remains explicitly unverified rather than
+failing an unrelated PR.
+
 A TLA+ model that exists only as uncommitted files in a local worktree is not
 a checked-in asset: it is not backed up, reviewable, or visible to other
 contributors and agents. Commit a model to its branch and push that branch as
@@ -97,9 +107,10 @@ be otherwise complete. Treat an uncommitted
 state.
 
 The per-PR TLA+ gate checks each model directory whose `.tla` or `.cfg` files
-change in that candidate. Gate-infrastructure changes run structural gate
-tests but do not check unchanged model content. The gate does not sweep
-unrelated committed models.
+change in that candidate, plus direct and transitive consumers and model
+directories named by a changed exact-outcome manifest. Other
+gate-infrastructure changes run structural gate tests but do not check
+unchanged model content. The gate does not sweep unrelated committed models.
 Run `eng/run-tla-checks.sh --all` only for an explicit repository-wide local
 investigation; it is not a per-PR gate.
 

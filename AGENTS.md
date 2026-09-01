@@ -248,7 +248,9 @@ over-broad-design recovery procedure live in
   owner-issued definitions and behaviors through named instances instead of
   copying them, and recheck the imported properties in each composition. A
   bounded result for one instance is evidence, not a proof transferred to
-  another; see
+  another. Put contract-defining configurations in
+  `eng/tla-expected-exit-codes.txt` so CI enforces their exact semantic
+  verdict; see
   [TLA+ methodology](docs/tla-plus-methodology.md#compose-models-along-product-boundaries).
 - A **broad design** normatively specifies multiple independently owned
   components (outside that one exception) or sweeps an end-to-end lifecycle.
