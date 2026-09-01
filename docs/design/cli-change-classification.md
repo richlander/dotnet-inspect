@@ -117,7 +117,8 @@ neighboring invocation, not only the new happy path.
 
 ## Current-input states
 
-These states must not be inferred from `Hidden = true`.
+These states describe the mechanics that result after development practices
+decides the current surface. They must not be inferred from `Hidden = true`.
 
 | State | Meaning |
 | ----- | ------- |
@@ -128,36 +129,22 @@ These states must not be inferred from `Hidden = true`.
 | Removed and reserved | The old operation is gone, but its command token remains reserved because releasing it would silently reinterpret the input through current implicit routing. |
 | Internal hidden input | Parser or router composition state that was never published. It can change without CLI migration treatment, subject to its owning internal tests. |
 
-An owner can keep a former spelling only by justifying it as an ordinary alias
-that is useful now. Historical acceptance alone is insufficient.
+## Obsolete-input mechanics
 
-## Deprecation and removal
+Development practices owns whether a former spelling is removed or justified
+as useful in the current interface. Once that decision is made, this design
+owns only the command-line boundary mechanics:
 
-Development practices owns the default: remove obsolete syntax and update
-current product guidance rather than carrying compatibility-only paths.
-Deprecation here means release disclosure that a current spelling or behavior
-is being replaced; it does not imply a runtime grace period.
-
-When the best current command shape changes:
-
-1. Apply the development-practices rule: remove the obsolete spelling rather
-   than add or retain an alias, shim, dual parser, or warning solely for
-   compatibility.
-2. Update visible help, the root README, and every affected product skill in
-   the same change.
-3. Add a **Breaking** release-note entry that names the current replacement or
-   says plainly that no equivalent operation remains.
-4. Add a focused invalid-input guard only when the unrecognized tokens could
+1. Classify and disclose the observable change.
+2. Add a focused invalid-input guard only when the removed tokens could
    otherwise bind or route to a different current operation. Gate its stderr
    channel and non-zero exit.
-5. Reserve a removed command token only when releasing it would create a
+3. Reserve a removed command token only when releasing it would create a
    silent implicit-routing reinterpretation. Gate the routing behavior.
-6. Remove compatibility-only paths encountered in the changed area unless
-   their owner establishes independent current utility.
+4. Otherwise, let the ordinary unrecognized-input result report the removed
+   spelling.
 
-There is no universal two-minor, time-based, or deprecation-first period. A
-longer transition requires an explicit current-product rationale from the
-owning design; consumer age by itself is not sufficient.
+This design defines no retention rule or transition duration.
 
 ## Change procedure
 
@@ -167,8 +154,7 @@ For every current published-surface change:
    surface affected.
 2. Classify the change as compatible, corrective but breaking, or
    intentionally breaking.
-3. Update current help, README, product skills, and examples rather than
-   preserving stale invocations.
+3. Apply the current-guidance update required by development practices.
 4. Exercise the proposed invocation through the product entry point, including
    stdout, stderr, and exit class.
 5. Check implicit-router reservations, aliases, optional-value binding, and

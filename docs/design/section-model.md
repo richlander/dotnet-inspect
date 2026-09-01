@@ -183,10 +183,13 @@ superset belongs to `@Package` instead because selecting `@Files` must not
 duplicate every matching path.
 
 `SelectResolver.LegacySectionAliases` currently lowers former spellings to
-canonical sections. [CLI change classification and obsolete
-inputs](cli-change-classification.md) owns whether any entry has independent
-current utility or remains compatibility-only debt; a section rename does not
-itself justify retaining the former spelling.
+canonical sections. [Development
+practices](../development-practices.md#prefer-current-agent-guidance-over-cli-compatibility)
+owns whether an entry has independent current utility or remains
+compatibility-only debt. [CLI change classification and obsolete
+inputs](cli-change-classification.md) owns the removal mechanics when a former
+spelling can bind or route differently; a section rename does not itself
+justify retention.
 
 Alternate projections do not create synonymous sections. `References` renders
 direct references as a flat table by default. `-S References --tree` renders
@@ -194,15 +197,16 @@ the resolved transitive reference graph; `--depth N` limits that graph, with
 depth 1 containing direct references only. Omitting `--depth` traverses the
 complete resolvable graph. The current implementation also lowers the former
 `Dependencies` spelling to `References` and requests its tree projection; its
-retention follows the CLI compatibility policy rather than this projection
-contract.
+retention follows development practices, while any removal mechanics follow
+the CLI change-classification design rather than this projection contract.
 
 Package `Dependencies` follows the same projection model: the section is a flat
 table of declared dependencies by target framework by default, while
 `-S Dependencies --tree` resolves the transitive graph for the selected or
 highest target framework. The current implementation also accepts the former
 package `--dependencies` flag as `-S Dependencies --tree`; its retention
-follows the CLI compatibility policy rather than this projection contract.
+follows development practices, while any removal mechanics follow the CLI
+change-classification design rather than this projection contract.
 
 ## Section axes
 
@@ -588,8 +592,9 @@ During migration:
 
 - Do not infer category membership from prefixes.
 - Do not add computed `@All`, `@Default`, or `@Hidden` categories.
-- Route every proposed or existing legacy section alias through the CLI
-  compatibility policy; section migration does not itself justify retention.
+- Apply development practices to every proposed or existing legacy section
+  alias, and use the CLI change-classification design for removal mechanics;
+  section migration does not itself justify retention.
 - Keep network and source-content work explicit.
 - Add close negative tests for every new applicability predicate.
 - Update Markdown and structured-output tests together.
