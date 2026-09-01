@@ -87,6 +87,7 @@ public static class FixtureIds
     public const string DecompilerClassicAsync = "decompiler.classic-async";
     public const string DecompilerClassicAsyncArtifacts =
         "decompiler.classic-async-artifacts";
+    public const string DecompilerRuntimeAsync = "decompiler.runtime-async";
     public const string DecompilerExpressionTreeSpoof = "decompiler.expression-tree-spoof";
     public const string DecompilerClassicStateMachines = "decompiler.classic-state-machines";
     public const string DecompilerLadderIterator = "decompiler.ladder.iterator";
@@ -421,6 +422,13 @@ public static class FixtureCatalog
             "artifact-matrix",
             "compiler-axis");
 
+    public static readonly FixtureDefinition DecompilerRuntimeAsync = Fixture(
+        FixtureIds.DecompilerRuntimeAsync,
+        "ILInspector.Decompiler.Fixtures.RuntimeAsync",
+        "ILInspector.Decompiler.Fixtures.RuntimeAsync.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "decompiler", "async", "runtime-async", "compiler-axis");
+
     public static readonly FixtureDefinition DecompilerExpressionTreeSpoof = Fixture(
         FixtureIds.DecompilerExpressionTreeSpoof,
         "ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof",
@@ -564,6 +572,7 @@ public static class FixtureCatalog
         DecompilerTypeIdentity,
         DecompilerClassicAsync,
         DecompilerClassicAsyncArtifacts,
+        DecompilerRuntimeAsync,
         DecompilerExpressionTreeSpoof,
         DecompilerClassicStateMachines,
         DecompilerLadderIterator,
@@ -623,6 +632,7 @@ public static class FixtureCatalog
             DecompilerCheckedArithmetic,
             DecompilerClassicAsync,
             DecompilerClassicAsyncArtifacts,
+            DecompilerRuntimeAsync,
             DecompilerClassicStateMachines,
             DecompilerLadderIterator,
             DecompilerLadderRung1,
@@ -650,6 +660,10 @@ public static class FixtureCatalog
             DecompilerLadderIterator,
         ]);
 
+    public static readonly FixtureGroup DecompilerAsyncLoweringFixtures = new(
+        "decompiler.async-lowering",
+        [DecompilerClassicAsync, DecompilerRuntimeAsync]);
+
     public static readonly FixtureGroup DecompilerUnsafeFixtures = new(
         "decompiler.unsafe",
         [
@@ -676,6 +690,7 @@ public static class FixtureCatalog
         DiffAssemblyFixtures,
         AnalysisFixtures,
         DecompilerFixtures,
+        DecompilerAsyncLoweringFixtures,
         DecompilerLadderFixtures,
         DecompilerUnsafeFixtures,
         RunFasterFixtures,

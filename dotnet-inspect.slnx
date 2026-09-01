@@ -65,6 +65,7 @@
     <Project Path="src/ILInspector.Decompiler.Fixtures.CheckedArithmetic/ILInspector.Decompiler.Fixtures.CheckedArithmetic.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.ClassicAsync/ILInspector.Decompiler.Fixtures.ClassicAsync.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.ClassicAsyncArtifacts/ILInspector.Decompiler.Fixtures.ClassicAsyncArtifacts.csproj" />
+    <Project Path="src/ILInspector.Decompiler.Fixtures.RuntimeAsync/ILInspector.Decompiler.Fixtures.RuntimeAsync.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.CrossAssemblyEnums/ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof/ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.ClassicStateMachines/ILInspector.Decompiler.Fixtures.ClassicStateMachines.csproj" />
