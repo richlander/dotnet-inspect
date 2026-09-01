@@ -11,6 +11,8 @@
 # heuristic.
 #
 # Format: one `<path-to-cfg>=<module-name>` pair per line. <module-name> is
+# the .tla module base name (no extension) and must exist beside the cfg.
+
 docs/models/package-realization-admission/PackageRealizationAdmission.cfg=PackageRealizationAdmission_MC
 docs/models/package-realization-admission/PackageRealizationAdmission_Option.cfg=PackageRealizationAdmission_MC
 docs/models/package-realization-admission/PackageRealizationAdmission_ContentGeneration.cfg=PackageRealizationAdmission_MC
@@ -63,7 +65,7 @@ docs/models/package-realization-admission/BrokenInFlightCapacity.cfg=PackageReal
 docs/models/package-realization-admission/BrokenByteCapacity.cfg=PackageRealizationAdmission_Capacity_MC
 docs/models/package-realization-admission/BrokenDuplicateBindingIdentity.cfg=PackageRealizationAdmission_DuplicateMutation_MC
 docs/models/package-realization-admission/BrokenRootOnlyAdmission.cfg=PackageRealizationAdmission_RootOnlyMutation_MC
-# the .tla module base name (no extension) and must exist beside the cfg.
+
 docs/design/models/state-machine-completeness/BudgetExhaustion.cfg=StateMachineCompleteness
 docs/design/models/state-machine-completeness/BrokenAbsentOnFailure.cfg=StateMachineCompleteness
 docs/design/models/state-machine-completeness/BrokenDroppedRow.cfg=StateMachineCompleteness
@@ -79,3 +81,36 @@ docs/design/models/state-machine-completeness/BrokenDroppedEvidence.cfg=Rejectio
 docs/design/models/state-machine-completeness/BrokenHybridReason.cfg=RejectionComponentMerge
 docs/design/models/state-machine-completeness/BrokenLocalReason.cfg=RejectionComponentMerge
 docs/design/models/state-machine-completeness/BrokenPartialFailure.cfg=StateMachineCompleteness
+
+docs/design/models/binding-selection-version/BindingSelectionVersionBrokenAssociation.cfg=BindingSelectionVersion
+docs/design/models/binding-selection-version/BindingSelectionVersionBrokenCachedAba.cfg=BindingSelectionVersion
+docs/design/models/binding-selection-version/BindingSelectionVersionBrokenColdAba.cfg=BindingSelectionVersion
+docs/design/models/binding-selection-version/BindingSelectionVersionBrokenFinalValidation.cfg=BindingSelectionVersion
+docs/design/models/binding-selection-version/BindingSelectionVersionBrokenPrecommitMutation.cfg=BindingSelectionVersion
+docs/design/models/binding-selection-version/BindingSelectionVersionLiveness.cfg=BindingSelectionVersion
+docs/design/models/binding-selection-version/BindingSelectionVersionSafety.cfg=BindingSelectionVersion
+docs/design/models/binding-selection-version/CompositeBindingVersionBrokenNoRefresh.cfg=CompositeBindingVersion
+docs/design/models/binding-selection-version/CompositeBindingVersionBrokenRelabel.cfg=CompositeBindingVersion
+docs/design/models/binding-selection-version/CompositeBindingVersionBrokenRouteToken.cfg=CompositeBindingVersion
+docs/design/models/binding-selection-version/CompositeBindingVersionBrokenSuccessToken.cfg=CompositeBindingVersion
+docs/design/models/binding-selection-version/CompositeBindingVersionLiveness.cfg=CompositeBindingVersion
+docs/design/models/binding-selection-version/CompositeBindingVersionSafety.cfg=CompositeBindingVersion
+
+docs/design/models/nuget-source-authentication-context/ActiveRetirementReachability.cfg=NuGetSourceAuthenticationContext
+docs/design/models/nuget-source-authentication-context/BrokenCrossContextReuse.cfg=NuGetSourceAuthenticationContext
+docs/design/models/nuget-source-authentication-context/BrokenRetiredLaterRequest.cfg=NuGetSourceAuthenticationContext
+docs/design/models/nuget-source-authentication-context/BrokenRetiredParticipation.cfg=NuGetSourceAuthenticationContext
+docs/design/models/nuget-source-authentication-context/BrokenStalePublication.cfg=NuGetSourceAuthenticationContext
+docs/design/models/nuget-source-authentication-context/ChallengedRetirementReachability.cfg=NuGetSourceAuthenticationContext
+docs/design/models/nuget-source-authentication-context/ExcludedAndGalleryReachability.cfg=NuGetSourceAuthenticationContext
+docs/design/models/nuget-source-authentication-context/IndependentFlightsReachability.cfg=NuGetSourceAuthenticationContext
+docs/design/models/nuget-source-authentication-context/PopulatedRetirementReachability.cfg=NuGetSourceAuthenticationContext
+docs/design/models/nuget-source-authentication-context/SourceIsolationReachability.cfg=NuGetSourceAuthenticationContext
+docs/design/models/nuget-source-authentication-context/BrokenConsumptionWritesBack.cfg=NuGetSourceAuthenticationRefresh
+docs/design/models/nuget-source-authentication-context/BrokenDuplicateRefreshAcquisition.cfg=NuGetSourceAuthenticationRefresh
+docs/design/models/nuget-source-authentication-context/BrokenDuplicateRefreshCompletion.cfg=NuGetSourceAuthenticationRefresh
+docs/design/models/nuget-source-authentication-context/BrokenRegressingRefreshPublication.cfg=NuGetSourceAuthenticationRefresh
+docs/design/models/nuget-source-authentication-context/BrokenStaleRefreshAcquisition.cfg=NuGetSourceAuthenticationRefresh
+docs/design/models/nuget-source-authentication-context/JoinedFlightReachability.cfg=NuGetSourceAuthenticationRefresh
+docs/design/models/nuget-source-authentication-context/LateRejectionReachability.cfg=NuGetSourceAuthenticationRefresh
+docs/design/models/nuget-source-authentication-context/PostRefreshAcceptReachability.cfg=NuGetSourceAuthenticationRefresh
