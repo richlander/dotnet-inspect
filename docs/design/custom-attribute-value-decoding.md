@@ -777,17 +777,9 @@ the two spellings equal. That narrow duplication is the whole of gap 8, filed
 as #5393 — which means the repair is to share the predicate, not to build a
 second classification path or add a classifier parameter.
 
-Narrow is not the same as harmless. Each walker advances its own cursor over
-the same bytes — the guard over the `BlobReader` it opens in `IsSafeToDecode`,
-SRM over the one `DecodeValue` opens — and neither rewinds. So *either*
-disagreement re-frames every byte that follows: once the two cursors part, each
-walk reads the remainder of the blob against different boundaries.
-Classification and width differ only in what they select — classification picks
-which reading rule applies to an argument, width picks how many bytes that rule
-consumes. Neither is confined to the argument where the disagreement occurs,
-which is why I1 demands agreement on both. `dotnet/runtime#57531` is that
-consequence measured: 28,515 MiB, because a misclassified first argument left
-SRM's cursor 62 bytes short of the array count.
+Narrow is not the same as harmless. What a classification disagreement costs
+when it happens is the `dotnet/runtime#57531` case described earlier in this
+document.
 
 ### Frozen cross-assembly enum-width adapter
 
