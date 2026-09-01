@@ -222,6 +222,12 @@ A lens outcome retains one evaluation basis:
 | Recommendation | Exact subject, preferred role, and complete target-aware Registry options |
 | Exact request | Exact subject-bound navigation lens identity and exact Registry result |
 
+Descriptor-bearing `Available`, `Unavailable`, and `Failed` exact results match
+the requested subject kind because the Registry produces them only after
+structural applicability succeeds. `Inapplicable` may describe another kind;
+retaining that cross-kind descriptor is the exact evidence for rejecting the
+request rather than treating it as unknown.
+
 An effective outcome carries the selected exact navigation lens. A
 non-effective recommendation outcome carries no invented lens identity; a
 non-effective exact-request outcome retains the requested identity without

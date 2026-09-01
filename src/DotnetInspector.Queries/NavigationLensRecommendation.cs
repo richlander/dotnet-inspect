@@ -91,6 +91,14 @@ public abstract record NavigationLensEvaluationBasis
                     "An exact-request result must describe the requested facet.",
                     nameof(result));
             }
+            if (descriptor is not null
+                && result is not ViewFacetResolution.Inapplicable
+                && descriptor.Kind != request.Subject.Kind)
+            {
+                throw new ArgumentException(
+                    "A non-inapplicable exact-request result must match the requested subject kind.",
+                    nameof(result));
+            }
             Request = request;
             Result = result;
         }

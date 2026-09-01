@@ -171,6 +171,25 @@ public sealed class NavigationLensRecommendationTests
                 crossKindResolution);
         Assert.Same(crossKindRequest, crossKindExact.Request);
         Assert.Same(crossKindResolution, crossKindExact.Result);
+        foreach (ViewFacetResolution crossKindApplicableResult
+            in new ViewFacetResolution[]
+            {
+                new ViewFacetResolution.Available(crossKindDescriptor),
+                new ViewFacetResolution.Unavailable(
+                    crossKindDescriptor,
+                    ViewFacetUnavailableReason.CapabilityAbsent(
+                        "The root view is unavailable.")),
+                new ViewFacetResolution.Failed(
+                    crossKindDescriptor,
+                    "The root view failed.",
+                    new TestDiagnosticEvidence("root")),
+            })
+        {
+            Assert.Throws<ArgumentException>(
+                () => new NavigationLensEvaluationBasis.ExactRequest(
+                    crossKindRequest,
+                    crossKindApplicableResult));
+        }
         ViewFacetDescriptor otherDescriptor = Option(
             "type.metadata",
             StructuralSubjectKind.Type,
