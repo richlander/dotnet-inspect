@@ -32,6 +32,7 @@ public static class TypeOptionsParser
         Option<bool> NoHeaderOption,
         Option<bool> ShapeOption,
         Option<bool> UnsafeOption,
+        Option<string[]> RepoOption,
         Option<string[]> MemberOption,
         Option<string[]> KindOption,
         Option<string?> AtOption);
@@ -257,6 +258,7 @@ public static class TypeOptionsParser
             ShapeOutput = parseResult.GetValue(args.ShapeOption),
             ShapeExplicitlySet = parseResult.GetResult(args.ShapeOption) is { Implicit: false },
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
+            SourceRepositories = parseResult.GetValue(args.RepoOption) ?? [],
             Discover = opts.ParseDiscover(parseResult),
             Tree = parseResult.GetValue(opts.Tree),
             Select = select,
