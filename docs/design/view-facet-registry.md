@@ -98,9 +98,8 @@ consumes the descriptors returned through Navigation. It owns rendering,
 accessibility, and the removal of current browser-local catalogs. [Inspect
 Web Navigation Consumer](inspect-web-navigation-consumer.md) owns post-result
 effect-authority validation, snapshot/history commitment, and
-result-authorized focus/announcement ordering. Issue
-[#4917](https://github.com/richlander/dotnet-inspect/issues/4917) owns that
-consumer contract.
+result-authorized focus/announcement ordering, with the migration historically
+tracked by [#4917](https://github.com/richlander/dotnet-inspect/issues/4917).
 
 [Section selection](section-model.md), query owners, and renderer owners define
 facet content and execution. A facet may project one section, several sections,

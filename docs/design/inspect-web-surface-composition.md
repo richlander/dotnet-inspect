@@ -93,10 +93,12 @@ owns this route's browser-history entry and return-focus behavior, including
 its visible `Back` action.
 
 The route renders one visible level-one `Package query` heading followed by an
-editable `Package ID prefix` input and `Run query` action; entry focuses that
-input. [Package Query Experience](package-query-experience.md#states) owns
-that a direct or refreshed visit starts empty and uncommitted (its `Composing`
-state), so seeding the prefix from Search does not itself start source work.
+editable `Package ID prefix` input and `Run query` action.
+[Inspect Web Shell Interaction](inspect-web-shell-interaction.md#shared-menu-and-modal-semantics)
+owns entry focus on that input. [Package Query
+Experience](package-query-experience.md#states) owns that a direct or
+refreshed visit starts empty and uncommitted (its `Composing` state), so
+seeding the prefix from Search does not itself start source work.
 
 The desktop layout gives the product-ordered nuspec facet rail a fixed readable
 column and lets rows consume the remaining width. At a narrow viewport the
@@ -344,7 +346,7 @@ with the absence of a synthesized `Default feed` control.
 
 1. Open Package query and confirm that the route renders one level-one
    `Package query` heading, an editable `Package ID prefix` input, and `Run
-   query` action, with entry focus on that input.
+   query` action.
 2. At desktop and narrow widths, confirm that the prefix input, Run, Cancel,
    every facet, Back, and every `Open in workspace` action remain visible and
    keyboard reachable, and that streamed row appends preserve the current
@@ -355,7 +357,9 @@ with the absence of a synthesized `Default feed` control.
    [Package Query Experience's acceptance scenarios](package-query-experience.md#acceptance-scenarios).
 4. Confirm Search entry, Spotlight closing, and prefix seeding per
    [Inspect Web Shell Interaction](inspect-web-shell-interaction.md#search-input).
-5. Confirm browser-history entry/return, the visible `Back` action, and
+5. Confirm initial routed-surface focus per
+   [Inspect Web Shell Interaction](inspect-web-shell-interaction.md#modal-and-routed-surfaces),
+   then browser-history entry/return, the visible `Back` action, and
    post-transition focus per
    [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md#package-query-entry-and-return).
 

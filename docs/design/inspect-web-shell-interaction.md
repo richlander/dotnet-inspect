@@ -279,7 +279,8 @@ outcomes.
 9. Navigate to Home, Workspace, Package query, and Diagnostics and confirm that
    each is a routed surface with one visible level-one heading, no
    coordinate/subject command, and a persistent `dotnet-inspect` control that
-   opens Workspace.
+   opens Workspace. Confirm that Package query places initial focus on its
+   prefix input under that heading.
 10. Use Browser Back and Forward while a modal is open and confirm that the
    modal is dismissed, the restored destination heading receives focus, and the
    modal does not reopen.

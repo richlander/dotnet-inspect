@@ -669,8 +669,9 @@ abandons authority it can no longer consume so queued maintenance can proceed.
 Inspect Web presentation and accessibility belong to
 [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md).
 Focus, acknowledgement timing, and surface-destruction behavior belong to
-[Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) and
-issue #4917.
+[Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md), with
+the migration historically tracked by
+[#4917](https://github.com/richlander/dotnet-inspect/issues/4917).
 
 ### Canonical state
 
