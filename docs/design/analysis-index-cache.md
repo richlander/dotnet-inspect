@@ -28,10 +28,26 @@ image lifetime, acquisition, or registration semantics themselves.
 
 ## Contract
 
-- **The cache is process-lifetime, not session-scoped.** `s_pathIndexes` and
-  `s_assemblyIndexes` are `static`, so entries outlive any single
-  `AssemblyInspectionSession` and can be reused by an unrelated later
-  inspection in the same process.
+Two lifetimes matter here and are easy to conflate, so this document names
+both before using them:
+
+- **Process-lifetime** means the OS process itself: `s_pathIndexes` and
+  `s_assemblyIndexes` are `static` fields with no `Dispose`, so an entry
+  persists for as long as the process runs, regardless of how many separate
+  inspections happen within it.
+- **Session** means `AssemblyInspectionSession`
+  (`src/ILInspector.Metadata/AssemblyInspectionSession.cs`), a concrete,
+  disposable type -- not an informal notion. Its lifetime is bounded by
+  `Open(...)` and `Dispose()`, and assembly-image-lifetime.md's rule ("one
+  assembly inspection session uses one immutable image for its entire
+  lifetime") is scoped to exactly one such instance. Many sessions can open
+  and close within a single process run, each independently bounded.
+
+- **The cache is process-lifetime, not session-scoped.** An entry in either
+  store outlives any single `AssemblyInspectionSession` and can be reused by
+  an unrelated later session in the same process -- the cache's actual scope
+  is broader than the per-session scope its only real safety analogy uses,
+  and nothing in its implementation narrows it to match.
 - **`ForAssembly` keys by `AssemblyAcquisitionRegistration` reference
   identity**, not by path or content. A hit requires
   `ReferenceEquals(candidate.Registration, assembly.Registration)`, plus a
