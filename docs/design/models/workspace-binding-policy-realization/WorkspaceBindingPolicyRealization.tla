@@ -34,9 +34,11 @@ CONSTANTS
     EnforceCompletionVersion,
     EnforceFailureClassification,
     EnforcePolicyBeforeGroup,
+    EnforceConstructedPolicyIdentity,
     EnforcePublishVersion,
     EnforceAtomicPublication,
     EnforceAtomicRetirement,
+    EnforceRetirementBeforeReplacementStart,
     EnforceRetirementBeforeReplacement
 
 Generations == {GenerationOne, GenerationTwo}
@@ -61,9 +63,11 @@ ASSUME
     /\ EnforceCompletionVersion \in BOOLEAN
     /\ EnforceFailureClassification \in BOOLEAN
     /\ EnforcePolicyBeforeGroup \in BOOLEAN
+    /\ EnforceConstructedPolicyIdentity \in BOOLEAN
     /\ EnforcePublishVersion \in BOOLEAN
     /\ EnforceAtomicPublication \in BOOLEAN
     /\ EnforceAtomicRetirement \in BOOLEAN
+    /\ EnforceRetirementBeforeReplacementStart \in BOOLEAN
     /\ EnforceRetirementBeforeReplacement \in BOOLEAN
 
 Phases ==
@@ -71,16 +75,17 @@ Phases ==
      "Published", "Failed", "Retired"}
 
 CompletionModes ==
-    {"Exact", "ForeignPreparation", "ParticipantMismatch", "RoleMismatch",
-     "DelegateMapMismatch", "CompletionVersionMismatch"}
+    {"Exact", "ForeignPreparation", "ParticipantPlanMismatch",
+     "RoleProjectionMismatch", "DelegateMapMismatch",
+     "CompletionVersionMismatch"}
 
 AdvanceTimings ==
     {"Never", "BeforeCompletion", "AfterCompletion", "AfterAdoption",
      "AfterGroupConstruction", "AfterPublication"}
 
 FailureKinds ==
-    {"None", "ForeignPreparation", "ParticipantMismatch", "RoleMismatch",
-     "DelegateMapMismatch", "CompletionVersionMismatch",
+    {"None", "ForeignPreparation", "ParticipantPlanMismatch",
+     "RoleProjectionMismatch", "DelegateMapMismatch", "CompletionVersionMismatch",
      "PolicyVersionMismatch"}
 
 ExpectedParticipants(g) ==
@@ -136,6 +141,7 @@ VARIABLES
     completionVersion,
     adoptedPolicy,
     groupConstructed,
+    constructedPolicy,
     failure,
     publishedGroup,
     publishedPolicy,
@@ -158,12 +164,12 @@ ReturnedPreparation(g) ==
     ELSE g
 
 ReturnedParticipants(g) ==
-    IF EffectiveMode(g) = "ParticipantMismatch"
+    IF EffectiveMode(g) = "ParticipantPlanMismatch"
     THEN OtherParticipants(g)
     ELSE ExpectedParticipants(g)
 
 ReturnedRoles(g) ==
-    IF EffectiveMode(g) = "RoleMismatch"
+    IF EffectiveMode(g) = "RoleProjectionMismatch"
     THEN OtherRoles(g)
     ELSE ExpectedRoles(g)
 
@@ -200,9 +206,9 @@ CompletionFailure(g) ==
     CASE completionPreparation[g] # g ->
             "ForeignPreparation"
       [] completionParticipants[g] # ExpectedParticipants(g) ->
-            "ParticipantMismatch"
+            "ParticipantPlanMismatch"
       [] completionRoles[g] # ExpectedRoles(g) ->
-            "RoleMismatch"
+            "RoleProjectionMismatch"
       [] completionDelegateMap[g] # ExpectedDelegateMap(g) ->
             "DelegateMapMismatch"
       [] completionVersion[g] # capturedVersion[g] ->
@@ -233,7 +239,8 @@ vars ==
     <<phase, activeGeneration, capturedVersion, completionMode,
       advanceTiming, completionPreparation, completionParticipants,
       completionRoles, completionDelegateMap, completionVersion,
-      adoptedPolicy, groupConstructed, failure, publishedGroup,
+      adoptedPolicy, groupConstructed, constructedPolicy, failure,
+      publishedGroup,
       publishedPolicy, everPublished, liveVersion, versionAdvanced,
       currentAccessRequested, driftObserved, publishVersionWitness,
       retirementAtomicWitness>>
@@ -252,6 +259,7 @@ Init ==
     /\ completionVersion = [g \in Generations |-> NoValue]
     /\ adoptedPolicy = [g \in Generations |-> FALSE]
     /\ groupConstructed = [g \in Generations |-> FALSE]
+    /\ constructedPolicy = [g \in Generations |-> NoValue]
     /\ failure = [g \in Generations |-> "None"]
     /\ publishedGroup = NoValue
     /\ publishedPolicy = NoValue
@@ -272,11 +280,12 @@ CanStart(g) ==
             /\ NoPublishedState
        ELSE
             /\ (phase[GenerationOne] = "Retired"
-                \/ (/\ ~EnforceRetirementBeforeReplacement
+                \/ (/\ ~EnforceRetirementBeforeReplacementStart
                     /\ phase[GenerationOne] = "Published"
                     /\ CurrentGeneration(GenerationOne)
                     /\ liveVersion # capturedVersion[GenerationOne]))
-            /\ (NoPublishedState \/ ~EnforceRetirementBeforeReplacement)
+            /\ (NoPublishedState
+                \/ ~EnforceRetirementBeforeReplacementStart)
 
 StartPreparation(g) ==
     /\ CanStart(g)
@@ -286,7 +295,8 @@ StartPreparation(g) ==
     /\ UNCHANGED
         <<completionMode, advanceTiming, completionPreparation,
           completionParticipants, completionRoles, completionDelegateMap,
-          completionVersion, adoptedPolicy, groupConstructed, failure,
+          completionVersion, adoptedPolicy, groupConstructed,
+          constructedPolicy, failure,
           publishedGroup, publishedPolicy, everPublished, liveVersion,
           versionAdvanced, currentAccessRequested, driftObserved,
           publishVersionWitness,
@@ -309,7 +319,8 @@ CompletePolicy(g) ==
         [completionVersion EXCEPT ![g] = ReturnedVersion(g)]
     /\ UNCHANGED
         <<activeGeneration, capturedVersion, completionMode, advanceTiming,
-          adoptedPolicy, groupConstructed, failure, publishedGroup,
+          adoptedPolicy, groupConstructed, constructedPolicy, failure,
+          publishedGroup,
           publishedPolicy, everPublished, liveVersion, versionAdvanced,
           currentAccessRequested, driftObserved, publishVersionWitness,
           retirementAtomicWitness>>
@@ -337,6 +348,7 @@ AdoptPolicy(g) ==
         <<capturedVersion, completionMode, advanceTiming,
           completionPreparation, completionParticipants, completionRoles,
           completionDelegateMap, completionVersion, groupConstructed,
+          constructedPolicy,
           publishedGroup, publishedPolicy, everPublished, liveVersion,
           versionAdvanced, currentAccessRequested, driftObserved,
           publishVersionWitness,
@@ -353,6 +365,11 @@ ConstructGroup(g) ==
             /\ liveVersion = capturedVersion[g]
     /\ phase' = [phase EXCEPT ![g] = "Ready"]
     /\ groupConstructed' = [groupConstructed EXCEPT ![g] = TRUE]
+    /\ constructedPolicy' =
+        [constructedPolicy EXCEPT ![g] =
+            IF EnforceConstructedPolicyIdentity
+            THEN g
+            ELSE OtherGeneration(g)]
     /\ UNCHANGED
         <<activeGeneration, capturedVersion, completionMode, advanceTiming,
           completionPreparation, completionParticipants, completionRoles,
@@ -391,7 +408,8 @@ PublishGeneration(g) ==
         <<capturedVersion, completionMode, advanceTiming,
           completionPreparation, completionParticipants, completionRoles,
           completionDelegateMap, completionVersion, adoptedPolicy,
-          groupConstructed, failure, liveVersion, versionAdvanced,
+          groupConstructed, constructedPolicy, failure, liveVersion,
+          versionAdvanced,
           currentAccessRequested, driftObserved,
           retirementAtomicWitness>>
 
@@ -403,6 +421,8 @@ InvalidatePrivateGeneration(g) ==
     /\ activeGeneration' = NoValue
     /\ adoptedPolicy' = [adoptedPolicy EXCEPT ![g] = FALSE]
     /\ groupConstructed' = [groupConstructed EXCEPT ![g] = FALSE]
+    /\ constructedPolicy' =
+        [constructedPolicy EXCEPT ![g] = NoValue]
     /\ failure' = [failure EXCEPT ![g] = "PolicyVersionMismatch"]
     /\ UNCHANGED
         <<capturedVersion, completionMode, advanceTiming,
@@ -432,7 +452,8 @@ AdvanceComposedPolicyVersion ==
         <<phase, activeGeneration, capturedVersion, completionMode,
           advanceTiming, completionPreparation, completionParticipants,
           completionRoles, completionDelegateMap, completionVersion,
-          adoptedPolicy, groupConstructed, failure, publishedGroup,
+          adoptedPolicy, groupConstructed, constructedPolicy, failure,
+          publishedGroup,
           publishedPolicy, everPublished, currentAccessRequested,
           driftObserved,
           publishVersionWitness, retirementAtomicWitness>>
@@ -446,7 +467,8 @@ RequestCurrentAccess(g) ==
         <<phase, activeGeneration, capturedVersion, completionMode,
           advanceTiming, completionPreparation, completionParticipants,
           completionRoles, completionDelegateMap, completionVersion,
-          adoptedPolicy, groupConstructed, failure, publishedGroup,
+          adoptedPolicy, groupConstructed, constructedPolicy, failure,
+          publishedGroup,
           publishedPolicy, everPublished, liveVersion, versionAdvanced,
           driftObserved, publishVersionWitness, retirementAtomicWitness>>
 
@@ -471,7 +493,8 @@ ObservePublishedDrift(g) ==
         <<activeGeneration, capturedVersion, completionMode, advanceTiming,
           completionPreparation, completionParticipants, completionRoles,
           completionDelegateMap, completionVersion, adoptedPolicy,
-          groupConstructed, failure, everPublished, liveVersion,
+          groupConstructed, constructedPolicy, failure, everPublished,
+          liveVersion,
           versionAdvanced, publishVersionWitness>>
 
 StartAny == \E g \in Generations : StartPreparation(g)
@@ -526,6 +549,8 @@ TypeOK ==
         [Generations -> Versions \union {NoValue}]
     /\ adoptedPolicy \in [Generations -> BOOLEAN]
     /\ groupConstructed \in [Generations -> BOOLEAN]
+    /\ constructedPolicy \in
+        [Generations -> Generations \union {NoValue}]
     /\ failure \in [Generations -> FailureKinds]
     /\ publishedGroup \in Generations \union {NoValue}
     /\ publishedPolicy \in Generations \union {NoValue}
@@ -548,11 +573,19 @@ PublishedGenerationIsComplete ==
             /\ phase[g] = "Published"
             /\ adoptedPolicy[g]
             /\ groupConstructed[g]
+            /\ constructedPolicy[g] = g
             /\ StaticCompletionMatches(g)
 
 GroupConstructionRequiresPolicyAdoption ==
     \A g \in Generations :
         groupConstructed[g] => adoptedPolicy[g]
+
+ConstructedParticipantsUseAdoptedPolicy ==
+    \A g \in Generations :
+        /\ groupConstructed[g] <=> constructedPolicy[g] # NoValue
+        /\ groupConstructed[g] =>
+            /\ adoptedPolicy[g]
+            /\ constructedPolicy[g] = g
 
 AdoptedPolicyMatchesPreparation ==
     \A g \in Generations :
@@ -602,6 +635,10 @@ ReplacementFollowsRetirement ==
     /\ GenerationOne \in everPublished
     /\ GenerationTwo \in everPublished
     =>
+        phase[GenerationOne] = "Retired"
+
+ReplacementStartsAfterRetirement ==
+    phase[GenerationTwo] # "Absent" =>
         phase[GenerationOne] = "Retired"
 
 PublicationObservedCurrentVersion ==

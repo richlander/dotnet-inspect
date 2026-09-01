@@ -13,6 +13,8 @@ policy.
 - Can changed role evidence, a changed delegate map, or a foreign policy
   version reach group construction?
 - Does policy adoption precede group construction?
+- Does every constructed participant receive the exact adopted policy rather
+  than a placeholder or foreign capability?
 - Can a group or policy become visible without the other?
 - Can pre-publication policy drift reach current workspace state?
 - Does each rejected preparation retain its exact typed cause?
@@ -55,16 +57,19 @@ policy versions. The first generation explores:
 - one mismatch each for preparation identity, participant plan, role
   projection, delegate map, and completion version.
 
-Mismatch scenarios do not also advance the composite policy version, keeping each
-typed failure attributable to one cause. Those failures are terminal and do not
-promise an automatic successful retry. Only retirement after observed drift
-enables an exact second generation. The second generation proves replacement
-progress once started, without claiming that the workspace starts it
-automatically or converges while policy state continues changing.
+Mismatch scenarios do not also advance the composite policy version, keeping
+each typed failure attributable to one cause. Those failures are terminal and
+do not promise an automatic successful retry. Only retirement after observed
+drift enables an exact second generation. The second generation proves
+replacement progress once started, without claiming that the workspace starts
+it automatically or converges while policy state continues changing.
 
 The model represents participant plans, role projections, and delegate maps as
 opaque owner-issued values. It proves exact association and lifecycle ordering,
-not their internal construction or policy meaning.
+not their internal construction or policy meaning. One constructed-policy
+identity represents the requirement that every participant in the opaque plan
+receives the same exact adopted capability; the implementation gate must
+quantify the individual constructors.
 
 ## Assumptions and non-claims
 
@@ -114,6 +119,7 @@ not immediate resource disposal.
 | `PublicationIsAtomic` | Current group and policy visibility are both absent or name the same generation. |
 | `PublishedGenerationIsComplete` | A current generation has one adopted exact completion and a privately constructed group. |
 | `GroupConstructionRequiresPolicyAdoption` | No placeholder or post-construction policy insertion can create a group. |
+| `ConstructedParticipantsUseAdoptedPolicy` | The constructed plan carries the exact policy capability adopted for that generation. |
 | `AdoptedPolicyMatchesPreparation` | The completion belongs to the exact workspace-issued preparation. |
 | `AdoptedPolicyMatchesParticipants` | The completion covers the exact planned participant sequence. |
 | `AdoptedPolicyMatchesRoles` | The completion covers the exact immutable role projection. |
@@ -123,6 +129,7 @@ not immediate resource disposal.
 | `FailedGenerationIsUnavailable` | A failed generation publishes neither group nor policy. |
 | `RetiredGenerationIsUnavailable` | Observed drift removes both current handles for the retired generation. |
 | `ReplacementFollowsRetirement` | A replacement cannot publish before a previously published generation is retired. |
+| `ReplacementStartsAfterRetirement` | A replacement cannot enter preparation while the previous generation remains current. |
 | `PublicationObservedCurrentVersion` | Every publish step independently witnesses that its captured version was current. |
 | `RetirementWasAtomic` | Every drift-retirement step independently witnesses atomic group/policy removal. |
 | `EveryStartedGenerationSettles` | Under weak fairness, each started generation reaches failure, publication, or retirement. |
@@ -133,7 +140,7 @@ not immediate resource disposal.
 
 | Configuration | Purpose |
 | --- | --- |
-| `WorkspaceBindingPolicyRealizationSafety.cfg` | Checks all fifteen safety invariants over exact, mismatched, pre-publication-drift, published-drift, and replacement scenarios. |
+| `WorkspaceBindingPolicyRealizationSafety.cfg` | Checks all seventeen safety invariants over exact, mismatched, pre-publication-drift, published-drift, and replacement scenarios. |
 | `WorkspaceBindingPolicyRealizationLiveness.cfg` | Checks build settlement, requested-access drift retirement, and progress after stable replacement starts. |
 | `BrokenPreparationMatch.cfg` | Accepts a completion from another preparation; it must violate `AdoptedPolicyMatchesPreparation`. |
 | `BrokenParticipantMatch.cfg` | Accepts a foreign participant plan; it must violate `AdoptedPolicyMatchesParticipants`. |
@@ -142,9 +149,11 @@ not immediate resource disposal.
 | `BrokenCompletionVersion.cfg` | Accepts a foreign completion version; it must violate `AdoptedPolicyMatchesCapturedVersion`. |
 | `BrokenFailureClassification.cfg` | Collapses a specific mismatch into the policy-version failure; it must violate `FailureClassificationIsExact`. |
 | `BrokenPolicyBeforeGroup.cfg` | Constructs a group directly from an unadopted completion; it must violate `GroupConstructionRequiresPolicyAdoption`. |
+| `BrokenConstructedPolicyIdentity.cfg` | Constructs the participant plan with a foreign policy; it must violate `ConstructedParticipantsUseAdoptedPolicy`. |
 | `BrokenPublishVersion.cfg` | Publishes after pre-publication version drift; it must violate `PublicationObservedCurrentVersion`. |
 | `BrokenAtomicPublication.cfg` | Publishes a group without its policy; it must violate `PublicationIsAtomic`. |
 | `BrokenAtomicRetirement.cfg` | Retires the group while leaving its policy current; it must independently violate `RetirementWasAtomic`. |
+| `BrokenReplacementStartBeforeRetirement.cfg` | Starts generation two while generation one remains current, while still forbidding early publication; it must violate `ReplacementStartsAfterRetirement`. |
 | `BrokenReplacementBeforeRetirement.cfg` | Publishes generation two over a still-current generation one; it must violate `ReplacementFollowsRetirement`. |
 | `ReachabilityReplacement.cfg` | Negates replacement publication and fails only after a complete retire-and-replace trace. |
 
@@ -182,9 +191,11 @@ for config in \
   BrokenCompletionVersion \
   BrokenFailureClassification \
   BrokenPolicyBeforeGroup \
+  BrokenConstructedPolicyIdentity \
   BrokenPublishVersion \
   BrokenAtomicPublication \
   BrokenAtomicRetirement \
+  BrokenReplacementStartBeforeRetirement \
   BrokenReplacementBeforeRetirement \
   ReachabilityReplacement
 do
@@ -200,7 +211,7 @@ The positive configurations completed with no errors:
 
 | Configuration | Generated states | Distinct states | Maximum depth | Result |
 | --- | ---: | ---: | ---: | --- |
-| Safety | 68 | 65 | 14 | All fifteen safety invariants passed. |
+| Safety | 68 | 65 | 14 | All seventeen safety invariants passed. |
 | Liveness | 68 | 65 | 14 | All three temporal properties passed. |
 
 The safety graph starts eleven initial scenarios. It executed 12 preparations,
@@ -220,9 +231,11 @@ Every mutation exited with TLC status 12 on its intended invariant:
 | Broken completion version | 45 / 45 | 4 | A foreign policy version became adopted. |
 | Broken failure classification | 41 / 41 | 4 | A preparation mismatch was reported as policy-version drift. |
 | Broken policy-before-group | 35 / 35 | 4 | Private group construction bypassed policy adoption. |
+| Broken constructed-policy identity | 46 / 46 | 5 | The participant plan was constructed with a foreign policy capability. |
 | Broken publish version | 61 / 57 | 7 | A group/policy pair published after its captured version became foreign. |
 | Broken atomic publication | 54 / 52 | 6 | The group became current without its policy. |
 | Broken atomic retirement | 63 / 60 | 9 | Retirement removed the group but left its policy current. |
+| Broken replacement start ordering | 62 / 59 | 8 | Generation two started while generation one remained current, with early publication still forbidden. |
 | Broken replacement ordering | 79 / 70 | 12 | Generation two published over a still-current generation one. |
 | Replacement reachability | 68 / 65 | 14 | Generation one retired after observed drift, then generation two published. |
 

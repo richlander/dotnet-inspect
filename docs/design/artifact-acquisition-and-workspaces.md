@@ -1222,6 +1222,10 @@ These properties remain unverified until the named Release gates land:
   workspace-role set without provenance translation;
 - `ExplicitAssemblyContext_PolicyCompletionPrecedesGroupConstruction` proves
   no absent, pending, or rejected policy receipt can reach group construction;
+- `ExplicitAssemblyContext_EveryParticipantUsesAdoptedPolicy` proves each
+  participant in the exact plan is constructed only after adoption and receives
+  that receipt's exact composed-policy capability rather than a placeholder or
+  foreign policy;
 - `ExplicitAssemblyContext_PolicyAdoptionRequiresExactPreparation` proves a
   completion from another preparation is rejected without group construction
   or publication;
@@ -1244,10 +1248,13 @@ These properties remain unverified until the named Release gates land:
 - `ExplicitAssemblyContext_ObservedPolicyDriftRetiresCurrentGeneration` proves
   current-view acquisition and warm and cold operation gates reject after
   observing drift and atomically remove both old current handles;
-- `ExplicitAssemblyContext_ReplacementPublishesOnlyAfterRetirement` proves a
-  new generation cannot start or publish while the prior group and policy
-  remain current, while already admitted old-generation work follows ordinary
-  quiescence;
+- `ExplicitAssemblyContext_ReplacementStartsOnlyAfterRetirement` proves a new
+  generation cannot enter preparation while the prior group and policy remain
+  current, even though already admitted old-generation work may continue
+  toward quiescence;
+- `ExplicitAssemblyContext_ReplacementPublishesOnlyAfterRetirement`
+  independently proves a new generation cannot become current before the prior
+  group and policy are retired;
 - `ExplicitAssemblyContext_StableAdmittedReplacementEventuallyPublishes`
   proves a started replacement with admitted budget and a stable composite
   token reaches publication under fair execution;
