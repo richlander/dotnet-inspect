@@ -112,9 +112,12 @@ GitHub merge and auto-merge bind an expected head, not an expected base. This
 preflight and carry-forward analysis are point-in-time observations, not an
 exact-base lock; do not chase `main` with branch updates to approximate one.
 Exact-base integration revalidation requires a merge queue or equivalent
-ruleset. Head-bound auto-merge may remain armed across base movement. If an
-interaction is observed while the PR remains open, disable it before recovery;
-before any author or recovery push moves the head, disable it before pushing.
+ruleset. Every arm or merge must use the
+[exact-head precondition](github-api-operations.md#bind-merge-mutations-to-the-head).
+Head-bound auto-merge may remain armed across base movement. If an interaction
+is observed while the PR remains open, disable it before any other recovery
+mutation; before any author or recovery push moves the head, disable it before
+pushing.
 
 For stacks, every open layer must meet its applicable eligibility row above. A
 known-red or conflicted parent blocks upper slices; a pending parent does not
@@ -477,16 +480,19 @@ the path applies.
      head, keep it absent and carry the waiver forward. Preserve head-bound
      auto-merge. Start no new validation, CI, review, or waiver decision; final
      preflight still observes the existing current-head gate.
-   - *Trivial interaction:* if the PR remains open, remove `review-clean`,
-     disable auto-merge, integrate the exact analyzed tip, resolve every overlap
+   - *Trivial interaction:* if the PR remains open, disable auto-merge first
+     and handle an already-merged result as terminal. Then remove
+     `review-clean`, integrate the exact analyzed tip, resolve every overlap
      mechanically as classified, run affected focused gates, and push. Follow
      the waiver procedure below before dispatching replacement reviewers.
-   - *Significant interaction, no conflict:* if the PR remains open, remove
-     `review-clean`, disable auto-merge, integrate the tip, re-run the claimed
-     validation and current-head CI, and re-dispatch the required reviewers at
-     the new head as a normal round.
-   - *Conflict requiring semantic resolution:* disable auto-merge, remove
-     `review-clean`, and resolve it as an author change under
+   - *Significant interaction, no conflict:* if the PR remains open, disable
+     auto-merge first and handle an already-merged result as terminal. Then
+     remove `review-clean`, integrate the tip, re-run the claimed validation
+     and current-head CI, and re-dispatch the required reviewers at the new head
+     as a normal round.
+   - *Conflict requiring semantic resolution:* disable auto-merge first and
+     handle an already-merged result as terminal. Then remove `review-clean`
+     and resolve it as an author change under
      [conflict recovery](../AGENTS.md#recovery-transitions), and re-dispatch
      the required reviewers at the new head.
 

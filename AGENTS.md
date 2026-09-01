@@ -136,13 +136,11 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
 - **Review ordinary non-Markdown changes in parallel with CI:** requires user
   approval; conflict recovery is the explicit exception. A CI failure requiring
   an author change still supersedes the attempt, and all findings carry forward.
-- **Auto-merge on the final head:** once every required review is review-clean,
-  or the intended final head carries an approved exact-head
-  trivial-interaction waiver, the user may authorize and arm auto-merge for
-  that head. Head movement expires it: disable auto-merge before pushing,
-  review or waive the new head, and ask again. Base movement alone does not
-  expire it; if the PR remains open, classify observed movement before an
-  agent-driven merge or mutation, but do not move the head or restart CI.
+- **Auto-merge on the final head:** after clean reviews or an approved waiver,
+  the user may arm it with the [exact-head precondition](docs/github-api-operations.md#bind-merge-mutations-to-the-head).
+  Head movement expires it: disable before pushing, then review or waive and
+  ask again. Base movement alone does not; classify it while the PR remains
+  open. Only no-interaction movement keeps the head unchanged and starts no CI.
 - **"CI is ready":** the user's statement that CI has no failures and the PR is
   mergeable. Trust it without re-checking and move to the next task, such as
   dispatching the next round's reviewers.
@@ -467,18 +465,19 @@ the landed range itself changes, not on every poll. An agent-driven merge still
 needs a live readiness check and explicit user authorization; armed auto-merge
 delegates final readiness enforcement to GitHub.
 The analysis is a point-in-time decision aid, not an exact-base lock: later base
-movement does not trigger branch integration or CI chasing. Exact-base
-revalidation requires a merge queue, not repeated PR branch updates.
+movement does not trigger branch integration or CI chasing; exact-base
+revalidation needs a merge queue, not repeated branch updates.
 Full detection, classification, and action procedure:
 [Carry-forward after clean reviews](docs/round-orchestration.md#carry-forward-after-clean-reviews).
 The four outcomes: **no interaction** (keep the reviewed or waived head
 unchanged, preserve its state and auto-merge, and start no new CI run or other
-gate — the common case), **trivial interaction** (if still open, remove
-`review-clean`, disable auto-merge, integrate, run affected gates, and offer
-the exact-head re-review waiver), **significant interaction, no conflict** (if
-still open, remove `review-clean`, disable auto-merge, re-run validation and CI,
-and re-dispatch reviewers as a normal round), and **merge conflict requiring
-semantic resolution** (disable auto-merge and treat as an author change under
+gate — the common case), **trivial interaction** (if still open, disable
+auto-merge first, remove `review-clean`, integrate, run affected gates, and
+offer the exact-head re-review waiver), **significant interaction, no
+conflict** (if still open, disable auto-merge first, remove `review-clean`,
+integrate, re-run validation and CI, and re-dispatch reviewers as a normal
+round), and **merge conflict requiring semantic resolution** (disable
+auto-merge first and treat as an author change under
 [Recovery transitions](#recovery-transitions)).
 
 ### How many reviewers, and from which models

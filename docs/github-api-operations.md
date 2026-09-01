@@ -30,3 +30,32 @@ operation-specific REST endpoint through `gh api` instead:
 
 Do not replace complete label or assignee arrays to perform an add or remove.
 Verify the resulting metadata after the REST update.
+
+## Bind merge mutations to the head
+
+Every auto-merge arm, direct merge, and asynchronous merge request must name
+the exact reviewed or approved-waiver head SHA as an atomic precondition. A
+prior read is not enough: without the precondition, a concurrent write-access
+push can transfer the mutation to an unreviewed head.
+
+Use `--match-head-commit` for high-level merge operations:
+
+```bash
+gh pr merge "$pr_number" --auto --squash \
+  --match-head-commit "$head_sha"
+
+gh pr merge "$pr_number" --squash \
+  --match-head-commit "$head_sha"
+```
+
+The stacked-PR asynchronous merge endpoint uses its `sha` field:
+
+```bash
+gh api -X PUT "repos/{owner}/{repo}/pulls/$pr_number/merge-async" \
+  -f merge_method=squash \
+  -f sha="$head_sha"
+```
+
+When using GraphQL directly, set `expectedHeadOid` on
+`EnablePullRequestAutoMergeInput` or `MergePullRequestInput`; never omit it.
+Treat a mismatch as head movement and return to candidate formation.
