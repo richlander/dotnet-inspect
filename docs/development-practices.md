@@ -1,0 +1,176 @@
+# Development practices
+
+This document owns the repository's development-practice model: how convention,
+design, evidence, implementation, demos, and review work together. `AGENTS.md`
+states the binding summary. Focused documents such as
+[Design scope and composition](design-scope.md),
+[Evidence and validation](evidence-and-validation.md), and
+[Round orchestration](round-orchestration.md) own their specialized contracts
+and mechanics.
+
+## Convention and best practice are the baseline
+
+Start from the applicable convention and best practice rather than inventing a
+local approach by default.
+
+A **convention** is an established, relevant pattern: first in this repository
+and owning subsystem, then in the directly analogous ecosystem. A **best
+practice** is a well-supported approach whose benefits and tradeoffs apply to
+the constraints at hand. Neither means "the first precedent found," and neither
+overrides an owning design.
+
+When the repository should be stricter or looser than the baseline, document:
+
+- the convention or best practice being used as the comparison point;
+- the exact divergence and its scope;
+- why this repository's constraints require or justify it;
+- the costs or behavior the divergence accepts; and
+- the design, test, fixture, or other evidence that keeps the choice honest.
+
+Silence is not a divergence policy. If no meaningful convention exists, say so
+and derive the choice from the owning contract and available evidence.
+
+## Design establishes the footing
+
+Before implementation, visibly name one normative owner and its exact claim.
+Identify supporting designs, models, constraints, analogous implementations,
+and evidence by role rather than treating them as co-owners. Apply
+[Design scope and composition](design-scope.md) when ownership is unclear or
+the claim crosses independently owned components.
+
+Complicated features need unusually strong pre-work. Corpus measurements, an
+established oracle, a TLA+ model, a pathological fixture, or a specification
+developed closely with the user can reveal the actual boundary before code
+makes an accidental behavior expensive to undo. Much of the architecture is
+the act of bounding a contract and making its important properties invariant.
+
+## Demonstrate the pathological case
+
+Do not demonstrate only the expected or friendly case. Identify the case, or
+spectrum of cases, that the design intends to avoid or bound: an ambiguous
+input, an extreme shape, a near miss, a scale limit, an invalid transition, or
+a legal construction that stresses an assumption. Boundary cases often behave
+differently from intuition; constructing one is design work, not merely test
+cleanup.
+
+Build a fixture or reproducible probe early enough to change the design. Record
+the exact input, command or procedure, expected observation, and what the result
+establishes. Prefer a checked-in automated test when it is deterministic and
+suitable for normal CI. Run it in CI when accepting or rejecting the fixture is
+an important boundary of the supported contract.
+
+Preserve a useful fixture outside normal CI when it is too slow, large,
+environment-specific, or tool-dependent. Keep it in the appropriate corpus,
+harness, sample, or focused documentation; pin its inputs; and explain why CI
+does not run it. Distinguish the design evidence it provides from an enforcing
+gate: name the ordinary gate for each supported property or mark that property
+unverified. A saved fixture is evidence that future design and review can
+reproduce, not an unrecorded local experiment or a substitute for required
+automated coverage.
+
+Follow the [harness boundary](evidence-and-validation.md#harness-boundary):
+fixtures and harnesses may expose product behavior, but must not manufacture or
+repair the evidence they claim to check.
+
+## Survey analogous implementations
+
+The repository's SRM-only, Roslyn-free, NativeAOT-friendly architecture is
+unusual, but many of its algorithms and product surfaces have analogues: IL
+readers, decompiler transforms, metadata tools, query systems, and CLI
+disclosure models.
+
+Survey relevant implementations to learn:
+
+- whether they implement the behavior at all;
+- which inputs, boundaries, and failure modes they recognize;
+- which cases they deliberately decline or leave unsupported;
+- how tests, issues, or design notes explain surprising choices; and
+- whether multiple independent implementations converge on a convention.
+
+Record stable source links, versions or commits, and the observed behavior.
+Absence is evidence too when a mature analogous implementation declines a
+seemingly obvious feature or boundary.
+
+Treat this survey as comparative evidence, not authority. Reconcile it with
+this repository's owning design and constraints. Borrow code or internal
+architecture only when license, provenance, assumptions, and architectural fit
+all transfer; the behavioral comparison remains useful when none of them do.
+
+## Bias toward progress through narrow slices
+
+Prefer small, independently coherent slices that establish a useful contract
+for dependent features and waiting work. When the design has stable footing,
+landing the planned API or behavior shape before every hardening follow-up can
+reduce coordination delay and let consumers develop against the intended
+boundary.
+
+An early slice is acceptable only when it:
+
+- has one clear owner and claim;
+- is useful and correct for the behavior it currently promises;
+- preserves behavior-safe defaults and visible failure;
+- does not expose a stub, silent fallback, or unsupported behavior as complete;
+- carries evidence proportionate to the current claim; and
+- records residual hardening and later adoption as focused follow-up work.
+
+Do not split work when a slice depends on later work for its own correctness.
+Fold that dependency into the slice. Design work earns the bias to progress by
+reducing the chance that dependent work builds on shaky or reversible footing;
+it does not eliminate the need to revise a weak design when evidence disproves
+it.
+
+## Lead with the demo
+
+Every PR demonstrates the scenario it serves, using a mockup for documentation
+work when no product output exists yet. Post the intended demo early enough to
+change the design and implementation. A good demo makes the goal accessible,
+shows what to notice, and exercises a neighboring case so the implementation
+is not fitted only to the showcase. Follow
+[Lead with the demo](../AGENTS.md#lead-with-the-demo) for the PR contract.
+
+## Treat critical review feedback as a design question
+
+For critical review feedback, first ask whether the owning design addresses the
+reported case:
+
+- If the design already states the required behavior and boundary, diagnose why
+  the implementation or evidence fails to enforce it.
+- If the design is silent, ambiguous, or contradicted, treat the finding as a
+  design question before choosing a code repair.
+- If the concern changes another owner's contract or expands scope, apply the
+  design-scope rules instead of absorbing it as an implementation fix.
+
+It is acceptable and encouraged to keep a fast-moving focused design PR paired
+with implementation when discoveries clarify the contract. Cross-link the
+design and implementation, keep the design ahead of or synchronized with the
+behavior it authorizes, and use the Markdown-only review fast path rather than
+waiting on expensive product CI that cannot validate prose. A design PR still
+needs a coherent claim, a mockup or other demonstration, Markdown validation,
+and adversarial review.
+
+Repeated critical findings are evidence that the design may not close.
+Bounded review is a signal to return to the contract, not an invitation to
+accumulate patches indefinitely.
+
+## Move through PR and review
+
+Requested work hot-starts through branch, commit, push, PR, and eligible review
+without separate approval. Markdown-only changes use `markdownlint` as their
+non-boundary pre-review and per-round gate. Every non-trivial change receives
+two-seat adversarial review, and review blocks stop after six rounds so an
+unclosed design becomes an explicit decision rather than an endless loop.
+
+The exact candidate, eligibility, reconciliation, status, and recovery rules
+remain owned by [Round orchestration](round-orchestration.md). Merge always
+requires separate authorization.
+
+## Keep security work targeted
+
+The primary threat is untrusted internet-origin content such as packages,
+symbols, and source. The tool does not execute inspected code. Prefer
+construction-time containment threaded through typed models, with
+`InertString` as the stronger pattern. `HardenedJson` is a weaker centralized
+entry point, not a type whose construction enforces containment. Do not broaden
+work to local, same-machine, or intra-repository actors unless an owning design
+explicitly opts in. The complete boundary is owned by the
+[Untrusted data threat model](design/untrusted-data-threat-model.md).
