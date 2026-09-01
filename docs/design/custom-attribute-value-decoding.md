@@ -194,7 +194,7 @@ a fixture built for that purpose, which is the differential oracle's job
 
 | Invariant | Holds today? | Basis |
 | --- | --- | --- |
-| **I1 — Alignment** | Believed to hold on the resolver-supplied path, and only for a caller whose `System.Type` classification matches the guard's; unverified | Pinned by example only. One example is now a captured real-world artifact: see the classification pair above. The resolver-less overload is explicitly out of scope, and the classification precondition is gap 8; see [Known gaps](#known-gaps). |
+| **I1 — Alignment** | Believed to hold on the resolver-supplied path; unverified | Pinned by example only. One example is now a captured real-world artifact: see the classification pair above. The resolver-less overload is explicitly out of scope. The `System.Type` classification precondition was removed by #5393: both sides now call one predicate, gated by `SharedClassificationRuleTests`. |
 | **I2 — Bounding the decoder** | **No.** Violated by #5098 | SRM's per-argument re-derivation of the generic context is not bounded by anything the guard checks. |
 | **I3 — Bounding ourselves** | **No.** Violated by #5091, #5047, #5130, and #5132 | Four independent amplifications on our own side, spanning one walk and the cross-row loop. |
 
@@ -331,8 +331,8 @@ Two consequences follow, and both are load-bearing:
    equivalent. The next section states which mechanism applies where, because
    no two of them are the same: a resolved handle shares the handle and the
    resolution functions, a serialized name shares the provider instance, and
-   classification shares its rendering while duplicating the final
-   `"System.Type"` predicate. That last duplication is gap 8.
+   classification shares both its rendering and, since #5393, the single
+   `SystemTypeArgumentName.Matches` predicate that both sides call.
 2. **Fail open to SRM only where we genuinely cannot judge.** Where the guard
    *runs out of bytes*, or a parser exception reaches the public boundary, it
    hands the blob to SRM rather than inventing a judgment, because SRM's own
@@ -396,7 +396,7 @@ consequence 1 above, reached independently by the other production decoder.
 Each row is a **verified** divergence between the contract above and the
 component's current behavior. They are listed rather than omitted, because a
 design document describing only intended behavior would misrepresent a
-component with eight open violations.
+component with seven open violations.
 
 | # | Gap | Invariant | Issue |
 | --- | --- | --- | --- |
@@ -407,7 +407,6 @@ component with eight open violations.
 | 5 | The resolver-less `IsSafeToDecode` overload resolves widths through a different order, so its `true` does not carry I1 for a caller decoding with a resolver-backed provider. | I1 scope | #5120 |
 | 6 | Every memo in the guard is a **single slot keyed on the previous input**, so alternating two values defeats all four — including a guard-side `Θ(P × G)` that mirrors gap 1. | I3 | #5130 |
 | 7 | `A` attribute rows sharing one `B`-byte blob are guarded and decoded independently, costing `Θ(A × B)` in work and retained values from `Θ(A + B)` of metadata. Absent a shared `MaterializationContext`, each `TryDecode` also builds a fresh provider and rebuilds the type-definition index, adding `Θ(A × T)`. | I3 | #5132 |
-| 8 | The guard and `ArgTypeProvider` render the argument's type name through the same resolver functions, but each applies its own `"System.Type"` comparison, so the predicate can diverge. A caller whose provider classifies differently receives `true` for a blob that then drifts. | I1 | #5393 |
 
 Gaps 1, 2, 3, and 6 share a root cause worth naming: **the guard and SRM
 memoize different things.** Where the guard caches work SRM repeats, the guard is fast
@@ -416,28 +415,28 @@ cache, the guard is quadratic and the decode is fine (gaps 2 and 3). Neither
 side's profile reveals the other's cost, which is why all four were found by
 reading rather than by measurement. Evaluate any fix against **both** walkers.
 
-Gaps 5 and 8 are **API-shape hazards rather than live defects**:
-`AttributeDecoder` is the only production caller, it always supplies the
-resolver, and its `ArgTypeProvider.IsSystemType` agrees with the guard's
-internal test. They are recorded because the surface permits the unsafe
-composition and nothing prevents it. I1 is therefore scoped to the
-resolver-supplied overload throughout this document, and additionally assumes a
-caller whose classification matches the guard's; see
+Gap 5 is an **API-shape hazard rather than a live defect**: `AttributeDecoder`
+is the only production caller and it always supplies the resolver. It is
+recorded because the surface permits the unsafe composition and nothing
+prevents it. I1 is therefore scoped to the resolver-supplied overload
+throughout this document; see
 [Resolution order](#resolution-order-and-what-int32-actually-means).
 
-Gap 8 is the sharper of the two, because it is the rule stated above turned on
-its own component — though the divergence is narrower than a second
-classification path. Both sides render the name from the same handle through
-the same resolver functions; only the final `"System.Type"` comparison is
-written twice. Classification also runs first and selects which reading rule
-applies, so even that one duplicated predicate is the one that opens the larger
-hole. See
-[Classification](#classification-shared-rendering-duplicated-predicate).
+The former gap 8 belongs here for the record. The guard and `ArgTypeProvider`
+each applied their own `"System.Type"` comparison, so the predicate that
+selects the reading rule could diverge even though both sides rendered the
+name identically. #5393 closed it by giving the rule one definition that every
+site calls, with `SharedClassificationRuleTests` as the enforcing gate. It was
+the rule stated above turned on its own component, and because classification
+runs first and selects which reading rule applies, that one duplicated
+predicate was the one that opened the larger hole. See
+[Classification](#classification-one-shared-rule).
 
-Gaps 1, 2, 4, 5, 6, 7, and 8 were all found while writing or reviewing this document,
-against a component that had already been through eight rounds of
-defect-driven review. That is the argument for the oracle below: reading finds
-these one at a time, and only after somebody thinks to look.
+Gaps 1, 2, 4, 5, 6, and 7, and the former gap 8, were all found while writing
+or reviewing this document, against a component that had already been through
+eight rounds of defect-driven review. That is the argument for the oracle
+below: reading finds these one at a time, and only after somebody thinks to
+look.
 
 ## Enforcement gate
 
@@ -784,30 +783,36 @@ and it cannot make a stateful resolver stable. Same-provider decoding is
 guaranteed only on the `TryDecode` path, which is the supported product path.
 The resolver-less overload is a conservative test-only path.
 
-### Classification: shared rendering, duplicated predicate
+### Classification: one shared rule
 
 The two mechanisms above concern width. Classification — whether an argument is
-a `System.Type` at all — is a third case, and it is neither fully shared nor
-fully independent.
+a `System.Type` at all — is a third case, and it shares by a third mechanism.
 
-The *rendering* is shared. Both sides turn the same handle into a name through
-the same functions: `TypeResolver.GetTypeNameFromDefinition` for a `TypeDef`
-and `TypeResolver.GetTypeName` for a `TypeRef`. The guard does this in
-`IsSrmSystemType`; SRM reaches the same two functions through
+The *rendering* was always shared. Both sides turn the same handle into a name
+through the same functions: `TypeResolver.GetTypeNameFromDefinition` for a
+`TypeDef` and `TypeResolver.GetTypeName` for a `TypeRef`. The guard does this
+in `IsSrmSystemType`; SRM reaches the same two functions through
 `ArgTypeProvider.GetTypeFromDefinition` and `GetTypeFromReference`. A
 definition that renders one way for one side renders the same way for the
 other.
 
-The *predicate* is not shared. The guard compares that rendered name to
-`"System.Type"` itself; SRM asks `ArgTypeProvider.IsSystemType`, which makes
-its own comparison. One rule, spelled twice, in two files, with nothing holding
-the two spellings equal. That narrow duplication is the whole of gap 8, filed
-as #5393 — which means the repair is to share the predicate, not to build a
-second classification path or add a classifier parameter.
+The *predicate* was not. The guard compared that rendered name to
+`"System.Type"` itself while SRM asked `ArgTypeProvider.IsSystemType`, which
+made its own comparison — one rule, spelled twice, with nothing holding the two
+spellings equal. #5393 removed that: the comparison has one definition,
+`SystemTypeArgumentName.Matches`, and every site calls it. Neither a second
+classification path nor a classifier parameter was needed; the repair was to
+stop spelling the rule more than once.
 
-Narrow is not the same as harmless. What a classification disagreement costs
-when it happens is the `dotnet/runtime#57531` case described earlier in this
-document.
+Narrow is not the same as harmless, which is why this was worth closing rather
+than documenting. What a classification disagreement costs when it happens is
+the `dotnet/runtime#57531` case described earlier in this document.
+
+`SharedClassificationRuleTests` is the gate. It parses the metadata assemblies'
+source and fails if the literal is spelled anywhere but its single definition,
+which is what an independent copy of the rule looks like in source. A companion
+test keeps that census from passing vacuously if the definition itself
+disappears.
 
 ### Frozen cross-assembly enum-width adapter
 
@@ -1136,7 +1141,7 @@ malformed blob.
 | #5120 | The resolver-less `IsSafeToDecode` overload does not carry I1. Gap 5. Found while reviewing this document. |
 | #5130 | Every memo is a single slot, so alternating input defeats all four. Gap 6. Found while reviewing this document. |
 | #5132 | Quadratic cost across attribute rows sharing one value blob. Gap 7. Found while reviewing this document. |
-| #5393 | The guard re-implements the `System.Type` classification rather than sharing it. Gap 8. Found while reviewing this document. |
+| #5393 | The guard re-implemented the `System.Type` classification rather than sharing it. Former gap 8. Found while reviewing this document; **closed**. |
 | #4879 | Enum constants whose signature does not match `value__`. Fidelity. |
 | #5062 | Signature decode laundering internal errors into `SignatureRejected`. |
 | #4741 | Product extraction does not yet plan custom-attribute enum names into a frozen type-resolution generation. |
