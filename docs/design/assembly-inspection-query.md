@@ -1019,7 +1019,12 @@ The module result is based only on
 ModuleDef. AssemblyDef, TypeDef, and member rows with the same attribute name do
 not select the module model. Carrier identity is the structured top-level metadata
 type name; a nested TypeDef or TypeRef whose flattened display text is identical
-does not authenticate either the module marker or a member contract.
+does not authenticate either the module marker or a member contract. Identity is
+judged from the constructor's declaring type, not from the constructor token's
+kind: a locally defined carrier authenticates through a MethodDef constructor or
+through a MemberRef naming that same TypeDef, because ECMA-335 permits both
+spellings and the compiler synthesizes these markers locally whenever the target
+framework does not supply them.
 
 | State | Module evidence | Compatibility contract |
 | --- | --- | --- |

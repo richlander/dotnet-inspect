@@ -166,6 +166,47 @@ public sealed class MemorySafetyMetadataIndexTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void LocalRulesCarrierAuthenticatesThroughEitherConstructorSpelling(
+        bool memberReferenceConstructor)
+    {
+        using OpenedMetadata opened = Open(
+            BuildSyntheticImage(
+                [2],
+                localRulesMemberRefConstructor: memberReferenceConstructor));
+        MemorySafetyMetadataIndex index =
+            MemorySafetyMetadataIndex.Create(opened.Reader);
+
+        var rules =
+            Assert.IsType<MemorySafetyRulesResult.Available>(index.Rules);
+        Assert.Equal(MemorySafetyRulesState.Updated, rules.State);
+        MemorySafetyRulesObservation observation =
+            Assert.Single(rules.Observations);
+        Assert.Equal(
+            MemorySafetyRulesObservationState.Decoded,
+            observation.State);
+        Assert.Equal(2, observation.Version);
+    }
+
+    [Fact]
+    public void NestedLocalRulesCarrierStaysRejectedThroughAMemberReference()
+    {
+        using OpenedMetadata opened = Open(
+            BuildSyntheticImage(
+                [2],
+                nestedRulesTypeDefinition: true,
+                localRulesMemberRefConstructor: true));
+        MemorySafetyMetadataIndex index =
+            MemorySafetyMetadataIndex.Create(opened.Reader);
+
+        var rules =
+            Assert.IsType<MemorySafetyRulesResult.Available>(index.Rules);
+        Assert.Equal(MemorySafetyRulesState.Legacy, rules.State);
+        Assert.Empty(rules.Observations);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void NestedRulesCarrierCannotAliasTopLevelMarker(
         bool typeReference)
     {
@@ -834,6 +875,7 @@ public sealed class MemorySafetyMetadataIndexTests
         bool nestedRequiresUnsafeTypeDefinition = false,
         bool nestedRulesTypeReference = false,
         bool nestedRequiresUnsafeTypeReference = false,
+        bool localRulesMemberRefConstructor = false,
         bool duplicatePropertySemantics = false)
     {
         var metadata = new MetadataBuilder();
@@ -1025,6 +1067,7 @@ public sealed class MemorySafetyMetadataIndexTests
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             rulesConstructor);
+        TypeDefinitionHandle localRulesType;
         if (nestedRulesTypeDefinition)
         {
             TypeDefinitionHandle outer = metadata.AddTypeDefinition(
@@ -1042,10 +1085,11 @@ public sealed class MemorySafetyMetadataIndexTests
                 MetadataTokens.FieldDefinitionHandle(1),
                 rulesConstructor);
             metadata.AddNestedType(nested, outer);
+            localRulesType = nested;
         }
         else
         {
-            metadata.AddTypeDefinition(
+            localRulesType = metadata.AddTypeDefinition(
                 TypeAttributes.NotPublic,
                 metadata.GetOrAddString(
                     "System.Runtime.CompilerServices"),
@@ -1053,6 +1097,16 @@ public sealed class MemorySafetyMetadataIndexTests
                 default,
                 MetadataTokens.FieldDefinitionHandle(1),
                 rulesConstructor);
+        }
+        if (localRulesMemberRefConstructor)
+        {
+            // ECMA-335 lets a MemberRef name a member of a TypeDef in the same
+            // module, so this is a legal alternate spelling of the same local
+            // carrier rather than a foreign reference.
+            rulesCarrierConstructor = metadata.AddMemberReference(
+                localRulesType,
+                metadata.GetOrAddString(".ctor"),
+                rulesConstructorSignature);
         }
         if (nestedRequiresUnsafeTypeDefinition)
         {

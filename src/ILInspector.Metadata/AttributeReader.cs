@@ -1894,22 +1894,19 @@ public static partial class AttributeReader
         if (declaringType.IsNil)
             return false;
 
-        // Parity with the resolution this replaced: a TypeDef-defined attribute
-        // authenticates only through a MethodDef constructor, never through a
-        // MemberRef whose parent happens to be a TypeDef.
+        // A locally defined attribute authenticates through either constructor
+        // spelling. ECMA-335 lets a MemberRef name a member of a TypeDef in the
+        // same module, so requiring a MethodDef token would read a well-formed
+        // marker as absent. Identity still comes from the declaring type's
+        // structured name, so a nested carrier stays rejected.
         if (declaringType.Kind == HandleKind.TypeDefinition)
         {
-            if (constructor.Kind != HandleKind.MethodDefinition
-                || MetadataTypeDefinitionNameReader.Read(
-                        reader,
-                        (TypeDefinitionHandle)declaringType,
-                        beforeMaterialize)
-                    is not MetadataTypeDefinitionNameReadResult.Read defined
-                || !defined.Name.Equals(expected))
-            {
-                return false;
-            }
-            return true;
+            return MetadataTypeDefinitionNameReader.Read(
+                    reader,
+                    (TypeDefinitionHandle)declaringType,
+                    beforeMaterialize)
+                is MetadataTypeDefinitionNameReadResult.Read defined
+                && defined.Name.Equals(expected);
         }
 
         return declaringType.Kind == HandleKind.TypeReference
