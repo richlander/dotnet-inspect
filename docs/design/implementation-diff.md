@@ -571,11 +571,16 @@ owner-issued target evidence:
   names. For role `None`, it retains the exact API `MemberAnchor` canonical
   identity because no body identity exists.
 
-The Research body identity preserves the structured physical declaring
-`TypeRef`, the selected declaration name and open parameter shape normalized
-for its accessor role, generic arity, conversion return shape, and the
-Analysis-issued extension projection. Analysis generic parameters participate
-by kind and position, and exact metadata definition names preserve namespace
+The Research body identity projects the structured physical declaring and
+signature `TypeRef` shapes into Research-owned inert type identity. The
+projection retains only the simple assembly name, exact metadata definition
+name, structural element and argument shapes, generic kind and position, and
+array rank; it does not retain Analysis resolution provenance or generic
+parameter display names. The body identity also preserves the selected
+declaration name and open parameter shape normalized for its accessor role,
+generic arity, conversion return shape, and the Analysis-issued extension
+projection. Analysis generic parameters participate by kind and position, and
+exact metadata definition names preserve namespace
 and nested-type segments separately. Distinct assembly domains, overload
 shapes, relationship roles, extension bodies, and nested types therefore
 remain distinct even when

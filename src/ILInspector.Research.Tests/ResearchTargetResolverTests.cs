@@ -918,7 +918,7 @@ public class ResearchTargetResolverTests
         Assert.Equal(
             "DiffFixtureSample.ExtensionSample",
             extension.Before.CorrespondenceKey.BodyIdentity
-                .DeclaringType.ToQualifiedDisplayString());
+                .DeclaringType.DefinitionName!.ToMetadataFullName());
         Assert.True(
             extension.Before.CorrespondenceKey.BodyIdentity.IsExtension);
         Assert.True(
@@ -934,7 +934,7 @@ public class ResearchTargetResolverTests
         Assert.Equal(
             ["TargetOuter", "TargetInner"],
             nested.Before.CorrespondenceKey.BodyIdentity!.DeclaringType
-                .Resolution!.Type.Segments);
+                .DefinitionName!.Segments);
 
         TargetFixture accessorFixture =
             TargetFixture.Create([(Sample(), Sample(), null)]);
@@ -1016,7 +1016,7 @@ public class ResearchTargetResolverTests
             paired.Before.CorrespondenceKey.BodyIdentity,
             paired.After.CorrespondenceKey.BodyIdentity);
         Assert.Equal(
-            TypeRefKind.GenericInstance,
+            ResearchTargetTypeIdentityKind.GenericInstance,
             Assert.Single(
                 paired.Before.CorrespondenceKey.BodyIdentity!.ParameterTypes)
                 .Kind);
@@ -1042,17 +1042,17 @@ public class ResearchTargetResolverTests
             namedType.Before.CorrespondenceKey.BodyIdentity,
             namedType.After.CorrespondenceKey.BodyIdentity);
         Assert.Equal(
-            TypeRefKind.MethodGenericParameter,
+            ResearchTargetTypeIdentityKind.MethodGenericParameter,
             namedType.Before.CorrespondenceKey.BodyIdentity!
                 .ParameterTypes[0].Kind);
         Assert.Equal(
-            TypeRefKind.Definition,
+            ResearchTargetTypeIdentityKind.Definition,
             namedType.Before.CorrespondenceKey.BodyIdentity
                 .ParameterTypes[1].Kind);
         Assert.Equal(
             "T",
             namedType.Before.CorrespondenceKey.BodyIdentity
-                .ParameterTypes[1].Name);
+                .ParameterTypes[1].DefinitionName!.Segments.Single());
 
         var primitiveName = Assert.IsType<
             ResearchTargetCorrespondenceOutcome.Paired>(
@@ -1065,7 +1065,7 @@ public class ResearchTargetResolverTests
             primitiveName.Before.CorrespondenceKey.BodyIdentity,
             primitiveName.After.CorrespondenceKey.BodyIdentity);
         Assert.Equal(
-            TypeRefKind.MethodGenericParameter,
+            ResearchTargetTypeIdentityKind.MethodGenericParameter,
             Assert.Single(
                 primitiveName.Before.CorrespondenceKey.BodyIdentity!
                     .ParameterTypes).Kind);
@@ -1092,13 +1092,13 @@ public class ResearchTargetResolverTests
                     outcome.Attempt.Request.Side
                         == ResearchComparisonSide.Before)
                 .CorrespondenceKey!.BodyIdentity!
-                .DeclaringType.Resolution?.Type;
+                .DeclaringType.DefinitionName;
         MetadataTypeDefinitionName? afterType =
             drift.Single(outcome =>
                     outcome.Attempt.Request.Side
                         == ResearchComparisonSide.After)
                 .CorrespondenceKey!.BodyIdentity!
-                .DeclaringType.Resolution?.Type;
+                .DeclaringType.DefinitionName;
         Assert.NotNull(beforeType);
         Assert.NotNull(afterType);
         Assert.Equal(
