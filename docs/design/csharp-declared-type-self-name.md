@@ -251,8 +251,9 @@ These properties are enforced by:
   top-level and nested ordinary requests with fewer or more leaf generic
   parameters than the exact introduced count;
 - `TypeShellProducerTests.HostileMetadataSelfNameIsNotRendered`, proving a
-  legal SRM-read TypeDef whose literal leaf is `A+B` retains that exact identity
-  through shell production and reaches the typed CSharp refusal boundary;
+  legal SRM-read TypeDef whose literal leaf is `A+B` or `A<B` retains that exact
+  identity through shell production and reaches the typed CSharp refusal
+  boundary;
 - `CSharpTypePrinterTests.SelfNameIsSharedByItsDeclarationPositions`, proving
   a positive-arity exact non-delegate named `extension` uses one prepared
   admitted identifier in its type header, instance and static constructors,
@@ -270,7 +271,13 @@ These properties are enforced by:
   parameters than its introduced count, missing-identity and `null` or
   empty-count legacy routing, ordinary-name truncated and overlong count-vector
   refusal, mixed legacy/exact batches, and both request orders for refusal plus
-  duplicate validation are explicit cases.
+  duplicate validation are explicit cases; and
+- `CSharpTypePrinterTests.GeneratedLegacyNameIsSharedWithTypeNameContext`,
+  `GeneratedLegacyNamesUseRenderedSpellingForDuplicateValidation`, and
+  `GeneratedLegacyNameUsesExactLeafInsteadOfDottedDisplayName`, proving the
+  one normalized generated legacy leaf remains shared by declaration,
+  type-name context, and output duplicate validation without replacing its raw
+  canonical metadata identity.
 
 The implementation remains in the existing SRM-only, Roslyn-free product
 closure and introduces no platform-specific API. Compiler use belongs only to

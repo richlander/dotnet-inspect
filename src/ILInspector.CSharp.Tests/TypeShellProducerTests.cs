@@ -160,10 +160,12 @@ public sealed class TypeShellProducerTests
         Assert.Null(nestedRequest.Type.BaseType);
     }
 
-    [Fact]
-    public void HostileMetadataSelfNameIsNotRendered()
+    [Theory]
+    [InlineData("A+B")]
+    [InlineData("A<B")]
+    public void HostileMetadataSelfNameIsNotRendered(string metadataName)
     {
-        byte[] image = BuildHostileMetadataFixture();
+        byte[] image = BuildHostileMetadataFixture(metadataName);
         using var stream = new MemoryStream(image);
         using var pe = new PEReader(stream);
         MetadataReader reader = pe.GetMetadataReader();
@@ -186,7 +188,7 @@ public sealed class TypeShellProducerTests
             CSharpDeclaredTypeSelfNameFailureReason.IdentifierNotAdmitted>(
                 failure.Reason);
 
-        Assert.Equal(["A+B"], failure.Identity.Segments);
+        Assert.Equal([metadataName], failure.Identity.Segments);
         Assert.Equal(
             CSharpTypeDeclarationIdentifierRefusalReason.InvalidIdentifier,
             refusal.Reason);
@@ -666,7 +668,7 @@ public sealed class TypeShellProducerTests
         yield return 1;
     }
 
-    static byte[] BuildHostileMetadataFixture()
+    static byte[] BuildHostileMetadataFixture(string metadataName)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -692,7 +694,7 @@ public sealed class TypeShellProducerTests
         metadata.AddTypeDefinition(
             TypeAttributes.Public | TypeAttributes.Class,
             metadata.GetOrAddString("N"),
-            metadata.GetOrAddString("A+B"),
+            metadata.GetOrAddString(metadataName),
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));

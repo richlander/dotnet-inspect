@@ -202,6 +202,7 @@ public sealed class CSharpTypePrinterTests
             [1],
             ["T"]);
         type.Members = [instanceConstructor, staticConstructor, finalizer];
+        type.Name = "display-only";
 
         CSharpTypePrintResult printed = AssertPrinted(
             _outcomePrinter.Print(new CSharpTypePrintRequest(type)));
@@ -282,6 +283,13 @@ public sealed class CSharpTypePrinterTests
         AssertIdentifierFailure(
             Assert.Single(singleton.SelfNameFailures),
             ["A+B"],
+            CSharpTypeDeclarationIdentifierRefusalReason.InvalidIdentifier);
+        CSharpTypePrintOutcome.NotRendered angle = AssertNotRendered(
+            _outcomePrinter.Print(new CSharpTypePrintRequest(
+                CreateExactType("N", ["A<B"], [0], []))));
+        AssertIdentifierFailure(
+            Assert.Single(angle.SelfNameFailures),
+            ["A<B"],
             CSharpTypeDeclarationIdentifierRefusalReason.InvalidIdentifier);
 
         var outer = CreateExactType("N", ["Outer"], [0], []);
@@ -394,6 +402,88 @@ public sealed class CSharpTypePrinterTests
                 .Where(property =>
                     property.DeclaringType == typeof(CSharpTypePrintOutcome.NotRendered))
                 .Select(property => property.Name));
+    }
+
+    [Fact]
+    public void GeneratedLegacyNameIsSharedWithTypeNameContext()
+    {
+        var outer = CreateExactType("N", ["Outer"], [0], []);
+        var nested = CreateExactType(
+            "N",
+            ["Outer", "<>c__DisplayClass0_0"],
+            [0, 0],
+            []);
+        outer.Members =
+        [
+            new ApiMember
+            {
+                Name = "Make",
+                Kind = "method",
+                SignatureModel = new ApiSignature
+                {
+                    ReturnType = "N.Outer.___c__DisplayClass0_0",
+                    MemberName = "Make"
+                }
+            }
+        ];
+
+        CSharpTypePrintResult result = AssertPrinted(
+            _outcomePrinter.Print(new CSharpTypePrintRequest(
+                outer,
+                nestedTypes:
+                [
+                    new CSharpTypePrintRequest(nested)
+                ])));
+
+        Assert.DoesNotContain("using N.Outer;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public N.Outer.___c__DisplayClass0_0 Make();",
+            result.Source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "public class ___c__DisplayClass0_0",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GeneratedLegacyNamesUseRenderedSpellingForDuplicateValidation()
+    {
+        var first = CreateExactType("N", ["<A>d_1"], [0], []);
+        var second = CreateExactType("N", ["<A>d.1"], [0], []);
+
+        var exception = Assert.Throws<ArgumentException>(
+            () => _outcomePrinter.PrintBatch(
+            [
+                new CSharpTypePrintRequest(first),
+                new CSharpTypePrintRequest(second)
+            ]));
+
+        Assert.Contains("duplicate C# type", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GeneratedLegacyNameUsesExactLeafInsteadOfDottedDisplayName()
+    {
+        var outer = CreateExactType("N", ["Outer"], [0], []);
+        var nested = CreateExactType(
+            "N",
+            ["Outer", "<A>d__1"],
+            [0, 0],
+            []);
+        nested.Name = "Outer.<A>d__1";
+        nested.MetadataName = "Outer+<A>d__1";
+
+        CSharpTypePrintResult result = AssertPrinted(
+            _outcomePrinter.Print(new CSharpTypePrintRequest(
+                outer,
+                nestedTypes:
+                [
+                    new CSharpTypePrintRequest(nested)
+                ])));
+
+        Assert.Contains("public class __A_d__1", result.Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("class Outer.", result.Source, StringComparison.Ordinal);
     }
 
     [Fact]

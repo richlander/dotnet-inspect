@@ -356,7 +356,7 @@ public sealed class CSharpTypePrinter
         }
 
         var type = SnapshotTypeForRendering(request.Type, memberArray);
-        if (string.IsNullOrWhiteSpace(type.Name))
+        if (type.Name is null)
             throw new ArgumentException("Type print requests require a non-empty type name.");
         if (type.TypeParameters is null)
             throw new ArgumentException($"Type '{type.FullName}' has a null type-parameter collection.");
@@ -379,15 +379,21 @@ public sealed class CSharpTypePrinter
                     type.IntroducedTypeParameterCounts!,
                     type.TypeParameters)
                 : null;
+        string? legacyDeclaredTypeIdentifier =
+            hasGeneratedMetadataName
+                ? CSharpFormatter.NormalizeGeneratedMetadataTypeName(
+                    classificationLeaf)
+                : null;
+        if (legacyDeclaredTypeIdentifier is not null)
+            type.Name = legacyDeclaredTypeIdentifier;
+        else if (hasExactOrdinaryEvidence)
+            type.Name = classificationLeaf;
         ValidateRequiredShape(
             type,
             validateMetadataArity: !hasGeneratedMetadataName
                 && !hasExactOrdinaryEvidence,
-            validateTypeNameSpelling: !hasGeneratedMetadataName);
-        string? legacyDeclaredTypeIdentifier =
-            hasGeneratedMetadataName
-                ? CSharpFormatter.NormalizeGeneratedMetadataTypeName(type.Name)
-                : null;
+            validateTypeNameSpelling: !hasGeneratedMetadataName
+                && !hasExactOrdinaryEvidence);
         bool isNested = canonicalParent is not null;
         ValidateTypeKindAndContainment(type, isNested);
 
@@ -437,6 +443,7 @@ public sealed class CSharpTypePrinter
             .ToImmutableArray();
         return new PreparedType(
             typeNamespace,
+            metadataName,
             type,
             members.ToImmutable(),
             primaryConstructorParameters,
@@ -476,13 +483,10 @@ public sealed class CSharpTypePrinter
             string? outputParent)
         {
             ApiType type = prepared.Type;
-            string metadataName = string.IsNullOrWhiteSpace(type.MetadataName)
-                ? type.Name
-                : type.MetadataName;
             string outputName = CSharpFormatter.FormatTypeName(type);
             string canonicalPath = canonicalParent is null
-                ? metadataName
-                : $"{canonicalParent}+{metadataName}";
+                ? prepared.CanonicalMetadataName
+                : $"{canonicalParent}+{prepared.CanonicalMetadataName}";
             string outputPath = outputParent is null
                 ? outputName
                 : $"{outputParent}.{outputName}";
@@ -1283,6 +1287,7 @@ public sealed class CSharpTypePrinter
 
     sealed record PreparedType(
         string Namespace,
+        string CanonicalMetadataName,
         ApiType Type,
         ImmutableArray<PreparedMember> Members,
         ImmutableArray<ApiParameter> PrimaryConstructorParameters,
