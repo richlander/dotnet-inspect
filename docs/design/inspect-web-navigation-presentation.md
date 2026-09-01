@@ -97,8 +97,9 @@ An inspection workspace has two persistent lines before its primary content:
 1. The title line begins with `dotnet-inspect`, then renders the subject ladder,
    applicable Package coordinate controls, and active inspectors before its
    elastic context and global actions.
-2. The **inspected-subject line** renders the exact Package, Library, Type, or
-   Member identity in full with its direct Share and Copy name actions.
+2. The **inspected-subject line** renders the exact Workspace, Package,
+   Library, Type, or Member identity in full with its direct Share and Copy
+   name actions.
 
 The title line follows the CLI's product-to-subject-to-inspector grammar but is
 not command text. Inventories, hierarchy menus, and other target navigation
@@ -106,8 +107,9 @@ stay inside the working surface.
 
 ### Subject and inspector strip
 
-The subject strip contains the ordered Workspace, root, Library, Type, and
-Member subject descriptors supplied by Inspection Subject Navigation. The
+The subject strip begins with the presentation-owned Workspace entry into
+retained-coordinate management, then renders the ordered root, Library, Type,
+and Member subject descriptors supplied by Inspection Subject Navigation. The
 prototype establishes `Workspace`, `Package`, `Type`, and `Member` now;
 Library joins when its product descriptor and behavior are ready. The current
 subject is selected programmatically and is not conveyed by color alone.

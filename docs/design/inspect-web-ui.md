@@ -78,7 +78,7 @@ independent cosmetic changes.
 | Persistent hierarchy | Use one title line for product, subjects, coordinate controls, inspectors, context, and global actions; use one inspected-subject line before content |
 | Workspace title bar | Follow the CLI grammar after `dotnet-inspect`: subject, coordinate options, and inspector, followed by elastic context and global actions |
 | Subject navigation | Establish Workspace, Package, Type, and Member in the title line now; add Library when product descriptors are ready |
-| Inspected subject | Show the exact Package, Library, Type, or Member identity in full on the line below, with Share and Copy name |
+| Inspected subject | Show the exact Workspace, Package, Library, Type, or Member identity in full on the line below, with Share and Copy name |
 | Workspace selection | Keep ordinary single-workspace use free of tabs; manage retained coordinates inside the Workspace subject |
 | Package coordinate | Keep version and TFM selectors with the Package subject; platform is workspace content, not a workspace |
 | Library inspection | Select all libraries or one library within Library |
