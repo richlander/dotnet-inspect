@@ -411,7 +411,8 @@ compiler-async or runtime-async.
 The compiler-async and runtime-async deployment jobs each record:
 
 - the exact seven managed export assembly names and content digests;
-- the exact seven generated TypeScript contract digests;
+- the exact seven generated TypeScript source and declaration digests;
+- the exact seven published JavaScript filenames and content digests;
 - the exact seven shipped WebCIL assembly names and content digests;
 - per-assembly and total `[JSExport]`, compiler-async, and runtime-async counts;
 - the sorted repository-relative project identities, their canonical SHA-256
@@ -419,19 +420,27 @@ The compiler-async and runtime-async deployment jobs each record:
 - successful Browser/Wasm initialization of every facade plus the host canary
   result.
 
-Both jobs must report the same assembly names, generated-contract digests,
-total export count, sorted project identities, and project-graph digest. The
-count remains a useful summary but does not establish graph equality. Their
-lowering counts remain the expected all-or-nothing inverse. A receipt for only
-`InspectWeb.Engine.dll` is incomplete after partitioning even if its local
-counts are correct.
+Before writing a receipt, each lane compiles every freshly generated TypeScript
+source with the consumer's pinned compiler configuration and requires
+byte-for-byte equality with the corresponding published JavaScript module. The
+published filename-to-digest map therefore binds the wrappers the browser
+imports to the managed assembly and authenticated source used by that lane.
+
+Both jobs must report the same assembly names, generated source/declaration
+digests, published JavaScript filename/digest map, total export count, sorted
+project identities, and project-graph digest. The count remains a useful
+summary but does not establish graph equality. Their lowering counts remain the
+expected all-or-nothing inverse. A receipt for only `InspectWeb.Engine.dll` is
+incomplete after partitioning even if its local counts are correct.
 
 The deployment smoke initializes every module, which acquires its exact
 assembly export root and validates every expected runtime path, then invokes
 `host.asyncLoweringCanary()`. It remains independent of network, package-cache,
 server-API, and user-data state. Per-assembly lowering censuses prove that each
 module was compiled in the expected mode; contract and WebCIL digests prove
-that the censused assembly and generated binding are the deployed artifacts.
+that the censused assembly and generated binding are the deployed artifacts,
+and compiled-JavaScript equality proves that each published wrapper implements
+that binding.
 
 The local production composition gate separately invokes representative real
 operations from package, metadata, Analysis, source, call-graph, and catalog
@@ -440,8 +449,9 @@ certification into a network integration test.
 
 `InspectWebAsyncDeployment_ReceiptsCoverExactFacadeSet` gates module-set
 completeness. `InspectWebAsyncDeployment_LoweringsPreserveFacadeContracts`
-gates equal TypeScript contracts, exact project identity and digest equality,
-and inverse lowering counts across the paired deployments.
+gates equal TypeScript contracts, published JavaScript filename/digest maps,
+exact project identity and digest equality, and inverse lowering counts across
+the paired deployments.
 
 ## Failure semantics
 
