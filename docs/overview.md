@@ -28,7 +28,12 @@ Integrations and extension reachability retain compatible participants for
 cross-assembly composition. The components below are the current hosts, shared
 substrates, and inspection producers that will extend that space.
 
-- `src/dotnet-inspect/` contains the CLI, command routing, parsers, options, output views, section descriptors, and inspectors.
+- `src/dotnet-inspect/` contains the CLI, command routing, parsers, options,
+  output views, section descriptors, and inspectors. Its
+  [Find type-search service](design/find-search-service.md) owns the
+  CLI-scoped boundary from host-authorized candidate collection through typed
+  exact, glob, namespace-prefix, partial, and miss classification; Metadata
+  retains candidate facts and the command retains presentation.
 - `src/DotnetInspector.Queries/` contains host-neutral typed query definitions,
   deterministic synchronous/asynchronous execution, prerequisite-aware cost,
   and content-shaped metadata, reference, package dependency-group,
@@ -53,7 +58,7 @@ substrates, and inspection producers that will extend that space.
   SRM mechanics and neutral name matching. `StringDistance` lives there so
   Metadata suggestion ranking does not acquire the Finding-backed Text layer;
   `MetadataNameMatching_DoesNotDependOnFindingBackedText` gates that boundary.
-- `src/CSharpText/` is a dependency-free leaf for model-free C# and XML-documentation textual grammars: primitive aliases, canonical member signatures, XML-documentation identity notation and comment extraction, FQN/member-selector normalization, operator notation, identifier and keyword policy, expression-body recognition, member text layout, lexing, and conservative declaration/source-range recognition. It is not a parser and makes uncertainty explicit rather than guessing a span.
+- `src/CSharpText/` is a dependency-free leaf for model-free C# and XML-documentation textual grammars: primitive aliases, canonical member signatures, XML-documentation identity notation and comment extraction, FQN/member-selector normalization, operator notation, [type-declaration identifier admission](design/csharp-type-declaration-identifier-admission.md), identifier and keyword policy, expression-body recognition, member text layout, lexing, and conservative declaration/source-range recognition. It is not a parser and makes uncertainty explicit rather than guessing a span.
 - `src/ILInspector.CSharp/` is the lightweight model-bound C# spelling and type-view layer over Metadata shapes. `CSharpFormatter` is the declaration-spelling seam; [declared-type self-name admission](design/csharp-declared-type-self-name.md) owns the proposed exact-name boundary shared by type, constructor, and finalizer heads. `CSharpTypePrinter` composes exact typed requests, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes, without taking a Decompiler or Research dependency.
 - `src/ILInspector.Analysis/` indexes IL method-body evidence such as direct call sites, allocation and unsafety occurrences, method signals, and whole-assembly leverage without decompiling to C#. `AnalysisFindings` exposes reusable typed censuses and comparisons for allocations, call sites, unsafe operations, and unsafe declaration/body evidence.
 - `src/ILInspector.Analysis.App/` is a temporary console harness for exercising Analysis queries until CLI wiring exists.
@@ -137,6 +142,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   logical layers, project regions, currencies, and code-navigation map.
 - [CLI host architecture](cli-architecture.md): command-host responsibilities,
   request lifetime, selection, and presentation composition.
+- [Find type-search service](design/find-search-service.md): CLI-scoped
+  candidate collection, classification precedence, source ordering, limits,
+  failure visibility, and typed result boundary for `find`.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
 - [Compiled inspection domain composition](design/section-pipeline.md#compiled-inspection-domain-composition):
   L1/L2 binding from one immutable typed-query domain to reusable compiled
