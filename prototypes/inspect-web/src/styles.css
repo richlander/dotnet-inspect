@@ -2346,6 +2346,11 @@ kbd {
 .annotated-node-action small,
 .annotated-inspector-action small,
 .annotated-finding-status { color: var(--dim); font: 10px var(--mono); }
+.annotated-destinations { display: grid; gap: 7px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.annotated-destinations > span { color: var(--dim); font: 10px var(--mono); text-transform: uppercase; letter-spacing: .05em; }
+.annotated-destinations > div { display: flex; gap: 7px; }
+.annotated-destinations button { color: var(--text); border-color: var(--line-strong); }
+.annotated-destinations button:first-child { border-color: var(--accent); }
 .annotated-inspector-action > span:first-child { display: grid; gap: 3px; }
 .annotated-inspector-action { border-left: 3px solid var(--accent) !important; }
 

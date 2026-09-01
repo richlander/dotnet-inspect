@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 
 using ILInspector.Analysis;
+using ILInspector.CallGraph;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
@@ -35,6 +36,7 @@ public sealed record AssemblyContextMemberProjectionRequest(
     bool AnnotatedSource = false,
     bool SourceDocument = false,
     bool FactRows = false,
+    bool InvocationDestinations = false,
     AnnotationStage AnnotatedStage = AnnotationStage.Raised,
     PrinterOptions? PrinterOptions = null,
     LibraryBodyAnalysisFeatures AnalysisFeatures = LibraryBodyAnalysisFeatures.Default);
@@ -59,10 +61,18 @@ public sealed record MemberProjectionContextLimitation(
     MemberProjectionContextLimitationKind Kind,
     string Detail);
 
+/// <summary>
+/// One Decompiler-issued invocation node joined to one CallGraph-owned typed callee.
+/// </summary>
+public sealed record AssemblyMemberInvocationDestination(
+    int NodeId,
+    CallGraphNode Target);
+
 /// <summary>One participant's member projection and any narrowing of its fact context.</summary>
 public sealed record AssemblyMemberProjection(
     ResearchViews.MemberProjectionResult Projection,
-    MemberProjectionContextLimitation? ContextLimitation);
+    MemberProjectionContextLimitation? ContextLimitation,
+    IReadOnlyList<AssemblyMemberInvocationDestination> InvocationDestinations);
 
 /// <summary>
 /// Projects the Research type view from participants of one binding-consistent assembly context
@@ -170,6 +180,12 @@ public static class AssemblyContextMemberProjectionQuery
         ArgumentException.ThrowIfNullOrWhiteSpace(request.Type);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.Member);
         ArgumentOutOfRangeException.ThrowIfNegative(request.OverloadIndex);
+        if (request.InvocationDestinations && !request.SourceDocument)
+        {
+            throw new ArgumentException(
+                "Invocation destinations require a source document.",
+                nameof(request));
+        }
     }
 
     static AssemblyMemberProjection Project(
@@ -222,7 +238,14 @@ public static class AssemblyContextMemberProjectionQuery
                         CaretFocus: null,
                         request.SourceDocument,
                         index is null ? null : ResearchAssemblyContext.Create(index)));
-            return new AssemblyMemberProjection(projection, limitation);
+            IReadOnlyList<AssemblyMemberInvocationDestination> destinations =
+                request.InvocationDestinations
+                    && index is not null
+                    && projection.SourceDocument is { } document
+                    && projection.SelectedMethodToken is { } methodToken
+                    ? ProjectInvocationDestinations(index, methodToken, document)
+                    : [];
+            return new AssemblyMemberProjection(projection, limitation, destinations);
         }
         finally
         {
@@ -232,6 +255,91 @@ public static class AssemblyContextMemberProjectionQuery
             index?.ReleaseCallGraphCaches();
         }
     }
+
+    static IReadOnlyList<AssemblyMemberInvocationDestination> ProjectInvocationDestinations(
+        LibraryBodyIndex index,
+        int callerToken,
+        AnnotatedSourceDocument document)
+    {
+        index.GetDirectCallsByEvidenceMethod()
+            .TryGetValue(callerToken, out ImmutableArray<DirectCall> callArray);
+        DirectCall[] calls = callArray.IsDefault ? [] : [.. callArray];
+        if (calls.Length == 0)
+            return [];
+
+        CallTreeNode? calleeRoot = index.BuildCallTree(
+            callerToken,
+            maxDepth: 1,
+            maxNodes: calls.Length == int.MaxValue
+                ? int.MaxValue
+                : calls.Length + 1);
+        if (calleeRoot is null)
+            return [];
+
+        CallGraphProjection graph = CallGraphProjection.FromCallees(calleeRoot);
+        return
+        [
+            .. calls
+                .Select(call => (
+                    Node: InnermostInvocationNodeAtOffset(document, call.ILOffset),
+                    Target: FindCallee(graph, call)))
+                .Where(pair => pair.Node is not null && pair.Target is not null)
+                .Select(pair => (Node: pair.Node!, Target: pair.Target!))
+                .GroupBy(pair => pair.Node.Id)
+                .Select(group => new
+                {
+                    NodeId = group.Key,
+                    Targets = group
+                        .Select(pair => pair.Target)
+                        .DistinctBy(target => target.Identity)
+                        .ToArray(),
+                })
+                .Where(group => group.Targets.Length == 1)
+                .Select(group => new AssemblyMemberInvocationDestination(
+                    group.NodeId,
+                    group.Targets[0])),
+        ];
+    }
+
+    static CallGraphNode? FindCallee(
+        CallGraphProjection graph,
+        DirectCall call) =>
+        graph.FindFocusCalleeRow(call, out CallGraphRow row)
+            == CallGraphRowMatch.Found
+            ? graph.Nodes.Single(node => node.Id == row.Edge.To)
+            : null;
+
+    static AnnotatedSourceNode? InnermostInvocationNodeAtOffset(
+        AnnotatedSourceDocument document,
+        int ilOffset)
+    {
+        AnnotatedSourceNode[] containing =
+        [
+            .. document.Nodes.Where(node =>
+                node.Medium == SourceLineKind.CSharp
+                && node.Provenance?.IlOffsets.Contains(ilOffset) == true),
+        ];
+        AnnotatedSourceNode[] innermost =
+        [
+            .. containing.Where(candidate =>
+                !containing.Any(other =>
+                    other.Id != candidate.Id
+                    && SpansContain(candidate.Spans, other.Spans))),
+        ];
+        return innermost.Length == 1
+            && innermost[0].Kind == "InvocationExpression"
+            ? innermost[0]
+            : null;
+    }
+
+    static bool SpansContain(
+        IReadOnlyList<AnnotatedSourceSpan> outer,
+        IReadOnlyList<AnnotatedSourceSpan> inner) =>
+        inner.All(innerSpan =>
+            outer.Any(outerSpan =>
+                innerSpan.Start >= outerSpan.Start
+                && (long)innerSpan.Start + innerSpan.Length
+                    <= (long)outerSpan.Start + outerSpan.Length));
 }
 
 /// <summary>

@@ -410,6 +410,7 @@ public static partial class InspectionEngine
                         memberName,
                         MethodToken: resolution.BodyToken,
                         SourceDocument: true,
+                        InvocationDestinations: true,
                         PrinterOptions: BrowserStyleOptions.Resolve(styleOptionsJson)))),
             $"Annotated source for '{typeQueryId}.{memberName}'");
 
@@ -424,6 +425,20 @@ public static partial class InspectionEngine
                     : "Annotated source projection produced no document.");
         }
 
+        BrowserAnnotatedSourceInvocationDestination[]? destinations =
+            projection.ContextLimitation is null
+                ?
+                [
+                    .. projection.InvocationDestinations.Select(destination =>
+                        new BrowserAnnotatedSourceInvocationDestination(
+                            destination.NodeId,
+                            Target(
+                                destination.Target,
+                                [participant.Assembly.Identity],
+                                null))),
+                ]
+                : null;
+
         return JsonSerializer.Serialize(
             BrowserAnnotatedSource.Create(
                 document,
@@ -431,7 +446,11 @@ public static partial class InspectionEngine
                     + $"{participant.Coordinate.Version} {participant.Asset.Path}",
                 projection.ContextLimitation is { } limitation
                     ? $"{limitation.Kind}: {limitation.Detail}"
-                    : null),
+                    : null,
+                destinations,
+                destinations is null
+                    ? BrowserAnnotatedSourceCapabilityUnavailableReason.ContextUnavailable
+                    : BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected),
             BrowserJsonContext.Default.BrowserAnnotatedSource);
     }
 
@@ -1395,7 +1414,8 @@ public static partial class InspectionEngine
         string selectorKey,
         int metadataToken)
     {
-        (_, _, Analysis.CallGraphMemberResolution resolution) =
+        (_, BrowserWorkspaceParticipant participant,
+            Analysis.CallGraphMemberResolution resolution) =
             await ImplementationMemberAsync(
                 packageId,
                 version,
@@ -1408,11 +1428,15 @@ public static partial class InspectionEngine
         var textBudget = new BrowserSurfaceProjection.BrowserSurfaceTextBudget(
             BrowserApiSurfacePolicy.MaxRetainedTextCharacters);
         textBudget.BeginParticipant();
-        BrowserMemberSurface member =
-            BrowserSurfaceProjection.Member(
+        BrowserTypeSurface type =
+            BrowserSurfaceProjection.Type(
                 resolution.Type,
-                resolution.Member,
-                textBudget);
+                participant.Asset.AssemblyName,
+                participant.Asset.Id,
+                participant.Assembly.Identity.Name,
+                textBudget,
+                selectedMembers: [resolution.Member]);
+        BrowserMemberSurface member = type.Api.Single();
         BrowserMemberBodySelector selectedBody =
             member.BodySelectors.SingleOrDefault(
                 body => body.Token == resolution.BodyToken)
@@ -1421,7 +1445,7 @@ public static partial class InspectionEngine
                 + $"body 0x{resolution.BodyToken:X8}.");
         textBudget.CommitParticipant();
         return JsonSerializer.Serialize(
-            new BrowserGraphMemberSurface(member, selectedBody),
+            new BrowserGraphMemberSurface(type, selectedBody),
             BrowserJsonContext.Default.BrowserGraphMemberSurface);
     }
 

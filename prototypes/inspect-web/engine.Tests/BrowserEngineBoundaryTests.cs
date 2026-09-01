@@ -85,6 +85,11 @@ public sealed class BrowserEngineBoundaryTests
 
     public static int PerformanceNoAllocationProbe(int value) => value;
 
+    public static int InvocationDestinationProbe(int value) =>
+        InvocationDestinationTarget(value);
+
+    static int InvocationDestinationTarget(int value) => value;
+
     public static Guid PerformanceValueTypeConstructionProbe(byte[] bytes) =>
         new(bytes);
 
@@ -3909,9 +3914,15 @@ public sealed class BrowserEngineBoundaryTests
         using JsonDocument graphMemberDocument =
             JsonDocument.Parse(graphMemberJson);
         JsonElement graphMember = graphMemberDocument.RootElement;
+        JsonElement graphMemberType = graphMember.GetProperty("type");
+        Assert.Equal(
+            type.GetProperty("definitionId").GetString(),
+            graphMemberType.GetProperty("definitionId").GetString());
+        JsonElement graphMemberApi =
+            Assert.Single(graphMemberType.GetProperty("api").EnumerateArray());
         Assert.Equal(
             JsonValueKind.Null,
-            graphMember.GetProperty("member")
+            graphMemberApi
                 .GetProperty("metadataToken").ValueKind);
         Assert.Equal(
             getter.GetProperty("token").GetInt32(),
@@ -4131,6 +4142,72 @@ public sealed class BrowserEngineBoundaryTests
                     == JsonValueKind.String)
                 .GroupBy(fact => fact.GetProperty("offset").GetString()),
             group => group.Count() > 1);
+    }
+
+    [Fact]
+    public async Task AnnotatedSourceDestinations_RetainLoadedAssemblyIdentity()
+    {
+        const string PackageId = "Browser.Annotated.Destinations";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageWorkspace.RegisterAcquiredPackage(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(
+                    image,
+                    image,
+                    $"{PackageId}.dll"),
+                fromCache: false));
+
+        string surfaceJson = await InspectionEngine.QueryPackage(
+            PackageId,
+            "1.0.0",
+            "net11.0");
+        using JsonDocument surfaceDocument =
+            JsonDocument.Parse(surfaceJson);
+        JsonElement type = Assert.Single(
+            surfaceDocument.RootElement
+                .GetProperty("types")
+                .EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("definitionId").GetString()
+                == typeof(BrowserEngineBoundaryTests).FullName);
+        JsonElement member = Assert.Single(
+            type.GetProperty("api").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("name").GetString()
+                == nameof(InvocationDestinationProbe));
+
+        string annotatedJson =
+            await InspectionEngine.QueryMemberAnnotatedSource(
+                PackageId,
+                "1.0.0",
+                "net11.0",
+                type.GetProperty("assembly").GetString()!,
+                type.GetProperty("definitionId").GetString()!,
+                type.GetProperty("queryId").GetString()!,
+                member.GetProperty("name").GetString()!,
+                member.GetProperty("signature").GetString()!,
+                member.GetProperty("graphSelectorKey").GetString()!,
+                member.GetProperty("metadataToken").GetInt32(),
+                "[]");
+        using JsonDocument annotatedDocument =
+            JsonDocument.Parse(annotatedJson);
+        JsonElement destination = Assert.Single(
+            annotatedDocument.RootElement
+                .GetProperty("viewerCatalog")
+                .GetProperty("invocationDestinations")
+                .EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("target")
+                    .GetProperty("memberName").GetString()
+                == nameof(InvocationDestinationTarget));
+        JsonElement target = destination.GetProperty("target");
+
+        Assert.Equal(
+            typeof(BrowserEngineBoundaryTests).Assembly.GetName().Version?.ToString(),
+            target.GetProperty("assemblyVersion").GetString());
     }
 
     [Fact]

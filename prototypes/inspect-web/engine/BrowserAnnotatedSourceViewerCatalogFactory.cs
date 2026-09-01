@@ -32,9 +32,18 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
     ];
 
     public static BrowserAnnotatedSourceViewerCatalog Create(
-        AnnotatedSourceDocument document)
+        AnnotatedSourceDocument document,
+        BrowserAnnotatedSourceInvocationDestination[]?
+            invocationDestinations = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            destinationUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected)
     {
         ArgumentNullException.ThrowIfNull(document);
+        BrowserAnnotatedSourceInvocationDestination[] projectedDestinations =
+            invocationDestinations is null
+                ? []
+                : ValidateInvocationDestinations(document, invocationDestinations);
 
         var targetedFacts = new bool[document.Facts.Count];
         foreach (AnnotatedSourceTarget target in document.Targets)
@@ -69,7 +78,62 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
             supportedMedia,
             invocationLikeNodeKinds,
             NotProjected,
-            NotProjected);
+            invocationDestinations is null
+                ? destinationUnavailableReason
+                    == BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected
+                    ? NotProjected
+                    : new BrowserAnnotatedSourceCapabilityAvailability(
+                        Available: false,
+                        destinationUnavailableReason)
+                : new BrowserAnnotatedSourceCapabilityAvailability(
+                    Available: true,
+                    UnavailableReason: null),
+            projectedDestinations);
+    }
+
+    private static BrowserAnnotatedSourceInvocationDestination[]
+        ValidateInvocationDestinations(
+            AnnotatedSourceDocument document,
+            BrowserAnnotatedSourceInvocationDestination[] destinations)
+    {
+        var nodeIds = new HashSet<int>();
+        var rows =
+            new BrowserAnnotatedSourceInvocationDestination[destinations.Length];
+        for (int index = 0; index < destinations.Length; index++)
+        {
+            BrowserAnnotatedSourceInvocationDestination destination =
+                destinations[index]
+                ?? throw new ArgumentException(
+                    "Invocation destination rows cannot be null.",
+                    nameof(destinations));
+            if (destination.NodeId < 0
+                || destination.NodeId >= document.Nodes.Count)
+            {
+                throw new ArgumentException(
+                    $"Invocation destination node {destination.NodeId} does not exist.",
+                    nameof(destinations));
+            }
+            AnnotatedSourceNode node = document.Nodes[destination.NodeId];
+            if (node.Medium != SourceLineKind.CSharp
+                || !string.Equals(
+                    node.Kind,
+                    "InvocationExpression",
+                    StringComparison.Ordinal))
+            {
+                throw new ArgumentException(
+                    $"Invocation destination node {destination.NodeId} is not a C# invocation.",
+                    nameof(destinations));
+            }
+            if (!nodeIds.Add(destination.NodeId))
+            {
+                throw new ArgumentException(
+                    $"Invocation destination node {destination.NodeId} is duplicated.",
+                    nameof(destinations));
+            }
+            ArgumentNullException.ThrowIfNull(destination.Target);
+            rows[index] = destination;
+        }
+        return rows;
     }
 
     private static bool IsDefaultFindingCategory(string category) =>

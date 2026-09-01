@@ -81,6 +81,161 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
+    public void MemberProjection_MapsAnInvocationNodeToItsTypedCallee()
+    {
+        var policy = new RecordingBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                InvocationRequest(nameof(ResearchProjectionProbe.InvokeLocal))));
+
+        AnnotatedSourceDocument document =
+            Assert.IsType<AnnotatedSourceDocument>(projection.Projection.SourceDocument);
+        AssemblyMemberInvocationDestination destination =
+            Assert.Single(projection.InvocationDestinations);
+        AnnotatedSourceNode node = document.Nodes[destination.NodeId];
+        Assert.Equal("InvocationExpression", node.Kind);
+        Assert.Equal(SourceLineKind.CSharp, node.Medium);
+        Assert.Equal(
+            nameof(ResearchProjectionProbe.LocalCallee),
+            destination.Target.Member.Name);
+        Assert.Equal(
+            typeof(ResearchProjectionProbe).FullName,
+            destination.Target.Member.DeclaringType.ToQualifiedDisplayString());
+    }
+
+    [Fact]
+    public void MemberProjection_MapsAnExternalInvocationWithoutParsingSource()
+    {
+        var policy = new RecordingBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                InvocationRequest(nameof(ResearchProjectionProbe.InvokeExternal))));
+
+        AssemblyMemberInvocationDestination destination =
+            Assert.Single(projection.InvocationDestinations);
+        Assert.Equal(nameof(Math.Abs), destination.Target.Member.Name);
+        Assert.Equal(
+            typeof(Math).FullName,
+            destination.Target.Member.DeclaringType.ToQualifiedDisplayString());
+    }
+
+    [Fact]
+    public void MemberProjection_MapsNestedInvocationsToTheirOwnCallees()
+    {
+        var policy = new RecordingBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                InvocationRequest(nameof(ResearchProjectionProbe.InvokeNested))));
+
+        AnnotatedSourceDocument document =
+            Assert.IsType<AnnotatedSourceDocument>(projection.Projection.SourceDocument);
+        Dictionary<string, AnnotatedSourceNode> nodesByCallee =
+            projection.InvocationDestinations.ToDictionary(
+                destination => destination.Target.Member.Name,
+                destination => document.Nodes[destination.NodeId]);
+        Assert.Equal(2, nodesByCallee.Count);
+        Assert.Contains(
+            "Math.Abs(Identity(value))",
+            NodeText(document, nodesByCallee[nameof(Math.Abs)]),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Identity(value)",
+            NodeText(document, nodesByCallee[nameof(ResearchProjectionProbe.Identity)]),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MemberProjection_DoesNotConfusePropertyArgumentsWithTheirInvocation()
+    {
+        var policy = new RecordingBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                InvocationRequest(
+                    nameof(ResearchProjectionProbe.InvokeWithPropertyArguments))));
+
+        AssemblyMemberInvocationDestination destination =
+            Assert.Single(projection.InvocationDestinations);
+        Assert.Equal(
+            nameof(ResearchProjectionProbe.PropertyArgumentCallee),
+            destination.Target.Member.Name);
+        Assert.DoesNotContain(
+            projection.InvocationDestinations,
+            item => item.Target.Member.Name
+                == $"get_{nameof(ResearchProjectionValue.Value)}");
+    }
+
+    [Fact]
+    public void MemberProjection_RetainsRepeatedCallSiteNodes()
+    {
+        var policy = new RecordingBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                InvocationRequest(nameof(ResearchProjectionProbe.InvokeRepeated))));
+
+        AnnotatedSourceDocument document =
+            Assert.IsType<AnnotatedSourceDocument>(projection.Projection.SourceDocument);
+        Assert.True(
+            projection.InvocationDestinations.Count == 2,
+            $"Expected two invocation destinations; projected nodes: {string.Join(
+                ", ",
+                document.Nodes
+                    .Where(node => node.Medium == SourceLineKind.CSharp)
+                    .Select(node =>
+                        $"{node.Id}:{node.Kind}:"
+                        + $"{string.Join("/", node.Provenance?.IlOffsets ?? [])}"))}");
+        Assert.Equal(
+            2,
+            projection.InvocationDestinations
+                .Select(destination => destination.NodeId)
+                .Distinct()
+                .Count());
+        Assert.All(
+            projection.InvocationDestinations,
+            destination => Assert.Equal(
+                nameof(Math.Abs),
+                destination.Target.Member.Name));
+    }
+
+    [Fact]
+    public void MemberProjection_RequiresSourceForInvocationDestinations()
+    {
+        var policy = new RecordingBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+
+        ArgumentException error = Assert.Throws<ArgumentException>(() =>
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                Request(nameof(ResearchProjectionProbe.InvokeLocal)) with
+                {
+                    SourceDocument = false,
+                    InvocationDestinations = true,
+                }));
+
+        Assert.Contains("source document", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void MemberProjection_MethodTokenAddressesTheExactOverload()
     {
         var policy = new RecordingBindingPolicy();
@@ -253,6 +408,27 @@ public sealed class AssemblyContextResearchProjectionQueryTests
             member,
             SourceDocument: true);
 
+    static AssemblyContextMemberProjectionRequest InvocationRequest(string member)
+    {
+        MethodInfo method = typeof(ResearchProjectionProbe).GetMethod(
+            member,
+            BindingFlags.Public | BindingFlags.Static)
+            ?? throw new InvalidOperationException(
+                $"Missing invocation probe {member}.");
+        return Request(member) with
+        {
+            MethodToken = method.MetadataToken,
+            InvocationDestinations = true,
+        };
+    }
+
+    static string NodeText(
+        AnnotatedSourceDocument document,
+        AnnotatedSourceNode node) =>
+        string.Concat(
+            node.Spans.Select(span =>
+                document.Text.Substring(span.Start, span.Length)));
+
     static AssemblyContextGroup ContentGroup(
         InspectionWorkspace workspace,
         IAssemblyBindingPolicy policy)
@@ -355,8 +531,40 @@ public static class ResearchProjectionProbe
 
     public static int Overloaded(string value) => value.Length;
 
+    public static int InvokeLocal(int value) => LocalCallee(value);
+
+    public static int LocalCallee(int value) => value + 1;
+
+    public static int InvokeExternal(int value) => Math.Abs(value);
+
+    public static int InvokeNested(int value) => Math.Abs(Identity(value));
+
+    [System.Runtime.CompilerServices.MethodImpl(
+        System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    public static int Identity(int value) => value;
+
+    public static int InvokeWithPropertyArguments(
+        ResearchProjectionValue first,
+        ResearchProjectionValue second) =>
+        PropertyArgumentCallee(first.Value, second.Value);
+
+    public static int PropertyArgumentCallee(int first, int second) =>
+        first + second;
+
+    public static int InvokeRepeated(int value)
+    {
+        int first = Math.Abs(value);
+        int second = Math.Abs(value);
+        return first + second;
+    }
+
     public static class Nested
     {
         public static object BoxNested(int value) => value;
     }
+}
+
+public sealed class ResearchProjectionValue
+{
+    public int Value { get; init; }
 }

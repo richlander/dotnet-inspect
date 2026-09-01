@@ -48,7 +48,10 @@ const objectStart = sampleDocument.text.indexOf("new object()");
 const documentWithTighterGeneric: AnnotatedSourceDocument = {
   ...sampleDocument,
   nodes: [
-    ...sampleDocument.nodes,
+    ...sampleDocument.nodes.map(node =>
+      node.id === 1
+        ? { ...node, kind: "InvocationExpression" }
+        : node),
     {
       id: 4,
       kind: "IdentifierName",
@@ -65,14 +68,35 @@ const result: AnnotatedSourceResult = {
   viewerCatalog: {
     defaultFindingIds: [0, 1],
     supportedMedia: ["CSharp", "Il"],
-    invocationLikeNodeKinds: ["ObjectCreationExpression"],
+    invocationLikeNodeKinds: ["InvocationExpression"],
+    invocationDestinations: [{
+      nodeId: 1,
+      target: {
+        id: "n1",
+        assembly: "System.Private.CoreLib",
+        assemblyVersion: "11.0.0.0",
+        assemblyCulture: null,
+        assemblyPublicKeyToken: "7cec85d7bea7798e",
+        typeFullName: "System.Object",
+        typeMetadataId: "System.Object",
+        typeDefinitionId: "System.Object",
+        memberName: ".ctor",
+        parameterTypes: [],
+        returnType: "System.Void",
+        genericArity: 0,
+        metadataToken: 0x06000001,
+        selectorKey: "method:.ctor",
+        kind: "definition",
+        platformPack: "Microsoft.NETCore.App.Ref",
+      },
+    }],
     findingEvidence: {
       available: false,
       unavailableReason: "NotProjected",
     },
     destinations: {
-      available: false,
-      unavailableReason: "NotProjected",
+      available: true,
+      unavailableReason: null,
     },
   },
   provenance: "browser-gate product fixture",
@@ -230,6 +254,11 @@ function onAction(action: AnnotatedSourceAction): void {
       renderAndFocus(transition.focus);
       return;
     }
+    case "destination-open":
+      document.body.dataset.destination =
+        `${action.destination}:${action.destinationIndex}`;
+      closeModal();
+      return;
     case "node-select":
       updateSession(selectNode(session, action.nodeId));
       renderAndFocus({ kind: "node", nodeId: action.nodeId });
