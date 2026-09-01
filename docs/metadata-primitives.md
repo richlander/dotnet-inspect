@@ -224,20 +224,20 @@ Owner adoption is deliberately staged. `ILInspector.Metadata` has adopted the
 contract across its acquisition, scanner, projection, and PDB entry points, and
 the `MethodSemanticsRowReader` leaf check performs the same admission. Because
 those entry points now raise the typed mechanisms where they previously
-returned `null`, the two direct consumers that would otherwise lose the
-distinction — `AssemblySetResolutionSession` in Services and
-`WorkspaceContextLoader` in Queries — preserve them as typed
-unsupported-format and malformed-root outcomes rather than acquisition
-failures. The Analysis, Decompiler, Research, ILDiff, remaining Queries, and
-CLI owners have not adopted it, and no gate yet requires universal adoption;
-each remaining owner adopts it in a focused successor tracked by #4877. Until
-those land, callers must not infer that the contract's existence closes the
-repository-wide `MDP017` entry-point inventory.
+returned `null`, the direct consumers that would otherwise lose the
+distinction — `AssemblySetResolutionSession` in Services,
+`WorkspaceContextLoader` in Queries, and the CLI's `TimelineCommand` — preserve
+them as typed unsupported-format and malformed-root outcomes rather than
+acquisition failures. The Analysis, Decompiler, Research, ILDiff, remaining
+Queries, and remaining CLI owners have not adopted it, and no gate yet requires
+universal adoption; each remaining owner adopts it in a focused successor
+tracked by #4877. Until those land, callers must not infer that the contract's
+existence closes the repository-wide `MDP017` entry-point inventory.
 
 Metadata-owner adoption is gated by `MetadataAdmissionCleanupTests`, by the
 consumer-facing cases in `MetadataImageFormatClassifierTests`, and by the
-typed-outcome cases in `AssemblySetResolutionSessionTests` and
-`WorkspaceContextLoaderTests`.
+typed-outcome cases in `AssemblySetResolutionSessionTests`,
+`WorkspaceContextLoaderTests`, and `TimelineCommandTests`.
 
 ### Lossless `MethodSemantics` row boundary
 
