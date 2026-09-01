@@ -6,10 +6,11 @@
 // is base64'd straight into a chunk, emitting no asset file and no manifest entry either.
 //
 // Vite 8's Rolldown context exposes the module graph but no longer exposes Rollup's
-// `getWatchFiles`. The graph covers modules, entry HTML and CSS, while a second build
-// with asset inlining disabled makes every asset source visible through output
-// provenance. Both answers come from Vite builds using the project's real config and
-// plugins rather than from parsing source or enumerating extensions.
+// `getWatchFiles`. The graph covers modules, entry HTML and CSS; query-bearing module
+// IDs are normalized back to their physical source path. A second build with asset
+// inlining disabled makes every asset source visible through output provenance. Both
+// answers come from Vite builds using the project's real config and plugins rather than
+// from parsing source or enumerating extensions.
 //
 // The project's own `vite.config.ts` is used rather than a restatement of it, so the
 // audit reads what the real build reads. Only the output is suppressed: `write: false`
@@ -98,6 +99,15 @@ function outputsOf(
   throw new Error("the audited build unexpectedly returned a watcher");
 }
 
+function physicalModulePath(id: string): string | undefined {
+  if (id.startsWith("\0")) {
+    return undefined;
+  }
+  const suffix = id.search(/[?#]/u);
+  const path = suffix === -1 ? id : id.slice(0, suffix);
+  return existsSync(path) ? path : undefined;
+}
+
 export async function auditedBuild(root: string): Promise<AuditedBuild> {
   const read = new Set<string>();
   let observed: { mode: string; publicDir: string; pluginNames: string[]; workerPluginCount: number }
@@ -123,8 +133,9 @@ export async function auditedBuild(root: string): Promise<AuditedBuild> {
       },
       buildEnd(this: Rolldown.PluginContext) {
         for (const id of this.getModuleIds()) {
-          if (existsSync(id)) {
-            read.add(id);
+          const path = physicalModulePath(id);
+          if (path !== undefined) {
+            read.add(path);
           }
         }
       },

@@ -1143,6 +1143,28 @@ test("the bundler input audit includes inlined asset sources", async () => {
   }
 });
 
+test("the bundler input audit includes query-bearing module sources", async () => {
+  const root = mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-"));
+  try {
+    writeFileSync(
+      join(root, "index.html"),
+      '<script type="module" src="/main.js"></script>',
+    );
+    writeFileSync(
+      join(root, "main.js"),
+      'import payload from "./payload.txt?raw"; globalThis.payload = payload;',
+    );
+    writeFileSync(join(root, "payload.txt"), "unchecked payload");
+
+    const read = (await bundlerReadFiles(root)).map(file => resolve(file));
+
+    assert.ok(read.includes(resolve(root, "payload.txt")));
+  }
+  finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("the lint covers every file the bundler reads", async () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
 
