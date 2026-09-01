@@ -350,6 +350,22 @@ a target-only catalog rather than mixing a detached tree with an evidence-free
 local tree; `CallGraph_KeepsVersionSkewedCallersWhenCalleesAreUnscoped` gates
 that projection never falls back to structural identity and collapses versions.
 
+Caller-scope admission distinguishes result cardinality from completeness
+before graph construction. When a caller's exact assembly reference binds to a
+different definition than the inspected target, that caller is conclusively
+excluded from the target's graph. If no caller remains, the complete empty graph
+is a canonical successful value, analogous to `string.Empty`: zero edges is
+evidence, not absence of evidence. `Complete(empty)` is therefore distinct from
+`Incomplete(partial)`. An unavailable or ambiguous correspondence retains the
+candidate as indeterminate and makes the affected result incomplete; exact
+exclusion does not. This does not change the separate case where an admitted
+graph contains an exact binding to a different identity of the primary
+assembly, which remains represented by `BindingIdentityConflictCount`.
+`CallerScopes_ExactReferencedVersionExcludesDifferentTarget` gates the
+Analysis-owned admission result, and
+`Member_CallGraph_VersionSkewedCallerScopeIsCompleteAndEmpty` gates the CLI
+presentation without an incompleteness warning.
+
 `CrossLibraryCalleeNeighborhood` exposes the existing cross-library callee
 traversal as a call-only L1 inspection-graph neighborhood. Its request carries
 non-negative maximum edge depth and a positive call-node budget. The returned

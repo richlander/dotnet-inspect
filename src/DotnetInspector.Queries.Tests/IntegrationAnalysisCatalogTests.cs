@@ -151,7 +151,7 @@ public sealed class IntegrationAnalysisCatalogTests
     }
 
     [Fact]
-    public void IntegrationCapability_RequiresStableOrderedBindingContextIdentity()
+    public void IntegrationCapability_RequiresStableOrderedBindingContextIdentityAndIncidence()
     {
         AnalysisUniverseRequirementDescriptor bindingContexts =
             Assert.Single(
@@ -159,6 +159,14 @@ public sealed class IntegrationAnalysisCatalogTests
                 requirement => ReferenceEquals(
                     requirement.Capability,
                     IntegrationAnalysisCatalog.BindingContexts));
+        Assert.Same(
+            IntegrationAnalysisCatalog.BindingContextsRequirement,
+            bindingContexts);
+        Assert.Equal(2, IntegrationAnalysisCatalog.Analysis.Revision);
+        Assert.Contains(
+            "incidence",
+            IntegrationAnalysisCatalog.BindingContexts.Summary,
+            StringComparison.Ordinal);
         AnalysisUniverseDescription universe = Universe(
             IntegrationAnalysisCatalog.UniverseRequirements
                 .Where(requirement =>
