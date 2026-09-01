@@ -1681,6 +1681,32 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void ToDisplayRows_DoesNotDescribeCalleeRenameWhenNameOnlyMatchesADeclarationParameter()
+    {
+        // Round-1 review (reviewers A and B): the renamed callee's identity
+        // must match the local function's own *declared name*, not merely
+        // any identifier occurring anywhere in the declaration's full
+        // statement text. Here the sole Added LocalFunctionStatement is
+        // named `Other`, but its parameter happens to be named `New` --
+        // exactly the identifier the unrelated call was renamed to. This
+        // must not be read as "the callee now targets a local function";
+        // there is no such declaration.
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return New(value);\nstatic void Other(int New) { }",
+            new NodeSpec("InvocationExpression", "New(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void Other(int New) { }", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> New(value)", changed.Detail);
+    }
+
+    [Fact]
     public void IssueCorrespondence_DoesNotInferDeclarationWithoutMatchedCallSiteRewrite()
     {
         // Close negative: a new local-function declaration with no IL origin

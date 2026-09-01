@@ -514,12 +514,16 @@ public static class CSharpStructuralDiffPrinter
     /// <summary>
     /// Whether this comparison already reports a <see cref="CSharpStructuralChangeKind.Added"/>
     /// or <see cref="CSharpStructuralChangeKind.Removed"/> <c>LocalFunctionStatement</c>
-    /// row whose own selected source text names <paramref name="name"/> as a
-    /// whole identifier -- not merely a substring, which would otherwise let
-    /// an unrelated declaration like <c>OwnValue</c> falsely match a callee
-    /// named <c>Own</c>. The row's display label is only a generic per-kind
-    /// caption ("Local function"), never the declaration's own text, so this
-    /// re-selects the row's actual spans instead.
+    /// row whose own <em>declared name</em> -- not merely any identifier
+    /// occurring anywhere in its full statement text -- equals
+    /// <paramref name="name"/>. The row's display label is only a generic
+    /// per-kind caption ("Local function"), never the declaration's own
+    /// text, so this re-selects the row's actual spans instead. Scanning the
+    /// declaration's full span text for any occurrence of the identifier
+    /// (round-1 review, reviewers A and B) would falsely match a parameter,
+    /// body reference, comment, or string literal that merely shares the
+    /// callee's spelling -- e.g. a local function <c>Other(int New)</c> must
+    /// not license the caption for an unrelated call renamed to <c>New</c>.
     /// </summary>
     static bool DeclaresLocalFunctionNamed(
         CSharpStructuralComparison comparison,
@@ -539,31 +543,78 @@ public static class CSharpStructuralDiffPrinter
             var spans = change == CSharpStructuralChangeKind.Added ? candidate.AfterSpans : candidate.BeforeSpans;
             foreach (var span in spans)
             {
-                if (HasWholeIdentifierMatch(SelectText(document, span), name))
+                if (TryGetLocalFunctionDeclaredName(SelectText(document, span), out string declaredName)
+                    && string.Equals(declaredName, name, StringComparison.Ordinal))
+                {
                     return true;
+                }
             }
         }
 
         return false;
     }
 
-    static bool HasWholeIdentifierMatch(string text, string identifier)
+    /// <summary>
+    /// Modifiers a local-function declaration's header may carry before its
+    /// return type and name. Needed only to skip a tuple return type's own
+    /// parenthesized group (e.g. <c>static (int, string) F(int x)</c>), whose
+    /// preceding token would otherwise be mistaken for the declared name.
+    /// </summary>
+    static readonly string[] LocalFunctionModifiers = ["static", "async", "unsafe", "extern"];
+
+    /// <summary>
+    /// Extracts a <c>LocalFunctionStatement</c>'s own declared name: the
+    /// identifier immediately preceding the first top-level (depth-zero)
+    /// parenthesized group whose preceding token is not itself a known
+    /// modifier keyword. Depth tracking means an identifier merely appearing
+    /// inside that group -- a parameter name, a default-value expression, or
+    /// anything in the body after the parameter list closes -- is never
+    /// examined; only the header token immediately before the parameter
+    /// list's own opening paren is a candidate. Returns
+    /// <see langword="false"/> for any shape this narrow heuristic does not
+    /// recognize, matching every other textual classifier in this file:
+    /// "no opinion", not a guess.
+    /// </summary>
+    static bool TryGetLocalFunctionDeclaredName(string text, out string name)
     {
-        int searchStart = 0;
-        while (true)
+        name = "";
+        int depth = 0;
+        int groupStart = -1;
+        for (int index = 0; index < text.Length; index++)
         {
-            int index = text.IndexOf(identifier, searchStart, StringComparison.Ordinal);
-            if (index < 0)
-                return false;
+            char current = text[index];
+            if (current == '(')
+            {
+                if (depth == 0)
+                    groupStart = index;
+                depth++;
+            }
+            else if (current == ')')
+            {
+                depth--;
+                if (depth == 0 && groupStart >= 0)
+                {
+                    int tokenEnd = groupStart;
+                    while (tokenEnd > 0 && char.IsWhiteSpace(text[tokenEnd - 1]))
+                        tokenEnd--;
+                    int tokenStart = tokenEnd;
+                    while (tokenStart > 0 && IsIdentifierChar(text[tokenStart - 1]))
+                        tokenStart--;
 
-            bool leftBoundary = index == 0 || !IsIdentifierChar(text[index - 1]);
-            int end = index + identifier.Length;
-            bool rightBoundary = end == text.Length || !IsIdentifierChar(text[end]);
-            if (leftBoundary && rightBoundary)
-                return true;
+                    if (tokenStart < tokenEnd
+                        && !char.IsDigit(text[tokenStart])
+                        && Array.IndexOf(LocalFunctionModifiers, text[tokenStart..tokenEnd]) < 0)
+                    {
+                        name = text[tokenStart..tokenEnd];
+                        return true;
+                    }
 
-            searchStart = index + 1;
+                    groupStart = -1;
+                }
+            }
         }
+
+        return false;
     }
 
     static bool IsIdentifierChar(char value) => char.IsLetterOrDigit(value) || value == '_';
