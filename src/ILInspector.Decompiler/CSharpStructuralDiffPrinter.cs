@@ -719,6 +719,26 @@ public static class CSharpStructuralDiffPrinter
                         return false;
                     }
 
+                    if (tokenStart > start && !char.IsWhiteSpace(text[tokenStart - 1]))
+                    {
+                        // Whatever precedes this identifier -- a modifier
+                        // keyword, a return type, or nothing at all -- must
+                        // be separated from it by whitespace (or '@', which
+                        // is already folded in above). Any other adjoining
+                        // character means the backward identifier scan
+                        // stopped at a non-identifier character in the
+                        // *middle* of a longer token, not at a real
+                        // boundary. The decompiler deliberately preserves
+                        // compiler-unspellable names containing such
+                        // characters (e.g. `bad-name`), and the valid-
+                        // looking suffix captured here (`name`) is not the
+                        // declaration's real name -- it could coincidentally
+                        // match an unrelated call's own rename (round-9
+                        // review, reviewer A). This shape isn't recognized;
+                        // bail rather than risk that coincidence.
+                        return false;
+                    }
+
                     if (char.IsDigit(text[tokenStart]))
                         return false;
 
@@ -735,23 +755,34 @@ public static class CSharpStructuralDiffPrinter
                         // parameter list mistaken for this modifier-prefixed
                         // group instead, and the body opens immediately
                         // after -- round-8 review, reviewer A. Peeking past
-                        // the closing paren for an immediate body start
-                        // (`{` or `=>`) distinguishes the two: only bail in
-                        // that case, rather than fall through into the body
-                        // and misattribute a call found there as this
-                        // declaration's own name.
+                        // the closing paren for an immediate body start (a
+                        // block's `{`, an expression body's `=>`, or a
+                        // preprocessor directive's `#` -- e.g. a `#line`
+                        // directive between the parameter list and the body,
+                        // round-9 review, reviewer B) distinguishes the two.
+                        // No valid C# declaration puts a real modifier or
+                        // tuple-return-type prefix immediately before a
+                        // body: it always still needs a name and that
+                        // name's own parameter list first. So finding a
+                        // body right here proves, rather than guesses, that
+                        // this token is the declaration's own name despite
+                        // its spelling -- round-9 review, reviewer B found
+                        // the original round-8 fix threw away a legitimate
+                        // caption by bailing here instead of drawing this
+                        // conclusion.
                         int probe = index + 1;
                         while (probe < text.Length && char.IsWhiteSpace(text[probe]))
                             probe++;
-                        if (probe < text.Length
+                        bool bodyStartsHere = probe < text.Length
                             && (text[probe] == '{'
-                                || (text[probe] == '=' && probe + 1 < text.Length && text[probe + 1] == '>')))
-                        {
-                            return false;
-                        }
+                                || text[probe] == '#'
+                                || (text[probe] == '=' && probe + 1 < text.Length && text[probe + 1] == '>'));
 
-                        groupStart = -1;
-                        continue;
+                        if (!bodyStartsHere)
+                        {
+                            groupStart = -1;
+                            continue;
+                        }
                     }
 
                     name = text[tokenStart..tokenEnd];

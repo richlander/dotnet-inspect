@@ -2074,6 +2074,91 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void ToDisplayRows_DescribesCallTargetRenamedToLocalFunctionNamedModifierKeyword()
+    {
+        // Round-9 review (reviewer B): the round-8 fix bailed whenever a
+        // modifier-spelled token was immediately followed by a body,
+        // throwing away a legitimate caption for any local function
+        // actually named after a modifier keyword (`async`, a contextual
+        // keyword, is a perfectly legal unescaped identifier). But a body
+        // starting right there proves, rather than guesses, that this
+        // token is the declaration's own name: no valid declaration puts a
+        // real modifier or tuple-return-type prefix immediately before a
+        // body -- it still needs a name and that name's own parameter list
+        // first. So this shape must receive the caption, not fall back to
+        // the literal text.
+        var before = TrustedDocument(
+            "return Synthesized(value);",
+            new NodeSpec("InvocationExpression", "Synthesized(value)", [0x10]));
+        var after = TrustedDocument(
+            "return async(value);\nstatic int async(int value) => value;",
+            new NodeSpec("InvocationExpression", "async(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static int async(int value) => value;", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        Assert.Contains(display, row =>
+            row.Change == "Changed"
+            && row.Detail == "call target: Synthesized -> local function `async`");
+    }
+
+    [Fact]
+    public void ToDisplayRows_DescribesCallTargetRenamedToLocalFunctionNamedModifierKeywordAcrossPreprocessorDirective()
+    {
+        // Round-9 review (reviewer B): the body-start probe only recognized
+        // `{` and `=>`, so a preprocessor directive (e.g. `#line`) between
+        // the parameter list and the body -- legal trivia inside a
+        // LocalFunctionStatement's own text -- defeated it: the probe saw
+        // neither marker immediately, fell back to treating the
+        // modifier-spelled name as a modifier, and continued scanning into
+        // the body, where it could misattribute a body call as the
+        // declaration's own name. Recognizing `#` as a body-start marker
+        // too closes this gap.
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return New(value);\nvoid async()\n#line 1\n{\n    New(0);\n}",
+            new NodeSpec("InvocationExpression", "New(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "void async()\n#line 1\n{\n    New(0);\n}", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> New(value)", changed.Detail);
+    }
+
+    [Fact]
+    public void ToDisplayRows_DoesNotDescribeUnrelatedCalleeRenameWhenDeclarationHasUnspellableName()
+    {
+        // Round-9 review (reviewer A): the decompiler deliberately
+        // preserves some local-function names that are not spellable C#
+        // identifiers (e.g. `bad-name`, from an original IL name with no
+        // valid C# rendering). The backward identifier scan stops at the
+        // first non-identifier character, so scanning back from
+        // `bad-name(`'s own parameter list only captures the valid-looking
+        // suffix `name` -- not the declaration's real (unspellable) name.
+        // Returning that suffix could coincidentally match an unrelated
+        // call renamed to exactly that suffix, which must not receive the
+        // caption: there is no local function actually named `name` here.
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return name(value);\nstatic void bad-name(int value) { }",
+            new NodeSpec("InvocationExpression", "name(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void bad-name(int value) { }", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> name(value)", changed.Detail);
+    }
+
+    [Fact]
     public void IssueCorrespondence_DoesNotInferDeclarationWithoutMatchedCallSiteRewrite()
     {
         // Close negative: a new local-function declaration with no IL origin
