@@ -105,9 +105,9 @@ grep '^|' | tail -n +3 | wc -l | tr -d ' '
 6
 ```
 
-## 3. Limit type results
+## 3. Limit one type row set
 
-> Goal: Return only the first N types from a type listing.
+> Goal: Return only the first N classes from the Classes row set.
 
 ### 3a. Using `type -n N`
 
@@ -116,7 +116,7 @@ Show me just 3 types from System.Text.Json.
 ```
 
 ```bash
-dotnet-inspect type System.Text.Json -n 3 --tips q
+dotnet-inspect type System.Text.Json -S Classes -n 3 --tips q
 ```
 
 ```expect
@@ -182,24 +182,31 @@ grep '^|' | tail -n +3 | wc -l | tr -d ' '
 3
 ```
 
-## 6. Limit member results
+## 6. Limit one member row set
 
-> Goal: Return only the first N members from a member listing.
+> Goal: Return only the first N methods from the Methods row set.
 
 ### 6a. Using `member -n N`
 
 ```bash
-dotnet-inspect member System.Text.Json JsonSerializer -n 3 --tips q
+dotnet-inspect member System.Text.Json JsonSerializer -S Methods -n 3 --tips q
 ```
 
 ```expect
 # System.Text.Json.JsonSerializer
-IsReflectionEnabledByDefault
 Deserialize
 ```
 
 ```expect-not
 Tips:
+```
+
+```query
+grep '^| Deserialize' | wc -l | tr -d ' '
+```
+
+```expect
+3
 ```
 
 ## 7. Filter members by name

@@ -104,7 +104,8 @@ public static class SearchCommandDefinitions
                 if (RejectDocumentJsonWindowBeforeAcquisition(
                     parseResult,
                     opts,
-                    FindCommand.Name))
+                    FindCommand.Name,
+                    allowProjectedJsonRows: true))
                 {
                     return 1;
                 }
@@ -276,7 +277,6 @@ public static class SearchCommandDefinitions
                 IncludeAll = parseResult.GetValue(allOption),
                 Limit = legacyTypeLimit,
                 Rows = opts.ParseRows(parseResult),
-                HumanRowWindowNote = opts.BuildHumanRowWindowNote(parseResult),
                 Count = parseResult.GetValue(opts.Count),
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                 CompactJson = parseResult.GetValue(compactOption),
@@ -439,7 +439,6 @@ public static class SearchCommandDefinitions
                 IncludeAll = parseResult.GetValue(allOption),
                 Limit = legacyTypeLimit,
                 Rows = opts.ParseRows(parseResult),
-                HumanRowWindowNote = opts.BuildHumanRowWindowNote(parseResult),
                 Count = parseResult.GetValue(opts.Count),
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                 CompactJson = parseResult.GetValue(compactOption),
@@ -616,10 +615,12 @@ public static class SearchCommandDefinitions
     private static bool RejectDocumentJsonWindowBeforeAcquisition(
         ParseResult parseResult,
         SharedOptions opts,
-        string commandName)
+        string commandName,
+        bool allowProjectedJsonRows = false)
     {
         return opts.RejectUnsupportedDocumentJsonRowWindowBeforeAcquisition(
             parseResult,
-            commandName);
+            commandName,
+            allowProjectedJsonRows: allowProjectedJsonRows);
     }
 }

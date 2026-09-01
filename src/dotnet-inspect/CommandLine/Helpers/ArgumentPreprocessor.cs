@@ -306,9 +306,7 @@ public static class ArgumentPreprocessor
         return option?.Arity.MinimumNumberOfValues > 0;
     }
 
-    public static void ApplyParsedLineWindow(
-        ParseResult parseResult,
-        IReadOnlyList<string>? rawArgs = null)
+    public static void ApplyParsedLineWindow(ParseResult parseResult)
     {
         HeadLines = null;
         TailLines = null;
@@ -338,7 +336,7 @@ public static class ArgumentPreprocessor
             count = parsedCount;
         }
 
-        count ??= FindLineWindowCapturedByOptionalOption(parseResult, rawArgs);
+        count ??= FindLineWindowCapturedByOptionalOption(parseResult);
         if (count is null)
             return;
 
@@ -405,8 +403,7 @@ public static class ArgumentPreprocessor
     }
 
     private static int? FindLineWindowCapturedByOptionalOption(
-        ParseResult parseResult,
-        IReadOnlyList<string>? rawArgs)
+        ParseResult parseResult)
     {
         foreach (OptionResult option in GetOptionResults(parseResult))
         {
@@ -420,8 +417,7 @@ public static class ArgumentPreprocessor
 
             foreach (Token token in option.Tokens)
             {
-                if (!IsInlineOptionValue(rawArgs, option.Option, token.Value)
-                    && TryParseAttachedLineWindow(token.Value, out var count))
+                if (TryParseAttachedLineWindow(token.Value, out var count))
                 {
                     return count;
                 }
@@ -430,32 +426,6 @@ public static class ArgumentPreprocessor
 
         return null;
     }
-
-    private static bool IsInlineOptionValue(
-        IReadOnlyList<string>? rawArgs,
-        Option option,
-        string value)
-    {
-        if (rawArgs is null)
-            return false;
-
-        foreach (string alias in option.Aliases.Append(option.Name))
-        {
-            if (rawArgs.Any(arg => IsInlineOptionValue(arg, alias, value)))
-                return true;
-        }
-
-        return false;
-    }
-
-    private static bool IsInlineOptionValue(
-        string argument,
-        string alias,
-        string value)
-        => argument.Equals($"{alias}={value}", StringComparison.Ordinal)
-            || argument.Equals($"{alias}:{value}", StringComparison.Ordinal)
-            || alias is ['-', not '-']
-                && argument.Equals($"{alias}{value}", StringComparison.Ordinal);
 
     private static bool TryParseAttachedLineWindow(
         string token,

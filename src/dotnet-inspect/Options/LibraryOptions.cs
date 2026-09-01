@@ -295,8 +295,6 @@ public record LibraryOptions : IProjectionOptions
 
     public bool RankedTopRequested { get; init; }
 
-    public string? HumanRowWindowNote { get; init; }
-
     /// <summary>
     /// Row predicates for the Performance Triage section.
     /// </summary>

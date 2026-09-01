@@ -19,9 +19,7 @@ public class CommandLineTests
         var root = CommandLineBuilder.CreateRootCommand();
         string[] processed = CommandLineBuilder.PreprocessArgs(args, root);
         string[] lineArguments = [.. processed, "--lines"];
-        CommandLineBuilder.ApplyParsedLineWindow(
-            root.Parse(lineArguments),
-            lineArguments);
+        CommandLineBuilder.ApplyParsedLineWindow(root.Parse(lineArguments));
         return processed;
     }
 
@@ -777,12 +775,24 @@ public class CommandLineTests
     [InlineData("-T=-n1")]
     [InlineData("-T:-n1")]
     [InlineData("-T-n1")]
-    public void ParsedLineWindow_InlineOptionalValueRemainsAValue(string option)
+    public async Task ParsedLineWindow_InlineOptionalValueDoesNotSatisfyLines(
+        string option)
     {
-        PreprocessAndApplyLineWindow(["package", "Foo", option]);
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(async () =>
+            {
+                string[] args = CommandLineBuilder.PreprocessArgs(
+                    ["package", "Foo", option, "--lines"]);
+                return await CommandLineBuilder.InvokeAsync(
+                    CommandLineBuilder.CreateRootCommand().Parse(args));
+            });
 
-        Assert.Null(CommandLineBuilder.HeadLines);
-        Assert.Null(CommandLineBuilder.TailLines);
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--lines requires -n N.",
+            error,
+            StringComparison.Ordinal);
     }
 
     [Theory]
@@ -791,7 +801,7 @@ public class CommandLineTests
     [InlineData("-o=-1")]
     [InlineData("-o:-1")]
     [InlineData("-o-1")]
-    public void PreprocessArgs_ShorthandAfterInlineRequiredValueUsesRawOccurrence(
+    public void PreprocessArgs_ShorthandAfterInlineRequiredValueIsPreserved(
         string output)
     {
         string[] result = PreprocessAndApplyLineWindow(
@@ -822,7 +832,7 @@ public class CommandLineTests
                 "true"
             ];
         var root = CommandLineBuilder.CreateRootCommand();
-        CommandLineBuilder.ApplyParsedLineWindow(root.Parse(invalid), invalid);
+        CommandLineBuilder.ApplyParsedLineWindow(root.Parse(invalid));
 
         Assert.Null(CommandLineBuilder.HeadLines);
         Assert.Null(CommandLineBuilder.TailLines);

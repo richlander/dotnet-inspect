@@ -175,7 +175,7 @@ System.Runtime
 > Goal: See full transitive dependency graph for a library.
 
 ```bash
-dotnet-inspect library --package Microsoft.Extensions.AI@9.9.1 -S References --tree --depth 3 -n 25
+dotnet-inspect library --package Microsoft.Extensions.AI@9.9.1 -S References --tree --depth 3
 ```
 
 ```expect
@@ -351,7 +351,7 @@ Extracted
 > Goal: Get library metadata in machine-readable JSON format.
 
 ```bash
-dotnet-inspect library --package System.CommandLine@2.0.3 --json -n 30
+dotnet-inspect library --package System.CommandLine@2.0.3 --json
 ```
 
 ```expect

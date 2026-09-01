@@ -113,7 +113,6 @@ public static class FindOptionsParser
             Limit = CommandLineHelpers.ParseTypeLimit(typeFilter),
             TypeFilter = typeFilter,
             Rows = opts.ParseRows(parseResult),
-            HumanRowWindowNote = opts.BuildHumanRowWindowNote(parseResult),
             Count = parseResult.GetValue(opts.Count),
             JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
             CompactJson = parseResult.GetValue(args.CompactOption),

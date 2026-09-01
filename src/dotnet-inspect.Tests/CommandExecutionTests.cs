@@ -1620,7 +1620,7 @@ public partial class CommandExecutionTests
                 return 1;
             }
 
-            return await CommandLineBuilder.InvokeAsync(root.Parse(args), args);
+            return await CommandLineBuilder.InvokeAsync(root.Parse(args));
         });
     }
 

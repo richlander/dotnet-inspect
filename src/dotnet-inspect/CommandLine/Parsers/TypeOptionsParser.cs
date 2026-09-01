@@ -267,13 +267,6 @@ public static class TypeOptionsParser
             Rows = opts.ParseRows(parseResult),
             RankedTopRequested =
                 parseResult.GetResult(opts.PerformanceTriageTop) is { Implicit: false },
-            HumanRowWindowNote = opts.BuildHumanRowWindowNote(
-                parseResult,
-                select,
-                sectionPipeline.SelectableSectionNames,
-                sectionPipeline.InfoSectionNames,
-                sectionPipeline.GetCategoryMap(),
-                selectDefault),
             PerformanceTriage = performanceTriage,
             BodyKindQuery = bodyKindQuery,
             Schema = opts.ParseSchema(parseResult),

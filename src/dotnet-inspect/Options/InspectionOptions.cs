@@ -295,8 +295,6 @@ public record InspectionOptions : IProjectionOptions
     /// </summary>
     public RowWindow? Rows { get; init; }
 
-    public string? HumanRowWindowNote { get; init; }
-
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>

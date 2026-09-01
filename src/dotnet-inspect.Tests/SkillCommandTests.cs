@@ -122,7 +122,7 @@ public class SkillCommandTests
             string[] args = CommandLineBuilder.PreprocessArgs(
                 ["skill", "list", "-n", "1", lineOption]);
             var result = CommandLineBuilder.CreateRootCommand().Parse(args);
-            return await CommandLineBuilder.InvokeWithLineWindowAsync(result, args);
+            return await CommandLineBuilder.InvokeAsync(result);
         });
 
         Assert.Equal(0, exitCode);
@@ -138,7 +138,7 @@ public class SkillCommandTests
             string[] args = CommandLineBuilder.PreprocessArgs(
                 ["skill", "query", "-n", "1"]);
             var result = CommandLineBuilder.CreateRootCommand().Parse(args);
-            return await CommandLineBuilder.InvokeWithLineWindowAsync(result, args);
+            return await CommandLineBuilder.InvokeAsync(result);
         });
 
         Assert.Equal(1, exitCode);
@@ -157,7 +157,7 @@ public class SkillCommandTests
             string[] args = CommandLineBuilder.PreprocessArgs(
                 ["skill", "--rows", "2..3"]);
             var result = CommandLineBuilder.CreateRootCommand().Parse(args);
-            return await CommandLineBuilder.InvokeWithLineWindowAsync(result, args);
+            return await CommandLineBuilder.InvokeAsync(result);
         });
 
         Assert.Equal(1, exitCode);
@@ -177,7 +177,7 @@ public class SkillCommandTests
             string[] args = CommandLineBuilder.PreprocessArgs(
                 ["skill", "query", "-n", "0"]);
             var result = CommandLineBuilder.CreateRootCommand().Parse(args);
-            return await CommandLineBuilder.InvokeWithLineWindowAsync(result, args);
+            return await CommandLineBuilder.InvokeAsync(result);
         });
 
         Assert.Equal(1, exitCode);
@@ -193,7 +193,7 @@ public class SkillCommandTests
             string[] args = CommandLineBuilder.PreprocessArgs(
                 ["skill", "query", "-n", "1", "--lines"]);
             var result = CommandLineBuilder.CreateRootCommand().Parse(args);
-            return await CommandLineBuilder.InvokeWithLineWindowAsync(result, args);
+            return await CommandLineBuilder.InvokeAsync(result);
         });
 
         Assert.Equal(0, exitCode);

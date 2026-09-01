@@ -68,10 +68,8 @@ public static class CommandLineBuilder
         RootCommand rootCommand) =>
         ArgumentPreprocessor.PreprocessArgs(args, rootCommand);
 
-    public static void ApplyParsedLineWindow(
-        ParseResult parseResult,
-        string[]? rawArgs = null)
-        => ArgumentPreprocessor.ApplyParsedLineWindow(parseResult, rawArgs);
+    public static void ApplyParsedLineWindow(ParseResult parseResult)
+        => ArgumentPreprocessor.ApplyParsedLineWindow(parseResult);
 
     /// <summary>
     /// Invokes a parsed command under the payload-projection audit. This is the single
@@ -93,26 +91,12 @@ public static class CommandLineBuilder
     /// the default handler off and catching here rather than only at the entry point
     /// keeps the containment on the path the test harness exercises too.
     /// </summary>
-    public static Task<int> InvokeAsync(
-        ParseResult parseResult,
-        string[]? rawArgs = null)
-        => InvokeParsedAsync(parseResult, rawArgs);
+    public static Task<int> InvokeAsync(ParseResult parseResult)
+        => InvokeParsedAsync(parseResult);
 
-    /// <summary>
-    /// Invokes a parsed command with the CLI host's rendered-line writer. The entry point
-    /// uses this for explicit commands, and the router uses it only after resolving the
-    /// authoritative child parse.
-    /// </summary>
-    public static Task<int> InvokeWithLineWindowAsync(
-        ParseResult parseResult,
-        string[]? rawArgs = null)
-        => InvokeParsedAsync(parseResult, rawArgs);
-
-    private static async Task<int> InvokeParsedAsync(
-        ParseResult parseResult,
-        string[]? rawArgs)
+    private static async Task<int> InvokeParsedAsync(ParseResult parseResult)
     {
-        ApplyParsedLineWindow(parseResult, rawArgs);
+        ApplyParsedLineWindow(parseResult);
 
         if (WriteParseErrors(parseResult))
             return 1;

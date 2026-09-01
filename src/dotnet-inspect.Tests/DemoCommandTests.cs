@@ -129,7 +129,7 @@ public class DemoCommandTests
             string[] args = CommandLineBuilder.PreprocessArgs(
                 ["demo", "list", "-n", "1", lineOption]);
             var result = CommandLineBuilder.CreateRootCommand().Parse(args);
-            return await CommandLineBuilder.InvokeWithLineWindowAsync(result, args);
+            return await CommandLineBuilder.InvokeAsync(result);
         });
 
         Assert.Equal(0, exitCode);

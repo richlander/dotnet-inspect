@@ -559,13 +559,6 @@ public static class InspectionCommandDefinitions
                 Rows = opts.ParseRows(parseResult),
                 RankedTopRequested =
                     parseResult.GetResult(opts.PerformanceTriageTop) is { Implicit: false },
-                HumanRowWindowNote = opts.BuildHumanRowWindowNote(
-                    parseResult,
-                    select,
-                    pipeline.SelectableSectionNames,
-                    pipeline.InfoSectionNames,
-                    pipeline.GetCategoryMap(),
-                    selectDefault),
                 PerformanceTriage = performanceTriage,
                 BodyKindQuery = bodyKindQuery,
                 Schema = opts.ParseSchema(parseResult),

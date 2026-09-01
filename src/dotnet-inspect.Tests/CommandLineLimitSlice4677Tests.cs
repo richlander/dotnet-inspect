@@ -541,6 +541,8 @@ public class CommandLineLimitSlice4677Tests
                 "--source",
                 "http://127.0.0.1:1/v3/index.json",
                 "--json",
+                "--columns",
+                "Type",
                 "-n",
                 "1",
             ]);
@@ -587,6 +589,9 @@ public class CommandLineLimitSlice4677Tests
                 [command, $"{package}@1.0.0..2.0.0", "Missing.Type"],
             _ => throw new ArgumentOutOfRangeException(nameof(command)),
         };
+        string[] projection = command is "package" or "library" or "type" or "member"
+            ? ["--columns", "Type"]
+            : [];
 
         var (exitCode, output, error) = await ConsoleCapture.RunAsync(async () =>
         {
@@ -596,6 +601,7 @@ public class CommandLineLimitSlice4677Tests
                 "--source",
                 "http://127.0.0.1:1/v3/index.json",
                 "--json",
+                .. projection,
                 "-n",
                 "1",
                 "--tips",

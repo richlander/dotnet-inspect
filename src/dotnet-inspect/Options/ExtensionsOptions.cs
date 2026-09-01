@@ -69,11 +69,6 @@ public record ExtensionsOptions : IAssemblySourceOptions, IProjectionOptions
     public RowWindow? Rows { get; init; }
 
     /// <summary>
-    /// A human-readable note describing the active row window, or null when no note should render.
-    /// </summary>
-    public string? HumanRowWindowNote { get; init; }
-
-    /// <summary>
     /// Output the number of rendered result rows.
     /// </summary>
     public bool Count { get; init; }

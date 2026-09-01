@@ -14,7 +14,6 @@ public sealed record VocabularyOptions : IProjectionOptions
     public bool Tree { get; init; }
     public bool Count { get; init; }
     public RowWindow? Rows { get; init; }
-    public string? HumanRowWindowNote { get; init; }
     public OutputFormat Format { get; init; } = OutputFormat.Markdown;
     public bool JsonOutput { get; init; }
     public bool PlainText { get; init; }

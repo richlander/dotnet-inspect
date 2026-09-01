@@ -177,7 +177,6 @@ public static class PackageOptionsParser
             Schema = opts.ParseSchema(parseResult),
             Count = parseResult.GetValue(opts.Count),
             Rows = opts.ParseRows(parseResult),
-            HumanRowWindowNote = opts.BuildHumanRowWindowNote(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
         };
 

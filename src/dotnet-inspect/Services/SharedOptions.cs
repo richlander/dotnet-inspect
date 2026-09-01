@@ -496,7 +496,8 @@ public class SharedOptions
     public bool RejectUnsupportedDocumentJsonRowWindowBeforeAcquisition(
         ParseResult parseResult,
         string commandName,
-        bool allowRankedTop = false)
+        bool allowRankedTop = false,
+        bool allowProjectedJsonRows = false)
     {
         bool Requested(Option<bool> option) =>
             parseResult.GetResult(option) is not null
@@ -512,8 +513,8 @@ public class SharedOptions
             || Requested(Value)
             || Requested(Urls)
             || Requested(Paths)
-            || HasValue(Columns)
-            || HasValue(Fields)
+            || allowProjectedJsonRows
+                && (HasValue(Columns) || HasValue(Fields))
             || allowRankedTop
                 && parseResult.GetResult(PerformanceTriageTop)
                     is { Implicit: false })
@@ -697,45 +698,6 @@ public class SharedOptions
                     StringComparer.Ordinal));
     }
 
-    public string? BuildHumanRowWindowNote(
-        ParseResult parseResult,
-        string[]? select = null,
-        string[]? knownSections = null,
-        string[]? infoSections = null,
-        IReadOnlyDictionary<string, string[]>? categories = null,
-        bool selectDefault = false)
-    {
-        if (!parseResult.GetValue(Count)
-            && parseResult.GetResult(PerformanceTriageTop) is { Implicit: false } topResult
-            && topResult.Tokens.Count > 0
-            && parseResult.GetValue(PerformanceTriageTop) is int top
-            && top > 0)
-        {
-            string? criterion = ResolveHumanTopCriterion(
-                parseResult,
-                select,
-                knownSections,
-                infoSections,
-                categories,
-                selectDefault);
-            return criterion is null ? null : $"top {top} by {criterion}";
-        }
-
-        if (IsLinesRequested(parseResult))
-            return null;
-
-        if (parseResult.GetResult(Limit) is { Implicit: false }
-            && parseResult.GetValue(Limit) is int count
-            && count > 0)
-        {
-            return IsTailRequested(parseResult)
-                ? $"last {count}"
-                : $"first {count}";
-        }
-
-        return null;
-    }
-
     private static HashSet<string>? ResolveSelectedSections(
         string[]? select,
         string[]? knownSections,
@@ -771,53 +733,6 @@ public class SharedOptions
 
         return true;
     }
-
-    private string? ResolveHumanTopCriterion(
-        ParseResult parseResult,
-        string[]? select,
-        string[]? knownSections,
-        string[]? infoSections,
-        IReadOnlyDictionary<string, string[]>? categories,
-        bool selectDefault)
-    {
-        if (parseResult.GetResult(RowOrderBy) is { Implicit: false }
-            && parseResult.GetValue(RowOrderBy) is { Length: > 0 } orderBy)
-        {
-            if (new PerformanceTriageOptions { OrderBy = orderBy }.TryGetOrderTerms(out var orderTerms, out _))
-                return string.Join(", ", orderTerms.Select(term => $"{term.Field} {(term.Descending ? "desc" : "asc")}"));
-
-            return orderBy;
-        }
-
-        if (select is { Length: 1 } && GetRankingDefaultCriterion(select[0]) is { } directCriterion)
-            return directCriterion;
-
-        var sections = ResolveSelectedSections(
-            select,
-            knownSections,
-            infoSections,
-            categories,
-            selectDefault);
-        if (sections is not { Count: > 0 })
-            return null;
-
-        string[] criteria = sections
-            .Select(GetRankingDefaultCriterion)
-            .OfType<string>()
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
-        return criteria.Length == 0
-            ? null
-            : string.Join(", then ", criteria);
-    }
-
-    private static string? GetRankingDefaultCriterion(string section)
-        => section.Equals(SectionNames.PerformanceTriage, StringComparison.Ordinal)
-           || PerformanceKinds.Sections.Contains(section, StringComparer.Ordinal)
-            ? "Triage desc"
-            : section.Equals(SectionNames.TopLeverage, StringComparison.Ordinal)
-                ? "Callers desc, RootReach desc, Fanout desc, LoopCalls desc"
-                : null;
 
     private static bool IsRankingDefaultSection(string section)
         => section.Equals(SectionNames.PerformanceTriage, StringComparison.Ordinal)

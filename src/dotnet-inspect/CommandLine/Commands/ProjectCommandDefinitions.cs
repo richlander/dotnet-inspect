@@ -102,7 +102,6 @@ public static class ProjectCommandDefinitions
                 Fields = opts.ParseFields(parseResult),
                 Count = parseResult.GetValue(opts.Count),
                 Rows = opts.ParseRows(parseResult),
-                HumanRowWindowNote = opts.BuildHumanRowWindowNote(parseResult),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };

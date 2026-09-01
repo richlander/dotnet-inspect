@@ -163,7 +163,7 @@ dnx dotnet-inspect -y -- library MyLib.dll \
 This emits `Body Shapes`, not Performance rows. The typed performance
 opportunities narrow source MethodDef bodies before decompilation; run the
 Performance query separately when its candidate, evidence, and IL receipt are
-needed. `--top` and `--order-by` do not compose with Body Shapes; use `--rows`
+needed. `--top` and `--order-by` do not compose with Body Shapes; use `-n`
 to limit rendered syntax matches.
 
 Aggregate rows such as `allocation-hotspot` use `Provenance=aggregate` and have

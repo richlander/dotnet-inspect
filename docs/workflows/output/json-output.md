@@ -38,7 +38,7 @@ Get System.CommandLine package info as JSON.
 ```
 
 ```bash
-dotnet-inspect package System.CommandLine@2.0.3 -v:q --json -n 10
+dotnet-inspect package System.CommandLine@2.0.3 -v:q --json
 ```
 
 ```expect
@@ -76,7 +76,7 @@ Get the JsonSerializer type info as structured JSON.
 ```
 
 ```bash
-dotnet-inspect type System.Text.Json JsonSerializer --json -v:q -n 15
+dotnet-inspect type System.Text.Json JsonSerializer --json -v:q
 ```
 
 ```expect

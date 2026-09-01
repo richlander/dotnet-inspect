@@ -97,7 +97,6 @@ public static class MatchCommandDefinitions
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 Rows = opts.ParseRows(parseResult),
-                HumanRowWindowNote = opts.BuildHumanRowWindowNote(parseResult),
                 Bare = parseResult.GetValue(opts.Bare),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
             };

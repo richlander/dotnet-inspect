@@ -56,9 +56,4 @@ public interface IProjectionOptions
     /// <summary>The requested column projection, or null when columns are not projected.</summary>
     string[]? Columns => null;
 
-    /// <summary>
-    /// A human-readable note describing the active row window, or null when no note should render.
-    /// Structured and payload-projection outputs suppress this note.
-    /// </summary>
-    string? HumanRowWindowNote => null;
 }
