@@ -143,6 +143,7 @@ import {
   type HomeShellBindingActions,
   type LoadErrorShellBindingActions,
   type WorkbenchShellBindingActions,
+  workbenchShellHtml,
 } from "./shell-controls.ts";
 import {
   homeDemoRowHtml,
@@ -2641,17 +2642,14 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
 
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal ? " inert" : ""}>
-      <header class="titlebar">
-        <a class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
+      ${workbenchShellHtml()}
+      <section class="workspace-strip" aria-label="Open workspaces">
         ${packageBar.html()}
-        <div class="title-actions">
-          <button id="go-home" title="Back to the home page">home</button>
-          <button id="theme-toggle" aria-label="Switch to light theme">${state.theme === "dark" ? "light" : "dark"}</button>
-          <button id="open-settings" title="Settings" aria-label="Open settings">⚙</button>
-          <button id="share">share</button>
-          <button id="help" aria-label="Keyboard help">?</button>
+        <div class="workspace-strip-actions">
+          <button id="share" type="button">Share</button>
+          <button id="help" type="button" aria-label="Keyboard help">?</button>
         </div>
-      </header>
+      </section>
 
       ${visibleQueryNotice()
         ? `<div class="query-notice" role="alert">
@@ -5177,8 +5175,8 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
     const retryAction = state.queryNoticeRetryAction;
     if (retryAction) observeAction(retryAction, "Retrying the inspection");
   },
+  onSearch: openSpotlight,
   onShare: () => void share(),
-  onToggleTheme: toggleTheme,
 };
 
 const graphBackActions: GraphBackBindingActions = {

@@ -4,6 +4,7 @@ import {
   bindHomeShell,
   bindLoadErrorShell,
   bindWorkbenchShell,
+  workbenchShellHtml,
 } from "../src/shell-controls.ts";
 import { setProductHomeDemoCatalog } from "../src/product-home-demos.ts";
 import { fakeDom } from "./fake-dom.ts";
@@ -80,7 +81,7 @@ test("workbench shell binds every rendered control without eager work", () => {
     ["#nav-back", "navigate-back"],
     ["#nav-forward", "navigate-forward"],
     ["#go-home", "go-home"],
-    ["#theme-toggle", "toggle-theme"],
+    ["#open-search", "search"],
     ["#help", "help"],
   ]);
   for (const selector of controls.keys()) {
@@ -96,8 +97,8 @@ test("workbench shell binds every rendered control without eager work", () => {
     onNavigateBack: () => calls.push("navigate-back"),
     onNavigateForward: () => calls.push("navigate-forward"),
     onRetryNotice: () => calls.push("retry-notice"),
+    onSearch: () => calls.push("search"),
     onShare: () => calls.push("share"),
-    onToggleTheme: () => calls.push("toggle-theme"),
   });
 
   assert.deepEqual(calls, []);
@@ -106,6 +107,16 @@ test("workbench shell binds every rendered control without eager work", () => {
     assert.equal(calls.at(-1), call);
   }
   assert.equal(calls.length, controls.size);
+});
+
+test("workbench shell renders the top-level workbench actions", () => {
+  const html = workbenchShellHtml();
+
+  assert.match(html, /class="brand"[^>]*>[\s\S]*dotnet-inspect/);
+  assert.match(html, /id="open-search"[\s\S]*>[\s\S]*Search[\s\S]*<kbd>Ctrl\/⌘ P<\/kbd>/);
+  assert.match(html, /id="go-home"[^>]*>Home<\/button>/);
+  assert.match(html, /id="open-settings"[^>]*>Settings<\/button>/);
+  assert.doesNotMatch(html, /Package or Package@version|theme-toggle|id="share"|id="help"/);
 });
 
 test("home shell accepts only known demos", () => {
@@ -211,8 +222,8 @@ test("shell bindings tolerate inactive surfaces", () => {
     onNavigateBack() {},
     onNavigateForward() {},
     onRetryNotice() {},
+    onSearch() {},
     onShare() {},
-    onToggleTheme() {},
   }));
   assert.doesNotThrow(() => bindHomeShell(root, {
     onDemo() {},

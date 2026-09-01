@@ -132,13 +132,30 @@ rendering, interaction, or placement rules does not require reopening the
 others unless it changes the opaque descriptor, action ID, or typed outcome
 they exchange.
 
-## Reference-product boundary
+## Reference-experience boundary
 
-[npmx.dev](https://npmx.dev/) is an interaction reference for density,
-shareable state, code-first working surfaces, keyboard access, and persistent
-package context. It is not the website's information architecture.
+[Visual Studio Code](https://code.visualstudio.com/docs/editing/getting-started/userinterface)
+is the primary reference for the overall workbench experience: a content-first
+working area, persistent navigation context, command-center search, a command
+palette, unified settings, keyboard access, and a compact status line. Inspect
+Web adopts that interaction grammar by role rather than copying VS Code's
+desktop chrome or file-editor information architecture.
 
 Inspect Web does not copy:
+
+- an Activity Bar;
+- editable-file tabs or editor groups;
+- a file-system Explorer as the primary navigation model;
+- terminal, debug, source-control, or extension-host panels;
+- movable workbench regions or desktop-window assumptions; or
+- VS Code branding and component styling.
+
+[npmx.dev](https://npmx.dev/) is a partial reference for fast web-native
+package exploration, shareable URL state, code-first working surfaces, keyboard
+access, and persistent package context. It is not the primary model for the
+overall experience or the website's information architecture.
+
+Inspect Web does not copy from npmx:
 
 - npm-style `main`, `docs`, `code`, `diff`, `changelog`, and `stats` hierarchy;
 - a package-only subject model;
@@ -150,8 +167,9 @@ Inspect Web does not copy:
 - npmx branding and component styling.
 
 Package, Library, Type, and Member ownership and their local lenses remain the
-dotnet-inspect model. Npmx influences interaction quality without redefining
-the product domain.
+dotnet-inspect model. VS Code supplies the overall workbench grammar and npmx
+contributes selected web/package interaction evidence; neither redefines the
+product domain.
 
 ## Implementation gates
 

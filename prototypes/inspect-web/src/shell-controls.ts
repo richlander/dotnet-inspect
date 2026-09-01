@@ -18,8 +18,8 @@ export interface WorkbenchShellBindingActions {
   onNavigateBack: () => void;
   onNavigateForward: () => void;
   onRetryNotice: () => void;
+  onSearch: () => void;
   onShare: () => void;
-  onToggleTheme: () => void;
 }
 
 export interface HomeShellBindingActions {
@@ -32,6 +32,22 @@ export interface HomeShellBindingActions {
 export interface LoadErrorShellBindingActions {
   onOpenPackage: (query: ParsedPackageQuery) => void;
   onRetry: () => void;
+}
+
+export function workbenchShellHtml(): string {
+  return `
+      <header class="titlebar">
+        <a class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
+        <button id="open-search" class="shell-command-center" type="button" aria-haspopup="dialog" title="Search (Ctrl/Command+P)">
+          <span class="shell-search-glyph" aria-hidden="true">⌕</span>
+          <span class="shell-search-label">Search</span>
+          <kbd>Ctrl/⌘ P</kbd>
+        </button>
+        <nav class="title-actions" aria-label="Application">
+          <button id="go-home" type="button">Home</button>
+          <button id="open-settings" type="button">Settings</button>
+        </nav>
+      </header>`;
 }
 
 export function bindWorkbenchShell(
@@ -52,8 +68,8 @@ export function bindWorkbenchShell(
     ?.addEventListener("click", actions.onNavigateForward);
   root.querySelector("#go-home")
     ?.addEventListener("click", actions.onGoHome);
-  root.querySelector("#theme-toggle")
-    ?.addEventListener("click", actions.onToggleTheme);
+  root.querySelector("#open-search")
+    ?.addEventListener("click", actions.onSearch);
   root.querySelector("#help")
     ?.addEventListener("click", actions.onHelp);
 }

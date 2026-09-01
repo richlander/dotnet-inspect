@@ -67,13 +67,49 @@ This document consumes, without redefining:
 
 ## Shell actions
 
-The global shell uses visible text actions:
+The top shell follows a workbench command-center composition:
+
+```text
+dotnet-inspect                 Search                 Home   Open   Settings
+```
+
+- `dotnet-inspect` is the stable root control at the leading edge.
+- Search is the visually central command-center action. It is a button that
+  opens Spotlight, not an always-editable query input.
+- Home, Open, and Settings are trailing visible text actions.
+- The row does not contain package tabs, a package query input, a theme toggle,
+  Share, or keyboard-help chrome. Package and subject context belong to the
+  navigation rows below it; appearance belongs to Settings; target-copying and
+  other contextual actions belong to the active working surface.
+
+This composition uses Visual Studio Code's workbench and command center as its
+primary interaction reference without copying its desktop title bar, Activity
+Bar, editable-file tabs, or product styling.
+
+The global shell therefore exposes these visible text actions:
 
 ```text
 Home   Search   Open   Settings
 ```
 
 An optional decorative glyph does not replace any visible label.
+
+### Incremental adoption
+
+The shell may land before adjacent redesign owners. During that transition:
+
+- currently supported Home, Search, and Settings actions may occupy the target
+  top row before local-artifact Open is available;
+- Open remains absent rather than appearing disabled or committing a
+  success-shaped placeholder action;
+- the `dotnet-inspect` root control may retain its current Home destination
+  until the routed Workspace surface exists;
+- the existing package tabs and package query may remain in a clearly separate
+  transitional workspace row until the Workspace surface replaces them; and
+- the transitional row is not part of the target shell contract.
+
+This sequencing changes no package-selection or acquisition semantics and does
+not claim completion of the redesign.
 
 ## Shared menu and modal semantics
 
