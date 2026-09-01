@@ -114,7 +114,7 @@ The classifications are mutually exclusive:
 | -------------- | ---------- | ----------------------- |
 | Compatible | Every current published invocation and owner-issued outcome contract remains valid. Additions have cleared routing, binding, default, vocabulary, and strict-consumer collisions. | Gate the old neighboring case and the new case. A **Breaking** release-note label is not used. |
 | Corrective but breaking | A bug, unsafe interpretation, success-shaped failure, or false result is corrected by changing a previously observable contract. | Use a **Breaking** release-note entry that explains the correction and current replacement. Gate the former pathological case to the corrected result, channel, and exit class. |
-| Intentionally breaking | A command, spelling, default, operation, or output contract is removed or redesigned for reasons other than correcting false behavior. | Use a **Breaking** release-note entry and update all current guides. Gate the replacement and any old input whose silent reinterpretation remains possible. |
+| Intentionally breaking | A command, spelling, default, operation, or output contract is removed, redesigned, or expanded in a way that invalidates a supported consumer for reasons other than correcting false behavior. | Use a **Breaking** release-note entry and update all current guides. Gate the replacement and any old input whose silent reinterpretation remains possible. |
 
 A runtime transition aid does not change the classification. An intentionally
 breaking removal remains breaking when the old token is reserved or rejected
@@ -225,13 +225,16 @@ one manifest:
   candidates rather than precedent;
 - valued `--head N` and `--tail N` inputs have a focused pre-parse guard because
   the current boolean option would otherwise leave the count to bind as a
-  positional target;
+  positional target. The `--tail N` outcome is gated; the symmetric `--head N`
+  outcome is implemented but **unverified**;
 - removed `package --readme` receives replacement guidance at the package parse
   boundary. No independent current-input ambiguity is recorded, so the special
   diagnostic's current-policy justification is **unverified**; and
-- removed command names including `audit`, `source`, `list`, and `ls` remain
-  reserved because releasing them would send the same bare tokens through
-  implicit target resolution.
+- removed top-level command names `audit` and `source` remain reserved because
+  releasing them would send the same bare tokens through implicit target
+  resolution. `list` and `ls` are also reserved, but no independent
+  current-interface rationale for those bare tokens is recorded, so their
+  reservation is **unverified** under this policy.
 
 Existing gates prove parts of those behaviors:
 
@@ -242,7 +245,7 @@ Existing gates prove parts of those behaviors:
   command execution tests prove selected compatibility-only aliases still
   reach canonical behavior.
 - `CommandExecutionTests.ValuedTailFlag_IsReportedAsAMigration_NotBoundAsAPositional`
-  proves the current parser-rebinding guard.
+  proves the `--tail N` parser-rebinding guard. It does not gate `--head N`.
 - `CommandExecutionTests.Package_RemovedReadmeFlag_PointsAtItsReplacement`
   proves the package diagnostic behavior, not its independent current-product
   rationale.
