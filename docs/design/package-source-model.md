@@ -42,8 +42,9 @@ construction or offline diagnostic rendering. It does not define browser
 source profiles, package-profile or CLI presentation, or local-folder feed
 identity and acquisition. Canonical local identity is owned by
 [Local package source identity](local-package-source-identity.md); folder-feed
-capabilities and acquisition remain successors under
-[#3759](https://github.com/richlander/dotnet-inspect/issues/3759);
+capabilities remain [#5399](https://github.com/richlander/dotnet-inspect/issues/5399),
+and package-level acquisition composition remains
+[#5400](https://github.com/richlander/dotnet-inspect/issues/5400);
 package-profile projection remains owned by
 [#4806](https://github.com/richlander/dotnet-inspect/issues/4806).
 
@@ -112,9 +113,11 @@ command-line paths resolve from the command working directory. Path
 canonicalization, `file://` equivalence, and platform case behavior are owned
 by
 [Local package source identity](local-package-source-identity.md). Folder
-enumeration and local payload acquisition remain #3759 successor
-responsibilities. This owner only dispatches to those boundaries and preserves
-their results.
+enumeration and local payload operations remain
+[#5399](https://github.com/richlander/dotnet-inspect/issues/5399)
+responsibilities. Package-level adoption remains
+[#5400](https://github.com/richlander/dotnet-inspect/issues/5400). This owner
+only dispatches to those boundaries and preserves their results.
 
 When the local owner classifies a valid authority but the current host lacks a
 requested local capability, the package result retains that authority and a

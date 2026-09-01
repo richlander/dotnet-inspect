@@ -1039,9 +1039,10 @@ Their shared NuGet.org producer label alone does not authorize cache sharing.
 
 Canonical path and `file://` equivalence are owned by
 [Local package source identity](local-package-source-identity.md).
-Local-folder client support remains a separate implementation because its
-candidate enumeration, payload access, and platform availability differ from
-HTTP sources. It is not required for the initial browser registry.
+[Local-folder client support](https://github.com/richlander/dotnet-inspect/issues/5399)
+remains a separate implementation because its candidate enumeration, payload
+access, and platform availability differ from HTTP sources. It is not required
+for the initial browser registry.
 
 ## Registration, selection, and eligibility
 

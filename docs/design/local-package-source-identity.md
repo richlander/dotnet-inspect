@@ -9,7 +9,8 @@ This is the first focused slice of
 [#3759](https://github.com/richlander/dotnet-inspect/issues/3759). Folder-feed
 layout recognition, candidate enumeration, manifest and payload acquisition,
 search capability, and local-before-HTTP composition remain separate
-successors.
+successors [#5399](https://github.com/richlander/dotnet-inspect/issues/5399)
+and [#5400](https://github.com/richlander/dotnet-inspect/issues/5400).
 
 ## Boundary
 
@@ -179,9 +180,11 @@ This owner does not define:
 - cache publication and concurrency; or
 - browser filesystem availability or user-interface registration.
 
-A local folder client successor will consume this identity and define
-layout-specific capabilities and bounded filesystem operations. A package
-composition successor will adopt that client under the
+A [local folder client successor](https://github.com/richlander/dotnet-inspect/issues/5399)
+will consume this identity and define layout-specific capabilities and bounded
+filesystem operations. A
+[package composition successor](https://github.com/richlander/dotnet-inspect/issues/5400)
+will adopt that client under the
 [package source model](package-source-model.md), including local-before-HTTP
 acquisition and authority-bearing candidate results. Those successors must not
 redefine path identity.
