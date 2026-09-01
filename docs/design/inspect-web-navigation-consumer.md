@@ -411,6 +411,20 @@ The persistent shell control, modal dialogs, and routed-surface classification
 these rules park focus on or move focus between are defined by
 [Inspect Web Shell Interaction](inspect-web-shell-interaction.md).
 
+### Workspace result focus
+
+A successful Workspace entry action that opens an inspection surface focuses
+the returned active-subject level-one heading. When the returned destination
+remains in Workspace, focus moves to the returned active entry. If a closed
+entry has no returned active entry, focus moves to the next rendered entry at
+its former position, then the previous entry, then the Workspace heading.
+
+A typed failure that retains the Workspace renderer keeps focus on the
+invoking entry while surfacing and announcing the failure. If synchronization
+replaces that renderer, the ordinary authority-validated replacement and
+fallback rules in [Shell and menu focus resolution](#shell-and-menu-focus-resolution)
+apply instead; focus never returns to an outgoing-renderer element.
+
 ### Package query entry and return
 
 Package query's `/query` route is a full-bleed routed surface under
@@ -561,6 +575,22 @@ claim Inspect Web implementation conformance.
 
 An implementation claiming this redesign is complete must satisfy these
 outcomes.
+
+### Workspace focus acceptance
+
+1. Activate a Workspace entry whose successful outcome opens an inspection
+   surface and confirm that focus reaches the returned active-subject heading.
+2. Activate an entry whose successful outcome remains in Workspace and confirm
+   that focus reaches the returned active entry.
+3. Close an entry with no returned active entry and confirm focus moves to the
+   next rendered entry at its former position, then the previous entry, then
+   the Workspace heading.
+4. Supply a typed failure that retains the Workspace renderer and confirm that
+   focus remains on the invoking entry while the failure is surfaced and
+   announced.
+5. Repeat with a synchronization-required result that replaces the renderer
+   and confirm that focus resolves only within the new lifetime under current
+   effect authority.
 
 ### Transition effects and surface lifetime
 

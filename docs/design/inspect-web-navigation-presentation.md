@@ -29,7 +29,7 @@ This owner defines:
 - rendering the aggregate (`All libraries`) identity, per-lens capability
   outcomes, and evidence;
 - the compact package/version/TFM coordinate argument; and
-- Type navigation placement beside Type and Member working surfaces.
+- Type and Member inventory-row rendering and activation.
 
 It does not own:
 
@@ -166,12 +166,10 @@ returned workspace outcome. The UI does not choose a subject, lens, successor,
 or fallback for the product. Separate coordinates remain separate even when
 their display package IDs match.
 
-A successful entry action that opens an inspection surface focuses its
-active-subject level-one heading. When an action remains in Workspace, focus
-moves to the returned active entry. If a closed entry has no returned active
-entry, focus moves to the next rendered entry at its former position, then the
-previous entry, then the Workspace heading. A typed failure retains focus on
-the invoking entry while surfacing the failure.
+Workspace renders stable focus targets for its heading and every coordinate
+entry, including the returned active entry. Post-result focus and failure
+handling are owned by
+[Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md#workspace-result-focus).
 
 Workspace also exposes the same Search and Open actions as the shell. It does
 not infer source identity, package equivalence, or local-file correspondence
@@ -413,9 +411,12 @@ inventing package/version/TFM fields.
 
 ## Type navigation
 
-Type navigation remains beside Type and Member working surfaces. Package and
-Library navigation may also expose Types where their owning lens requires it,
-but no second Library filter is introduced.
+This owner renders product-issued Type inventory rows and their activation
+descriptors. Package and Library navigation may also expose Types where their
+owning lens requires it, but no second Library filter is introduced. Placement
+beside Type and Member working surfaces and replacement by the narrow
+navigation drawer are owned by
+[Inspect Web Surface Composition](inspect-web-surface-composition.md#responsive-composition).
 
 ## Non-claims
 
@@ -553,8 +554,6 @@ are proved by the gates in
    from their labels.
 3. Activate and close entries and confirm that each action submits the opaque
    coordinate identity once and renders the returned workspace outcome.
-4. Confirm that an action opening inspection focuses the resulting
-   active-subject heading and that an action remaining in Workspace focuses the
-   returned active entry, nearest surviving entry, or Workspace heading
-   according to the defined order.
-5. Supply a typed failure and confirm that focus remains on the invoking entry.
+
+Post-result focus and failure acceptance are specified by
+[Workspace focus acceptance](inspect-web-navigation-consumer.md#workspace-focus-acceptance).
