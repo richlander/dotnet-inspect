@@ -852,8 +852,9 @@ changes source legality or required spelling, use paired representative source
 that produces the same IL and differs only in mode metadata. It is small by
 construction — only mode-sensitive fixtures get thin per-flag overlay assemblies
 — so the cost is one default plus a few shrinking single-flag overlays, never the
-corpus times N. The active axes are the `runtime-async=off` overlay
-(`Fixtures.ClassicAsync`), the checked-arithmetic overlay
+corpus times N. The active async axis compiles the exact same `AsyncFixtures.cs`
+as `runtime-async=off` (`Fixtures.ClassicAsync`) and `runtime-async=on`
+(`Fixtures.RuntimeAsync`). The other active axes are the checked-arithmetic overlay
 (`Fixtures.CheckedArithmetic`), and the old/new memory-safety pair
 (`Fixtures.LegacyUnsafe` / `Fixtures.NewUnsafe`, plus `UnsafeChainA/B/C` for
 cross-assembly `RequiresUnsafeAttribute` resolution). The mechanics, axis
@@ -861,8 +862,10 @@ switches, and recipe for adding an axis live in
 [the harness README](../tools/DecompilerHarness/README.md), "Multi-mode fixture
 matrix".
 
-This is a **discovery and bring-down instrument, on-demand — not a CI gate.** It
-feeds the quality loop from the other end than the corpus does:
+Library-report measurement is a **discovery and bring-down instrument,
+on-demand — not a CI gate.** `AsyncLoweringFixtureMatrixTests` gates that the
+async pair continues to share one source and produce its two physical
+lowerings. The reports feed the quality loop from the other end than the corpus:
 
 - **Discover.** `--library-report` over an overlay surfaces unsupported-pattern
   buckets the single-mode corpus could never produce. Each bucket is a real,

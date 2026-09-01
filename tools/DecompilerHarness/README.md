@@ -1430,26 +1430,30 @@ switches live in `Directory.Build.targets`.
 `<MemorySafetyRules>updated</MemorySafetyRules>` opts a fixture into
 `/features:updated-memory-safety-rules`.
 
-**On-demand, not a CI gate.** These overlays are a discovery and bring-down
-instrument, not a regression wall — build one and point `--library-report` at it.
-The first axis is `src/ILInspector.Decompiler.Fixtures.ClassicAsync` (the async
-fixtures at `runtime-async=off`):
+**Reports are on-demand, not a CI gate.** These overlays are a discovery and
+bring-down instrument, not a regression wall — build them and point
+`--library-report` at them. `AsyncLoweringFixtureMatrixTests` gates only the
+shared-source and physical-lowering contract. The first axis compiles the exact
+same `AsyncFixtures.cs` through
+`src/ILInspector.Decompiler.Fixtures.ClassicAsync` (`runtime-async=off`) and
+`src/ILInspector.Decompiler.Fixtures.RuntimeAsync` (`runtime-async=on`):
 
 ```bash
 dotnet build src/ILInspector.Decompiler.Fixtures.ClassicAsync -c Release
+dotnet build src/ILInspector.Decompiler.Fixtures.RuntimeAsync -c Release
 dotnet run --project tools/DecompilerHarness -c Release -- --library-report \
-  artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicAsync/release/ILInspector.Decompiler.Fixtures.ClassicAsync.dll
+  artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicAsync/release/ILInspector.Decompiler.Fixtures.ClassicAsync.dll \
+  artifacts/bin/ILInspector.Decompiler.Fixtures.RuntimeAsync/release/ILInspector.Decompiler.Fixtures.RuntimeAsync.dll
 ```
 
-Baseline (classic async unraised): 21 methods, 0 raised, with 0 pass bugs and 0
-`Full`-malformed — the state machines degrade honestly, never mis-raise. The
-7 `MoveNext`s bucket as `structuring: conditional-branch` (the goto state
-dispatch the structurer can't raise); the 14 kickoffs and state-machine helpers
-bucket as `fidelity: DEC0009` (`UnrepresentableMetadataName` — their residual
-`<>`-prefixed members, `<…>d__N`/`<>t__builder`/`<>1__state`, have no legal C#
-spelling until the shape is raised). A future raise's proof obligations are the
-queue's falsification list: kickoff/`MoveNext` correlation, state dispatch,
-builder identity, await ordering, and exception/finally paths.
+The report keeps the two assemblies separate. The classic artifact contains
+generated state-machine types and helpers; the runtime artifact keeps async
+control flow on the kickoff methods, so their method counts and unsupported
+pattern buckets differ even though `FixtureCatalog.SourcePaths` proves they
+share the same authored source. Report counts are deliberately not a CI
+ratchet. `AsyncLoweringFixtureMatrixTests` gates the durable premises instead:
+the exact source identity, classic relationship authentication, and the
+runtime-async implementation flag.
 
 The second axis is the old/new memory-safety pair:
 
