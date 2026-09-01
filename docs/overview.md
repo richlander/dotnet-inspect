@@ -118,7 +118,8 @@ substrates, and inspection producers that will extend that space.
   evidence without entering the inspected application's browser dependency
   closure; only its dependency-free root-attribute contract may enter the
   producer graph. It emits one opinionated TypeScript module per root and
-  leaves naming, compilation, composition, and publication to the consumer.
+  leaves public module naming, compilation, composition, and publication to
+  the consumer.
 - [`docs/design/inspect-web-jsexport-partitioning.md`](design/inspect-web-jsexport-partitioning.md)
   owns the inspect-web production facade partition: exact assignment of
   browser-host exports to generated capability modules, one-runtime
