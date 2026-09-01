@@ -223,6 +223,10 @@ one manifest:
   compatibility-only aliases for `--pdb-source` and `PDB Source`. No
   independent current-interface rationale is recorded, so they are removal
   candidates rather than precedent;
+- `SelectResolver.LegacySectionAliases` contains a broader set of former
+  section spellings. Their entry-by-entry current utility and removal status
+  have not been classified, so that inventory is **unverified** under this
+  policy;
 - valued `--head N` and `--tail N` inputs have a focused pre-parse guard because
   the current boolean option would otherwise leave the count to bind as a
   positional target. The `--tail N` outcome is gated; the symmetric `--head N`

@@ -182,21 +182,26 @@ The `@Files` category owns the curated subsets. The unfiltered `Package files`
 superset belongs to `@Package` instead because selecting `@Files` must not
 duplicate every matching path.
 
-Renamed sections keep their prior spellings in
-`SelectResolver.LegacySectionAliases` when compatibility is practical.
+`SelectResolver.LegacySectionAliases` currently lowers former spellings to
+canonical sections. [CLI compatibility and
+deprecation](cli-compatibility.md) owns whether any entry has independent
+current utility or remains compatibility-only debt; a section rename does not
+itself justify retaining the former spelling.
 
 Alternate projections do not create synonymous sections. `References` renders
 direct references as a flat table by default. `-S References --tree` renders
 the resolved transitive reference graph; `--depth N` limits that graph, with
 depth 1 containing direct references only. Omitting `--depth` traverses the
-complete resolvable graph. The former `Dependencies` spelling remains a
-compatibility alias for the tree projection.
+complete resolvable graph. The current implementation also lowers the former
+`Dependencies` spelling to `References`; its retention follows the CLI
+compatibility policy rather than this projection contract.
 
 Package `Dependencies` follows the same projection model: the section is a flat
 table of declared dependencies by target framework by default, while
 `-S Dependencies --tree` resolves the transitive graph for the selected or
-highest target framework. The former package `--dependencies` flag remains a
-compatibility alias for that tree projection.
+highest target framework. The current implementation also accepts the former
+package `--dependencies` flag; its retention follows the CLI compatibility
+policy rather than this projection contract.
 
 ## Section axes
 
@@ -582,7 +587,8 @@ During migration:
 
 - Do not infer category membership from prefixes.
 - Do not add computed `@All`, `@Default`, or `@Hidden` categories.
-- Preserve legacy section aliases where useful.
+- Route every proposed or existing legacy section alias through the CLI
+  compatibility policy; section migration does not itself justify retention.
 - Keep network and source-content work explicit.
 - Add close negative tests for every new applicability predicate.
 - Update Markdown and structured-output tests together.
