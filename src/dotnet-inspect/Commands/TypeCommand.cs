@@ -337,7 +337,10 @@ public static class TypeCommand
                             sourceFilesDllPath,
                             effectiveOptions,
                             logger,
-                            context.HttpClient);
+                            context.HttpClient,
+                            loaded.TryGetSourceAssembly(apiType),
+                            fallbackPackageName: packageName,
+                            fallbackPackageVersion: packageVersion);
                     }
 
                     bool hasProjection = effectiveOptions.Columns is { Length: > 0 } || effectiveOptions.Fields is { Length: > 0 };

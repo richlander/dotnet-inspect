@@ -73,6 +73,8 @@ forwarding facade and the assembly that supplies its selected member use
 different symbol coordinates without attributing the member to the facade.
 `SourceForwarderResolutionTests.ApiServices_RetainsSelectedForwarderDescriptor`,
 `SourceForwarderResolutionTests.ApiServices_RetainsRootPackageDescriptor`,
+`SourceForwarderResolutionTests.TypeSourceFiles_ForwardedPlatformDescriptorSelectsPlatformPolicy`,
+`SourceForwarderResolutionTests.TypeSourceFiles_ProjectDescriptorUsesPackageFallback`,
 `PdbAcquisitionServiceTests.SelectedPackageDescriptor_OverridesCallerPackageFallback`,
 `PdbAcquisitionServiceTests.SelectedPlatformDescriptor_IgnoresCallerPackageFallback`,
 and
