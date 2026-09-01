@@ -95,8 +95,7 @@ Type, or Member is active. This document does not invent package lenses for it.
 An inspection workspace has two persistent lines before its primary content:
 
 1. The title line begins with `dotnet-inspect`, then renders the subject ladder,
-   applicable Package coordinate controls, and active inspectors before its
-   elastic context and global actions.
+   active inspectors, and global actions.
 2. The **inspected-subject line** renders the exact Workspace, Package,
    Library, Type, or Member identity in full with its direct Share and Copy
    name actions.
@@ -120,8 +119,8 @@ Subject changes replace the inspector set; inspectors never become workspace
 coordinate switchers or inspected-subject identities.
 
 The combined subject/inspector region consumes only the width it needs and may
-scroll horizontally under pressure. Remaining title-line width belongs to
-broad workspace context rather than an empty dedicated row.
+scroll horizontally under pressure. Remaining title-line width stays empty
+rather than carrying a tab-like active-package label.
 
 ### Inspected-subject line
 
@@ -383,21 +382,22 @@ arity.
 ## Package coordinate controls
 
 The old full-width `PACKAGE` row remains removed. Package version and TFM
-controls follow the Package subject in the title line:
+controls render in the Package working surface:
 
 ```text
-dotnet-inspect  Workspace Package version 10.0.0 framework net10.0 Type Member  API Metadata Source
-System.Text.Json.JsonSerializer  Share  copy name
+dotnet-inspect  Workspace Package Type Member  Overview Dependencies Metadata
+System.Text.Json@10.0.0  Share  copy name
+
+Package coordinate
+Version 10.0.0   Framework net10.0
 ```
 
-The coordinate remains visible across Package, Library, Type, and Member
-subjects. Activating it opens the applicable package, version, and TFM controls
-without adding another persistent row. Changing the coordinate updates the
-shared workspace by submitting the typed transition and rendering its outcome.
-
-Package Overview presents package details, but it is no longer the only place
-from which the coordinate may be edited. Existing package fields do not repeat
-the same version and TFM beside the command control.
+The coordinate editor is available while Package is selected, across its
+inspectors. It is absent from Workspace, Library, Type, and Member so package
+editing does not consume persistent shell space. Changing the coordinate
+updates the shared workspace by submitting the typed transition and rendering
+its outcome. Package Overview does not repeat a separate target-framework
+selector.
 
 Resolved assembly assets are Library details and do not enter the package
 coordinate or Package Overview.

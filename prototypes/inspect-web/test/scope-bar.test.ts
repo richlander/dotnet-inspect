@@ -183,21 +183,19 @@ test("scope bar bindings ignore missing and unknown dataset values", () => {
   assert.deepEqual(calls, []);
 });
 
-test("package coordinate selectors render between subjects and inspectors", () => {
+test("subject and inspector strips omit package coordinate selectors", () => {
   const html = renderScopeBar({
     scope: "type",
     strip: typeLenses,
     activeStripId: "api",
     stripAttribute: "data-lens",
-    coordinateControlsHtml:
-      '<label class="version-select"><select id="package-version"></select></label>'
-      + '<label class="framework-select"><select id="framework"></select></label>',
     escapeHtml,
   });
 
-  assert.match(
+  assert.match(html, /class="scope-switch"[\s\S]*class="lens-separator"[\s\S]*data-lens="api"/);
+  assert.doesNotMatch(
     html,
-    /class="scope-switch"[\s\S]*class="package-coordinate-controls"[\s\S]*id="package-version"[\s\S]*id="framework"[\s\S]*class="lens-separator"[\s\S]*data-lens="api"/);
+    /package-coordinate-controls|package-version|framework-select/);
 });
 
 test("package scope marks only the package segment and the active package lens", () => {

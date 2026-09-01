@@ -904,7 +904,10 @@ test("typed package controls own framework and version selection bindings", () =
     /selectFramework: framework =>\s*observeAsync\(\s*switchPackageFramework\(framework\),\s*"Switching the package framework"\),[\s\S]*selectVersion: version => \{[\s\S]*state\.package\?\.isRuntimePack[\s\S]*observeAsync\(\s*switchPlatformVersion\(version\),\s*"Switching the platform version"\);[\s\S]*else\s*observeAsync\(\s*switchPackageVersion\(version\),\s*"Switching the package version"\)/);
   assert.match(
     packageControlsSource,
-    /export function bindPackageSelections\([\s\S]*\[data-framework-chip\][\s\S]*#framework[\s\S]*#package-version/);
+    /export function bindPackageSelections\([\s\S]*#framework[\s\S]*#package-version/);
+  assert.match(
+    appSource,
+    /function packageCoordinateControls\(\)[\s\S]*id="package-version"[\s\S]*id="framework"/);
   assert.match(
     packageControlsBinding,
     /bindPackageSelections\(root, \{\s*onFrameworkSelect: selectFramework,\s*onVersionSelect: selectVersion,\s*\}\)/);
@@ -1176,7 +1179,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     ?? "";
   assert.match(
     shellControlsSource,
-    /export function bindWorkbenchShell\([\s\S]*#share[\s\S]*#dismiss-notice[\s\S]*#retry-notice[\s\S]*#dismiss-package-notice[\s\S]*#nav-back[\s\S]*#nav-forward[\s\S]*#go-home[\s\S]*#open-search[\s\S]*#help[\s\S]*export function focusWorkbenchSearch\([\s\S]*#open-search/);
+    /export function bindWorkbenchShell\([\s\S]*#share[\s\S]*#dismiss-notice[\s\S]*#retry-notice[\s\S]*#dismiss-package-notice[\s\S]*#nav-back[\s\S]*#nav-forward[\s\S]*#open-search[\s\S]*#help[\s\S]*export function focusWorkbenchSearch\([\s\S]*#open-search/);
   assert.match(
     shellControlsSource,
     /export function bindHomeShell\([\s\S]*#home-theme[\s\S]*#dismiss-notice[\s\S]*#home-credits[\s\S]*\[data-home-demo\]/);
@@ -1203,10 +1206,10 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /onDismissNotice: dismissQueryNotice,\n  onDismissPackageNotice:/);
   assert.match(
     workbenchActions,
-    /onDismissPackageNotice: \(\) => \{[\s\S]*pkg\.inspectionErrors = \[\];[\s\S]*pkg\.inspectionError = "";[\s\S]*render\(\);\s*\},\n  onGoHome:/);
+    /onDismissPackageNotice: \(\) => \{[\s\S]*pkg\.inspectionErrors = \[\];[\s\S]*pkg\.inspectionError = "";[\s\S]*render\(\);\s*\},\n  onHelp:/);
   assert.match(
     workbenchActions,
-    /onGoHome: goHome,[\s\S]*onHelp: \(\) => showToast\([\s\S]*onNavigateBack: navBack,[\s\S]*onNavigateForward: navForward,[\s\S]*onRetryNotice: \(\) => \{[\s\S]*state\.queryNoticeRetryAction;[\s\S]*if \(retryAction\) observeAction\(retryAction, "Retrying the inspection"\);[\s\S]*onSearch: \(\) => openSpotlight\(\),[\s\S]*onShare: \(\) => void share\(\)/);
+    /onHelp: \(\) => showToast\([\s\S]*onNavigateBack: navBack,[\s\S]*onNavigateForward: navForward,[\s\S]*onRetryNotice: \(\) => \{[\s\S]*state\.queryNoticeRetryAction;[\s\S]*if \(retryAction\) observeAction\(retryAction, "Retrying the inspection"\);[\s\S]*onSearch: \(\) => openSpotlight\(\),[\s\S]*onShare: \(\) => void share\(\)/);
   assert.match(
     homeActions,
     /onDemo: runHomeDemo,\s*onDismissNotice: dismissQueryNotice,\s*onOpenCredits: openCredits,\s*onToggleTheme: toggleTheme/);
@@ -1215,10 +1218,10 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /onOpenPackage: openPackageQuery,\s*onRetry: \(\) => \{\s*if \(state\.retryAction === retryUnavailable\) return;\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\);\s*\}/);
   assert.doesNotMatch(
     appSource,
-    /\bquerySelector(?:All)?(?:<[^>]+>)?\("(?:#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|go-home|open-search|help|home-theme|home-credits|retry-load|error-package-query|error-package-input|toggle-error-detail)|\[data-home-demo\]|\.load-error-detail)"\)/);
+    /\bquerySelector(?:All)?(?:<[^>]+>)?\("(?:#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|open-search|help|home-theme|home-credits|retry-load|error-package-query|error-package-input|toggle-error-detail)|\[data-home-demo\]|\.load-error-detail)"\)/);
   assert.doesNotMatch(
     workspaceBinding,
-    /#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|go-home|open-search|help)/);
+    /#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|open-search|help)/);
   assert.doesNotMatch(homeBinding, /#(?:home-theme|dismiss-notice|home-credits)|\[data-home-demo\]/);
   assert.doesNotMatch(
     loadingBinding,
@@ -5503,7 +5506,7 @@ test("closing a package removes its coordinate and selects the adjacent coordina
 test("workspace UI routes replacements and restore notices through bounded paths", () => {
   assert.match(
     packageControlsSource,
-    /onFrameworkSelect\(button\.dataset\.frameworkChip \?\? ""\)/);
+    /onFrameworkSelect\(framework\.value\)/);
   assert.match(
     appSource,
     /selectFramework: framework =>\s*observeAsync\(\s*switchPackageFramework\(framework\),\s*"Switching the package framework"\)/);

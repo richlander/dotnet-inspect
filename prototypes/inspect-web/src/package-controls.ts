@@ -30,10 +30,6 @@ export function bindPackageSelections(
   root: ParentNode,
   actions: PackageSelectionActions,
 ): void {
-  root.querySelectorAll<HTMLElement>("[data-framework-chip]").forEach(button =>
-    button.addEventListener(
-      "click",
-      () => actions.onFrameworkSelect(button.dataset.frameworkChip ?? "")));
   const framework = root.querySelector<HTMLSelectElement>("#framework");
   framework?.addEventListener(
     "change",

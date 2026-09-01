@@ -191,11 +191,11 @@ one restrictive dimension.
 
 ## Shared heading rules
 
-The title line identifies the active subject, coordinate options, inspector,
-and broad workspace context. The inspected-subject line immediately below it
-identifies the exact Package, Library, Type, or Member in full. Content headings
-may use the shorter local name. This section defines how lenses retain that
-orientation without restoring duplicated hero metadata.
+The title line identifies the active subject and inspector. The
+inspected-subject line immediately below it identifies the exact Package,
+Library, Type, or Member in full. Package coordinate options belong to Package
+content. Content headings may use the shorter local name. This section defines
+how lenses retain that orientation without restoring duplicated hero metadata.
 
 ### API and Source lenses
 
@@ -212,9 +212,8 @@ an active tab, panel, or fallback lens.
 
 Home, Workspace, and Diagnostics render their own visible level-one heading.
 The persistent `dotnet-inspect` root control remains available and opens
-Workspace. Returning to an inspection surface restores its exact-target
-heading; two visible level-one headings are never rendered for one routed
-surface.
+Home. Returning to an inspection surface restores its exact-target heading;
+two visible level-one headings are never rendered for one routed surface.
 
 The compact API and Source heading does not repeat:
 

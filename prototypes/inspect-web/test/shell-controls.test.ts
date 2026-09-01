@@ -86,7 +86,6 @@ test("workbench shell binds every rendered control without eager work", () => {
     ["#dismiss-package-notice", "dismiss-package-notice"],
     ["#nav-back", "navigate-back"],
     ["#nav-forward", "navigate-forward"],
-    ["#go-home", "go-home"],
     ["#open-search", "search"],
     ["#help", "help"],
   ]);
@@ -99,7 +98,6 @@ test("workbench shell binds every rendered control without eager work", () => {
   bindWorkbenchShell(fakeDom.parentNode(root), {
     onDismissNotice: () => calls.push("dismiss-notice"),
     onDismissPackageNotice: () => calls.push("dismiss-package-notice"),
-    onGoHome: () => calls.push("go-home"),
     onHelp: () => calls.push("help"),
     onNavigateBack: () => calls.push("navigate-back"),
     onNavigateForward: () => calls.push("navigate-forward"),
@@ -123,16 +121,17 @@ test("workbench shell binds every rendered control without eager work", () => {
 test("workbench shell renders subjects after the product root and before identity", () => {
   const html = workbenchShellHtml({
     subjectInspectorHtml: '<nav class="lensbar" data-test="subjects">Workspace Package Type</nav>',
-    workspaceTitleHtml: '<strong data-test="title">Package workspace</strong>',
   });
 
   assert.match(
     html,
-    /class="titlebar"[\s\S]*class="brand"[\s\S]*data-test="subjects"[\s\S]*class="workspace-title"[\s\S]*data-test="title"[\s\S]*class="title-actions"/);
+    /class="titlebar"[\s\S]*class="brand"[\s\S]*data-test="subjects"[\s\S]*class="title-actions"/);
   assert.doesNotMatch(html, /workspace-window|workspace-strip/);
-  assert.doesNotMatch(html, /coordinate-selectors|package-version|framework-select/);
+  assert.doesNotMatch(
+    html,
+    /workspace-title|coordinate-selectors|package-version|framework-select/);
   assert.match(html, /id="open-search"[^>]*>Search<\/button>/);
-  assert.match(html, /id="go-home"[^>]*>Home<\/button>/);
+  assert.doesNotMatch(html, /id="go-home"|>Home<\/button>/);
   assert.match(html, /id="open-settings"[^>]*>Settings<\/button>/);
   assert.doesNotMatch(html, /id="share"/);
   assert.match(html, /id="help"/);
@@ -251,7 +250,6 @@ test("shell bindings tolerate inactive surfaces", () => {
   assert.doesNotThrow(() => bindWorkbenchShell(root, {
     onDismissNotice() {},
     onDismissPackageNotice() {},
-    onGoHome() {},
     onHelp() {},
     onNavigateBack() {},
     onNavigateForward() {},

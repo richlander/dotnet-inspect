@@ -21,7 +21,6 @@ export interface RenderScopeBarOptions<TId extends string = string> {
   strip: readonly LensDefinition<TId>[];
   activeStripId: NoInfer<TId> | null;
   stripAttribute: string;
-  coordinateControlsHtml?: string;
   showMemberScope?: boolean;
   emptyStripLabel?: string;
   escapeHtml: (value: unknown) => string;
@@ -86,7 +85,6 @@ export function renderScopeBar<TId extends string>(
     strip,
     activeStripId,
     stripAttribute,
-    coordinateControlsHtml = "",
     showMemberScope = scope === "member",
     emptyStripLabel = "",
     escapeHtml,
@@ -104,9 +102,6 @@ export function renderScopeBar<TId extends string>(
         ${scopeSegment("type", "Type", scope === "type")}
         ${showMemberScope ? scopeSegment("member", "Member", scope === "member") : ""}
       </div>
-      ${coordinateControlsHtml
-        ? `<div class="package-coordinate-controls" aria-label="Package coordinate">${coordinateControlsHtml}</div>`
-        : ""}
       <span class="lens-separator"></span>
       ${stripHtml}
     </nav>`;

@@ -66,13 +66,8 @@ class FakeRoot {
   }
 }
 
-test("package selection bindings map overview and header controls without eager dispatch", () => {
+test("package selection bindings map Package content controls without eager dispatch", () => {
   const root = new FakeRoot();
-  const chip = new FakeElement();
-  chip.dataset.frameworkChip = "net9.0";
-  const secondChip = new FakeElement();
-  secondChip.dataset.frameworkChip = "net8.0";
-  root.addAll("[data-framework-chip]", chip, secondChip);
   const framework = root.add("#framework", new FakeElement());
   framework.value = "net9.0";
   const version = root.add("#package-version", new FakeElement());
@@ -87,24 +82,14 @@ test("package selection bindings map overview and header controls without eager 
     });
 
   assert.deepEqual(calls, []);
-  chip.dispatch("click");
-  secondChip.dispatch("click");
-  assert.deepEqual(calls, [
-    "framework:net9.0",
-    "framework:net8.0",
-  ]);
   framework.value = "net10.0";
   framework.dispatch("change");
   assert.deepEqual(calls, [
-    "framework:net9.0",
-    "framework:net8.0",
     "framework:net10.0",
   ]);
   version.value = "10.0.1";
   version.dispatch("change");
   assert.deepEqual(calls, [
-    "framework:net9.0",
-    "framework:net8.0",
     "framework:net10.0",
     "version:10.0.1",
   ]);
@@ -124,11 +109,6 @@ test("package selection binding tolerates an inactive surface with no controls",
 
 test("package controls connect selection events to their typed options", () => {
   const root = new FakeRoot();
-  const chip = new FakeElement();
-  chip.dataset.frameworkChip = "net9.0";
-  const secondChip = new FakeElement();
-  secondChip.dataset.frameworkChip = "net8.0";
-  root.addAll("[data-framework-chip]", chip, secondChip);
   const framework = root.add("#framework", new FakeElement());
   framework.value = "net9.0";
   const version = root.add("#package-version", new FakeElement());
@@ -142,15 +122,11 @@ test("package controls connect selection events to their typed options", () => {
   packageControls.bind(fakeDom.parentNode(root));
 
   assert.deepEqual(calls, []);
-  chip.dispatch("click");
-  secondChip.dispatch("click");
   framework.value = "net10.0";
   framework.dispatch("change");
   version.value = "10.0.1";
   version.dispatch("change");
   assert.deepEqual(calls, [
-    "framework:net9.0",
-    "framework:net8.0",
     "framework:net10.0",
     "version:10.0.1",
   ]);

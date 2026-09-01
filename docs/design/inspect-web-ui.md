@@ -75,12 +75,12 @@ independent cosmetic changes.
 
 | Area | Direction |
 | ---- | --------- |
-| Persistent hierarchy | Use one title line for product, subjects, coordinate controls, inspectors, context, and global actions; use one inspected-subject line before content |
-| Workspace title bar | Follow the CLI grammar after `dotnet-inspect`: subject, coordinate options, and inspector, followed by elastic context and global actions |
+| Persistent hierarchy | Use one title line for product, subjects, inspectors, and global actions; use one inspected-subject line before content |
+| Workspace title bar | Follow the CLI grammar after `dotnet-inspect`: subject and inspector, followed by global actions |
 | Subject navigation | Establish Workspace, Package, Type, and Member in the title line now; add Library when product descriptors are ready |
 | Inspected subject | Show the exact Workspace, Package, Library, Type, or Member identity in full on the line below, with Share and Copy name |
 | Workspace selection | Keep ordinary single-workspace use free of tabs; manage retained coordinates inside the Workspace subject |
-| Package coordinate | Keep version and TFM selectors with the Package subject; platform is workspace content, not a workspace |
+| Package coordinate | Render version and TFM selectors in Package content; platform is workspace content, not a workspace |
 | Library inspection | Select all libraries or one library within Library |
 | Type headings | Use a compact exact-target heading in API and Source; retain detail in Metadata |
 | Filters | Collapse selector rows by default and summarize hidden restrictions |
@@ -92,11 +92,10 @@ independent cosmetic changes.
 
 Together, these decisions make the web shell read like the CLI without
 rendering a command string. The title line progresses from `dotnet-inspect` to
-the active subject, applicable coordinate options, and inspector. Its elastic
-region may show broad workspace context. The line below renders the exact
-inspected subject in full and owns Share and Copy name. Target inventories and
-navigation remain inside the working surface rather than consuming another
-persistent band.
+the active subject and inspector, then global actions. The line below renders
+the exact inspected subject in full and owns Share and Copy name. Package
+coordinate editing, target inventories, and navigation remain inside the
+working surface rather than consuming persistent chrome.
 
 ## Cross-document relationships
 

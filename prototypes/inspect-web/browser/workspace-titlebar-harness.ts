@@ -12,7 +12,9 @@ function escapeHtml(value: unknown): string {
 
 const app = document.querySelector<HTMLElement>("#app");
 if (!app) throw new Error("The workspace-titlebar harness root is unavailable.");
-const workspaceMode = new URL(location.href).searchParams.has("workspace");
+const params = new URL(location.href).searchParams;
+const workspaceMode = params.has("workspace");
+const packageMode = params.has("package");
 const coordinates = [
   {
     id: "System.Text.Json",
@@ -72,37 +74,35 @@ app.innerHTML = `
   <div class="workbench">
     ${workbenchShellHtml({
       subjectInspectorHtml: renderScopeBar({
-        scope: workspaceMode ? "workspace" : "type",
+        scope: workspaceMode ? "workspace" : packageMode ? "package" : "type",
         strip: workspaceMode
           ? []
-          : [["api", "API"], ["metadata", "Metadata"], ["source", "Source"]],
-        activeStripId: workspaceMode ? null : "api",
-        stripAttribute: "data-lens",
-        showMemberScope: !workspaceMode,
-        coordinateControlsHtml: workspaceMode ? "" : `
-          <label class="version-select">
-            <span>version</span>
-            <select id="package-version"><option>10.0.0</option></select>
-          </label>
-          <label class="framework-select">
-            <span>framework</span>
-            <select id="framework"><option>net10.0</option></select>
-          </label>`,
+          : packageMode
+            ? [["overview", "Overview"], ["dependencies", "Dependencies"]]
+            : [["api", "API"], ["metadata", "Metadata"], ["source", "Source"]],
+        activeStripId: workspaceMode ? null : packageMode ? "overview" : "api",
+        stripAttribute: packageMode ? "data-package-lens" : "data-lens",
+        showMemberScope: !workspaceMode && !packageMode,
         escapeHtml,
       }),
-      workspaceTitleHtml: `
-        <span>package</span>
-        <strong>System.Text.Json</strong>`,
     })}
     <main class="workspace">
       ${navigationHtml}
       <section class="detail-pane">
         <header class="detail-head">
-          <div class="subject-identity"><strong>${workspaceMode ? "Workspace" : "System.Text.Json.JsonSerializer"}</strong></div>
+          <div class="subject-identity"><strong>${workspaceMode ? "Workspace" : packageMode ? "System.Text.Json@10.0.0" : "System.Text.Json.JsonSerializer"}</strong></div>
           <div class="detail-actions"><button id="share">Share</button>${workspaceMode ? "" : '<button id="copy-name">copy name</button>'}</div>
         </header>
         <article class="detail-scroll">
-          <h1>${workspaceMode ? "Workspace" : "System.Text.Json.JsonSerializer"}</h1>
+          <h1>${workspaceMode ? "Workspace" : packageMode ? "System.Text.Json" : "System.Text.Json.JsonSerializer"}</h1>
+          ${packageMode ? `
+            <section class="document-section package-coordinate-editor">
+              <div class="section-title"><h2>Package coordinate</h2><span>1 target framework</span></div>
+              <div class="package-coordinate-fields">
+                <label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option></select></label>
+                <label class="framework-select"><span>Framework</span><select id="framework"><option>net10.0</option></select></label>
+              </div>
+            </section>` : ""}
         </article>
       </section>
     </main>

@@ -2668,9 +2668,6 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     <div class="workbench"${state.memberAnnotatedModal ? " inert" : ""}>
       ${workbenchShellHtml({
         subjectInspectorHtml: renderScopeBar(),
-        workspaceTitleHtml: `
-          <span>${pkg.isRuntimePack ? "platform" : "package"}</span>
-          <strong title="${escapeHtml(`${packageDisplayName(pkg)}@${pkg.version} · ${pkg.activeFramework}`)}">${escapeHtml(packageDisplayName(pkg))}</strong>`,
       })}
 
       ${visibleQueryNotice()
@@ -2904,20 +2901,6 @@ function renderMemberNavPane(type: AppTypeSurface) {
 function renderScopeBar() {
   const sc = scope();
   const selected = selectedType();
-  const pkg = currentPackage();
-  const coordinateControlsHtml = `
-    <label class="version-select">
-      <span>version</span>
-      <select id="package-version">
-        ${versionOptionsHtml(pkg)}
-      </select>
-    </label>
-    <label class="framework-select">
-      <span>framework</span>
-      <select id="framework"${pkg.frameworks.length <= 1 ? " disabled" : ""}>
-        ${pkg.frameworks.map(item => `<option ${item === pkg.activeFramework ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
-      </select>
-    </label>`;
   const showMemberScope =
     !state.atPackageRoot && Boolean(selected && memberGroups(selected).length);
   if (sc === "workspace") {
@@ -2936,7 +2919,6 @@ function renderScopeBar() {
       strip: packageLensesFor(state.package),
       activeStripId: state.packageLens,
       stripAttribute: "data-package-lens",
-      coordinateControlsHtml,
       showMemberScope,
       escapeHtml,
     });
@@ -2948,7 +2930,6 @@ function renderScopeBar() {
       strip: member ? memberSectionsFor(member) : [],
       activeStripId: state.memberSection,
       stripAttribute: "data-member-section",
-      coordinateControlsHtml,
       showMemberScope,
       emptyStripLabel: "Filtered member list",
       escapeHtml,
@@ -2962,7 +2943,6 @@ function renderScopeBar() {
       strip: typeLensesFor(state.package),
       activeStripId: state.lens,
       stripAttribute: "data-lens",
-      coordinateControlsHtml,
       showMemberScope,
       escapeHtml,
     });
@@ -2981,16 +2961,36 @@ function packageHeading() {
       <code class="type-signature">${pkg.isRuntimePack ? `${escapeHtml(packageDisplayName(pkg))} · ${escapeHtml(pkg.version)}` : `${escapeHtml(pkg.id)}@${escapeHtml(pkg.version)}`}</code>
     </div>
     <div class="type-metrics"><span><strong>${pkg.totalTypes}</strong> types</span><span><strong>${pkg.totalMembers.toLocaleString()}</strong> members</span></div>
-    <dl class="definition-list">
-      <div><dt>Active TFM:</dt><dd>${escapeHtml(pkg.activeFramework)}</dd></div>
-      <div><dt>Frameworks:</dt><dd>${pkg.frameworks.length}</dd></div>
-    </dl>
   </header>`;
+}
+
+function packageCoordinateControls() {
+  const pkg = currentPackage();
+  return `<section class="document-section package-coordinate-editor" aria-labelledby="package-coordinate-heading">
+    <div class="section-title">
+      <h2 id="package-coordinate-heading">Package coordinate</h2>
+      <span>${pkg.frameworks.length} target framework${pkg.frameworks.length === 1 ? "" : "s"}</span>
+    </div>
+    <div class="package-coordinate-fields">
+      <label class="version-select">
+        <span>Version</span>
+        <select id="package-version">
+          ${versionOptionsHtml(pkg)}
+        </select>
+      </label>
+      <label class="framework-select">
+        <span>Framework</span>
+        <select id="framework"${pkg.frameworks.length <= 1 ? " disabled" : ""}>
+          ${pkg.frameworks.map(item => `<option ${item === pkg.activeFramework ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
+        </select>
+      </label>
+    </div>
+  </section>`;
 }
 
 function renderPackageView() {
   const body = packageLensBody();
-  return `${packageHeading()}${body}`;
+  return `${packageHeading()}${packageCoordinateControls()}${body}`;
 }
 
 function renderWorkspaceView() {
@@ -3913,10 +3913,6 @@ function drillToPerfMember(
 function renderPackageOverview() {
   const pkg = currentPackage();
 
-  const frameworks = pkg.frameworks
-    .map(framework => `<button class="type-chip ${framework === pkg.activeFramework ? "active" : ""}" data-framework-chip="${escapeHtml(framework)}">${escapeHtml(framework)}</button>`)
-    .join("");
-
   const kindPlural: Record<TypeKind, string> = {
     class: "classes",
     struct: "structs",
@@ -4010,10 +4006,6 @@ function renderPackageOverview() {
     renderPackageDocuments(pkg.documents || [], escapeHtml);
 
   return `
-    <section class="document-section">
-      <div class="section-title"><h2>Target frameworks</h2><span>${pkg.frameworks.length} · active highlighted</span></div>
-      <div class="type-chip-list">${frameworks}</div>
-    </section>
     <section class="document-section">
       <div class="section-title"><h2>Libraries</h2><span>${librariesSubtitle}</span></div>
       ${pkg.isRuntimePack ? `<div class="library-picker platform-library-picker overview-library-picker">${platformLibrarySelectHtml()}</div>` : ""}
@@ -5246,7 +5238,6 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
     pkg.inspectionError = "";
     render();
   },
-  onGoHome: goHome,
   onHelp: () => showToast(
     "⌘K command · ⌘P / type to find a type · ⌘F filter · "
     + "1—5 lenses · ↑↓ types · Alt+←/→ or Shift+←/→ back/forward · "

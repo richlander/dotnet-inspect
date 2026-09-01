@@ -126,38 +126,6 @@ body {
 }
 .brand-glyph { color: var(--accent); font-size: 18px; }
 
-.workspace-title {
-  flex: 1 1 140px;
-  min-width: 0;
-  display: flex;
-  align-items: baseline;
-  gap: 7px;
-  padding: 0 10px;
-  overflow: hidden;
-}
-.workspace-title > span {
-  flex: none;
-  color: var(--dim);
-  font: 9px var(--mono);
-  letter-spacing: .08em;
-  text-transform: uppercase;
-}
-.workspace-title > strong {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text);
-  font: 600 11px var(--mono);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.package-coordinate-controls {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 5px 0 2px;
-}
 .framework-select, .version-select { display: flex; align-items: center; gap: 6px; }
 .framework-select > span, .version-select > span {
   color: var(--dim);
@@ -195,7 +163,7 @@ body {
   font: 10px var(--mono);
 }
 .title-actions button { padding: 0 8px; }
-.title-actions #open-search, .title-actions #go-home {
+.title-actions #open-search {
   color: var(--accent);
   border-color: #70402f;
 }
@@ -542,6 +510,20 @@ kbd {
 .section-title { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
 .section-title h2 { margin: 0; font-size: 14px; }
 .section-title > span { color: var(--dim); font: 10px var(--mono); }
+.package-coordinate-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+}
+.package-coordinate-editor .framework-select,
+.package-coordinate-editor .version-select {
+  min-width: min(220px, 100%);
+  justify-content: space-between;
+}
+.package-coordinate-editor select {
+  width: 140px;
+  max-width: 100%;
+}
 .member-browser-controls {
   margin-bottom: 0;
   border: 1px solid var(--line);
@@ -1165,9 +1147,6 @@ kbd {
   body { min-width: 0; }
   .brand { width: 48px; padding: 0 14px; }
   .brand span:last-child { display: none; }
-  .package-coordinate-controls { gap: 5px; }
-  .package-coordinate-controls label > span { display: none; }
-  .framework-select select, .version-select select { max-width: 88px; padding-left: 5px; }
   .title-actions { padding: 0 5px; }
   .title-actions button { padding: 0 6px; }
   .workspace { grid-template-columns: 44% 56%; }
@@ -1178,7 +1157,6 @@ kbd {
   .type-heading { grid-template-columns: 35px minmax(0, 1fr); }
   .type-badge { width: 35px; height: 35px; }
   .type-heading p { grid-column: 1 / -1; }
-  .workspace-title { display: none; }
 }
 
 /* Spotlight-style go-to-type finder */

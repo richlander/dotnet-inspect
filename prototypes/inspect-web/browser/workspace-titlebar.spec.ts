@@ -6,40 +6,36 @@ async function box(page: Page, selector: string) {
   return value!;
 }
 
-test("the title bar gives the active workspace identity the available space", async ({
+test("the title bar contains no tab-like active package identity", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html");
+  await page.goto("/browser/workspace-titlebar.html?package=1");
 
-  const workspaceTitle = await box(page, ".workspace-title");
   const titleActions = await box(page, ".title-actions");
 
-  expect(workspaceTitle.width).toBeGreaterThan(100);
   expect(titleActions.x + titleActions.width).toBeCloseTo(1440, 0);
+  await expect(page.locator(".workspace-title")).toHaveCount(0);
   await expect(page.locator(".titlebar")).not.toContainText("0:");
   await expect(page.locator(".titlebar")).not.toContainText("Platform");
   await expect(page.locator(".workspace-window")).toHaveCount(0);
 });
 
-test("subjects, inspectors, and package selectors share the title bar", async ({
+test("subjects and inspectors share the title bar without package selectors", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html");
+  await page.goto("/browser/workspace-titlebar.html?package=1");
 
-  const titlebar = await box(page, ".titlebar");
   const brand = await box(page, ".brand");
   const lensbar = await box(page, ".lensbar");
-  const version = await box(page, "#package-version");
-  const framework = await box(page, "#framework");
 
   expect(lensbar.x).toBeGreaterThanOrEqual(brand.x + brand.width);
-  expect(version.y).toBeGreaterThanOrEqual(titlebar.y);
-  expect(framework.y + framework.height).toBeLessThanOrEqual(
-    titlebar.y + titlebar.height);
-  await expect(page.locator(".titlebar #package-version")).toBeVisible();
-  await expect(page.locator(".titlebar #framework")).toBeVisible();
+  await expect(page.locator(".titlebar #package-version")).toHaveCount(0);
+  await expect(page.locator(".titlebar #framework")).toHaveCount(0);
+  await expect(page.locator(".detail-scroll #package-version")).toBeVisible();
+  await expect(page.locator(".detail-scroll #framework")).toBeVisible();
+  await expect(page.locator("#go-home")).toHaveCount(0);
 });
 
 test("narrow layout preserves the two-line hierarchy and primary actions", async ({
@@ -51,14 +47,13 @@ test("narrow layout preserves the two-line hierarchy and primary actions", async
   const titleActions = await box(page, ".title-actions");
   const titlebar = await box(page, ".titlebar");
   const inspectedSubjectLine = await box(page, ".detail-head");
-  const version = await box(page, "#package-version");
   const namespacePicker = await box(page, ".namespace-picker");
   const typeList = await box(page, ".type-list");
 
-  await expect(page.locator("#package-version")).toBeVisible();
-  await expect(page.locator("#framework")).toBeVisible();
+  await expect(page.locator("#package-version")).toHaveCount(0);
+  await expect(page.locator("#framework")).toHaveCount(0);
   await expect(page.locator("#open-search")).toBeVisible();
-  await expect(page.locator("#go-home")).toBeVisible();
+  await expect(page.locator("#go-home")).toHaveCount(0);
   await expect(page.locator(".subject-identity")).toContainText(
     "System.Text.Json.JsonSerializer");
   await expect(page.locator(".detail-head #share")).toBeVisible();
@@ -66,8 +61,6 @@ test("narrow layout preserves the two-line hierarchy and primary actions", async
   await expect(page.locator("#help")).toBeHidden();
   await expect(page.locator("#open-settings")).toBeHidden();
   expect(titlebar.y).toBeLessThan(inspectedSubjectLine.y);
-  expect(version.y).toBeGreaterThanOrEqual(titlebar.y);
-  expect(version.y + version.height).toBeLessThanOrEqual(titlebar.y + titlebar.height);
   expect(titleActions.x + titleActions.width).toBeCloseTo(760, 0);
   expect(inspectedSubjectLine.x + inspectedSubjectLine.width).toBeLessThanOrEqual(760);
   expect(namespacePicker.y + namespacePicker.height).toBeLessThanOrEqual(typeList.y);

@@ -13,7 +13,6 @@ export type HomeDemo = ProductHomeDemoId;
 export interface WorkbenchShellBindingActions {
   onDismissNotice: () => void;
   onDismissPackageNotice: () => void;
-  onGoHome: () => void;
   onHelp: () => void;
   onNavigateBack: () => void;
   onNavigateForward: () => void;
@@ -36,7 +35,6 @@ export interface LoadErrorShellBindingActions {
 
 export interface WorkbenchShellHtmlOptions {
   subjectInspectorHtml: string;
-  workspaceTitleHtml: string;
 }
 
 export function workbenchShellHtml(
@@ -46,13 +44,9 @@ export function workbenchShellHtml(
       <header class="titlebar">
         <a class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
         ${options.subjectInspectorHtml}
-        <div class="workspace-title" aria-label="Active workspace">
-          ${options.workspaceTitleHtml}
-        </div>
         <nav class="title-actions" aria-label="Application">
           <button id="help" type="button" aria-label="Keyboard help">?</button>
           <button id="open-search" type="button" aria-haspopup="dialog" title="Search (Ctrl/Command+P)">Search</button>
-          <button id="go-home" type="button">Home</button>
           <button id="open-settings" type="button">Settings</button>
         </nav>
       </header>`;
@@ -74,8 +68,6 @@ export function bindWorkbenchShell(
     ?.addEventListener("click", actions.onNavigateBack);
   root.querySelector("#nav-forward")
     ?.addEventListener("click", actions.onNavigateForward);
-  root.querySelector("#go-home")
-    ?.addEventListener("click", actions.onGoHome);
   root.querySelector("#open-search")
     ?.addEventListener("click", () => actions.onSearch());
   root.querySelector("#help")

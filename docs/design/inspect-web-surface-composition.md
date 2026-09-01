@@ -218,9 +218,8 @@ One information hierarchy adapts across viewport sizes:
   `Types` or `Members` button that opens the shared modal navigation drawer;
 - the combined title line and inspected-subject line each remain one line;
 - Share and Copy name remain visible on the inspected-subject line;
-- Help and Settings disappear before Search, Home, subject navigation, or
-  inspected-subject actions;
-- broad workspace context truncates before the subject/inspector region;
+- Help and Settings disappear before Search, the `dotnet-inspect` Home
+  control, subject navigation, or inspected-subject actions;
 - subject and inspector navigation scroll horizontally instead of wrapping;
 - the inspected-subject identity elides visually without losing its complete
   accessible identity; and

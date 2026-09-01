@@ -13,11 +13,10 @@ are separately owned.
 
 This owner defines:
 
-- the persistent shell's visible text actions (`Home`, `Search`, `Open`,
-  `Help`, `Settings`);
+- the persistent shell's visible text actions (`Search`, `Open`, `Help`,
+  `Settings`) and the `dotnet-inspect` Home control;
 - the title line's allocation among the product root, the navigation-
-  presentation-owned subject/inspector content, broad workspace identity, and
-  trailing global actions;
+  presentation-owned subject/inspector content and trailing global actions;
 - the generic modal-dialog contract (accessible name, initial focus, inert
   background, tab containment, Escape, one-modal-at-a-time, and
   ordinary-dismissal focus return) shared by Spotlight, Open, Settings, the
@@ -74,28 +73,23 @@ This document consumes, without redefining:
 The first persistent row is one non-wrapping title line:
 
 ```text
-dotnet-inspect  Workspace Package version 10.0.0 framework net10.0 Type Member  API Metadata Source  System.Text.Json  Search Home Help Settings
+dotnet-inspect  Workspace Package Type Member  API Metadata Source  Search Help Settings
 ```
 
 It follows the product's CLI grammar without becoming an editable command:
 
-1. `dotnet-inspect` is the stable product and Workspace root control.
-2. Navigation Presentation renders the subject ladder, applicable Package
-   coordinate controls, and the active subject's inspectors immediately after
-   the product root.
-3. The **workspace identity** receives any remaining elastic space. It renders an
-   owner-issued workspace name when one exists. Otherwise it renders the
-   active coordinate identity for a singular or provisionally unnamed
-   workspace. A composite identity may be meaningful, such as an owner-issued
-   package-prefix description; the shell does not derive one by parsing member
-   or display text.
-4. Fixed global actions remain reachable at the trailing edge. Help and
+1. `dotnet-inspect` is the stable product and Home control.
+2. Navigation Presentation renders the subject ladder and the active subject's
+   inspectors immediately after the product root. Package coordinate controls
+   belong to the Package working surface.
+3. Fixed global actions remain reachable at the trailing edge. Help and
    Settings are the first actions removed from visual layout as width narrows;
-   Search and Home remain.
+   Search and the product Home control remain.
 
 The title line contains no workspace tabs, indexed workspace selectors, or
-separate Platform workspace. Most sessions contain one workspace, so retained
-coordinate management belongs to the Workspace subject rather than permanent
+separate Platform workspace, active-package title, or package coordinate
+selector. Most sessions contain one workspace, so retained coordinate
+management belongs to the Workspace subject rather than permanent
 high-distraction chrome. Platform libraries are capabilities or content of the
 current workspace.
 
@@ -108,7 +102,7 @@ always-editable query input or a visually dominant command center. The global
 shell exposes:
 
 ```text
-Home   Search   Open   Help   Settings
+dotnet-inspect (Home)   Search   Open   Help   Settings
 ```
 
 An optional decorative glyph does not replace any visible label.
@@ -117,17 +111,16 @@ An optional decorative glyph does not replace any visible label.
 
 The shell may land before adjacent redesign owners. During that transition:
 
-- currently supported Home, Search, and Settings actions may occupy the target
-  top row before local-artifact Open is available;
+- currently supported Search and Settings actions may occupy the target top row
+  before local-artifact Open is available;
 - Open remains absent rather than appearing disabled or committing a
   success-shaped placeholder action;
-- the `dotnet-inspect` root control may retain its current Home destination
-  until the routed Workspace surface exists;
+- the `dotnet-inspect` root control is the sole persistent Home affordance;
 - Share moves to the inspected-subject line while keyboard Help remains a
   global title-line action; and
 - retained packages may provisionally supply Workspace entries and Package
-  version/framework controls before product-issued descriptors replace that
-  data.
+  version/framework controls in Package content before product-issued
+  descriptors replace that data.
 
 This sequencing changes no package-selection or acquisition semantics and does
 not claim completion of the redesign.
@@ -281,18 +274,22 @@ outcomes.
 
 ### Workspace title bar
 
-1. Confirm that Workspace, Package, Type, Member, applicable Package coordinate
-   controls, and active inspectors follow `dotnet-inspect` in the title line.
+1. Confirm that Workspace, Package, Type, Member, and active inspectors follow
+   `dotnet-inspect` in the title line, with no active-package title or Package
+   coordinate controls.
 2. Confirm that the line contains no workspace tabs, numeric workspace
    selectors, or separate Platform workspace.
 3. Open Workspace and confirm that retained coordinates move into its working
    surface with activation and Close actions.
 4. Select a Type or Member and confirm that its fully qualified identity
    appears on the inspected-subject line below the title line.
-5. Confirm that Share and Copy name appear with that exact identity, while Help
-   and Settings remain global title-line actions.
+5. Select Package and confirm that Version and Framework appear in its working
+   surface. Confirm that Share and Copy name remain with the exact identity,
+   while `dotnet-inspect` is the sole Home affordance and Help and Settings
+   remain global title-line actions.
 6. Narrow the viewport and confirm that Help and Settings disappear before
-   Search, Home, the subject controls, or the inspected-subject actions.
+   Search, the product Home control, the subject controls, or the
+   inspected-subject actions.
 7. Confirm that no persistent package-query input or centered command-center
    control appears, and that the visible Search action opens Spotlight.
 
