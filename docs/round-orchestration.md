@@ -100,19 +100,21 @@ forward.
 
 ### Merge preflight
 
-Before merge, re-read GitHub state and confirm the expected head, non-draft
-status, positive mergeability, and successful current-head `ci-required`. A
-true draft flag, REST `mergeable: null` or GraphQL `mergeable: UNKNOWN`, a
-missing gate, or a gate from another head is not ready. Use a GraphQL snapshot
-so documented `mergeStateStatus: BLOCKED` can also block the action; do not
-infer that enum from undocumented REST `mergeable_state` values. Follow
-[GitHub status queries](github-status-queries.md).
+Before an agent-driven merge, re-read GitHub state and confirm the expected
+head, non-draft status, positive mergeability, and successful current-head
+`ci-required`. A true draft flag, REST `mergeable: null` or GraphQL
+`mergeable: UNKNOWN`, a missing gate, or a gate from another head is not ready.
+Use a GraphQL snapshot so documented `mergeStateStatus: BLOCKED` can also block
+the action; do not infer that enum from undocumented REST `mergeable_state`
+values. Follow [GitHub status queries](github-status-queries.md).
 
-An exact-head auto-merge authorization may be recorded earlier, but keep the
-GitHub auto-merge request unarmed while CI or mergeability is pending. Arm it
-only after this preflight and carry-forward analysis are current; it should
-then merge immediately without leaving an unclassified base-movement window.
-Before any author or recovery push moves the head, disable an existing request.
+GitHub merge and auto-merge bind an expected head, not an expected base. This
+preflight and carry-forward analysis are point-in-time observations, not an
+exact-base lock; do not chase `main` with branch updates to approximate one.
+Exact-base integration revalidation requires a merge queue or equivalent
+ruleset. Head-bound auto-merge may remain armed across base movement. If an
+interaction is observed while the PR remains open, disable it before recovery;
+before any author or recovery push moves the head, disable it before pushing.
 
 For stacks, every open layer must meet its applicable eligibility row above. A
 known-red or conflicted parent blocks upper slices; a pending parent does not
@@ -472,22 +474,19 @@ the path applies.
    - *No interaction:* do not integrate or push. Keep the candidate head
      unchanged and record the analyzed tip as the lineage's new base tip. From
      a review-clean head, keep `review-clean`; from a pending or approved waiver
-     head, keep it absent and carry the waiver forward. Preserve recorded
-     head-bound auto-merge authorization, but do not arm GitHub here. Start no
-     new validation, CI, review, or waiver decision; final preflight still
-     observes the existing current-head gate.
-   - *Trivial interaction:* remove `review-clean`, expire auto-merge
-     authorization, disable any armed request, integrate the exact analyzed
-     tip, resolve every overlap mechanically as classified, run affected
-     focused gates, and push. Follow the waiver procedure below before
-     dispatching replacement reviewers.
-   - *Significant interaction, no conflict:* remove `review-clean`, expire
-     auto-merge authorization, disable any armed request, integrate the tip,
-     re-run the claimed validation and current-head CI, and re-dispatch the
-     required reviewers at the new head as a normal round.
-   - *Conflict requiring semantic resolution:* remove `review-clean`, expire
-     auto-merge authorization, disable any armed request, and resolve it as an
-     author change under
+     head, keep it absent and carry the waiver forward. Preserve head-bound
+     auto-merge. Start no new validation, CI, review, or waiver decision; final
+     preflight still observes the existing current-head gate.
+   - *Trivial interaction:* if the PR remains open, remove `review-clean`,
+     disable auto-merge, integrate the exact analyzed tip, resolve every overlap
+     mechanically as classified, run affected focused gates, and push. Follow
+     the waiver procedure below before dispatching replacement reviewers.
+   - *Significant interaction, no conflict:* if the PR remains open, remove
+     `review-clean`, disable auto-merge, integrate the tip, re-run the claimed
+     validation and current-head CI, and re-dispatch the required reviewers at
+     the new head as a normal round.
+   - *Conflict requiring semantic resolution:* disable auto-merge, remove
+     `review-clean`, and resolve it as an author change under
      [conflict recovery](../AGENTS.md#recovery-transitions), and re-dispatch
      the required reviewers at the new head.
 
@@ -530,9 +529,10 @@ Without approval, do not waive review; resume the ordinary replacement
 workflow when work continues. A resolution that no longer satisfies the
 criteria requires ordinary re-review. Later base movement requires
 carry-forward classification: no interaction extends the pending or approved
-waiver and recorded auto-merge authorization to the newly analyzed tip without
-another integration or decision; any other interaction invalidates both. Any
-head movement also invalidates both.
+waiver and head-bound auto-merge authorization to the newly analyzed tip
+without another integration or decision; if observed while the PR remains open,
+any other interaction invalidates both. Any head movement also invalidates
+both.
 
 ## Block boundaries and splitting
 
