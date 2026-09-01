@@ -36,8 +36,20 @@ static class AnalysisIndexCache
                         || (requirements.Scope
                                 == ResearchAnalysisScope.Member
                             && candidate.MethodToken == methodToken)));
-            if (cached is not null)
+            // A cache hit is only honored when the file's observed length
+            // and last-write time still match what was recorded when the
+            // entry was opened. See docs/design/analysis-index-cache.md
+            // ("Path-keyed staleness") -- this is a best-effort heuristic,
+            // not a proof that the bytes are unchanged, but it closes the
+            // gap where a hit silently returned a known-stale index.
+            if (cached is not null
+                && TryGetFingerprint(fullPath, out var currentFingerprint)
+                && currentFingerprint == cached.Fingerprint)
+            {
                 return cached.Index;
+            }
+            if (cached is not null)
+                s_pathIndexes.Remove(cached);
 
             if (s_pathIndexes.Count >= MaxCachedIndexes)
                 s_pathIndexes.Clear();
@@ -54,13 +66,31 @@ static class AnalysisIndexCache
                 fullPath,
                 requirements.Features,
                 bodyScope: bodyScope);
+            // A fingerprint that can't be observed (e.g. the file vanished
+            // between the open above and this check) never matches a later
+            // comparison, so the next request always re-verifies instead of
+            // risking a false hit.
+            TryGetFingerprint(fullPath, out var fingerprint);
             s_pathIndexes.Add(
                 new PathCachedIndex(
                     fullPath,
                     scopedToken,
-                    index));
+                    index,
+                    fingerprint));
             return index;
         }
+    }
+
+    static bool TryGetFingerprint(string fullPath, out PathFingerprint fingerprint)
+    {
+        var info = new FileInfo(fullPath);
+        if (!info.Exists)
+        {
+            fingerprint = default;
+            return false;
+        }
+        fingerprint = new PathFingerprint(info.Length, info.LastWriteTimeUtc);
+        return true;
     }
 
     public static LibraryBodyIndex ForAssembly(
@@ -177,7 +207,15 @@ static class AnalysisIndexCache
     sealed record PathCachedIndex(
         string Path,
         int? MethodToken,
-        LibraryBodyIndex Index);
+        LibraryBodyIndex Index,
+        PathFingerprint Fingerprint);
+
+    /// <summary>
+    /// A cheap, best-effort file-identity heuristic -- not a proof of content
+    /// identity. Matches the same fields <c>LocalArtifactSource</c> records
+    /// for the same purpose (see docs/design/analysis-index-cache.md).
+    /// </summary>
+    readonly record struct PathFingerprint(long Length, DateTime LastWriteTimeUtc);
 
     sealed record AssemblyCachedIndex(
         AssemblyAcquisitionRegistration Registration,

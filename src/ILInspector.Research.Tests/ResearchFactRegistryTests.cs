@@ -222,6 +222,63 @@ public class ResearchFactRegistryTests
     }
 
     [Fact]
+    public void AnalysisIndexCache_ForPath_ReopensWhenTheFileAtThePathChanges()
+    {
+        // Regression test for the path-keyed staleness gap described in
+        // docs/design/analysis-index-cache.md: a `ForPath` hit must not
+        // return an index built from bytes that no longer exist at that
+        // path.
+        string firstSourcePath = typeof(ResearchFixture).Assembly.Location;
+        string secondSourcePath = typeof(LibraryBodyIndex).Assembly.Location;
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-research-staleness-{Guid.NewGuid():N}.dll");
+        File.Copy(firstSourcePath, path);
+        // Force a distinct fingerprint deterministically rather than relying
+        // on a real-time gap between the two writes below.
+        File.SetLastWriteTimeUtc(
+            path,
+            new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        try
+        {
+            ResearchFactRequirements requirements =
+                ResearchFactRequirements.ForAssembly(
+                    LibraryBodyAnalysisFeatures.MethodEvidence);
+
+            LibraryBodyIndex first =
+                AnalysisIndexCache.ForPath(path, requirements, 0);
+            string firstAssemblyName = Assert.Single(
+                first.Methods
+                    .Select(method => method.AssemblyName)
+                    .Distinct());
+
+            File.Copy(secondSourcePath, path, overwrite: true);
+            File.SetLastWriteTimeUtc(
+                path,
+                new DateTime(2002, 2, 2, 0, 0, 0, DateTimeKind.Utc));
+
+            LibraryBodyIndex second =
+                AnalysisIndexCache.ForPath(path, requirements, 0);
+            string secondAssemblyName = Assert.Single(
+                second.Methods
+                    .Select(method => method.AssemblyName)
+                    .Distinct());
+
+            Assert.NotSame(first, second);
+            Assert.NotEqual(firstAssemblyName, secondAssemblyName);
+
+            // The now-current content is still served on a later hit.
+            Assert.Same(
+                second,
+                AnalysisIndexCache.ForPath(path, requirements, 0));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Registry_OrdersProducersAfterTheirDependencies()
     {
         var registry = new ResearchFactRegistry(
