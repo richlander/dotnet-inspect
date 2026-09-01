@@ -7,8 +7,8 @@
 (* returned completion against the exact participant, role, delegate-map,   *)
 (* and policy-version inputs, constructs the group only after policy         *)
 (* adoption, and atomically publishes or retires the group and policy.       *)
-(* A second generation represents replacement after mismatch or observed    *)
-(* delegated-policy drift.                                                  *)
+(* A second generation represents replacement after observed delegated-     *)
+(* policy drift retires the first generation.                               *)
 (*                                                                         *)
 (* The model treats artifact acquisition, candidate arbitration, policy     *)
 (* answer semantics, query leases, and group cleanup as adjacent contracts. *)
@@ -80,7 +80,8 @@ AdvanceTimings ==
 
 FailureKinds ==
     {"None", "ForeignPreparation", "ParticipantMismatch", "RoleMismatch",
-     "DelegateMapMismatch", "PolicyVersionMismatch"}
+     "DelegateMapMismatch", "CompletionVersionMismatch",
+     "PolicyVersionMismatch"}
 
 ExpectedParticipants(g) ==
     IF g = GenerationOne
@@ -141,6 +142,7 @@ VARIABLES
     everPublished,
     liveVersion,
     versionAdvanced,
+    currentAccessRequested,
     driftObserved,
     publishVersionWitness,
     retirementAtomicWitness
@@ -203,6 +205,8 @@ CompletionFailure(g) ==
             "RoleMismatch"
       [] completionDelegateMap[g] # ExpectedDelegateMap(g) ->
             "DelegateMapMismatch"
+      [] completionVersion[g] # capturedVersion[g] ->
+            "CompletionVersionMismatch"
       [] OTHER -> "PolicyVersionMismatch"
 
 NoPublishedState ==
@@ -231,7 +235,8 @@ vars ==
       completionRoles, completionDelegateMap, completionVersion,
       adoptedPolicy, groupConstructed, failure, publishedGroup,
       publishedPolicy, everPublished, liveVersion, versionAdvanced,
-      driftObserved, publishVersionWitness, retirementAtomicWitness>>
+      currentAccessRequested, driftObserved, publishVersionWitness,
+      retirementAtomicWitness>>
 
 Init ==
     /\ phase = [g \in Generations |-> "Absent"]
@@ -253,6 +258,7 @@ Init ==
     /\ everPublished = {}
     /\ liveVersion = VersionOne
     /\ versionAdvanced = FALSE
+    /\ currentAccessRequested = {}
     /\ driftObserved = {}
     /\ publishVersionWitness = TRUE
     /\ retirementAtomicWitness = TRUE
@@ -265,13 +271,12 @@ CanStart(g) ==
             /\ phase[GenerationTwo] = "Absent"
             /\ NoPublishedState
        ELSE
-            /\ phase[GenerationOne] \in {"Failed", "Retired"}
+            /\ (phase[GenerationOne] = "Retired"
                 \/ (/\ ~EnforceRetirementBeforeReplacement
                     /\ phase[GenerationOne] = "Published"
                     /\ CurrentGeneration(GenerationOne)
-                    /\ liveVersion # capturedVersion[GenerationOne])
-            /\ NoPublishedState
-                \/ ~EnforceRetirementBeforeReplacement
+                    /\ liveVersion # capturedVersion[GenerationOne]))
+            /\ (NoPublishedState \/ ~EnforceRetirementBeforeReplacement)
 
 StartPreparation(g) ==
     /\ CanStart(g)
@@ -283,7 +288,8 @@ StartPreparation(g) ==
           completionParticipants, completionRoles, completionDelegateMap,
           completionVersion, adoptedPolicy, groupConstructed, failure,
           publishedGroup, publishedPolicy, everPublished, liveVersion,
-          versionAdvanced, driftObserved, publishVersionWitness,
+          versionAdvanced, currentAccessRequested, driftObserved,
+          publishVersionWitness,
           retirementAtomicWitness>>
 
 CompletePolicy(g) ==
@@ -305,7 +311,8 @@ CompletePolicy(g) ==
         <<activeGeneration, capturedVersion, completionMode, advanceTiming,
           adoptedPolicy, groupConstructed, failure, publishedGroup,
           publishedPolicy, everPublished, liveVersion, versionAdvanced,
-          driftObserved, publishVersionWitness, retirementAtomicWitness>>
+          currentAccessRequested, driftObserved, publishVersionWitness,
+          retirementAtomicWitness>>
 
 AdoptPolicy(g) ==
     /\ activeGeneration = g
@@ -331,7 +338,8 @@ AdoptPolicy(g) ==
           completionPreparation, completionParticipants, completionRoles,
           completionDelegateMap, completionVersion, groupConstructed,
           publishedGroup, publishedPolicy, everPublished, liveVersion,
-          versionAdvanced, driftObserved, publishVersionWitness,
+          versionAdvanced, currentAccessRequested, driftObserved,
+          publishVersionWitness,
           retirementAtomicWitness>>
 
 ConstructGroup(g) ==
@@ -350,7 +358,8 @@ ConstructGroup(g) ==
           completionPreparation, completionParticipants, completionRoles,
           completionDelegateMap, completionVersion, adoptedPolicy, failure,
           publishedGroup, publishedPolicy, everPublished, liveVersion,
-          versionAdvanced, driftObserved, publishVersionWitness,
+          versionAdvanced, currentAccessRequested, driftObserved,
+          publishVersionWitness,
           retirementAtomicWitness>>
 
 PublishGeneration(g) ==
@@ -362,10 +371,10 @@ PublishGeneration(g) ==
     /\ IF EnforceRetirementBeforeReplacement
        THEN NoPublishedState
        ELSE
-            /\ NoPublishedState
+            /\ (NoPublishedState
                 \/ (/\ g = GenerationTwo
                     /\ CurrentGeneration(GenerationOne)
-                    /\ liveVersion # capturedVersion[GenerationOne])
+                    /\ liveVersion # capturedVersion[GenerationOne]))
     /\ phase' = [phase EXCEPT ![g] = "Published"]
     /\ activeGeneration' = NoValue
     /\ publishedGroup' = g
@@ -383,7 +392,8 @@ PublishGeneration(g) ==
           completionPreparation, completionParticipants, completionRoles,
           completionDelegateMap, completionVersion, adoptedPolicy,
           groupConstructed, failure, liveVersion, versionAdvanced,
-          driftObserved, retirementAtomicWitness>>
+          currentAccessRequested, driftObserved,
+          retirementAtomicWitness>>
 
 InvalidatePrivateGeneration(g) ==
     /\ activeGeneration = g
@@ -399,9 +409,10 @@ InvalidatePrivateGeneration(g) ==
           completionPreparation, completionParticipants, completionRoles,
           completionDelegateMap, completionVersion, publishedGroup,
           publishedPolicy, everPublished, liveVersion, versionAdvanced,
-          driftObserved, publishVersionWitness, retirementAtomicWitness>>
+          currentAccessRequested, driftObserved, publishVersionWitness,
+          retirementAtomicWitness>>
 
-AdvanceDelegateVersion ==
+AdvanceComposedPolicyVersion ==
     /\ ~versionAdvanced
     /\ liveVersion = VersionOne
     /\ CASE advanceTiming = "BeforeCompletion" ->
@@ -422,12 +433,27 @@ AdvanceDelegateVersion ==
           advanceTiming, completionPreparation, completionParticipants,
           completionRoles, completionDelegateMap, completionVersion,
           adoptedPolicy, groupConstructed, failure, publishedGroup,
-          publishedPolicy, everPublished, driftObserved,
+          publishedPolicy, everPublished, currentAccessRequested,
+          driftObserved,
           publishVersionWitness, retirementAtomicWitness>>
+
+RequestCurrentAccess(g) ==
+    /\ CurrentGeneration(g)
+    /\ capturedVersion[g] # liveVersion
+    /\ g \notin currentAccessRequested
+    /\ currentAccessRequested' = currentAccessRequested \union {g}
+    /\ UNCHANGED
+        <<phase, activeGeneration, capturedVersion, completionMode,
+          advanceTiming, completionPreparation, completionParticipants,
+          completionRoles, completionDelegateMap, completionVersion,
+          adoptedPolicy, groupConstructed, failure, publishedGroup,
+          publishedPolicy, everPublished, liveVersion, versionAdvanced,
+          driftObserved, publishVersionWitness, retirementAtomicWitness>>
 
 ObservePublishedDrift(g) ==
     /\ CurrentGeneration(g)
     /\ capturedVersion[g] # liveVersion
+    /\ g \in currentAccessRequested
     /\ phase' = [phase EXCEPT ![g] = "Retired"]
     /\ publishedGroup' = NoValue
     /\ publishedPolicy' =
@@ -437,9 +463,10 @@ ObservePublishedDrift(g) ==
     /\ driftObserved' = driftObserved \union {g}
     /\ retirementAtomicWitness' =
         (retirementAtomicWitness
-            /\ EnforceAtomicRetirement
-            /\ CurrentGeneration(g)
+            /\ publishedGroup' = NoValue
+            /\ publishedPolicy' = NoValue
         )
+    /\ currentAccessRequested' = currentAccessRequested \ {g}
     /\ UNCHANGED
         <<activeGeneration, capturedVersion, completionMode, advanceTiming,
           completionPreparation, completionParticipants, completionRoles,
@@ -454,6 +481,8 @@ ConstructAny == \E g \in Generations : ConstructGroup(g)
 PublishAny == \E g \in Generations : PublishGeneration(g)
 InvalidateAny == \E g \in Generations : InvalidatePrivateGeneration(g)
 ObserveDriftAny == \E g \in Generations : ObservePublishedDrift(g)
+RequestCurrentAccessAny ==
+    \E g \in Generations : RequestCurrentAccess(g)
 
 Next ==
     StartAny
@@ -462,19 +491,20 @@ Next ==
     \/ ConstructAny
     \/ PublishAny
     \/ InvalidateAny
-    \/ AdvanceDelegateVersion
+    \/ AdvanceComposedPolicyVersion
+    \/ RequestCurrentAccessAny
     \/ ObserveDriftAny
 
 Spec ==
     /\ Init
     /\ [][Next]_vars
-    /\ WF_vars(StartAny)
+    /\ WF_vars(StartPreparation(GenerationOne))
     /\ WF_vars(CompleteAny)
     /\ WF_vars(AdoptAny)
     /\ WF_vars(ConstructAny)
     /\ WF_vars(PublishAny)
     /\ WF_vars(InvalidateAny)
-    /\ WF_vars(AdvanceDelegateVersion)
+    /\ WF_vars(AdvanceComposedPolicyVersion)
     /\ WF_vars(ObserveDriftAny)
 
 TypeOK ==
@@ -502,6 +532,7 @@ TypeOK ==
     /\ everPublished \subseteq Generations
     /\ liveVersion \in Versions
     /\ versionAdvanced \in BOOLEAN
+    /\ currentAccessRequested \subseteq Generations
     /\ driftObserved \subseteq Generations
     /\ publishVersionWitness \in BOOLEAN
     /\ retirementAtomicWitness \in BOOLEAN
@@ -588,11 +619,11 @@ ObservedVersionDriftEventuallyRetires ==
     \A g \in Generations :
         /\ CurrentGeneration(g)
         /\ capturedVersion[g] # liveVersion
+        /\ g \in currentAccessRequested
         ~> phase[g] = "Retired"
 
-ReplacementEventuallyPublishes ==
-    phase[GenerationOne] \in {"Failed", "Retired"}
-        ~> phase[GenerationTwo] = "Published"
+StartedReplacementEventuallyPublishes ==
+    phase[GenerationTwo] = "Preparing" ~> phase[GenerationTwo] = "Published"
 
 ReplacementNotReached ==
     phase[GenerationTwo] # "Published"

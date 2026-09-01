@@ -25,9 +25,10 @@ policy.
 The model consumes rather than redefines three adjacent contracts:
 
 - the
-  [binding selection/version models](../binding-selection-version/README.md)
-  own non-reusable policy versions, atomic selection snapshots, and
-  policy-local refresh;
+  [binding selection/version contract](../../type-forwarding-resolution.md#atomic-selectionversion-snapshots)
+  owns non-reusable policy versions, atomic selection snapshots, and
+  policy-local refresh; its
+  [models](../binding-selection-version/README.md) check those interactions;
 - the
   [binding composition-currency model](../binding-composition-currency/README.md)
   owns the complete identity-eligible handoff and its finalization; and
@@ -37,11 +38,11 @@ The model consumes rather than redefines three adjacent contracts:
   aggregate artifact publication.
 
 `WorkspaceBindingPolicyRealization` begins after acquisition and assembly
-projection have produced one exact planned participant sequence, role
-projection, and delegate map. It ends when the workspace atomically exposes a
-matching group/policy pair or records a typed failure. Existing query leases,
-group cleanup, and resource quiescence remain owned by the generation-access,
-group-lifecycle, and workspace-close models.
+projection have produced one exact planned participant-registration sequence,
+role projection, and delegate map. It ends when the workspace atomically
+exposes a matching group/policy pair or records a typed failure. Existing query
+leases, group cleanup, and resource quiescence remain owned by the
+generation-access, group-lifecycle, and workspace-close models.
 
 ## State space
 
@@ -54,22 +55,49 @@ policy versions. The first generation explores:
 - one mismatch each for preparation identity, participant plan, role
   projection, delegate map, and completion version.
 
-Mismatch scenarios do not also advance the delegate version, keeping each
-typed failure attributable to one cause. A failed or retired first generation
+Mismatch scenarios do not also advance the composite policy version, keeping each
+typed failure attributable to one cause. Those failures are terminal and do not
+promise an automatic successful retry. Only retirement after observed drift
 enables an exact second generation. The second generation proves replacement
-progress without claiming convergence while policy state continues changing.
+progress once started, without claiming that the workspace starts it
+automatically or converges while policy state continues changing.
 
 The model represents participant plans, role projections, and delegate maps as
 opaque owner-issued values. It proves exact association and lifecycle ordering,
 not their internal construction or policy meaning.
 
+## Assumptions and non-claims
+
+The one modeled version is the composed policy's distinct outer
+`AssemblyBindingPolicyVersion`. Individual delegate versions and the
+composite's owner-local refresh are abstracted into one outer-token advance.
+
+Current publication is modeled as one owner-mediated group/policy reference
+pair. There is no independent reader action, memory-model claim, or proof of a
+particular synchronization primitive. The named implementation gate must
+establish that concurrent readers can observe only one complete current pair.
+
+The model does not represent reservation arithmetic, quiescent cleanup, or the
+possibility that a requested replacement is refused or fails. The second
+generation is the admitted, stable-policy success scenario. Its temporal
+property applies only after replacement preparation starts.
+
+Each mismatch scenario changes one receipt field. The model proves that each
+cause is rejected and typed independently, but not the precedence when one
+receipt contains several mismatches; the correspondence implementation gate
+owns that ordered case. The model permits only one outer-token advance and
+makes no progress claim under continuing policy churn.
+
 ## Drift and availability
 
-`AdvanceDelegateVersion` represents the adjacent policy owner replacing its
-non-reusable version. `ObservePublishedDrift` represents the workspace
-linearization point at which that change is observed. The old immutable
-generation may remain current between those abstract actions; its already
-committed answers remain valid under the binding-version contract.
+`AdvanceComposedPolicyVersion` represents the adjacent composite-policy owner
+replacing its outer non-reusable version. `RequestCurrentAccess` represents an
+access request arriving after that change; it has not entered the generation or
+observed policy state. `ObservePublishedDrift` represents the workspace gate
+that detects the mismatch and atomically retires current availability. The old
+immutable generation may remain current before an access request reaches that
+gate; its already committed answers remain valid under the binding-version
+contract.
 
 Once the workspace observes the mismatch, it atomically removes both the group
 and policy from current admission before starting the replacement. The model
@@ -82,6 +110,7 @@ not immediate resource disposal.
 
 | Property | Claim |
 | --- | --- |
+| `TypeOK` | Every state value remains inside its declared finite model domain. |
 | `PublicationIsAtomic` | Current group and policy visibility are both absent or name the same generation. |
 | `PublishedGenerationIsComplete` | A current generation has one adopted exact completion and a privately constructed group. |
 | `GroupConstructionRequiresPolicyAdoption` | No placeholder or post-construction policy insertion can create a group. |
@@ -97,15 +126,15 @@ not immediate resource disposal.
 | `PublicationObservedCurrentVersion` | Every publish step independently witnesses that its captured version was current. |
 | `RetirementWasAtomic` | Every drift-retirement step independently witnesses atomic group/policy removal. |
 | `EveryStartedGenerationSettles` | Under weak fairness, each started generation reaches failure, publication, or retirement. |
-| `ObservedVersionDriftEventuallyRetires` | A current generation whose version is observed as foreign eventually retires. |
-| `ReplacementEventuallyPublishes` | A failed or retired first generation is eventually replaced by the exact stable second generation. |
+| `ObservedVersionDriftEventuallyRetires` | After a current-access gate requests drift observation, the foreign-version generation eventually retires. |
+| `StartedReplacementEventuallyPublishes` | Once the admitted stable replacement starts, it eventually publishes. |
 
 ## Configurations
 
 | Configuration | Purpose |
 | --- | --- |
 | `WorkspaceBindingPolicyRealizationSafety.cfg` | Checks all fifteen safety invariants over exact, mismatched, pre-publication-drift, published-drift, and replacement scenarios. |
-| `WorkspaceBindingPolicyRealizationLiveness.cfg` | Checks build settlement, observed-drift retirement, and stable replacement progress. |
+| `WorkspaceBindingPolicyRealizationLiveness.cfg` | Checks build settlement, requested-access drift retirement, and progress after stable replacement starts. |
 | `BrokenPreparationMatch.cfg` | Accepts a completion from another preparation; it must violate `AdoptedPolicyMatchesPreparation`. |
 | `BrokenParticipantMatch.cfg` | Accepts a foreign participant plan; it must violate `AdoptedPolicyMatchesParticipants`. |
 | `BrokenRoleMatch.cfg` | Accepts a foreign role projection; it must violate `AdoptedPolicyMatchesRoles`. |
@@ -115,7 +144,7 @@ not immediate resource disposal.
 | `BrokenPolicyBeforeGroup.cfg` | Constructs a group directly from an unadopted completion; it must violate `GroupConstructionRequiresPolicyAdoption`. |
 | `BrokenPublishVersion.cfg` | Publishes after pre-publication version drift; it must violate `PublicationObservedCurrentVersion`. |
 | `BrokenAtomicPublication.cfg` | Publishes a group without its policy; it must violate `PublicationIsAtomic`. |
-| `BrokenAtomicRetirement.cfg` | Retires the group while leaving its policy current; it must violate `PublicationIsAtomic`. |
+| `BrokenAtomicRetirement.cfg` | Retires the group while leaving its policy current; it must independently violate `RetirementWasAtomic`. |
 | `BrokenReplacementBeforeRetirement.cfg` | Publishes generation two over a still-current generation one; it must violate `ReplacementFollowsRetirement`. |
 | `ReachabilityReplacement.cfg` | Negates replacement publication and fails only after a complete retire-and-replace trace. |
 
@@ -171,13 +200,14 @@ The positive configurations completed with no errors:
 
 | Configuration | Generated states | Distinct states | Maximum depth | Result |
 | --- | ---: | ---: | ---: | --- |
-| Safety | 117 | 114 | 13 | All fifteen safety invariants passed. |
-| Liveness | 117 | 114 | 13 | All three temporal properties passed. |
+| Safety | 68 | 65 | 14 | All fifteen safety invariants passed. |
+| Liveness | 68 | 65 | 14 | All three temporal properties passed. |
 
-The safety graph starts eleven initial scenarios. It executed 22 preparations,
-22 policy completions, 22 adoption decisions, 15 private group constructions,
-13 publications, three pre-publication invalidations, five delegate-version
-advances, and one published-generation retirement.
+The safety graph starts eleven initial scenarios. It executed 12 preparations,
+12 policy completions, 12 adoption decisions, five private group constructions,
+three publications, three pre-publication invalidations, five composite-policy
+version advances, one current-access request, and one published-generation
+retirement.
 
 Every mutation exited with TLC status 12 on its intended invariant:
 
@@ -190,11 +220,11 @@ Every mutation exited with TLC status 12 on its intended invariant:
 | Broken completion version | 45 / 45 | 4 | A foreign policy version became adopted. |
 | Broken failure classification | 41 / 41 | 4 | A preparation mismatch was reported as policy-version drift. |
 | Broken policy-before-group | 35 / 35 | 4 | Private group construction bypassed policy adoption. |
-| Broken publish version | 78 / 74 | 7 | A group/policy pair published after its captured version became foreign. |
-| Broken atomic publication | 60 / 58 | 6 | The group became current without its policy. |
-| Broken atomic retirement | 90 / 87 | 8 | Retirement removed the group but left its policy current. |
-| Broken replacement ordering | 134 / 117 | 12 | Generation two published over a still-current generation one. |
-| Replacement reachability | 97 / 94 | 9 | Generation one retired after observed drift, then generation two published. |
+| Broken publish version | 61 / 57 | 7 | A group/policy pair published after its captured version became foreign. |
+| Broken atomic publication | 54 / 52 | 6 | The group became current without its policy. |
+| Broken atomic retirement | 63 / 60 | 9 | Retirement removed the group but left its policy current. |
+| Broken replacement ordering | 79 / 70 | 12 | Generation two published over a still-current generation one. |
+| Replacement reachability | 68 / 65 | 14 | Generation one retired after observed drift, then generation two published. |
 
 The runs used the repository-pinned TLA+ v1.8.0 tools, TLC build
 `2026.08.21.155922` revision `9787e65`. The checked `tla2tools.jar` SHA-256 was
