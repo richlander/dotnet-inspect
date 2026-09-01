@@ -20,6 +20,13 @@ be otherwise complete. Treat an uncommitted
 `.tla`/`.cfg`/model-`README.md` set as a bug to fix, not a stable resting
 state.
 
+The per-PR TLA+ gate checks each model directory whose `.tla` or `.cfg` files
+change in that candidate. Gate-infrastructure changes run structural gate
+tests but do not check unchanged model content. The gate does not sweep
+unrelated committed models.
+Run `eng/run-tla-checks.sh --all` only for an explicit repository-wide local
+investigation; it is not a per-PR gate.
+
 The examples below are a user-curated set of at most six merged models, not an
 inventory of repository models. The set is intentionally incomplete.
 Contributors and agents must not add a model as part of normal model work; only

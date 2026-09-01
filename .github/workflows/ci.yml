@@ -115,7 +115,7 @@ jobs:
           # The runner honors BASH_ENV even with --noprofile and --norc.
           # Clear inherited workflow/job values before executing this gate.
           BASH_ENV: ""
-          CI_BEFORE_SHA: ${{ github.event.merge_group.base_sha || github.event.before }}
+          CI_BEFORE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
           CI_PR_NUMBER: ${{ github.event.pull_request.number }}
           GH_TOKEN: ${{ github.token }}
 
@@ -132,20 +132,28 @@ jobs:
         with:
           globs: '**/*.md'
 
-  # Upholds the bar in docs/tla-plus-methodology.md for every committed
-  # TLA+ model: SANY parses every module, and TLC runs every .cfg to
-  # completion without an unexpected error. See eng/run-tla-checks.sh for
-  # what "unexpected" excludes (an intentional violation verdict) and why
-  # (some committed .cfg files are negative controls expected to find one).
+  # Upholds the bar in docs/tla-plus-methodology.md for TLA+ models changed by
+  # this candidate: SANY parses every selected module, and TLC runs the selected
+  # directories' .cfg files to completion without an unexpected error. See
+  # eng/run-tla-checks.sh for what "unexpected" excludes (an intentional
+  # violation verdict) and why (some committed .cfg files are negative controls
+  # expected to find one).
   tla-plus:
     needs: changes
-    # Temporarily disabled by #5331. Restore this path gate when the runner
-    # checks only model directories changed by the candidate.
-    if: false
+    if: needs.changes.outputs.tla == 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
+        with:
+          # The gate diffs the effective candidate against its event-provided
+          # base so it can select only the model directories changed by the PR,
+          # push, or merge-group candidate.
+          fetch-depth: 0
+
+      - name: Self-test TLA+ runner scope
+        shell: bash
+        run: eng/test-tla-checks.sh
 
       # Ubuntu 26.04's default-jre metapackage resolves to OpenJDK 25,
       # matching the Java pin in docs/runbooks/tla-plus-setup.md.
@@ -159,7 +167,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.local/share/tlaplus/tla2tools.jar
-          key: tla2tools-v1.8.0
+          # Include the asset digest so a recreated tagged release cannot
+          # reuse cached bytes from the prior asset.
+          key: tla2tools-v1.8.0-dbcc75552f21978a
 
       # Pinned per docs/runbooks/tla-plus-setup.md: v1.8.0 is a GitHub
       # prerelease, so it is never resolved by a "latest" alias -- always
@@ -180,12 +190,21 @@ jobs:
       - name: Verify tla2tools.jar checksum
         run: |
           set -euo pipefail
-          echo "eabd140a70f49eb9305a3bd3f3df944eddf87e5a90d329789085f8953a80533a  $HOME/.local/share/tlaplus/tla2tools.jar" \
+          echo "dbcc75552f21978a4846688b8e23be1a6b6c0b3fcee35d78fec2df167958ec94  $HOME/.local/share/tlaplus/tla2tools.jar" \
             | sha256sum -c -
 
       - name: Run TLA+ checks
         shell: bash
+        env:
+          CI_BEFORE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
         run: |
+          set -euo pipefail
+          if [ -z "$CI_BEFORE_SHA" ] \
+             || [ "$CI_BEFORE_SHA" = "0000000000000000000000000000000000000000" ] \
+             || ! git cat-file -e "${CI_BEFORE_SHA}^{commit}"; then
+            echo "::error::Could not resolve the base commit for scoped TLA+ checks."
+            exit 1
+          fi
           export TLA_TOOLS_JAR="$HOME/.local/share/tlaplus/tla2tools.jar"
           # Tighter than the script's 600s local-dev default: this repo's
           # shared CI runners are slower than a typical contributor
@@ -194,7 +213,8 @@ jobs:
           # hit it (a hit is a warning, not a failure -- see
           # eng/run-tla-checks.sh).
           export TLA_CHECK_TIMEOUT_SECONDS=120
-          eng/run-tla-checks.sh
+          git diff --no-renames --name-only -z "$CI_BEFORE_SHA" HEAD -- |
+            eng/run-tla-checks.sh --changed-files0
 
   inspect-web:
     needs: changes
