@@ -15,11 +15,13 @@ so their owner-issued association is the only permitted authority-recovery
 fact. The routes can run concurrently; the fallback can start only after the
 primary route reports a request timeout or transport failure.
 
-Each authority settles as found, authoritatively absent, or failed. Discovery
-becomes complete only after both authorities provide authoritative evidence,
-becomes partial when usable evidence survives a source failure, and otherwise
-fails. A pinned payload can publish from either authorized authority without
-waiting for a readable peer.
+Every found, authoritatively absent, request-timeout, or transport-failure
+result carries a returned authority into package adoption. Each authority then
+settles as found, authoritatively absent, or failed. Discovery becomes complete
+only after both authorities provide authoritative evidence, becomes partial
+when usable evidence survives a source failure, and otherwise fails. A pinned
+payload can publish from either authorized authority without waiting for a
+readable peer.
 
 Operation timeout is an exogenous event. Under the specified policy it
 immediately publishes a terminal failure and cancels running routes. Request
@@ -57,6 +59,8 @@ assumptions and bounds, not properties of the shipped implementation.
 | Property | Claim |
 | --- | --- |
 | `AdoptedResultsKeepAssociation` | Same-producer equality cannot move a result between configured authorities. |
+| `AbsentResultsKeepAssociation` | The authoritative-absence path specifically preserves exact association. |
+| `TerminalFailureResultsKeepAssociation` | Final request-timeout and transport-failure paths specifically preserve exact association. |
 | `CompleteRequiresEveryAuthority` | A complete aggregate contains authoritative evidence from every required authority. |
 | `CompleteAbsenceIsAuthoritative` | Package-wide absence cannot be published while an authority is pending or failed. |
 | `TerminalFailuresRemainVisible` | A final request timeout or transport failure does not become source absence. |
@@ -73,7 +77,9 @@ assumptions and bounds, not properties of the shipped implementation.
 | `PackageSourceCompositionDiscovery.cfg` | Complete discovery safety and liveness under exact association, all-authority completeness, visible failures, and terminal operation timeout. |
 | `PackageSourceCompositionPinned.cfg` | Pinned-payload safety and liveness under the same policy. |
 | `BrokenHealthySubsetComplete.cfg` | Lets a healthy subset publish complete and must violate `CompleteRequiresEveryAuthority`. |
-| `BrokenProducerAssociation.cfg` | Lets same-producer equality replace exact association and must violate `AdoptedResultsKeepAssociation`. |
+| `BrokenProducerAssociation.cfg` | Lets same-producer equality replace exact association for any result and must violate `AdoptedResultsKeepAssociation`. |
+| `BrokenProducerAbsenceAssociation.cfg` | Constrains the producer-collapse mutation to authoritative absence and must violate `AbsentResultsKeepAssociation`. |
+| `BrokenProducerTerminalFailureAssociation.cfg` | Constrains the producer-collapse mutation to a final request timeout or transport failure and must violate `TerminalFailureResultsKeepAssociation`. |
 | `BrokenRestartedOperationCeiling.cfg` | Lets an expired operation continue and must violate `OperationTimeoutIsTerminal`. |
 | `BrokenFailureAsAbsence.cfg` | Converts a final route failure into absence and must violate `TerminalFailuresRemainVisible`. |
 | `PartialDiscoveryReachability.cfg` | Must reach usable discovery evidence plus a failed authority and violate `PartialAfterSourceFailureNotObserved`. |
@@ -100,8 +106,10 @@ java -cp "$TLA_TOOLS_JAR" tla2sany.SANY \
 
 for config in PackageSourceCompositionDiscovery \
   PackageSourceCompositionPinned BrokenHealthySubsetComplete \
-  BrokenProducerAssociation BrokenRestartedOperationCeiling \
-  BrokenFailureAsAbsence PartialDiscoveryReachability \
+  BrokenProducerAssociation BrokenProducerAbsenceAssociation \
+  BrokenProducerTerminalFailureAssociation \
+  BrokenRestartedOperationCeiling BrokenFailureAsAbsence \
+  PartialDiscoveryReachability \
   RequestTimeoutFallbackReachability PinnedPeerFailureReachability \
   OperationTimeoutReachability; do
   java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
@@ -127,20 +135,23 @@ seed `1`, fingerprint seed `1`, and automatic parallel workers.
 | --- | --- | ---: | ---: | ---: |
 | `PackageSourceCompositionDiscovery.cfg` | No error | 307 | 232 | 8 |
 | `PackageSourceCompositionPinned.cfg` | No error | 322 | 247 | 8 |
-| `BrokenHealthySubsetComplete.cfg` | `CompleteRequiresEveryAuthority` violated | 243 | 185 | 8 |
-| `BrokenProducerAssociation.cfg` | `AdoptedResultsKeepAssociation` violated | 16 | 12 | 5 |
-| `BrokenRestartedOperationCeiling.cfg` | `OperationTimeoutIsTerminal` violated | 147 | 68 | 6 |
-| `BrokenFailureAsAbsence.cfg` | `TerminalFailuresRemainVisible` violated | 139 | 108 | 8 |
+| `BrokenHealthySubsetComplete.cfg` | `CompleteRequiresEveryAuthority` violated | 257 | 200 | 8 |
+| `BrokenProducerAssociation.cfg` | `AdoptedResultsKeepAssociation` violated | 103 | 64 | 7 |
+| `BrokenProducerAbsenceAssociation.cfg` | `AbsentResultsKeepAssociation` violated | 178 | 122 | 8 |
+| `BrokenProducerTerminalFailureAssociation.cfg` | `TerminalFailureResultsKeepAssociation` violated | 249 | 172 | 8 |
+| `BrokenRestartedOperationCeiling.cfg` | `OperationTimeoutIsTerminal` violated | 197 | 96 | 7 |
+| `BrokenFailureAsAbsence.cfg` | `TerminalFailuresRemainVisible` violated | 137 | 108 | 8 |
 | `PartialDiscoveryReachability.cfg` | `PartialAfterSourceFailureNotObserved` violated | 307 | 232 | 8 |
 | `RequestTimeoutFallbackReachability.cfg` | `RequestTimeoutFallbackNotObserved` violated | 219 | 168 | 8 |
 | `PinnedPeerFailureReachability.cfg` | `PinnedSuccessWithPeerFailureNotObserved` violated | 322 | 247 | 8 |
-| `OperationTimeoutReachability.cfg` | `OperationTimeoutNotObserved` violated | 95 | 72 | 6 |
+| `OperationTimeoutReachability.cfg` | `OperationTimeoutNotObserved` violated | 108 | 92 | 7 |
 
 The discovery and pinned graphs completed without an invariant or liveness
 violation. The reachability traces exhibit explicit partial discovery, request
 timeout followed by same-authority fallback, pinned success after a peer
-authority fails, and terminal shared-ceiling expiry. The four mutations
-independently show the unsafe healthy-subset, producer-collapse,
+authority fails, and terminal shared-ceiling expiry. The six mutations
+independently show the unsafe healthy-subset, found-result producer collapse,
+authoritative-absence producer collapse, terminal-failure producer collapse,
 deadline-restart, and failure-as-absence policies.
 
 These intentional violations are negative controls and reachability evidence,

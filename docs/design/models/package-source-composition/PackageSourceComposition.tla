@@ -105,64 +105,69 @@ RouteFound(route, authority) ==
     /\ AdoptionAllowed(route, authority)
     /\ routeState' = [routeState EXCEPT ![route] = "Found"]
     /\ authorityState' =
-        [authorityState EXCEPT ![RouteAuthority[route]] = "Found"]
+        [authorityState EXCEPT ![authority] = "Found"]
     /\ adoptedAuthority' =
         [adoptedAuthority EXCEPT ![route] = authority]
     /\ UNCHANGED
         <<terminalFailure, aggregate, operationExpired, payloadRoute,
           payloadAuthority>>
 
-RouteAbsent(route) ==
+RouteAbsent(route, authority) ==
     /\ CanAdvance
     /\ routeState[route] = "Running"
+    /\ AdoptionAllowed(route, authority)
     /\ routeState' = [routeState EXCEPT ![route] = "Absent"]
     /\ authorityState' =
-        [authorityState EXCEPT ![RouteAuthority[route]] = "Absent"]
+        [authorityState EXCEPT ![authority] = "Absent"]
+    /\ adoptedAuthority' =
+        [adoptedAuthority EXCEPT ![route] = authority]
     /\ UNCHANGED
-        <<adoptedAuthority, terminalFailure, aggregate, operationExpired,
-          payloadRoute, payloadAuthority>>
+        <<terminalFailure, aggregate, operationExpired, payloadRoute,
+          payloadAuthority>>
 
 FinalFailureState ==
     IF FailureMode = "Visible" THEN "Failed" ELSE "Absent"
 
-RouteRequestTimeout(route) ==
+RouteRequestTimeout(route, authority) ==
     /\ CanAdvance
     /\ routeState[route] = "Running"
+    /\ AdoptionAllowed(route, authority)
     /\ routeState' =
         [routeState EXCEPT ![route] = "RequestTimeout"]
     /\ authorityState' =
         IF IsTerminalRoute(route)
         THEN
-            [authorityState EXCEPT
-                ![RouteAuthority[route]] = FinalFailureState]
+            [authorityState EXCEPT ![authority] = FinalFailureState]
         ELSE authorityState
     /\ terminalFailure' =
         IF IsTerminalRoute(route)
         THEN
-            [terminalFailure EXCEPT ![RouteAuthority[route]] = TRUE]
+            [terminalFailure EXCEPT ![authority] = TRUE]
         ELSE terminalFailure
+    /\ adoptedAuthority' =
+        [adoptedAuthority EXCEPT ![route] = authority]
     /\ UNCHANGED
-        <<adoptedAuthority, aggregate, operationExpired, payloadRoute,
-          payloadAuthority>>
+        <<aggregate, operationExpired, payloadRoute, payloadAuthority>>
 
-RouteTransportFailure(route) ==
+RouteTransportFailure(route, authority) ==
     /\ CanAdvance
     /\ routeState[route] = "Running"
+    /\ AdoptionAllowed(route, authority)
     /\ routeState' = [routeState EXCEPT ![route] = "Failed"]
     /\ authorityState' =
         IF IsTerminalRoute(route)
         THEN
-            [authorityState EXCEPT
-                ![RouteAuthority[route]] = FinalFailureState]
+            [authorityState EXCEPT ![authority] = FinalFailureState]
         ELSE authorityState
     /\ terminalFailure' =
         IF IsTerminalRoute(route)
         THEN
-            [terminalFailure EXCEPT ![RouteAuthority[route]] = TRUE]
+            [terminalFailure EXCEPT ![authority] = TRUE]
         ELSE terminalFailure
+    /\ adoptedAuthority' =
+        [adoptedAuthority EXCEPT ![route] = authority]
     /\ UNCHANGED
-        <<adoptedAuthority, aggregate, operationExpired, payloadRoute,
-          payloadAuthority>>
+        <<aggregate, operationExpired, payloadRoute, payloadAuthority>>
 
 ExpireOperation ==
     /\ aggregate = "Pending"
@@ -253,10 +258,9 @@ StartSomeRoute ==
 SettleSomeRoute ==
     \/ \E route \in Routes, authority \in Authorities:
         RouteFound(route, authority)
-    \/ \E route \in Routes:
-        RouteAbsent(route)
-        \/ RouteRequestTimeout(route)
-        \/ RouteTransportFailure(route)
+        \/ RouteAbsent(route, authority)
+        \/ RouteRequestTimeout(route, authority)
+        \/ RouteTransportFailure(route, authority)
 
 PublishSomePinnedPayload ==
     \E route \in Routes:
@@ -294,6 +298,18 @@ TypeOK ==
 AdoptedResultsKeepAssociation ==
     \A route \in Routes:
         adoptedAuthority[route] # NoAuthority =>
+            adoptedAuthority[route] = RouteAuthority[route]
+
+AbsentResultsKeepAssociation ==
+    \A route \in Routes:
+        routeState[route] = "Absent" =>
+            adoptedAuthority[route] = RouteAuthority[route]
+
+TerminalFailureResultsKeepAssociation ==
+    \A route \in Routes:
+        /\ IsTerminalRoute(route)
+        /\ routeState[route] \in {"RequestTimeout", "Failed"}
+        =>
             adoptedAuthority[route] = RouteAuthority[route]
 
 CompleteRequiresEveryAuthority ==
