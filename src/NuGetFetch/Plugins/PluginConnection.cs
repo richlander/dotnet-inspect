@@ -1003,6 +1003,7 @@ internal sealed class PluginConnection : IAsyncDisposable
             if (!_process.HasExited && !_process.WaitForExit((int)ExitWaitAfterClose.TotalMilliseconds))
             {
                 _process.Kill(entireProcessTree: true);
+                await _process.WaitForExitAsync().ConfigureAwait(false);
             }
         }
         catch
