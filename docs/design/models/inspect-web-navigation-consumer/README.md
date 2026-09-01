@@ -4,7 +4,7 @@ This directory models the Inspect Web UI's consumption of opaque effect
 authority returned by
 [Inspection Subject Navigation](../../inspection-subject-navigation.md). It
 supports the interaction contract in
-[Inspect Web UI](../../inspect-web-ui.md).
+[Inspect Web Navigation Consumer](../../inspect-web-navigation-consumer.md).
 
 The model starts at the UI consumer boundary after the product navigation
 session has accepted an explicit intent or the consumer has requested dedicated

@@ -605,8 +605,10 @@ feeds it a real document.
 [Annotated Source viewer interaction](../../docs/design/annotated-source-viewer-interaction.md)
 owns disclosure, actions, selection, annotations, media, Escape, and focus
 inside the embedded reader and modal viewer. The shared
-[Inspect Web UI](../../docs/design/inspect-web-ui.md) design continues to own
-modal composition, browser-history behavior, and destination focus.
+[Inspect Web Shell Interaction](../../docs/design/inspect-web-shell-interaction.md)
+design continues to own modal composition, while
+[Inspect Web Navigation Consumer](../../docs/design/inspect-web-navigation-consumer.md)
+owns browser-history behavior and destination focus.
 
 The viewer reuses the owner's module rather than copying it.
 `prototypes/annotated-source-viewer/src/document-model.js` owns validation,
