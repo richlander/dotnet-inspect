@@ -54,6 +54,9 @@ This document consumes, without redefining:
 - owner-issued accepted-input descriptors and outcomes from
   [Artifact acquisition and workspaces](artifact-acquisition-and-workspaces.md)
   for the Open overlay;
+- [Untrusted data threat model](untrusted-data-threat-model.md) for rejection
+  and failure behavior at local and network input boundaries; this shell
+  presents the returned typed outcomes without redefining them;
 - the same result identities and acquisition path Search and coordinate
   selection share with
   [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md);

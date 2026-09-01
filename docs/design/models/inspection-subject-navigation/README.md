@@ -49,7 +49,9 @@ read that way:
   the job of the named implementation gates in the owning document.
 - **Complete restoration coordination.** `AtomicRestoration.tla` covers only
   the navigation participant's subject+lens preparation. Other participants,
-  transaction commit, and installation belong to issue #4787.
+  transaction commit, and installation belong to
+  [Workspace Definitions](../../workspace-definitions.md), with implementation
+  tracked by [#4787](https://github.com/richlander/dotnet-inspect/issues/4787).
 - **Acquisition, security, or performance.** Coordinate realization appears
   only as an external prerequisite that may abort.
 

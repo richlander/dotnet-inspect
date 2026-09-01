@@ -230,13 +230,11 @@ They do not repeat:
 - the library; or
 - the package and version.
 
-API content begins immediately after lens navigation. Source places only its
-compact provenance and action row before source content. Annotated Source puts
-its **Copy** and **Explore** actions in the page-owned inspection-command row,
-begins immediately with highlighted source content, and places compact
-provenance after that content. The removed fields do not leave placeholders or
-reserved vertical space. They are also not moved into collapsed duplicate
-headers on either lens.
+The removed fields do not leave placeholders or reserved vertical space, and
+they are not moved into collapsed duplicate headers on either lens. Page order,
+including Source provenance placement and Annotated Source **Copy** and
+**Explore** action placement, is owned by
+[Inspect Web Surface Composition](inspect-web-surface-composition.md#source-and-annotated-source).
 
 This makes the API surface or source document the primary content of its page
 and increases the amount visible without scrolling.
@@ -257,12 +255,9 @@ Successful source provenance is presented as a compact status and action row,
 not as an explanation of the product's safety mechanisms. This rule applies to
 type, member, and graph source surfaces.
 
-In the Type or Member view, a Source lens is ordered as:
-
-1. Compact source provenance and actions.
-2. Source content.
-
-No type metrics or metadata summary appears between these elements.
+The placement of that row relative to Source or Annotated Source content is
+owned by
+[Inspect Web Surface Composition](inspect-web-surface-composition.md#source-and-annotated-source).
 
 For checksum-verified source resolved through PDB information, the visible
 status is compact:
