@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -e -o pipefail
 
-# Upholds the bar in docs/tla-plus-methodology.md: every checked-in TLA+
-# model's module parses (SANY) and TLC runs each of its .cfg files to
-# completion without an unexpected error.
+# Upholds the bar in docs/tla-plus-methodology.md for an explicit model scope:
+# every selected module parses (SANY) and TLC runs each selected directory's
+# .cfg files to completion without an unexpected error.
 #
 # Deliberately NOT enforced here: whether TLC's verdict is "no violation
 # found". Several .cfg files in this repository are committed negative
@@ -35,18 +35,13 @@ set -e -o pipefail
 # than failing the PR.
 #
 # A .cfg's module is normally inferred (the sole .tla in its directory, or a
-# same-named one); eng/tla-module-overrides.txt overrides that for
-# directories where a .cfg must instead run against a model-checking harness
-# module.
-
-if [ -z "${TLA_TOOLS_JAR:-}" ]; then
-  echo "::error::TLA_TOOLS_JAR is not set." >&2
-  exit 1
-fi
-if [ ! -f "$TLA_TOOLS_JAR" ]; then
-  echo "::error::TLA_TOOLS_JAR ($TLA_TOOLS_JAR) does not exist." >&2
-  exit 1
-fi
+# same-named one); eng/tla-module-overrides.txt overrides that for directories
+# where a .cfg must instead run against a model-checking harness module.
+#
+# CI passes --changed-files0 and a NUL-delimited base-to-head path stream so a
+# PR checks only the model directories it changes. --all is deliberately
+# explicit: a repository-wide sweep belongs to a deliberate local
+# investigation, not the per-PR gate.
 
 # Per-invocation wall-clock bound. Some committed models are large exhaustive
 # checks (hundreds of millions of states) that legitimately run far longer
@@ -59,6 +54,146 @@ OK_EXIT_CODES="0 10 11 12 13 14"
 
 MODEL_ROOTS=(docs/design/models docs/models)
 MODULE_OVERRIDES_FILE=eng/tla-module-overrides.txt
+MODEL_DIRS=()
+FAILURES=0
+
+usage() {
+  echo "Usage: $0 --changed-files0 | --all | <model-directory>..." >&2
+}
+
+add_model_dir() {
+  local dir="$1"
+  local candidate
+  for candidate in "${MODEL_DIRS[@]}"; do
+    if [ "$candidate" = "$dir" ]; then
+      return
+    fi
+  done
+  MODEL_DIRS+=("$dir")
+}
+
+is_model_root() {
+  local path="$1"
+  local root
+  for root in "${MODEL_ROOTS[@]}"; do
+    if [ "$path" = "$root" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+select_changed_path() {
+  local path="$1"
+  local extension_lower dir parent root
+
+  case "$path" in
+    ""|/*|*/|*//*)
+      echo "::error::Changed path '$path' is not a canonical repo-relative path." >&2
+      FAILURES=$((FAILURES + 1))
+      return
+      ;;
+  esac
+  case "/$path/" in
+    */./*|*/../*)
+      echo "::error::Changed path '$path' is not a canonical repo-relative path." >&2
+      FAILURES=$((FAILURES + 1))
+      return
+      ;;
+  esac
+
+  extension_lower=$(printf '%s' "${path##*.}" | tr '[:upper:]' '[:lower:]')
+  case "$extension_lower" in
+    tla|cfg) ;;
+    *) return ;;
+  esac
+
+  for root in "${MODEL_ROOTS[@]}"; do
+    case "$path" in
+      "$root"/*)
+        dir="${path%/*}"
+        parent="${dir%/*}"
+        if [ "$dir" = "$root" ]; then
+          if [ -e "$path" ]; then
+            echo "::error::$path is not in the layout eng/run-tla-checks.sh supports (a model directory exactly one level under $root)." >&2
+            FAILURES=$((FAILURES + 1))
+          fi
+        elif [ "$parent" = "$root" ]; then
+          # A deleted model directory has nothing left to check. A deleted file
+          # in a surviving directory still selects that directory so the
+          # remaining module/configuration set is verified.
+          if [ -d "$dir" ]; then
+            add_model_dir "$dir"
+          fi
+        elif [ -e "$path" ]; then
+          echo "::error::$path is nested deeper than eng/run-tla-checks.sh supports (one directory level under $root)." >&2
+          FAILURES=$((FAILURES + 1))
+        fi
+        return
+        ;;
+    esac
+  done
+}
+
+SCOPE_MODE=directories
+if [ "$#" -eq 0 ]; then
+  usage
+  exit 2
+elif [ "$1" = "--changed-files0" ]; then
+  if [ "$#" -ne 1 ]; then
+    usage
+    exit 2
+  fi
+  SCOPE_MODE=changed
+  changed_files_file=$(mktemp)
+  trap 'rm -f "$changed_files_file"' EXIT
+  cat > "$changed_files_file"
+  if [ -s "$changed_files_file" ]; then
+    last_byte=$(
+      tail -c 1 "$changed_files_file" | od -An -t u1 | tr -d '[:space:]'
+    )
+    if [ "$last_byte" != "0" ]; then
+      echo "::error::The changed-file stream is not NUL terminated." >&2
+      exit 2
+    fi
+  fi
+  while IFS= read -r -d '' path; do
+    select_changed_path "$path"
+  done < "$changed_files_file"
+  rm -f "$changed_files_file"
+  trap - EXIT
+elif [ "$1" = "--all" ]; then
+  if [ "$#" -ne 1 ]; then
+    usage
+    exit 2
+  fi
+  SCOPE_MODE=all
+  for root in "${MODEL_ROOTS[@]}"; do
+    [ -d "$root" ] || continue
+    while IFS= read -r -d '' dir; do
+      add_model_dir "$dir"
+    done < <(find "$root" -mindepth 1 -maxdepth 1 -type d -print0 | sort -z)
+  done
+else
+  for dir in "$@"; do
+    parent="${dir%/*}"
+    if ! is_model_root "$parent" || [ ! -d "$dir" ]; then
+      echo "::error::$dir is not an existing model directory directly under ${MODEL_ROOTS[*]}." >&2
+      FAILURES=$((FAILURES + 1))
+      continue
+    fi
+    add_model_dir "$dir"
+  done
+fi
+
+if [ -z "${TLA_TOOLS_JAR:-}" ]; then
+  echo "::error::TLA_TOOLS_JAR is not set." >&2
+  exit 1
+fi
+if [ ! -f "$TLA_TOOLS_JAR" ]; then
+  echo "::error::TLA_TOOLS_JAR ($TLA_TOOLS_JAR) does not exist." >&2
+  exit 1
+fi
 
 override_module_for() {
   local cfg_path="$1"
@@ -90,7 +225,6 @@ is_ok_exit_code() {
   return 1
 }
 
-FAILURES=0
 CHECKED_MODULES=0
 CHECKED_CONFIGS=0
 TIMEOUTS=0
@@ -194,6 +328,11 @@ if [ -f "$MODULE_OVERRIDES_FILE" ]; then
       FAILURES=$((FAILURES + 1))
       continue
     fi
+    if [ ! -f "$key_dir/$value.tla" ]; then
+      echo "::error::$MODULE_OVERRIDES_FILE:$line_no names module '$value' for '$key', but '$key_dir/$value.tla' does not exist." >&2
+      FAILURES=$((FAILURES + 1))
+      continue
+    fi
     printf '%s\n' "$key" >> "$seen_keys_file"
   done < "$MODULE_OVERRIDES_FILE"
 
@@ -222,21 +361,21 @@ fi
 # still matching eng/ci-detect-changes.sh's classification (its `case`
 # patterns span `/`, so they are deliberately broader than this script's
 # layout assumption). Fail loudly rather than silently skip such a file.
-for root in "${MODEL_ROOTS[@]}"; do
-  [ -d "$root" ] || continue
-  while IFS= read -r -d '' misplaced; do
-    echo "::error::$misplaced is not in the layout eng/run-tla-checks.sh supports (a model directory exactly one level under $root). Move it into its own model directory directly under $root, or extend this script's discovery to handle this layout." >&2
-    FAILURES=$((FAILURES + 1))
-  done < <(find "$root" -mindepth 1 -maxdepth 1 \( -iname "*.tla" -o -iname "*.cfg" \) -print0)
-  while IFS= read -r -d '' nested; do
-    echo "::error::$nested is nested deeper than eng/run-tla-checks.sh supports (one directory level under $root). Move it into a model directory directly under $root, or extend this script's discovery to handle nesting." >&2
-    FAILURES=$((FAILURES + 1))
-  done < <(find "$root" -mindepth 3 \( -iname "*.tla" -o -iname "*.cfg" \) -print0)
-done
+if [ "$SCOPE_MODE" = all ]; then
+  for root in "${MODEL_ROOTS[@]}"; do
+    [ -d "$root" ] || continue
+    while IFS= read -r -d '' misplaced; do
+      echo "::error::$misplaced is not in the layout eng/run-tla-checks.sh supports (a model directory exactly one level under $root). Move it into its own model directory directly under $root, or extend this script's discovery to handle this layout." >&2
+      FAILURES=$((FAILURES + 1))
+    done < <(find "$root" -mindepth 1 -maxdepth 1 \( -iname "*.tla" -o -iname "*.cfg" \) -print0)
+    while IFS= read -r -d '' nested; do
+      echo "::error::$nested is nested deeper than eng/run-tla-checks.sh supports (one directory level under $root). Move it into a model directory directly under $root, or extend this script's discovery to handle nesting." >&2
+      FAILURES=$((FAILURES + 1))
+    done < <(find "$root" -mindepth 3 \( -iname "*.tla" -o -iname "*.cfg" \) -print0)
+  done
+fi
 
-for root in "${MODEL_ROOTS[@]}"; do
-  [ -d "$root" ] || continue
-  while IFS= read -r -d '' dir; do
+for dir in "${MODEL_DIRS[@]}"; do
     tla_files=()
     while IFS= read -r -d '' file; do
       tla_files+=("$file")
@@ -389,9 +528,7 @@ for root in "${MODEL_ROOTS[@]}"; do
       fi
       rm -f "$log"
     done
-
     echo "::endgroup::"
-  done < <(find "$root" -mindepth 1 -maxdepth 1 -type d -print0 | sort -z)
 done
 
 echo "Checked $CHECKED_MODULES module(s) and $CHECKED_CONFIGS configuration(s) ($TIMEOUTS not verified within budget)."
