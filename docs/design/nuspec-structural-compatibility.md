@@ -69,9 +69,12 @@ shared XML decoding boundary.
 self-attested coordinate construction for direct content, typed identity
 provenance, dependency contract validation, scalar/count/byte limits, and
 projection into typed manifest failures. Both identity paths consume the same
-single Services parse. Acquisition belongs to the host, and CLI or Browser
-presentation is outside this policy. This document neither makes Services an
-identity, acquisition, or presentation owner.
+single Services parse. Self-attested version construction normalizes
+surrounding XML whitespace consistently with expected-coordinate version
+matching; package ID whitespace remains invalid in both paths. Acquisition
+belongs to the host, and CLI or Browser presentation is outside this policy.
+This document neither makes Services an identity, acquisition, or presentation
+owner.
 
 Missing `metadata`, `id`, or `version` is therefore not a structural parser
 error. A consuming query may reject the resulting incomplete facts according

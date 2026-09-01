@@ -255,7 +255,7 @@ public static class PackageManifestFactsQuery
         {
             return PackageSourceCoordinate.Create(
                 nuspec.PackageName,
-                nuspec.Version);
+                nuspec.Version.Trim());
         }
         catch (ArgumentException)
         {

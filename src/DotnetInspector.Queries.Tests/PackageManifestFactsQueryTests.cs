@@ -64,15 +64,18 @@ public sealed class PackageManifestFactsQueryTests
         Assert.Equal("[2.0.0]", dependency.VersionRange);
     }
 
-    [Fact]
-    public void ExecuteSelfAttested_ProjectsEquivalentFactsWithTypedProvenance()
+    [Theory]
+    [InlineData("1.0")]
+    [InlineData(" 1.0.0 ")]
+    public void ExecuteSelfAttested_ProjectsEquivalentFactsWithTypedProvenance(
+        string declaredVersion)
     {
         byte[] manifestBytes = Encoding.UTF8.GetBytes(
-            """
+            $$"""
             <package>
               <metadata>
                 <id>Example.Package</id>
-                <version>1.0</version>
+                <version>{{declaredVersion}}</version>
                 <authors>Example Authors</authors>
                 <description>Example description</description>
                 <dependencies>
