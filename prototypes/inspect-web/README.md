@@ -15,6 +15,13 @@ package acquisition, target-framework ranking, symbol acquisition, and member
 identity for itself, and opened assemblies wherever it needed one. It was not
 carried forward.
 
+`InspectWeb.Engine` remains the executable Browser/Wasm host and the owner of
+all current exports and wire DTOs. `InspectWeb.Engine.Core` is its one-way,
+implementation-only dependency for shared operation lifetimes and browser host
+policy; it contains no `[JSExport]` method or generated serializer context.
+`EngineCoreProject_HasOneWayOwnerReference` and
+`EngineCoreAssembly_HasNoFacadeContracts` gate that boundary.
+
 The rule is enforced by the compiler, not by a convention.
 `engine/BannedSymbols.txt` bans `AssemblyInspectionSession`, `MetadataSource`,
 `LibraryBodyIndex`, `AssemblyImageSnapshot`, raw metadata readers, descriptor
