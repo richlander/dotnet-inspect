@@ -1048,9 +1048,12 @@ typed unavailable result rather than absence or an exception.
   buffer source FieldDef is excluded from pointer-based propagation only after
   its platform `FixedBufferAttribute(Type, int)` carrier and complete value are
   authenticated within the member attribute and name-work budgets. A malformed
-  or unavailable fixed-buffer carrier cannot become a fixed-buffer exemption. A
-  signature that cannot be decoded is `Unavailable` unless a definite pointer
-  was already observed. Legacy, Unsupported, and Malformed results still retain
+  or unavailable fixed-buffer carrier cannot become a fixed-buffer exemption.
+  The exemption applies only to a definite pointer, so it never substitutes for
+  a signature the index did not decode: a signature that cannot be decoded is
+  `Unavailable` unless a definite pointer was already observed, whatever the
+  fixed-buffer evidence says. Legacy, Unsupported, and Malformed results still
+  retain
   direct and associated `RequiresUnsafeAttribute` evidence without using it to
   change the compatibility contract.
 - Under Updated rules, one or more well-formed
@@ -1105,6 +1108,7 @@ row that contributes accessor relationships.
 `DirectAccessorCarrierWinsBeforeAssociatedFallback`,
 `UnsortedCustomAttributeRowsFailClosed`,
 `UnobservedMethodSemanticsRowsMakeAssociationsUnavailable`,
+`FixedBufferCarrierCannotSuppressAnUndecodableSignature`,
 `FixedBufferExemptionRequiresPlatformElementTypeIdentity`, and
 `MemorySafetyMetadataIndex_InvalidHandlesAreUnavailable` gate the shared
 contract.

@@ -403,9 +403,16 @@ public sealed class MemorySafetyMetadataIndex
                 ? null
                 : MetadataTokens.GetToken(associatedMember));
 
-        if (pointer.FixedBuffer
-            == MemorySafetyFixedBufferEvidence.Present)
-            return new MemorySafetyMemberContractResult.None(evidence);
+        if (pointer.Evidence == MemorySafetyPointerEvidence.Present)
+        {
+            // The fixed-buffer exemption only ever excludes a definite pointer
+            // from propagation. It is not evidence about a signature that was
+            // never decoded, so it must not stand in for one.
+            return pointer.FixedBuffer
+                == MemorySafetyFixedBufferEvidence.Present
+                    ? new MemorySafetyMemberContractResult.None(evidence)
+                    : new MemorySafetyMemberContractResult.Implicit(evidence);
+        }
 
         if (pointer.Evidence == MemorySafetyPointerEvidence.Unavailable)
         {
@@ -415,9 +422,7 @@ public sealed class MemorySafetyMetadataIndex
                 "The member signature could not be decoded.");
         }
 
-        return pointer.Evidence == MemorySafetyPointerEvidence.Present
-            ? new MemorySafetyMemberContractResult.Implicit(evidence)
-            : new MemorySafetyMemberContractResult.None(evidence);
+        return new MemorySafetyMemberContractResult.None(evidence);
     }
 
     MemorySafetyMemberContractResult GetUpdatedContract(

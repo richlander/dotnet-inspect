@@ -281,6 +281,31 @@ public sealed class MemorySafetyMetadataIndexTests
     }
 
     [Fact]
+    public void FixedBufferCarrierCannotSuppressAnUndecodableSignature()
+    {
+        using OpenedMetadata opened = Open(
+            BuildFixedBufferElementTypeImage(
+                "System.Int32",
+                undecodableFieldSignature: true));
+        MemorySafetyMetadataIndex index =
+            MemorySafetyMetadataIndex.Create(opened.Reader);
+
+        var result =
+            Assert.IsType<MemorySafetyMemberContractResult.Unavailable>(
+                index.GetMemberContract(
+                    MetadataTokens.FieldDefinitionHandle(1)));
+        Assert.Equal(
+            MemorySafetyMemberContractFailureKind.SignatureUnavailable,
+            result.Failure.Kind);
+        Assert.Equal(
+            MemorySafetyPointerEvidence.Unavailable,
+            result.Evidence.Pointer);
+        Assert.Equal(
+            MemorySafetyFixedBufferEvidence.Present,
+            result.Evidence.FixedBuffer);
+    }
+
+    [Fact]
     public void UnobservedMethodSemanticsRowsMakeAssociationsUnavailable()
     {
         using OpenedMetadata opened = Open(
@@ -1267,6 +1292,13 @@ public sealed class MemorySafetyMetadataIndexTests
 
     static byte[] BuildFixedBufferElementTypeImage(
         string serializedElementType)
+        => BuildFixedBufferElementTypeImage(
+            serializedElementType,
+            undecodableFieldSignature: false);
+
+    static byte[] BuildFixedBufferElementTypeImage(
+        string serializedElementType,
+        bool undecodableFieldSignature)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1318,10 +1350,24 @@ public sealed class MemorySafetyMetadataIndexTests
                 metadata.GetOrAddString(".ctor"),
                 constructorSignature);
         var fieldSignature = new BlobBuilder();
-        new BlobEncoder(fieldSignature)
-            .FieldSignature()
-            .Pointer()
-            .Int32();
+        if (undecodableFieldSignature)
+        {
+            // A pointer chain deep enough for the signature guard to refuse it
+            // before any decode, so pointer evidence is Unavailable rather than
+            // definitely present or absent.
+            fieldSignature.WriteByte(0x06);
+            for (int depth = 0; depth < 70_000; depth++)
+                fieldSignature.WriteByte(0x0F);
+            fieldSignature.WriteByte(0x08);
+        }
+        else
+        {
+            new BlobEncoder(fieldSignature)
+                .FieldSignature()
+                .Pointer()
+                .Int32();
+        }
+
         FieldDefinitionHandle field =
             metadata.AddFieldDefinition(
                 FieldAttributes.Public,
