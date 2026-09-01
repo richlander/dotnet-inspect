@@ -53,6 +53,9 @@ public sealed record AssemblyBindingFailure
 
     public AssemblyBindingFailureKind Kind { get; }
     public CandidateOpenFailureKind? CandidateFailureKind { get; }
+
+    /// <summary>The exact malformed-root reason for an invalid candidate.</summary>
+    public MetadataRootMalformedReason? MetadataRootReason { get; init; }
 }
 
 /// <summary>
@@ -430,12 +433,14 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
                 selection);
         }
         catch (Exception ex) when (
-            ex is IOException
+            ex is not UnsupportedMetadataFormatException
+                and not MalformedMetadataRootException
+                and (IOException
                 or UnauthorizedAccessException
                 or BadImageFormatException
                 or InvalidOperationException
                 or NotSupportedException
-                or ArgumentException)
+                or ArgumentException))
         {
             return AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
