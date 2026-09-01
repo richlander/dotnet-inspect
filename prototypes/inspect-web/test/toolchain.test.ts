@@ -1165,6 +1165,28 @@ test("the bundler input audit includes query-bearing module sources", async () =
   }
 });
 
+test("the bundler input audit includes worker module sources", async () => {
+  const root = mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-"));
+  try {
+    writeFileSync(
+      join(root, "index.html"),
+      '<script type="module" src="/main.js"></script>',
+    );
+    writeFileSync(
+      join(root, "main.js"),
+      'new Worker(new URL("./worker-payload.js", import.meta.url), { type: "module" });',
+    );
+    writeFileSync(join(root, "worker-payload.js"), "self.postMessage('unchecked payload');");
+
+    const read = (await bundlerReadFiles(root)).map(file => resolve(file));
+
+    assert.ok(read.includes(resolve(root, "worker-payload.js")));
+  }
+  finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("the lint covers every file the bundler reads", async () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
 
@@ -1363,9 +1385,9 @@ test("the bundler has no unread path into the shipped output", async () => {
     "the build declares Rolldown output plugins. Those run at generate time and can rewrite "
       + "a chunk after every gate above has read it, so this project keeps none");
   assert.equal(audited.workerPluginCount, 0,
-    "the build declares worker plugins. This project bundles no workers, and a worker "
-      + "plugin injects into a bundle these gates do not audit, so the two have to stay "
-      + "that way together");
+    "the build declares project worker plugins. The audit injects its own worker plugin "
+      + "to account for every nested worker graph; another plugin could add inputs outside "
+      + "that accounting, so project worker plugins remain forbidden");
 });
 
 // Being under a lint target turns out not to mean the lint reads the file. oxlint applies

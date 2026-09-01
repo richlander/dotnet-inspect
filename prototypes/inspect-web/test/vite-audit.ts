@@ -6,11 +6,11 @@
 // is base64'd straight into a chunk, emitting no asset file and no manifest entry either.
 //
 // Vite 8's Rolldown context exposes the module graph but no longer exposes Rollup's
-// `getWatchFiles`. The graph covers modules, entry HTML and CSS; query-bearing module
-// IDs are normalized back to their physical source path. A second build with asset
-// inlining disabled makes every asset source visible through output provenance. Both
-// answers come from Vite builds using the project's real config and plugins rather than
-// from parsing source or enumerating extensions.
+// `getWatchFiles`. The main and worker graphs cover modules, entry HTML and CSS;
+// query-bearing module IDs are normalized back to their physical source path. A second
+// build with asset inlining disabled makes every asset source visible through output
+// provenance. Both answers come from Vite builds using the project's real config and
+// plugins rather than from parsing source or enumerating extensions.
 //
 // The project's own `vite.config.ts` is used rather than a restatement of it, so the
 // audit reads what the real build reads. Only the output is suppressed: `write: false`
@@ -108,10 +108,29 @@ function physicalModulePath(id: string): string | undefined {
   return existsSync(path) ? path : undefined;
 }
 
+function recordModuleGraph(context: Rolldown.PluginContext, read: Set<string>): void {
+  for (const id of context.getModuleIds()) {
+    const path = physicalModulePath(id);
+    if (path !== undefined) {
+      read.add(path);
+    }
+  }
+}
+
+function workerGraphAudit(read: Set<string>): Rolldown.Plugin {
+  return {
+    name: `${auditPluginName}-worker`,
+    buildEnd(this: Rolldown.PluginContext) {
+      recordModuleGraph(this, read);
+    },
+  };
+}
+
 export async function auditedBuild(root: string): Promise<AuditedBuild> {
   const read = new Set<string>();
   let observed: { mode: string; publicDir: string; pluginNames: string[]; workerPluginCount: number }
     | undefined;
+  let workerPluginCount = 0;
   let rollupInputNames: string[] = [];
   let rollupOutputNames: string[] = [];
   const result = await build({
@@ -120,24 +139,30 @@ export async function auditedBuild(root: string): Promise<AuditedBuild> {
     build: { write: false, sourcemap: false },
     plugins: [{
       name: auditPluginName,
+      config(config) {
+        const workerPlugins = config.worker?.plugins;
+        workerPluginCount = workerPlugins === undefined ? 0 : 1;
+        return {
+          worker: {
+            plugins: () => [
+              ...(workerPlugins?.() ?? []),
+              workerGraphAudit(read),
+            ],
+          },
+        };
+      },
       configResolved(config) {
-        const worker: unknown = config.worker.plugins;
         rollupInputNames = configuredPluginNames(config.build.rolldownOptions.plugins);
         rollupOutputNames = configuredOutputPluginNames(config.build.rolldownOptions.output);
         observed = {
           mode: config.mode,
           publicDir: config.publicDir,
           pluginNames: withoutAuditPlugin(config.plugins.map(plugin => plugin.name)),
-          workerPluginCount: Array.isArray(worker) ? worker.length : 0,
+          workerPluginCount,
         };
       },
       buildEnd(this: Rolldown.PluginContext) {
-        for (const id of this.getModuleIds()) {
-          const path = physicalModulePath(id);
-          if (path !== undefined) {
-            read.add(path);
-          }
-        }
+        recordModuleGraph(this, read);
       },
     }],
   });
