@@ -1,6 +1,6 @@
 # Inspect-web worker runtime models
 
-This directory model-checks five mechanisms owned by
+This directory model-checks seven mechanisms owned by
 [Inspect-web worker runtime](../../inspect-web-worker-runtime.md). The models
 supplement the readable design. They prove nothing about TypeScript, browser
 workers, clocks, .NET, generated facades, managed callbacks, or feature
@@ -84,6 +84,25 @@ generations. It covers:
 - a response failing the epoch only when that command's own mark still names
   the exact outstanding probe.
 
+`InspectWebWorkerClosureIdentity.tla` expands closure into exact failure-kind,
+diagnostic, and producer-outcome identity. It covers:
+
+- planned closure and every specified unexpected failure kind;
+- first-closure identity remaining stable when a different fault arrives
+  during draining;
+- diagnostic and producer-outcome stability; and
+- worker crash during draining preserving the already committed closure.
+
+`InspectWebWorkerOperationValidation.tla` receives operation messages as
+exogenous inputs while modeling operation ID separately from sequence. It
+covers:
+
+- duplicate acceptance, rejection after acceptance, progress before
+  acceptance, duplicate settlement, and messages for an absent record;
+- an active duplicate ID carrying a newer, consumed operation sequence; and
+- every observed invalid current-epoch operation message entering
+  protocol-failure draining.
+
 Keeping the models separate prevents protocol bookkeeping from multiplying
 every clock state. The validation model isolates response-field and epoch-work
 input validation. The protocol model abstracts time and liveness arithmetic.
@@ -91,13 +110,18 @@ The lifecycle model abstracts payload parsing, sequence replay, and operation
 message inventory. The probe model isolates the cross-cutting arbitration seam
 that would otherwise be abstracted differently by those models. The
 probe-marks model separately expands the command cardinality needed to check
-record-local mark ownership without multiplying the arbitration state.
+record-local mark ownership without multiplying the arbitration state. The
+closure-identity model expands the lifecycle cause only where exact identity
+matters. The operation-validation model expands protocol receipt only where
+invalid envelopes and independent ID/sequence fields matter.
 
 ## Assumptions and bounds
 
-The validation, protocol, and lifecycle models use two abstract operations.
-Their identities stand for complete opaque operation-ID and numeric-sequence
-pairs; they do not model string construction or feature meaning.
+The validation, protocol, and lifecycle models use two abstract operation
+references. Their identities stand for complete opaque operation-ID and
+numeric-sequence pairs; they do not model string construction or feature
+meaning. The operation-validation model deliberately separates those two
+fields to expose an active duplicate ID carrying a newer sequence.
 
 The protocol model assumes:
 
@@ -217,6 +241,32 @@ The probe-marks model assumes:
   response classification; and
 - `MaxProbeSequence = 2` is enough for one command to outlive its first probe
   and race a second command posted during the next probe generation.
+
+The closure-identity model assumes:
+
+- one closure is enough to expose later-fault replacement;
+- each specified failure kind is represented distinctly;
+- two abstract diagnostics are enough to expose diagnostic replacement;
+- planned and unexpected closure fix canceled and failed producer outcomes,
+  respectively; and
+- a worker crash during draining represents physical loss after the first
+  closure was already committed.
+
+The operation-validation model assumes:
+
+- two operation IDs and one record per ID are enough to expose each invalid
+  ordering, including an absent ID while another record remains live;
+- operation ID and sequence are independent protocol fields;
+- operation A with sequence one is the active record;
+- sequence two is valid for fresh operation B but is consumed and rejected
+  when paired with already-active operation A;
+- sequence receipt enters an observable validation state only after the
+  high-water mark has advanced, before fresh-ID admission or duplicate-ID
+  failure;
+- weak fairness applies to both pending-ID validation actions, so the
+  proof-only intermediate state cannot silently retain a consumed start; and
+- invalid current-epoch operation messages enter protocol-failure draining
+  rather than being ignored.
 
 The probe model's `protocolFailure` variable is the `control-response`
 classification for either a covered omitted command response or a missing
@@ -340,7 +390,28 @@ among several distinct bounded durations.
 | Design property | Model property |
 | --- | --- |
 | Every nonzero command mark names the exact outstanding probe | `MarksNameTheOutstandingProbe` |
+| Response classification reads each command's record-local mark | `ImplementationUsesPerCommandMarks` |
 | `control-response` failure names a command whose own mark proves the omission | `ControlResponseFailureHasExactCommandProof` |
+
+### Closure identity
+
+| Design property | Model property |
+| --- | --- |
+| The first committed failure kind and diagnostic never change | `CommittedClosureIdentityIsStable` |
+| Producer outcomes fixed by closure never change | `CommittedClosureOutcomeIsStable` |
+| Planned and unexpected closure retain distinct outcomes | `ClosureIdentityDeterminesOutcome` |
+| Worker crash during draining preserves the committed closure | `CrashPreservesCommittedClosure` |
+
+### Operation-message validation
+
+| Design property | Model property |
+| --- | --- |
+| Every observed invalid current-epoch operation message fails and drains the epoch | `InvalidOperationMessageFailsEpoch` |
+| Active-duplicate failure requires the newer sequence to be consumed first | `ActiveDuplicateFailureRequiresConsumedSequence` |
+| A fresh ID with the same newer sequence is admitted | `ValidNewIdWithNewerSequenceIsAdmitted` |
+| ID validation begins from a state whose sequence is already at high-water | `PendingStartHasConsumedSequence` |
+| Every active record retains its exact positive sequence | `ActiveRecordIdentityIsExact` |
+| A consumed pending start eventually reaches admission or failure | `PendingStartEventuallyResolves` |
 
 ## Running TLC
 
@@ -380,6 +451,16 @@ java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
   -workers 4 -cleanup \
   -config InspectWebWorkerProbeMarks.cfg \
   InspectWebWorkerProbeMarks.tla
+
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+  -workers 4 -cleanup \
+  -config InspectWebWorkerClosureIdentity.cfg \
+  InspectWebWorkerClosureIdentity.tla
+
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+  -workers 4 -cleanup \
+  -config InspectWebWorkerOperationValidation.cfg \
+  InspectWebWorkerOperationValidation.tla
 ```
 
 Substitute any mutation configuration filename for the positive configuration.
@@ -402,6 +483,8 @@ The recorded runs used OpenJDK 21.0.12 and TLA+ tools 1.8.0
 | `InspectWebWorkerLifecycle_BoundedSilence.cfg` | No recurring task evidence or unbounded work; all budgets = 1 | 14,837 | 4,520 | 15 | No error |
 | `InspectWebWorkerProbe.cfg` | 1 command, `MaxProbeSequence = 2` | 1,653 | 528 | 9 | No error |
 | `InspectWebWorkerProbeMarks.cfg` | 2 commands, `MaxProbeSequence = 2` | 135 | 75 | 9 | No error |
+| `InspectWebWorkerClosureIdentity.cfg` | 10 closure kinds, 2 failure diagnostics | 220 | 220 | 4 | No error |
+| `InspectWebWorkerOperationValidation.cfg` | 2 IDs, `MaxOperationSequence = 2` | 104 | 70 | 9 | No error |
 
 Generated and distinct counts are stable across worker counts. The protocol
 row's depth 23 is the single-worker breadth-first result; parallel runs can
@@ -434,6 +517,11 @@ drain.
 counterexample proves an earlier pending command can have its first mark
 discharged while a second probe is outstanding, which is the precondition for
 the global re-marking false-positive control.
+
+`InspectWebWorkerClosureIdentity_LaterFaultReachable.cfg` checks
+`LaterFaultAfterDifferentFailureIsReachable` and is expected to violate it.
+That counterexample proves a later unexpected fault can arrive after a
+different unexpected failure kind already committed the closure.
 
 ## Mutation results
 
@@ -527,6 +615,29 @@ violation.
 | --- | --- | --- |
 | `InspectWebWorkerProbeMarks_MutationGlobalRemark.cfg` | Posting a later command re-marks an earlier pending command, whose response then falsely accuses the new probe | `ControlResponseFailureHasExactCommandProof` |
 | `InspectWebWorkerProbeMarks_MutationGlobalRemarkState.cfg` | A host-global mark overwrites an earlier command's record-local authority; the equality invariant is a focused mutation detector | `ImplementationUsesPerCommandMarks` |
+
+### Closure-identity mutations
+
+| Configuration | Injected defect | Observed violation |
+| --- | --- | --- |
+| `InspectWebWorkerClosureIdentity_MutationReplaceFailureKind.cfg` | A later drain fault replaces the exact first failure kind | `CommittedClosureIdentityIsStable` |
+| `InspectWebWorkerClosureIdentity_MutationReplaceDiagnostic.cfg` | A later drain fault replaces the first diagnostic | `CommittedClosureIdentityIsStable` |
+| `InspectWebWorkerClosureIdentity_MutationCrashReplacesClosure.cfg` | Worker crash during draining replaces the already committed closure | `CommittedClosureIdentityIsStable` |
+| `InspectWebWorkerClosureIdentity_MutationRewriteOutcome.cfg` | A later drain fault rewrites the producer outcome fixed by closure | `CommittedClosureOutcomeIsStable` |
+
+### Operation-message validation mutations
+
+| Configuration | Injected defect | Observed violation |
+| --- | --- | --- |
+| `InspectWebWorkerOperationValidation_IgnoreDuplicateAcceptance.cfg` | Duplicate acceptance is ignored | `InvalidOperationMessageFailsEpoch` |
+| `InspectWebWorkerOperationValidation_IgnoreRejectionAfterAcceptance.cfg` | Rejection after acceptance is ignored | `InvalidOperationMessageFailsEpoch` |
+| `InspectWebWorkerOperationValidation_IgnoreProgressBeforeAcceptance.cfg` | Progress before acceptance is ignored | `InvalidOperationMessageFailsEpoch` |
+| `InspectWebWorkerOperationValidation_IgnoreDuplicateSettlement.cfg` | Duplicate settlement is ignored | `InvalidOperationMessageFailsEpoch` |
+| `InspectWebWorkerOperationValidation_IgnoreAbsentRecordMessage.cfg` | A message for an absent operation record is ignored | `InvalidOperationMessageFailsEpoch` |
+| `InspectWebWorkerOperationValidation_IgnoreActiveDuplicateId.cfg` | A newer sequence for an active operation ID is consumed but otherwise ignored | `InvalidOperationMessageFailsEpoch` |
+| `InspectWebWorkerOperationValidation_TreatAnyNewSequenceAsDuplicate.cfg` | A valid newer sequence for a fresh operation ID is rejected as a duplicate | `ValidNewIdWithNewerSequenceIsAdmitted` |
+| `InspectWebWorkerOperationValidation_DropSequenceOnActiveDuplicate.cfg` | Active-ID validation fails before consuming the newer sequence | `ActiveDuplicateFailureRequiresConsumedSequence` |
+| `InspectWebWorkerOperationValidation_StallPendingValidation.cfg` | A consumed start remains indefinitely between sequence and ID validation | `PendingStartEventuallyResolves` |
 
 ### Input-validation mutations
 

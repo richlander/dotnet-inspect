@@ -424,8 +424,11 @@ The worker retains:
 
 A `Start` whose sequence is not strictly greater than the received high-water
 mark is replay or reordering and fails the epoch. A valid greater sequence is
-consumed before kind or payload validation. A later validation failure returns
-`Rejected`; retry uses a new operation identity.
+consumed before operation-ID, kind, or payload validation. A fresh operation ID
+with that newer sequence proceeds to ordinary validation; an already-active ID
+fails the epoch. The serialized handler cannot silently stop between sequence
+consumption and that admission-or-failure decision. A later kind or payload
+validation failure returns `Rejected`; retry uses a new operation identity.
 
 An operation ID already present in the active map is ambiguous and fails the
 epoch. Historical operation-ID uniqueness remains an operation-authority
@@ -444,7 +447,9 @@ liveness set.
 `Progress` and `Settled` are legal only after `Accepted`. `Rejected` is legal
 only before acceptance. Duplicate acceptance, rejection after acceptance,
 progress before acceptance, duplicate settlement, and any current-epoch
-operation message for an absent record fail the epoch.
+operation message for an absent record fail the epoch. These are explicit
+receive outcomes, not absent transitions that an implementation may treat as
+ignored input.
 
 An old epoch's event is stale and cannot affect the current epoch, operation
 sink, liveness clock, or diagnostics attributed to the current realm. An
@@ -722,7 +727,8 @@ partial-realm closure mechanics while retaining its specific `worker-message`
 or `protocol` failure kind. Bounded unexpected draining is reserved for faults
 committed after matching readiness.
 
-Entering draining atomically refuses new assignments and fixes that cause.
+Entering draining atomically refuses new assignments and fixes the exact
+closure kind and diagnostic identity.
 Every still-pending assigned producer receives one physical closure:
 
 - planned restart reports `Canceled("worker-restarted")`; or
@@ -825,7 +831,7 @@ epoch-local feature state.
 
 ## Model evidence
 
-The companion model directory contains five finite models:
+The companion model directory contains seven finite models:
 
 - `InspectWebWorkerValidation.tla` covers registered versus advertised
   operation allowances, epoch-work identity validation, and mismatch-driven
@@ -846,13 +852,22 @@ The companion model directory contains five finite models:
   two probe generations. Its exact-command failure property rejects false
   attribution to a replacement probe; a separate global-mark mutation detector
   exposes overwriting an earlier record's authoritative mark.
+- `InspectWebWorkerClosureIdentity.tla` expands the lifecycle closure into its
+  exact failure kind, diagnostic identity, and producer outcomes. It checks
+  that a later different fault or worker crash cannot replace the first
+  committed closure.
+- `InspectWebWorkerOperationValidation.tla` receives invalid operation
+  envelopes explicitly and separates operation ID from sequence. It checks
+  that every invalid ordering named by the protocol enters protocol-failure
+  draining, including a newer sequence for an active ID, while the same newer
+  sequence remains valid for a fresh ID.
 
 The models separate allowance validation, protocol bookkeeping, clock and
-worker lifetime, cross-cutting probe arbitration, and per-command mark
-ownership. Their README
-records assumptions, bounds, checked properties, counterexample mutations, and
-exact TLC results. They prove no TypeScript, browser, worker, managed, or
-feature implementation behavior.
+worker lifetime, cross-cutting probe arbitration, per-command mark ownership,
+exact closure identity, and exogenous operation-message validation. Their
+README records assumptions, bounds, checked properties, counterexample
+mutations, and exact TLC results. They prove no TypeScript, browser, worker,
+managed, or feature implementation behavior.
 
 ## Required implementation gates
 
@@ -874,10 +889,15 @@ feature implementation behavior.
   immediately closing the partial realm with their specific failure kind,
   while the corresponding post-readiness faults use bounded draining;
 - strictly increasing operation sequences with legal gaps, high-water replay
-  rejection after record release, active duplicate IDs, and visible sequence
+  rejection after record release, a valid newer sequence for a fresh ID,
+  active duplicate IDs consuming that sequence before failure, no silent
+  return between consumption and admission-or-failure, and visible sequence
   exhaustion;
 - `Accepted` before progress or settlement, `Rejected` as the exclusive
-  never-accepted closure, and exact registered allowance comparison;
+  never-accepted closure, exact registered allowance comparison, and explicit
+  fail-closed receipt tests for duplicate acceptance, rejection after
+  acceptance, progress before acceptance, duplicate settlement, absent-record
+  messages, including an absent ID while another record remains live;
 - atomic `Settled` mapping to diagnostic, terminal, and quiescence call order;
 - managed Promise rejection entering epoch failure rather than becoming a
   feature result;
@@ -905,6 +925,9 @@ feature implementation behavior.
   consuming that cache, and restart discarding it;
 - `EpochFailed` mapping to `worker-declared` unexpected draining, with no
   continued admission and no feature-result reinterpretation;
+- the first committed closure retaining its exact failure kind, diagnostic
+  identity, and producer outcomes when a different protocol, worker-message,
+  worker-declared, or worker-crash fault arrives during draining;
 - registered idle-compatible producer classes receiving opaque capabilities,
   with unregistered or over-budget classes requiring epoch-work leases;
 - current-epoch invalid ordering as protocol failure and old-epoch messages as
