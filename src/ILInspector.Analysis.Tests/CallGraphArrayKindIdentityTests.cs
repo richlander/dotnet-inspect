@@ -226,6 +226,89 @@ public sealed class CallGraphArrayKindIdentityTests
         }
     }
 
+    [Fact]
+    public void Resolve_PreservesArrayKindForEventAccessors()
+    {
+        byte[] image = BuildEventArrayKindImage();
+        using var peReader = new PEReader(new MemoryStream(image));
+        MetadataReader reader = peReader.GetMetadataReader();
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name == "ArrayCallGraphEvents");
+
+        ApiMember nonSzEvent = Assert.Single(
+            type.Members,
+            member => member is { Kind: "event", Name: "G" });
+        ApiMember vectorEvent = Assert.Single(
+            type.Members,
+            member => member is { Kind: "event", Name: "H" });
+        ApiMember literalNameEvent = Assert.Single(
+            type.Members,
+            member => member is { Kind: "event", Name: "E" });
+        Assert.Equal(
+            "System.Action{System.Int32[*]}",
+            nonSzEvent.SignatureModel!.StructuralReturnType);
+        Assert.Null(vectorEvent.SignatureModel!.StructuralReturnType);
+        Assert.Equal(
+            @"N.D\[\]",
+            literalNameEvent.SignatureModel!.StructuralReturnType);
+
+        CallGraphMemberBodySelector[] bodies =
+        [
+            .. type.Members.SelectMany(
+                member => CallGraphMemberResolver.CreateBodySelectors(
+                    type,
+                    member)),
+        ];
+        Assert.Equal(8, bodies.Length);
+        foreach (CallGraphMemberBodySelector body in bodies)
+        {
+            MemberRef reference = MemberResolver.ResolveMethod(
+                reader,
+                MetadataTokens.EntityHandle(body.BodyToken),
+                GenericScope.Empty);
+            CallGraphMemberSelector referenceSelector =
+                CallGraphMemberResolver.CreateSelector(reference);
+
+            Assert.Equal(referenceSelector.Name, body.MemberName);
+            Assert.Equal(referenceSelector.Key, body.SelectorKey);
+            Assert.Equal(
+                body.BodyToken,
+                CallGraphMemberResolver.Resolve(
+                    type,
+                    referenceSelector.Name,
+                    referenceSelector.Key)!
+                    .BodyToken);
+            Assert.Equal(
+                body.BodyToken,
+                CallGraphMemberResolver.Resolve(
+                    type,
+                    referenceSelector.Name,
+                    referenceSelector.Key,
+                    metadataToken: body.BodyToken)!
+                    .BodyToken);
+        }
+
+        Assert.Equal(
+            bodies.Length,
+            bodies.Select(body => body.SelectorKey).Distinct().Count());
+
+        Assembly assembly = Assembly.Load(image);
+        Type loadedType = assembly.GetType(
+            "N.ArrayCallGraphEvents",
+            throwOnError: true)!;
+        EventInfo[] loadedEvents = loadedType.GetEvents(
+            BindingFlags.Public
+                | BindingFlags.Instance
+                | BindingFlags.DeclaredOnly);
+        Assert.Equal(3, loadedEvents.Length);
+        foreach (EventInfo loadedEvent in loadedEvents)
+            Assert.NotNull(loadedEvent.EventHandlerType);
+    }
+
     static void AssertStructuralParameter(
         ApiType type,
         IReadOnlyDictionary<
@@ -438,6 +521,213 @@ public sealed class CallGraphArrayKindIdentityTests
                     IsGeneric: false),
             ],
             metadata);
+    }
+
+    static byte[] BuildEventArrayKindImage()
+    {
+        var metadata = CreateMetadata();
+        AssemblyReferenceHandle systemRuntime =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(8, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle objectType = metadata.AddTypeReference(
+            systemRuntime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+        TypeReferenceHandle multicastDelegate = metadata.AddTypeReference(
+            systemRuntime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("MulticastDelegate"));
+        TypeReferenceHandle action = metadata.AddTypeReference(
+            systemRuntime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Action`1"));
+        TypeDefinitionHandle literalDelegate = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("D[]"),
+            multicastDelegate,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var constructorSignature = new BlobBuilder();
+        constructorSignature.WriteByte(0x20);
+        constructorSignature.WriteCompressedInteger(2);
+        constructorSignature.WriteBytes(Void);
+        constructorSignature.WriteByte(0x1c);
+        constructorSignature.WriteByte(0x18);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.HideBySig
+                | MethodAttributes.SpecialName
+                | MethodAttributes.RTSpecialName,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature),
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+
+        var invokeSignature = new BlobBuilder();
+        invokeSignature.WriteByte(0x20);
+        invokeSignature.WriteCompressedInteger(0);
+        invokeSignature.WriteBytes(Void);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Virtual
+                | MethodAttributes.HideBySig
+                | MethodAttributes.NewSlot,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("Invoke"),
+            metadata.GetOrAddBlob(invokeSignature),
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+
+        TypeDefinitionHandle ordinaryDelegate = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("D"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(3));
+        TypeDefinitionHandle probe = metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Interface,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("ArrayCallGraphEvents"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(3));
+
+        byte[] actionOfMd1 = GenericInstance(
+            isValueType: false,
+            action,
+            MdArray(Int32, rank: 1));
+        byte[] actionOfVector = GenericInstance(
+            isValueType: false,
+            action,
+            Sz(Int32));
+        int parameterRow = 1;
+        MethodDefinitionHandle AddMethod(
+            string name,
+            byte[] parameterType,
+            bool isEventAccessor)
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x20);
+            signature.WriteCompressedInteger(1);
+            signature.WriteBytes(Void);
+            signature.WriteBytes(parameterType);
+
+            MethodAttributes attributes =
+                MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.HideBySig
+                | MethodAttributes.NewSlot;
+            if (isEventAccessor)
+                attributes |= MethodAttributes.SpecialName;
+            MethodDefinitionHandle handle =
+                metadata.AddMethodDefinition(
+                    attributes,
+                    MethodImplAttributes.IL,
+                    metadata.GetOrAddString(name),
+                    metadata.GetOrAddBlob(signature),
+                    bodyOffset: -1,
+                    MetadataTokens.ParameterHandle(parameterRow));
+            metadata.AddParameter(
+                ParameterAttributes.None,
+                metadata.GetOrAddString("value"),
+                sequenceNumber: 1);
+            parameterRow++;
+            return handle;
+        }
+
+        MethodDefinitionHandle addG =
+            AddMethod("add_G", actionOfMd1, isEventAccessor: true);
+        MethodDefinitionHandle removeG =
+            AddMethod("remove_G", actionOfMd1, isEventAccessor: true);
+        MethodDefinitionHandle addH =
+            AddMethod("add_H", actionOfVector, isEventAccessor: true);
+        MethodDefinitionHandle removeH =
+            AddMethod("remove_H", actionOfVector, isEventAccessor: true);
+        MethodDefinitionHandle addE =
+            AddMethod(
+                "add_E",
+                Class(literalDelegate),
+                isEventAccessor: true);
+        MethodDefinitionHandle removeE =
+            AddMethod(
+                "remove_E",
+                Class(literalDelegate),
+                isEventAccessor: true);
+        AddMethod(
+            "add_E",
+            Sz(Class(ordinaryDelegate)),
+            isEventAccessor: false);
+        AddMethod(
+            "remove_E",
+            Sz(Class(ordinaryDelegate)),
+            isEventAccessor: false);
+
+        metadata.AddEventMap(
+            probe,
+            MetadataTokens.EventDefinitionHandle(1));
+
+        TypeSpecificationHandle md1EventType =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(actionOfMd1));
+        TypeSpecificationHandle vectorEventType =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(actionOfVector));
+        EventDefinitionHandle eventG = metadata.AddEvent(
+            EventAttributes.None,
+            metadata.GetOrAddString("G"),
+            md1EventType);
+        metadata.AddMethodSemantics(
+            eventG,
+            MethodSemanticsAttributes.Adder,
+            addG);
+        metadata.AddMethodSemantics(
+            eventG,
+            MethodSemanticsAttributes.Remover,
+            removeG);
+        EventDefinitionHandle eventH = metadata.AddEvent(
+            EventAttributes.None,
+            metadata.GetOrAddString("H"),
+            vectorEventType);
+        metadata.AddMethodSemantics(
+            eventH,
+            MethodSemanticsAttributes.Adder,
+            addH);
+        metadata.AddMethodSemantics(
+            eventH,
+            MethodSemanticsAttributes.Remover,
+            removeH);
+        EventDefinitionHandle eventE = metadata.AddEvent(
+            EventAttributes.None,
+            metadata.GetOrAddString("E"),
+            literalDelegate);
+        metadata.AddMethodSemantics(
+            eventE,
+            MethodSemanticsAttributes.Adder,
+            addE);
+        metadata.AddMethodSemantics(
+            eventE,
+            MethodSemanticsAttributes.Remover,
+            removeE);
+
+        var peBuilder = new ManagedPEBuilder(
+            new PEHeaderBuilder(imageCharacteristics: Characteristics.Dll),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder());
+        var image = new BlobBuilder();
+        peBuilder.Serialize(image);
+        return image.ToArray();
     }
 
     static byte[] BuildImage(

@@ -114,6 +114,9 @@ The projection owns everything a host must not re-invent in JavaScript:
   names therefore cannot alias an actual array wrapper.
   `CallGraphArrayKindIdentityTests.Resolve_PreservesLiteralArrayNamesAcrossTypeShapes`
   gates those cases.
+  `CallGraphArrayKindIdentityTests.Resolve_PreservesArrayKindForEventAccessors`
+  gates the same producer agreement, distinctness, and tokenless resolution for
+  event add/remove bodies in a CLR-loadable image.
   General exact-name identity, namespace-versus-nested boundaries, pinned-name
   compatibility, contextual generic-name shadowing, multidimensional arrays in
   display-parsed generic arguments, and primitive `TypedReference` identity are
