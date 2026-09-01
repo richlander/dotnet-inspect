@@ -11,7 +11,7 @@ This document owns the contract that makes that safe.
 
 **Status: descriptive, with known gaps.** The invariants below are the contract
 this component is held to, not a description of what it currently guarantees.
-Seven verified divergences are open against it, listed under [Known
+Eight verified divergences are open against it, listed under [Known
 gaps](#known-gaps). Treat any statement that an invariant *holds* as unverified
 until the differential oracle of issue #5065 exists.
 
@@ -93,6 +93,10 @@ whatever a public feed serves.
 `BlobReader.RemainingBytes` is public and would answer the question, but no
 decode path consults it before sizing an allocation. So the pre-walk in this
 component is not redundant with an upstream check; there is no upstream check.
+That absence is a closed decision rather than an oversight: dotnet/runtime#57531
+asked for exactly such a check — "a way to detect this problem prior to
+allocating the array" — and was closed without one, on the position that the
+consumer's `ICustomAttributeTypeProvider` should have prevented the misread.
 
 ## The containment invariants
 
@@ -124,9 +128,73 @@ and two have open violations.
 I1 is about *agreement*; I2 is about *what the decode costs*; I3 is about *what
 asking costs*.
 
+**I1's surface is argument type classification, not only enum width.** The
+width question — how many bytes an enum-typed argument occupies — is the most
+frequent way the walkers disagree, but it is not the boundary of the invariant.
+Deciding *whether* an argument is an enum at all is part of the same agreement,
+because SRM reaches `GetUnderlyingEnumType` only after
+`ICustomAttributeTypeProvider.IsSystemType` returns `false`. A `System.Type`
+argument misclassified as an enum is read as four bytes instead of a
+length-prefixed `SerString`, and every subsequent field is read from the wrong
+offset — the identical failure mode as a wrong width, reached through a
+different decision.
+
+dotnet/runtime#57531 is that case in the wild, and it is worth stating in
+concrete terms because it bounds how much the classification decision is worth.
+In `Kentico.Content.Web.Mvc.dll`, misclassifying the `System.Type` argument of
+`RegisterPageBuilderLocalizationResourceAttribute` consumes the `SerString`
+length byte and the first three characters of the type name, so the following
+`string[]` element count is read from the middle of that name — `"tico"`,
+`0x6F636974`, 1,868,786,036 declared slots. At
+`CustomAttributeValueGuard.DeclaredSlotCharge` that is 28,515 MiB, which is the
+28,517 MiB the reporter observed. The blob is entirely legal; only the
+classification is wrong.
+
+The upstream issue was closed without adding a bound. The reporter was scanning
+nuget.org with `System.Reflection.Metadata` 5.0.0 and counted the problem in
+"over 3000 packages on NuGet.org (and 8000 contained assemblies)", a list that
+includes Microsoft's own `Microsoft.ML.*` assemblies. The closing comment
+attributed the failure to the consumer's provider and named a mechanism: a
+stated suspicion that the affected attributes carried "enums that have an
+underlying type that is not `Int32`".
+
+That mechanism does not fit this attribute. In
+`Kentico.Xperience.AspNet.Mvc5.Libraries` 13.0.18 the constructor is
+`RegisterPageBuilderLocalizationResourceAttribute(System.Type markedType,
+params string[] cultureCodes)`, which declares no enum parameter at all, so a
+declared non-`Int32` enum cannot be what desynchronizes this argument. That
+says nothing about the other reported assemblies, which this account does not
+examine.
+
+Both mechanisms are still present, in the order the section above gives them.
+Classification is the trigger: `IsSystemType` answers `false` for a genuine
+`System.Type`. Width is the cost: SRM then consults `GetUnderlyingEnumType`,
+whose hardcoded `Int32` moves the cursor four bytes. The enum width that drifts
+this blob is the provider's default answer for a type that is not an enum, not
+an underlying type the attribute declared. That is the evidence for stating
+I1's surface as classification and not width alone.
+
+`CustomAttributeValueGuardTests`'s
+`SystemTypeArgumentReadAsEnum_ChargesTheAmplifiedCount_AndIsUnsafe` is the gate
+for the refusal, paired with
+`SystemTypeArgument_FromShippedAttribute_DecodesAndStaysBounded` for the
+fidelity half. Both run over the captured 80-byte blob and differ only in the
+first parameter's declared type; neither materializes the amplified array,
+because the charge is asserted through `beforeMaterialize` and `DecodeValue` is
+never called on the misclassified image.
+
+Read the refusal gate for what it proves. `DeclaredSlotCharge` saturates at
+`int.MaxValue` for any count above 134,217,727, and all four plausible misread
+widths land on four bytes of this type name that exceed it, so the charge
+assertion cannot distinguish the offset named above from a different misread.
+It gates amplification-and-refusal; the offset itself is pinned separately, as
+an assertion over the captured bytes. Discriminating the width by outcome needs
+a fixture built for that purpose, which is the differential oracle's job
+(#5065), not this captured blob's.
+
 | Invariant | Holds today? | Basis |
 | --- | --- | --- |
-| **I1 — Alignment** | Believed to hold on the resolver-supplied path; unverified | Pinned by example only. The resolver-less overload is explicitly out of scope; see [Known gaps](#known-gaps). |
+| **I1 — Alignment** | Believed to hold on the resolver-supplied path, and only for a caller whose `System.Type` classification matches the guard's; unverified | Pinned by example only. One example is now a captured real-world artifact: see the classification pair above. The resolver-less overload is explicitly out of scope, and the classification precondition is gap 8; see [Known gaps](#known-gaps). |
 | **I2 — Bounding the decoder** | **No.** Violated by #5098 | SRM's per-argument re-derivation of the generic context is not bounded by anything the guard checks. |
 | **I3 — Bounding ourselves** | **No.** Violated by #5091, #5047, #5130, and #5132 | Four independent amplifications on our own side, spanning one walk and the cross-row loop. |
 
@@ -255,12 +323,16 @@ by construction rather than assumed.
 
 Two consequences follow, and both are load-bearing:
 
-1. **Share the decision, do not re-implement it.** Wherever a width decision
-   depends on resolving a name or a handle, the two walkers must reach it
+1. **Share the decision, do not re-implement it.** Wherever the reading rule
+   depends on resolving a name or a handle — the `System.Type` classification
+   as much as the width that follows it — the two walkers must reach it
    through the same handle and the same resolution function, or through the
    same provider instance — never through two implementations believed to be
    equivalent. The next section states which mechanism applies where, because
-   they are not the same on both paths.
+   no two of them are the same: a resolved handle shares the handle and the
+   resolution functions, a serialized name shares the provider instance, and
+   classification shares its rendering while duplicating the final
+   `"System.Type"` predicate. That last duplication is gap 8.
 2. **Fail open to SRM only where we genuinely cannot judge.** Where the guard
    *runs out of bytes*, or a parser exception reaches the public boundary, it
    hands the blob to SRM rather than inventing a judgment, because SRM's own
@@ -270,12 +342,12 @@ Two consequences follow, and both are load-bearing:
    Widening the rule past that distinction would convert a deliberate refusal
    into approval.
 
-#### Width agreement is a resource property, not only a fidelity one
+#### Type agreement is a resource property, not only a fidelity one
 
-This is the documented root cause of `dotnet/runtime#57531`, filed against SRM
-in August 2021 by a NuGet engineer scanning packages on nuget.org — the same
-tool category as this one. A shipping package on the feed drove the reporter's
-scanner to a 28.5 GB allocation:
+`dotnet/runtime#57531` is the worked example, filed against SRM in August 2021
+by a NuGet engineer scanning packages on nuget.org — the same tool category as
+this one. A shipping package on the feed drove the reporter's scanner to a
+28,517 MiB allocation:
 
 ```text
 Reading attribute 'RegisterPageBuilderLocalizationResourceAttribute'... found bad image format!
@@ -294,12 +366,23 @@ makes the decoder consume the wrong number of bytes, the cursor drifts, and a
 later field is then read as an array count. The pre-allocation itself was never
 changed, and the current source still has no length check.
 
-Two things follow. A width disagreement does not merely produce a wrong value —
-it relocates every subsequent read, so it can convert a valid blob into a
-multi-gigabyte allocation request. And the published position of the decoder's
-owner is that width agreement is a **caller obligation**. I1 is therefore
-load-bearing for I2, and the asymmetry recorded as Gap 5 is a bound defect
-rather than a fidelity nicety.
+That closing account names the right code path but not the trigger. As the I1
+statement above records, the offending argument is a `System.Type`, and SRM
+consults `GetUnderlyingEnumType` only because `IsSystemType` returned `false`
+first. The hardcoded `Int32` is what the drift *costs* once the classification
+is already wrong; it is not what makes the argument enter the enum path. A
+provider that classified `System.Type` correctly would never reach the width
+decision for this argument, whatever it returned. Read the two together:
+classification selects the reading rule, and width then determines how far the
+cursor moves.
+
+Two things follow. A disagreement about either — which rule applies, or how many
+bytes it consumes — does not merely produce a wrong value; it relocates every
+subsequent read, so it can convert a valid blob into a multi-gigabyte
+allocation request. And the published position of the decoder's owner is that
+this agreement is a **caller obligation**. I1 is therefore load-bearing for I2,
+and the asymmetry recorded as Gap 5 is a bound defect rather than a fidelity
+nicety.
 
 Roslyn, which maintains its own decoder rather than calling SRM, resolves the
 same two width paths — the value-side serialized name and the signature-side
@@ -313,7 +396,7 @@ consequence 1 above, reached independently by the other production decoder.
 Each row is a **verified** divergence between the contract above and the
 component's current behavior. They are listed rather than omitted, because a
 design document describing only intended behavior would misrepresent a
-component with seven open violations.
+component with eight open violations.
 
 | # | Gap | Invariant | Issue |
 | --- | --- | --- | --- |
@@ -324,6 +407,7 @@ component with seven open violations.
 | 5 | The resolver-less `IsSafeToDecode` overload resolves widths through a different order, so its `true` does not carry I1 for a caller decoding with a resolver-backed provider. | I1 scope | #5120 |
 | 6 | Every memo in the guard is a **single slot keyed on the previous input**, so alternating two values defeats all four — including a guard-side `Θ(P × G)` that mirrors gap 1. | I3 | #5130 |
 | 7 | `A` attribute rows sharing one `B`-byte blob are guarded and decoded independently, costing `Θ(A × B)` in work and retained values from `Θ(A + B)` of metadata. Absent a shared `MaterializationContext`, each `TryDecode` also builds a fresh provider and rebuilds the type-definition index, adding `Θ(A × T)`. | I3 | #5132 |
+| 8 | The guard and `ArgTypeProvider` render the argument's type name through the same resolver functions, but each applies its own `"System.Type"` comparison, so the predicate can diverge. A caller whose provider classifies differently receives `true` for a blob that then drifts. | I1 | #5393 |
 
 Gaps 1, 2, 3, and 6 share a root cause worth naming: **the guard and SRM
 memoize different things.** Where the guard caches work SRM repeats, the guard is fast
@@ -332,13 +416,25 @@ cache, the guard is quadratic and the decode is fine (gaps 2 and 3). Neither
 side's profile reveals the other's cost, which is why all four were found by
 reading rather than by measurement. Evaluate any fix against **both** walkers.
 
-Gap 5 is an **API-shape hazard rather than a live defect**: `AttributeDecoder`
-is the only production caller and always supplies the resolver. It is recorded
-because the surface permits the unsafe composition and nothing prevents it. I1
-is therefore scoped to the resolver-supplied overload throughout this document;
-see [Resolution order](#resolution-order-and-what-int32-actually-means).
+Gaps 5 and 8 are **API-shape hazards rather than live defects**:
+`AttributeDecoder` is the only production caller, it always supplies the
+resolver, and its `ArgTypeProvider.IsSystemType` agrees with the guard's
+internal test. They are recorded because the surface permits the unsafe
+composition and nothing prevents it. I1 is therefore scoped to the
+resolver-supplied overload throughout this document, and additionally assumes a
+caller whose classification matches the guard's; see
+[Resolution order](#resolution-order-and-what-int32-actually-means).
 
-Gaps 1, 2, 4, 5, 6, and 7 were all found while writing or reviewing this document,
+Gap 8 is the sharper of the two, because it is the rule stated above turned on
+its own component — though the divergence is narrower than a second
+classification path. Both sides render the name from the same handle through
+the same resolver functions; only the final `"System.Type"` comparison is
+written twice. Classification also runs first and selects which reading rule
+applies, so even that one duplicated predicate is the one that opens the larger
+hole. See
+[Classification](#classification-shared-rendering-duplicated-predicate).
+
+Gaps 1, 2, 4, 5, 6, 7, and 8 were all found while writing or reviewing this document,
 against a component that had already been through eight rounds of
 defect-driven review. That is the argument for the oracle below: reading finds
 these one at a time, and only after somebody thinks to look.
@@ -357,8 +453,8 @@ and I3 separately, across both the metadata axes and the observer axis. A gate
 that asserts only offset agreement passes both the unbounded and the expensive
 attack; a gate defined only over generated metadata cannot see gap 4 at all.
 
-**This specification is itself partial.** Six of the seven known gaps were
-found by reading rather than by any gate, and five of them were found after
+**This specification is itself partial.** Seven of the eight known gaps were
+found by reading rather than by any gate, and six of them were found after
 this document's first draft — including two found by reviewing this very
 section. That is evidence the enumeration below is incomplete rather than
 evidence it is done. Treat it as the starting corpus for the oracle, not as a
@@ -688,6 +784,31 @@ and it cannot make a stateful resolver stable. Same-provider decoding is
 guaranteed only on the `TryDecode` path, which is the supported product path.
 The resolver-less overload is a conservative test-only path.
 
+### Classification: shared rendering, duplicated predicate
+
+The two mechanisms above concern width. Classification — whether an argument is
+a `System.Type` at all — is a third case, and it is neither fully shared nor
+fully independent.
+
+The *rendering* is shared. Both sides turn the same handle into a name through
+the same functions: `TypeResolver.GetTypeNameFromDefinition` for a `TypeDef`
+and `TypeResolver.GetTypeName` for a `TypeRef`. The guard does this in
+`IsSrmSystemType`; SRM reaches the same two functions through
+`ArgTypeProvider.GetTypeFromDefinition` and `GetTypeFromReference`. A
+definition that renders one way for one side renders the same way for the
+other.
+
+The *predicate* is not shared. The guard compares that rendered name to
+`"System.Type"` itself; SRM asks `ArgTypeProvider.IsSystemType`, which makes
+its own comparison. One rule, spelled twice, in two files, with nothing holding
+the two spellings equal. That narrow duplication is the whole of gap 8, filed
+as #5393 — which means the repair is to share the predicate, not to build a
+second classification path or add a classifier parameter.
+
+Narrow is not the same as harmless. What a classification disagreement costs
+when it happens is the `dotnet/runtime#57531` case described earlier in this
+document.
+
 ### Frozen cross-assembly enum-width adapter
 
 Custom-attribute enum width can consume one frozen
@@ -1015,6 +1136,7 @@ malformed blob.
 | #5120 | The resolver-less `IsSafeToDecode` overload does not carry I1. Gap 5. Found while reviewing this document. |
 | #5130 | Every memo is a single slot, so alternating input defeats all four. Gap 6. Found while reviewing this document. |
 | #5132 | Quadratic cost across attribute rows sharing one value blob. Gap 7. Found while reviewing this document. |
+| #5393 | The guard re-implements the `System.Type` classification rather than sharing it. Gap 8. Found while reviewing this document. |
 | #4879 | Enum constants whose signature does not match `value__`. Fidelity. |
 | #5062 | Signature decode laundering internal errors into `SignatureRejected`. |
 | #4741 | Product extraction does not yet plan custom-attribute enum names into a frozen type-resolution generation. |
