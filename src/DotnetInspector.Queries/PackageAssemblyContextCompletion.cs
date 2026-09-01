@@ -80,6 +80,212 @@ public sealed class PackageRoleCleanupReport
     public ImmutableArray<PackageRoleGroupCleanupRecord> Groups { get; }
 }
 
+internal sealed class PackageRoleCompletionLifetime
+{
+    readonly object _gate = new();
+    readonly TaskCompletionSource<PackageRoleCleanupReport> _completion =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    readonly ImmutableArray<PackageRoleGroupId> _groups;
+    PackageAssemblyContextCompletion? _owner;
+    bool _releaseRequested;
+    bool _releaseDispatchEnabled;
+    bool _releaseDispatched;
+    bool _aborted;
+
+    internal PackageRoleCompletionLifetime(
+        PackageRoleRealizationOperationId operation,
+        bool hasImplementation,
+        bool sharesGroup)
+    {
+        Operation = operation;
+        SurfaceGroup = new PackageRoleGroupId(operation);
+        ImplementationGroup = !hasImplementation
+            ? null
+            : sharesGroup
+                ? SurfaceGroup
+                : new PackageRoleGroupId(operation);
+        _groups = ImplementationGroup is null
+            || ReferenceEquals(
+                SurfaceGroup,
+                ImplementationGroup)
+            ? [SurfaceGroup]
+            : [SurfaceGroup, ImplementationGroup];
+    }
+
+    internal PackageRoleRealizationOperationId Operation { get; }
+
+    internal PackageRoleGroupId SurfaceGroup { get; }
+
+    internal PackageRoleGroupId? ImplementationGroup { get; }
+
+    internal WorkspaceCoordinatedAdmissionGate WorkspaceAdmission
+    {
+        get;
+    } = new();
+
+    internal Task<PackageRoleCleanupReport> Completion =>
+        _completion.Task;
+
+    internal ImmutableArray<IWorkspaceCoordinatedGroupParticipation>
+        CreateWorkspaceParticipations() =>
+        [
+            .. _groups.Select(
+                group =>
+                    (IWorkspaceCoordinatedGroupParticipation)
+                    new PackageRoleWorkspaceParticipation(
+                        this,
+                        group)),
+        ];
+
+    internal TResult AdmitProjection<TResult>(
+        Func<TResult> create) =>
+        WorkspaceAdmission.Admit(create);
+
+    internal void RequestRelease()
+    {
+        WorkspaceAdmission.Close();
+        PackageAssemblyContextCompletion? owner;
+        lock (_gate)
+        {
+            _releaseRequested = true;
+            owner = SelectReleaseOwner();
+        }
+
+        owner?.StartCloseFromLifetime();
+    }
+
+    internal void AttachWithoutDispatch(
+        PackageAssemblyContextCompletion owner)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        lock (_gate)
+        {
+            if (_owner is not null || _aborted)
+            {
+                throw new InvalidOperationException(
+                    "A package-role completion lifetime may attach one owner.");
+            }
+            _owner = owner;
+        }
+    }
+
+    internal void EnableReleaseDispatch()
+    {
+        PackageAssemblyContextCompletion? owner;
+        lock (_gate)
+        {
+            if (_owner is null || _aborted)
+            {
+                throw new InvalidOperationException(
+                    "A package-role completion lifetime must attach its owner before release dispatch.");
+            }
+            _releaseDispatchEnabled = true;
+            owner = SelectReleaseOwner();
+        }
+
+        owner?.StartCloseFromLifetime();
+    }
+
+    internal void Complete(
+        PackageRoleCleanupReport report)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        if (!ReferenceEquals(report.Operation, Operation))
+        {
+            throw new InvalidOperationException(
+                "A package-role cleanup report belongs to a different operation.");
+        }
+        _completion.SetResult(report);
+    }
+
+    internal void Fail(Exception failure)
+    {
+        ArgumentNullException.ThrowIfNull(failure);
+        _completion.SetException(failure);
+    }
+
+    internal void AbortBeforeTransfer()
+    {
+        WorkspaceAdmission.Close();
+        lock (_gate)
+        {
+            if (_releaseDispatched)
+            {
+                throw new InvalidOperationException(
+                    "A dispatched package-role completion cannot abort before transfer.");
+            }
+            _aborted = true;
+        }
+
+        _completion.SetResult(
+            new PackageRoleCleanupReport(
+                Operation,
+                [
+                    .. _groups.Select(
+                        static group =>
+                            (PackageRoleGroupCleanupRecord)
+                            new PackageRoleGroupCleanupRecord
+                                .NotTransferred(group)),
+                ]));
+    }
+
+    PackageAssemblyContextCompletion? SelectReleaseOwner()
+    {
+        if (!_releaseRequested
+            || !_releaseDispatchEnabled
+            || _releaseDispatched
+            || _owner is null)
+        {
+            return null;
+        }
+
+        _releaseDispatched = true;
+        return _owner;
+    }
+
+    sealed class PackageRoleWorkspaceParticipation(
+        PackageRoleCompletionLifetime lifetime,
+        PackageRoleGroupId group)
+        : IWorkspaceCoordinatedGroupParticipation
+    {
+        public WorkspaceCoordinatedAdmissionGate WorkspaceAdmission =>
+            lifetime.WorkspaceAdmission;
+
+        public void RequestRelease() =>
+            lifetime.RequestRelease();
+
+        public async Task<InspectionWorkspaceGroupCloseResult>
+            GetCloseResultAsync(int registrationIndex)
+        {
+            PackageRoleCleanupReport report =
+                await lifetime.Completion.ConfigureAwait(false);
+            PackageRoleGroupCleanupRecord? result = null;
+            foreach (PackageRoleGroupCleanupRecord record in report.Groups)
+            {
+                if (!ReferenceEquals(record.Group, group))
+                    continue;
+                if (result is not null)
+                {
+                    throw new InvalidOperationException(
+                        "A package-role cleanup report contains a duplicate group identity.");
+                }
+                result = record;
+            }
+
+            if (result is null)
+            {
+                throw new InvalidOperationException(
+                    "A package-role cleanup report omitted a transferred group identity.");
+            }
+
+            return new InspectionWorkspaceCoordinatedGroupCloseResult<
+                PackageRoleGroupCleanupRecord>(
+                    registrationIndex,
+                    result);
+        }
+    }
+}
+
 /// <summary>
 /// Cold single-use operation that constructs one shareable package-role
 /// completion independently from demand cancellation.
@@ -90,6 +296,7 @@ public sealed class PackageAssemblyContextCompletionOperation
     readonly InspectionWorkspace.PackageRoleRealizationPreparation _preparation;
     readonly ImmutableArray<PackageRootAntecedent> _antecedents;
     readonly Func<ValueTask> _yieldAsync;
+    readonly PackageRoleCompletionLifetime _lifetime;
     int _executed;
 
     internal PackageAssemblyContextCompletionOperation(
@@ -103,6 +310,11 @@ public sealed class PackageAssemblyContextCompletionOperation
         _antecedents = antecedents;
         _yieldAsync = yieldAsync;
         Identity = new PackageRoleRealizationOperationId();
+        _lifetime = new PackageRoleCompletionLifetime(
+            Identity,
+            hasImplementation:
+                !preparation.ImplementationAssets.IsEmpty,
+            sharesGroup: preparation.Shared);
     }
 
     public PackageRoleRealizationOperationId Identity { get; }
@@ -126,7 +338,8 @@ public sealed class PackageAssemblyContextCompletionOperation
             Identity,
             _preparation,
             _antecedents,
-            _yieldAsync);
+            _yieldAsync,
+            _lifetime);
     }
 }
 
@@ -143,34 +356,39 @@ public sealed class PackageAssemblyContextCompletion : IAsyncDisposable
         _surfaceTemplates;
     readonly ImmutableArray<PackageAssemblyRoleParticipantTemplate>
         _implementationTemplates;
+    readonly PackageRoleCompletionLifetime _lifetime;
     readonly Dictionary<
         AssemblyContextParticipant,
         AssemblyContextParticipant> _implementationBySurface;
     readonly HashSet<PackageAssemblyContextProjection> _projections =
         new(ReferenceEqualityComparer.Instance);
-    readonly TaskCompletionSource<PackageRoleCleanupReport>
-        _closeCompletion =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-    bool _closeRequested;
     bool _closeStarted;
     PackageRoleCleanupReport? _closeReport;
 
     internal PackageAssemblyContextCompletion(
-        PackageRoleRealizationOperationId operation,
+        PackageRoleCompletionLifetime lifetime,
         ImmutableArray<PackageRootAntecedent> antecedents,
         PackageAssemblyContextRoles roles,
         ImmutableArray<InspectionWorkspace.RoleAssembly> surfaceRole,
         ImmutableArray<InspectionWorkspace.RoleAssembly> implementationRole)
     {
-        Operation = operation;
+        _lifetime = lifetime;
+        Operation = lifetime.Operation;
         _antecedents = antecedents;
         _roles = roles;
-        SurfaceGroup = new PackageRoleGroupId(operation);
-        ImplementationGroup = roles.ImplementationGroup is null
-            ? null
-            : roles.SharesGroup
-                ? SurfaceGroup
-                : new PackageRoleGroupId(operation);
+        SurfaceGroup = lifetime.SurfaceGroup;
+        ImplementationGroup = lifetime.ImplementationGroup;
+        if ((roles.ImplementationGroup is null)
+                != (ImplementationGroup is null)
+            || roles.SharesGroup
+                != (ImplementationGroup is not null
+                    && ReferenceEquals(
+                        SurfaceGroup,
+                        ImplementationGroup)))
+        {
+            throw new InvalidOperationException(
+                "The package-role completion lifetime does not match the realized role topology.");
+        }
         _surfaceTemplates = Templates(
             surfaceRole,
             roles.SurfaceParticipants);
@@ -235,20 +453,22 @@ public sealed class PackageAssemblyContextCompletion : IAsyncDisposable
             [.. demandRoots];
         ValidateProjection(bindings, roots);
 
-        lock (_gate)
-        {
-            ObjectDisposedException.ThrowIf(
-                _closeRequested,
-                this);
-            var projection = new PackageAssemblyContextProjection(
-                this,
-                roots,
-                _surfaceTemplates,
-                _implementationTemplates,
-                _implementationBySurface);
-            _projections.Add(projection);
-            return projection;
-        }
+        return _lifetime.AdmitProjection(
+            () =>
+            {
+                lock (_gate)
+                {
+                    var projection =
+                        new PackageAssemblyContextProjection(
+                            this,
+                            roots,
+                            _surfaceTemplates,
+                            _implementationTemplates,
+                            _implementationBySurface);
+                    _projections.Add(projection);
+                    return projection;
+                }
+            });
     }
 
     public Task<PackageRoleCleanupReport> CloseAsync()
@@ -259,23 +479,8 @@ public sealed class PackageAssemblyContextCompletion : IAsyncDisposable
                 "A package-role completion cannot close from inside one of its projection uses.");
         }
 
-        ImmutableArray<Task> projectionReturns = default;
-        bool start = false;
-        lock (_gate)
-        {
-            if (!_closeRequested)
-            {
-                _closeRequested = true;
-                projectionReturns =
-                    [.. _projections.Select(projection =>
-                        projection.ReturnCompletion)];
-                start = true;
-            }
-        }
-
-        if (start)
-            _ = CompleteCloseAsync(projectionReturns);
-        return _closeCompletion.Task;
+        _lifetime.RequestRelease();
+        return _lifetime.Completion;
     }
 
     public ValueTask DisposeAsync() =>
@@ -302,6 +507,22 @@ public sealed class PackageAssemblyContextCompletion : IAsyncDisposable
     internal AssemblyContextGroup? ImplementationAssemblyContextGroup =>
         _roles.ImplementationGroup;
 
+    internal void StartCloseFromLifetime()
+    {
+        ImmutableArray<Task> projectionReturns;
+        lock (_gate)
+        {
+            if (_closeStarted)
+                return;
+            _closeStarted = true;
+            projectionReturns =
+                [.. _projections.Select(projection =>
+                    projection.ReturnCompletion)];
+        }
+
+        _ = CompleteCloseAsync(projectionReturns);
+    }
+
     async Task CompleteCloseAsync(
         ImmutableArray<Task> projectionReturns)
     {
@@ -309,15 +530,6 @@ public sealed class PackageAssemblyContextCompletion : IAsyncDisposable
         {
             await Task.WhenAll(projectionReturns)
                 .ConfigureAwait(false);
-            lock (_gate)
-            {
-                if (_closeStarted)
-                {
-                    throw new InvalidOperationException(
-                        "Package-role cleanup started more than once.");
-                }
-                _closeStarted = true;
-            }
 
             ImmutableArray<PackageRoleGroupCleanupRecord> records =
                 await ReleaseGroupsAsync().ConfigureAwait(false);
@@ -326,11 +538,11 @@ public sealed class PackageAssemblyContextCompletion : IAsyncDisposable
                 records);
             lock (_gate)
                 _closeReport = report;
-            _closeCompletion.SetResult(report);
+            _lifetime.Complete(report);
         }
         catch (Exception ex)
         {
-            _closeCompletion.SetException(ex);
+            _lifetime.Fail(ex);
         }
     }
 
@@ -775,6 +987,12 @@ public sealed partial class InspectionWorkspace
     {
         ArgumentNullException.ThrowIfNull(selectedPackages);
         ArgumentNullException.ThrowIfNull(yieldAsync);
+        if (_lifetimeMode
+            != InspectionWorkspaceLifetimeMode.Asynchronous)
+        {
+            throw new InvalidOperationException(
+                "A shareable package-role completion requires a workspace created by CreateAsynchronous.");
+        }
         ImmutableArray<PackageRootBinding> bindings =
             [.. selectedPackages];
         if (bindings.IsEmpty)
@@ -814,65 +1032,149 @@ public sealed partial class InspectionWorkspace
             PackageRoleRealizationOperationId operation,
             PackageRoleRealizationPreparation preparation,
             ImmutableArray<PackageRootAntecedent> antecedents,
-            Func<ValueTask> yieldAsync)
+            Func<ValueTask> yieldAsync,
+            PackageRoleCompletionLifetime lifetime)
     {
-        ImmutableArray<RoleAssembly> surfaceRole =
-            await CreateRoleAsync(
-                    preparation.SurfaceAssets,
-                    preparation.GroupBudget,
-                    preparation.Options,
-                    yieldAsync)
-                .ConfigureAwait(false);
-        ImmutableArray<RoleAssembly> implementationRole =
-            preparation.Shared
-                ? surfaceRole
-                : await CreateRoleAsync(
-                        preparation.ImplementationAssets,
+        ImmutableArray<WorkspaceCoordinatedGroupAdmission> admissions =
+            BeginCoordinatedGroupAdmissions(
+                lifetime.CreateWorkspaceParticipations());
+        PackageAssemblyContextRoles? roles = null;
+        bool transferred = false;
+        try
+        {
+            ImmutableArray<RoleAssembly> surfaceRole =
+                await CreateRoleAsync(
+                        preparation.SurfaceAssets,
                         preparation.GroupBudget,
                         preparation.Options,
                         yieldAsync)
                     .ConfigureAwait(false);
-        ImmutableArray<PackageAssemblyRoleCorrespondence> correspondences =
-            Correspondences(surfaceRole, implementationRole);
-        var roleOptions = new AssemblyContextGroupOptions
-        {
-            MaxRetainedImageBytes = preparation.GroupBudget,
-        };
-        PackageAssemblyContextRoles roles =
-            CreatePackageAssemblyContextRoles(
+            ImmutableArray<RoleAssembly> implementationRole =
+                preparation.Shared
+                    ? surfaceRole
+                    : await CreateRoleAsync(
+                            preparation.ImplementationAssets,
+                            preparation.GroupBudget,
+                            preparation.Options,
+                            yieldAsync)
+                        .ConfigureAwait(false);
+            ImmutableArray<PackageAssemblyRoleCorrespondence>
+                correspondences =
+                    Correspondences(
+                        surfaceRole,
+                        implementationRole);
+            var roleOptions = new AssemblyContextGroupOptions
+            {
+                MaxRetainedImageBytes = preparation.GroupBudget,
+            };
+            roles = new PackageAssemblyContextRoles(
+                this,
                 surfaceRole.Select(entry => entry.Assembly),
                 implementationRole.Select(entry => entry.Assembly),
                 correspondences,
-                shareImplementationGroup: preparation.Shared,
-                surfaceOptions: roleOptions,
-                implementationOptions: roleOptions);
-        try
-        {
-            return new PackageAssemblyContextCompletion(
-                operation,
+                preparation.Shared,
+                roleOptions,
+                roleOptions,
+                (roleIndex, participants, options) =>
+                    admissions[roleIndex].CreateGroup(
+                        participants,
+                        options));
+            var completion = new PackageAssemblyContextCompletion(
+                lifetime,
                 antecedents,
                 roles,
                 surfaceRole,
                 implementationRole);
+            lifetime.AttachWithoutDispatch(completion);
+
+            ImmutableArray<AssemblyContextGroup> groups =
+                roles.ImplementationGroup is null
+                    || roles.SharesGroup
+                ? [roles.SurfaceGroup]
+                :
+                [
+                    roles.SurfaceGroup,
+                    roles.ImplementationGroup,
+                ];
+            bool published =
+                CompleteCoordinatedGroupAdmissions(
+                    admissions,
+                    groups);
+            transferred = true;
+            lifetime.EnableReleaseDispatch();
+            if (!published)
+            {
+                throw new ObjectDisposedException(
+                    nameof(InspectionWorkspace));
+            }
+
+            return completion;
         }
-        catch
+        catch (Exception creationFailure) when (!transferred)
         {
-            Task<AssemblyContextGroupReleaseResult> surfaceRelease =
-                roles.SurfaceGroup.RequestReleaseAsync();
-            if (roles.ImplementationGroup is not null
-                && !roles.SharesGroup)
+            Exception? releaseFailure = null;
+            try
             {
-                await Task.WhenAll(
-                        surfaceRelease,
-                        roles.ImplementationGroup.RequestReleaseAsync())
-                    .ConfigureAwait(false);
+                if (roles is not null)
+                {
+                    releaseFailure =
+                        await ReleaseProvisionalRolesAsync(roles)
+                            .ConfigureAwait(false);
+                }
             }
-            else
+            finally
             {
-                await surfaceRelease.ConfigureAwait(false);
+                CompleteCoordinatedGroupAdmissionsWithoutGroups(
+                    admissions);
+                lifetime.AbortBeforeTransfer();
             }
+
+            if (releaseFailure is not null)
+            {
+                throw new AggregateException(
+                    creationFailure,
+                    releaseFailure);
+            }
+
             throw;
         }
+    }
+
+    static async Task<Exception?> ReleaseProvisionalRolesAsync(
+        PackageAssemblyContextRoles roles)
+    {
+        Task<AssemblyContextGroupReleaseResult> surface =
+            roles.SurfaceGroup.RequestReleaseAsync();
+        Task<AssemblyContextGroupReleaseResult>? implementation =
+            roles.ImplementationGroup is not null
+                && !roles.SharesGroup
+                ? roles.ImplementationGroup.RequestReleaseAsync()
+                : null;
+        if (implementation is not null)
+        {
+            await Task.WhenAll(
+                    surface,
+                    implementation)
+                .ConfigureAwait(false);
+        }
+        else
+        {
+            await surface.ConfigureAwait(false);
+        }
+
+        Exception? surfaceFailure =
+            (await surface.ConfigureAwait(false)).Failure;
+        Exception? implementationFailure =
+            implementation is null
+                ? null
+                : (await implementation.ConfigureAwait(false)).Failure;
+        if (surfaceFailure is null)
+            return implementationFailure;
+        if (implementationFailure is null)
+            return surfaceFailure;
+        return new AggregateException(
+            surfaceFailure,
+            implementationFailure);
     }
 
     static async Task<ImmutableArray<RoleAssembly>> CreateRoleAsync(
