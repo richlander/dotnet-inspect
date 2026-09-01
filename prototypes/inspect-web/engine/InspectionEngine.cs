@@ -387,6 +387,7 @@ public static partial class InspectionEngine
         _ = memberSignature;
         (
             BrowserInspectionScope scope,
+            _,
             BrowserWorkspaceParticipant participant,
             Analysis.CallGraphMemberResolution resolution
         ) = await ImplementationMemberAsync(
@@ -476,6 +477,7 @@ public static partial class InspectionEngine
         _ = memberSignature;
         (
             BrowserInspectionScope scope,
+            _,
             BrowserWorkspaceParticipant participant,
             Analysis.CallGraphMemberResolution resolution
         ) = await ImplementationMemberAsync(
@@ -1283,6 +1285,7 @@ public static partial class InspectionEngine
         BrowserPackageCoordinate rootCoordinate =
             scope.Coordinate(resolution.RequestedCoordinates[rootIndex]);
         (
+            _,
             BrowserWorkspaceParticipant participant,
             Analysis.CallGraphMemberResolution memberResolution
         ) = ResolveImplementationMember(
@@ -1414,7 +1417,9 @@ public static partial class InspectionEngine
         string selectorKey,
         int metadataToken)
     {
-        (_, BrowserWorkspaceParticipant participant,
+        (_,
+            BrowserWorkspaceParticipant surfaceParticipant,
+            _,
             Analysis.CallGraphMemberResolution resolution) =
             await ImplementationMemberAsync(
                 packageId,
@@ -1431,9 +1436,9 @@ public static partial class InspectionEngine
         BrowserTypeSurface type =
             BrowserSurfaceProjection.Type(
                 resolution.Type,
-                participant.Asset.AssemblyName,
-                participant.Asset.Id,
-                participant.Assembly.Identity.Name,
+                surfaceParticipant.Asset.AssemblyName,
+                surfaceParticipant.Asset.Id,
+                surfaceParticipant.Assembly.Identity.Name,
                 textBudget,
                 selectedMembers: [resolution.Member]);
         BrowserMemberSurface member = type.Api.Single();
@@ -1839,6 +1844,7 @@ public static partial class InspectionEngine
                 "The product home demo type projection lost its owning assembly identity.");
         }
         (
+            _,
             BrowserWorkspaceParticipant participant,
             Analysis.CallGraphMemberResolution memberResolution
         ) = ResolveImplementationMember(
@@ -1905,7 +1911,8 @@ public static partial class InspectionEngine
     /// </summary>
     static async Task<(
         BrowserInspectionScope Scope,
-        BrowserWorkspaceParticipant Participant,
+        BrowserWorkspaceParticipant SurfaceParticipant,
+        BrowserWorkspaceParticipant ImplementationParticipant,
         Analysis.CallGraphMemberResolution Resolution)> ImplementationMemberAsync(
             string packageId,
             string version,
@@ -1925,7 +1932,8 @@ public static partial class InspectionEngine
         cancellationToken.ThrowIfCancellationRequested();
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
         (
-            BrowserWorkspaceParticipant participant,
+            BrowserWorkspaceParticipant surfaceParticipant,
+            BrowserWorkspaceParticipant implementationParticipant,
             Analysis.CallGraphMemberResolution resolution
         ) = ResolveImplementationMember(
             scope,
@@ -1935,11 +1943,16 @@ public static partial class InspectionEngine
             memberName,
             selectorKey,
             metadataToken);
-        return (scope, participant, resolution);
+        return (
+            scope,
+            surfaceParticipant,
+            implementationParticipant,
+            resolution);
     }
 
     static (
-        BrowserWorkspaceParticipant Participant,
+        BrowserWorkspaceParticipant SurfaceParticipant,
+        BrowserWorkspaceParticipant ImplementationParticipant,
         Analysis.CallGraphMemberResolution Resolution)
         ResolveImplementationMember(
             BrowserInspectionScope scope,
@@ -1988,7 +2001,7 @@ public static partial class InspectionEngine
             ?? throw new InvalidOperationException(
                 $"The implementation of '{typeId}.{memberName}' does not contain the selected "
                 + "API body.");
-        return (participant, resolution);
+        return (surfaceParticipant, participant, resolution);
     }
 
     // Presentation over the neutral projection. docs/design/call-graph-projection.md makes
@@ -2093,6 +2106,7 @@ public static partial class InspectionEngine
         // assembly and must win when the catalog established it.
         AssemblyReferenceIdentity? identity =
             node.DefinitionAssemblyIdentity
+            ?? node.OccurrenceAssemblyIdentity
             ?? (definition?.Resolution?.Origin
                     as Analysis.TypeReferenceOrigin.AssemblyReference)
                 ?.Assembly;

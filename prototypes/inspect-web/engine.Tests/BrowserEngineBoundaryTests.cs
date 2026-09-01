@@ -3918,6 +3918,9 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Equal(
             type.GetProperty("definitionId").GetString(),
             graphMemberType.GetProperty("definitionId").GetString());
+        Assert.Equal(
+            type.GetProperty("assemblyId").GetString(),
+            graphMemberType.GetProperty("assemblyId").GetString());
         JsonElement graphMemberApi =
             Assert.Single(graphMemberType.GetProperty("api").EnumerateArray());
         Assert.Equal(
@@ -4208,6 +4211,66 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Equal(
             typeof(BrowserEngineBoundaryTests).Assembly.GetName().Version?.ToString(),
             target.GetProperty("assemblyVersion").GetString());
+    }
+
+    [Fact]
+    public async Task GraphMemberSurface_UsesSurfaceAssetForImplementationOnlyType()
+    {
+        const string PackageId = "Browser.Graph.Internal.Pair";
+        const string AssemblyName = "InspectWeb.Engine.Tests";
+        byte[] implementation = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] surface = BuildEmptySurfaceImage(
+            typeof(BrowserEngineBoundaryTests).Assembly.GetName());
+        BrowserPackageWorkspace.RegisterAcquiredPackage(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(
+                    surface,
+                    implementation,
+                    $"{AssemblyName}.dll"),
+                fromCache: false));
+        BrowserPackageCoordinate coordinate =
+            await BrowserPackageWorkspace.ResolveAsync(
+                PackageId,
+                "1.0.0",
+                "net11.0",
+                TestContext.Current.CancellationToken);
+        PackageCompileAsset surfaceAsset =
+            Assert.IsType<PackageCompileAsset>(coordinate.DefaultAsset);
+        MethodInfo method = typeof(BrowserEngineBoundaryTests).GetMethod(
+            nameof(InvocationDestinationTarget),
+            BindingFlags.NonPublic | BindingFlags.Static)
+            ?? throw new InvalidOperationException(
+                $"Missing {nameof(InvocationDestinationTarget)}.");
+
+        for (int attempt = 0; attempt < 2; attempt++)
+        {
+            string json = await InspectionEngine.QueryGraphMemberSurface(
+                PackageId,
+                "1.0.0",
+                "net11.0",
+                surfaceAsset.AssemblyName,
+                typeof(BrowserEngineBoundaryTests).FullName!,
+                method.Name,
+                "stale-selector",
+                method.MetadataToken);
+            using JsonDocument document = JsonDocument.Parse(json);
+            JsonElement type = document.RootElement.GetProperty("type");
+
+            Assert.Equal(
+                surfaceAsset.Id,
+                type.GetProperty("assemblyId").GetString());
+            Assert.StartsWith(
+                "compile:ref/net11.0/",
+                surfaceAsset.Id,
+                StringComparison.Ordinal);
+            Assert.Equal(
+                typeof(BrowserEngineBoundaryTests).FullName,
+                type.GetProperty("definitionId").GetString());
+            Assert.Single(type.GetProperty("api").EnumerateArray());
+        }
     }
 
     [Fact]

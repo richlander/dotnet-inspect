@@ -289,10 +289,8 @@ public static class AssemblyContextMemberProjectionQuery
                 .Select(group => new
                 {
                     NodeId = group.Key,
-                    Targets = group
-                        .Select(pair => pair.Target)
-                        .DistinctBy(target => target.Identity)
-                        .ToArray(),
+                    Targets = DistinctInvocationTargets(
+                        group.Select(pair => pair.Target)),
                 })
                 .Where(group => group.Targets.Length == 1)
                 .Select(group => new AssemblyMemberInvocationDestination(
@@ -304,10 +302,46 @@ public static class AssemblyContextMemberProjectionQuery
     static CallGraphNode? FindCallee(
         CallGraphProjection graph,
         DirectCall call) =>
-        graph.FindFocusCalleeRow(call, out CallGraphRow row)
+        graph.FindFocusCalleeTarget(call, out CallGraphNode target)
             == CallGraphRowMatch.Found
-            ? graph.Nodes.Single(node => node.Id == row.Edge.To)
+            ? target
             : null;
+
+    static CallGraphNode[] DistinctInvocationTargets(
+        IEnumerable<CallGraphNode> targets)
+    {
+        var distinct = new List<CallGraphNode>();
+        foreach (CallGraphNode target in targets)
+        {
+            if (!distinct.Any(candidate =>
+                    SameInvocationTarget(candidate, target)))
+            {
+                distinct.Add(target);
+            }
+        }
+        return [.. distinct];
+    }
+
+    static bool SameInvocationTarget(
+        CallGraphNode first,
+        CallGraphNode second) =>
+        first.Identity == second.Identity
+        && Equivalent(
+            first.DefinitionAssemblyIdentity,
+            second.DefinitionAssemblyIdentity)
+        && Equivalent(
+            first.ResolutionAssemblyIdentity,
+            second.ResolutionAssemblyIdentity)
+        && Equivalent(
+            first.OccurrenceAssemblyIdentity,
+            second.OccurrenceAssemblyIdentity);
+
+    static bool Equivalent(
+        AssemblyReferenceIdentity? first,
+        AssemblyReferenceIdentity? second) =>
+        first is null
+            ? second is null
+            : second is not null && first.IsEquivalentTo(second);
 
     static AnnotatedSourceNode? InnermostInvocationNodeAtOffset(
         AnnotatedSourceDocument document,

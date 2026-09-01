@@ -41,8 +41,9 @@ selected MethodDef
 Each destination contains:
 
 - one document-relative C# node id; and
-- one `CallGraphNode` target, retaining the identity selected by the call-graph
-  projection.
+- one `CallGraphNode` target, retaining the logical identity selected by the
+  call-graph projection and the exact occurrence assembly identity retained by
+  that physical call occurrence.
 
 The join is available only when source-document projection is requested.
 Requesting destination projection with no source document is invalid. A
@@ -60,7 +61,9 @@ For every selected-method `DirectCall` occurrence:
 1. Build or reuse the bounded depth-one callee projection for the selected
    method.
 2. Resolve the occurrence through the projection's physical call-site lookup.
-   A missing or non-unique target contributes no destination.
+   The resolved target retains the physical occurrence's exact typed member and
+   occurrence assembly identity after structural graph grouping. A missing or
+   non-unique target contributes no destination.
 3. Collect C# nodes whose product-issued IL provenance contains the occurrence
    offset.
 4. Keep only structurally innermost candidates: a candidate is removed when a
@@ -70,12 +73,17 @@ For every selected-method `DirectCall` occurrence:
    a property getter inside an invocation argument cannot claim the enclosing
    invocation.
 6. Group rows by node id and publish only when every row for that node carries
-   one distinct `CallGraphNode.Identity`.
+   one distinct combination of `CallGraphNode.Identity`, definition assembly
+   identity, terminal resolution assembly identity, and occurrence assembly
+   identity. ECMA-equivalent assembly spellings compare as one identity.
 
 Nested invocations may therefore receive independent destinations. Repeated
 call sites may target the same member while retaining different node ids.
-Version-distinct or artifact-distinct targets remain distinct because the join
-uses `CallGraphNode.Identity`, not display shape.
+Version-distinct references remain distinct because the join retains exact
+assembly-reference identity rather than relying on structural member or display
+shape. Artifact distinction remains CallGraph-owned and is retained when the
+target carries distinct definition evidence; the join does not infer an
+artifact from source text.
 
 Indirect calls, object creation, operators, local/synthetic functions without
 an exact call-graph target, missing provenance, overlapping non-nested

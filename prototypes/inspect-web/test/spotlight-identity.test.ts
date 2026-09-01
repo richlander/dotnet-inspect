@@ -4952,6 +4952,52 @@ test("call graph navigation rejects assembly identity skew", () => {
     "the exact target type is not projected from the loaded package assembly");
 });
 
+test("surface asset currency makes repeated graph navigation reuse its type", () => {
+  const target = {
+    assembly: "Example",
+    assemblyVersion: "1.0.0.0",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: null,
+    typeMetadataId: "Example.Internal",
+    kind: "external"
+  };
+  const pkg = {
+    ...packageAt("1.0.0", "net8.0"),
+    assemblies: [{
+      id: "compile:ref/net8.0/Example.dll",
+      name: "Example",
+      version: "1.0.0.0",
+      culture: null,
+      publicKeyToken: null
+    }],
+    types: [] as Array<{
+      assemblyId: string;
+      assemblyName: string;
+      metadataId: string;
+    }>
+  };
+
+  assert.deepEqual(
+    resolveLoadedGraphTargetCandidate([pkg], target),
+    { status: "resident" });
+
+  const projectedType = {
+    assemblyId: "compile:ref/net8.0/Example.dll",
+    assemblyName: "Example",
+    metadataId: "Example.Internal"
+  };
+  pkg.types.push(projectedType);
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    assert.deepEqual(resolveLoadedGraphTargetCandidate([pkg], target), {
+      status: "unique",
+      pkg,
+      type: projectedType
+    });
+  }
+  assert.equal(pkg.types.length, 1);
+});
+
 test("an exact resident runtime target wins over package identity skew", () => {
   const target = {
     assembly: "Example",

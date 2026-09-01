@@ -142,6 +142,7 @@ public static partial class InspectionEngine
             await BrowserSourceOperationCoordinator.BeginAsync();
         (
             BrowserInspectionScope scope,
+            _,
             BrowserWorkspaceParticipant participant,
             CallGraphMemberResolution resolution
         ) = await ImplementationMemberAsync(
