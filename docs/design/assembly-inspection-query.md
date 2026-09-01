@@ -3,12 +3,11 @@
 > Design north-star for the CLI-thinning work tracked in
 > [#2122](https://github.com/richlander/dotnet-inspect/issues/2122). Describes the target
 > boundary between the CLI and the metadata/service layers for *acquiring and inspecting an
-> assembly*: the CLI forms a query, the service resolves, opens, and returns the finished shape.
+> assembly*: the CLI forms a query, the service resolves, opens, and returns the finished typed result.
 > It defines the **assembly** seam concretely and its **method-body / coordinate** sibling seam
-> (see [below](#the-sibling-seam-method-body--coordinate-inspection)). This is the
-> acquisition-seam counterpart to
-> [`service-model-refactoring.md`](service-model-refactoring.md), which covers the
-> output-shape seam.
+> (see [below](#the-sibling-seam-method-body--coordinate-inspection)). The
+> [Find type-search service](find-search-service.md) is a separate CLI-scoped
+> composition boundary, not a general output-shape counterpart to this seam.
 
 ## The question that started this
 
@@ -996,12 +995,14 @@ foreach (var resolved in await resolver.ResolveAsync(query.Target.Location))  //
 }
 ```
 
-The boundary is deliberate: per [`service-model-refactoring.md`](service-model-refactoring.md)
-the returned shape should already be *view-compatible* (section-shaped), so the CLI selects
-facets and renders (Markout / writers) rather than transforming service data into view models.
-"Mapping" that constructs inspection facts or section shapes belongs **below** the CLI; only
-facet selection and rendering stay above it. This is what keeps the "service returns the final
-shape" promise from quietly regressing into today's formatter/service leakage.
+The boundary is deliberate: the query returns the complete typed inspection
+result required by the selected facets. Per
+[Inspection layers](inspection-layers.md), L2 owns section-shaped projection
+and the CLI selects facets and renders through Markout or another writer.
+Mapping that constructs inspection facts belongs below the CLI; mapping typed
+facts into a presentation view does not move into the query merely to reduce
+adapter code. This keeps the assembly owner from regressing into formatter
+logic without making view types the currency of the service boundary.
 
 ## The sibling seam: method-body / coordinate inspection
 
@@ -1159,14 +1160,19 @@ architecture seen from two ends. "Why does the CLI open assemblies?" resolves to
 resolution → inspection seam is a string instead of a descriptor, so both the *opening* and
 the *provenance* have to be redone in the CLI."
 
-## Relationship to `service-model-refactoring.md`
+## Relationship to the Find type-search service
 
-`service-model-refactoring.md` covers the *output* seam: services should return
-view-compatible shapes so commands stop transforming. This doc covers the *input/acquisition*
-seam: services should accept a query and own resolution + PE lifetime so commands stop opening
-files and forwarding loose provenance. Together they realize the same principle —
-**the command forms a query; the service returns the final shape** — at both ends of the
-pipeline.
+[Find type-search service](find-search-service.md) owns a different,
+CLI-scoped composition seam. It consumes host-authorized candidate inventories,
+classifies type patterns, and returns typed `TypeFindResult` rows; output owners
+then project those rows for rendering. It does not establish that every service
+returns a view-compatible or section-shaped model.
+
+This document's assembly seam ends at typed inspection results over
+service-owned resolution and PE lifetime. L2 and the host compose those results
+into selected sections and formats. The shared principle is narrower: commands
+must not open metadata or reconstruct producer facts, while typed operation
+results remain separate from presentation views.
 
 ## Prior art: the Research producer registry
 

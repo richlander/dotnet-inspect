@@ -28,7 +28,12 @@ Integrations and extension reachability retain compatible participants for
 cross-assembly composition. The components below are the current hosts, shared
 substrates, and inspection producers that will extend that space.
 
-- `src/dotnet-inspect/` contains the CLI, command routing, parsers, options, output views, section descriptors, and inspectors.
+- `src/dotnet-inspect/` contains the CLI, command routing, parsers, options,
+  output views, section descriptors, and inspectors. Its
+  [Find type-search service](design/find-search-service.md) owns the
+  CLI-scoped boundary from host-authorized candidate collection through typed
+  exact, glob, namespace-prefix, partial, and miss classification; Metadata
+  retains candidate facts and the command retains presentation.
 - `src/DotnetInspector.Queries/` contains host-neutral typed query definitions,
   deterministic synchronous/asynchronous execution, prerequisite-aware cost,
   and content-shaped metadata, reference, package dependency-group,
@@ -137,6 +142,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   logical layers, project regions, currencies, and code-navigation map.
 - [CLI host architecture](cli-architecture.md): command-host responsibilities,
   request lifetime, selection, and presentation composition.
+- [Find type-search service](design/find-search-service.md): CLI-scoped
+  candidate collection, classification precedence, source ordering, limits,
+  failure visibility, and typed result boundary for `find`.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
 - [Compiled inspection domain composition](design/section-pipeline.md#compiled-inspection-domain-composition):
   L1/L2 binding from one immutable typed-query domain to reusable compiled
