@@ -23,9 +23,8 @@ Related docs:
 - [CLI change classification and obsolete
   inputs](cli-change-classification.md) — published surfaces, change
   disclosure, invalid-input guards, and routing reservations
-- [Item and line limits](item-and-line-limits.md) — the approved target for
-  `-n`, range-only `--rows`, ranked `--top`, line windows, and multi-item
-  printable payloads
+- [Item and line limits](item-and-line-limits.md) — composition history for the
+  retired umbrella target and an index of its focused owners
 - [Section-row shaping](section-row-shaping.md) — typed declared-row-set
   binding, projection roles, and terminal Count semantics
 - [The package query CLI](package-query-cli.md) — a facet-matched package

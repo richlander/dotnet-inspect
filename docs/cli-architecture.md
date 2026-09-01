@@ -146,7 +146,7 @@ returning non-zero; that payload remains output rather than diagnostic prose.
 
 | Area | Role |
 | ---- | ---- |
-| `Models/` | CLI compatibility and document data without Markout presentation attributes. |
+| `Models/` | CLI data and document models without Markout presentation attributes. |
 | `Views/` | Markout-facing projections, sections, field builders, and display-only computed values. |
 | `Output/` | Output-format adapters, serializers, table/TSV/JSONL writers, and command-specific formatters. |
 | `JsonContext.cs` | System.Text.Json source-generated metadata for structured output. |
