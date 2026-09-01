@@ -1083,13 +1083,14 @@ This boundary does not define:
 
 ## Package-realization exact-request admission
 
-**Status:** target design, scoped independently of #4745; unimplemented. This
-is a separate responsibility of the same L1 owner, not an extension of the
+**Status:** target design, scoped independently of #4745; implementation
+deferred because no approved retained product caller exists. This is a separate
+responsibility of the same L1 owner, not an extension of the
 [Package-role planning and cleanup boundary](#package-role-planning-and-cleanup-boundary)'s
-plan/realize/cleanup contract or gate list. Admission decides whether one
-whole package-role operation starts or whether an exact earlier operation is
-joined or reused. The adjacent boundary still owns planning, group
-construction, binding, aggregate limit enforcement, quiescence, and cleanup.
+plan/realize/cleanup contract or gate list. Admission decides whether one whole
+package-role operation starts or whether an exact earlier operation is joined
+or reused. The adjacent boundary still owns planning, group construction,
+binding, aggregate limit enforcement, quiescence, and cleanup.
 
 This contract supersedes the earlier per-coordinate target. The current
 compatibility API does not produce independently composable per-coordinate
@@ -1111,7 +1112,12 @@ The API has no product caller today. Its only non-test consumer is the
 a higher registry boundary with its own exact-content check. It does not make
 a workspace-local admission hit reachable. Implementing this contract before a
 retained multi-call product workspace adopts it would add unreachable
-infrastructure rather than product value.
+infrastructure rather than product value. The workspace owner records the
+[retained-caller decision](../inspection-space.md#retained-package-realization-caller):
+the current prototype registry answers repeated exact requests before its
+workspace sees them, while replacing that registry with a session-wide
+projection-backed workspace would be a separately approved product-topology
+migration rather than a narrow admission caller.
 
 ### Why the whole exact request is the cache unit
 
@@ -1400,7 +1406,11 @@ Implementation of #4960 must not begin until:
   (#5185; the direct asynchronous foundation landed in #5192);
   and
 - an approved retained multi-call workspace caller makes exact-request join or
-  reuse reachable (#5123).
+  reuse reachable. This prerequisite is satisfied only when the workspace owner
+  names that caller and its lifetime. The
+  [current retained-caller decision](../inspection-space.md#retained-package-realization-caller)
+  records that no existing product topology satisfies this prerequisite, so
+  #4960 remains deferred.
 
 The target contract remains unimplemented until these named gates land:
 
