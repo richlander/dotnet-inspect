@@ -675,9 +675,35 @@ public sealed class ResearchTargetResolution
     internal ResearchTargetResolution(
         ResearchComparisonOperationId operation,
         ImmutableArray<ResearchTargetScope> scopes)
+        : this(
+            operation,
+            scopes,
+            ResearchTargetCorrespondenceBuilder.Build(scopes))
+    {
+    }
+
+    ResearchTargetResolution(
+        ResearchComparisonOperationId operation,
+        ImmutableArray<ResearchTargetScope> scopes,
+        ResearchTargetCorrespondenceProjection correspondence)
+        : this(
+            operation,
+            scopes,
+            correspondence.Censuses,
+            correspondence.Outcomes)
+    {
+    }
+
+    internal ResearchTargetResolution(
+        ResearchComparisonOperationId operation,
+        ImmutableArray<ResearchTargetScope> scopes,
+        ImmutableArray<ResearchTargetDomainSideCensus> censuses,
+        ImmutableArray<ResearchTargetCorrespondenceOutcome> correspondences)
     {
         Operation = operation;
         Scopes = scopes;
+        Censuses = censuses;
+        Correspondences = correspondences;
         Domains = [.. scopes.SelectMany(static scope => scope.Domains)];
         Requests = [.. Domains.SelectMany(static domain => domain.Requests)];
         Attempts = [.. Domains.SelectMany(static domain => domain.Attempts)];
@@ -702,6 +728,15 @@ public sealed class ResearchTargetResolution
 
     /// <summary>Every terminal attempt across every domain.</summary>
     public ImmutableArray<ResearchTargetAttempt> Attempts { get; }
+
+    /// <summary>Every complete domain-side census.</summary>
+    public ImmutableArray<ResearchTargetDomainSideCensus> Censuses { get; }
+
+    /// <summary>Every closed domain-local correspondence outcome.</summary>
+    public ImmutableArray<ResearchTargetCorrespondenceOutcome> Correspondences
+    {
+        get;
+    }
 
     /// <summary>
     /// The attempt made for one exact request. Association is by request

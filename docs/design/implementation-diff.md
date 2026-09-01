@@ -538,10 +538,10 @@ can leave the same stable target at another position.
 
 ### Complete census and correspondence
 
-**Status:** unimplemented and unverified. Its named gates are listed under
+**Status:** implemented and verified by the named gates under
 [Target-resolution migration and gates](#target-resolution-migration-and-gates).
-`ResearchTargetResolution` exposes complete terminal attempts today; it exposes
-no census, correspondence key, correspondence outcome, or absence proof.
+`ResearchTargetResolution` exposes complete terminal attempts, side-local
+censuses, correspondence keys and outcomes, taint, and positive absence proofs.
 
 After every attempt in a scope is terminal, Research performs one complete
 census per domain and side. A domain-side census is complete when the admitted
@@ -550,10 +550,11 @@ a non-ambiguous domain it proves either that the sole input attempt is terminal
 or that no input occupies that domain and side. It is **healthy** only when
 every required attempt is `Resolved` or `NotFound`. A domain is **blocked**
 when either side contains an `Ambiguous`, `Rejected`, `Unavailable`, or
-`Failed` attempt outcome. Those outcomes may conceal a target only inside their
-own domain because domain participates in every target key. A blocked domain
-establishes no semantic pair, absence, addition, or removal, but does not
-suppress a healthy domain in the same scope.
+`Failed` attempt outcome, or when an admitted input is unevaluated because an
+exact-address selection designated another input. That evidence may conceal a
+target only inside its own domain because domain participates in every target
+key. A blocked domain establishes no semantic pair, absence, addition, or
+removal, but does not suppress a healthy domain in the same scope.
 
 Only a healthy domain reaches key construction. Research derives typed
 `ResearchStrictTargetKey` and `ResearchTargetCorrespondenceKey` values from
@@ -619,7 +620,8 @@ Blocked-domain handling has precedence over key construction in that domain.
 When a domain is blocked, no `Paired`, `BeforeOnly`, `AfterOnly`, or `Absent`
 outcome forms there. Every resolved target in that domain becomes exactly one
 `CounterpartUnavailable` outcome whose taint evidence retains the complete
-domain-local blocking-attempt set. If no target resolved, one
+domain-local blocking-attempt set and any exact unevaluated input
+dispositions. If no target resolved, one
 `DomainUnavailable` outcome keeps the failure visible instead of producing an
 empty correspondence-outcome set. Other domains proceed from their own census.
 
@@ -732,11 +734,10 @@ Migration preserves owner and dependency direction:
    implementation-comparison profile. This step has landed.
 2. Research adds that profile's Metadata-target adapter, exact relationship
    roles, durable target keys, and typed expected-failure outcomes. Metadata's
-   resolver and diagnostics remain unchanged. The adapter, relationship roles,
-   and typed expected-failure outcomes have landed; the durable target keys
-   have not.
+   resolver and diagnostics remain unchanged. This step has landed.
 3. Research adds complete domain-local census, correspondence, and absence
    proof. No producer is invoked and no inspection topology is classified.
+   This step has landed.
 4. The ResearchQueries companion consumes the admission API and constructs its
    Queries-owned receipt for both profiles. Body-signal target resolution
    remains on its compatibility path until Queries prerequisite #4777 supplies
@@ -755,8 +756,8 @@ listed under
 [Research admission and identity](#research-admission-and-identity),
 [Side-local requests and attempts](#side-local-requests-and-attempts), and
 [Resolution result and failure boundary](#resolution-result-and-failure-boundary).
-The census, key, absence, producer-handoff, and string-key contract remains
-unimplemented until these named non-vacuity gates land:
+The census, key, absence, producer-handoff, and string-key contract is verified
+by these named non-vacuity gates:
 
 - `ResearchTargetKeys_AreOwnerIssuedAndNotDisplayDerived`
 - `ResearchTargetKeys_EraseOnlyAddressAndSideLocalIdentity`

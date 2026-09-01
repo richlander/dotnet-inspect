@@ -31,9 +31,9 @@ namespace ILInspector.Research;
 /// succeeds.
 /// </para>
 /// <para>
-/// This boundary establishes no correspondence, absence proof, census key,
-/// producer topology, or work item. It produces one complete typed attempt set
-/// per planned domain and nothing more.
+/// After every request is terminal, Research constructs complete domain-side
+/// censuses, owner-issued target keys, positive absence proofs, and closed
+/// correspondence outcomes. It establishes no producer topology or work item.
 /// </para>
 /// <para>
 /// <c>ResearchTargetRequests_AreStrictlySideInputAndScopeLocal</c>,
@@ -958,7 +958,15 @@ public static class ResearchTargetResolver
                     domains.MoveToImmutable()));
         }
 
-        return new ResearchTargetResolution(operation, scopes.MoveToImmutable());
+        ImmutableArray<ResearchTargetScope> materialized =
+            scopes.MoveToImmutable();
+        ResearchTargetCorrespondenceProjection correspondence =
+            ResearchTargetCorrespondenceBuilder.Build(materialized);
+        return new ResearchTargetResolution(
+            operation,
+            materialized,
+            correspondence.Censuses,
+            correspondence.Outcomes);
     }
 
     static ImmutableArray<ResearchTargetValidationEvidence> ValidationEvidence(

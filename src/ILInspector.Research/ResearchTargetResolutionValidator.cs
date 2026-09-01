@@ -15,12 +15,12 @@ namespace ILInspector.Research;
 /// <remarks>
 /// <para>
 /// This validator does not trust the nullable field shape of the result it is
-/// handed. It re-derives the expected scope, domain, request, and attempt sets
-/// from the caller's planning request and the admitted population, then rejects
-/// both missing and stale entries. It then re-runs parent identity, exact-once
-/// accounting, module/address/token/relationship-role binding, the
-/// diagnostic-kind to outcome-arm mapping, candidate retention, and
-/// request-to-result binding.
+/// handed. It re-derives the expected scope, domain, request, attempt, census,
+/// key, proof, taint, and correspondence sets from the caller's planning
+/// request and the admitted population, then rejects both missing and stale
+/// entries. It then re-runs parent identity, exact-once accounting,
+/// module/address/token/relationship-role binding, the diagnostic-kind to
+/// outcome-arm mapping, candidate retention, and request-to-result binding.
 /// <c>ResearchTargetFinalValidation_RejectsBrokenSemanticBindings</c> is the
 /// named non-vacuity gate for this construction boundary.
 /// </para>
@@ -141,6 +141,522 @@ static class ResearchTargetResolutionValidator
         Require(
             evidenceByRequest.Count == requestIds.Count,
             "Validation evidence must account for every request exactly once.");
+
+        ValidateCensusAndCorrespondence(resolution);
+    }
+
+    static void ValidateCensusAndCorrespondence(
+        ResearchTargetResolution resolution)
+    {
+        Require(
+            resolution.Censuses.Length == resolution.Domains.Length * 2,
+            "Every domain must retain exactly two side-local censuses.");
+
+        int outcomeCount = 0;
+        foreach (ResearchTargetDomain domain in resolution.Domains)
+        {
+            ImmutableArray<ResearchTargetDomainSideCensus> domainCensuses =
+            [
+                .. resolution.Censuses.Where(
+                    census => ReferenceEquals(census.Domain, domain)),
+            ];
+            Require(
+                domainCensuses.Length == 2
+                    && domainCensuses[0].Side
+                        == ResearchComparisonSide.Before
+                    && domainCensuses[1].Side
+                        == ResearchComparisonSide.After,
+                "Every domain must retain ordered before and after censuses.");
+
+            ResearchTargetDomainSideCensus before = domainCensuses[0];
+            ResearchTargetDomainSideCensus after = domainCensuses[1];
+            ValidateCensus(domain, before);
+            ValidateCensus(domain, after);
+
+            ImmutableArray<ResearchTargetCorrespondenceOutcome> outcomes =
+            [
+                .. resolution.Correspondences.Where(
+                    outcome => ReferenceEquals(outcome.Domain, domain)),
+            ];
+            outcomeCount += outcomes.Length;
+            ValidateDomainCorrespondence(domain, before, after, outcomes);
+        }
+
+        Require(
+            outcomeCount == resolution.Correspondences.Length,
+            "Every correspondence outcome must belong to one exact domain.");
+    }
+
+    static void ValidateCensus(
+        ResearchTargetDomain domain,
+        ResearchTargetDomainSideCensus census)
+    {
+        Require(
+            ReferenceEquals(census.Domain, domain)
+                && ReferenceEquals(census.DomainId, domain.Id)
+                && ReferenceEquals(census.Scope, domain.Scope),
+            "A census must retain its exact domain parentage.");
+
+        ImmutableArray<ResearchTargetInputDisposition> expectedInputs =
+            domain.Side(census.Side);
+        ImmutableArray<ResearchTargetAttempt> expectedAttempts =
+        [
+            .. domain.Attempts.Where(
+                attempt => attempt.Request.Side == census.Side),
+        ];
+        Require(
+            SameReferences(census.Inputs, expectedInputs)
+                && SameReferences(census.Attempts, expectedAttempts),
+            "A census must retain the complete ordered side-local evidence.");
+
+        bool healthy =
+            expectedInputs.All(
+                input =>
+                    input.Kind == ResearchTargetDispositionKind.Requested)
+            && expectedAttempts.Length == expectedInputs.Length
+            && expectedAttempts.All(
+                attempt => attempt.Outcome.Kind
+                    is ResearchTargetOutcomeKind.Resolved
+                        or ResearchTargetOutcomeKind.NotFound);
+        Require(
+            census.Health
+                == (healthy
+                    ? ResearchTargetCensusHealth.Healthy
+                    : ResearchTargetCensusHealth.Blocked),
+            "Census health must derive from complete terminal evidence.");
+    }
+
+    static void ValidateDomainCorrespondence(
+        ResearchTargetDomain domain,
+        ResearchTargetDomainSideCensus before,
+        ResearchTargetDomainSideCensus after,
+        ImmutableArray<ResearchTargetCorrespondenceOutcome> outcomes)
+    {
+        ImmutableArray<ResearchTargetAttempt> resolved =
+        [
+            .. domain.Attempts.Where(
+                attempt =>
+                    attempt.Outcome.Kind
+                        == ResearchTargetOutcomeKind.Resolved),
+        ];
+
+        if (before.Health == ResearchTargetCensusHealth.Blocked
+            || after.Health == ResearchTargetCensusHealth.Blocked)
+        {
+            if (resolved.IsEmpty)
+            {
+                var unavailable = RequireSingle<
+                    ResearchTargetCorrespondenceOutcome.DomainUnavailable>(
+                        outcomes,
+                        "A blocked domain without a target must be unavailable.");
+                ValidateTaint(
+                    unavailable.Taint,
+                    domain,
+                    ResearchTargetTaintKind.BlockedDomain,
+                    BlockingAttempts(domain),
+                    [],
+                    IncompleteInputs(domain));
+                return;
+            }
+
+            Require(
+                outcomes.Length == resolved.Length
+                    && outcomes.All(
+                        outcome => outcome
+                            is ResearchTargetCorrespondenceOutcome
+                                .CounterpartUnavailable),
+                "A blocked domain must retain one unavailable counterpart per resolved endpoint.");
+            for (int index = 0; index < resolved.Length; index++)
+            {
+                var unavailable =
+                    (ResearchTargetCorrespondenceOutcome
+                        .CounterpartUnavailable)outcomes[index];
+                ValidateUnavailableTarget(
+                    unavailable,
+                    resolved[index],
+                    expectKeys: false);
+                ValidateTaint(
+                    unavailable.Taint,
+                    domain,
+                    ResearchTargetTaintKind.BlockedDomain,
+                    BlockingAttempts(domain),
+                    [],
+                    IncompleteInputs(domain));
+            }
+
+            return;
+        }
+
+        ResearchTargetAttempt? beforeTarget =
+            resolved.SingleOrDefault(
+                attempt =>
+                    attempt.Request.Side
+                        == ResearchComparisonSide.Before);
+        ResearchTargetAttempt? afterTarget =
+            resolved.SingleOrDefault(
+                attempt =>
+                    attempt.Request.Side
+                        == ResearchComparisonSide.After);
+
+        if (beforeTarget is not null && afterTarget is not null)
+        {
+            ResearchTargetCorrespondenceKey beforeKey =
+                ExpectedCorrespondenceKey(beforeTarget);
+            ResearchTargetCorrespondenceKey afterKey =
+                ExpectedCorrespondenceKey(afterTarget);
+            if (beforeKey.Equals(afterKey))
+            {
+                var paired = RequireSingle<
+                    ResearchTargetCorrespondenceOutcome.Paired>(
+                        outcomes,
+                        "Equal side-local targets must produce one paired outcome.");
+                ValidateTarget(paired.Before, beforeTarget);
+                ValidateTarget(paired.After, afterTarget);
+                return;
+            }
+
+            Require(
+                outcomes.Length == 2
+                    && outcomes.All(
+                        outcome => outcome
+                            is ResearchTargetCorrespondenceOutcome
+                                .CounterpartUnavailable),
+                "Selection drift must produce two unavailable counterparts.");
+            ResearchTargetAttempt[] attempts = [beforeTarget, afterTarget];
+            ImmutableArray<ResearchStrictTargetKey> keys =
+                [.. attempts.Select(ExpectedStrictKey)];
+            for (int index = 0; index < attempts.Length; index++)
+            {
+                var unavailable =
+                    (ResearchTargetCorrespondenceOutcome
+                        .CounterpartUnavailable)outcomes[index];
+                ValidateUnavailableTarget(
+                    unavailable,
+                    attempts[index],
+                    expectKeys: true);
+                ValidateTaint(
+                    unavailable.Taint,
+                    domain,
+                    ResearchTargetTaintKind.SelectionDrift,
+                    [beforeTarget, afterTarget],
+                    keys,
+                    []);
+            }
+
+            return;
+        }
+
+        if (beforeTarget is not null)
+        {
+            ValidateOneSided(
+                domain,
+                beforeTarget,
+                after,
+                beforeSide: true,
+                outcomes);
+            return;
+        }
+
+        if (afterTarget is not null)
+        {
+            ValidateOneSided(
+                domain,
+                afterTarget,
+                before,
+                beforeSide: false,
+                outcomes);
+            return;
+        }
+
+        var absent =
+            RequireSingle<ResearchTargetCorrespondenceOutcome.Absent>(
+                outcomes,
+                "A healthy domain without targets must be proven absent.");
+        ValidateDomainAbsenceProof(absent.BeforeAbsence, before);
+        ValidateDomainAbsenceProof(absent.AfterAbsence, after);
+    }
+
+    static void ValidateOneSided(
+        ResearchTargetDomain domain,
+        ResearchTargetAttempt target,
+        ResearchTargetDomainSideCensus opposite,
+        bool beforeSide,
+        ImmutableArray<ResearchTargetCorrespondenceOutcome> outcomes)
+    {
+        bool proven = KeyAbsenceIsProven(opposite, target);
+        if (proven && beforeSide)
+        {
+            var beforeOnly = RequireSingle<
+                ResearchTargetCorrespondenceOutcome.BeforeOnly>(
+                    outcomes,
+                    "A resolved before target with positive after absence must be before-only.");
+            ValidateTarget(beforeOnly.Before, target);
+            ValidateKeyAbsenceProof(
+                beforeOnly.AfterAbsence,
+                opposite,
+                target);
+            return;
+        }
+
+        if (proven)
+        {
+            var afterOnly = RequireSingle<
+                ResearchTargetCorrespondenceOutcome.AfterOnly>(
+                    outcomes,
+                    "A resolved after target with positive before absence must be after-only.");
+            ValidateTarget(afterOnly.After, target);
+            ValidateKeyAbsenceProof(
+                afterOnly.BeforeAbsence,
+                opposite,
+                target);
+            return;
+        }
+
+        var unavailable = RequireSingle<
+            ResearchTargetCorrespondenceOutcome.CounterpartUnavailable>(
+                outcomes,
+                "A one-sided target without covering absence must be unavailable.");
+        ValidateUnavailableTarget(unavailable, target, expectKeys: true);
+        ValidateTaint(
+            unavailable.Taint,
+            domain,
+            ResearchTargetTaintKind.AbsenceNotProven,
+            [target, .. opposite.Attempts],
+            [ExpectedStrictKey(target)],
+            []);
+    }
+
+    static void ValidateUnavailableTarget(
+        ResearchTargetCorrespondenceOutcome.CounterpartUnavailable unavailable,
+        ResearchTargetAttempt attempt,
+        bool expectKeys)
+    {
+        Require(
+            ReferenceEquals(unavailable.Attempt, attempt)
+                && ReferenceEquals(
+                    unavailable.Target,
+                    attempt.Outcome as ResearchTargetOutcome.Resolved),
+            "Unavailable target evidence must retain its exact resolved attempt.");
+        Require(
+            expectKeys
+                ? unavailable.StrictKey?.Equals(
+                        ExpectedStrictKey(attempt)) == true
+                    && unavailable.CorrespondenceKey?.Equals(
+                        ExpectedCorrespondenceKey(attempt)) == true
+                : unavailable.StrictKey is null
+                    && unavailable.CorrespondenceKey is null,
+            "Unavailable target keys must exist exactly for a healthy domain.");
+    }
+
+    static void ValidateTarget(
+        ResearchCorrespondingTarget target,
+        ResearchTargetAttempt attempt)
+    {
+        Require(
+            ReferenceEquals(target.Attempt, attempt)
+                && ReferenceEquals(
+                    target.Target,
+                    attempt.Outcome as ResearchTargetOutcome.Resolved),
+            "Endpoint evidence must retain its exact resolved attempt.");
+        Require(
+            target.StrictKey.Equals(ExpectedStrictKey(attempt))
+                && target.CorrespondenceKey.Equals(
+                    ExpectedCorrespondenceKey(attempt)),
+            "Endpoint keys must independently re-derive from the exact target.");
+    }
+
+    static ResearchStrictTargetKey ExpectedStrictKey(
+        ResearchTargetAttempt attempt)
+    {
+        var resolved =
+            attempt.Outcome as ResearchTargetOutcome.Resolved
+            ?? throw Violation("A strict key requires a resolved attempt.");
+        return new(
+            attempt.Request.Scope,
+            attempt.Request.Domain,
+            attempt.Request.Input,
+            resolved.Role,
+            resolved.Role == ResearchTargetRelationshipRole.None
+                ? null
+                : resolved.Address,
+            resolved.Role == ResearchTargetRelationshipRole.None
+                ? resolved.Anchor
+                : null);
+    }
+
+    static ResearchTargetCorrespondenceKey ExpectedCorrespondenceKey(
+        ResearchTargetAttempt attempt)
+    {
+        var resolved =
+            attempt.Outcome as ResearchTargetOutcome.Resolved
+            ?? throw Violation(
+                "A correspondence key requires a resolved attempt.");
+        string canonical =
+            resolved.Role == ResearchTargetRelationshipRole.None
+                ? resolved.Anchor.CanonicalSignature
+                : ResearchMemberIdentity.CanonicalBodyIdentity(
+                    resolved.Target);
+        return new(
+            attempt.Request.Scope,
+            attempt.Request.Domain,
+            resolved.Role,
+            canonical);
+    }
+
+    static void ValidateKeyAbsenceProof(
+        ResearchTargetKeyAbsenceProof proof,
+        ResearchTargetDomainSideCensus census,
+        ResearchTargetAttempt target)
+    {
+        Require(
+            ReferenceEquals(proof.Census, census)
+                && proof.Key.Equals(ExpectedCorrespondenceKey(target)),
+            "A key-absence proof must bind the exact census and opposite key.");
+        ValidateAbsenceEvidence(
+            proof.EvidenceKind,
+            proof.NotFoundAttempt,
+            census);
+        Require(
+            KeyAbsenceIsProven(census, target),
+            "A key-absence proof must positively cover its exact target.");
+    }
+
+    static void ValidateDomainAbsenceProof(
+        ResearchTargetDomainAbsenceProof proof,
+        ResearchTargetDomainSideCensus census)
+    {
+        Require(
+            ReferenceEquals(proof.Census, census),
+            "A domain-absence proof must bind the exact census.");
+        ValidateAbsenceEvidence(
+            proof.EvidenceKind,
+            proof.NotFoundAttempt,
+            census);
+    }
+
+    static void ValidateAbsenceEvidence(
+        ResearchTargetAbsenceEvidenceKind kind,
+        ResearchTargetAttempt? notFoundAttempt,
+        ResearchTargetDomainSideCensus census)
+    {
+        if (census.Inputs.IsEmpty)
+        {
+            Require(
+                kind == ResearchTargetAbsenceEvidenceKind.NoAdmittedInput
+                    && notFoundAttempt is null,
+                "An empty domain side proves absence only by no admitted input.");
+            return;
+        }
+
+        ResearchTargetAttempt expected = census.Attempts.Single();
+        Require(
+            kind == ResearchTargetAbsenceEvidenceKind.NotFound
+                && ReferenceEquals(notFoundAttempt, expected)
+                && expected.Outcome is ResearchTargetOutcome.NotFound,
+            "A populated domain side proves absence only through its exact NotFound attempt.");
+    }
+
+    static bool KeyAbsenceIsProven(
+        ResearchTargetDomainSideCensus census,
+        ResearchTargetAttempt target)
+    {
+        if (census.Inputs.IsEmpty)
+            return true;
+
+        ResearchTargetAttempt? attempt =
+            census.Attempts.SingleOrDefault();
+        if (attempt?.Outcome is not ResearchTargetOutcome.NotFound notFound)
+            return false;
+        if (notFound.ResearchDiagnostic?.Kind
+            == ResearchTargetDiagnosticKind.DeclaringTypeAbsent)
+        {
+            return true;
+        }
+
+        if (notFound.MetadataDiagnostic?.Kind
+            == MemberTargetDiagnosticKind.MissingMember)
+        {
+            return true;
+        }
+
+        if (notFound.MetadataDiagnostic?.Kind
+                != MemberTargetDiagnosticKind.DigestNotFound
+            || attempt.Request.Selector.DigestPrefix
+                is not { Length: > 0 } digest
+            || target.Outcome is not ResearchTargetOutcome.Resolved resolved)
+        {
+            return false;
+        }
+
+        return resolved.Anchor.Fingerprint.StartsWith(
+            digest,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    static void ValidateTaint(
+        ResearchTargetTaintEvidence taint,
+        ResearchTargetDomain domain,
+        ResearchTargetTaintKind kind,
+        ImmutableArray<ResearchTargetAttempt> attempts,
+        ImmutableArray<ResearchStrictTargetKey> strictKeys,
+        ImmutableArray<ResearchTargetInputDisposition> incompleteInputs)
+    {
+        Require(
+            taint.Kind == kind
+                && ReferenceEquals(taint.Domain, domain)
+                && SameReferences(taint.Attempts, attempts)
+                && SameReferences(taint.IncompleteInputs, incompleteInputs)
+                && taint.StrictKeys.SequenceEqual(strictKeys),
+            "Taint evidence must retain the complete exact blocking set.");
+    }
+
+    static ImmutableArray<ResearchTargetAttempt> BlockingAttempts(
+        ResearchTargetDomain domain)
+        =>
+        [
+            .. domain.Attempts.Where(
+                attempt => attempt.Outcome.Kind
+                    is not (ResearchTargetOutcomeKind.Resolved
+                        or ResearchTargetOutcomeKind.NotFound)),
+        ];
+
+    static ImmutableArray<ResearchTargetInputDisposition> IncompleteInputs(
+        ResearchTargetDomain domain)
+        =>
+        [
+            .. domain.Inputs.Where(
+                input =>
+                    input.Kind == ResearchTargetDispositionKind.NotRequested),
+        ];
+
+    static T RequireSingle<T>(
+        ImmutableArray<ResearchTargetCorrespondenceOutcome> outcomes,
+        string message)
+        where T : ResearchTargetCorrespondenceOutcome
+    {
+        Require(outcomes.Length == 1 && outcomes[0] is T, message);
+        return (T)outcomes[0];
+    }
+
+    static bool SameReferences<T>(
+        ImmutableArray<T> actual,
+        ImmutableArray<T> expected)
+        where T : class
+    {
+        if (actual.IsDefault
+            || expected.IsDefault
+            || actual.Length != expected.Length)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < actual.Length; index++)
+        {
+            if (!ReferenceEquals(actual[index], expected[index]))
+                return false;
+        }
+
+        return true;
     }
 
     static void ValidateScope(
