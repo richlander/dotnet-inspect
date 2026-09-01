@@ -29,19 +29,32 @@ image lifetime, acquisition, or registration semantics themselves.
 ## Contract
 
 Two lifetimes matter here and are easy to conflate, so this document names
-both before using them:
+both before using them, and what each one is *for*:
 
 - **Process-lifetime** means the OS process itself: `s_pathIndexes` and
   `s_assemblyIndexes` are `static` fields with no `Dispose`, so an entry
   persists for as long as the process runs, regardless of how many separate
-  inspections happen within it.
+  inspections happen within it. It exists purely as a performance
+  optimization keyed on a coordinate -- a path string or a registration
+  reference (assembly-image-lifetime.md's "source coordinate": what
+  acquisition request selected the artifact) -- so that a second lookup for
+  the same coordinate reuses a previously built index instead of rebuilding
+  one. No caller opts into this reuse or is aware it happened; it is an
+  implementation detail of the two lookup functions, not a resource a caller
+  requests.
 - **Session** means `AssemblyInspectionSession`
   (`src/ILInspector.Metadata/AssemblyInspectionSession.cs`), a concrete,
   disposable type -- not an informal notion. Its lifetime is bounded by
   `Open(...)` and `Dispose()`, and assembly-image-lifetime.md's rule ("one
   assembly inspection session uses one immutable image for its entire
-  lifetime") is scoped to exactly one such instance. Many sessions can open
-  and close within a single process run, each independently bounded.
+  lifetime") is scoped to exactly one such instance. Unlike the cache, a
+  session exists for *intentional* sharing: a caller opens one specifically
+  so that every metadata reader, method-body reader, and PDB/SourceLink
+  correlation participating in that one inspection consumes the same
+  retained image by construction, not by incidentally hitting the same
+  cache key. Many sessions can open and close within a single process run,
+  each independently bounded, each an explicit request rather than a
+  side effect of a coordinate recurring.
 
 - **The cache is process-lifetime, not session-scoped.** An entry in either
   store outlives any single `AssemblyInspectionSession` and can be reused by
