@@ -1150,12 +1150,68 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         Assert.Equal(recordedKey, matching.ProducerKey);
     }
 
+    [Fact]
+    public void GlobalPackageContent_FileUriProvenanceMatchesPathAuthorization()
+    {
+        string packageName =
+            $"globallocalprovenance.test.{Guid.NewGuid():N}".ToLowerInvariant();
+        const string Version = "1.0.0";
+        string sourcePath = Path.Combine(_testRoot, "folder-feed");
+        string packageDirectory = CreateExtractedPackage(
+            Path.Combine(_testRoot, "global-local", packageName, Version),
+            packageName,
+            "local",
+            payloadCount: 1);
+        File.WriteAllText(
+            Path.Combine(packageDirectory, ".nupkg.metadata"),
+            $$"""{"version":2,"source":"{{new Uri(sourcePath).AbsoluteUri}}"}""");
+
+        string authorizedKey = NuGetCache.GetSourceKey(sourcePath);
+        CachedPackage? matching = NuGetCache.TryGetGlobalPackageContent(
+            Path.Combine(_testRoot, "global-local"),
+            packageName,
+            Version,
+            [authorizedKey]);
+
+        Assert.NotNull(matching);
+        Assert.Equal(authorizedKey, matching.ProducerKey);
+    }
+
+    [Fact]
+    public void GlobalPackageContent_RejectsRelativeLocalProvenanceWithoutBase()
+    {
+        string packageName =
+            $"globalrelativeprovenance.test.{Guid.NewGuid():N}".ToLowerInvariant();
+        const string Version = "1.0.0";
+        string relativeSource = Path.Combine(
+            "relative-feed",
+            Guid.NewGuid().ToString("N"));
+        string packageDirectory = CreateExtractedPackage(
+            Path.Combine(_testRoot, "global-relative", packageName, Version),
+            packageName,
+            "local",
+            payloadCount: 1);
+        File.WriteAllText(
+            Path.Combine(packageDirectory, ".nupkg.metadata"),
+            $$"""{"version":2,"source":"{{relativeSource}}"}""");
+
+        string authorizedKey =
+            NuGetCache.GetSourceKey(Path.GetFullPath(relativeSource));
+
+        Assert.Null(NuGetCache.TryGetGlobalPackageContent(
+            Path.Combine(_testRoot, "global-relative"),
+            packageName,
+            Version,
+            [authorizedKey]));
+    }
+
     [Theory]
     [InlineData("{}")]
     [InlineData("""{"version":2,"source":null}""")]
     [InlineData("""{"version":2,"source":42}""")]
     [InlineData("""{"version":2,"source":""}""")]
     [InlineData("""{"version":2,"source":"https://a.invalid","source":"https://b.invalid"}""")]
+    [InlineData("""{"version":2,"source":"file:///tmp/feed?tenant=a"}""")]
     [InlineData("[]")]
     [InlineData("not json")]
     public void GlobalPackageContent_RejectsMissingAmbiguousOrMalformedProvenance(
@@ -1445,15 +1501,36 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
-    public void GetSourceKey_KeepsLocalFolderCaseOnEveryPlatform()
+    public void GetSourceKey_UsesHostCaseSemanticsForLocalFolders()
     {
-        // Case-sensitive and case-insensitive volumes exist on every OS, so the
-        // running platform does not answer whether two spellings name one
-        // directory. A spare slot costs a duplicate download; a folded one
-        // serves another directory's bytes.
-        Assert.NotEqual(
-            NuGetCache.GetSourceKey(Path.Combine(Path.GetTempPath(), "FeedA")),
-            NuGetCache.GetSourceKey(Path.Combine(Path.GetTempPath(), "feeda")));
+        string upper =
+            NuGetCache.GetSourceKey(
+                Path.Combine(Path.GetTempPath(), "FeedA"));
+        string lower =
+            NuGetCache.GetSourceKey(
+                Path.Combine(Path.GetTempPath(), "feeda"));
+
+        Assert.Equal(OperatingSystem.IsWindows(), upper == lower);
+    }
+
+    [Fact]
+    public void GetSourceKey_PathAndFileUriShareLocalFolderIdentity()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            "feed with spaces");
+
+        Assert.Equal(
+            NuGetCache.GetSourceKey(path),
+            NuGetCache.GetSourceKey(new Uri(path).AbsoluteUri));
+    }
+
+    [Fact]
+    public void GetSourceKey_RejectsRelativeLocalFolderWithoutBase()
+    {
+        Assert.Throws<ArgumentException>(
+            () => NuGetCache.GetSourceKey(
+                Path.Combine("relative", "feed")));
     }
 
     [Theory]

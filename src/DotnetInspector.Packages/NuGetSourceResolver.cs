@@ -192,9 +192,16 @@ public static class NuGetSourceResolver
                 : configured;
 
         List<NuGetSource> selected = options.Sources.Length > 0
-            ? SelectExplicitSources(options.Sources, configuredAliases)
+            ? SelectExplicitSources(
+                options.Sources,
+                configuredAliases,
+                workingDirectory)
             : [.. configured];
-        AddExplicitSources(selected, options.AdditionalSources, configuredAliases);
+        AddExplicitSources(
+            selected,
+            options.AdditionalSources,
+            configuredAliases,
+            workingDirectory);
         return selected;
     }
 
@@ -390,21 +397,26 @@ public static class NuGetSourceResolver
     /// </remarks>
     private static List<NuGetSource> SelectExplicitSources(
         IEnumerable<string> urls,
-        IReadOnlyList<NuGetSource> configured)
+        IReadOnlyList<NuGetSource> configured,
+        string? workingDirectory)
     {
         List<NuGetSource> selected = [];
-        AddExplicitSources(selected, urls, configured);
+        AddExplicitSources(selected, urls, configured, workingDirectory);
         return selected;
     }
 
     private static void AddExplicitSources(
         List<NuGetSource> selected,
         IEnumerable<string> urls,
-        IReadOnlyList<NuGetSource> configured)
+        IReadOnlyList<NuGetSource> configured,
+        string? workingDirectory)
     {
         foreach (string url in urls)
         {
-            foreach (NuGetSource match in Match(url, configured))
+            string resolved = SourceResolver.ResolveSourceValue(
+                url,
+                workingDirectory);
+            foreach (NuGetSource match in Match(resolved, configured))
             {
                 if (!selected.Contains(match))
                 {
@@ -439,12 +451,27 @@ public static class NuGetSourceResolver
         List<NuGetSource> matches =
         [
             .. configured
-                .Where(source => NuGetCredentialScope.IsSameEndpoint(source.Url, url))
+                .Where(source => IsSameSource(source.Url, url))
                 .Select(source => source with { Url = url }),
         ];
         return matches.Count == 0
             ? [new NuGetSource(url, url)]
             : matches;
+    }
+
+    private static bool IsSameSource(string left, string right)
+    {
+        bool leftIsLocal = LocalPackageSourceIdentity.IsLocalSource(left);
+        bool rightIsLocal = LocalPackageSourceIdentity.IsLocalSource(right);
+        if (leftIsLocal || rightIsLocal)
+        {
+            return leftIsLocal
+                && rightIsLocal
+                && LocalPackageSourceIdentity.CreateAbsolute(left).Equals(
+                    LocalPackageSourceIdentity.CreateAbsolute(right));
+        }
+
+        return NuGetCredentialScope.IsSameEndpoint(left, right);
     }
 
     private static List<NuGetSource> CollapseAliases(

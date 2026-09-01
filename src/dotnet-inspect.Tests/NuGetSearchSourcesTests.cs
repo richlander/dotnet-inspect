@@ -1378,6 +1378,37 @@ public class NuGetSearchSourcesTests
         Assert.Null(sources[1].Credential);
     }
 
+    [Fact]
+    public void ResolveSources_CommandRelativePathMatchesConfiguredLocalAlias()
+    {
+        string workingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"local-command-{Guid.NewGuid():N}");
+        string feed = Path.Combine(workingDirectory, "feed");
+        Directory.CreateDirectory(workingDirectory);
+        try
+        {
+            using var config = new TempNuGetConfig(
+                [("configured-local", feed)]);
+
+            PackageSource source = Assert.Single(
+                NuGetSourceResolver.ResolveSources(
+                    new NuGetSourceOptions
+                    {
+                        ConfigFile = config.Path,
+                        Sources = ["feed"],
+                    },
+                    workingDirectory));
+
+            Assert.Equal("configured-local", source.Name);
+            Assert.Equal(feed, source.Url);
+        }
+        finally
+        {
+            Directory.Delete(workingDirectory, recursive: true);
+        }
+    }
+
     /// <summary>
     /// Repeated trailing slashes are a different producer identity. An unmatched explicit URL
     /// therefore retains its literal spelling as the alias mapping must name.
@@ -1415,6 +1446,24 @@ public class NuGetSearchSourcesTests
             "Contoso.Package");
 
         Assert.Equal(["a", "b"], sources.Select(source => source.Name));
+    }
+
+    [Fact]
+    public void ResolveSourcesForPackage_MappingCollapsesEquivalentLocalAliases()
+    {
+        string feed = Path.Combine(
+            Path.GetTempPath(),
+            $"local-feed-{Guid.NewGuid():N}");
+        using var config = new TempNuGetConfig(
+            [("path", feed), ("uri", new Uri(feed).AbsoluteUri)],
+            mappings: [("path", "*"), ("uri", "*")]);
+
+        PackageSource source = Assert.Single(
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions { ConfigFile = config.Path },
+                "Contoso.Package"));
+
+        Assert.Equal(feed, source.Url);
     }
 
     [Fact]

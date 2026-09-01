@@ -79,8 +79,38 @@ public static class SourceResolver
     {
         problem = null;
 
+        if (LocalPackageSourceIdentity.IsLocalSource(url))
+        {
+            try
+            {
+                _ = LocalPackageSourceIdentity.Create(
+                    url,
+                    Directory.GetCurrentDirectory());
+                return true;
+            }
+            catch (Exception ex) when (ex is
+                ArgumentException
+                or IOException
+                or NotSupportedException)
+            {
+                problem = new InertString(
+                    TextPolicy.Field,
+                    "The local package source path is unusable.");
+                return false;
+            }
+        }
+
         if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? uri)
-            || string.IsNullOrEmpty(uri.UserInfo))
+            || (uri.Scheme != Uri.UriSchemeHttp
+                && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            problem = new InertString(
+                TextPolicy.Field,
+                "The package source must be an HTTP(S) URL, local path, or file URI.");
+            return false;
+        }
+
+        if (string.IsNullOrEmpty(uri.UserInfo))
         {
             return true;
         }
@@ -156,7 +186,12 @@ public static class SourceResolver
         // Explicit source overrides everything
         if (explicitSource is not null)
         {
-            return [new PackageSource("explicit", explicitSource)];
+            return
+            [
+                new PackageSource(
+                    "explicit",
+                    ResolveSourceValue(explicitSource, workingDirectory)),
+            ];
         }
 
         IReadOnlyList<PackageSource> initialSources = configPath is null
@@ -170,7 +205,10 @@ public static class SourceResolver
         {
             foreach (string url in additionalSources)
             {
-                sources.Add(new PackageSource("additional", url));
+                sources.Add(
+                    new PackageSource(
+                        "additional",
+                        ResolveSourceValue(url, workingDirectory)));
             }
         }
 
@@ -514,7 +552,15 @@ public static class SourceResolver
                         if (key is not null && value is not null)
                         {
                             inheritedSourceNames.Remove(key);
-                            SetSource(sources, sourceOrder, key, value);
+                            SetSource(
+                                sources,
+                                sourceOrder,
+                                key,
+                                ResolveSourceValue(
+                                    Environment.ExpandEnvironmentVariables(
+                                        value),
+                                    Path.GetDirectoryName(
+                                        Path.GetFullPath(configPath))));
                         }
                     }
                 }
@@ -589,7 +635,7 @@ public static class SourceResolver
                 }
             }
         }
-        catch
+        catch (Exception ex) when (ex is not UnsupportedSourceException)
         {
             // Best-effort config parsing
         }
@@ -611,6 +657,32 @@ public static class SourceResolver
         sources.Remove(name);
         sources[name] = url;
         sourceOrder.Add(name);
+    }
+
+    internal static string ResolveSourceValue(
+        string source,
+        string? baseDirectory)
+    {
+        if (!LocalPackageSourceIdentity.IsLocalSource(source))
+        {
+            UnsupportedSourceException.ThrowIfUnsupported(source);
+            return source;
+        }
+
+        try
+        {
+            return LocalPackageSourceIdentity.Create(
+                source,
+                baseDirectory ?? Directory.GetCurrentDirectory()).CanonicalPath;
+        }
+        catch (Exception ex) when (ex is
+            ArgumentException
+            or IOException
+            or NotSupportedException)
+        {
+            throw new UnsupportedSourceException(
+                "The local package source path is unusable.");
+        }
     }
 
     private static string? GetUserConfigPath()

@@ -314,6 +314,120 @@ public class SourceResolverTests : IDisposable
     }
 
     [Fact]
+    public void ResolveSources_ConfigRelativePathsUseEachDeclaringDirectory()
+    {
+        string parentDirectory = Path.Combine(_tempDir, "parent");
+        string childDirectory = Path.Combine(parentDirectory, "child");
+        Directory.CreateDirectory(childDirectory);
+        string parentConfig = WriteConfigAt(
+            parentDirectory,
+            """
+            <configuration>
+              <packageSources>
+                <add key="parent" value="feed" />
+              </packageSources>
+            </configuration>
+            """);
+        string childConfig = WriteConfigAt(
+            childDirectory,
+            """
+            <configuration>
+              <packageSources>
+                <add key="child" value="feed" />
+              </packageSources>
+            </configuration>
+            """);
+
+        IReadOnlyList<PackageSource> sources = SourceResolver.MergeConfigFiles(
+            [childConfig, parentConfig],
+            PackageSources.Empty);
+
+        Assert.Equal(
+            [
+                Path.Combine(parentDirectory, "feed"),
+                Path.Combine(childDirectory, "feed"),
+            ],
+            sources.Select(source => source.Url));
+    }
+
+    [Fact]
+    public void ResolveSources_CommandRelativePathUsesWorkingDirectory()
+    {
+        string workingDirectory = Path.Combine(_tempDir, "working");
+        Directory.CreateDirectory(workingDirectory);
+
+        PackageSource source = Assert.Single(
+            SourceResolver.ResolveSources(
+                explicitSource: Path.Combine("feeds", "."),
+                workingDirectory: workingDirectory));
+
+        Assert.Equal(
+            Path.Combine(workingDirectory, "feeds"),
+            source.Url);
+    }
+
+    [Fact]
+    public void ResolveSources_ConfigPathAndFileUriShareCanonicalSpelling()
+    {
+        string feed = Path.Combine(_tempDir, "feed");
+        string configPath = WriteConfig($"""
+            <configuration>
+              <packageSources>
+                <add key="path" value="{feed}" />
+                <add key="uri" value="{new Uri(feed).AbsoluteUri}" />
+              </packageSources>
+            </configuration>
+            """);
+
+        IReadOnlyList<PackageSource> sources =
+            SourceResolver.ResolveSources(configPath: configPath);
+
+        Assert.Equal(2, sources.Count);
+        Assert.All(sources, source => Assert.Equal(feed, source.Url));
+    }
+
+    [Fact]
+    public void ResolveSources_ConfigExpandsPercentEnvironmentVariables()
+    {
+        string variableName = $"DOTNET_INSPECT_FEED_{Guid.NewGuid():N}";
+        Environment.SetEnvironmentVariable(variableName, _tempDir);
+        try
+        {
+            string configPath = WriteConfig($"""
+                <configuration>
+                  <packageSources>
+                    <add key="local" value="%{variableName}%/feed" />
+                  </packageSources>
+                </configuration>
+                """);
+
+            PackageSource source = Assert.Single(
+                SourceResolver.ResolveSources(configPath: configPath));
+
+            Assert.Equal(Path.Combine(_tempDir, "feed"), source.Url);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variableName, null);
+        }
+    }
+
+    [Fact]
+    public void ResolveSources_UnsupportedSchemeFailsBeforeClientCreation()
+    {
+        string configPath = WriteConfig("""
+            <configuration>
+              <packageSources>
+                <add key="ftp" value="ftp://feed.example/packages" />
+              </packageSources>
+            </configuration>
+            """);
+
+        Assert.Throws<UnsupportedSourceException>(
+            () => SourceResolver.ResolveSources(configPath: configPath));
+    }
+
+    [Fact]
     public void ResolveSources_NonExistentExplicitConfig_DoesNotUseDefaults()
     {
         var sources = SourceResolver.ResolveSources(
@@ -708,6 +822,13 @@ public class SourceResolverTests : IDisposable
     private string WriteConfig(string xml)
     {
         var path = Path.Combine(_tempDir, $"nuget-{Guid.NewGuid():N}.config");
+        File.WriteAllText(path, xml);
+        return path;
+    }
+
+    private static string WriteConfigAt(string directory, string xml)
+    {
+        string path = Path.Combine(directory, "NuGet.Config");
         File.WriteAllText(path, xml);
         return path;
     }
