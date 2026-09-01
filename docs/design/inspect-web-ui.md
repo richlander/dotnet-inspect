@@ -76,7 +76,7 @@ independent cosmetic changes.
 | Area | Direction |
 | ---- | --------- |
 | Persistent hierarchy | Use one title line for product, inspected target, and Search/history; use one full-width subject/inspector and application-action zone before content |
-| Workspace title bar | Follow `dotnet-inspect` with the icon-backed typed Package > Library > Type > Member target path, then responsive Search and Back/Forward |
+| Workspace title bar | Follow `dotnet-inspect` with the icon-backed typed Package > Library > Type > Member target path, then responsive Back/Forward and flush-right Search |
 | Subject navigation | Establish Workspace, Package, Type, and Member in the second row now; add Library when product descriptors are ready |
 | Subject zone | Render the subject and active-inspector strip, then responsive Share, contextual actions, Settings, and trailing Help |
 | Workspace selection | Keep ordinary single-workspace use free of tabs; manage retained coordinates inside the Workspace subject |
@@ -86,7 +86,7 @@ independent cosmetic changes.
 | Filters | Collapse selector rows by default and summarize hidden restrictions |
 | Selected controls | Use one accent selected-state treatment across selector families |
 | Source provenance | Use a compact status/action row without validation prose or link glyphs |
-| Search and opening | Open Spotlight from a responsive title-line control immediately before Back/Forward; use a separate local-artifact Open flow |
+| Search and opening | Open Spotlight from a responsive flush-right title-line control immediately after Back/Forward; use a separate local-artifact Open flow |
 | Settings | Use one Settings experience with contextual entry points |
 | Data bar | Show build identity, acquired source, CLI, and skill links on one line |
 

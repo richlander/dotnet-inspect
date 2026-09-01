@@ -176,7 +176,7 @@ body {
   height: 100%;
   align-items: center;
   justify-content: flex-end;
-  padding: 0 8px 0 4px;
+  padding: 0;
   overflow: hidden;
   container: title-navigation / inline-size;
 }

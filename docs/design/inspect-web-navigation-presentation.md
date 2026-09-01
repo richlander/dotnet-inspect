@@ -178,11 +178,12 @@ action is absent because copy belongs to the segment whose typed identity is
 being copied.
 
 Browser Back and Forward own navigation history. Compact Back and Forward
-buttons are the final controls in the title line, immediately to the right of
-the visible Spotlight Search control. They are outside the typed target and do
-not become breadcrumbs. The right-side cluster yields space when the target
-grows: the input-like Search control first becomes a `Search` button, then
-disappears while the arrows remain, and finally the arrows disappear.
+buttons sit immediately to the left of the visible Spotlight Search control.
+Search terminates the title line flush with its right edge. The controls are
+outside the typed target and do not become breadcrumbs. The right-side cluster
+yields space when the target grows: the input-like Search control first becomes
+a `Search` button, then disappears while the arrows remain flush right, and
+finally the arrows disappear.
 
 ### Workspace surface
 

@@ -132,16 +132,16 @@ app.innerHTML = `
         </div>`,
       titleNavigationHtml: `
         <nav class="title-navigation" aria-label="Search and history">
+          <div class="nav-history">
+            <button id="nav-back" disabled aria-label="Back">←</button>
+            <button id="nav-forward" disabled aria-label="Forward">→</button>
+          </div>
           <button id="open-search" class="title-search" type="button" aria-haspopup="dialog">
             <span class="title-search-glyph" aria-hidden="true">⌕</span>
             <span class="title-search-label title-search-label-full">Search types, members, packages</span>
             <span class="title-search-label title-search-label-compact">Search</span>
             <kbd>Ctrl P</kbd>
           </button>
-          <div class="nav-history">
-            <button id="nav-back" disabled aria-label="Back">←</button>
-            <button id="nav-forward" disabled aria-label="Forward">→</button>
-          </div>
         </nav>`,
     })}
     <header class="subject-zone" aria-label="Subjects and inspectors">

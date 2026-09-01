@@ -14,10 +14,11 @@ test("the title bar contains the inspected target without tab-like workspace ide
 
   const titleNavigation = await box(page, ".title-navigation");
   const search = await box(page, "#open-search");
-  const back = await box(page, "#nav-back");
+  const forward = await box(page, "#nav-forward");
 
   expect(titleNavigation.x + titleNavigation.width).toBeCloseTo(1440, 0);
-  expect(search.x + search.width).toBeLessThanOrEqual(back.x);
+  expect(forward.x + forward.width).toBeLessThanOrEqual(search.x);
+  expect(search.x + search.width).toBeCloseTo(1440, 0);
   await expect(page.locator(".titlebar .inspected-target")).toBeVisible();
   await expect(page.locator(".titlebar .subject-path-segment.root"))
     .toHaveText("System.Text.Json");
@@ -183,9 +184,10 @@ test("the title line advertises the typed Package, Type, and Member path", async
     "data-copied-subject",
     "System.Text.Json.JsonSerializer");
   const search = await box(page, "#open-search");
-  const back = await box(page, "#nav-back");
-  expect(search.x + search.width).toBeLessThanOrEqual(back.x);
-  expect(back.x - (search.x + search.width)).toBeLessThanOrEqual(7);
+  const forward = await box(page, "#nav-forward");
+  expect(forward.x + forward.width).toBeLessThanOrEqual(search.x);
+  expect(search.x - (forward.x + forward.width)).toBeLessThanOrEqual(7);
+  expect(search.x + search.width).toBeCloseTo(1440, 0);
   const zone = await box(page, ".subject-zone");
   const target = await box(page, ".inspected-target");
   const workspace = await box(page, ".workspace");

@@ -73,7 +73,7 @@ This document consumes, without redefining:
 The first persistent row is one non-wrapping title line:
 
 ```text
-dotnet-inspect  [package icon] Package > Type > Member  Search  Back Forward
+dotnet-inspect  [package icon] Package > Type > Member  Back Forward  Search
 ```
 
 It follows the product's CLI grammar without becoming an editable command:
@@ -82,8 +82,9 @@ It follows the product's CLI grammar without becoming an editable command:
 2. Navigation Presentation renders the icon-backed typed inspected target
    immediately after the product root. Package coordinate controls belong to
    the Package working surface.
-3. Search and compact Back and Forward controls occupy a trailing cluster that
-   yields space before the target path. The product Home control remains.
+3. Compact Back and Forward controls followed by flush-right Search occupy a
+   trailing cluster that yields space before the target path. The product Home
+   control remains.
 
 The title line contains no workspace tabs, indexed workspace selectors, or
 separate Platform workspace, active-package title, or package coordinate
@@ -103,13 +104,14 @@ inspector strip to permanent tab-like chrome.
 
 Search is an input-like control in the title line that opens Spotlight. It is
 not editable in place and does not become a dominant centered command control.
-Back and Forward sit immediately to its right. As target identity consumes
-width, the cluster progresses from full Search, to a `Search` button plus
-arrows, to arrows alone, and finally to no visible controls. The global title
-line exposes:
+Back and Forward sit immediately to its left, following VS Code's bounded
+ordering, and Search is flush with the right edge. As target identity consumes
+width, the cluster progresses from full Search, to a `Search` button after the
+arrows, to flush-right arrows alone, and finally to no visible controls. The
+global title line exposes:
 
 ```text
-dotnet-inspect (Home)   inspected target   Search   Back   Forward
+dotnet-inspect (Home)   inspected target   Back   Forward   Search
 ```
 
 The subject zone exposes:
@@ -319,8 +321,8 @@ outcomes.
 7. Confirm that the product bot and inspected-target root mark retain distinct
    bounded icon slots and the current target leaf uses the shared accent.
 8. Confirm that no persistent package-query input or centered command-center
-   control appears, and that the visible Search control sits immediately left
-   of Back and Forward and opens Spotlight.
+   control appears, and that Back and Forward sit immediately left of the
+   visible flush-right Search control, which opens Spotlight.
 
 ### Search input
 
