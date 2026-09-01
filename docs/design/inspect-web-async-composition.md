@@ -115,11 +115,12 @@ may also start anticipated follow-up work after the initial result is
 available. The feature owns whether that work should start, be shared, be
 cached, or be retried.
 
-When physical work must outlive its last operation wrapper, the managed bridge
-hands it to an epoch-work lease before the wrapper quiesces. The worker runtime
-uses that lease only for epoch liveness and release accounting. The initiating
-operation contributes no progress sink, cancellation token, or publication
-authority after the handoff.
+When physical work must outlive its last operation wrapper, it must either hold
+a worker-issued idle-compatible classification or move to an epoch-work lease
+before the wrapper quiesces. The managed bridge owns that disposition and lease
+handoff; the worker runtime owns the classification plus epoch liveness and
+release accounting. The initiating operation contributes no progress sink,
+cancellation token, or publication authority after detachment.
 
 The producer may finish and retain feature-owned epoch-local cache state before
 the expected request arrives. A later request still needs an ordinary logical
@@ -143,7 +144,7 @@ heartbeat, probe, or follow-up-request claim for the worker's own event loop.
 
 | Dimension | Normative owner | Composition rule |
 | --- | --- | --- |
-| Logical identity and ordering | [Operation authority](inspect-web-operation-authority.md#value-contracts) | The authority-issued operation ID and sequence accompany the same logical operation across every adapter. No downstream owner reallocates or interprets them. |
+| Logical identity and ordering | [Operation authority](inspect-web-operation-authority.md#value-contracts) | The opaque ID accompanies every adapter that addresses the logical operation. A placement owner such as the worker runtime may consume the authority-issued sequence for ordering and replay; the managed bridge receives only the ID. No downstream owner reallocates the identity or derives feature meaning from it. |
 | Logical outcome | [Operation authority](inspect-web-operation-authority.md#logical-completion) | Cancellation can complete the user-visible operation before physical work settles. |
 | Physical execution | Worker or browser-native producer owner | A producer's placement and execution policy do not grant publication authority. |
 | DOM publication | [Operation authority](inspect-web-operation-authority.md#publication-authority) and feature owner | Only an admitted current-operation event reaches feature rendering. |
@@ -169,7 +170,7 @@ complete shape and validity rules.
 | Operation authority | Producer adapter | `OperationIdentity`, normalized cancellation reason, and producer event sink |
 | `ts-jsexport` and inspect-web consumer | Worker bootstrap | `initializeRuntime()`, `runEntryPoint()`, generated operation functions, DTOs, and authenticated synchronous callbacks |
 | Feature adapter | Worker runtime | Operation kind, payload validator, result/progress mappings, and structural liveness declaration |
-| Worker runtime | Managed bridge | Validated operation identity, feature input, synchronous progress callback, cancellation request, and epoch reporter |
+| Worker runtime | Managed bridge | Validated opaque operation ID, feature input, synchronous progress callback, cancellation request, epoch reporter, and worker-issued idle-compatible capability |
 | Managed bridge | Worker runtime | Typed managed outcome, cancellation status, and epoch-work lease notifications |
 | Worker runtime adapter | Operation authority | Typed progress, physical terminal result, unexpected diagnostic, and physical quiescence |
 | Operation authority | Feature | Current-operation start, replacement, admitted progress, terminal or canceled outcome, and disposal events |
@@ -193,14 +194,18 @@ operation producer adapter
   -> worker runtime: activate owner-issued identity and feature payload
   -> managed bridge: invoke generated facade with keyed callback
   -> feature work: compute the initial result
-  <- managed bridge: typed physical outcome after callback release
-  <- worker runtime adapter: terminal and quiescence reports
-  <- operation authority: publish only if the operation remains current
 
-feature-owned anticipated work
+feature-owned anticipated work, before the wrapper settles
   -> feature broker and managed bridge: transfer the outliving producer
      to an epoch-work lease
   -> worker runtime: account for the lease without inventing an operation
+
+operation producer adapter
+  <- managed bridge: typed physical outcome after callback release
+  -> operation authority: terminal report; publish only if still current
+  -> operation authority: quiescence report after operation-resource release
+
+feature-owned anticipated work
   <- feature cache: retain the completed epoch-local result
 
 later main-thread request
@@ -314,7 +319,7 @@ owner's evidence cannot stand in for another owner's behavior.
 | --- | --- | --- |
 | One logical outcome, current-view publication, cancellation, stale-event suppression, and quiescence | [Operation-authority model and `inspect-web-operation-authority` Release TypeScript gate](inspect-web-operation-authority.md#required-implementation-gate) | Abstract model checked; product component and gate **unverified** |
 | Worker message validity, epoch containment, readiness, liveness, draining, and realm release | [Worker-runtime models and `inspect-web-worker-protocol` plus `inspect-web-worker-lifecycle` Release gates](inspect-web-worker-runtime.md#required-implementation-gates) | Abstract models checked; product components and gates **unverified** |
-| DOM responsiveness while representative managed CPU work runs | [`inspect-web-worker-responsiveness` real-browser gate](inspect-web-worker-runtime.md#required-implementation-gates) | **Unverified** |
+| DOM responsiveness while representative managed CPU work runs | Worker-runtime owner and [`inspect-web-worker-responsiveness` real-browser gate](inspect-web-worker-runtime.md#required-implementation-gates) | **Unverified** |
 | Keyed managed cancellation, exact reason, callback release, managed quiescence, shared-waiter detachment, and epoch-work handoff | [Managed-bridge model and `inspect-web-managed-operation-bridge` Release browser-host gate](inspect-web-managed-operation-bridge.md#required-implementation-gate) | Abstract model checked; product component and gate **unverified** |
 | Generated Task/Promise functions, authenticated callback types, initialization, and managed dispatch | [`ts-jsexport` acceptance gates](ts-jsexport.md#acceptance) and the implemented inspect-web consumer gates from #5003 and #5005 | Implemented for the current production facade |
 | Complete multi-facade module set over one runtime | [Facade-partition acceptance gates](inspect-web-jsexport-partitioning.md#acceptance) | Proposed under [#4497](https://github.com/richlander/dotnet-inspect/issues/4497); not a prerequisite for the current monolithic facade |
