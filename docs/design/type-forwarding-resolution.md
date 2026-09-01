@@ -6,9 +6,10 @@
 
 ## Status
 
-Implemented structured reference-to-definition architecture. The declaration,
-acquisition, binding, resolution, and correspondence contracts are implemented,
-and consumers use their structured results.
+Implemented structured reference-to-definition architecture. Current consumers
+use the implemented declaration, acquisition, binding-result, resolution, and
+correspondence surfaces. Sections explicitly marked design-only describe target
+contracts rather than shipped behavior.
 
 This document is limited to Metadata's consumer-independent resolution
 contract: one exact structured request, one policy-authorized forwarding path,
@@ -1071,6 +1072,12 @@ internal interface IAssemblyBindingResolver
 ```
 
 #### Atomic selection/version snapshots
+
+> **Status: design-only and unverified.** #5264 defines this target contract,
+> and the companion TLA+ model checks it. The product still returns
+> `AssemblyBindingSelection` from `Select` and observes `Version` separately;
+> formal model-to-implementation correspondence and product gates remain
+> unverified.
 
 `AssemblyBindingSelectionSnapshot` is the policy owner's immutable answer for
 one request. It atomically carries the exact
@@ -2371,17 +2378,14 @@ current ownership boundaries.
 - `TypeResolutionRequestComparer` distinguishes all four start arms, requesting
   registrations, structured identities, type names, and scopes exactly as the
   frozen manifest does.
-- `AssemblyBindingSelectionSnapshot_SelectionAndVersionAreAtomic`,
-  `AssemblyBindingPolicyVersion_ReplacementTokenIsNeverReused`, and the
-  `TypeResolutionContext_*Version*` gates prove atomic answer association,
-  pre-publication version validation, and no ABA resurrection of cold or cached
-  answers.
 - The focused
   [binding selection/version models](models/binding-selection-version/README.md)
-  and
+  are bounded design evidence only; their snapshot contract and product
+  correspondence remain unverified.
+- The focused
   [binding name-ownership model](models/binding-name-ownership/README.md)
-  remain the executable evidence for policy-version and miss-composition
-  interactions.
+  and its mapped Release gates remain the executable evidence for
+  miss-composition interactions.
 - `SourceRelativeAssemblyGroupBindingPolicy_ContinuesOnlyAfterNoNameOwner`,
   `AssemblyBindingMissDisposition_CompleteExhaustionRequired`, and
   `AssemblyBindingMissDisposition_SurvivesInterningAndFrozenReuse` prove that
