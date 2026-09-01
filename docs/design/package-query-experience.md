@@ -24,15 +24,16 @@ artifact evaluation are future scope and are unverified.
 ## Shell placement boundary
 
 [Inspect Web Surface Composition](inspect-web-surface-composition.md) owns
-`/query` route placement and layout; its
-[Search entry](inspect-web-shell-interaction.md) and Workspace handoff are
-specified in
-[inspect-web-surface-composition.md](inspect-web-surface-composition.md#package-query).
-[Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) owns
-focus and browser history for that handoff. Their replacement of package tabs
-with Workspace supersedes this document's former `Query`-tab placement and
-package-tab handoff path. This document continues to own the query surface's
-internal request, state, evidence, and rendering contract.
+`/query` route placement, layout, and placement of the per-row
+`Open in workspace` action.
+[Inspect Web Shell Interaction](inspect-web-shell-interaction.md#search) owns
+the Search entry. This document owns the action's package-ID/version request
+semantics as part of the query surface contract.
+[Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md#package-query-entry-and-return)
+owns commitment of the returned result, including focus and browser history.
+Together these focused owners replace this document's former `Query`-tab
+placement and package-tab handoff path. This document continues to own the
+query surface's internal request, state, evidence, and rendering contract.
 
 ## Why this is not another workbench lens
 

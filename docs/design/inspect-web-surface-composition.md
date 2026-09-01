@@ -15,7 +15,8 @@ This owner defines:
 - which working surfaces exist (Source, Annotated Source, Package query,
   Diagnostics) and their page-level placement relative to Type/Member
   navigation;
-- the `/query` route's placement, layout, and typed Workspace handoff;
+- the `/query` route's placement and layout, including placement of its
+  per-row `Open in workspace` action;
 - Source and Annotated Source pane placement and independent scrolling;
 - Unified Settings' section composition (Appearance, Decompiler style,
   Package sources) and contextual entry;
