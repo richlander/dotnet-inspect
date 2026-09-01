@@ -395,7 +395,7 @@ public static class InspectionCommandDefinitions
             {
                 CommandError.Write(
                     "Body Shapes composition accepts Performance Triage filters, "
-                    + "but not --top or --order-by. Use --rows to limit rendered matches.");
+                    + "but not --top or --order-by. Use -n to limit rendered matches.");
                 return 1;
             }
             if (!string.IsNullOrWhiteSpace(typeFilter))
@@ -448,13 +448,16 @@ public static class InspectionCommandDefinitions
                     pipeline.GetCategoryMap(),
                     selectDefault,
                     autoSelectsPerformanceKinds);
-            performanceTriage = opts.BindPerformanceTriageToSelectedKindSections(
-                performanceTriage,
-                select,
-                pipeline.SelectableSectionNames,
-                pipeline.InfoSectionNames,
-                pipeline.GetCategoryMap(),
-                selectDefault);
+            if (!autoSelectsPerformanceKinds)
+            {
+                performanceTriage = opts.BindPerformanceTriageToSelectedKindSections(
+                    performanceTriage,
+                    select,
+                    pipeline.SelectableSectionNames,
+                    pipeline.InfoSectionNames,
+                    pipeline.GetCategoryMap(),
+                    selectDefault);
+            }
 
             bool hasSource =
                 !string.IsNullOrEmpty(source)

@@ -546,7 +546,7 @@ public sealed class BodyShapesSectionTests
             result.Error,
             StringComparison.Ordinal);
         Assert.Contains(
-            "Use --rows to limit rendered matches.",
+            "Use -n to limit rendered matches.",
             result.Error,
             StringComparison.Ordinal);
     }

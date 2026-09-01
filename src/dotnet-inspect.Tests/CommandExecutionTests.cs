@@ -2315,7 +2315,14 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         AssertOnlyPerformanceAnalysisWarnings(error);
         var rows = output.TrimEnd().Split('\n');
-        Assert.Single(rows.Skip(1));
+        var dataRows = rows.Skip(1).ToArray();
+        Assert.Equal(4, dataRows.Length);
+        Assert.Equal(
+            dataRows.Length,
+            dataRows
+                .Select(row => row.Split('\t')[0])
+                .Distinct(StringComparer.Ordinal)
+                .Count());
     }
 
     [Fact]
@@ -6624,19 +6631,37 @@ public partial class CommandExecutionTests
         Assert.Contains("2..10 is nine rows", error, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task ValuedTailFlag_IsReportedAsAMigration_NotBoundAsAPositional()
+    [Theory]
+    [InlineData("--lines", true)]
+    [InlineData("--lines=true", true)]
+    [InlineData("--lines:true", true)]
+    [InlineData("--lines false", false)]
+    [InlineData("--lines=false", false)]
+    [InlineData("--lines:false", false)]
+    [InlineData("--tail-lines", true)]
+    [InlineData("--tail-lines false", false)]
+    [InlineData("--tail-lines=false", false)]
+    [InlineData("", false)]
+    public async Task ValuedTailFlag_IsReportedAsAMigration_NotBoundAsAPositional(string lineArg, bool expectLineSyntax)
     {
         // --tail used to carry the count. It is now a bool, so `--tail 20` would
         // otherwise leave "20" to bind as a positional and send the command looking
         // for a package by that name -- a confusing failure at an unrelated task.
-        var (exit, output, error) = await RunAppAsync(
-            "type", "System.String", "-S", "Member Index", "--tail", "20", "--tips", "q");
+        var args = new List<string> { "type", "System.String", "-S", "Member Index", "--tail", "20", "--tips", "q" };
+        if (!string.IsNullOrEmpty(lineArg))
+        {
+            args.AddRange(lineArg.Split(' '));
+        }
+
+        var (exit, output, error) = await RunAppAsync(args.ToArray());
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("'--tail 20' is no longer valid", error, StringComparison.Ordinal);
-        Assert.Contains("-n 20 --tail", error, StringComparison.Ordinal);
+        if (expectLineSyntax)
+            Assert.Contains("-n 20 --lines --tail", error, StringComparison.Ordinal);
+        else
+            Assert.Contains("-n 20 --tail", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -11594,15 +11619,31 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task ProjectedJsonRoutingAudit_PackageSearchCountProjectionCountsAfterPreflight()
+    public async Task ProjectedJsonRoutingAudit_PackageSearchCountRejectsCappedSource()
     {
-        var (exit, output, error) = await RunPackageSearchFixtureAsync(
+        var (exit, output, error) = await RunAppAsync(
             "package", "--count", "--columns", "Package",
-            "search", "Fixture");
+            "search", "ThisQueryMustNotReachTheNetwork",
+            "--source", "http://127.0.0.1:9/index.json");
 
-        Assert.Equal(0, exit);
-        Assert.Equal("4", output.Trim());
-        Assert.Empty(error);
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("package search does not support --count", error);
+        Assert.DoesNotContain("NuGet source", error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchCountAndTakeRejectBeforeNetwork()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "search", "ThisQueryMustNotReachTheNetwork",
+            "--count", "--take", "2",
+            "--source", "http://127.0.0.1:9/index.json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("package search does not support --count", error);
+        Assert.DoesNotContain("NuGet source", error);
     }
 
     [Theory]
@@ -13447,7 +13488,7 @@ public partial class CommandExecutionTests
         // -S was previously accepted and then ignored by the lens, and --count required it,
         // so the mode was reachable only through a filter it did not honor.
         var (exit, output, error) = await RunAppAsync(
-            "package", "Newtonsoft.Json", "--versions", "1", "-S", "Files", "--count");
+            "package", "Newtonsoft.Json", "--versions", "-S", "Files", "--count");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -13629,27 +13670,29 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task Versions_Count_CountsVersionsRatherThanPrintingOne()
+    [Theory]
+    [InlineData("--versions")]
+    [InlineData("--versions-with-feed")]
+    public async Task Versions_Count_RejectsCountWithLimitedVersionsPrefixBeforeNetwork(
+        string option)
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Newtonsoft.Json", "--versions", "1", "--count");
+            "package", "ThisQueryMustNotReachTheNetwork", option, "1", "--count",
+            "--source", "http://127.0.0.1:9/index.json");
 
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        // The defect printed the version itself here, which parses as neither a count nor a
-        // failure, so assert the count and not merely a zero exit.
-        Assert.Equal("1", output.Trim());
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--count cannot be combined with a limited versions prefix", error);
+        Assert.DoesNotContain("NuGet source", error);
     }
 
     [Theory]
-    [InlineData("Newtonsoft.Json@13.0.4", "--versions", "1")]
-    [InlineData("Newtonsoft.Json", "--latest-version", null)]
-    [InlineData("Newtonsoft.Json", "--versions-with-feed", "1")]
+    [InlineData("Newtonsoft.Json@13.0.4", "--versions")]
+    [InlineData("Newtonsoft.Json", "--latest-version")]
+    [InlineData("Newtonsoft.Json", "--versions-with-feed")]
     public async Task Versions_Count_ValidatesTheRenderedBranchColumns(
         string package,
-        string option,
-        string? value)
+        string option)
     {
         var args = new List<string>
         {
@@ -13657,8 +13700,6 @@ public partial class CommandExecutionTests
             package,
             option,
         };
-        if (value is not null)
-            args.Add(value);
         args.AddRange(["--count", "--columns", "Listing", "--tips", "q"]);
 
         var (exit, output, error) = await RunAppAsync([.. args]);

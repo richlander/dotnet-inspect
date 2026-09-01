@@ -102,4 +102,24 @@ public partial class CommandExecutionTests
             result.Error,
             StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task PerformanceTopAppliesIndependentlyToMultipleSelectedKinds()
+    {
+        var result = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "Performance: Arrays",
+            "-S", "Performance: Boxing",
+            "--top", "1",
+            "--jsonl",
+            "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.DoesNotContain("Error:", result.Error, StringComparison.Ordinal);
+
+        var lines = result.Output.Trim().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(2, lines.Length);
+        Assert.Contains("\"kind\":\"Arrays\"", result.Output);
+        Assert.Contains("\"kind\":\"Boxing\"", result.Output);
+    }
 }

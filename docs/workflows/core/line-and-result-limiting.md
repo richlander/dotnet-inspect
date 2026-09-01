@@ -105,18 +105,18 @@ grep '^|' | tail -n +3 | wc -l | tr -d ' '
 6
 ```
 
-## 3. Limit one type row set
+## 3. Limit type results
 
-> Goal: Return only the first N classes from the Classes row set.
+> Goal: Return only the first N types from a type listing.
 
-### 3a. Using `type -n N`
+### 3a. Using `type -t N`
 
 ```prompt
 Show me just 3 types from System.Text.Json.
 ```
 
 ```bash
-dotnet-inspect type System.Text.Json -S Classes -n 3 --tips q
+dotnet-inspect type System.Text.Json -t 3 --tips q
 ```
 
 ```expect

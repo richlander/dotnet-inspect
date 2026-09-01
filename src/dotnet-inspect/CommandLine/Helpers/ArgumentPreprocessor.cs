@@ -57,9 +57,8 @@ public static class ArgumentPreprocessor
 
             var flag = args[i];
             var count = args[i + 1];
-            bool lineMode = args.Take(end).Any(static token =>
-                IsLineModeFlagSet(token, "--lines")
-                || IsLineModeFlagSet(token, "--tail-lines"));
+            bool lineMode = IsLineModeFlagSet(args, end, "--lines")
+                || IsLineModeFlagSet(args, end, "--tail-lines");
             var replacement = lineMode
                 ? $"-n {count} --lines {flag}"
                 : $"-n {count} {flag}";
@@ -224,9 +223,8 @@ public static class ArgumentPreprocessor
             }
         }
 
-        if (args.Take(endOfOptions).Any(static token =>
-                IsLineModeFlagSet(token, "--lines")
-                || IsLineModeFlagSet(token, "--tail-lines")))
+        if (IsLineModeFlagSet(args, endOfOptions, "--lines")
+            || IsLineModeFlagSet(args, endOfOptions, "--tail-lines"))
         {
             CaptureLineWindow(rootCommand.Parse(args), rootCommand);
         }
@@ -537,19 +535,37 @@ public static class ArgumentPreprocessor
     }
 
     /// <summary>
-    /// True when <paramref name="token"/> sets boolean flag <paramref name="flagName"/> to a
-    /// truthy value: bare presence (no attached value) or an explicit <c>=true</c>/<c>:true</c>
-    /// value. An explicit <c>=false</c>/<c>:false</c> value is not truthy.
+    /// True when the argument sequence sets boolean flag <paramref name="flagName"/> to a
+    /// truthy value: bare presence (no attached value) or an explicit <c>true</c>
+    /// value. An explicit <c>false</c> value is not truthy.
     /// </summary>
-    private static bool IsLineModeFlagSet(string token, string flagName)
+    private static bool IsLineModeFlagSet(string[] args, int end, string flagName)
     {
-        var (name, value) = SplitAttachedOptionValue(token);
-        if (!string.Equals(name, flagName, StringComparison.Ordinal))
-            return false;
+        bool isSet = false;
+        for (int i = 0; i < end; i++)
+        {
+            var token = args[i];
+            var (name, value) = SplitAttachedOptionValue(token);
+            if (!string.Equals(name, flagName, StringComparison.Ordinal))
+                continue;
 
-        return value is null
-            || !bool.TryParse(value, out var parsed)
-            || parsed;
+            if (value is not null)
+            {
+                if (bool.TryParse(value, out var parsed))
+                    isSet = parsed;
+                else
+                    isSet = true;
+            }
+            else if (i + 1 < end && bool.TryParse(args[i + 1], out var parsed))
+            {
+                isSet = parsed;
+            }
+            else
+            {
+                isSet = true;
+            }
+        }
+        return isSet;
     }
 
     private static bool ShouldTreatPlatformFollowerAsLibrary(

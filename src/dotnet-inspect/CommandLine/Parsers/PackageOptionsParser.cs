@@ -52,6 +52,11 @@ public static class PackageOptionsParser
     public record UnrecognizedOption(string Option) : PackageParseResult;
 
     /// <summary>
+    /// Indicates an invalid combination of options.
+    /// </summary>
+    public record ValidationError(string Message) : PackageParseResult;
+
+    /// <summary>
     /// Successfully parsed options ready for execution.
     /// </summary>
     public record Success(InspectionOptions Options, Verbosity Verbosity) : PackageParseResult;
@@ -104,6 +109,11 @@ public static class PackageOptionsParser
         // --path (present without a value) means the whole package (root and below);
         // an explicit /, directory, file, or glob narrows it.
         string? pathFilter = null;
+
+        if (parseResult.GetValue(opts.Count) && versionsValue is not null)
+        {
+            return new ValidationError("--count cannot be combined with a limited versions prefix");
+        }
         string[]? pathFilters = null;
         if (parseResult.GetResult(args.PathOption) is { Implicit: false })
         {

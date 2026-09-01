@@ -43,9 +43,10 @@ dotnet-inspect package System.CommandLine@2.0.3 -v:q --json
 
 ```expect
 {
-"package_name"
-"version"
-"source"
+  "package_name": "System.CommandLine",
+  "manifest_version": "2013/05",
+  "version": "2.0.3",
+  "source": "NuGet",
 ```
 
 ### 1b. Compact JSON (single line)
@@ -81,9 +82,9 @@ dotnet-inspect type System.Text.Json JsonSerializer --json -v:q
 
 ```expect
 {
-"namespace": "System.Text.Json"
-"name": "JsonSerializer"
-"kind": "class"
+  "namespace": "System.Text.Json",
+  "name": "JsonSerializer",
+  "metadata_name": "JsonSerializer",
 ```
 
 ## 3. Find results as JSON

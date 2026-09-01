@@ -1753,7 +1753,19 @@ internal static class LibraryMetadataService
             : options.TryGetOrderTerms(out var orderTerms, out _)
                 ? OrderTriageRows(filtered, orderTerms)
                 : OrderByTriagePriority(filtered);
-        return options.Top is { } top ? ordered.Take(top) : ordered;
+
+        if (options.Top is { } top)
+        {
+            if (options.SelectedKindSections.Length == 0)
+                return ordered.Take(top);
+
+            return PerformanceKinds.Sections
+                .Where(section => options.SelectedKindSections.Contains(section, StringComparer.Ordinal))
+                .SelectMany(section =>
+                ordered.Where(opportunity => PerformanceKinds.SectionForShape(opportunity.Shape) == section).Take(top));
+        }
+
+        return ordered;
     }
 
     internal static IEnumerable<Analysis.OptimizationOpportunity> TriageOpportunities(

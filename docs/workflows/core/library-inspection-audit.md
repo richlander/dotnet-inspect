@@ -356,8 +356,8 @@ dotnet-inspect library --package System.CommandLine@2.0.3 --json
 
 ```expect
 {
-"file_name":
-"pdb_format":
-"has_source_link":
-"is_deterministic":
+  "file_name": "System.CommandLine.dll",
+  "file_type": "dll",
+  "pdb_format": "Portable",
+  "pdb_location": "Standalone",
 ```

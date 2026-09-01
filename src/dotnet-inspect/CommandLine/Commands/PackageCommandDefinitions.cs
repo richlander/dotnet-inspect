@@ -135,6 +135,10 @@ public static class PackageCommandDefinitions
                             : $"Unrecognized option '{error.Option}'.");
                     return 1;
 
+                case PackageOptionsParser.ValidationError validation:
+                    CommandError.Write(validation.Message);
+                    return 1;
+
                 case PackageOptionsParser.Success success:
                 {
                     bool packageLensHandlesRows =

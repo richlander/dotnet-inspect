@@ -34,8 +34,13 @@ public class PackageSearchCommand
                 {
                     return 1;
                 }
+
+                CommandError.Write(
+                    "package search does not support --count because search providers limit results.");
+                return 1;
             }
-            else if (LensProjection.TryProject(
+
+            if (LensProjection.TryProject(
                     options,
                     "package search",
                     rowCount: 0,
@@ -45,21 +50,18 @@ public class PackageSearchCommand
                 return preflightExitCode;
             }
 
-            if (!options.Count
-                && (options.Fields is { Length: > 0 }
-                    || options.Columns is { Length: > 0 }))
+            if (options.Fields is { Length: > 0 }
+                || options.Columns is { Length: > 0 })
             {
                 CommandError.Write(
-                    "--fields/--columns are not available with package search unless "
-                    + "--count is projecting the search rows.");
+                    "--fields/--columns are not available with package search.");
                 return 1;
             }
 
-            if (!options.Count && options.OutputPath is not null)
+            if (options.OutputPath is not null)
             {
                 CommandError.Write(
-                    "--out is not available with package search unless --count is "
-                    + "writing the count payload.");
+                    "--out is not available with package search.");
                 return 1;
             }
 
@@ -84,18 +86,6 @@ public class PackageSearchCommand
 
             // A genuine zero-result search succeeded; an incomplete one did not.
             var exitCode = outcome.Failures.Count > 0 ? 1 : 0;
-
-            // --count reduces the payload, so it is resolved before the format flags that
-            // render it. Ordering these the other way lets --json answer a count request
-            // with the full unprojected result set.
-            if (options.Count)
-            {
-                CountOutput.WriteCount(
-                    results.Count,
-                    options.OutputPath,
-                    options.Rows);
-                return exitCode;
-            }
 
             if (!options.JsonOutput && results.Count == 0)
             {

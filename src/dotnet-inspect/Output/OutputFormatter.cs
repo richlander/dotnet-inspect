@@ -664,7 +664,10 @@ public static class OutputFormatter
                 new MarkoutWriterOptions { Projection = writerOpts.Projection }, options.Tsv, options.Jsonl);
             WriteTable(Console.Out, !options.NoHeader,
                 (writer, formatter) => MarkoutSerializer.Serialize(groupView, writer, formatter, InspectionContext.Default, groupOpts),
-                options.Rows);
+                options.PerformanceTriage.Top.HasValue
+                    && options.PerformanceTriage.SelectedKindSections.Length > 0
+                        ? null
+                        : options.Rows);
         }
         else
         {

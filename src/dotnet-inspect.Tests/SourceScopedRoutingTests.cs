@@ -499,7 +499,6 @@ public sealed class SourceScopedRoutingTests : IDisposable
                     "package",
                     packageName,
                     "--versions",
-                    "1",
                     "--count",
                     "--source",
                     SecondSource,
