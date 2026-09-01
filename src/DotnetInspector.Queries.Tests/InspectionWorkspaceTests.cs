@@ -661,8 +661,9 @@ public sealed class InspectionWorkspaceTests
             async () => await construction);
         InspectionWorkspaceCloseReport report = await close;
 
-        InspectionWorkspaceGroupCloseResult result =
-            Assert.Single(report.Groups);
+        InspectionWorkspaceDirectGroupCloseResult result =
+            Assert.IsType<InspectionWorkspaceDirectGroupCloseResult>(
+                Assert.Single(report.Groups));
         Assert.Equal(0, result.RegistrationIndex);
         Assert.True(result.Succeeded);
         Assert.Null(result.Failure);
@@ -760,10 +761,14 @@ public sealed class InspectionWorkspaceTests
             report.Groups,
             result =>
             {
-                Assert.False(result.Succeeded);
+                InspectionWorkspaceDirectGroupCloseResult direct =
+                    Assert.IsType<
+                        InspectionWorkspaceDirectGroupCloseResult>(
+                            result);
+                Assert.False(direct.Succeeded);
                 AggregateException failure =
                     Assert.IsType<AggregateException>(
-                        result.Failure);
+                        direct.Failure);
                 Assert.Contains(
                     failure.InnerExceptions,
                     ex => ex is InvalidOperationException
@@ -846,7 +851,11 @@ public sealed class InspectionWorkspaceTests
         InspectionWorkspaceCloseReport report =
             await workspace.CloseAsync();
 
-        Assert.False(Assert.Single(report.Groups).Succeeded);
+        Assert.False(
+            Assert.IsType<
+                InspectionWorkspaceDirectGroupCloseResult>(
+                    Assert.Single(report.Groups))
+                .Succeeded);
 
         TestAssembly synchronousSource = TestAssembly.Create();
         using var synchronousWorkspace = new InspectionWorkspace();
@@ -935,7 +944,199 @@ public sealed class InspectionWorkspaceTests
                 TestContext.Current.CancellationToken);
 
         Assert.Equal(42, available.Value);
-        Assert.True(Assert.Single(report.Groups).Succeeded);
+        Assert.True(
+            Assert.IsType<
+                InspectionWorkspaceDirectGroupCloseResult>(
+                    Assert.Single(report.Groups))
+                .Succeeded);
+    }
+
+    [Fact]
+    public async Task WorkspaceClose_DirectAndCoordinatedGroupsReleaseExactlyOnce()
+    {
+        TestAssembly directSource = TestAssembly.Create();
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        AssemblyContextGroup direct =
+            workspace.CreateAssemblyContextGroup(
+                [directSource.Participant]);
+        PackageRootBinding binding =
+            PackageAssemblyContextCompletionTests.SharedBinding(
+                "Workspace.Mixed.Release");
+        PackageAssemblyContextCompletion completion =
+            await ExecutePackageCompletionAsync(
+                workspace,
+                binding);
+        var directResource = new CountingResource();
+        var coordinatedResource = new CountingResource();
+        direct.RegisterOwnedResource(directResource);
+        completion.SurfaceAssemblyContextGroup.RegisterOwnedResource(
+            coordinatedResource);
+        completion.SurfaceAssemblyContextGroup.RegisterOwnedResource(
+            new ThrowingResource());
+
+        Task<PackageRoleCleanupReport> packageClose =
+            completion.CloseAsync();
+        Task<InspectionWorkspaceCloseReport> workspaceClose =
+            workspace.CloseAsync();
+        await Task.WhenAll(packageClose, workspaceClose);
+
+        Assert.Equal(1, directResource.DisposeCount);
+        Assert.Equal(1, coordinatedResource.DisposeCount);
+        InspectionWorkspaceCloseReport workspaceReport =
+            await workspaceClose;
+        Assert.Equal(2, workspaceReport.Groups.Length);
+        Assert.IsType<InspectionWorkspaceDirectGroupCloseResult>(
+            workspaceReport.Groups[0]);
+        var coordinated = Assert.IsType<
+            InspectionWorkspaceCoordinatedGroupCloseResult<
+                PackageRoleGroupCleanupRecord>>(
+                    workspaceReport.Groups[1]);
+        PackageRoleGroupCleanupRecord packageResult =
+            Assert.Single((await packageClose).Groups);
+        Assert.IsType<PackageRoleGroupCleanupRecord.Failed>(
+            packageResult);
+        Assert.Same(packageResult, coordinated.Result);
+        Assert.Equal([0, 1], workspaceReport.Groups
+            .Select(result => result.RegistrationIndex));
+    }
+
+    [Fact]
+    public async Task WorkspaceClose_ExistingCoordinatedLeaseRemainsUsableUntilOwnerRelease()
+    {
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        PackageRootBinding binding =
+            PackageAssemblyContextCompletionTests.SharedBinding(
+                "Workspace.Existing.Lease");
+        PackageAssemblyContextCompletion completion =
+            await ExecutePackageCompletionAsync(
+                workspace,
+                binding);
+        PackageAssemblyContextProjection projection =
+            completion.CreateProjection([binding]);
+        PackageAssemblyContextRoleProjection role =
+            projection.SurfaceRole;
+        var resource = new CountingResource();
+        completion.SurfaceAssemblyContextGroup.RegisterOwnedResource(
+            resource);
+
+        Task<InspectionWorkspaceCloseReport> close =
+            workspace.CloseAsync();
+
+        Assert.False(close.IsCompleted);
+        Assert.Throws<ObjectDisposedException>(
+            () => completion.CreateProjection([binding]));
+        Assert.Single(
+            AssemblyContextIntegrationsQuery.Execute(role)
+                .Assemblies);
+        Assert.Equal(0, resource.DisposeCount);
+
+        await projection.ReturnAsync();
+        InspectionWorkspaceCloseReport report = await close;
+        Assert.Equal(1, resource.DisposeCount);
+        PackageRoleCleanupReport packageReport =
+            await completion.CloseAsync();
+        var coordinated = Assert.IsType<
+            InspectionWorkspaceCoordinatedGroupCloseResult<
+                PackageRoleGroupCleanupRecord>>(
+                    Assert.Single(report.Groups));
+        Assert.Same(
+            Assert.Single(packageReport.Groups),
+            coordinated.Result);
+    }
+
+    [Fact]
+    public async Task WorkspaceClose_OwnerFirstReleaseDeactivatesRegistrationAndRetainsReport()
+    {
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        PackageRootBinding binding =
+            PackageAssemblyContextCompletionTests.SharedBinding(
+                "Workspace.Owner.First");
+        PackageAssemblyContextCompletion completion =
+            await ExecutePackageCompletionAsync(
+                workspace,
+                binding);
+
+        PackageRoleCleanupReport packageReport =
+            await completion.CloseAsync();
+
+        Assert.Throws<ObjectDisposedException>(
+            () => completion.CreateProjection([binding]));
+        Task<InspectionWorkspaceCloseReport> close =
+            workspace.CloseAsync();
+        InspectionWorkspaceCloseReport workspaceReport =
+            await close;
+        var coordinated = Assert.IsType<
+            InspectionWorkspaceCoordinatedGroupCloseResult<
+                PackageRoleGroupCleanupRecord>>(
+                    Assert.Single(workspaceReport.Groups));
+        Assert.Same(
+            Assert.Single(packageReport.Groups),
+            coordinated.Result);
+        Assert.Equal(0, coordinated.RegistrationIndex);
+        Assert.Same(close, workspace.CloseAsync());
+        Assert.Same(workspaceReport, await workspace.CloseAsync());
+    }
+
+    [Fact]
+    public async Task WorkspaceClose_CoordinatedLateGroupsCommitHistoryBeforeOwnerRelease()
+    {
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        PackageRootBinding binding =
+            PackageAssemblyContextCompletionTests.SeparateBinding(
+                "Workspace.Late.Coordinated");
+        var entered =
+            new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        var resume =
+            new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        int yields = 0;
+        PackageAssemblyContextCompletionOperation operation =
+            workspace.PreparePackageAssemblyContextCompletion(
+                [binding],
+                options: null,
+                () =>
+                {
+                    if (Interlocked.Increment(ref yields) == 1)
+                        entered.SetResult();
+                    return new ValueTask(resume.Task);
+                });
+        Task<PackageAssemblyContextCompletion> construction =
+            operation.ExecuteAsync(operation.Identity);
+        await entered.Task;
+
+        Task<InspectionWorkspaceCloseReport> close =
+            workspace.CloseAsync();
+
+        Assert.False(close.IsCompleted);
+        resume.SetResult();
+        await Assert.ThrowsAsync<ObjectDisposedException>(
+            async () => await construction);
+        InspectionWorkspaceCloseReport report = await close;
+
+        Assert.Equal(2, report.Groups.Length);
+        Assert.Equal(
+            [0, 1],
+            report.Groups
+                .Select(result => result.RegistrationIndex));
+        Assert.All(
+            report.Groups,
+            result =>
+            {
+                var coordinated = Assert.IsType<
+                    InspectionWorkspaceCoordinatedGroupCloseResult<
+                        PackageRoleGroupCleanupRecord>>(result);
+                Assert.IsType<
+                    PackageRoleGroupCleanupRecord.Released>(
+                        coordinated.Result);
+                Assert.Same(
+                    operation.Identity,
+                    coordinated.Result.Group.Operation);
+            });
     }
 
     [Fact]
@@ -1110,6 +1311,17 @@ public sealed class InspectionWorkspaceTests
             TaskCreationOptions.LongRunning,
             TaskScheduler.Default);
 
+    static async Task<PackageAssemblyContextCompletion>
+        ExecutePackageCompletionAsync(
+            InspectionWorkspace workspace,
+            PackageRootBinding binding)
+    {
+        PackageAssemblyContextCompletionOperation operation =
+            workspace.PreparePackageAssemblyContextCompletion(
+                [binding]);
+        return await operation.ExecuteAsync(operation.Identity);
+    }
+
     sealed class TestAssembly
     {
         int _openCount;
@@ -1196,6 +1408,17 @@ public sealed class InspectionWorkspaceTests
         public void Dispose() =>
             throw new InvalidOperationException(
                 "Synthetic owned-resource disposal failure.");
+    }
+
+    sealed class CountingResource : IDisposable
+    {
+        int _disposeCount;
+
+        internal int DisposeCount =>
+            Volatile.Read(ref _disposeCount);
+
+        public void Dispose() =>
+            Interlocked.Increment(ref _disposeCount);
     }
 
     sealed class BlockingResource(
