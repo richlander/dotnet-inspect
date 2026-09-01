@@ -20,8 +20,8 @@ Related docs:
 - [Projected JSON output](projected-json.md) — typed versus lowered JSON, representability, and atomic failure
 - [Rendering model](rendering-model.md) — verbosity vs mode-switch flags
 - [Schema query](schema-query.md) — `-D` discovery of sections and columns
-- [CLI compatibility and deprecation](cli-compatibility.md) — publication,
-  change classification, migration, and removal policy
+- [CLI compatibility and deprecation](cli-compatibility.md) — current
+  guidance, change classification, disclosure, and transition guards
 - [Item and line limits](item-and-line-limits.md) — the approved target for
   `-n`, range-only `--rows`, ranked `--top`, line windows, and multi-item
   printable payloads

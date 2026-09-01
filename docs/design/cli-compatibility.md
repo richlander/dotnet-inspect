@@ -1,13 +1,17 @@
 # CLI compatibility and deprecation
 
-The **CLI compatibility policy** is the normative owner for deciding whether
-an observable `dotnet-inspect` command-line change is compatible, requires a
-migration path, or is intentionally breaking. It also owns the states and
-evidence required to deprecate or remove published syntax.
+The **CLI compatibility policy** is the normative owner for classifying an
+observable `dotnet-inspect` command-line change as compatible, corrective but
+breaking, or intentionally breaking. It also owns CLI change disclosure and
+the narrow conditions under which an obsolete input remains recognized,
+diagnosed, or reserved.
 
-It does not enumerate the current command set or define each command's
-semantics. Those responsibilities remain with:
+It does not enumerate current commands or define each command's semantics.
+Those responsibilities remain with:
 
+- [Development practices](../development-practices.md), which owns the
+  repository-wide preference for current agent guidance, simple current
+  command shapes, and low carrying cost over retaining obsolete CLI syntax;
 - the root [`README.md`](../../README.md), visible `--help`, and embedded
   product skills for current supported invocations;
 - [CLI host architecture](../cli-architecture.md) for parsing, routing,
@@ -28,33 +32,48 @@ redefine them.
 
 [Semantic Versioning 2.0](https://semver.org/spec/v2.0.0.html) says that a
 `0.y.z` public API is in initial development and may change at any time.
-`dotnet-inspect` deliberately applies a stronger rule while its
-`VersionPrefix` remains below `1.0`: published CLI changes must still be
-classified, evidenced, and disclosed. Scripts, embedded product skills, and
-copied README invocations are real consumers even when SemVer does not require
-a major-version transition.
+`dotnet-inspect` applies a stronger process while its `VersionPrefix` remains
+below `1.0`: published changes must be classified, current guidance must move
+with the product, breaking changes must be disclosed, and the claimed current
+behavior must be evidenced.
 
-That stronger process is not a promise that every pre-`1.0` spelling or output
-shape remains unchanged until a major release. An intentional breaking change
-may ship before `1.0` when its owner approves the new contract, the release
-notes label the break, affected product skills and examples move together, and
-the PR supplies migration evidence.
+That stronger rule is about truthful current releases, not preserving
+yesterday's CLI. A command, flag, default, or workflow may change before `1.0`
+without a compatibility alias or grace period. The release remains coherent
+when visible help, the root README, embedded product skills, release notes, and
+focused designs describe the same current behavior.
 
-Once the tool declares a `1.0` public API, release versioning must satisfy
-SemVer's normal compatibility rules in addition to this policy.
+Explicitly owned serialized formats, protocols, library APIs, and other
+non-CLI compatibility contracts retain their own versioning rules. Once the
+tool declares a `1.0` public API, release versioning must satisfy SemVer's
+normal compatibility rules in addition to this policy.
+
+## Current guidance is the CLI compatibility layer
+
+Embedded product skills are the authoritative current agent guides. The root
+README is the current human and general-purpose guide. A change to command
+syntax, defaults, workflows, or output shapes they teach must update every
+affected guide in the same PR and rerun the affected examples against the
+changed tool.
+
+An older skill or README invocation is evidence that a release consumer may
+need a migration note. It is not a reason to retain the old parser path. A
+stale shipped skill is a compatibility failure even when the old invocation
+still happens to work.
 
 ## Publication boundary
 
-A surface is **published** when at least one of these is true:
+A surface is **published for the current release** when at least one of these
+is true:
 
 - a command, argument, option, or alias appears in visible `--help`;
-- a released root README documents the invocation as supported;
-- an embedded product skill instructs callers to use the invocation; or
+- the current root README documents the invocation as supported;
+- a current embedded product skill instructs callers to use the invocation; or
 - an owning design explicitly declares a machine-readable or selector
   contract.
 
-Publication creates an obligation to classify and manage change. It does not
-make every byte of output immutable.
+Publication creates an obligation to classify and disclose change. It does not
+create a requirement to retain obsolete CLI syntax.
 
 The following do not publish a surface by themselves:
 
@@ -63,59 +82,43 @@ The following do not publish a surface by themselves:
 - a one-off issue, PR, or release-demo invocation; or
 - a test that pins behavior no owner has declared as a contract.
 
-A hidden spelling can still be published when it is explicitly retained as a
-compatibility alias, deprecation shim, migration diagnostic, or routing
-reservation. Hiding a previously published spelling from help does not erase
-its history.
+A hidden input is current supported syntax only when its owner justifies it as
+useful in today's interface. Hidden inputs retained solely because an older
+release accepted them are compatibility debt, not precedent.
 
-The root README and product skills are publication evidence and versioned
+The README and product skills are publication evidence and versioned
 consumers, not owners of producer semantics or structured-output schemas.
 
-## Compatibility classes
+## Observable surfaces
 
 Compatibility is assessed at the observable boundary a caller uses, not at the
 convenience of the implementation.
 
-| Surface | Compatibility obligation |
-| ------- | ------------------------- |
-| Invocation | A supported token sequence continues to select the same operation and interpret its values the same way. |
-| Outcome | Success versus failure, stdout versus stderr, and whether a result is produced remain stable unless the owning contract intentionally changes them. Exact diagnostic prose and numeric non-zero codes are evolvable unless explicitly owned. |
+| Surface | Change boundary |
+| ------- | --------------- |
+| Invocation | Command, argument, option, and alias binding; implicit routing; value interpretation; defaults; and authorization. |
+| Outcome | Success versus failure, stdout versus stderr, and whether a result is produced. Exact diagnostic prose and numeric non-zero codes are evolvable unless explicitly owned. |
 | Typed JSON | Field names, JSON kinds, nullability, envelopes, discriminator values, and meanings follow the command's typed-output owner. A new field is not automatically compatible with strict consumers. |
 | Lowered JSON, JSONL, TSV, and tables | Shape and representability follow their focused output owners. Parseability alone does not prove compatibility. |
 | Human Markdown and plaintext | Wording, wrapping, spacing, and layout may evolve. Owner-issued section names, selectors, or column identities remain contracts when their designs say so. |
-| Help and diagnostics | Descriptions and ordering may evolve. Published spellings, replacement guidance, channels, and success or failure class follow this policy and the command owner. |
+| Help and diagnostics | Descriptions and ordering may evolve. Current spellings, channels, replacement guidance, and success or failure class follow this policy and the command owner. |
 
-Preserving compatibility does not require preserving a bug, an unsafe
-interpretation, or a success-shaped failure. A correction can be intentionally
-breaking; it must be named as such rather than described as compatible because
-the new behavior is preferable.
+Preserving compatibility does not require preserving a bug, unsafe
+interpretation, success-shaped failure, or obsolete command shape.
 
 ## Change classifications
 
-Classification and transition state are separate decisions. A change can use a
-compatibility alias without being deprecated, or use a terminal deprecation
-while making an intentional break.
-
-The classifications are mutually exclusive. Apply them in this order:
-
-1. A correctness, safety, or failure-visibility repair that changes an
-   observable contract is **corrective but breaking**.
-2. Any other removal or meaning, default, operation, or output-contract change
-   that invalidates a published use is **intentionally breaking**.
-3. A canonical-surface change that keeps every old published invocation
-   operational is **migration-preserving**.
-4. A change that does none of the above is **compatible**.
+The classifications are mutually exclusive:
 
 | Classification | Definition | Disclosure and evidence |
 | -------------- | ---------- | ----------------------- |
-| Compatible | No existing spelling is demoted from canonical or co-equal status, every previously published invocation and owner-issued outcome contract remains valid, and additions have cleared routing, binding, default, vocabulary, and strict-consumer collisions. | Gate the old neighboring case and the new case. A **Breaking** release-note label is not used. |
-| Migration-preserving | The canonical surface changes, but each old published invocation remains recognized and operational through a compatibility alias or forwarding shim with the same operation and owner-issued result meaning. New guidance or canonical output may identify the replacement. | Release notes name the replacement. Gate old and new invocations, equivalence of the owned result, guidance channel when present, and unchanged success class. |
-| Corrective but breaking | A bug, unsafe interpretation, success-shaped failure, or false result is corrected by changing a previously observable contract. | Use a **Breaking** release-note entry that explains the correction and migration. Gate the former pathological case to the corrected result, channel, and exit class. |
-| Intentionally breaking | A command, spelling, default, operation, or output contract is removed or redesigned for reasons other than correcting false behavior. | Use a **Breaking** release-note entry and an explicit migration. Deprecate first unless the PR justifies direct removal. Gate the replacement and the old input's final migration or removal behavior. |
+| Compatible | Every current published invocation and owner-issued outcome contract remains valid. Additions have cleared routing, binding, default, vocabulary, and strict-consumer collisions. | Gate the old neighboring case and the new case. A **Breaking** release-note label is not used. |
+| Corrective but breaking | A bug, unsafe interpretation, success-shaped failure, or false result is corrected by changing a previously observable contract. | Use a **Breaking** release-note entry that explains the correction and current replacement. Gate the former pathological case to the corrected result, channel, and exit class. |
+| Intentionally breaking | A command, spelling, default, operation, or output contract is removed or redesigned for reasons other than correcting false behavior. | Use a **Breaking** release-note entry and update all current guides. Gate the replacement and any old input whose silent reinterpretation remains possible. |
 
-A terminal deprecation is corrective or intentionally breaking because the old
-invocation no longer succeeds. Recognition and guidance make the break
-actionable; they do not make it compatible.
+A runtime transition aid does not change the classification. An intentionally
+breaking removal remains breaking when the old token is reserved or rejected
+with a focused diagnostic.
 
 ## Additive changes are not automatically compatible
 
@@ -142,126 +145,126 @@ The required pathological cases are:
 The PR for an apparently additive change must demonstrate the old colliding or
 neighboring invocation, not only the new happy path.
 
-## Compatibility and transition states
+## Current-input states
 
-These labels describe different obligations and must not be inferred from
-`Hidden = true`.
+These states must not be inferred from `Hidden = true`.
 
 | State | Meaning |
 | ----- | ------- |
 | Published syntax | Current supported syntax exposed through help, README, a product skill, or an explicit owner. |
-| Ordinary alias | A co-equal supported spelling with no announced removal. Visible or hidden presentation does not change that status. |
-| Compatibility alias | An older spelling retained to perform the same operation while canonical docs and output use the replacement. It has no removal date unless separately deprecated. |
-| Deprecated forwarding shim | The old spelling still performs the supported replacement behavior and emits actionable migration guidance. |
-| Deprecated terminal shim | The old spelling is recognized but cannot safely preserve its old operation. It emits actionable guidance and fails non-zero. |
-| Removed with guidance | The old spelling no longer parses as supported syntax, but a focused pre-parse or parse diagnostic names the replacement. |
-| Removed and reserved | The operation is gone, but its command token remains reserved so implicit routing cannot silently reinterpret it as a package or another target. |
-| Internal hidden input | Parser or router composition state that was never published. It can change without deprecation, subject to its owning internal tests. |
+| Ordinary alias | A co-equal spelling with independent utility in today's interface. It is supported because it improves the current surface, not because an older release had it. |
+| Compatibility-only alias or shim | An old spelling retained only so yesterday's invocation continues to work. This is nonconforming debt and a removal candidate. |
+| Focused invalid-input guard | A rejected token sequence is recognized because ordinary current use could otherwise bind or route to a different operation. It emits a bounded diagnostic and fails non-zero. |
+| Removed and reserved | The old operation is gone, but its command token remains reserved because releasing it would silently reinterpret the input through current implicit routing. |
+| Internal hidden input | Parser or router composition state that was never published. It can change without CLI migration treatment, subject to its owning internal tests. |
 
-A compatibility alias is a preservation mechanism, not a deprecation
-announcement. If its removal is intended, the owner must either transition it
-to an explicit deprecation or approve an intentional breaking removal.
+An owner can keep a former spelling only by justifying it as an ordinary alias
+that is useful now. Historical acceptance alone is insufficient.
 
-## Deprecation requirements
+## Deprecation and removal
 
-A deprecation must:
+Deprecation is release disclosure that a current spelling or behavior is being
+replaced. It does not imply a runtime grace period.
 
-1. Name the canonical replacement for each accepted old operation, give a
-   deterministic choice rule when several replacements divide the old
-   surface, or state plainly that no equivalent operation remains.
-2. Choose forwarding or terminal behavior based on whether continuing the old
-   operation would be truthful and safe.
-3. Keep migration guidance on stderr and make terminal shims fail non-zero.
-4. Remove the deprecated spelling from current README examples and product
-   skill instructions while retaining a release-note migration.
-5. Gate recognition, replacement guidance, channel, and success or failure
-   class. A parse-only test does not prove an execution-time deprecation.
-6. Decide separately whether a removed command token must remain reserved
-   against implicit routing.
+When the best current command shape changes:
 
-There is no universal two-minor or time-based removal period. Before removal,
-the PR must show that the replacement has shipped and is documented, current
-product skills no longer generate the old syntax, the routing-reservation
-decision is explicit, and the benefit of removal justifies the remaining
-consumer cost. A direct breaking removal follows the same evidence except that
-the release notes must say that no deprecation period was provided and why.
+1. Remove the obsolete spelling rather than add or retain an alias, shim, dual
+   parser, or warning solely for compatibility.
+2. Update visible help, the root README, and every affected product skill in
+   the same change.
+3. Add a **Breaking** release-note entry that names the current replacement or
+   says plainly that no equivalent operation remains.
+4. Add a focused invalid-input guard only when the unrecognized tokens could
+   otherwise bind or route to a different current operation. Gate its stderr
+   channel and non-zero exit.
+5. Reserve a removed command token only when releasing it would create a
+   silent implicit-routing reinterpretation. Gate the routing behavior.
+6. Remove compatibility-only paths encountered in the changed area unless
+   their owner establishes independent current utility.
+
+There is no universal two-minor, time-based, or deprecation-first period. A
+longer transition requires an explicit current-product rationale from the
+owning design; consumer age by itself is not sufficient.
 
 ## Change procedure
 
-For every published-surface change:
+For every current published-surface change:
 
-1. Name the focused owner whose contract changes and the exact published
+1. Name the focused owner whose contract changes and the exact observable
    surface affected.
-2. Classify the change as compatible, migration-preserving, corrective but
-   breaking, or intentionally breaking.
-3. Exercise the previous invocation and the proposed invocation through the
-   product entry point, including stdout, stderr, and exit class.
-4. Check implicit-router reservations, aliases, optional-value binding, and
+2. Classify the change as compatible, corrective but breaking, or
+   intentionally breaking.
+3. Update current help, README, product skills, and examples rather than
+   preserving stale invocations.
+4. Exercise the proposed invocation through the product entry point, including
+   stdout, stderr, and exit class.
+5. Check implicit-router reservations, aliases, optional-value binding, and
    neighboring abbreviations before calling an addition compatible.
-5. Diff each affected machine contract through its owning schema or result
+6. Exercise the old input when removal could cause silent rebinding or routing;
+   otherwise a generic unrecognized-input result is sufficient.
+7. Diff each affected machine contract through its owning schema or result
    model; generic JSON validity is not sufficient evidence.
-6. Update visible help, the root README, embedded product skills, release notes,
-   and focused designs that actually consume the changed surface.
-7. Add the smallest owner-aligned gate that proves the claimed compatibility
-   or migration behavior.
+8. Add the smallest owner-aligned gate that proves the claimed current
+   behavior and release-note migration.
 
-The release notes use an explicit **Breaking** label for intentionally
-incompatible changes. Silent breakage is never an acceptable substitute for
-classification.
+Silent breakage and stale current guidance are never acceptable substitutes
+for classification.
 
 ## Current implementation status
 
 Compatibility mechanisms are currently distributed rather than registered in
 one manifest:
 
-- hidden `api` is the active explicit deprecation. It accepts the old command
-  shape, writes replacements for `type` and `member` to stderr, and returns
-  non-zero without performing the old operation;
-- `--authored-source` and the `Original Source` selector are examples of hidden
-  compatibility aliases whose canonical spelling is now `--pdb-source` and
-  `PDB Source`;
-- valued `--head N` and `--tail N` spellings are removed with pre-parse
-  replacement guidance, while removed `package --readme` is diagnosed at the
-  package parse boundary; and
+- hidden `api` is a terminal compatibility shim. It writes replacements for
+  `type` and `member` to stderr and returns non-zero without performing the old
+  operation. It predates this policy, has only a parse gate, and is a removal
+  candidate; removal must decide whether `api` remains reserved;
+- `--authored-source` and the `Original Source` selector are hidden
+  compatibility-only aliases for `--pdb-source` and `PDB Source`. No
+  independent current-interface rationale is recorded, so they are removal
+  candidates rather than precedent;
+- valued `--head N` and `--tail N` inputs have a focused pre-parse guard because
+  the current boolean option would otherwise leave the count to bind as a
+  positional target;
+- removed `package --readme` receives replacement guidance at the package parse
+  boundary. No independent current-input ambiguity is recorded, so the special
+  diagnostic's current-policy justification is **unverified**; and
 - removed command names including `audit`, `source`, `list`, and `ls` remain
-  reserved rather than re-entering implicit target resolution.
+  reserved because releasing them would send the same bare tokens through
+  implicit target resolution.
 
-The `api` terminal shim predates this policy. Its diagnostic gives a task-based
-choice between `type` and `member`, but no release-note migration entry was
-found and its execution behavior lacks the required gate. It is recorded as
-nonconforming transition debt and must satisfy those requirements before the
-shim is materially changed or removed.
-
-Existing gates prove parts of those transitions:
+Existing gates prove parts of those behaviors:
 
 - `CommandLineTests.ApiCommand_Deprecated_ParsesCorrectly` proves only that the
   hidden `api` command still parses. Its stderr text and non-zero execution
-  outcome are currently unverified.
+  outcome are unverified.
 - `DiffOptionsParserTests.PdbSourceOption_AndLegacyAlias_EnablePdbSource` and
-  command execution tests prove selected legacy aliases reach canonical
-  behavior and output.
+  command execution tests prove selected compatibility-only aliases still
+  reach canonical behavior.
 - `CommandExecutionTests.ValuedTailFlag_IsReportedAsAMigration_NotBoundAsAPositional`
-  and `Package_RemovedReadmeFlag_PointsAtItsReplacement` prove focused removed
-  syntax produces actionable non-zero diagnostics.
+  proves the current parser-rebinding guard.
+- `CommandExecutionTests.Package_RemovedReadmeFlag_PointsAtItsReplacement`
+  proves the package diagnostic behavior, not its independent current-product
+  rationale.
 - `JsonWireNameGateTests` proves generated serializer contexts follow the
   configured wire-name policy. It does not prove per-command field sets,
   types, optionality, or semantic compatibility.
 
 There is no automated census that reconciles visible help, README syntax,
-embedded product skills, compatibility aliases, deprecations, removed
-spellings, and router reservations. Complete publication and deprecation
-coverage is therefore **unverified**. New changes must supply focused evidence
-rather than claiming a global compatibility gate.
+embedded product skills, hidden aliases, invalid-input guards, removed
+spellings, and router reservations. Complete current-surface coverage is
+therefore **unverified**. New changes must supply focused evidence rather than
+claiming a global compatibility gate.
 
 ## Non-claims
 
 This design does not:
 
-- freeze the current command inventory, defaults, or output bytes;
+- preserve obsolete commands, flags, aliases, defaults, or output bytes;
 - promise that pre-`1.0` breaking changes require a major version;
 - define producer facts, section semantics, JSON schemas, or presentation
   layouts owned by focused designs;
 - make all hidden parser inputs supported syntax;
 - require compatibility with undocumented implementation accidents; or
-- replace explicit security, failure-visibility, or correctness fixes with
-  indefinite legacy behavior.
+- permit stale product skills or README examples because an old parser path
+  still works.

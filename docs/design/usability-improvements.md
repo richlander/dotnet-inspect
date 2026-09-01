@@ -15,7 +15,8 @@ People are building skills on top of dotnet-inspect (e.g.,
 [davidfowl/dotnet-skillz](https://github.com/davidfowl/dotnet-skillz) and
 [richlander/dotnet-skills](https://github.com/richlander/dotnet-skills)).
 Those consumers make compatibility evidence important, but they do not make
-every apparently additive change safe.
+safely additive changes automatic and do not require obsolete parser paths.
+Current product skills and the CLI behavior they teach move together.
 
 LLMs will always thrash a bit — they try things, get errors, and adapt. The tool should be resilient to this by accepting reasonable inputs gracefully and guiding users toward better queries via tips on stderr.
 
@@ -122,8 +123,9 @@ new syntax can collide with implicit routing or parser binding, added JSON can
 break strict consumers, and changed output volume can alter cost and
 automation.
 
-Use [CLI compatibility and deprecation](cli-compatibility.md) to classify a
-change against its current owner and pathological neighboring inputs.
+Use [CLI compatibility and deprecation](cli-compatibility.md) to classify and
+disclose a change, update current guidance, and test pathological neighboring
+inputs without preserving obsolete syntax solely for historical consumers.
 
 ### The ilspy-decompile precedent
 
