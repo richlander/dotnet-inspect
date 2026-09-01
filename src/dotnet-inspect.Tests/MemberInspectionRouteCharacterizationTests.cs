@@ -63,8 +63,9 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         // design's ten route identities are therefore the closure set here; every row below
         // independently exercises its current product branch. Demand and capability cells
         // distinguish the route's focused plan from the discovery execution observed beside it.
-        var packagePipeline =
-            PackageSectionDescriptors.CreateCatalog().Pipeline;
+        var packageCatalog =
+            PackageSectionDescriptors.CreateCatalog();
+        var packagePipeline = packageCatalog.Pipeline;
         HashSet<string> packageSections =
         [
             PackageSections.SourceLinkAvailability,
@@ -77,16 +78,37 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         };
         var packageDiscoveryOptions = new InspectionOptions
         {
-            Discover = [PackageSections.PackageInfo],
+            Discover =
+            [
+                PackageSections.PackageInfo,
+                PackageSections.SourceLinkAvailability,
+            ],
         };
         var packageProducerOptions = PackageCommand.CreateProducerOptions(
             packageDiscoveryOptions with { Verbosity = Verbosity.Detailed },
             packageDiscoveryOptions.Verbosity,
             packagePipeline);
-        var packageDiscoveryDemand = new ProducerDemandPlan(
-            packageProducerOptions.Verbosity,
-            packageProducerOptions.IncludeSections,
-            ExcludeUnbounded: true);
+        var packageDiscoveryPlan =
+            PackageCommand.CreatePackageSourceQueryPlan(
+                packageCatalog.Sections,
+                packageCatalog.QueryCatalog,
+                packageProducerOptions,
+                excludeUnbounded: true);
+        var packageUnrestrictedDiscoveryPlan =
+            PackageCommand.CreatePackageSourceQueryPlan(
+                packageCatalog.Sections,
+                packageCatalog.QueryCatalog,
+                packageProducerOptions,
+                excludeUnbounded: false);
+        Assert.Contains(
+            SourceAvailabilityQuery.Definition,
+            packageUnrestrictedDiscoveryPlan.SectionPlan.Queries);
+        Assert.DoesNotContain(
+            SourceAvailabilityQuery.Definition,
+            packageDiscoveryPlan.SectionPlan.Queries);
+        string packageDiscoveryDemand = FormatDemand(
+            packageDiscoveryPlan.SectionPlan.Demands.Select(
+                item => (item.Section, item.Query.Name)));
 
         var libraryPipeline = LibrarySections.CreateCatalog().Pipeline;
         HashSet<string> librarySections =
@@ -161,15 +183,16 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         [
             Observe(
                 "package",
-                await ObservePackageDiscoveryAsync(packageDiscoveryOptions),
+                await ObservePackageDiscoveryAsync(
+                    packageDiscoveryOptions,
+                    packageDiscoveryDemand),
                 packagePipeline,
                 packageSections,
                 "focus:vulnerability-traffic="
                     + PackageCommand.AllowsVulnerabilityTraffic(packageOptions)
                     + ";discovery:vulnerability-traffic="
                     + PackageCommand.AllowsVulnerabilityTraffic(
-                        packageProducerOptions),
-                packageDiscoveryDemand),
+                        packageProducerOptions)),
             Observe(
                 "package-single-library",
                 await ObservePackageLibraryDiscoveryAsync(),
@@ -437,7 +460,8 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
     }
 
     private async Task<DiscoveryObservation> ObservePackageDiscoveryAsync(
-        InspectionOptions discoveryOptions)
+        InspectionOptions discoveryOptions,
+        string producerDemand)
     {
         var schema = await ConsoleCapture.RunAsync(
             () => PackageCommand.ExecuteAsync(new InspectionOptions
@@ -464,15 +488,33 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 PackageArgs = [_packagePath],
             }));
         Assert.Equal(0, effective.ExitCode);
-        Assert.Contains("| Authors | field", effective.Output);
+        Assert.Contains("Authors (field)", effective.Output);
+        Assert.Contains("Unavailable Libraries (field)", effective.Output);
         Assert.Empty(effective.Error);
         return new(
             "schema-static-without-target/effective-with-target",
-            IdentifyCatalog(schema.Output, schemaTree.Output));
+            IdentifyCatalog(schema.Output, schemaTree.Output),
+            producerDemand);
     }
 
     private async Task<DiscoveryObservation> ObservePackageLibraryDiscoveryAsync()
     {
+        string missingPackagePath =
+            Path.Combine(_temporaryDirectory, "missing.nupkg");
+        var missingPackage = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(new InspectionOptions
+            {
+                PackageArgs = [missingPackagePath],
+                PackageLibrary = "",
+                Discover = [],
+                Schema = true,
+            }));
+        Assert.Equal(1, missingPackage.ExitCode);
+        Assert.Empty(missingPackage.Output);
+        Assert.Contains(
+            $"File not found: {missingPackagePath}",
+            missingPackage.Error);
+
         var result = await ConsoleCapture.RunAsync(
             () => PackageCommand.ExecuteAsync(new InspectionOptions
             {
