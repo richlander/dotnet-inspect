@@ -1758,6 +1758,63 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void ToDisplayRows_DoesNotDescribeUnrelatedCalleeRenameWhenDeclarationIsGeneric()
+    {
+        // Round-3 review (reviewers A and B): before the bail-instead-of-
+        // continue fix, a generic local function's type-parameter list
+        // (`<T>`) left no identifier immediately before the real parameter
+        // list, and the scan then fell through into the declaration's body,
+        // where it could pick up an unrelated call there and misattribute
+        // it as the declaration's own name. Here the added `Other<T>`
+        // declaration's body happens to invoke `New`, matching this
+        // comparison's own unrelated call-site rename, but the declaration's
+        // actual name is `Other`, not `New` -- the caption must not fire.
+        // (Generic declarations are not yet recognized by this heuristic, so
+        // no caption is expected here at all -- only that none is wrongly
+        // produced.)
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return New(value);\nstatic void Other<T>() { New(0); }",
+            new NodeSpec("InvocationExpression", "New(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void Other<T>() { New(0); }", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> New(value)", changed.Detail);
+    }
+
+    [Fact]
+    public void ToDisplayRows_DoesNotDescribeAttributeArgumentAsDeclaredName()
+    {
+        // Round-3 review (reviewers A and B): a local function's own
+        // attribute list is a top-level parenthesized group like any other,
+        // so before the leading-attribute-skip fix, an attribute with
+        // arguments (`[My(1)]`) was mistaken for the declaration's parameter
+        // list, and the identifier immediately preceding it (`My`) was
+        // returned as the declared name instead of the declaration's real
+        // name (`Other`). Here the unrelated call is renamed to exactly
+        // that attribute-argument identifier (`My`), which must not trigger
+        // the caption.
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return My(value);\n[My(1)] static void Other() { }",
+            new NodeSpec("InvocationExpression", "My(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "[My(1)] static void Other() { }", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> My(value)", changed.Detail);
+    }
+
+    [Fact]
     public void IssueCorrespondence_DoesNotInferDeclarationWithoutMatchedCallSiteRewrite()
     {
         // Close negative: a new local-function declaration with no IL origin

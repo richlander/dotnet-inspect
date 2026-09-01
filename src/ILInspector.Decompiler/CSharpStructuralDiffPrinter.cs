@@ -573,14 +573,25 @@ public static class CSharpStructuralDiffPrinter
     /// list's own opening paren is a candidate. Returns
     /// <see langword="false"/> for any shape this narrow heuristic does not
     /// recognize, matching every other textual classifier in this file:
-    /// "no opinion", not a guess.
+    /// "no opinion", not a guess. Round-3 review (reviewers A and B):
+    /// scanning must stop -- not merely skip a group and keep looking -- the
+    /// moment a group's preceding token is neither empty-at-the-very-start
+    /// (the one shape the tuple-return-type skip legitimately expects) nor a
+    /// recognized modifier; otherwise an unrecognized header shape such as a
+    /// type-parameter list (<c>Other&lt;T&gt;()</c>) falls through into the
+    /// body and can misattribute an unrelated call found there (e.g.
+    /// <c>New()</c>) as this declaration's own name. A leading attribute
+    /// list (<c>[My(1)] static void Other() { }</c>) is skipped up front for
+    /// the same reason: its own argument list is otherwise indistinguishable
+    /// from the real parameter list.
     /// </summary>
     static bool TryGetLocalFunctionDeclaredName(string text, out string name)
     {
         name = "";
+        int start = SkipLeadingAttributeLists(text);
         int depth = 0;
         int groupStart = -1;
-        for (int index = 0; index < text.Length; index++)
+        for (int index = start; index < text.Length; index++)
         {
             char current = text[index];
             if (current == '(')
@@ -598,7 +609,7 @@ public static class CSharpStructuralDiffPrinter
                     while (tokenEnd > 0 && char.IsWhiteSpace(text[tokenEnd - 1]))
                         tokenEnd--;
                     int tokenStart = tokenEnd;
-                    while (tokenStart > 0 && IsIdentifierChar(text[tokenStart - 1]))
+                    while (tokenStart > start && IsIdentifierChar(text[tokenStart - 1]))
                         tokenStart--;
 
                     // Include a verbatim identifier's leading '@' (e.g. the
@@ -607,18 +618,41 @@ public static class CSharpStructuralDiffPrinter
                     // (round-2 review: an escaped name was silently dropped
                     // here, permanently mismatching a correctly-escaped
                     // callee and losing the caption).
-                    if (tokenStart > 0 && text[tokenStart - 1] == '@')
+                    if (tokenStart > start && text[tokenStart - 1] == '@')
                         tokenStart--;
 
-                    if (tokenStart < tokenEnd
-                        && !char.IsDigit(text[tokenStart])
-                        && Array.IndexOf(LocalFunctionModifiers, text[tokenStart..tokenEnd]) < 0)
+                    if (tokenStart == tokenEnd)
                     {
-                        name = text[tokenStart..tokenEnd];
-                        return true;
+                        if (tokenEnd == start)
+                        {
+                            // Nothing precedes this group at all: consistent
+                            // only with an unmodified tuple return type
+                            // opening the declaration (`(int, string) F(x)`).
+                            // Keep looking for the real parameter list that
+                            // follows it.
+                            groupStart = -1;
+                            continue;
+                        }
+
+                        // Some non-identifier token precedes this group in
+                        // the middle of the text (e.g. the '>' closing a
+                        // type-parameter list). This shape isn't recognized;
+                        // bail rather than risk continuing into a later,
+                        // unrelated group such as a body call.
+                        return false;
                     }
 
-                    groupStart = -1;
+                    if (char.IsDigit(text[tokenStart]))
+                        return false;
+
+                    if (Array.IndexOf(LocalFunctionModifiers, text[tokenStart..tokenEnd]) >= 0)
+                    {
+                        groupStart = -1;
+                        continue;
+                    }
+
+                    name = text[tokenStart..tokenEnd];
+                    return true;
                 }
             }
         }
@@ -626,7 +660,72 @@ public static class CSharpStructuralDiffPrinter
         return false;
     }
 
-    static bool IsIdentifierChar(char value) => char.IsLetterOrDigit(value) || value == '_';
+    /// <summary>
+    /// Advances past a leading, balanced <c>[...]</c> attribute list (and any
+    /// further leading whitespace), so <see cref="TryGetLocalFunctionDeclaredName"/>
+    /// never mistakes an attribute's own argument list -- e.g. the <c>(1)</c>
+    /// in <c>[My(1)] static void Other() { }</c> -- for the declaration's
+    /// parameter list. Leaves the index unchanged (returns 0) if the
+    /// remaining text is empty, has no leading <c>[</c>, or the brackets
+    /// never balance.
+    /// </summary>
+    static int SkipLeadingAttributeLists(string text)
+    {
+        int index = 0;
+        while (true)
+        {
+            while (index < text.Length && char.IsWhiteSpace(text[index]))
+                index++;
+
+            if (index >= text.Length || text[index] != '[')
+                return index;
+
+            int depth = 0;
+            int scan = index;
+            for (; scan < text.Length; scan++)
+            {
+                if (text[scan] == '[')
+                    depth++;
+                else if (text[scan] == ']')
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        scan++;
+                        break;
+                    }
+                }
+            }
+
+            if (depth != 0)
+                return index;
+
+            index = scan;
+        }
+    }
+
+    /// <summary>
+    /// Matches C#'s identifier-part character rule (ECMA-334 §6.4.3): letter
+    /// and digit categories via <see cref="char.IsLetterOrDigit"/>, plus
+    /// underscore, connector punctuation, and combining marks. Round-3
+    /// review (reviewers A and B): <see cref="char.IsLetterOrDigit"/> alone
+    /// rejects combining marks that are nonetheless valid mid-identifier
+    /// characters, silently truncating a legitimately Unicode-spelled
+    /// declared name and losing the caption (or, worse, falling through into
+    /// the unrecognized-shape path above).
+    /// </summary>
+    static bool IsIdentifierChar(char value)
+    {
+        if (char.IsLetterOrDigit(value) || value == '_')
+            return true;
+
+        var category = System.Globalization.CharUnicodeInfo.GetUnicodeCategory(value);
+        return category
+            is System.Globalization.UnicodeCategory.NonSpacingMark
+            or System.Globalization.UnicodeCategory.SpacingCombiningMark
+            or System.Globalization.UnicodeCategory.ConnectorPunctuation
+            or System.Globalization.UnicodeCategory.Format;
+    }
 
     /// <summary>
     /// Splits <paramref name="text"/> as <c>[qualifier.]callee(arguments)</c>
