@@ -11,6 +11,7 @@ internal static class MemberSourceLocationCollector
     public static async Task<string?> EnrichAsync(
         ApiType apiType,
         string assemblyPath,
+        ResolvedAssemblyReference? sourceAssembly,
         string? packageName,
         string? packageVersion,
         MemberOptions options,
@@ -26,10 +27,30 @@ internal static class MemberSourceLocationCollector
 
             if (context.NeedsPdb)
             {
-                await SourceEnricher.AcquirePdbAsync(context, httpClient,
-                    packageName, packageVersion,
-                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log,
-                    sourceOptions: options.SourceOptions);
+                if (sourceAssembly is null)
+                {
+                    await SourceEnricher.AcquirePdbAsync(
+                        context,
+                        httpClient,
+                        packageName,
+                        packageVersion,
+                        isPlatformAssembly:
+                            !string.IsNullOrEmpty(
+                                options.PlatformAssembly),
+                        logger.Log,
+                        sourceOptions: options.SourceOptions);
+                }
+                else
+                {
+                    await SourceEnricher.AcquirePdbAsync(
+                        context,
+                        sourceAssembly,
+                        httpClient,
+                        logger.Log,
+                        sourceOptions: options.SourceOptions,
+                        fallbackPackageName: packageName,
+                        fallbackPackageVersion: packageVersion);
+                }
             }
 
             var pdbPath = context.PortablePdbPath;

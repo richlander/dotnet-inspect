@@ -44,6 +44,49 @@ public sealed class UnsupportedSourceException(string message) : Exception(messa
 }
 
 /// <summary>
+/// One effective configured alias whose source value has not yet been
+/// classified or canonicalized.
+/// </summary>
+/// <remarks>
+/// Holding a declaration is not source authority. Consumers select alias names
+/// first and call <see cref="Resolve"/> only for declarations included in the
+/// requested effective view.
+/// </remarks>
+public sealed class PackageSourceDeclaration
+{
+    private readonly string _value;
+    private readonly string? _baseDirectory;
+    private readonly PackageSourceCredential? _credential;
+
+    internal PackageSourceDeclaration(
+        string name,
+        string value,
+        string? baseDirectory,
+        PackageSourceCredential? credential)
+    {
+        Name = name;
+        _value = value;
+        _baseDirectory = baseDirectory;
+        _credential = credential;
+    }
+
+    /// <summary>Gets the configured alias name.</summary>
+    public string Name { get; }
+
+    /// <summary>
+    /// Classifies and canonicalizes this selected declaration.
+    /// </summary>
+    /// <exception cref="UnsupportedSourceException">
+    /// The selected source value is unusable.
+    /// </exception>
+    public PackageSource Resolve() =>
+        new(
+            Name,
+            SourceResolver.ResolveSourceValue(_value, _baseDirectory),
+            _credential);
+}
+
+/// <summary>
 /// Resolves NuGet package sources from nuget.config files.
 /// </summary>
 public static class SourceResolver
@@ -79,8 +122,38 @@ public static class SourceResolver
     {
         problem = null;
 
+        if (LocalPackageSourceIdentity.IsLocalSource(url))
+        {
+            try
+            {
+                _ = LocalPackageSourceIdentity.Create(
+                    url,
+                    Directory.GetCurrentDirectory());
+                return true;
+            }
+            catch (Exception ex) when (ex is
+                ArgumentException
+                or IOException
+                or NotSupportedException)
+            {
+                problem = new InertString(
+                    TextPolicy.Field,
+                    "The local package source path is unusable.");
+                return false;
+            }
+        }
+
         if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? uri)
-            || string.IsNullOrEmpty(uri.UserInfo))
+            || (uri.Scheme != Uri.UriSchemeHttp
+                && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            problem = new InertString(
+                TextPolicy.Field,
+                "The package source must be an HTTP(S) URL, local path, or file URI.");
+            return false;
+        }
+
+        if (string.IsNullOrEmpty(uri.UserInfo))
         {
             return true;
         }
@@ -156,7 +229,12 @@ public static class SourceResolver
         // Explicit source overrides everything
         if (explicitSource is not null)
         {
-            return [new PackageSource("explicit", explicitSource)];
+            return
+            [
+                new PackageSource(
+                    "explicit",
+                    ResolveSourceValue(explicitSource, workingDirectory)),
+            ];
         }
 
         IReadOnlyList<PackageSource> initialSources = configPath is null
@@ -170,7 +248,10 @@ public static class SourceResolver
         {
             foreach (string url in additionalSources)
             {
-                sources.Add(new PackageSource("additional", url));
+                sources.Add(
+                    new PackageSource(
+                        "additional",
+                        ResolveSourceValue(url, workingDirectory)));
             }
         }
 
@@ -207,11 +288,46 @@ public static class SourceResolver
     public static IReadOnlyList<PackageSource> ResolveConfiguredSourceAliases(
         string? configPath = null,
         string? workingDirectory = null)
-        => Validated(BuildConfiguredSources(
+        => Validated(
+        [
+            .. GetConfiguredSourceAliasDeclarations(
+                configPath,
+                workingDirectory)
+                .Select(static declaration => declaration.Resolve()),
+        ]);
+
+    /// <summary>
+    /// Reads active source declarations after configuration hierarchy merge
+    /// without classifying their values.
+    /// </summary>
+    public static IReadOnlyList<PackageSourceDeclaration>
+        GetEffectiveSourceDeclarations(
+            string? configPath = null,
+            string? workingDirectory = null)
+        => BuildConfiguredSourceDeclarations(
             configPath,
             workingDirectory,
             configPath is null ? PackageSources.Default : PackageSources.Empty,
-            includeDisabled: true));
+            includeDisabled: false);
+
+    /// <summary>
+    /// Reads every effective configured alias, including disabled aliases,
+    /// without classifying source values.
+    /// </summary>
+    /// <remarks>
+    /// Explicit source selection uses this view to find a configured alias and
+    /// credentials for the endpoint the user selected. Ordinary resolution
+    /// uses <see cref="GetEffectiveSourceDeclarations"/>.
+    /// </remarks>
+    public static IReadOnlyList<PackageSourceDeclaration>
+        GetConfiguredSourceAliasDeclarations(
+            string? configPath = null,
+            string? workingDirectory = null)
+        => BuildConfiguredSourceDeclarations(
+            configPath,
+            workingDirectory,
+            configPath is null ? PackageSources.Default : PackageSources.Empty,
+            includeDisabled: true);
 
     /// <summary>
     /// Resolves package source mapping from the same configuration hierarchy as package sources.
@@ -256,23 +372,58 @@ public static class SourceResolver
         string? workingDirectory,
         IReadOnlyList<PackageSource> initialSources,
         bool includeDisabled = false)
+        =>
+        [
+            .. BuildConfiguredSourceDeclarations(
+                configPath,
+                workingDirectory,
+                initialSources,
+                includeDisabled)
+                .Select(static declaration => declaration.Resolve()),
+        ];
+
+    private static IReadOnlyList<PackageSourceDeclaration>
+        BuildConfiguredSourceDeclarations(
+            string? configPath,
+            string? workingDirectory,
+            IReadOnlyList<PackageSource> initialSources,
+            bool includeDisabled)
     {
         IReadOnlyList<string> configFiles = configPath is not null
             ? [configPath]
             : FindConfigFiles(workingDirectory);
 
-        return MergeConfigFiles(configFiles, initialSources, includeDisabled);
+        return MergeConfigDeclarations(
+            configFiles,
+            initialSources,
+            includeDisabled);
     }
 
     internal static IReadOnlyList<PackageSource> MergeConfigFiles(
         IReadOnlyList<string> configFiles,
         IReadOnlyList<PackageSource> initialSources,
         bool includeDisabled = false)
+        =>
+        [
+            .. MergeConfigDeclarations(
+                configFiles,
+                initialSources,
+                includeDisabled)
+                .Select(static declaration => declaration.Resolve()),
+        ];
+
+    private static IReadOnlyList<PackageSourceDeclaration>
+        MergeConfigDeclarations(
+            IReadOnlyList<string> configFiles,
+            IReadOnlyList<PackageSource> initialSources,
+            bool includeDisabled)
     {
         ArgumentNullException.ThrowIfNull(configFiles);
         ArgumentNullException.ThrowIfNull(initialSources);
 
-        var mergedSources = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var mergedSources =
+            new Dictionary<string, SourceDeclaration>(
+                StringComparer.OrdinalIgnoreCase);
         List<string> sourceOrder = [];
         var inheritedSourceNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var disabled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -281,7 +432,11 @@ public static class SourceResolver
 
         foreach (PackageSource source in initialSources)
         {
-            SetSource(mergedSources, sourceOrder, source.Name, source.Url);
+            SetSource(
+                mergedSources,
+                sourceOrder,
+                source.Name,
+                new SourceDeclaration(source.Url, BaseDirectory: null));
             inheritedSourceNames.Add(source.Name);
 
             if (source.Credential is not null)
@@ -303,7 +458,7 @@ public static class SourceResolver
                 credentials);
         }
 
-        List<PackageSource> sources = [];
+        List<PackageSourceDeclaration> declarations = [];
         IEnumerable<string> configuredSources = sourceOrder
             .Where(name => !inheritedSourceNames.Contains(name));
         IEnumerable<string> inheritedSources = sourceOrder
@@ -318,10 +473,16 @@ public static class SourceResolver
             }
 
             credentials.TryGetValue(name, out PackageSourceCredential? credential);
-            sources.Add(new PackageSource(name, mergedSources[name], credential));
+            SourceDeclaration declaration = mergedSources[name];
+            declarations.Add(
+                new PackageSourceDeclaration(
+                    name,
+                    declaration.Value,
+                    declaration.BaseDirectory,
+                    credential));
         }
 
-        return sources.Count == 0 ? PackageSources.Empty : sources;
+        return declarations;
     }
 
     private static void MergePackageSourceMappingFile(
@@ -470,7 +631,7 @@ public static class SourceResolver
     /// </summary>
     private static void MergeConfigFile(
         string configPath,
-        Dictionary<string, string> sources,
+        Dictionary<string, SourceDeclaration> sources,
         List<string> sourceOrder,
         HashSet<string> inheritedSourceNames,
         HashSet<string> disabled,
@@ -514,7 +675,15 @@ public static class SourceResolver
                         if (key is not null && value is not null)
                         {
                             inheritedSourceNames.Remove(key);
-                            SetSource(sources, sourceOrder, key, value);
+                            SetSource(
+                                sources,
+                                sourceOrder,
+                                key,
+                                new SourceDeclaration(
+                                    Environment.ExpandEnvironmentVariables(
+                                        value),
+                                    Path.GetDirectoryName(
+                                        Path.GetFullPath(configPath))));
                         }
                     }
                 }
@@ -589,17 +758,17 @@ public static class SourceResolver
                 }
             }
         }
-        catch
+        catch (Exception ex) when (ex is not UnsupportedSourceException)
         {
             // Best-effort config parsing
         }
     }
 
     private static void SetSource(
-        Dictionary<string, string> sources,
+        Dictionary<string, SourceDeclaration> sources,
         List<string> sourceOrder,
         string name,
-        string url)
+        SourceDeclaration declaration)
     {
         int existingIndex = sourceOrder.FindIndex(
             existing => string.Equals(existing, name, StringComparison.OrdinalIgnoreCase));
@@ -609,8 +778,38 @@ public static class SourceResolver
         }
 
         sources.Remove(name);
-        sources[name] = url;
+        sources[name] = declaration;
         sourceOrder.Add(name);
+    }
+
+    private readonly record struct SourceDeclaration(
+        string Value,
+        string? BaseDirectory);
+
+    internal static string ResolveSourceValue(
+        string source,
+        string? baseDirectory)
+    {
+        if (!LocalPackageSourceIdentity.IsLocalSource(source))
+        {
+            UnsupportedSourceException.ThrowIfUnsupported(source);
+            return source;
+        }
+
+        try
+        {
+            return LocalPackageSourceIdentity.Create(
+                source,
+                baseDirectory ?? Directory.GetCurrentDirectory()).CanonicalPath;
+        }
+        catch (Exception ex) when (ex is
+            ArgumentException
+            or IOException
+            or NotSupportedException)
+        {
+            throw new UnsupportedSourceException(
+                "The local package source path is unusable.");
+        }
     }
 
     private static string? GetUserConfigPath()

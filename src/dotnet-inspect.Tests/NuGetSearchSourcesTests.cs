@@ -895,7 +895,7 @@ public class NuGetSearchSourcesTests
             var ex = Assert.Throws<InvalidOperationException>(() =>
                 NuGetSourceResolver.ResolveSources(new NuGetSourceOptions { ConfigFile = path }));
 
-            Assert.Contains("no usable package sources", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("no package sources", ex.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -1063,6 +1063,32 @@ public class NuGetSearchSourcesTests
 
         NuGetSource source = Assert.Single(sources);
         Assert.Equal(IndexUrl, source.Url);
+    }
+
+    [Fact]
+    public void ResolveSources_DisabledMalformedAliasDoesNotInvalidateExplicitConfig()
+    {
+        using var config = new TempNuGetConfig(
+            [("current", IndexUrl), ("legacy", "file:relative")],
+            disabledSources: ["legacy"]);
+
+        Assert.Null(
+            NuGetSourceResolver.DescribeConfigProblem(
+                config.Path));
+
+        PackageSource ordinary = Assert.Single(
+            NuGetSourceResolver.ResolveSources(
+                new NuGetSourceOptions { ConfigFile = config.Path }));
+        Assert.Equal("current", ordinary.Name);
+
+        PackageSource explicitlySelected = Assert.Single(
+            NuGetSourceResolver.ResolveSources(
+                new NuGetSourceOptions
+                {
+                    ConfigFile = config.Path,
+                    Sources = [IndexUrl],
+                }));
+        Assert.Equal("current", explicitlySelected.Name);
     }
 
     [Fact]
@@ -1378,6 +1404,37 @@ public class NuGetSearchSourcesTests
         Assert.Null(sources[1].Credential);
     }
 
+    [Fact]
+    public void ResolveSources_CommandRelativePathMatchesConfiguredLocalAlias()
+    {
+        string workingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"local-command-{Guid.NewGuid():N}");
+        string feed = Path.Combine(workingDirectory, "feed");
+        Directory.CreateDirectory(workingDirectory);
+        try
+        {
+            using var config = new TempNuGetConfig(
+                [("configured-local", feed)]);
+
+            PackageSource source = Assert.Single(
+                NuGetSourceResolver.ResolveSources(
+                    new NuGetSourceOptions
+                    {
+                        ConfigFile = config.Path,
+                        Sources = ["feed"],
+                    },
+                    workingDirectory));
+
+            Assert.Equal("configured-local", source.Name);
+            Assert.Equal(feed, source.Url);
+        }
+        finally
+        {
+            Directory.Delete(workingDirectory, recursive: true);
+        }
+    }
+
     /// <summary>
     /// Repeated trailing slashes are a different producer identity. An unmatched explicit URL
     /// therefore retains its literal spelling as the alias mapping must name.
@@ -1418,6 +1475,24 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
+    public void ResolveSourcesForPackage_MappingCollapsesEquivalentLocalAliases()
+    {
+        string feed = Path.Combine(
+            Path.GetTempPath(),
+            $"local-feed-{Guid.NewGuid():N}");
+        using var config = new TempNuGetConfig(
+            [("path", feed), ("uri", new Uri(feed).AbsoluteUri)],
+            mappings: [("path", "*"), ("uri", "*")]);
+
+        PackageSource source = Assert.Single(
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions { ConfigFile = config.Path },
+                "Contoso.Package"));
+
+        Assert.Equal(feed, source.Url);
+    }
+
+    [Fact]
     public void ResolveSourcesForPackage_MappingSelectsConfiguredName()
     {
         using var config = new TempNuGetConfig(
@@ -1431,6 +1506,29 @@ public class NuGetSearchSourcesTests
                 "B.Package"));
 
         Assert.Equal("b", source.Name);
+    }
+
+    [Fact]
+    public void ResolveSourcesForPackage_MappingClassifiesOnlySelectedAliases()
+    {
+        using var config = new TempNuGetConfig(
+            [("current", IndexUrl), ("legacy", "file:relative")],
+            mappings:
+            [
+                ("current", "Contoso.*"),
+                ("legacy", "Legacy.*"),
+            ]);
+
+        PackageSource current = Assert.Single(
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions { ConfigFile = config.Path },
+                "Contoso.Package"));
+
+        Assert.Equal("current", current.Name);
+        Assert.Throws<UnsupportedSourceException>(
+            () => NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions { ConfigFile = config.Path },
+                "Legacy.Package"));
     }
 
     [Fact]
