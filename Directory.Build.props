@@ -43,15 +43,9 @@
       `dotnet restore` and `dotnet publish` on it. Those restores are the
       child's, and the child is an ordinary SDK project covered by this
       policy, so the packages that actually get resolved are audited.
-
-      Restoring packages is not by itself what brings a project under this
-      policy, so do not read the boundary that way. A non-SDK project can
-      import NuGet.props and NuGet.targets directly and get a working
-      Restore target and PackageReference support while still importing
-      neither of these files; it then evaluates NuGetAuditMode=direct with
-      NU1901-NU1904 unpromoted, and nothing here would catch it. Any new
-      project that resolves packages must therefore import this file;
-      declaring an Sdk is the ordinary way to do that.
+      Importing this file, not restoring packages, is what confers coverage;
+      a project that hand-imported the SDK's own NuGet targets would restore
+      without it. Nothing in the repository does that today.
     -->
     <NuGetAudit>true</NuGetAudit>
     <NuGetAuditMode>all</NuGetAuditMode>
