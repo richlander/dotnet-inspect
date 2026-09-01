@@ -5,7 +5,9 @@ facets. It gives navigation, portable-definition owners, and other hosts one
 stable identity and descriptor space without turning a browser label, CLI
 section name, or command flag into a contract.
 
-This is a target contract. The registry is not implemented yet.
+The registry contract and initial inspection-lens catalog are implemented in
+`DotnetInspector.Queries`. Adjacent Navigation, workspace-definition, and host
+consumers remain separate work.
 
 ## Why this is a separate owner
 
@@ -379,7 +381,23 @@ restoration own stateful interactions.
 
 ## Implementation status
 
-The registry and gates are not implemented.
+The immutable registry, initial 16-facet catalog, private execution bindings,
+typed applicability and availability inputs, exact resolution outcomes, and
+append-only compatibility manifest are implemented by
+`ViewFacetRegistry.cs`, `InspectionViewFacetCatalog.cs`, and
+`eng/view-facet-compatibility.json`.
+
+The required contract is enforced by
+`ViewFacetRegistryTests.Catalog_IsCompleteUniqueAndDeterministicallyOrdered`,
+`ViewFacetRegistryCompatibilityTests.ShippedFacets_RetainIdentityKindAndPurpose`,
+`ViewFacetRegistryTests.RegistrationsAndBindingsAgree`,
+`ViewFacetRegistryTests.Tombstone_PreservesApplicabilityAndReturnsRetired`,
+`ViewFacetRegistryTests.StaticDiscovery_DoesNotExecuteOrAcquire`,
+`ViewFacetRegistryTests.TargetDiscovery_PreservesOrderAndFailureEvidence`,
+`ViewFacetRegistryTests.Lookup_DistinguishesEveryOutcome`,
+`ViewFacetRegistryTests.RootApplicability_PartitionsPackageAndNonPackageFacets`,
+and
+`ViewFacetRegistryTests.InitialInspectionLensInventory_MatchesContract`.
 
 Current transitional surfaces are:
 
