@@ -19,13 +19,13 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
-    "@types/node": "^24.13.3",
+    "@types/node": "^26.4.0",
     "html-validate": "^11.10.0",
-    "knip": "^6.32.2",
-    "oxc-parser": "^0.143.0",
-    "oxlint": "^1.79.0",
+    "knip": "^6.33.0",
+    "oxc-parser": "^0.147.0",
+    "oxlint": "^1.80.0",
     "oxlint-tsgolint": "7.0.2001",
-    "type-fest": "4.41.0",
+    "type-fest": "5.8.0",
     "typescript": "7.0.2",
     "vite": "^7.0.6"
   },
