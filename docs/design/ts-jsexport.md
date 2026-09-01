@@ -183,7 +183,7 @@ the consumer's compiler own JavaScript and optional declaration emission.
 | `ILInspector.JsExportSurface` | C#-faithful export facts, exact runtime-publication identity, authenticated JSON wire evidence | TypeScript names, syntax, wrappers, compiler configuration |
 | `TsJsExport.Contracts` | producer-side context root declaration | export discovery, facade grouping, generation, runtime behavior |
 | `ts-jsexport` | deterministic TypeScript facade source and assembly-specific export shape from one `JsExportSurface`; exact context-root resolution into a closed set of independent surfaces; canonical context artifact filenames from assembly simple names | thunk generation, generic runtime declarations, runtime implementation, TypeScript compilation, browser publication, public module specifiers or startup order |
-| Consumer | context membership, context output directory, TypeScript compiler configuration, public module specifiers, availability of the SDK-owned runtime declaration, derived artifacts, module resolution, composition, and hosting | reinterpreting or weakening the context or `JsExportSurface` inputs |
+| Consumer | context membership, fresh context output-directory location, TypeScript compiler configuration, public module specifiers, availability of the SDK-owned runtime declaration, derived artifacts, module resolution, composition, and hosting | placing pre-existing files in the context output directory; reinterpreting or weakening the context or `JsExportSurface` inputs |
 
 These boundaries are intentionally asymmetric. `ts-jsexport` may reject an input
 surface it cannot faithfully represent in TypeScript. It must not broaden
@@ -584,12 +584,19 @@ context-specific TypeScript branch.
 
 The context command accepts one context assembly, one exact context type, one
 or more assembly search locations, one runtime-module option shared by the
-set, and one output directory. It validates and generates the complete set
-before writing the first canonical artifact. Each file retains the direct
-command's per-file atomic replacement behavior. The command does not promise a
-filesystem-wide transaction if its process or host fails during publication;
-consumers that require atomic deployment generate into scratch space and own
-the final directory or deployment swap.
+set, and one output directory that must not already exist. It validates and
+generates the complete set before creating that directory or writing its first
+canonical artifact. It never merges a context set into an existing directory,
+deletes stale files, or treats pre-existing contents as part of the current
+set. Every successful output directory therefore contains exactly the
+canonical artifacts generated from that invocation's context.
+
+The command does not promise a filesystem-wide transaction if its process or
+host fails during publication; an interrupted invocation may leave its newly
+created output directory incomplete and the non-existing-directory precondition
+makes that state visible on retry. Consumers generate into a fresh scratch
+path for every attempt and own cleanup plus the final directory or deployment
+swap.
 
 `JsExportContextLoaderTests.ContextRootsResolveExactCompiledAssemblySet` will
 gate successful cross-assembly resolution from a real compiled context.
@@ -600,6 +607,9 @@ case. `ContextRejectsDuplicateAssemblyRoots`,
 `ContextFailureReturnsNoFacadeSources` will gate the close negatives above.
 `TsJsExportCommandTests.ContextModeWritesCanonicalCompleteSet` will gate exact
 set materialization and the portable, collision-free artifact-name rule.
+`ContextModeRejectsExistingOutputDirectory` will gate the fresh-directory
+precondition, including an older successful directory whose context set was
+larger.
 `TsJsExportContractsTests.RootAttributeHasExactMetadataContract` and
 `ContractsProjectHasNoProjectOrPackageReferences` will gate the producer
 contract's shape and dependency boundary. The existing NativeAOT publish lane
@@ -890,6 +900,10 @@ issue references below.
   treating the available files as complete, rejects two roots in one assembly,
   includes every export across all declaring types in a rooted assembly, and
   returns no generated source when any root fails;
+- context command fixtures prove a successful fresh output directory contains
+  exactly the canonical artifacts for its context and that an existing
+  directory, including one generated from a formerly larger context, is
+  rejected rather than merged or cleaned;
 - direct generation and a one-root context produce byte-identical TypeScript
   for the same assembly and runtime-module option;
 - a generator test proves one TypeScript source contains both the runtime
