@@ -1625,7 +1625,8 @@ public class CSharpStructuralComparisonTests
         var after = TrustedDocument(
             "return Own(value);\nstatic int Own(int input) => input + 1;",
             new NodeSpec("InvocationExpression", "Own(value)", [0x10]),
-            new NodeSpec("LocalFunctionStatement", "static int Own(int input) => input + 1;", null));
+            new NodeSpec("LocalFunctionStatement", "static int Own(int input) => input + 1;", null),
+            new NodeSpec("Block", "return Own(value);\nstatic int Own(int input) => input + 1;", null));
 
         var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
         var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
@@ -1644,7 +1645,8 @@ public class CSharpStructuralComparisonTests
         var before = TrustedDocument(
             "F();\nstatic void F()\n{\n}",
             new NodeSpec("InvocationExpression", "F()", [0x10]),
-            new NodeSpec("LocalFunctionStatement", "static void F()\n{\n}", null));
+            new NodeSpec("LocalFunctionStatement", "static void F()\n{\n}", null),
+            new NodeSpec("Block", "F();\nstatic void F()\n{\n}", null));
         var after = TrustedDocument(
             "__CallsEmpty_g__F_0_0();",
             new NodeSpec("InvocationExpression", "__CallsEmpty_g__F_0_0()", [0x10]));
@@ -1721,7 +1723,8 @@ public class CSharpStructuralComparisonTests
         var after = TrustedDocument(
             "return @return(value);\nstatic int @return(int value) => value;",
             new NodeSpec("InvocationExpression", "@return(value)", [0x10]),
-            new NodeSpec("LocalFunctionStatement", "static int @return(int value) => value;", null));
+            new NodeSpec("LocalFunctionStatement", "static int @return(int value) => value;", null),
+            new NodeSpec("Block", "return @return(value);\nstatic int @return(int value) => value;", null));
 
         var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
         var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
@@ -1858,7 +1861,8 @@ public class CSharpStructuralComparisonTests
         var after = TrustedDocument(
             "return F(value);\n[My] (int, string) F(int value) => (value, \"\");",
             new NodeSpec("InvocationExpression", "F(value)", [0x10]),
-            new NodeSpec("LocalFunctionStatement", "[My] (int, string) F(int value) => (value, \"\");", null));
+            new NodeSpec("LocalFunctionStatement", "[My] (int, string) F(int value) => (value, \"\");", null),
+            new NodeSpec("Block", "return F(value);\n[My] (int, string) F(int value) => (value, \"\");", null));
 
         var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
         var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
@@ -1916,6 +1920,118 @@ public class CSharpStructuralComparisonTests
 
         var changed = Assert.Single(display, row => row.Change == "Changed");
         Assert.Equal("Old(value) -> New(value)", changed.Detail);
+    }
+
+    [Fact]
+    public void ToDisplayRows_DoesNotDescribeCommentInMainScanAsDeclaredName()
+    {
+        // Round-6 review (reviewers A and B): the round-5 fix only bailed on
+        // '/' inside SkipLeadingAttributeLists, not in the main declaration
+        // scan that runs after it. A comment later in the header -- here,
+        // right after the `static` modifier -- still hides a parenthesized
+        // group whose preceding identifier could be misread as the declared
+        // name, attributing an unrelated call (`New`) to a same-named but
+        // wholly different actual local function (`Other`).
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return New(value);\nstatic /* New() */ void Other() { }",
+            new NodeSpec("InvocationExpression", "New(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static /* New() */ void Other() { }", null),
+            new NodeSpec("Block", "return New(value);\nstatic /* New() */ void Other() { }", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> New(value)", changed.Detail);
+    }
+
+    [Fact]
+    public void ToDisplayRows_DescribesCallTargetRenamedToRefTupleReturningLocalFunction()
+    {
+        // Round-6 review (reviewer A): `ref` and `ref readonly` are valid
+        // tokens preceding a tuple return type's own parenthesized group
+        // (`ref (int, int) F()`), just like the already-recognized
+        // modifiers. Before this fix, the scan mistook `ref` itself for the
+        // declared name instead of continuing on to find the real
+        // parameter list and its own preceding identifier `F`.
+        var before = TrustedDocument(
+            "return Synthesized(value);",
+            new NodeSpec("InvocationExpression", "Synthesized(value)", [0x10]));
+        var after = TrustedDocument(
+            "return F(value);\nref (int, int) F(int value) => throw new Exception();",
+            new NodeSpec("InvocationExpression", "F(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "ref (int, int) F(int value) => throw new Exception();", null),
+            new NodeSpec("Block", "return F(value);\nref (int, int) F(int value) => throw new Exception();", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        Assert.Contains(display, row =>
+            row.Change == "Changed"
+            && row.Detail == "call target: Synthesized -> local function `F`");
+    }
+
+    [Fact]
+    public void ToDisplayRows_DescribesCallTargetRenamedToSupplementaryPlaneLocalFunction()
+    {
+        // Round-6 review (reviewer B): char-based identifier classification
+        // examines each half of a supplementary-plane surrogate pair (e.g.
+        // U+10400, DESERET CAPITAL LETTER LONG I) independently, and neither
+        // half is itself an identifier-part category, so the whole
+        // character was silently excluded from the declared name -- a false
+        // negative that permanently lost the caption for a name spelled with
+        // one.
+        var before = TrustedDocument(
+            "return Synthesized(value);",
+            new NodeSpec("InvocationExpression", "Synthesized(value)", [0x10]));
+        var after = TrustedDocument(
+            "return \U00010400F(value);\nstatic int \U00010400F(int value) => value;",
+            new NodeSpec("InvocationExpression", "\U00010400F(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static int \U00010400F(int value) => value;", null),
+            new NodeSpec("Block", "return \U00010400F(value);\nstatic int \U00010400F(int value) => value;", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Contains("local function `\U00010400F`", changed.Detail);
+    }
+
+    [Fact]
+    public void ToDisplayRows_DoesNotDescribeCallOutsideNarrowerLocalFunctionScopeAsRenamed()
+    {
+        // Round-6 review (reviewers A and B): DeclaresLocalFunctionNamed
+        // matched any Added/Removed LocalFunctionStatement row by spelling
+        // alone, with no check that the declaration's own block lexically
+        // contains the invocation. A same-named local function declared in
+        // a narrower nested block (here, inside the `if`) cannot be what an
+        // outer call resolves to under C#'s own local-function scoping rule
+        // -- that outer call must mean an ordinary member -- so it must not
+        // receive this caption. The invocation and the `if` block share the
+        // same enclosing method-body Block, but only the `if` block's own
+        // (narrower) Block actually contains the local function.
+        var before = TrustedDocument(
+            "Old();\nif (condition)\n{\n}",
+            new NodeSpec("InvocationExpression", "Old()", [0x10]),
+            new NodeSpec("Block", "Old();\nif (condition)\n{\n}", null));
+        var after = TrustedDocument(
+            "New();\nif (condition)\n{\n    static void New() { }\n}",
+            new NodeSpec("InvocationExpression", "New()", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void New() { }", null),
+            new NodeSpec("Block", "New();\nif (condition)\n{\n    static void New() { }\n}", null),
+            new NodeSpec(
+                "Block",
+                "{\n    static void New() { }\n}",
+                null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old() -> New()", changed.Detail);
     }
 
     [Fact]

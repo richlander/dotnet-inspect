@@ -236,7 +236,7 @@ public static class CSharpStructuralDiffPrinter
         {
             if (TryDescribeQualifierArgumentRoleTransition(beforeText, afterText, out var qualifierTransition))
                 return qualifierTransition.DetailSummary;
-            if (TryDescribeCalleeRenamedRoleTransition(comparison, beforeText, afterText, out var calleeTransition))
+            if (TryDescribeCalleeRenamedRoleTransition(comparison, row, beforeText, afterText, out var calleeTransition))
                 return calleeTransition.DetailSummary;
         }
 
@@ -297,6 +297,7 @@ public static class CSharpStructuralDiffPrinter
 
             if (TryDescribeCalleeRenamedRoleTransition(
                     comparison,
+                    row,
                     Contain(beforeText)!,
                     Contain(afterText)!,
                     out var calleeTransition))
@@ -470,6 +471,7 @@ public static class CSharpStructuralDiffPrinter
 
     static bool TryDescribeCalleeRenamedRoleTransition(
         CSharpStructuralComparison comparison,
+        CSharpStructuralDiffRow row,
         string beforeText,
         string afterText,
         out CalleeRenamedRoleTransition transition)
@@ -490,7 +492,8 @@ public static class CSharpStructuralDiffPrinter
             return false;
         }
 
-        if (DeclaresLocalFunctionNamed(comparison, CSharpStructuralChangeKind.Added, afterCallee))
+        if (row.AfterSpans.Length == 1
+            && DeclaresLocalFunctionNamed(comparison, CSharpStructuralChangeKind.Added, afterCallee, row.AfterSpans[0]))
         {
             transition = new CalleeRenamedRoleTransition(
                 $"call target: {beforeCallee}",
@@ -499,7 +502,8 @@ public static class CSharpStructuralDiffPrinter
             return true;
         }
 
-        if (DeclaresLocalFunctionNamed(comparison, CSharpStructuralChangeKind.Removed, beforeCallee))
+        if (row.BeforeSpans.Length == 1
+            && DeclaresLocalFunctionNamed(comparison, CSharpStructuralChangeKind.Removed, beforeCallee, row.BeforeSpans[0]))
         {
             transition = new CalleeRenamedRoleTransition(
                 $"call target: local function `{beforeCallee}`",
@@ -516,19 +520,27 @@ public static class CSharpStructuralDiffPrinter
     /// or <see cref="CSharpStructuralChangeKind.Removed"/> <c>LocalFunctionStatement</c>
     /// row whose own <em>declared name</em> -- not merely any identifier
     /// occurring anywhere in its full statement text -- equals
-    /// <paramref name="name"/>. The row's display label is only a generic
-    /// per-kind caption ("Local function"), never the declaration's own
-    /// text, so this re-selects the row's actual spans instead. Scanning the
-    /// declaration's full span text for any occurrence of the identifier
+    /// <paramref name="name"/>, and whose declaring block lexically contains
+    /// <paramref name="invocationSpan"/>. The row's display label is only a
+    /// generic per-kind caption ("Local function"), never the declaration's
+    /// own text, so this re-selects the row's actual spans instead. Scanning
+    /// the declaration's full span text for any occurrence of the identifier
     /// (round-1 review, reviewers A and B) would falsely match a parameter,
     /// body reference, comment, or string literal that merely shares the
     /// callee's spelling -- e.g. a local function <c>Other(int New)</c> must
     /// not license the caption for an unrelated call renamed to <c>New</c>.
+    /// Requiring the invocation to lie within the declaring block (round-6
+    /// review, reviewers A and B) keeps a same-named local function declared
+    /// in a narrower nested block -- e.g. inside an <c>if</c> -- from
+    /// licensing this caption for an unrelated call outside that block,
+    /// which C#'s own local-function scoping rule (visible only within its
+    /// immediately declaring block) would never allow to resolve there.
     /// </summary>
     static bool DeclaresLocalFunctionNamed(
         CSharpStructuralComparison comparison,
         CSharpStructuralChangeKind change,
-        string name)
+        string name,
+        AnnotatedSourceSpan invocationSpan)
     {
         var document = change == CSharpStructuralChangeKind.Added ? comparison.After : comparison.Before;
         foreach (var candidate in comparison.Rows)
@@ -544,7 +556,8 @@ public static class CSharpStructuralDiffPrinter
             foreach (var span in spans)
             {
                 if (TryGetLocalFunctionDeclaredName(SelectText(document, span), out string declaredName)
-                    && string.Equals(declaredName, name, StringComparison.Ordinal))
+                    && string.Equals(declaredName, name, StringComparison.Ordinal)
+                    && IsWithinDeclaringBlock(document, span, invocationSpan))
                 {
                     return true;
                 }
@@ -555,12 +568,59 @@ public static class CSharpStructuralDiffPrinter
     }
 
     /// <summary>
+    /// Whether <paramref name="invocationSpan"/> lies inside the smallest
+    /// <c>Block</c>-kind node of <paramref name="document"/> that fully
+    /// contains <paramref name="declarationSpan"/> -- i.e. the block that
+    /// directly declares the local function, the one block C# grants it
+    /// scope throughout (before or after its own declaration position
+    /// within that block, but nowhere outside it). Conservatively
+    /// <see langword="false"/> if no containing block is found, since that
+    /// shape is not recognized rather than assumed safe.
+    /// </summary>
+    static bool IsWithinDeclaringBlock(
+        AnnotatedSourceDocument document,
+        AnnotatedSourceSpan declarationSpan,
+        AnnotatedSourceSpan invocationSpan)
+    {
+        AnnotatedSourceSpan? declaringBlock = null;
+        foreach (var node in document.Nodes)
+        {
+            if (!string.Equals(node.Kind, "Block", StringComparison.Ordinal))
+                continue;
+
+            foreach (var blockSpan in node.Spans)
+            {
+                if (blockSpan.Start > declarationSpan.Start
+                    || blockSpan.Start + blockSpan.Length < declarationSpan.Start + declarationSpan.Length)
+                {
+                    continue;
+                }
+
+                if (declaringBlock is not { } current || blockSpan.Length < current.Length)
+                    declaringBlock = blockSpan;
+            }
+        }
+
+        if (declaringBlock is not { } block)
+            return false;
+
+        return invocationSpan.Start >= block.Start
+            && invocationSpan.Start + invocationSpan.Length <= block.Start + block.Length;
+    }
+
+    /// <summary>
     /// Modifiers a local-function declaration's header may carry before its
     /// return type and name. Needed only to skip a tuple return type's own
     /// parenthesized group (e.g. <c>static (int, string) F(int x)</c>), whose
     /// preceding token would otherwise be mistaken for the declared name.
+    /// <c>ref</c> and <c>readonly</c> are included for the same reason: a
+    /// ref (readonly) tuple-returning declaration (<c>ref (int, int) F()</c>,
+    /// <c>ref readonly (int, int) F()</c>) has one of these as the token
+    /// immediately preceding the tuple-return group, which round-6 review
+    /// (reviewer A) found was otherwise returned as the declared name instead
+    /// of continuing on to the real parameter list.
     /// </summary>
-    static readonly string[] LocalFunctionModifiers = ["static", "async", "unsafe", "extern"];
+    static readonly string[] LocalFunctionModifiers = ["static", "async", "unsafe", "extern", "ref", "readonly"];
 
     /// <summary>
     /// Extracts a <c>LocalFunctionStatement</c>'s own declared name: the
@@ -583,7 +643,12 @@ public static class CSharpStructuralDiffPrinter
     /// <c>New()</c>) as this declaration's own name. A leading attribute
     /// list (<c>[My(1)] static void Other() { }</c>) is skipped up front for
     /// the same reason: its own argument list is otherwise indistinguishable
-    /// from the real parameter list.
+    /// from the real parameter list. Bails on any <c>/</c> encountered in
+    /// this main scan too, not only in <see cref="SkipLeadingAttributeLists"/>
+    /// -- a comment anywhere later in the header (e.g.
+    /// <c>static /* New() */ void Other() { }</c>) could otherwise supply a
+    /// parenthesized group whose preceding token is misread as the declared
+    /// name (round-6 review, reviewers A and B).
     /// </summary>
     static bool TryGetLocalFunctionDeclaredName(string text, out string name)
     {
@@ -597,6 +662,9 @@ public static class CSharpStructuralDiffPrinter
         for (int index = start; index < text.Length; index++)
         {
             char current = text[index];
+            if (current == '/')
+                return false;
+
             if (current == '(')
             {
                 if (depth == 0)
@@ -619,8 +687,8 @@ public static class CSharpStructuralDiffPrinter
                     while (tokenEnd > start && char.IsWhiteSpace(text[tokenEnd - 1]))
                         tokenEnd--;
                     int tokenStart = tokenEnd;
-                    while (tokenStart > start && IsIdentifierChar(text[tokenStart - 1]))
-                        tokenStart--;
+                    while (tokenStart > start && TryStepBackOneIdentifierRune(text, start, tokenStart, out int stepped))
+                        tokenStart = stepped;
 
                     // Include a verbatim identifier's leading '@' (e.g. the
                     // escaped local function `@return`) so the declared name
@@ -733,27 +801,81 @@ public static class CSharpStructuralDiffPrinter
     }
 
     /// <summary>
-    /// Matches C#'s identifier-part character rule (ECMA-334 §6.4.3): letter
-    /// and digit categories via <see cref="char.IsLetterOrDigit"/>, plus
-    /// underscore, connector punctuation, and combining marks. Round-3
-    /// review (reviewers A and B): <see cref="char.IsLetterOrDigit"/> alone
-    /// rejects combining marks that are nonetheless valid mid-identifier
-    /// characters, silently truncating a legitimately Unicode-spelled
-    /// declared name and losing the caption (or, worse, falling through into
-    /// the unrecognized-shape path above).
+    /// Steps one identifier-part Unicode scalar value backward from
+    /// <paramref name="position"/> (not bounded below <paramref name="start"/>),
+    /// reporting the new position in <paramref name="newPosition"/> when the
+    /// preceding scalar value qualifies. Operates on
+    /// <see cref="System.Text.Rune"/> rather than <see cref="char"/> so a
+    /// surrogate pair spanning two UTF-16 code units is treated as the one
+    /// scalar value it is, and returns <see langword="false"/> -- ending the
+    /// backward scan -- on an unpaired surrogate, which is never valid
+    /// identifier text. Round-6 review (reviewers A and B):
+    /// <see cref="char"/>-based classification examined each surrogate half
+    /// independently (always false, since a surrogate's own Unicode category
+    /// is never an identifier-part category), silently truncating any
+    /// declared name spelled with a supplementary-plane letter, and also
+    /// omitted <see cref="System.Globalization.UnicodeCategory.LetterNumber"/>
+    /// (e.g. Roman numeral letters such as U+2160), truncating a name
+    /// beginning with one of those. This matches
+    /// <c>CSharpText.CSharpIdentifierCore.IsIdentifierPartRune</c>, this
+    /// repository's own canonical Unicode identifier-part rule, which
+    /// <see cref="ILInspector.Decompiler"/> cannot reference directly (it is
+    /// <see langword="internal"/> to <c>CSharpText</c>).
     /// </summary>
-    static bool IsIdentifierChar(char value)
+    static bool TryStepBackOneIdentifierRune(string text, int start, int position, out int newPosition)
     {
-        if (char.IsLetterOrDigit(value) || value == '_')
-            return true;
+        newPosition = position;
+        if (position <= start)
+            return false;
 
-        var category = System.Globalization.CharUnicodeInfo.GetUnicodeCategory(value);
-        return category
-            is System.Globalization.UnicodeCategory.NonSpacingMark
-            or System.Globalization.UnicodeCategory.SpacingCombiningMark
-            or System.Globalization.UnicodeCategory.ConnectorPunctuation
-            or System.Globalization.UnicodeCategory.Format;
+        char last = text[position - 1];
+        System.Text.Rune rune;
+        int width;
+        if (char.IsLowSurrogate(last))
+        {
+            if (position - 1 <= start || !char.IsHighSurrogate(text[position - 2]))
+                return false;
+
+            rune = new System.Text.Rune(text[position - 2], last);
+            width = 2;
+        }
+        else if (char.IsHighSurrogate(last))
+        {
+            // A high surrogate can never end a backward scan on its own; it
+            // must be immediately followed by its low surrogate, which would
+            // already have been consumed by the branch above on the prior
+            // step. Reaching this branch means an unpaired surrogate.
+            return false;
+        }
+        else
+        {
+            rune = new System.Text.Rune(last);
+            width = 1;
+        }
+
+        if (!IsIdentifierPartRune(rune))
+            return false;
+
+        newPosition = position - width;
+        return true;
     }
+
+    /// <summary>
+    /// Matches C#'s identifier-part character rule (ECMA-334 §6.4.3) over a
+    /// full Unicode scalar value rather than a UTF-16 code unit: letter,
+    /// digit, and letter-number categories, plus underscore, connector
+    /// punctuation, combining marks, and format characters.
+    /// </summary>
+    static bool IsIdentifierPartRune(System.Text.Rune rune)
+        => rune.Value == '_'
+            || System.Text.Rune.IsLetterOrDigit(rune)
+            || System.Text.Rune.GetUnicodeCategory(rune)
+                is System.Globalization.UnicodeCategory.LetterNumber
+                or System.Globalization.UnicodeCategory.NonSpacingMark
+                or System.Globalization.UnicodeCategory.SpacingCombiningMark
+                or System.Globalization.UnicodeCategory.ConnectorPunctuation
+                or System.Globalization.UnicodeCategory.Format;
+
 
     /// <summary>
     /// Splits <paramref name="text"/> as <c>[qualifier.]callee(arguments)</c>
