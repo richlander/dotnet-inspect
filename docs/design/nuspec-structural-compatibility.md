@@ -65,11 +65,16 @@ Services owns XML shape recognition, namespace relationships, field extraction,
 and safe malformed/unsupported-structure failures. `HardenedXml` remains the
 shared XML decoding boundary.
 
-`PackageManifestFactsQuery` owns expected identity matching, dependency
-contract validation, scalar/count/byte limits, and projection into typed
-manifest failures. Acquisition belongs to the host, and CLI or Browser
-presentation is outside this policy. This document neither changes those
-contracts nor makes Services an acquisition or presentation owner.
+`PackageManifestFactsQuery` owns expected identity matching, validated
+self-attested coordinate construction for direct content, typed identity
+provenance, dependency contract validation, scalar/count/byte limits, and
+projection into typed manifest failures. Both identity paths consume the same
+single Services parse. Self-attested version construction normalizes
+surrounding XML whitespace consistently with expected-coordinate version
+matching; package ID whitespace remains invalid in both paths. Acquisition
+belongs to the host, and CLI or Browser presentation is outside this policy.
+This document neither makes Services an identity, acquisition, or presentation
+owner.
 
 Missing `metadata`, `id`, or `version` is therefore not a structural parser
 error. A consuming query may reject the resulting incomplete facts according
@@ -89,6 +94,16 @@ direct-child and namespace boundary.
 `PackageManifestFactsQueryTests.Execute_ReportsIncompatibleMetadataNamespaceAsUnsupportedDocumentShape`
 gates projection of the tightened Services boundary into the existing
 content-free typed query failure.
+`ExecuteSelfAttested_ProjectsEquivalentFactsWithTypedProvenance` gates parity
+between expected-coordinate and direct-content projection.
+`ExecuteSelfAttested_RejectsInvalidIdentity`,
+`ExecuteSelfAttested_RejectsMissingIdentity`,
+`ExecuteSelfAttested_EnforcesIdentityScalarLimit`, and
+`ExecuteSelfAttested_EnforcesManifestByteLimit` gate the self-attested identity
+and byte boundary. `ExecuteSelfAttested_RejectsManifestBeyondDecodedCharacterLimit`,
+`ExecuteSelfAttested_RejectsMalformedXml`, and
+`ExecuteSelfAttested_PreservesHostileDescriptionAsInertText` gate its shared
+parse, decoded-text, and inert-text boundaries.
 
 The pinned live command in `eng/package-manifest-corpus.md` is required evidence
 for an acceptance-policy change; synthetic unit tests alone do not establish
