@@ -832,7 +832,8 @@ failed. Cleanup failure never selects or replaces the terminal primary.
 
 **Status:** implemented for #5122 and verified by the named
 `PackageAssemblyContextCompletionTests` Release gates below. Coordinated
-workspace adoption remains separate under #5185.
+workspace adoption is implemented under #5185 and verified by the
+[workspace-close composition gates](../inspection-space.md#workspace-close-and-group-release-authority).
 
 One successfully opened package-role operation produces one
 workspace-owned `PackageAssemblyContextCompletion`. The completion owns the
@@ -931,7 +932,7 @@ Coordinated workspace registration, workspace-close signaling, late
 completion, and preservation of existing lease-holder access during workspace
 close remain owned by
 [Workspace close and group release authority](../inspection-space.md#workspace-close-and-group-release-authority)
-and are adopted separately by #5185.
+and were adopted separately under #5185.
 
 The adjacent exact-request admission and assembly-context group lifecycle
 models bound cache leases and group quiescence respectively. Neither model
@@ -1256,9 +1257,10 @@ does not release capacity still owned by the physical operation.
 If any reservation would exceed its workspace limit, that demand receives a
 typed capacity rejection before an operation id is minted or package-role work
 starts. Capacity rejection is not cached and does not disturb an existing
-entry. The retained caller in #5123 must choose explicit workspace limits; the
-admission implementation cannot inherit unbounded cardinality from caller
-input.
+entry. The
+[retained-caller decision](../inspection-space.md#retained-package-realization-caller)
+requires any approved caller to choose explicit workspace limits; the admission
+implementation cannot inherit unbounded cardinality from caller input.
 
 One operation publishes one combined result atomically. Every demand attached
 to that operation receives the same success and realization identity, or every
@@ -1376,15 +1378,15 @@ Target workspace disposal is asynchronous. The
 [workspace close contract](../inspection-space.md#workspace-close-and-group-release-authority),
 defined by #5156, owns sole terminal release authority, coordinated
 lease-draining access, late-completion cleanup, and non-blocking close. Its
-direct-group asynchronous foundation is implemented by #5192. Coordinated
-package-role registration and release remain unimplemented and are tracked by
-issue #5185; the current package-role path still disposes its groups
-independently.
-Admission implementation therefore depends on that coordinated adoption after
-issue #5122 and this contract supply their owner-issued completion, projection,
-and lease handoffs. The target may wait indefinitely for a lease whose holder
-never returns it; weak-fairness model results therefore state the explicit
-caller assumption that every issued lease is eventually returned.
+direct-group asynchronous foundation is implemented by #5192, and coordinated
+package-role registration and release are implemented by #5185. The synchronous
+caller-owned `PackageAssemblyContextRealization` compatibility path still
+disposes its groups independently and is not the admission result. Admission
+implementation depends on the landed coordinated adoption and uses the
+owner-issued completion, projection, and lease handoffs from #5122 and this
+contract. The target may wait indefinitely for a lease whose holder never
+returns it; weak-fairness model results therefore state the explicit caller
+assumption that every issued lease is eventually returned.
 
 Cleanup failure remains visible through the package-role completion and does
 not produce a ready entry. Once cleanup completes, successfully or with
