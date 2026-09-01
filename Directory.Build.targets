@@ -76,4 +76,17 @@
     <WarningsAsErrors>$(WarningsAsErrors);RS0030</WarningsAsErrors>
   </PropertyGroup>
 
+  <!-- Escalated for the same reason as RS0030 above, and deliberately not
+       restricted to .csproj: four fixture projects opt out of the repository-wide
+       TreatWarningsAsErrors default, and one of them is a .vbproj. Opting out of
+       warnings-as-errors is about the compiler diagnostics those fixtures exist
+       to produce; it was never a decision to accept known-vulnerable packages.
+       Without this, a vulnerability in those projects restores with a warning and
+       exit code 0. Package sweeps that intentionally restore untrusted packages
+       pass NuGetAudit=false, which suppresses the warnings before they reach
+       here. -->
+  <PropertyGroup>
+    <WarningsAsErrors>$(WarningsAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsAsErrors>
+  </PropertyGroup>
+
 </Project>
