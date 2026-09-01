@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace NuGetFetch;
 
 /// <summary>
@@ -26,8 +28,49 @@ public sealed class LocalPackageSourceIdentity
 
     internal string PersistentValue =>
         OperatingSystem.IsWindows()
-            ? CanonicalPath.ToUpperInvariant()
+            ? FoldOrdinalIgnoreCase(CanonicalPath)
             : CanonicalPath;
+
+    internal static string FoldOrdinalIgnoreCase(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+        for (int index = 0; index < value.Length; index++)
+        {
+            if (!Rune.TryCreate(value[index], out Rune rune))
+            {
+                if (index + 1 >= value.Length
+                    || !Rune.TryCreate(
+                        value[index],
+                        value[index + 1],
+                        out rune))
+                {
+                    builder.Append(value[index]);
+                    continue;
+                }
+
+                index++;
+            }
+
+            Rune representative = rune;
+            string runeText = rune.ToString();
+            Consider(Rune.ToUpperInvariant(rune));
+            Consider(Rune.ToLowerInvariant(rune));
+            builder.Append(representative.ToString());
+
+            void Consider(Rune candidate)
+            {
+                if (candidate.Value < representative.Value
+                    && StringComparer.OrdinalIgnoreCase.Equals(
+                        runeText,
+                        candidate.ToString()))
+                {
+                    representative = candidate;
+                }
+            }
+        }
+
+        return builder.ToString();
+    }
 
     /// <summary>
     /// Reports whether <paramref name="source"/> has local path or

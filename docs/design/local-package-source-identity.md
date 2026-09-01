@@ -73,6 +73,12 @@ deliberately does not probe the current volume for a more permissive comparison:
 identity must be deterministic before filesystem access, and a probe on one
 volume cannot authorize a path on another mounted volume.
 
+The persistent Windows spelling selects a stable Unicode-scalar representative
+only when ordinal case-insensitive equality admits that representative. It
+does not use culture-invariant uppercasing by itself because that broader
+operation collapses some Unicode characters that ordinal case-insensitive
+identity keeps distinct.
+
 An explicit file URI must not carry user information, a query, or a fragment.
 A UNC file URI is admitted only on Windows, where the host path implementation
 can preserve UNC root semantics. Windows drive and UNC paths otherwise follow
@@ -84,6 +90,8 @@ on one host is evidence only for that host's path semantics.
 `RootRetainsItsDirectorySeparator`,
 `CaseComparisonUsesHostPathSemantics`, and
 `SymbolicLinkDoesNotCollapseToItsTarget` are the cross-platform Release gates.
+`StableOrdinalIgnoreCaseFoldDoesNotBroadenIdentity` gates stable persistent
+Windows folding.
 `ResolutionBaseMustBeAbsolute` gates explicit base ownership.
 `WindowsDrivePathAndFileUriShareIdentity` and
 `WindowsUncPathAndFileUriShareIdentity` are the Windows-host gates.

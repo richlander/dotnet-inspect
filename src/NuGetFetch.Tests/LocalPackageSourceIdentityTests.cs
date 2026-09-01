@@ -103,6 +103,23 @@ public sealed class LocalPackageSourceIdentityTests : IDisposable
     }
 
     [Fact]
+    public void StableOrdinalIgnoreCaseFoldDoesNotBroadenIdentity()
+    {
+        Assert.Equal(
+            LocalPackageSourceIdentity.FoldOrdinalIgnoreCase("feed"),
+            LocalPackageSourceIdentity.FoldOrdinalIgnoreCase("FEED"));
+        Assert.Equal(
+            LocalPackageSourceIdentity.FoldOrdinalIgnoreCase("\u00e4"),
+            LocalPackageSourceIdentity.FoldOrdinalIgnoreCase("\u00c4"));
+        Assert.NotEqual(
+            LocalPackageSourceIdentity.FoldOrdinalIgnoreCase("s"),
+            LocalPackageSourceIdentity.FoldOrdinalIgnoreCase("\u017f"));
+        Assert.NotEqual(
+            LocalPackageSourceIdentity.FoldOrdinalIgnoreCase("\ud800"),
+            LocalPackageSourceIdentity.FoldOrdinalIgnoreCase("\ufffd"));
+    }
+
+    [Fact]
     public void WindowsDrivePathAndFileUriShareIdentity()
     {
         if (!OperatingSystem.IsWindows())
