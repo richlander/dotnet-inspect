@@ -384,9 +384,11 @@ access immediately at termination, cancels registered openers and an in-flight
 materialization read it owns, and releases acquisition leases only at content
 quiescence. Source and retained-content openers therefore accept the
 generation owner's cancellation token; a potentially blocking opener must
-observe it promptly without depending on a worker thread. Admission stream
-wrappers combine that token with the caller token for asynchronous
-materialization reads. Returned query streams are the
+observe it promptly without depending on a worker thread. The token is scoped
+to opener execution and detached under the authority gate before a successful
+stream escapes; it is not a returned-stream lifetime signal. Admission stream
+wrappers separately combine generation cancellation with the caller token for
+asynchronous materialization reads. Returned query streams are the
 intentional exception: they remain readable after generation end and pin
 backing leases until disposal. `DisposeAsync` has no timeout and remains
 incomplete for an abandoned query stream; query consumers are required to
@@ -2430,6 +2432,7 @@ The target is complete only when tests equivalent to these exist:
 - `ArtifactAccess_AuthorizationReplacementIsAtomicWithOpenRegistration`
 - `ArtifactAccess_LeaseDisposalIsAtomicWithOpenRegistration`
 - `ArtifactAccess_ReturnedStreamKeepsGenerationAliveUntilDisposed`
+- `ArtifactAccess_RetainedOpenerCancellationEndsAtCallbackReturn`
 - `ArtifactAccess_StreamDisposalFailureStillReportsQuiescence`
 - `ArtifactAccess_MaterializationReadPreservesCallerCancellation`
 - `ArtifactSetSession_ReleasesLeasesOnlyAfterDependentGroupsQuiesce`
@@ -2558,7 +2561,7 @@ checkpoint, reuse of checkpointed snapshots, finite pre-adapter capacity,
 empty-batch lease ownership, exact visible failure, atomic scoped nonempty
 admission, validation-failure cleanup, termination cleanup, late-diagnostic
 projection, and cancellation preservation.
-The seven named `ArtifactAccess_*` gates and three
+The eight named `ArtifactAccess_*` gates and three
 `ArtifactSetSession_*` content-quiescence gates enforce gate-atomic open and
 lease-disposal admission, owner interruption of stalled opening and
 materialization, returned-stream validity through generation end, deferred
@@ -2576,7 +2579,8 @@ explicit-empty-group cases, including typed compile-library absence, package
 documents, manifest dependencies, and no fabricated default assembly.
 
 Workspace-wide admission budgets, single-flight/reentrancy, content digests,
-and Metadata consumption of workspace roles remain unverified.
+assembly-group reporting into session quiescence, and Metadata consumption of
+workspace roles remain unverified.
 
 ## Non-goals
 

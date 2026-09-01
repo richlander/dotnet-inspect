@@ -145,23 +145,26 @@ public sealed class ArtifactSetSessionTests
     {
         CancellationToken cancellationToken =
             TestContext.Current.CancellationToken;
+        var entered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         var acquisitionLease = new TrackingLease();
         var session = new ArtifactSetSession();
         await session.AddRequiredAcquisitionAsync(
-            (scope, acquisitionCancellation) =>
+            (scope, _) =>
             {
-                _ = acquisitionCancellation;
                 ArtifactContribution contribution = scope.Register(
                     new Provenance("throwing-cancellation"),
                     ownerCancellation =>
                     {
-                        _ = ownerCancellation.Register(
+                        ownerCancellation.Register(
                             static () =>
                                 throw new IOException(
                                     "owner cancellation failed"));
-                        return new MemoryStream(
-                            [1],
-                            writable: false);
+                        entered.TrySetResult();
+                        ownerCancellation.WaitHandle.WaitOne();
+                        ownerCancellation.ThrowIfCancellationRequested();
+                        throw new InvalidOperationException(
+                            "The owner did not cancel the opener.");
                     });
                 return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
                     new ArtifactAcquisitionOutcome.Acquired(
@@ -169,29 +172,33 @@ public sealed class ArtifactSetSessionTests
                         acquisitionLease));
             },
             cancellationToken: cancellationToken);
-        Assert.IsType<ArtifactSetPublicationOutcome.Published>(
-            await session.SealAsync(cancellationToken));
-        ArtifactQueryAuthorization authorization =
-            session.CreateQueryAuthorization();
-        using ArtifactQueryLease lease =
-            session.IssueLease(authorization);
-        ArtifactIdentity identity =
-            Assert.Single(session.GetCatalog(lease)).Identity;
-        Stream opened = session.OpenRead(identity, lease);
 
+        Task<ArtifactSetPublicationOutcome> publication =
+            Task.Run(
+                async () =>
+                    await session.SealAsync(cancellationToken),
+                cancellationToken);
+        await entered.Task.WaitAsync(cancellationToken);
         Task firstDisposal = session.DisposeAsync().AsTask();
 
-        Assert.False(firstDisposal.IsCompleted);
-        Assert.Equal(0, acquisitionLease.DisposeCount);
-        opened.Dispose();
         await firstDisposal;
-
         Assert.Equal(1, acquisitionLease.DisposeCount);
         AggregateException failure =
             Assert.IsType<AggregateException>(
                 Assert.Single(session.CleanupFailures));
         Assert.IsType<IOException>(
-            Assert.Single(failure.InnerExceptions));
+            Assert.Single(
+                failure.Flatten().InnerExceptions));
+        ObjectDisposedException disposed =
+            await Assert.ThrowsAsync<ObjectDisposedException>(
+                async () => await publication);
+        IReadOnlyList<Exception> attached =
+            Assert.IsAssignableFrom<IReadOnlyList<Exception>>(
+                disposed.Data[
+                    "DotnetInspector.Artifacts.Workspaces.CleanupFailures"]);
+        Assert.Same(
+            failure,
+            Assert.Single(attached));
 
         await session.DisposeAsync();
         Assert.Equal(1, acquisitionLease.DisposeCount);

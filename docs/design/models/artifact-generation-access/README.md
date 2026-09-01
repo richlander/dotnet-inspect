@@ -181,7 +181,9 @@ java -cp /path/to/tla2tools.jar tlc2.TLC \
 - The target design's liveness carries three obligations now stated by the
   owning document. A registered opener receives and must observe the owner's
   cancellation token whenever it may block, without depending on a worker
-  thread. An in-flight
+  thread. That token is opener-scoped and is detached before a successful
+  returned stream escapes; returned-stream lifetime remains represented by
+  the access registration. An in-flight
   asynchronous materialization read combines caller and owner cancellation.
   Returned query streams remain valid after generation end and pin release
   until disposal; there is deliberately no timeout or invisible invalidation,

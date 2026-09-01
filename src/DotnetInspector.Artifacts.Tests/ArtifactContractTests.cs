@@ -437,6 +437,40 @@ public sealed class ArtifactContractTests
     }
 
     [Fact]
+    public void ArtifactAccess_RetainedOpenerCancellationEndsAtCallbackReturn()
+    {
+        var owner = new ArtifactGenerationAuthority();
+        ArtifactAdmissionAuthorization admission =
+            owner.CreateAdmissionAuthorization();
+        ArtifactContribution contribution;
+        using (ArtifactContributionScope scope =
+            owner.BeginContribution(admission))
+        {
+            contribution = scope.Register(
+                new Provenance("opener-scoped-cancellation"),
+                _ => StreamFor([1]));
+        }
+        RetainedArtifactContent retained =
+            owner.CreateRetainedContent(
+                contribution.Registration,
+                cancellationToken =>
+                {
+                    var stream = StreamFor([7, 8]);
+                    _ = cancellationToken.Register(stream.Dispose);
+                    return stream;
+                });
+        owner.CompleteAdmission(admission);
+        ArtifactQueryAuthorization query =
+            owner.CreateQueryAuthorization();
+        using ArtifactQueryLease lease = owner.IssueLease(query);
+        using Stream opened = retained.OpenRead(lease);
+
+        Assert.Equal(7, opened.ReadByte());
+        owner.EndGeneration();
+        Assert.Equal(8, opened.ReadByte());
+    }
+
+    [Fact]
     public async Task ArtifactAccess_StreamDisposalFailureStillReportsQuiescence()
     {
         var owner = new ArtifactGenerationAuthority();

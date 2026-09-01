@@ -69,7 +69,9 @@ public sealed class ArtifactContributionScope : IDisposable
     /// <remarks>
     /// The opener runs only after its access is registered. A potentially
     /// blocking opener must promptly observe the supplied generation-end
-    /// cancellation token without depending on a worker thread.
+    /// cancellation token without depending on a worker thread. The token is
+    /// scoped to the callback and is detached before a returned stream escapes;
+    /// it does not represent the returned stream's lifetime.
     /// </remarks>
     public ArtifactContribution Register(
         IArtifactProvenance provenance,
@@ -281,7 +283,9 @@ public sealed class ArtifactGenerationAuthority
     /// <remarks>
     /// The opener runs only after its access is registered. A potentially
     /// blocking opener must promptly observe the supplied generation-end
-    /// cancellation token without depending on a worker thread.
+    /// cancellation token without depending on a worker thread. The token is
+    /// scoped to the callback and is detached before a returned stream escapes;
+    /// it does not represent the returned stream's lifetime.
     /// </remarks>
     public RetainedArtifactContent CreateRetainedContent(
         ArtifactAcquisitionRegistration registration,
@@ -587,25 +591,37 @@ public sealed class ArtifactGenerationAuthority
         }
     }
 
-    private static Stream OpenReadable(
+    private Stream OpenReadable(
         Func<CancellationToken, Stream> openRead,
         ArtifactContentAccess access)
     {
+        CancellationTokenSource openerCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                access.CancellationToken);
+        bool openingFinished = false;
         Stream? stream = null;
         try
         {
-            stream = openRead(access.CancellationToken);
+            stream = openRead(openerCancellation.Token);
             if (stream is null || !stream.CanRead)
             {
                 throw new IOException(
                     "The artifact opener did not return a readable stream.");
             }
 
-            access.CancellationToken.ThrowIfCancellationRequested();
+            if (!TryCompleteOpening(openerCancellation))
+            {
+                openingFinished = true;
+                throw new OperationCanceledException(
+                    access.CancellationToken);
+            }
+            openingFinished = true;
             return new ArtifactAccessStream(stream, access);
         }
         catch
         {
+            if (!openingFinished)
+                AbandonOpening(openerCancellation);
             try
             {
                 stream?.Dispose();
@@ -615,6 +631,32 @@ public sealed class ArtifactGenerationAuthority
                 access.Dispose();
             }
             throw;
+        }
+    }
+
+    private bool TryCompleteOpening(
+        CancellationTokenSource openerCancellation)
+    {
+        lock (_gate)
+        {
+            if (Volatile.Read(ref _ended) != 0)
+                return false;
+
+            openerCancellation.Dispose();
+            return true;
+        }
+    }
+
+    private void AbandonOpening(
+        CancellationTokenSource openerCancellation)
+    {
+        lock (_gate)
+        {
+            if (Volatile.Read(ref _ended) == 0
+                || _endCancellationCompletion.Task.IsCompleted)
+            {
+                openerCancellation.Dispose();
+            }
         }
     }
 
