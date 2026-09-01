@@ -1,5 +1,6 @@
 import {
   buildAnnotatedView,
+  csharpHighlightingText,
   MEDIUM_LABELS,
 } from "./annotated-source-view.ts";
 import {
@@ -25,6 +26,9 @@ import type {
   AnnotatedSourceNode,
   SourceMedium,
 } from "./document-model.ts";
+import type {
+  CSharpRangeHighlighter,
+} from "./csharp-highlighting.ts";
 
 export type { AnnotatedSourceResult } from "./annotated-source-session.ts";
 
@@ -32,6 +36,10 @@ export interface AnnotatedSourceRenderOptions {
   result: AnnotatedSourceResult;
   session: AnnotatedSourceSession;
   escapeHtml: (value: unknown) => string;
+  highlightCSharp?: (
+    source: string,
+    tokenizationSource: string,
+  ) => CSharpRangeHighlighter;
 }
 
 export type AnnotatedSourceAction =
@@ -56,6 +64,7 @@ interface SourceRenderContext {
   model: AnnotatedSourceViewerModel;
   session: AnnotatedSourceSession;
   escapeHtml: (value: unknown) => string;
+  highlighting: CSharpRangeHighlighter;
 }
 
 type RenderedLineAnnotation =
@@ -82,25 +91,25 @@ export function renderAnnotatedSource(
   const context = renderContext(options);
   const { result, escapeHtml } = options;
   return `
-    <section class="annotated-reader" aria-labelledby="annotated-reader-title">
-      <header class="annotated-reader-head">
-        <div>
-          <p class="section-eyebrow">Annotated Source</p>
-          <h3 id="annotated-reader-title">C# with default findings</h3>
-          <p>${escapeHtml(result.provenance)}</p>
-        </div>
-        <div class="annotated-reader-actions">
-          <button id="copy-annotated" type="button" data-annotated-action="copy">copy source</button>
-          <button id="explore-annotated" class="primary-action" type="button"
-            data-annotated-action="explore">Explore</button>
-        </div>
-      </header>
-      ${result.contextLimitation
-        ? `<p class="annotated-context">${escapeHtml(result.contextLimitation)}</p>`
-        : ""}
+    <section class="annotated-reader" aria-label="Annotated source">
       ${renderSource(context)}
       ${renderDetail(context)}
+      <footer class="annotated-reader-footer">
+        ${result.contextLimitation
+          ? `<span class="annotated-context">${escapeHtml(result.contextLimitation)}</span>`
+          : ""}
+        <span>${escapeHtml(result.provenance)}</span>
+      </footer>
     </section>`;
+}
+
+export function renderAnnotatedSourcePageActions(enabled: boolean): string {
+  const disabled = enabled ? "" : " disabled";
+  return `
+    <button id="copy-annotated" type="button" data-annotated-action="copy"
+      title="Copy annotated source"${disabled}>Copy</button>
+    <button id="explore-annotated" class="primary-action" type="button"
+      data-annotated-action="explore"${disabled}>Explore</button>`;
 }
 
 export function renderAnnotatedSourceModal(
@@ -254,15 +263,25 @@ export function annotatedFocusSelector(
 function renderContext(
   options: AnnotatedSourceRenderOptions,
 ): SourceRenderContext {
+  const model = createAnnotatedSourceViewerModel(options.result);
+  const source = model.document.text;
   return {
-    model: createAnnotatedSourceViewerModel(options.result),
+    model,
     session: options.session,
     escapeHtml: options.escapeHtml,
+    highlighting: options.highlightCSharp?.(
+      source,
+      csharpHighlightingText(model.document),
+    ) ?? {
+      render(start, length) {
+        return options.escapeHtml(source.slice(start, start + length));
+      },
+    },
   };
 }
 
 function renderSource(context: SourceRenderContext): string {
-  const { model, session, escapeHtml } = context;
+  const { model, session, escapeHtml, highlighting } = context;
   const selectedFactId =
     session.primary?.kind === "finding" ? session.primary.id : null;
   const selectedNodeIds =
@@ -353,7 +372,7 @@ function renderSource(context: SourceRenderContext): string {
                           data-annotated-source-start="${segment.start}"
                           data-medium="${segmentMedium}"`
                       : ""}
-                    >${escapeHtml(segment.text)}</span>`;
+                    >${highlighting.render(segment.start, segment.text.length)}</span>`;
                 }).join("")
               : " "}</code>
             ${session.coordinatesVisible

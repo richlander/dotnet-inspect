@@ -191,6 +191,9 @@ import {
   validateAnnotatedSourceDocument,
 } from "./annotated-source-view.ts";
 import {
+  createCSharpRangeHighlighter,
+} from "./csharp-highlighting.ts";
+import {
   clearAnnotations,
   closeFindingDetail,
   createAnnotatedSourceViewerModel,
@@ -226,6 +229,7 @@ import {
 } from "./graph-source.ts";
 import {
   annotatedFocusSelector,
+  renderAnnotatedSourcePageActions,
   bindAnnotatedSource,
   renderAnnotatedSource as renderAnnotatedSourcePure,
   renderAnnotatedSourceModal as renderAnnotatedSourceModalPure,
@@ -451,10 +455,6 @@ async function loadEngineModule() {
 
 declare global {
   interface Window {
-    Prism?: {
-      languages: { csharp?: unknown };
-      highlight: (value: string, grammar: unknown, language: string) => string;
-    };
     __platformIndex?: Promise<PlatformIndex | null>;
   }
 }
@@ -2627,6 +2627,10 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     state.lens = "api";
   }
   state.typeCursor = Math.min(state.typeCursor, Math.max(visible.length - 1, 0));
+  const annotatedWorkingSurface =
+    scope() === "member" && state.memberSection === "annotated";
+  const annotatedActionsEnabled =
+    annotatedWorkingSurface && state.memberAnnotatedEmbedded !== null;
 
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal ? " inert" : ""}>
@@ -2702,9 +2706,13 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
                 : `<span>${escapeHtml(packageDisplayName(pkg))}</span><b>/</b><span>${escapeHtml(current?.namespace ?? "")}</span><b>/</b><strong>${escapeHtml(typeDisplayName(current))}</strong>
               ${state.selectedMemberKey ? `<b>/</b><strong>${escapeHtml(selectedMember(current)?.name ?? "")}</strong>` : ""}`}
             </div>
-            <div class="detail-actions"><button id="copy-name" type="button">copy name</button><button id="taste-btn" class="${state.taste.length ? "active" : ""}" title="Decompiler style (taste)">taste${state.taste.length ? ` · ${state.taste.length}` : ""}</button></div>
+            <div class="detail-actions${annotatedWorkingSurface ? " annotated-page-actions" : ""}">
+              ${annotatedWorkingSurface
+                ? renderAnnotatedSourcePageActions(annotatedActionsEnabled)
+                : `<button id="copy-name" type="button">copy name</button><button id="taste-btn" class="${state.taste.length ? "active" : ""}" title="Decompiler style (taste)">taste${state.taste.length ? ` · ${state.taste.length}` : ""}</button>`}
+            </div>
           </header>
-          <article class="detail-scroll">
+          <article class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}">
             ${renderLens(current)}
           </article>
         </section>
@@ -4270,6 +4278,7 @@ function renderAnnotatedSource(result: AnnotatedSourceResult) {
       result,
       session,
       escapeHtml,
+      highlightCSharp: annotatedSourceHighlighter,
     });
   } catch (error) {
     if (!(error instanceof TypeError)) throw error;
@@ -4284,6 +4293,7 @@ function renderAnnotatedSourceModal() {
       result: state.memberAnnotated,
       session: state.memberAnnotatedModal,
       escapeHtml,
+      highlightCSharp: annotatedSourceHighlighter,
     });
   } catch (error) {
     if (!(error instanceof TypeError)) throw error;
@@ -4483,6 +4493,18 @@ function highlightCSharp(value: string) {
       "csharp");
   }
   return escapeHtml(source);
+}
+
+function annotatedSourceHighlighter(
+  source: string,
+  tokenizationSource: string,
+) {
+  return createCSharpRangeHighlighter(
+    source,
+    window.Prism,
+    escapeHtml,
+    tokenizationSource,
+  );
 }
 
 const packageViewActions: PackageViewBindingActions = {

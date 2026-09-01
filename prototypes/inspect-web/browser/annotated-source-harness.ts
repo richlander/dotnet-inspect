@@ -2,6 +2,7 @@ import {
   annotatedFocusSelector,
   bindAnnotatedSource,
   renderAnnotatedSource,
+  renderAnnotatedSourcePageActions,
   renderAnnotatedSourceModal,
 } from "../src/annotated-source.ts";
 import type {
@@ -32,6 +33,9 @@ import type {
 import type {
   AnnotatedSourceDocument,
 } from "../src/document-model.ts";
+import {
+  createCSharpRangeHighlighter,
+} from "../src/csharp-highlighting.ts";
 import {
   validateDocument,
 } from "../src/document-model.ts";
@@ -96,11 +100,47 @@ function renderAndFocus(
   surface: "embedded" | "modal" = modal ? "modal" : "embedded",
 ): void {
   app.innerHTML = `
-    <main id="harness-background"${modal ? " inert" : ""}>
-      ${renderAnnotatedSource({ result, session: embedded, escapeHtml })}
+    <main id="harness-background" class="detail-pane"
+      style="height: 100%"${modal ? " inert" : ""}>
+      <header class="detail-head">
+        <div class="breadcrumbs">
+          <span>System.Text.Json</span><b>/</b>
+          <span>System.Text.Json</span><b>/</b>
+          <strong>JsonSerializer</strong><b>/</b>
+          <strong>GetTypeInfo</strong>
+        </div>
+        <div class="detail-actions annotated-page-actions">
+          ${renderAnnotatedSourcePageActions(true)}
+        </div>
+      </header>
+      <article class="detail-scroll annotated-working-surface">
+        ${renderAnnotatedSource({
+          result,
+          session: embedded,
+          escapeHtml,
+          highlightCSharp: (source, tokenizationSource) =>
+            createCSharpRangeHighlighter(
+              source,
+              window.Prism,
+              escapeHtml,
+              tokenizationSource,
+            ),
+        })}
+      </article>
     </main>
     ${modal
-      ? renderAnnotatedSourceModal({ result, session: modal, escapeHtml })
+      ? renderAnnotatedSourceModal({
+          result,
+          session: modal,
+          escapeHtml,
+          highlightCSharp: (source, tokenizationSource) =>
+            createCSharpRangeHighlighter(
+              source,
+              window.Prism,
+              escapeHtml,
+              tokenizationSource,
+            ),
+        })
       : ""}`;
   bindAnnotatedSource(app, { onAction });
   if (!target) return;

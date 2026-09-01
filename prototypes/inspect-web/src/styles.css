@@ -514,6 +514,9 @@ kbd {
 .detail-actions button:first-child { padding: 0 8px; }
 .detail-actions button:last-child { width: 27px; }
 .detail-scroll { overflow: auto; padding: clamp(24px, 4vw, 52px) clamp(26px, 5vw, 72px) 70px; }
+.detail-actions.annotated-page-actions button { width: auto; padding: 0 10px; }
+.detail-actions.annotated-page-actions .primary-action { border-color: var(--accent); color: var(--text); }
+.detail-scroll.annotated-working-surface { min-height: 0; overflow: hidden; padding: 0; }
 
 .type-heading {
   display: grid;
@@ -2233,16 +2236,12 @@ kbd {
 
 /* Annotated Source keeps the portable text selectable while Findings and source-node
    selection use explicit controls and non-underline treatments. */
-.annotated-reader { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); }
-.annotated-reader-head,
+.annotated-reader { position: relative; min-height: 0; height: 100%; display: grid; grid-template-rows: minmax(0, 1fr) auto auto; overflow: hidden; background: var(--panel); }
 .annotated-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
-.annotated-reader-head h3,
 .annotated-modal-head h2,
 .annotated-inspector-section h3,
 .annotated-detail h3,
 .annotated-detail h4 { margin: 0; }
-.annotated-reader-head p:not(.section-eyebrow) { margin: 3px 0 0; color: var(--dim); font: 11px var(--mono); }
-.annotated-reader-actions,
 .annotated-modal-head-actions,
 .annotated-control-row { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
 .annotated-reader button,
@@ -2252,10 +2251,12 @@ kbd {
 .annotated-reader button:focus-visible,
 .annotated-modal button:focus-visible,
 .annotated-source-segment:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
-.annotated-reader .primary-action { border-color: var(--accent); color: var(--text); }
-.annotated-context { margin: 0; padding: 8px 12px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--yellow) 8%, transparent); color: var(--dim); font: 12px/1.5 var(--mono); }
+.annotated-reader-footer { display: flex; align-items: center; gap: 12px; min-height: 32px; padding: 6px 14px; border-top: 1px solid var(--line); color: var(--dim); font: 11px/1.5 var(--mono); }
+.annotated-reader-footer > span:last-child { margin-left: auto; }
+.annotated-context { color: var(--yellow); }
 
-.annotated-source-code { min-width: max-content; padding: 10px 0 18px; overflow: auto; background: var(--code-bg); color: var(--code-text); font: 13px/1.65 var(--mono); }
+.annotated-source-code { min-width: max-content; min-height: 0; padding: 10px 0 18px; overflow: auto; background: var(--code-bg); color: var(--code-text); font: 13px/1.65 var(--mono); }
+.annotated-reader > .annotated-source-code { height: 100%; }
 .annotated-source-line { display: grid; align-items: baseline; min-height: 22px; padding: 0 14px; white-space: pre; }
 .annotated-source-code[data-annotated-surface="embedded"] .annotated-source-line { grid-template-columns: 4ch minmax(max-content, 1fr) auto; gap: 12px; }
 .annotated-source-code[data-annotated-surface="modal"] .annotated-source-line { grid-template-columns: 4ch 4ch minmax(max-content, 1fr) auto; gap: 10px; }
@@ -2265,6 +2266,22 @@ kbd {
 .annotated-medium-label { color: var(--blue); font-size: 10px; user-select: none; }
 .medium-il .annotated-medium-label { color: var(--purple); }
 .annotated-source-line code { white-space: pre; }
+.annotated-source-code .token.comment { color: #6f7669; font-style: italic; }
+.annotated-source-code .token.keyword { color: #d98a70; }
+.annotated-source-code .token.class-name,
+.annotated-source-code .token.return-type,
+.annotated-source-code .token.type-expression { color: #84b1c7; }
+.annotated-source-code .token.string,
+.annotated-source-code .token.char,
+.annotated-source-code .token.interpolation-string { color: #a9bd82; }
+.annotated-source-code .token.number,
+.annotated-source-code .token.boolean { color: #d3a76b; }
+.annotated-source-code .token.function { color: #d7c477; }
+.annotated-source-code .token.operator,
+.annotated-source-code .token.punctuation { color: #94978e; }
+.annotated-source-code .token.attribute,
+.annotated-source-code .token.namespace { color: #b89ac6; }
+.annotated-source-code .token.preprocessor { color: #a48ad0; }
 .annotated-source-segment { border-radius: 2px; user-select: text; }
 .annotated-source-segment.addressable { cursor: pointer; }
 .annotated-source-segment.addressable:hover,
@@ -2346,10 +2363,25 @@ kbd {
 .annotated-detail-capabilities p { margin: 5px 0 0; color: var(--dim); font: 11px/1.5 var(--mono); }
 
 @media (max-width: 820px) {
-  .annotated-reader-head { align-items: flex-start; flex-direction: column; }
   .annotated-modal-workspace { grid-template-columns: 1fr; }
   .annotated-modal-inspector { border-top: 1px solid var(--line); }
   .annotated-modal-source { border-right: 0; }
 }
 
 :root[data-theme="light"] .annotated-source-segment.selected { background: #f6e2d8; }
+:root[data-theme="light"] .annotated-source-code .token.comment { color: #6a7268; }
+:root[data-theme="light"] .annotated-source-code .token.keyword { color: #b04a2c; }
+:root[data-theme="light"] .annotated-source-code .token.class-name,
+:root[data-theme="light"] .annotated-source-code .token.return-type,
+:root[data-theme="light"] .annotated-source-code .token.type-expression { color: #245f86; }
+:root[data-theme="light"] .annotated-source-code .token.string,
+:root[data-theme="light"] .annotated-source-code .token.char,
+:root[data-theme="light"] .annotated-source-code .token.interpolation-string { color: #397044; }
+:root[data-theme="light"] .annotated-source-code .token.number,
+:root[data-theme="light"] .annotated-source-code .token.boolean { color: #8a5a12; }
+:root[data-theme="light"] .annotated-source-code .token.function { color: #8a650d; }
+:root[data-theme="light"] .annotated-source-code .token.operator,
+:root[data-theme="light"] .annotated-source-code .token.punctuation { color: #6b7065; }
+:root[data-theme="light"] .annotated-source-code .token.attribute,
+:root[data-theme="light"] .annotated-source-code .token.namespace,
+:root[data-theme="light"] .annotated-source-code .token.preprocessor { color: #6c4d91; }

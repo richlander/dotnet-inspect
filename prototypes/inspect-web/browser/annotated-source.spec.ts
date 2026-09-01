@@ -5,6 +5,15 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator("#explore-annotated")).toBeVisible();
 });
 
+test("inline source uses the page bar and ends with provenance", async ({ page }) => {
+  await expect(page.locator(".annotated-reader-head")).toHaveCount(0);
+  await expect(page.locator(".detail-head #copy-annotated")).toHaveText("Copy");
+  await expect(page.locator(".detail-head #explore-annotated")).toHaveText("Explore");
+  await expect(page.locator(".annotated-reader-footer")).toContainText(
+    "browser-gate product fixture",
+  );
+});
+
 test("source copy excludes annotation and inspector chrome", async ({ page }) => {
   await page.locator("#copy-annotated").click();
   const copied = await page.locator("body").getAttribute("data-copied-source");

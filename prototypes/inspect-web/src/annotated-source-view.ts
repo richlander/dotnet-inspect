@@ -167,6 +167,32 @@ export function factsForNode(
   return document.facts.filter(fact => factIds.has(fact.id));
 }
 
+export function csharpHighlightingText(
+  document: AnnotatedSourceDocument,
+): string {
+  validateDocument(document);
+  const text = document.text.split("");
+  for (const line of buildLines(document.text)) {
+    const medium = lineMedium(document, line);
+    if (medium === "CSharp") continue;
+    if (medium === "Il") {
+      maskRange(text, line.start, line.end);
+      continue;
+    }
+    for (const segment of segmentsForLine(document, line, [])) {
+      if (segment.media.length > 0
+        && !segment.media.includes("CSharp")) {
+        maskRange(text, segment.start, segment.start + segment.text.length);
+      }
+    }
+  }
+  return text.join("");
+}
+
+function maskRange(text: string[], start: number, end: number): void {
+  for (let index = start; index < end; index++) text[index] = " ";
+}
+
 function isVisible(
   medium: LineMedium,
   media: Readonly<Record<SourceMedium, boolean | undefined>>,
