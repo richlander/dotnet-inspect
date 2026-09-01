@@ -122,6 +122,12 @@ carry no count, conflict with each other, and fail when no `-n` or bare `-N`
 is present. Count-bearing `--head N`, `--tail N`, and `--take N` are not part
 of the grammar.
 
+Before positional binding on an adopted command, a recognized `--head` or
+`--tail` immediately followed by a separate, otherwise-unowned nonnegative
+decimal integer is the retired count-bearing form. It fails at the modifier
+token with guidance to use `-n N --head` or `-n N --tail`. The rule applies
+only before `--`; `--tail -- 20` preserves `20` as a positional literal.
+
 `--tail-lines` is a boolean modifier, not a count-bearing option. It requires
 `-n`, conflicts with `--head`, and supplies both line unit and tail direction.
 Combining it with the equivalent `--lines` or `--tail` modifier is tolerated
@@ -140,10 +146,11 @@ does not provide two simultaneous explicit order operands; a command that
 needs both an explicit baseline order and a different explicit Top ranking
 must wait for a separately designed spelling.
 
-Each of `-n`, `--rows`, and `--top` may occur at most once in one invocation.
-This keeps modifier binding unambiguous while still allowing the three
-different stage kinds to compose. Repeated stages remain supported by the
-semantic component for non-CLI consumers and future grammar evolution.
+Each of `-n`, `--rows`, `--top`, and an exposed `--order-by` may occur at most
+once in one adopted invocation. This keeps modifier and Top-order binding
+unambiguous while still allowing the three different stage kinds to compose.
+Repeated stages remain supported by the semantic component for non-CLI
+consumers and future grammar evolution.
 
 ## Ordered semantic intent
 
@@ -240,8 +247,9 @@ route-independent envelope:
   caller to name an explicit command;
 - the new route-independent grammar is active only when every candidate route
   has adopted the same meaning and required adjacent capability; and
-- once active, malformed row-selection spellings and route-independent
-  modifier conflicts fail without routing.
+- once active, malformed row-selection spellings, common retired
+  count-bearing modifier forms, and route-independent modifier conflicts fail
+  without routing.
 
 After routing, the authoritative child parse performs ordinary lowering. This
 design does not claim that L2 order or schema resolution happens before target
@@ -262,7 +270,7 @@ The active command validates CLI-decidable conflicts before command execution:
 
 - nonpositive counts or coordinates;
 - malformed, reversed, overflowing, integer-only, or boundless `--rows`;
-- repeated `-n`, `--rows`, or `--top`;
+- repeated `-n`, `--rows`, `--top`, or `--order-by`;
 - both `--head` and `--tail`;
 - a direction or line modifier without `-n`;
 - `--tail-lines` with `--head`;
@@ -292,24 +300,30 @@ payload failures retain their owners and timing.
 ### Token ownership for retired spellings
 
 A token is eligible for retired-spelling guidance only after L3 determines
-that it is an option token for the active command:
+its ownership for the active command or active common route envelope:
 
 - a token consumed as a required option value is never reinterpreted;
 - a token after `--` is a positional literal;
 - an attached value remains owned by its option; and
-- only an otherwise-unrecognized option spelling may receive the focused
-  retirement diagnostic.
+- an otherwise-unrecognized option spelling may receive the focused retirement
+  diagnostic; and
+- before positional binding, a recognized `--head` or `--tail` plus its
+  immediately following unowned nonnegative integer is the retired
+  count-bearing form rather than a boolean plus a positional.
 
 This is the same ownership discipline as bare `-N`. For example,
 `--out --take` preserves `--take` as the output path when `--out` requires a
 value, while an unowned `--take 5` can report its `-n 5` replacement.
+Likewise, `--tail 20` reports `-n 20 --tail`, while `--tail -- 20` preserves
+the positional `20`.
 
 ### Failure precedence
 
 One explicit-command invocation can contain several bad tokens. L3 reports one
 selection diagnostic using this order:
 
-1. a recognized retired spelling, in argv order;
+1. a recognized retired spelling or count-bearing modifier form, in argv
+   order;
 2. the first System.CommandLine token, option-arity, or unknown-option failure
    in argv order;
 3. the first malformed or nonpositive row-selection value in gesture order;
@@ -322,13 +336,15 @@ selection diagnostic using this order:
 Token-completed conflicts use the position of the token that makes the
 combination invalid. Absence conflicts, such as `--lines` without `-n`,
 complete at end of argv and therefore follow every token-completed conflict in
-the same category.
+the same category. When several absence conflicts complete together, the
+modifier that appeared first in argv selects the diagnostic.
 
 An implicit invocation has two ordered phases:
 
 1. the route envelope applies required-value and `--` ownership, then reports
-   the first active-envelope malformed value, token-completed modifier conflict,
-   end-of-argv absence conflict, or mixed/non-uniform capability rejection; and
+   the first active-envelope retired form, malformed value, token-completed
+   modifier conflict, end-of-argv absence conflict, or mixed/non-uniform
+   capability rejection; and
 2. after successful routing, the authoritative child applies the explicit
    command order above, including child-specific retired and unknown options.
 
@@ -409,7 +425,7 @@ Neighboring ordered case:
 
 ```console
 $ dotnet-inspect demo list -n 2 --rows 2..3 --json
-Error: --rows 2..3 requires row 3 after stage 1, but only 2 rows are available.
+Error: stage 2 (--rows 2..3) requires row 3 from stage 1's output, but only 2 rows are available.
 ```
 
 The exact diagnostic shape will consume the L2 structured failure contract;
@@ -426,12 +442,12 @@ All gates run in Release. Until implemented, each property is **unverified**.
 | `CliRowSelectionOrderTests` | `-n`, `--rows`, and `--top` preserve argv order; modifiers change unit or direction without becoming stages. |
 | `CliRowSelectionBareShorthandTests` | Required, optional, boolean, attached, positional, router, parent-option, and `--` cases classify bare `-N` by parsed arity and ownership. |
 | `CliRowSelectionCapabilityTests` | Only the active adopted leaf command accepts its declared gestures; shared helpers and parent commands do not imply adoption. |
-| `CliRowSelectionRouterPreflightTests` | All-unadopted routes preserve released behavior; mixed routes require an explicit command; all-adopted routes reject malformed common grammar before target resolution while preserving required negative option values. |
+| `CliRowSelectionRouterPreflightTests` | All-unadopted routes preserve released behavior; mixed routes require an explicit command; all-adopted routes reject malformed common grammar before target resolution while preserving required negative option values; every envelope failure returns nonzero and emits no success-shaped result. |
 | `CliRowSelectionTopOrderBindingTests` | One explicit `--order-by` attaches only to the one Top stage; no explicit order uses only a schema default Top ranking; baseline order is not inferred as ranking. |
 | `CliRowSelectionPreExecutionFailureTests` | L3-decidable explicit-command failures occur before command execution or command-owned acquisition, return nonzero, and emit no success-shaped result; L2 ranking failures follow L2-owned timing. |
-| `CliRowSelectionFailurePrecedenceTests` | Explicit and implicit multi-fault invocations, token-completed conflicts, end-of-argv absence conflicts, and owned retired-looking values produce the one diagnostic selected by their applicable precedence. |
+| `CliRowSelectionFailurePrecedenceTests` | Explicit and implicit multi-fault invocations, token-completed conflicts, tied end-of-argv absence conflicts, retired count-bearing modifier forms, and owned retired-looking values produce the one diagnostic selected by their applicable precedence. |
 | `CliRowSelectionCountHandoffTests` | Semantic intent remains ordered and intact when terminal `--count` is handed to L2; line/Count behavior is not invented by L3. |
-| `CliRowSelectionMigrationTests` | Adopted commands expose only current count spellings and diagnostics; unadopted commands retain accurate released help. |
+| `CliRowSelectionMigrationTests` | Adopted commands expose only current count spellings and diagnostics, including `--head N`/`--tail N` before positional binding; unadopted commands retain accurate released help. |
 | `CliRowSelectionGuidanceTests` | Help, README examples, workflows, and shipped skills teach only behavior available on their named command. |
 
 Each command adoption adds its own outcome-level gate proving selected row
