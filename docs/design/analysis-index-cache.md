@@ -112,16 +112,43 @@ cache's own contract.
 
 **Fixed:** `ForPath` now records a lightweight file-identity fingerprint
 (`FileInfo.Length` and `LastWriteTimeUtc`, the same fields
-`LocalArtifactSource.cs` already uses for exactly this purpose) at the moment
-it opens or reuses a path. A cache hit re-observes the file's current
-fingerprint and, on any mismatch, evicts the stale entry and reopens the path
-as a fresh entry instead of returning the mismatched index. This is a
-best-effort heuristic, not a proof of content identity -- it inherits the
-same known limit the owning document already states for path comparison (a
-file that changes and reverts between two observations, within one
-fingerprint's resolution, is invisible to it) -- but it closes the gap where
-a hit or a post-eviction reopen returns a *known-stale* result with no check
-at all.
+`LocalArtifactSource.cs` already uses for exactly this purpose). A cache hit
+re-observes the file's current fingerprint and, on any mismatch, evicts the
+stale entry and reopens the path as a fresh entry instead of returning the
+mismatched index -- this closes the gap where a hit or a post-eviction
+reopen returns a *known-stale* result with no check at all.
+
+A first version of this fix captured the fingerprint only once, immediately
+after `LibraryBodyIndex.Open` returned. Round-1 review (both seats,
+independently) found this insufficient: `Open` reads and closes its own file
+handle internally, so a replacement landing in the narrow window between
+`Open` returning and the fingerprint observation would be recorded as the
+fingerprint for an index that was actually built from the *previous*
+generation's bytes -- silently caching a mismatch that looks verified but
+isn't. The fix now **brackets** the open with a fingerprint taken
+immediately before and immediately after it, and only caches the result when
+both observations agree; a mismatch (or either observation failing, e.g. the
+file disappearing mid-open) leaves the freshly built index uncached but
+returns it to the caller, so the next request re-opens and
+re-verifies from scratch rather than trusting an identity this open couldn't
+confirm.
+
+This narrows the exposure window from "unbounded, for as long as the
+process retains the cache entry" to "the duration of one `Open` call," but
+does not eliminate it: a replacement landing inside that narrower window is
+still possible in principle, and closing it completely would require
+deriving the fingerprint from the exact bytes read (as `LocalArtifactSource`
+does, by reading the fingerprint off the same stream handle used for the
+content) rather than from two separate path-based observations. That
+approach was deliberately not taken here: `LibraryBodyIndex.Open` chooses
+between a fully-materialized read and a lazy, seek-based read depending on
+whether the request is scoped to one member (see its own comments on
+`PEStreamOptions.PrefetchEntireImage` vs. `Default`), and forcing every
+`ForPath` call through a byte-materializing entry point would silently
+undo that scoped/lazy performance choice -- a different owner's contract
+(`ILInspector.Analysis`'s I/O strategy), not this cache's to redefine. The
+residual open-duration race is therefore **unverified**: no gate proves it
+closed, and it is called out here rather than left implicit.
 
 ## Non-claims
 

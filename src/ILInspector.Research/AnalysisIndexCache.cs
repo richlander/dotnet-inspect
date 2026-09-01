@@ -62,21 +62,36 @@ static class AnalysisIndexCache
             IReadOnlySet<int>? bodyScope = scopedToken is { } token
                 ? new HashSet<int> { token }
                 : null;
+            // Bracket the open with a fingerprint taken immediately before
+            // and immediately after: only a result whose bytes were stable
+            // across the whole open is safe to cache. A mismatch here means
+            // the file changed while it was being read, so the index that
+            // was just built may not correspond to any single generation of
+            // the file -- caching it under either fingerprint could later
+            // produce a hit that looks verified but isn't.
+            bool hadFingerprintBeforeOpen =
+                TryGetFingerprint(fullPath, out var fingerprintBeforeOpen);
             LibraryBodyIndex index = LibraryBodyIndex.Open(
                 fullPath,
                 requirements.Features,
                 bodyScope: bodyScope);
-            // A fingerprint that can't be observed (e.g. the file vanished
-            // between the open above and this check) never matches a later
-            // comparison, so the next request always re-verifies instead of
-            // risking a false hit.
-            TryGetFingerprint(fullPath, out var fingerprint);
-            s_pathIndexes.Add(
-                new PathCachedIndex(
-                    fullPath,
-                    scopedToken,
-                    index,
-                    fingerprint));
+            bool hadFingerprintAfterOpen =
+                TryGetFingerprint(fullPath, out var fingerprintAfterOpen);
+            if (hadFingerprintBeforeOpen
+                && hadFingerprintAfterOpen
+                && fingerprintBeforeOpen == fingerprintAfterOpen)
+            {
+                s_pathIndexes.Add(
+                    new PathCachedIndex(
+                        fullPath,
+                        scopedToken,
+                        index,
+                        fingerprintAfterOpen));
+            }
+            // Otherwise, the freshly opened index is returned to this caller
+            // but deliberately left uncached: a future request re-opens and
+            // re-verifies from scratch rather than trusting an identity this
+            // open couldn't confirm.
             return index;
         }
     }
