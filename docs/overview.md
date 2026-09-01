@@ -277,8 +277,13 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Member Index](design/member-index.md): overload selector and digest contract.
 - [Member target resolution](design/member-target-resolution.md): typed member selector, anchor, and body-target resolution.
 - [Member ordering](design/member-order.md): canonical type/member section order and member-kind mapping.
+- [Local package source identity](design/local-package-source-identity.md):
+  config- and command-relative path resolution, path and `file://`
+  canonicalization, host path equality, and the local identity consumed by
+  mapping and cache authorization.
 - [Package source model](design/package-source-model.md): source eligibility,
-  mapping, local stores, source-bound caches, selection, and enrichment.
+  mapping, authority composition, source-bound caches, selection, and
+  enrichment.
 - [Package dependency evidence](design/package-dependency-evidence.md):
   normalized declared dependency observations across typed package-manifest
   and restored-project inputs, additive resolution and owner evidence,
