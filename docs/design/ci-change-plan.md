@@ -4,15 +4,18 @@
 
 This document owns the repository CI change planner: the boundary from one
 checked candidate and its event provenance to one immutable plan describing
-which CI jobs are relevant and which exact scoped path evidence they may
-consume. Issue [#5415](https://github.com/richlander/dotnet-inspect/issues/5415)
-tracks this design.
+which CI validations are relevant and which exact scoped path evidence they
+may consume. A validation selection may name a whole job or an explicitly
+named conditional validation unit within a job. Issue
+[#5415](https://github.com/richlander/dotnet-inspect/issues/5415) tracks this
+design.
 
 The planner owns candidate identity, changed-path acquisition and
-interpretation, routing policy, cross-field implications, plan construction,
-and scoped-evidence identity. Workflow YAML transports inputs and outputs.
-Individual jobs retain ownership of their execution, validation semantics,
-tools, and results.
+interpretation, path and event routing policy, cross-field implications, plan
+construction, and scoped-evidence identity. Workflow YAML transports inputs
+and outputs and places selected validation in its execution topology.
+Individual jobs retain ownership of validation semantics, ordering, tools,
+execution, and results.
 
 ## Purpose
 
@@ -133,20 +136,23 @@ path set.
 
 ## Routing policy
 
-The planner owns every repository path rule that selects a CI job and every
-implication among plan fields. A workflow condition may project a plan field;
-it must not contain an independently meaningful path expression or fallback.
+The planner owns every repository path or event rule that decides whether a CI
+validation applies and every implication among plan fields. A workflow
+condition may project a plan field and combine it with execution-local
+placement such as a matrix member. It must not independently decide candidate
+relevance from a path, event, or fallback.
 
 Policy data such as project-root inventories may remain in focused files. The
 planner owns their input contract, validation, and routing effect. An invalid
-policy input cannot silently remove a job. A deliberately conservative
-selection must be represented in a valid plan and tested as policy, not reached
-through an accidental parsing fallback.
+policy input cannot silently remove validation. A deliberately conservative
+selection must be represented in a valid plan and tested as policy, not
+reached through an accidental parsing fallback.
 
-Jobs consume selections, not paths. Domain-specific interpretation begins only
-after routing. For example, the TLA+ job may validate model-directory layout
-within its assigned evidence, but it does not decide which repository changes
-made the TLA+ job relevant.
+Jobs and named in-job validation units consume selections, not paths.
+Domain-specific interpretation begins only after routing. For example, the
+TLA+ job may validate model-directory layout within its assigned evidence, but
+it does not decide which repository changes or event kinds made TLA+
+validation relevant.
 
 ## Immutable plan
 
@@ -160,7 +166,7 @@ The plan contains:
 - planned status, the only status valid in a serialized plan;
 - candidate provenance;
 - changed-input record count and digest;
-- one typed field for each repository CI job selection;
+- one typed field for each repository CI validation selection;
 - bounded scoped-evidence descriptors; and
 - bounded diagnostics that do not replace a refusal.
 
@@ -179,9 +185,10 @@ Conceptually:
     "recordCount": 17,
     "sha256": "..."
   },
-  "jobs": {
-    "code": true,
-    "docs": false,
+  "validations": {
+    "test": true,
+    "markdownlint": false,
+    "ilRoundtrip": true,
     "tla": true
   },
   "scopes": {
@@ -231,7 +238,9 @@ The planner never:
 A published plan represents exactly one planner invocation for one candidate.
 Workflow YAML supplies event fields and the checked repository, publishes the
 compact JSON plan from a non-matrix producer, and transports scoped evidence.
-Downstream jobs use only typed field projection from that plan.
+Downstream jobs use only typed field projection from that plan to determine
+candidate relevance. They may combine a selection with execution-local
+placement or outcome conditions that do not reinterpret the candidate.
 
 A matrix, if later planned, is another bounded plan field produced by the same
 operation. Matrix jobs do not contribute competing planner outputs because
@@ -297,15 +306,17 @@ An implementation gate must also cover:
 - unavailable endpoint trees;
 - malformed or truncated changed-path evidence;
 - policy-data absence and invalidity;
-- every job rule and cross-field implication;
+- every job-level and named in-job validation rule, event rule, and cross-field
+  implication;
 - an oversized plan or scoped-evidence descriptor;
 - malformed and unsupported plan versions at the consumer boundary;
 - missing, malformed, or digest-mismatched scoped evidence at the consumer
   boundary;
 - planner process failure and a planner job that is skipped, cancelled, or
   never starts;
-- routing-rule parity with every existing classifier scenario when both
-  classifiers receive the same changed-path corpus;
+- effective validation-selection parity with the combined existing classifier
+  and workflow routing when both receive the same event and changed-path
+  corpus;
 - the deliberate provenance change from API or event approximations to exact
   candidate endpoints;
 - the deliberate failure-contract change from all-true recovery to a blocking
@@ -328,13 +339,15 @@ workflow consumption from that exact object.
 Adoption proceeds in focused slices:
 
 1. Implement the planner types, path-evidence reader, routing policy, canonical
-   serialization, and routing-rule parity harness without making it
+   serialization, and effective-selection parity harness without making it
    authoritative in CI.
-2. Make the workflow's change-planning job consume the planner and project all
-   existing scalar selections mechanically from one plan. This slice owns the
-   intentional exact-candidate provenance and blocking-refusal changes, and it
-   updates the aggregate gate's structural assertions as a named sequencing
-   dependency.
+2. Make the workflow's change-planning job consume the planner and replace
+   candidate-relevance conditions with mechanical plan projections. Existing
+   event gates and named in-job selectors become planner validation fields;
+   execution-local placement conditions remain with the workflow. This slice
+   owns the intentional exact-candidate provenance and blocking-refusal
+   changes, and it updates the aggregate gate's structural assertions as a
+   named sequencing dependency.
 3. Move each scoped-path consumer, beginning with TLA+, to planner-produced
    evidence and remove its independent provenance and path acquisition.
 4. Remove the legacy shell classifier and obsolete structural seams only after
@@ -347,11 +360,10 @@ a single PR to rewrite every CI consumer.
 
 The planner does not:
 
-- define which tests, builds, packages, or deployments a selected job performs;
+- define what a selected job or named validation unit does;
 - own the aggregate gate's success policy;
 - create a project or dependency graph;
-- schedule work within a selected job;
-- optimize runner allocation or execution order;
+- choose matrix placement, runner allocation, or execution order;
 - preserve compatibility with obsolete planner schemas;
 - make GitHub APIs authoritative for synthetic-candidate paths;
 - treat repository contributors or local agents as hostile actors; or

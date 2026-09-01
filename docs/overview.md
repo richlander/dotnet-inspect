@@ -110,9 +110,10 @@ substrates, and inspection producers that will extend that space.
   filtering, execution, reporting, and Microsoft Testing Platform protocol
   behavior.
 - [Repository CI change plan](design/ci-change-plan.md) owns candidate
-  provenance, exact changed-path interpretation, routing implications, and one
-  immutable job plan with bounded scoped evidence. Workflow YAML transports
-  the plan, while selected jobs retain their execution and result semantics.
+  provenance, exact changed-path interpretation, path and event routing
+  implications, and one immutable validation plan with bounded scoped evidence.
+  Workflow YAML transports and places selected validation, while jobs retain
+  validation semantics, execution, and results.
 - [`docs/design/ts-jsexport.md`](design/ts-jsexport.md) owns the `ts-jsexport`
   TypeScript facade projected at build time from an
   `ILInspector.JsExportSurface`. The host-side tool consumes that evidence
