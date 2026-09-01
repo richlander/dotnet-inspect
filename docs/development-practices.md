@@ -8,6 +8,18 @@ states the binding summary. Focused documents such as
 [Round orchestration](round-orchestration.md) own their specialized contracts
 and mechanics.
 
+## Purpose
+
+These practices exist to produce robust, capable features that provide
+foundational capabilities or compelling user experiences. Users and peers
+should be able to recognize the result as conventionally sound, delightfully
+new or unique, or both.
+
+Convention supplies trustworthy footing; it is not a ceiling. Novelty can make
+a feature uniquely valuable; it does not excuse weak boundaries, evidence, or
+reliability. The strongest work combines dependable foundations with a
+capability or experience worth choosing.
+
 ## Convention and best practice are the baseline
 
 Start from the applicable convention and best practice rather than inventing a
@@ -118,6 +130,33 @@ Fold that dependency into the slice. Design work earns the bias to progress by
 reducing the chance that dependent work builds on shaky or reversible footing;
 it does not eliminate the need to revise a weak design when evidence disproves
 it.
+
+## Prefer current agent guidance over CLI compatibility
+
+`dotnet-inspect` is a fast-moving, agent-focused tool. Prefer development speed,
+a simple current design, and low carrying cost over preserving yesterday's CLI
+surface. Agents using the current tool can retrieve its current product skills;
+they do not need the command behavior that the tool had yesterday.
+
+Do not add or retain flags, aliases, shims, dual parsing, or warnings solely so
+old CLI invocations continue to work. When the best current command shape
+changes, remove the obsolete spelling. Existing compatibility-only paths are
+removal candidates, not precedent. An alias may remain only when its owning
+design justifies it as a useful part of today's interface, not merely because
+it existed before.
+
+The primary compatibility bar is that every product `skills/*/SKILL.md` shipped
+inside the tool accurately describes that exact tool. Update the owning skills
+in the same change as any command, flag, default, workflow, or output-shape
+change they teach, and rerun affected examples rather than preserving stale
+syntax. The skills are the compatibility mitigation: an agent learns the
+current reliable workflow from the current binary.
+
+`README.md` remains shipped documentation and must also describe current
+behavior, but it is not a reason to carry obsolete CLI paths. This policy does
+not redefine platform support, inspected-library compatibility analysis,
+serialized formats, protocols, library APIs, or another explicitly owned
+compatibility contract.
 
 ## Lead with the demo
 

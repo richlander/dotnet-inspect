@@ -48,10 +48,36 @@ Classify it as a scope proposal, robustness idea, design question, or
 non-blocking observation. A concern that materially expands functionality or
 the threat model is not a landing requirement without operator approval.
 
+Treat critical feedback as a design question before prescribing a repair.
+Determine whether the owning design already states the required behavior, is
+silent or contradictory, or whether the concern would change another owner's
+contract. When the design already covers the case, identify the implementation
+or evidence failure. When it does not, report the resolution as design work or,
+for a cross-owner expansion, as a scope proposal rather than jumping directly
+to a code fix.
+
 A mutation is useful evidence only when it represents a plausible regression
 of promised behavior. The fact that an artificial mutation survives a gate
 does not by itself justify another gate. Prefer evidence from public product
 outcomes over tests that inspect seams introduced only for the test.
+
+Treat conventions, best practices, and analogous implementations as
+comparative evidence, not authority. A deliberate divergence is not a defect
+merely because it is unusual; connect it to an owned-claim violation and
+observable consequence. An analogous implementation's behavior or omission is
+relevant only when its assumptions transfer.
+
+Review the current slice for the behavior it presently promises. Residual
+hardening or follow-up work is not a defect when the current contract is
+independently coherent, behavior-safe, visibly fails outside its support, and
+does not depend on that later work for correctness. Do report success-shaped
+unfinished behavior or a slice whose current correctness depends on a future
+change.
+
+Push on the named pathological or boundary case. When accepting or rejecting
+that case is part of the supported contract, require exact-head gate evidence.
+A preserved non-CI fixture is design evidence, not the enforcing gate; the
+candidate must name the ordinary gate or mark the property unverified.
 
 If the design contains substantial machinery primarily to constrain trusted
 components, report that once as a design or proportionality concern. Do not
@@ -63,6 +89,11 @@ Report only high-confidence, actionable correctness, security, reliability, or
 contract findings. Ignore style preferences and speculative hardening. A clean
 result is successful: if no qualifying findings remain, report **CLEAN** and
 name the exact reviewed head.
+
+Use the candidate's stated user purpose to explain consequence, not to create a
+subjective taste gate. Do not block because a feature seems insufficiently
+foundational, compelling, conventional, delightful, new, or unique unless the
+owning claim defines a concrete observable requirement.
 
 Do not begin review if the candidate context contains unresolved placeholders,
 names multiple normative owners, or cannot connect the supported input to the
@@ -83,7 +114,8 @@ For every finding, provide:
 - exact owned claim violated;
 - concrete consequence;
 - exact-head evidence or a reproducible probe; and
-- the smallest plausible fix direction.
+- the smallest plausible resolution direction: design, evidence, or
+  implementation.
 
 Separate blocking findings from non-blocking observations and scope proposals.
 Do not turn a scope proposal into a defect by assigning it a severity. If there
