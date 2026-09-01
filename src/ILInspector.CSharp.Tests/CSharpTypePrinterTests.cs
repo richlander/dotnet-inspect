@@ -344,6 +344,16 @@ public sealed class CSharpTypePrinterTests
         AssertArityNotRendered(CreateExactType("N", ["Widget`2"], [1], ["T"]));
         AssertArityNotRendered(CreateExactType("N", ["Widget`1"], [1], []));
         AssertArityNotRendered(CreateExactType("N", ["Widget`1"], [1], ["T", "U"]));
+        CSharpTypePrintOutcome.NotRendered truncatedNested = AssertNotRendered(
+            _outcomePrinter.Print(new CSharpTypePrintRequest(
+                CreateExactType("N", ["Outer"], [0], []),
+                nestedTypes:
+                [
+                    new CSharpTypePrintRequest(
+                        CreateExactType("N", ["Outer", "Inner"], [0], []))
+                ])));
+        Assert.IsType<CSharpDeclaredTypeSelfNameFailureReason.ArityMismatch>(
+            Assert.Single(truncatedNested.SelfNameFailures).Reason);
 
         var legacyMissingIdentity = CreateEmptyType("N", "Widget");
         Assert.IsType<CSharpTypePrintOutcome.Printed>(
