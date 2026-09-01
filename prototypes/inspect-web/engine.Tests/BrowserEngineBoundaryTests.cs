@@ -1398,11 +1398,15 @@ public sealed class BrowserEngineBoundaryTests
         byte[] image =
             File.ReadAllBytes(
                 typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] unrelatedImage =
+            File.ReadAllBytes(
+                typeof(PackageAssemblyContextRealization).Assembly.Location);
         var package = new BrowserPackage(
             packageId,
             "1.0.0",
             PackageEntries(
                 ("lib/net11.0/Rid.Specific.dll", image),
+                ("lib/net11.0/shadow/Rid.Specific.dll", unrelatedImage),
                 ("runtimes/linux-x64/lib/net11.0/Rid.Specific.dll", image)),
             fromCache: false);
         var coordinate = new BrowserPackageCoordinate(
@@ -1424,11 +1428,18 @@ public sealed class BrowserEngineBoundaryTests
         BrowserWorkspaceParticipant surface =
             Assert.Single(scope.SurfaceParticipants);
         BrowserWorkspaceParticipant implementation =
-            Assert.Single(scope.ImplementationParticipants);
+            scope.ImplementationParticipants.Single(candidate =>
+                candidate.Asset.Path
+                    == "runtimes/linux-x64/lib/net11.0/Rid.Specific.dll");
         Assert.Equal(compile.Path, surface.Asset.Path);
         Assert.Equal(
             "runtimes/linux-x64/lib/net11.0/Rid.Specific.dll",
             implementation.Asset.Path);
+        Assert.Contains(
+            scope.ImplementationParticipants,
+            candidate =>
+                candidate.Asset.Path
+                    == "lib/net11.0/shadow/Rid.Specific.dll");
         Assert.Same(
             implementation,
             scope.ImplementationParticipant(surface));

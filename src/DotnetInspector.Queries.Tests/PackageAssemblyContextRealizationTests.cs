@@ -579,13 +579,16 @@ public sealed class PackageAssemblyContextRealizationTests
     [Fact]
     public void RidSpecificImplementation_UsesSeparateNeutralCompileRole()
     {
-        byte[] image =
-            File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
+        byte[] selectedImage =
+            IntegrationAssembly("Rid.Sample", "SelectedType");
+        byte[] unrelatedImage =
+            IntegrationAssembly("Unrelated.Rid.Sample", "UnrelatedType");
         PackageRootRealization package = new(
             new InMemoryPackageContent(
                 Archive(
-                    ("lib/net11.0/Rid.Sample.dll", image),
-                    ("runtimes/linux-x64/lib/net11.0/Rid.Sample.dll", image)),
+                    ("lib/net11.0/Rid.Sample.dll", selectedImage),
+                    ("lib/net11.0/shadow/Rid.Sample.dll", unrelatedImage),
+                    ("runtimes/linux-x64/lib/net11.0/Rid.Sample.dll", selectedImage)),
                 fromCache: false,
                 producerKey: "tests"),
             "Rid.Sample",
@@ -602,11 +605,18 @@ public sealed class PackageAssemblyContextRealizationTests
         PackageAssemblyRoleParticipant surface =
             Assert.Single(realization.SurfaceParticipants);
         PackageAssemblyRoleParticipant implementation =
-            Assert.Single(realization.ImplementationParticipants);
+            realization.ImplementationParticipants.Single(candidate =>
+                candidate.Asset.Path
+                    == "runtimes/linux-x64/lib/net11.0/Rid.Sample.dll");
         Assert.Equal("lib/net11.0/Rid.Sample.dll", surface.Asset.Path);
         Assert.Equal(
             "runtimes/linux-x64/lib/net11.0/Rid.Sample.dll",
             implementation.Asset.Path);
+        Assert.Contains(
+            realization.ImplementationParticipants,
+            candidate =>
+                candidate.Asset.Path
+                    == "lib/net11.0/shadow/Rid.Sample.dll");
         Assert.Same(
             implementation,
             realization.ImplementationParticipant(surface));

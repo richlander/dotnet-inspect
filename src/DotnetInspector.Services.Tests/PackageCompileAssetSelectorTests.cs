@@ -77,6 +77,7 @@ public class PackageCompileAssetSelectorTests : IDisposable
         IPackageContent content = InMemory(
             "lib/net8.0/Example.dll",
             "lib/net8.0/Example.Companion.dll",
+            "lib/net8.0/shadow/Example.dll",
             "runtimes/linux-x64/lib/net8.0/Example.dll");
 
         PackageCompileAssetSelection selection =
@@ -93,6 +94,7 @@ public class PackageCompileAssetSelectorTests : IDisposable
         Assert.Equal(
             [
                 "lib/net8.0/Example.Companion.dll",
+                "lib/net8.0/shadow/Example.dll",
                 "runtimes/linux-x64/lib/net8.0/Example.dll",
             ],
             selection.ImplementationAssets.Select(asset => asset.Path));

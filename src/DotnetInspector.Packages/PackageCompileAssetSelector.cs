@@ -76,8 +76,8 @@ public sealed record PackageCompileAssetSelection(
 
     /// <summary>
     /// Finds the implementation counterpart of one selected compile asset. An exact retained
-    /// library asset is its own counterpart; otherwise correspondence uses assembly name so a
-    /// neutral library compile fallback can map to its RID-specific implementation replacement.
+    /// library asset is its own counterpart; otherwise correspondence uses the selector-owned
+    /// relative path so a neutral compile asset maps only to its RID-specific replacement.
     /// </summary>
     public PackageCompileAsset? FindImplementationAsset(PackageCompileAsset compileAsset)
     {
@@ -89,12 +89,43 @@ public sealed record PackageCompileAssetSelection(
                 nameof(compileAsset));
         }
 
-        return ImplementationAssets.FirstOrDefault(asset =>
-                   asset.Id.Equals(compileAsset.Id, StringComparison.Ordinal))
-            ?? ImplementationAssets.FirstOrDefault(asset =>
-                asset.AssemblyName.Equals(
-                    compileAsset.AssemblyName,
-                    StringComparison.OrdinalIgnoreCase));
+        PackageCompileAsset? exact =
+            ImplementationAssets.FirstOrDefault(asset =>
+                asset.Id.Equals(compileAsset.Id, StringComparison.Ordinal));
+        if (exact is not null)
+            return exact;
+
+        string? relativePath = TryGetRelativePath(compileAsset);
+        return relativePath is null
+            ? null
+            : ImplementationAssets.FirstOrDefault(asset =>
+                TryGetRelativePath(asset)?.Equals(
+                    relativePath,
+                    StringComparison.OrdinalIgnoreCase)
+                is true);
+    }
+
+    static string? TryGetRelativePath(PackageCompileAsset asset)
+    {
+        string[] segments = asset.Path.Split('/');
+        if (segments.Length >= 3
+            && (segments[0].Equals("ref", StringComparison.OrdinalIgnoreCase)
+                || segments[0].Equals("lib", StringComparison.OrdinalIgnoreCase))
+            && segments[1].Equals(
+                asset.TargetFramework,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Join('/', segments[2..]);
+        }
+
+        return segments.Length >= 5
+            && segments[0].Equals("runtimes", StringComparison.OrdinalIgnoreCase)
+            && segments[2].Equals("lib", StringComparison.OrdinalIgnoreCase)
+            && segments[3].Equals(
+                asset.TargetFramework,
+                StringComparison.OrdinalIgnoreCase)
+                ? string.Join('/', segments[4..])
+                : null;
     }
 }
 
