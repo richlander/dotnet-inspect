@@ -383,6 +383,8 @@ while IFS= read -r -d '' file; do
     eng/run-method-semantics-platform-probe.sh) CODE=true; WEB=true ;;
     eng/run-local-path-admission-platform-probe.sh) CODE=true; WEB=true ;;
     eng/test-ts-jsexport-typescript.sh) WEB=true ;;
+    eng/generate-inspect-web-multi-facade-canary.sh) WEB=true ;;
+    eng/test-inspect-web-multi-facade-canary.sh) WEB=true ;;
     eng/validate-inspect-web-promotion.cs) WEB=true ;;
     eng/validate-inspect-web-promotion.sh) WEB=true ;;
     eng/generate-inspect-web-engine-facade.sh) WEB=true ;;
