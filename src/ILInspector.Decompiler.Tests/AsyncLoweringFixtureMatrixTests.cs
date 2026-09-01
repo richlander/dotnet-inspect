@@ -51,6 +51,10 @@ public sealed class AsyncLoweringFixtureMatrixTests
         Assert.Equal(
             StateMachineClaimKind.ClassicAsync,
             relationship.Relationship.Kind);
+        Assert.All(
+            relationship.Relationship.Roles,
+            role => Assert.IsType<
+                StateMachineRoleDisposition.Present>(role));
 
         Assert.True(HasRuntimeAsyncFlag(
             runtimeArtifact.Reader.GetMethodDefinition(runtimeMethod)));

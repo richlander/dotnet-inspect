@@ -18,7 +18,7 @@ should receive a recommendation.
 
 ## Status and decision
 
-Design target, advancing
+Implemented, advancing
 [#5307](https://github.com/richlander/dotnet-inspect/issues/5307).
 This document is the normative owner for relationship certificate issuance and
 role dispositions. The exact claim is that classic async identity remains
@@ -26,9 +26,6 @@ resolvable when `SetStateMachine` alone is absent, with that absence carried
 explicitly rather than converted to rejection. The
 [classic async inverse design](classic-async-reconstruction.md#immediate-boundary)
 is a consumer map; #5277 and #5276 own adapter and inverse implementation.
-
-The current implementation still requires every role to be present. The target
-contract below is unimplemented unless a section names an existing gate.
 
 ## Contract
 
@@ -193,13 +190,8 @@ execution identity.
 
 ## Contract demonstration
 
-This target mockup uses the ordinary full-trim artifact from
-`ClassicAsyncArtifactMatrixTests`. The current gate records a retained claimed
-state-machine type with a MethodDef named `MoveNext`, no MethodDef named
-`SetStateMachine`, and the current `Rejected(Unresolved)` result. Before the
-target result is implemented, its gate must additionally establish the direct
-`IAsyncStateMachine` declaration, exact body-bearing `MoveNext` role, and
-absence of both explicit and implicit `SetStateMachine` candidates:
+The ordinary full-trim artifact from `ClassicAsyncArtifactMatrixTests`
+produces this certificate:
 
 ```text
 Relationship: Resolved(ClassicAsync)
@@ -229,29 +221,34 @@ success-shaped absence.
 
 ## Validation status
 
-This design changes no product behavior. The new certificate and classic
-support-role disposition are **unverified** until implementation supplies
-Release gates for:
+Release gates enforce the certificate:
 
-- a real ordinary full-trim artifact resolving with body-bearing `MoveNext` and
-  `SetStateMachine: AbsentFromArtifact`;
-- the role-preserved and SDK-reference artifacts resolving with both roles
-  present;
-- complete role-disposition publication with no omitted classic role;
-- rejection when `MoveNext` is missing or invalid; and
-- rejection, rather than absence, for malformed, bodyless, ambiguous, or
-  contradictory `SetStateMachine` candidates, including a wrong-signature
-  explicit declaration whose body does not have the implicit role name.
+- `ClassicAsyncArtifactMatrixTests.TrimmedArtifactWithoutRolePreservation_AuthenticatesAbsentSupport`
+  independently establishes the ordinary full-trim artifact's direct
+  `IAsyncStateMachine` declaration, exact body-bearing `MoveNext`, and absence
+  of both explicit and implicit `SetStateMachine` candidates before requiring
+  `Resolved(ClassicAsync)` with `SetStateMachine: AbsentFromArtifact`.
+- `ClassicAsyncArtifactMatrixTests.ImplementationAndRolePreservedTrim_AuthenticateRecoverableClassicRecipe`
+  and
+  `ClassicAsyncArtifactMatrixTests.ReferenceArtifact_AuthenticatesRelationshipsOverBodyReplacingIl`
+  require both roles to remain `Present` in the role-preserved and SDK
+  reference artifacts.
+- `StateMachineRelationshipIndex_ResolvesClassicAsyncWithAbsentSupportRole`
+  requires one closed disposition for each classic role, retains
+  implementation lookup for `MoveNext`, and exposes no support MethodDef
+  through `TryGetMethod`.
+- `StateMachineRelationshipIndex_RejectsInvalidImplementationShapes` requires
+  invalid or missing `MoveNext` to reject and prevents malformed, bodyless,
+  ambiguous, or contradictory `SetStateMachine` candidates from becoming
+  absence. Its explicit wrong-signature arm uses a body name that cannot enter
+  implicit matching.
+- `AsyncLoweringFixtureMatrixTests.IdenticalSource_ProducesClassicAndRuntimeAsyncPhysicalShapes`
+  preserves runtime async as `Absent` while the identical classic source
+  produces a resolved relationship with every role present.
 
-`ClassicAsyncArtifactMatrixTests.TrimmedArtifactWithoutRolePreservation_RetainsKickoffButCannotFormRequest`
-currently gates the old rejection, retained `MoveNext` MethodDef name, and
-absent `SetStateMachine` MethodDef name. It does not independently gate the
-direct interface, exact `MoveNext` role and body, or absence of an explicit
-support-role candidate whose body has another name; those target artifact
-premises remain **unverified**.
 `StateMachineRelationshipIndex_RejectsInvalidImplementationShapes` gates
-several present-but-invalid role shapes. Neither gate enforces the target
-certificate.
+several present-but-invalid role shapes in addition to the classic-specific
+arms above.
 
 ## Non-claims
 
