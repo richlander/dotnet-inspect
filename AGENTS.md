@@ -16,42 +16,41 @@ documentation.
 
 ### How work runs on this repo
 
-- **Design first and state the basis.** Before starting new work, visibly name
-  one normative owner and exact owned claim, then supporting designs and models
-  by role. If ownership is unclear or multiple, apply the design-scope rules or
-  ask the user; finding design defects is cheaper than finding them in code.
-- **Requested work hot-starts through PR and review.** Agents may branch, commit,
-  push, and open its PR without separate approval. Once eligible, round 1 and
-  replacements inside the current six-round block dispatch automatically; only
-  a new block requires approval. Merge remains separately authorized.
-- **Markdown-only PRs hot-start immediately at non-boundary rounds.** When every
-  changed file is `*.md`, `markdownlint` is the pre-review and per-round gate.
-  Open the PR and dispatch review without asking or waiting for `ci-required`.
-- **Complicated features need extraordinary evidence and pre-work** before
-  code is written: corpus evidence, an established oracle, a TLA+ model, or a
-  spec developed with close user input are examples of high-value levers.
-  Much of this work is about bounding or making invariant a component's
-  contract — defining those bounds well *is* the design and the architecture.
-  The code itself is easy once the bounds are right.
-- **We practice demo-driven development.** Every PR demonstrates a demo (a
-  mockup for docs-only PRs). Demos find bugs and let later readers grasp the
-  goal quickly. Demos are the accessibility lever; a missing demo is usually a
-  sign that user scenarios were never defined, though we avoid over-fitting to
-  the demo itself.
-- **Adversarial review is the primary way we find unaddressed defects.** Most
-  changes get two-seat review (see [How many reviewers, and from which
-  models](#how-many-reviewers-and-from-which-models)).
-- **Adversarial review is bounded.** Unbounded rounds are themselves a signal
-  that the design doesn't close. When reviewers keep finding things, we listen
-  and often switch back to a design phase to clarify goals, bounds, and
-  approach (see [Stop after six rounds](#stop-after-six-rounds)).
-- **Security focus is targeted, not general-purpose.** The primary scenario is
-  untrusted internet-origin data (packages, symbols, source); the tool never
-  executes code, which narrows the threat model. We don't defend against
-  local or intra-repo actors. `InertString` and `HardenedJson` are the model:
-  construction-time containment threaded through the object model (see
-  [Keep design and adversarial review within
-  scope](#keep-design-and-adversarial-review-within-scope)).
+[`docs/development-practices.md`](docs/development-practices.md) owns the full
+development model and rationale. The binding summary:
+
+- **Start from convention and best practice.** Name and justify any deliberate
+  divergence, whether stricter or looser, and document its scope.
+- **Design first and state the basis.** Name one normative owner and exact
+  claim, then supporting designs, models, constraints, and evidence by role.
+- **Demonstrate the pathological case.** Build boundary and failure fixtures;
+  run contract-defining cases in CI and preserve valuable non-CI probes as
+  reproducible design evidence.
+- **Survey analogous implementations.** Use their behavior, omissions, and
+  boundaries as evidence, not authority; transfer code or architecture only
+  when license, provenance, assumptions, and architectural fit all transfer.
+- **Bias toward progress through narrow slices.** Land independently coherent
+  planned shapes before later hardening when the design makes that safe; never
+  present unfinished behavior as supported.
+- **Lead with a demo.** Every PR demonstrates the scenario (a mockup for
+  docs-only PRs) without fitting the implementation only to that example.
+- **Treat critical review feedback as a design question first.** Ask whether
+  the owning design addresses it before repairing code; keep paired design
+  work moving quickly when the contract needs clarification.
+- **Use extraordinary pre-work for complicated features.** Corpus evidence,
+  an established oracle, a TLA+ model, or a closely developed specification
+  should bound the contract before implementation.
+- **Hot-start requested work through PR and review.** Agents may branch,
+  commit, push, open the PR, and dispatch eligible rounds without separate
+  approval; merge remains separately authorized.
+- **Use the Markdown fast path.** For Markdown-only PRs at non-boundary rounds,
+  `markdownlint` replaces `ci-required` as the pre-review and per-round gate.
+- **Use bounded adversarial review to find design and implementation gaps.**
+  Every non-trivial change gets two seats; repeated findings are evidence to
+  revisit design, and six rounds ends the current review block.
+- **Keep security work inside the repository threat model.** Focus on
+  untrusted internet-origin data and construction-time containment, not local
+  or intra-repository actors unless an owning design explicitly opts in.
 
 > A change spanning Markout and this repo is rare and uses a separate
 > co-development loop: read
@@ -285,7 +284,9 @@ trust-boundary and containment guidance:
 [`docs/design/untrusted-data-threat-model.md`](docs/design/untrusted-data-threat-model.md#trust-boundaries).
 For a credible external-input threat, first define its actor, input path,
 boundary, containment invariant, and enforcement gate in the owning design.
-Prefer construction-time containment (`HardenedJson`, `InertText.InertString`).
+Prefer typed construction-time containment such as `InertText.InertString`;
+when that shape is unavailable, a centralized entry point such as
+`HardenedJson` is weaker but still auditable.
 
 ### Platform compatibility
 
