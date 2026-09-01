@@ -222,6 +222,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Finding nomenclature](design/finding-nomenclature.md): observation/change semantics, operation outcomes, and Research composition boundaries.
 - [Finding producer design](design/finding-producers.md): how to choose owners, payloads, identities, result shapes, and matching modes.
 - [Finding coordinates](design/finding-coordinates.md): separation of subject identity, correspondence, optional producer order, and typed provenance.
+- [Finding value semantics](design/finding-value-equality.md): .NET equality
+  and hashing for Finding-owned structural values, ordered collections,
+  identity sets, union cases, and reference-identity operation objects.
 - [Finding adoption](design/finding-adoption.md): consumer migration, failure visibility, native-case presentation, and quality-gate rules.
 - [Source Finding producers](design/source-finding-producers.md): portable-PDB source/build-context inputs, outputs, identities, and migration boundaries.
 - [Implementation Diff](design/implementation-diff.md): product C# + IL/body diff projection shared by the opt-in `diff` section, RTS, and harnesses.
@@ -237,6 +240,11 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Member ordering](design/member-order.md): canonical type/member section order and member-kind mapping.
 - [Package source model](design/package-source-model.md): source eligibility,
   mapping, local stores, source-bound caches, selection, and enrichment.
+- [Package dependency evidence](design/package-dependency-evidence.md):
+  normalized declared dependency observations across typed package-manifest
+  and restored-project inputs, additive resolution and owner evidence,
+  cross-input equivalence, completion, and query-result `InertString`
+  containment.
 - [NuGetFetch source-result identity](design/browser-package-sources.md#nugetfetch-typed-source-result-identity):
   credential-free producer provenance, caller association, transport evidence,
   factory-bound result propagation, and safe retained failures. It consumes
