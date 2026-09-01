@@ -200,7 +200,7 @@ public readonly record struct RowSpec
 
         if (!TryParseComponent(token, out var count))
         {
-            error = $"'{token}' is not a row selection. Use a count (6), an inclusive range (2..10), a start plus count (2+10), or an open range (10..).";
+            error = $"'{token}' is not a row selection. Use an inclusive range (2..10), a start plus count (2+10), or an open range (10..).";
             return false;
         }
 

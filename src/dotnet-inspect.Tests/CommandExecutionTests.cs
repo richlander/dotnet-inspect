@@ -3025,14 +3025,28 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task PerformanceGroup_TableRendersOneHeader_AndRowsCapCountsDataRowsOnly()
+    public async Task PerformanceGroup_TableRendersOneHeader_AndItemCapAppliesPerKind()
     {
         // The flattened pretty table must be one aligned table: exactly one header regardless of how
-        // many kinds contribute, and a --rows cap must yield header + N data rows (embedded per-kind
-        // headers previously inflated the count and stole a row slot).
-        const int cap = 5;
+        // many kinds contribute. Item windows select independently from the named kind row sets
+        // before flattening, so -n 1 yields one data row for every non-empty selected kind.
+        var allRows = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "Performance:*", "--jsonl", "--tips", "q");
+        Assert.Equal(0, allRows.Exit);
+        Assert.Empty(allRows.Error);
+        var expectedKinds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var line in allRows.Output.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries))
+        {
+            using var document = JsonDocument.Parse(line);
+            expectedKinds.Add(
+                document.RootElement.GetProperty("kind").GetString()!);
+        }
+        Assert.True(expectedKinds.Count > 1);
+
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "Performance:*", "--table", "-n", cap.ToString(),
+            "library", "System.Text.Json", "-S", "Performance:*", "--table", "-n", "1",
             "--tips", "q");
 
         Assert.Equal(0, exit);
@@ -3040,8 +3054,21 @@ public partial class CommandExecutionTests
         var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         var headerCount = lines.Count(l => l.StartsWith("Kind", StringComparison.Ordinal) && l.Contains("Member", StringComparison.Ordinal));
         Assert.Equal(1, headerCount);
-        // One header + cap data rows.
-        Assert.Equal(cap + 1, lines.Length);
+        Assert.Equal(expectedKinds.Count + 1, lines.Length);
+    }
+
+    [Fact]
+    public async Task PerformanceGroup_JsonlRangeAppliesToFlattenedTable()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "Performance:*",
+            "--jsonl", "--rows", "2..3", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(
+            2,
+            output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
     }
 
     [Fact]
@@ -12096,6 +12123,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("--rows 'not-a-window' is not a row selection", error);
+        Assert.DoesNotContain("count (6)", error);
         Assert.DoesNotContain("NuGet source", error);
     }
 

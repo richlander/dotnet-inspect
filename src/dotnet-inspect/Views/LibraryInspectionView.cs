@@ -919,12 +919,29 @@ public class LibraryInspectionView
         return rows is { Count: > 0 } ? rows : null;
     }
 
-    // Flattens selected performance kinds without regrouping them. The source list is globally
-    // ranked, so preserving that order ensures --top and the first rendered rows agree.
-    internal List<PerformanceGroupRow> PerformanceGroupRows(IReadOnlyCollection<string> selectedSections)
+    // Flattens selected performance kinds into one table. With no item window, preserving the
+    // globally ranked source order keeps the flattened view stable. A relative item window is
+    // applied per kind first, matching the named row sets rendered by Markdown.
+    internal List<PerformanceGroupRow> PerformanceGroupRows(
+        IReadOnlyCollection<string> selectedSections,
+        RowWindow? itemWindow = null)
     {
+        var opportunities = _data.PerformanceTriageOpportunities.AsEnumerable();
+        if (itemWindow is { IsUnlimited: false, Kind: not RowWindowKind.Range } window)
+        {
+            opportunities = PerformanceKinds.Sections
+                .Where(selectedSections.Contains)
+                .SelectMany(section => RowWindow.Apply(
+                    window,
+                    _data.PerformanceTriageOpportunities
+                        .Where(opportunity =>
+                            PerformanceKinds.SectionForShape(opportunity.Shape)
+                                == section)
+                        .ToList()));
+        }
+
         var rows = new List<PerformanceGroupRow>();
-        foreach (var opportunity in _data.PerformanceTriageOpportunities)
+        foreach (var opportunity in opportunities)
         {
             var section = PerformanceKinds.SectionForShape(opportunity.Shape);
             if (!selectedSections.Contains(section))

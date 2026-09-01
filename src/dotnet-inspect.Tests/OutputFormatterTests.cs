@@ -1172,6 +1172,39 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void PerformanceGroupRows_ApplyRelativeItemWindowsPerKind()
+    {
+        var view = new LibraryInspectionView(new LibraryInspection
+        {
+            PerformanceTriageOpportunities =
+            [
+                Opp("BoxingFirst", inLoop: true, confidence: "high", rootReach: 4, shape: "box-value-type"),
+                Opp("ArrayFirst", inLoop: true, confidence: "high", rootReach: 3, shape: "small-array"),
+                Opp("BoxingLast", inLoop: true, confidence: "high", rootReach: 2, shape: "box-value-type"),
+                Opp("ArrayLast", inLoop: true, confidence: "high", rootReach: 1, shape: "small-array"),
+            ],
+        });
+        string[] sections =
+            [SectionNames.PerformanceBoxing, SectionNames.PerformanceArrays];
+
+        var head = view.PerformanceGroupRows(sections, RowWindow.Head(1));
+        var tail = view.PerformanceGroupRows(sections, RowWindow.Tail(1));
+
+        Assert.Equal(
+            [
+                MarkoutInline.Code("Ns.Type.BoxingFirst()"),
+                MarkoutInline.Code("Ns.Type.ArrayFirst()"),
+            ],
+            head.Select(row => row.Member));
+        Assert.Equal(
+            [
+                MarkoutInline.Code("Ns.Type.BoxingLast()"),
+                MarkoutInline.Code("Ns.Type.ArrayLast()"),
+            ],
+            tail.Select(row => row.Member));
+    }
+
+    [Fact]
     public void FilterAndOrderTriageOpportunities_AppliesPaydirtPredicatesAfterRanking()
     {
         var opportunities = new[]
