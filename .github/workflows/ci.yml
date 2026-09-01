@@ -1166,7 +1166,7 @@ jobs:
           if-no-files-found: error
 
       - name: Install tool from local packages
-        run: dotnet tool install --global dotnet-inspect --add-source ./artifacts/package/release --no-cache
+        run: dotnet tool install --global dotnet-inspect --source ./artifacts/package/release --no-cache
 
       - name: Smoke test - version
         run: |
