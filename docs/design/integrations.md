@@ -366,7 +366,11 @@ The projection-neutral core model is also implemented:
 selected Type set, owner-issued binding-context roster and source incidence,
 terminal source and producer receipts, coalesced candidates,
 candidate-attempt addresses, dispositions, and suppression proofs. Census
-execution, inventory, graph correspondence, matrix projection, and their
+execution is implemented by `IntegrationCensusExecutor`, which consumes exact
+Workspace-issued capability bindings, validates their correspondence before
+producer execution, runs producer policies sequentially, binds and resolves
+complete context-local candidate batches, and constructs the immutable
+snapshot. Inventory, graph correspondence, matrix projection, and their
 remaining gates are still target design.
 
 The Census is one Integration analysis over one finite universe. It is not a
@@ -490,15 +494,85 @@ display or boundary data.
 [Analysis universe realization](analysis-universe-realization.md) owns the
 execution-time handoff that binds those exact requirements to Workspace-backed,
 capability-owner-issued rosters, context incidence, resolution access, and
-lifetimes. The Integration Census executor will retrieve this payload from the
-exact executable requirement binding and reject invalid cross-capability
-coverage before producer execution. The immutable snapshot retains only the
-issued participant and context identities and their incidence, not the
-operation-scoped access or lease. It receives no mutable Workspace state and
-infers no context identity from a group object or binding-policy version.
-The capability owner either supplies a valid `IntegrationBindingContextAccess`
-or returns a typed acquisition rejection; registering another payload type is
-a provider contract violation rather than a Census outcome.
+lifetimes. The Integration Census executor retrieves each Integration-owned
+payload from its exact executable requirement binding and rejects invalid
+cross-capability coverage before producer execution. The selected-Type and
+exact-resolution bindings retain the same owner-issued Type-identity domain;
+the binding-context, peer-binding, and exact-resolution bindings retain the
+same ordered context identities; and executable completeness retains the exact
+description completeness and failure objects. Participant incidence must
+exactly cover the ordered participant roster, and every selected Type must name
+one of those participants.
+
+The immutable snapshot retains only issued identities, evidence, and receipts,
+not operation-scoped access or leases. It receives no mutable Workspace state
+and infers no context identity from a group object or binding-policy version.
+A capability owner either supplies its exact typed access payload or returns a
+typed acquisition rejection. A missing or wrongly typed executable payload is
+an Integration execution rejection rather than a producer attempt.
+
+### Sequential Census execution
+
+`IntegrationCensusExecutor` is the Integration-owned coordinator for one exact
+validated plan and its retained `AnalysisUniverseOffer`. It requests fresh
+execution access, validates every capability correspondence above, and then
+executes only through those owner-issued operations. Its terminal result is one
+of:
+
+- `Ready`, carrying the complete immutable Census snapshot;
+- `IssuanceRejected`, preserving the generic realization rejection;
+- `ExecutionRejected`, carrying a typed Integration provider-correspondence or
+  receipt rejection; or
+- `Cancelled`, after releasing every acquired capability lease.
+
+The executor is synchronous and sequential. It invokes producer policies in
+participant order and retained policy order. A rejected or failed source
+participant does not invoke a producer; the executor emits one typed
+`Unavailable` producer receipt for each required policy address. Cancellation
+is checked before and after every owner operation. Matching cancellation
+remains cancellation, while unexpected producer defects remain visible.
+
+Producer evidence is context-free. A completed observed-candidate receipt may
+also retain ordered structured Type lookups for extension receivers or other
+Integration-owned fulfillment sources. Those lookups are supporting evidence,
+not candidate identity. The ecosystem-observed policy therefore declares both
+the Integrations and extension-method query prerequisites; providers may share
+one retained scan across policy accesses.
+
+After coalescing the candidate frontier, the executor submits the complete
+ordered evaluation request set for each binding context to peer binding in one
+batch. The batch includes every candidate address incident to that context and
+the producer-issued fulfillment-source lookups associated with each candidate.
+This is the admission point for Metadata's frozen binding and resolution
+manifest: the provider may plan all exact candidate and supporting Type
+lookups together rather than discover a new root during frozen resolution.
+Contexts execute sequentially in provider order. Within each context, exact
+resolution consumes the exact peer-binding batch and returns one typed terminal
+receipt for every successfully bound address. Batch receipts must exactly cover
+their requested addresses; missing, duplicate, extraneous, wrong-context, or
+foreign-batch receipts reject execution.
+
+A successful observed-candidate resolution retains the resolved paths for its
+declared fulfillment-source lookups. That resolution set exactly covers the
+distinct declared lookups; omission, duplication, or an undeclared lookup
+rejects a successful receipt. A provider that cannot resolve any declared
+fulfillment source returns a failed candidate resolution rather than a partial
+success. The executor performs suppression only after all candidate
+resolutions are available. An opportunity is suppressed by the first
+coalesced observed candidate in the same context and concept whose resolved
+target equals the opportunity target and whose resolved fulfillment source
+equals the opportunity source Type. The opportunity's own target must also
+have resolved successfully. Otherwise the executor classifies the candidate
+`In` or `Out` from exact selected-Type membership. The snapshot revalidates the
+declared lookup, resolved source, target, context, and fulfilling-attempt
+correspondence, so a same-concept target without matching receiver evidence
+cannot suppress an opportunity.
+
+The executor groups requests context-first only to satisfy the complete frozen
+resolution manifest. Final candidate-attempt order remains candidate evidence
+order followed by each candidate source's incident context order. This
+grouping is not concurrency and adds no thread, scheduler, or asynchronous API;
+single-threaded Browser/Wasm remains the normative baseline.
 
 ### Producer-policy attempt accounting
 
@@ -536,6 +610,11 @@ provenance, not candidate or candidate-attempt identity. The coalesced candidate
 is evaluated once in each binding context incident to its source participant,
 while distinct binding contexts continue to produce distinct candidate-attempt
 addresses.
+
+Observed producer evidence may retain fulfillment-source lookups beside the
+candidate identity. Equal candidate identities coalesce while preserving all
+ordered producer evidence and producer-attempt correspondence. Fulfillment
+lookups do not split identity and cannot create an independent candidate.
 
 ### Evidence-visible frontier
 
@@ -654,15 +733,16 @@ its successful resolution must use the attempt address's exact binding-context
 identity; evidence from another context cannot suppress this attempt. The
 suppression receipt also retains the exact acquired source Type and resolved
 target path used by the fulfillment policy. The source must match the
-opportunity source, the path must retain the opportunity's exact policy-issued
-lookup, and its terminal must match the classified observation's terminal
-target. The observation's candidate source remains the adapter member or Type
-that supplied observed evidence; it is not required to equal the SDK source
-Type retained by the fulfillment proof. A classified `In` or `Out` observation
-may fulfill the opportunity because both are successful exact resolution
-outcomes in the same binding context. `Failed` retains its typed cause and
-makes the affected Census incomplete. Only `Classified` attempts contribute
-candidate inventory.
+opportunity source and one producer-declared fulfillment-source lookup on the
+classified observation must resolve to that exact Type. The path must retain
+the opportunity's exact policy-issued lookup, and its terminal must match the
+classified observation's terminal target. The observation's candidate source
+remains the adapter member or Type that supplied observed evidence; it is not
+required to equal the SDK source Type retained by the fulfillment proof. A
+classified `In` or `Out` observation may fulfill the opportunity because both
+are successful exact resolution outcomes in the same binding context.
+`Failed` retains its typed cause and makes the affected Census incomplete.
+Only `Classified` attempts contribute candidate inventory.
 
 ### Candidate disposition
 
@@ -898,10 +978,12 @@ Implementation should land as focused slices:
    capability declarations (implemented);
 2. candidate identity, producer-policy and candidate attempts, disposition,
    and the projection-neutral Census snapshot (implemented core model);
-3. `Integration Inventory` row Section and structured row output;
-4. graph correspondence from `In` candidates without changing graph semantics;
-5. sparse matrix projection and WASM demo; and
-6. separately owned #4979 `find` prerequisite or optional enrichment for
+3. sequential Workspace-backed execution over exact typed capability bindings
+   (implemented);
+4. `Integration Inventory` row Section and structured row output;
+5. graph correspondence from `In` candidates without changing graph semantics;
+6. sparse matrix projection and WASM demo; and
+7. separately owned #4979 `find` prerequisite or optional enrichment for
    discovering an unknown parent.
 
 Each slice must preserve current focused Library sections and explicit
@@ -1017,6 +1099,21 @@ The projection-neutral core-model slice is verified by:
 - `IntegrationCensus_SuppressionRejectsUnclassifiedFulfiller`
 - `IntegrationCensus_SuppressionRejectsWrongProofSourceOrTarget`
 - `IntegrationCensus_SnapshotCompatibilityIgnoresProjectionButRequiresSharedInputs`
+- `IntegrationCensusExecutor_ExecutesSparseUniverseSequentiallyAndSuppressesWithResolvedSourceEvidence`
+- `IntegrationCensusExecutor_RejectsCrossCapabilityMismatchBeforeProducerExecution`
+- `IntegrationCensusExecutor_DoesNotInvokeProducersForUnavailableParticipants`
+- `IntegrationCensusExecutor_PreservesCandidateFailureWithoutManufacturingOut`
+- `IntegrationCensusExecutor_CancellationAfterOwnerOperationReleasesAccess`
+- `IntegrationCensusExecutor_BindingBatchesExactlyCoverOneContext`
+- `IntegrationCensusExecutor_RejectsWrongExecutablePayloadType`
+- `IntegrationCensusExecutor_RejectsParticipantIncidenceMismatchBeforeProducerExecution`
+- `IntegrationCensusExecutor_RejectsSelectedTypeOutsideParticipantRoster`
+- `IntegrationCensusExecutor_RejectsContextAndCompletenessDomainMismatch`
+- `IntegrationCensusExecutor_RejectsMismatchedProducerPolicyAccess`
+- `IntegrationCensusExecutor_RejectsMismatchedProducerReceipt`
+- `IntegrationCensusExecutor_ResolutionBatchMustConsumeEveryExactBinding`
+- `IntegrationCensusExecutor_ResolvedFulfillmentSourcesExactlyCoverDeclaredLookups`
+- `IntegrationCensusExecutor_FulfillmentResolutionCannotRepeatLookup`
 
 The remaining target implementation is unverified until these named gates
 land:

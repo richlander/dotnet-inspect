@@ -298,6 +298,21 @@ internal static partial class LocalPathAdmission
         LocalPathClassification classification = RequireKind(
             Classify(requestedPath, cancellationToken),
             LocalPathKind.RegularFile);
+        return AdmitRegularFile(classification, cancellationToken);
+    }
+
+    internal static LocalFileAdmission AdmitRegularFile(
+        LocalPathClassification classification,
+        CancellationToken cancellationToken = default)
+    {
+        if (classification.Outcome == LocalPathOutcome.Classified
+            && classification.Kind != LocalPathKind.RegularFile)
+        {
+            throw new ArgumentException(
+                "A classified admission must identify a regular file.",
+                nameof(classification));
+        }
+
         if (classification.Outcome != LocalPathOutcome.Classified)
             return new LocalFileAdmission(classification);
 
@@ -340,7 +355,7 @@ internal static partial class LocalPathAdmission
             stream?.Dispose();
             return new LocalFileAdmission(
                 LocalPathClassification.Unavailable(
-                    requestedPath,
+                    classification.RequestedPath,
                     classification.CanonicalPath));
         }
         catch (Exception ex) when (IsClassificationUnsupported(ex))
@@ -349,7 +364,7 @@ internal static partial class LocalPathAdmission
             return new LocalFileAdmission(
                 LocalPathClassification.Failed(
                     LocalPathReason.ClassificationUnsupported,
-                    requestedPath,
+                    classification.RequestedPath,
                     classification.CanonicalPath));
         }
         catch (Exception ex) when (IsAdmissionFailure(ex))
@@ -358,7 +373,7 @@ internal static partial class LocalPathAdmission
             return new LocalFileAdmission(
                 LocalPathClassification.Failed(
                     LocalPathReason.AdmissionFailed,
-                    requestedPath,
+                    classification.RequestedPath,
                     classification.CanonicalPath));
         }
     }
