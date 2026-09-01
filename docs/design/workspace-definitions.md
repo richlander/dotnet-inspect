@@ -71,8 +71,12 @@ Adjacent owners remain independent:
   supported coordinate composition.
 - Query owners define each query ID, payload shape, selector requirements, and
   portable payload codec.
-- [Inspect Web UI](inspect-web-ui.md) renders owner-issued state and owns focus,
-  presentation, and browser-history push, replace, or adopt effects.
+- [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md)
+  renders owner-issued state. [Inspect Web Navigation
+  Consumer](inspect-web-navigation-consumer.md) owns post-result
+  effect-authority validation, snapshot/history commitment, and
+  result-authorized focus/announcement ordering, including browser-history
+  push, replace, or adopt effects.
 
 This owner composes those contracts without redefining them. In particular, a
 portable packet does not make a browser label canonical, a restoration

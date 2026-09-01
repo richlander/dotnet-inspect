@@ -1392,6 +1392,60 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void RidSpecificPackage_SeparatesCompileAndImplementationAssets()
+    {
+        const string packageId = "Rid.Specific";
+        byte[] image =
+            File.ReadAllBytes(
+                typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] unrelatedImage =
+            File.ReadAllBytes(
+                typeof(PackageAssemblyContextRealization).Assembly.Location);
+        var package = new BrowserPackage(
+            packageId,
+            "1.0.0",
+            PackageEntries(
+                ("lib/net11.0/Rid.Specific.dll", image),
+                ("lib/net11.0/shadow/Rid.Specific.dll", unrelatedImage),
+                ("runtimes/linux-x64/lib/net11.0/Rid.Specific.dll", image)),
+            fromCache: false);
+        var coordinate = new BrowserPackageCoordinate(
+            package,
+            new PackageRootRealization(
+                package.Content,
+                packageId,
+                package.Version,
+                "net11.0",
+                "linux-x64"));
+
+        PackageCompileAsset compile =
+            coordinate.CompileAsset("Rid.Specific.dll");
+        Assert.Equal("lib/net11.0/Rid.Specific.dll", compile.Path);
+        Assert.Equal(
+            "runtimes/linux-x64/lib/net11.0/Rid.Specific.dll",
+            coordinate.ImplementationAsset("Rid.Specific.dll").Path);
+        using var scope = new BrowserInspectionScope([coordinate]);
+        BrowserWorkspaceParticipant surface =
+            Assert.Single(scope.SurfaceParticipants);
+        BrowserWorkspaceParticipant implementation =
+            scope.ImplementationParticipants.Single(candidate =>
+                candidate.Asset.Path
+                    == "runtimes/linux-x64/lib/net11.0/Rid.Specific.dll");
+        Assert.Equal(compile.Path, surface.Asset.Path);
+        Assert.Equal(
+            "runtimes/linux-x64/lib/net11.0/Rid.Specific.dll",
+            implementation.Asset.Path);
+        Assert.Contains(
+            scope.ImplementationParticipants,
+            candidate =>
+                candidate.Asset.Path
+                    == "lib/net11.0/shadow/Rid.Specific.dll");
+        Assert.Same(
+            implementation,
+            scope.ImplementationParticipant(surface));
+    }
+
+    [Fact]
     public async Task PackageFrameworkUnavailability_DoesNotEmitArtifactFramework()
     {
         const char bidi = '\u202E';

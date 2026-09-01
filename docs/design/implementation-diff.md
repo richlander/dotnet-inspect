@@ -210,14 +210,17 @@ PDB source is unavailable.
 
 ## Research admission and target-correspondence boundary
 
-**Status:** target design for #4771.
+**Status:** target design for #4771 with the Research target-resolution boundary
+implemented through complete correspondence.
 [Research admission and identity](#research-admission-and-identity) and
-[Side-local requests and attempts](#side-local-requests-and-attempts) are
-implemented and verified. Complete census, correspondence keys, absence proof,
-and producer handoff remain unimplemented and unverified until their named
-gates in
+[Side-local requests and attempts](#side-local-requests-and-attempts), plus
+complete census, correspondence keys and outcomes, positive absence proof, and
+the retained producer-facing endpoint evidence under
+[Complete census and correspondence](#complete-census-and-correspondence), are
+implemented and verified by their named gates in
 [Target-resolution migration and gates](#target-resolution-migration-and-gates)
-land.
+and the owning sections. Producer-specific adapters and inspection-topology
+classification remain future independently owned work.
 
 This design proposes one place to answer the target question before comparison
 work begins: which member, if any, did each side select; can those targets
@@ -383,8 +386,10 @@ gates;
 `ResearchTargetCancellation_RetryPreservesAdmissionAndMintsFreshTargets` gate
 the remaining properties below. The correspondence-key, absence-proof, and
 census obligations this section mentions belong to
-[Complete census and correspondence](#complete-census-and-correspondence) and
-remain unimplemented; nothing in this slice constructs or consumes them.
+[Complete census and correspondence](#complete-census-and-correspondence).
+They are implemented downstream of terminal side-local attempts and exposed
+through the complete `ResearchTargetResolution`; the named gates in that
+section verify their construction and independent final validation.
 
 Planning input is caller-authored and Research-owned. One
 `ResearchTargetPlanningRequest` carries the admitted population, an explicit
@@ -538,10 +543,10 @@ can leave the same stable target at another position.
 
 ### Complete census and correspondence
 
-**Status:** unimplemented and unverified. Its named gates are listed under
+**Status:** implemented and verified by the named gates under
 [Target-resolution migration and gates](#target-resolution-migration-and-gates).
-`ResearchTargetResolution` exposes complete terminal attempts today; it exposes
-no census, correspondence key, correspondence outcome, or absence proof.
+`ResearchTargetResolution` exposes complete terminal attempts, side-local
+censuses, correspondence keys and outcomes, taint, and positive absence proofs.
 
 After every attempt in a scope is terminal, Research performs one complete
 census per domain and side. A domain-side census is complete when the admitted
@@ -550,10 +555,11 @@ a non-ambiguous domain it proves either that the sole input attempt is terminal
 or that no input occupies that domain and side. It is **healthy** only when
 every required attempt is `Resolved` or `NotFound`. A domain is **blocked**
 when either side contains an `Ambiguous`, `Rejected`, `Unavailable`, or
-`Failed` attempt outcome. Those outcomes may conceal a target only inside their
-own domain because domain participates in every target key. A blocked domain
-establishes no semantic pair, absence, addition, or removal, but does not
-suppress a healthy domain in the same scope.
+`Failed` attempt outcome, or when an admitted input is unevaluated because an
+exact-address selection designated another input. That evidence may conceal a
+target only inside its own domain because domain participates in every target
+key. A blocked domain establishes no semantic pair, absence, addition, or
+removal, but does not suppress a healthy domain in the same scope.
 
 Only a healthy domain reaches key construction. Research derives typed
 `ResearchStrictTargetKey` and `ResearchTargetCorrespondenceKey` values from
@@ -563,17 +569,26 @@ owner-issued target evidence:
   relationship role, and the exact `MetadataMethodAddress` for a physical
   method. A non-method-like target instead retains its exact `MemberAnchor`
   with role `None`; and
-- the correspondence key retains scope, domain, relationship role, and the
-  canonical body identity produced by `ResearchMemberIdentity` from the exact
-  `ResolvedMemberTarget`. It erases side, admitted-input identity, assembly
-  version, MVID, and MethodDef token. For role `None`, it retains the exact API
-  `MemberAnchor` canonical identity because no body identity exists.
+- the correspondence key retains scope, domain, relationship role, and a
+  Research-owned body identity projected from the exact Analysis-issued
+  `MethodIdentity` for the resolved MethodDef. It erases side, admitted-input
+  identity, assembly version, MVID, MethodDef token, and generic-parameter
+  names. For role `None`, it retains the exact API `MemberAnchor` canonical
+  identity because no body identity exists.
 
-The Research body identity preserves physical declaring type, member name,
-generic arity, open parameter types, conversion return shape, and projected
-extension body target. Nested-type spelling flows through the existing
-API-to-body bridge. Distinct assembly domains, overload shapes, relationship
-roles, extension bodies, and nested types therefore remain distinct even when
+The Research body identity projects the structured physical declaring and
+signature `TypeRef` shapes into Research-owned inert type identity. The
+projection retains only the simple assembly name, exact metadata definition
+name, structural element and argument shapes, generic kind and position, and
+array rank; it does not retain Analysis resolution provenance or generic
+parameter display names. The body identity also preserves the selected
+declaration name and open parameter shape normalized for its accessor role,
+generic arity, conversion return shape, and the Analysis-issued extension
+projection. Analysis generic parameters participate by kind and position, and
+exact metadata definition names preserve namespace
+and nested-type segments separately. Distinct assembly domains, overload
+shapes, relationship roles, extension bodies, and nested types therefore
+remain distinct even when
 a display name matches.
 
 The key grammar and constructors are Research-owned. Metadata does not group
@@ -581,6 +596,12 @@ targets into Research correspondence domains, and callers do not author or
 parse either key. Rendered assembly identities, list position, normalized
 display text, selector strings, and `ResearchSubjectKey.Id` are not
 correspondence keys.
+
+If Metadata selection succeeds but the admitted Analysis index has no complete
+structured `MethodIdentity` for that MethodDef, the attempt remains `Resolved`.
+Research emits `CounterpartUnavailable` with `BodyIdentityUnavailable` taint
+and no correspondence key rather than converting selection success into a
+failure or comparing a lossy textual fallback.
 
 Correspondence is scope-local and has these closed outcomes:
 
@@ -619,7 +640,8 @@ Blocked-domain handling has precedence over key construction in that domain.
 When a domain is blocked, no `Paired`, `BeforeOnly`, `AfterOnly`, or `Absent`
 outcome forms there. Every resolved target in that domain becomes exactly one
 `CounterpartUnavailable` outcome whose taint evidence retains the complete
-domain-local blocking-attempt set. If no target resolved, one
+domain-local blocking-attempt set and any exact unevaluated input
+dispositions. If no target resolved, one
 `DomainUnavailable` outcome keeps the failure visible instead of producing an
 empty correspondence-outcome set. Other domains proceed from their own census.
 
@@ -674,15 +696,17 @@ unverified; each native producer migration supplies its own gates.
 
 ### Resolution result and failure boundary
 
-**Status:** the scope, domain, request, and attempt half is implemented by
-`ResearchTargetResolver.Resolve` and its construction boundary,
-`ResearchTargetResolutionValidator`.
+**Status:** implemented by `ResearchTargetResolver.Resolve`,
+`ResearchTargetCorrespondenceBuilder`, and the construction boundary,
+`ResearchTargetResolutionValidator`. The resolver publishes the complete
+scope, domain, request, attempt, census, correspondence-key, absence-proof,
+taint, and outcome result described in
+[Complete census and correspondence](#complete-census-and-correspondence).
 `ResearchTargetResolution_RetainsNoBorrowedResourcesOrPresentation`,
 `ResearchTargetCancellation_ExposesNoPartialPopulationOrResult`, and
 `ResearchTargetCancellation_RetryPreservesAdmissionAndMintsFreshTargets` are
-the named gates. The correspondence-outcome half of this section is
-unimplemented; `ResearchTargetResolution` exposes no correspondence outcome,
-key, or absence proof today.
+the result-lifetime gates; the complete-census section names the correspondence
+construction and validation gates.
 
 One `ResearchTargetResolution` accounts for the complete admitted operation. It
 contains immutable operation, question, scope, domain, input, request, and
@@ -732,11 +756,10 @@ Migration preserves owner and dependency direction:
    implementation-comparison profile. This step has landed.
 2. Research adds that profile's Metadata-target adapter, exact relationship
    roles, durable target keys, and typed expected-failure outcomes. Metadata's
-   resolver and diagnostics remain unchanged. The adapter, relationship roles,
-   and typed expected-failure outcomes have landed; the durable target keys
-   have not.
+   resolver and diagnostics remain unchanged. This step has landed.
 3. Research adds complete domain-local census, correspondence, and absence
    proof. No producer is invoked and no inspection topology is classified.
+   This step has landed.
 4. The ResearchQueries companion consumes the admission API and constructs its
    Queries-owned receipt for both profiles. Body-signal target resolution
    remains on its compatibility path until Queries prerequisite #4777 supplies
@@ -755,12 +778,14 @@ listed under
 [Research admission and identity](#research-admission-and-identity),
 [Side-local requests and attempts](#side-local-requests-and-attempts), and
 [Resolution result and failure boundary](#resolution-result-and-failure-boundary).
-The census, key, absence, producer-handoff, and string-key contract remains
-unimplemented until these named non-vacuity gates land:
+The census, key, absence, producer-handoff, and string-key contract is verified
+by these named non-vacuity gates:
 
 - `ResearchTargetKeys_AreOwnerIssuedAndNotDisplayDerived`
 - `ResearchTargetKeys_EraseOnlyAddressAndSideLocalIdentity`
 - `ResearchTargetKeys_PreserveDomainSignatureExtensionAndRelationshipRole`
+- `ResearchTargetKeys_UseTupleErasedCanonicalTypes`
+- `ResearchTargetKeys_UseTypedBodyIdentityForGenericAndNestedCollisions`
 - `ResearchTargetCensus_DerivesCompleteAttemptAndCorrespondenceDomains`
 - `ResearchTargetCensus_BlockedDomainTaintsResolvedTargetsOnBothSides`
 - `ResearchTargetCensus_BlockedDomainWithoutResolvedTargetsIsVisible`
