@@ -112,12 +112,11 @@ GitHub merge and auto-merge bind an expected head, not an expected base. This
 preflight and carry-forward analysis are point-in-time observations, not an
 exact-base lock; do not chase `main` with branch updates to approximate one.
 Exact-base integration revalidation requires a merge queue or equivalent
-ruleset. Every arm or merge must use the
+ruleset. Keep GitHub auto-merge unarmed while gates are pending. After a green
+preflight, exercise a recorded authorization through a direct merge using the
 [exact-head precondition](github-api-operations.md#bind-merge-mutations-to-the-head).
-Head-bound auto-merge may remain armed across base movement. If an interaction
-is observed while the PR remains open, disable it before any other recovery
-mutation; before any author or recovery push moves the head, disable it before
-pushing.
+If an auto-merge request exists, disable it before any recovery mutation or
+head-moving push.
 
 For stacks, every open layer must meet its applicable eligibility row above. A
 known-red or conflicted parent blocks upper slices; a pending parent does not
@@ -477,22 +476,24 @@ the path applies.
    - *No interaction:* do not integrate or push. Keep the candidate head
      unchanged and record the analyzed tip as the lineage's new base tip. From
      a review-clean head, keep `review-clean`; from a pending or approved waiver
-     head, keep it absent and carry the waiver forward. Preserve head-bound
-     auto-merge. Start no new validation, CI, review, or waiver decision; final
-     preflight still observes the existing current-head gate.
-   - *Trivial interaction:* if the PR remains open, disable auto-merge first
-     and handle an already-merged result as terminal. Then remove
-     `review-clean`, integrate the exact analyzed tip, resolve every overlap
-     mechanically as classified, run affected focused gates, and push. Follow
-     the waiver procedure below before dispatching replacement reviewers.
-   - *Significant interaction, no conflict:* if the PR remains open, disable
-     auto-merge first and handle an already-merged result as terminal. Then
-     remove `review-clean`, integrate the tip, re-run the claimed validation,
-     push, obtain current-head CI, and re-dispatch the required reviewers at
-     the new head as a normal round.
-   - *Conflict requiring semantic resolution:* disable auto-merge first and
-     handle an already-merged result as terminal. Then remove `review-clean`
-     and resolve it as an author change under
+     head, keep it absent and carry the waiver forward. Preserve recorded merge
+     authorization and keep GitHub auto-merge unarmed. Start no new validation,
+     CI, review, or waiver decision; final preflight still observes the existing
+     current-head gate.
+   - *Trivial interaction:* if the PR remains open, expire merge authorization,
+     disable any armed auto-merge first, and handle an already-merged result as
+     terminal. Then remove `review-clean`, integrate the exact analyzed tip,
+     resolve every overlap mechanically as classified, run affected focused
+     gates, and push. Follow the waiver procedure below before dispatching
+     replacement reviewers.
+   - *Significant interaction, no conflict:* if the PR remains open, expire
+     merge authorization, disable any armed auto-merge first, and handle an
+     already-merged result as terminal. Then remove `review-clean`, integrate
+     the tip, re-run the claimed validation, push, obtain current-head CI, and
+     re-dispatch the required reviewers at the new head as a normal round.
+   - *Conflict requiring semantic resolution:* expire merge authorization,
+     disable any armed auto-merge first, and handle an already-merged result as
+     terminal. Then remove `review-clean` and resolve it as an author change under
      [conflict recovery](../AGENTS.md#recovery-transitions), and re-dispatch
      the required reviewers at the new head.
 
@@ -535,10 +536,9 @@ Without approval, do not waive review; resume the ordinary replacement
 workflow when work continues. A resolution that no longer satisfies the
 criteria requires ordinary re-review. Later base movement requires
 carry-forward classification: no interaction extends the pending or approved
-waiver and head-bound auto-merge authorization to the newly analyzed tip
-without another integration or decision; if observed while the PR remains open,
-any other interaction invalidates both. Any head movement also invalidates
-both.
+waiver and recorded merge authorization to the newly analyzed tip without
+another integration or decision; if observed while the PR remains open, any
+other interaction invalidates both. Any head movement also invalidates both.
 
 ## Block boundaries and splitting
 

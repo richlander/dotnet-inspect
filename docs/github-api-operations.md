@@ -33,17 +33,15 @@ Verify the resulting metadata after the REST update.
 
 ## Bind merge mutations to the head
 
-Every auto-merge arm, direct merge, and asynchronous merge request must name
-the exact reviewed or approved-waiver head SHA as an atomic precondition. A
-prior read is not enough: without the precondition, a concurrent write-access
-push can transfer the mutation to an unreviewed head.
+Every direct or asynchronous merge request must name the exact reviewed or
+approved-waiver head SHA as an atomic precondition. A prior read is not enough:
+without the precondition, a concurrent write-access push can transfer the
+mutation to an unreviewed head.
 
-Use `--match-head-commit` for high-level merge operations:
+Keep GitHub auto-merge unarmed while required gates are pending. After green
+preflight, perform the authorized direct merge with `--match-head-commit`:
 
 ```bash
-gh pr merge "$pr_number" --auto --squash \
-  --match-head-commit "$head_sha"
-
 gh pr merge "$pr_number" --squash \
   --match-head-commit "$head_sha"
 ```
@@ -56,9 +54,7 @@ gh api -X PUT "repos/{owner}/{repo}/pulls/$pr_number/merge-async" \
   -f sha="$head_sha"
 ```
 
-When using GraphQL directly, set `expectedHeadOid` on
-`EnablePullRequestAutoMergeInput` or `MergePullRequestInput`; never omit it.
-Treat a mismatch as head movement and return to candidate formation. The
-precondition protects this mutation only; a later write-access push can leave
-auto-merge armed, so the status-discovery head-mismatch transition must disable
-it before handling the replacement head.
+When using GraphQL directly, set `expectedHeadOid` on `MergePullRequestInput`;
+never omit it. Treat a mismatch as head movement and return to candidate
+formation. If an auto-merge request exists from earlier workflow state, disable
+it before a recovery mutation or head-moving push.

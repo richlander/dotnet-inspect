@@ -136,11 +136,12 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
 - **Review ordinary non-Markdown changes in parallel with CI:** requires user
   approval; conflict recovery is the explicit exception. A CI failure requiring
   an author change still supersedes the attempt, and all findings carry forward.
-- **Auto-merge on the final head:** after clean reviews or an approved waiver,
-  the user may arm it with the [exact-head precondition](docs/github-api-operations.md#bind-merge-mutations-to-the-head).
-  Head movement expires it: disable before pushing, then review or waive and
-  ask again. Base movement alone does not; classify it while the PR remains
-  open. Only no-interaction movement keeps the head unchanged and starts no CI.
+- **Pre-authorize merge for the final head:** after clean reviews or an
+  approved waiver, the user may authorize merging that exact head once ready.
+  Record the authorization; do not arm GitHub auto-merge while gates are
+  pending. After green preflight, merge with the [exact-head
+  precondition](docs/github-api-operations.md#bind-merge-mutations-to-the-head).
+  Head movement expires it; no-interaction base movement preserves it.
 - **"CI is ready":** the user's statement that CI has no failures and the PR is
   mergeable. Trust it without re-checking and move to the next task, such as
   dispatching the next round's reviewers.
@@ -157,7 +158,7 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
   newest base must stay a subset of the original reviewed diff with no
   surviving reviewed claim, contract, or behavior changed. `review-clean` stays
   absent on the integration head. Later no-interaction base movement extends
-  the waiver and recorded auto-merge authorization to the analyzed tip without
+  the waiver and recorded merge authorization to the analyzed tip without
   moving the head or asking again; head movement or any other interaction
   expires both. Semantic conflict resolution or new authored change requires
   ordinary re-review. Evidence to publish:
@@ -394,8 +395,7 @@ section and [round orchestration](docs/round-orchestration.md) explain them.
 4. **A round that pushes a fix is not review-clean.** Only the replacement head
    can earn that.
 5. **Never claim merge readiness from label state alone.** Confirm current-head
-   CI and GitHub's live mergeability immediately before every agent-driven
-   merge attempt; armed auto-merge delegates those gates to GitHub.
+   CI and GitHub's live mergeability immediately before every merge attempt.
 6. **A round closes only when reconciled and its applicable gates are green.**
    For a non-Markdown-only PR, known-red `ci-required` blocks; pending status follows
    [Bounded status waiting](docs/round-orchestration.md#bounded-status-waiting).
@@ -404,7 +404,7 @@ section and [round orchestration](docs/round-orchestration.md) explain them.
    author change restarts the *same* round.
 7. **Six rounds, then stop** and ask for another block.
 8. **Never merge without explicit user authorization** for that specific PR.
-   Auto-merge armed at the user's direction satisfies this rule; see
+   A recorded exact-head merge authorization satisfies this rule; see
    [Standing adjustments](#standing-adjustments).
 
 ### Canonical round flow
@@ -461,23 +461,23 @@ head.
 After a non-mutating fetch, classify the landed range into exactly one
 outcome, act on it, and report the classification and action as normal session
 output before changing labels or dispatching reviewers; re-classify only when
-the landed range itself changes, not on every poll. An agent-driven merge still
-needs a live readiness check and explicit user authorization; armed auto-merge
-delegates final readiness enforcement to GitHub.
+the landed range itself changes, not on every poll. Merging still needs a live
+readiness check and explicit user authorization.
 The analysis is a point-in-time decision aid, not an exact-base lock: later base
 movement does not trigger branch integration or CI chasing; exact-base
 revalidation needs a merge queue, not repeated branch updates.
 Full detection, classification, and action procedure:
 [Carry-forward after clean reviews](docs/round-orchestration.md#carry-forward-after-clean-reviews).
 The four outcomes: **no interaction** (keep the reviewed or waived head
-unchanged, preserve its state and auto-merge, and start no new CI run or other
-gate — the common case), **trivial interaction** (if still open, disable
-auto-merge first, remove `review-clean`, integrate, run affected gates, and
-offer the exact-head re-review waiver), **significant interaction, no
-conflict** (if still open, disable auto-merge first, remove `review-clean`,
-integrate, re-run validation and CI, and re-dispatch reviewers as a normal
-round), and **merge conflict requiring semantic resolution** (disable
-auto-merge first and treat as an author change under
+unchanged, preserve its state and merge authorization, and start no new CI run
+or other gate — the common case), **trivial interaction** (if still open,
+expire authorization, disable any armed auto-merge first, remove
+`review-clean`, integrate, run affected gates, and offer the exact-head
+re-review waiver), **significant interaction, no conflict** (if still open,
+expire authorization, disable any armed auto-merge first, remove
+`review-clean`, integrate, re-run validation and CI, and re-dispatch reviewers
+as a normal round), and **merge conflict requiring semantic resolution**
+(expire authorization, disable any armed auto-merge first, and recover under
 [Recovery transitions](#recovery-transitions)).
 
 ### How many reviewers, and from which models
@@ -572,8 +572,8 @@ Put it under `## Demo` above validation in the PR body.
   Confirm current-head CI and GitHub's live mergeability for every agent-driven
   merge attempt or readiness statement.
 - Never merge without explicit authorization for that PR. A clean review,
-  green CI, or readiness comment is not authorization. User-directed auto-merge
-  authorizes only the exact reviewed or approved-waiver head.
+  green CI, or readiness comment is not authorization. A recorded merge
+  authorization applies only to the exact reviewed or approved-waiver head.
 
 ### Stacked PRs for multi-slice issues
 
