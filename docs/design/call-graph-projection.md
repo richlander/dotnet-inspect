@@ -113,6 +113,8 @@ The projection owns everything a host must not re-invent in JavaScript:
   display would erase that identity. Literal array grammar in a bare name,
   array element, or generic argument therefore cannot alias an actual array
   wrapper.
+  `CallGraphArrayKindIdentityTests.Resolve_EscapesLiteralArraySyntaxAcrossTypeShapes`
+  gates those exact-name cases.
   An older surface without that structural payload cannot claim a structural
   match for `T[*]`, but an exact MethodDef-token candidate may still recover
   the body when no structural candidate matches.
