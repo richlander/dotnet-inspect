@@ -8,9 +8,9 @@ cache authorization, or filesystem access.
 This is the first focused slice of
 [#3759](https://github.com/richlander/dotnet-inspect/issues/3759). Folder-feed
 layout recognition, candidate enumeration, manifest and payload acquisition,
-search capability, and local-before-HTTP composition remain separate
-successors [#5399](https://github.com/richlander/dotnet-inspect/issues/5399)
-and [#5400](https://github.com/richlander/dotnet-inspect/issues/5400).
+search capability, and local-before-HTTP composition remain with the
+[local folder package source](local-folder-package-source.md) and
+[#5400](https://github.com/richlander/dotnet-inspect/issues/5400).
 
 ## Boundary
 
@@ -226,9 +226,9 @@ This owner does not define:
 - cache publication and concurrency; or
 - browser filesystem availability or user-interface registration.
 
-A [local folder client successor](https://github.com/richlander/dotnet-inspect/issues/5399)
-will consume this identity and define layout-specific capabilities and bounded
-filesystem operations. A
+A [local folder package source](local-folder-package-source.md) consumes this
+identity and defines layout-specific capabilities and bounded filesystem
+operations. A
 [package composition successor](https://github.com/richlander/dotnet-inspect/issues/5400)
 will adopt that client under the
 [package source model](package-source-model.md), including local-before-HTTP

@@ -285,6 +285,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   config- and command-relative path resolution, path and `file://`
   canonicalization, host path equality, and the local identity consumed by
   mapping and cache authorization.
+- [Local folder package source](design/local-folder-package-source.md):
+  recognized general folder-feed layouts, capability semantics, bounded
+  filesystem and archive observation, source outcomes, mutation handling, and
+  caller-owned local payload streams.
 - [Package source model](design/package-source-model.md): source eligibility,
   mapping, authority composition, source-bound caches, selection, and
   enrichment.

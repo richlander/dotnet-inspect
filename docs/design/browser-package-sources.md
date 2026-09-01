@@ -430,9 +430,10 @@ rather than accepting independent identity or issuer arguments.
 callback from the external client assembly. Its admitted kinds are
 `NuGetGallery` and `NuGetV3`. Gallery uses the canonical owner-issued NuGet.org
 producer; v3 uses the descriptor's admitted normalized endpoint projection.
-`LocalFolder` remains unsupported until #3759. Null arguments and unsupported
-descriptor kinds are rejected before any caller callback runs or any bound
-factory is made available.
+`LocalFolder` remains unsupported until the
+[local folder package source](local-folder-package-source.md) is implemented.
+Null arguments and unsupported descriptor kinds are rejected before any caller
+callback runs or any bound factory is made available.
 
 For an admitted descriptor, NuGetFetch constructs the complete source identity,
 private issuer, and bound public result factory before invoking the callback
