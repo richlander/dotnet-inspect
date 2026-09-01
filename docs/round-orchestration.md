@@ -100,13 +100,25 @@ forward.
 
 ### Merge preflight
 
-Before merge, re-read GitHub state and confirm the expected head, non-draft
-status, positive mergeability, and successful current-head `ci-required`. A
-true draft flag, REST `mergeable: null` or GraphQL `mergeable: UNKNOWN`, a
-missing gate, or a gate from another head is not ready. Use a GraphQL snapshot
-so documented `mergeStateStatus: BLOCKED` can also block the action; do not
-infer that enum from undocumented REST `mergeable_state` values. Follow
+Before an agent-driven merge, re-read GitHub state and confirm the expected
+head and base-ref name, valid review-clean or approved-waiver evidence,
+non-draft status, positive mergeability, and successful current-head
+`ci-required`. A mismatch, invalid evidence, true draft flag, REST
+`mergeable: null`, GraphQL `mergeable: UNKNOWN`, missing gate, or gate from
+another head is not ready. Use a GraphQL snapshot so documented
+`mergeStateStatus: BLOCKED` can also block the action; do not infer that enum
+from undocumented REST `mergeable_state` values. Follow
 [GitHub status queries](github-status-queries.md).
+
+GitHub merge and auto-merge bind an expected head, not an expected base. This
+preflight and carry-forward analysis are point-in-time observations, not an
+exact-base lock; do not chase `main` with branch updates to approximate one.
+Exact-base integration revalidation requires a merge queue or equivalent
+ruleset. Keep GitHub auto-merge unarmed while gates are pending. After a green
+preflight, exercise a recorded authorization through a direct merge using the
+[exact-head precondition](github-api-operations.md#bind-merge-mutations-to-the-head).
+If an auto-merge request exists, disable it before any recovery mutation or
+head-moving push.
 
 For stacks, every open layer must meet its applicable eligibility row above. A
 known-red or conflicted parent blocks upper slices; a pending parent does not
@@ -128,10 +140,10 @@ applies the round transition below.
 
 ### Apply the result
 
-Handle lifecycle, head mismatch, and conflict outcomes in the order defined by
-[GitHub status queries](github-status-queries.md). Clear status predicates,
-`schedule`, `status-deadline`, and `goal` when the workflow leaves that wait.
-Preserve unrelated members such as `review`.
+Handle lifecycle, head/base mismatch, and conflict outcomes in the order
+defined by [GitHub status queries](github-status-queries.md). Clear status
+predicates, `schedule`, `status-deadline`, and `goal` when the workflow leaves
+that wait. Preserve unrelated members such as `review`.
 
 Evaluate `waiting` as a set, not an exact string. Normalize new CI waits to
 `check:ci-required`, remove only predicates the result resolves, and preserve
@@ -142,7 +154,8 @@ unrelated members such as `review`. In the table, **status members** means
 | --- | --- |
 | PR is merged | Leave the status wait, relinquish ownership, and end. |
 | PR is closed or draft | Leave the status wait, publish the human action or stopped state, and end. |
-| Head changed | Leave the status wait; route the returned head through candidate formation without inheriting fixed-head evidence. |
+| Base ref changed | Leave the status wait; expire merge authorization and route the unchanged head through candidate formation without inheriting fixed-head evidence. |
+| Head changed | Leave the status wait; disable auto-merge first, handle an already-merged result as terminal, then route the returned head through candidate formation without inheriting fixed-head evidence. |
 | REST `mergeable: false` or GraphQL `mergeable: CONFLICTING` | Leave the status wait; apply conflict recovery before considering CI. |
 | `ci-required` completed without `success` while required for the current round or goal | Leave the status wait; classify the result and apply the applicable recovery transition. |
 | `ci-required` completed without `success` while not required for the current round or goal | Record the final-readiness failure and continue the current review path. |
@@ -256,6 +269,11 @@ before the fixed prompt. Append the candidate's exact base and head, design
 intent, relevant diff, concrete properties under test, prior findings, and
 required real-run evidence. The appended material may narrow the review but
 must not weaken or broaden the prompt's trust model and finding-admission rules.
+It also records the user purpose, convention or best-practice baseline,
+intentional divergence, analogous implementation evidence, pathological or
+boundary case and gate, current slice and residual work, and the demo with a
+neighboring case. Use `Not applicable — <reason>` for a field that genuinely
+does not apply.
 Agents that prefer a structured composition aid may instead fill the optional
 [`docs/templates/adversarial-review-prompt.md`](templates/adversarial-review-prompt.md),
 which includes the same fixed prompt followed by candidate placeholders.
@@ -263,11 +281,13 @@ which includes the same fixed prompt followed by candidate placeholders.
 Do not dispatch with a generic or incoherent frame. The prompt must name one
 normative owner and exact claim, the supported actor or caller, the controlled
 or variable input, the boundary through which it reaches the claim, trusted
-parties and excluded scenarios, the observable consequence, and the evidence
-that would falsify the claim. For a correctness review without an untrusted
-actor, name the ordinary supported caller and input instead. If those fields
-cannot be filled, return to design or scope clarification before spending a
-review round.
+parties and excluded scenarios, the user purpose, baseline and any divergence,
+relevant analogous evidence, pathological case and gate, current slice,
+residual work, demo and neighboring case, the observable consequence, and the
+evidence that would falsify the claim. For a correctness review without an
+untrusted actor, name the ordinary supported caller and input instead. If those
+fields cannot be filled or explained as not applicable, return to design or
+scope clarification before spending a review round.
 
 Give every seat the same completed prompt except for its worktree path. State
 candidate facts rather than rewarding findings; the canonical prompt already
@@ -444,17 +464,17 @@ include more detail when the findings or fixes warrant it.
 moving](../AGENTS.md#clean-reviews-are-not-spent-by-main-moving) states when
 this path applies and how each landed-range classification resolves. It applies
 both to a review-clean head and to a head with a pending or approved
-trivial-interaction waiver. A base tip beyond the one recorded for a waiver
-expires that waiver before classification. This is the procedure once the path
-applies.
+trivial-interaction waiver. A carry-forward lineage is one immutable candidate
+head plus the ordered base tips analyzed against it. This is the procedure once
+the path applies.
 
 1. **Detect movement without API spend.** Fetch the effective base
    non-mutating, resolve its remote-tracking ref to an exact SHA, and compare
-   that SHA with the candidate's recorded base tip. Do not spend GraphQL solely
-   to read the live base tip. If a graph-shaped query is already justified,
-   the documented `baseRef.target.oid` identifies the object currently pointed
-   to by the base ref. Do not rely on undocumented assumptions about
-   `baseRefOid` freshness.
+   that SHA with the latest base tip recorded for this carry-forward lineage.
+   Do not spend GraphQL solely to read the live base tip. If a graph-shaped
+   query is already justified, the documented `baseRef.target.oid` identifies
+   the object currently pointed to by the base ref. Do not rely on undocumented
+   assumptions about `baseRefOid` freshness.
 2. **Inspect without integrating.** Read the exact landed range between the
    recorded and fetched tips.
 3. **Classify and report.** As normal session output, report which commits
@@ -463,39 +483,46 @@ applies.
    classification plainly: no interaction, trivial interaction, significant
    interaction, or conflict requiring semantic resolution.
 4. **Act on the classification.**
-   - *No interaction:* keep `review-clean`, integrate the exact analyzed tip by
-     SHA (not a moving branch ref), and update the recorded head SHA when
-     entering from a review-clean head; only that path skips re-running
-     validation, CI, and review. When entering from a pending or approved
-     waiver head, leave `review-clean` absent, integrate the exact tip, and
-     follow the waiver procedure below for the new head and base, including its
-     current-head gates, before dispatching review. Merging itself still needs
-     a live readiness check and explicit user authorization; base movement
-     alone does not grant either.
-   - *Trivial interaction:* remove `review-clean`, integrate the exact analyzed
-     tip, resolve every overlap mechanically as classified, run affected
-     focused gates, and push. Follow the waiver procedure below before
-     dispatching replacement reviewers.
-   - *Significant interaction, no conflict:* remove `review-clean`, integrate
-     the tip, re-run the claimed validation and current-head CI, and
+   - *No interaction:* do not integrate or push. Keep the candidate head
+     unchanged and record the analyzed tip as the lineage's new base tip. From
+     a review-clean head, keep `review-clean`; from a pending or approved waiver
+     head, keep it absent and carry the waiver forward. Preserve recorded merge
+     authorization and keep GitHub auto-merge unarmed. Start no new validation,
+     CI, review, or waiver decision; final preflight still observes the existing
+     current-head gate.
+   - *Trivial interaction:* if the PR remains open, expire merge authorization,
+     disable any armed auto-merge first, and handle an already-merged result as
+     terminal. Then remove `review-clean`, integrate the exact analyzed tip,
+     resolve every overlap mechanically as classified, run affected focused
+     gates, and push. Follow the waiver procedure below before dispatching
+     replacement reviewers.
+   - *Significant interaction, no conflict:* if the PR remains open, expire
+     merge authorization, disable any armed auto-merge first, and handle an
+     already-merged result as terminal. Then remove `review-clean`, integrate
+     the tip, re-run the claimed validation, push, obtain current-head CI, and
      re-dispatch the required reviewers at the new head as a normal round.
-   - *Conflict requiring semantic resolution:* remove `review-clean`, resolve
-     it as an author change under
+   - *Conflict requiring semantic resolution:* expire merge authorization,
+     disable any armed auto-merge first, and handle an already-merged result as
+     terminal. Then remove `review-clean` and resolve it as an author change under
      [conflict recovery](../AGENTS.md#recovery-transitions), and re-dispatch
      the required reviewers at the new head.
 
-For a no-interaction carry-forward, record the reviewed head, the old and
-integrated tips, and the non-interaction analysis on the PR. For every other
-outcome, record the classification and the action taken. An ordinary
-replacement review produces the resulting round's normal
+For a no-interaction carry-forward, record the unchanged candidate head, the
+old and newly analyzed tips, the non-interaction analysis, and the preserved
+review or waiver state on the PR. For every other outcome, record the
+classification and the action taken. An ordinary replacement review produces
+the resulting round's normal
 [round report](#the-round-report); an approved trivial-interaction waiver does
 not start or spend a replacement round.
 
 ### Trivial-interaction re-review waiver
 
 The binding criteria and evidentiary limits live in
-[Standing adjustments](../AGENTS.md#standing-adjustments). After the exact
-integration head is pushed, publish this evidence before asking:
+[Standing adjustments](../AGENTS.md#standing-adjustments). Approval covers one
+exact integration head and its mechanically resolved interaction at the named
+base tip; later no-interaction tips extend that lineage without changing the
+head. After the integration head is pushed, publish this evidence before
+asking:
 
 - the immutable reviewed head and its recorded base, the prior integration
   head/base when renewing, and the new integration head/base;
@@ -517,9 +544,11 @@ Keep `review-clean` absent because the new head was not reviewed, and continue
 to current-head CI, live mergeability, and merge authorization.
 Without approval, do not waive review; resume the ordinary replacement
 workflow when work continues. A resolution that no longer satisfies the
-criteria requires ordinary re-review. Any later head or base movement
-invalidates a pending or approved waiver and requires fresh carry-forward
-classification.
+criteria requires ordinary re-review. Later base movement requires
+carry-forward classification: no interaction extends the pending or approved
+waiver and recorded merge authorization to the newly analyzed tip without
+another integration or decision; if observed while the PR remains open, any
+other interaction invalidates both. Any head movement also invalidates both.
 
 ## Block boundaries and splitting
 
