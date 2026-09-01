@@ -232,9 +232,10 @@ one manifest:
   diagnostic's current-policy justification is **unverified**; and
 - removed top-level command names `audit` and `source` remain reserved because
   releasing them would send the same bare tokens through implicit target
-  resolution. `list` and `ls` are also reserved, but no independent
-  current-interface rationale for those bare tokens is recorded, so their
-  reservation is **unverified** under this policy.
+  resolution. The `source` outcome is gated; the `audit` product-entry
+  reservation outcome is **unverified**. `list` and `ls` are also reserved, but
+  no independent current-interface rationale for those bare tokens is
+  recorded, so their reservation is **unverified** under this policy.
 
 Existing gates prove parts of those behaviors:
 
@@ -249,6 +250,10 @@ Existing gates prove parts of those behaviors:
 - `CommandExecutionTests.Package_RemovedReadmeFlag_PointsAtItsReplacement`
   proves the package diagnostic behavior, not its independent current-product
   rationale.
+- `CommandExecutionTests.SourceCommand_RemovedFromRoot` proves the removed
+  `source` token fails as a command rather than entering implicit target
+  routing. `CommandLineTests.AuditCommand_IsNoLongerRegistered` proves only
+  parser registration, not the `audit` product-entry reservation outcome.
 - `JsonWireNameGateTests` proves generated serializer contexts follow the
   configured wire-name policy. It does not prove per-command field sets,
   types, optionality, or semantic compatibility.
