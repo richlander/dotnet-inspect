@@ -40,6 +40,7 @@ export interface AnnotatedViewState {
 
 interface AnnotatedViewSegment extends SourceSegment {
   selected: boolean;
+  visible: boolean;
 }
 
 interface AnnotatedViewLine {
@@ -72,8 +73,6 @@ export interface AnnotatedView {
   unanchoredFactIds: number[];
   hiddenLines: number;
 }
-
-export const MEDIA = ["CSharp", "Il"] as const satisfies readonly SourceMedium[];
 
 export const MEDIUM_LABELS: Readonly<Record<SourceMedium, string>> = {
   CSharp: "C#",
@@ -117,6 +116,7 @@ export function buildAnnotatedView(
         // A segment is highlighted only when a targeted node actually covers it, so one node's
         // several separated spans light up without selecting the text between them.
         selected: segment.nodeIds.some(id => targeted.has(id)),
+        visible: isSegmentVisible(segment.media, line.medium, media),
       })),
     }));
 
@@ -173,4 +173,17 @@ function isVisible(
 ): boolean | undefined {
   if (medium === "Mixed") return media.CSharp || media.Il;
   return media[medium] === true;
+}
+
+function isSegmentVisible(
+  segmentMedia: readonly SourceMedium[],
+  effectiveLineMedium: LineMedium,
+  media: Readonly<Record<SourceMedium, boolean | undefined>>,
+): boolean {
+  const candidates = segmentMedia.length > 0
+    ? segmentMedia
+    : effectiveLineMedium === "Mixed"
+      ? (["CSharp", "Il"] as const)
+      : [effectiveLineMedium];
+  return candidates.some(candidate => media[candidate] === true);
 }
