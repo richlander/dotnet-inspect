@@ -8,9 +8,11 @@ The command modes, listing rules, source-scoped candidate caches, and
 payload-provenance rules describe current behavior. Package source mapping and
 the remaining source-policy boundaries are tracked by the
 [package source model](package-source-model.md).
-Result-limit and short-selector examples use the approved target contract from
-[Item and line limits](item-and-line-limits.md); those spellings remain
-unreleased until its implementation lands.
+Result-limit and short-selector examples use spellings from the retired #4677
+umbrella design. [Item and line
+limits](item-and-line-limits.md) records the replacement composition and
+focused-owner gaps; those spellings are historical proposals, not
+implementation-ready syntax.
 
 ## Four modes
 
@@ -410,8 +412,9 @@ and `PackageVersionVectorTests.ResolveAsync_FallsThroughFailedHttpSource`.
 
 `--versions-with-feed` keeps provenance that the merged views discard. It shows
 which feeds carry each coordinate, including a coordinate published by more than
-one feed. Under the target item-limit contract, its declared row is one
-`(version, feed)` observation, so `--versions-with-feed -n N` selects N rows.
+one feed. The historical #4677 target treated one `(version, feed)` observation
+as its declared row, so its proposed `--versions-with-feed -n N` selected N
+rows. This behavior awaits focused CLI ownership and is not released.
 This differs from the released count-valued lens option, which selects N
 distinct versions and then emits every carrying feed. The primary version order
 is the containing Vector's order: newest-first for a bare package and caller
