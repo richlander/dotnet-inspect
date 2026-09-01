@@ -193,6 +193,8 @@ internal static class MatchDiscovery
                     seed.ReplayPackage,
                     seed.PackageExtractPath,
                     candidateImage);
+            bool disclosePackageReplay =
+                !tokensIndexCallerImage || seed.ReplayPackage is not null;
 
             var view = MatchDiscoveryFormatter.BuildView(
                 new MatchDiscoveryRequest(
@@ -201,8 +203,9 @@ internal static class MatchDiscovery
                     tokensIndexCallerImage ? null : candidateAddress.Library,
                     limits,
                     options.Top,
-                    tokensIndexCallerImage ? null : candidateAddress.Package,
-                    tokensIndexCallerImage ? null : candidateAddress.Tfm),
+                    disclosePackageReplay ? candidateAddress.Package : null,
+                    disclosePackageReplay ? candidateAddress.Tfm : null,
+                    candidateAddress.Library),
                 result,
                 MatchDiscoveryNames.Build(namesSurface, candidateImage));
 

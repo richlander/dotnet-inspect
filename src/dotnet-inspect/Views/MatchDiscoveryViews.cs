@@ -20,7 +20,8 @@ internal sealed record MatchDiscoveryRequest(
     StructuralCloneRetrievalLimits Limits,
     int? Top,
     string? CandidatePackage = null,
-    string? CandidateTfm = null);
+    string? CandidateTfm = null,
+    string? ReplayLibrary = null);
 
 /// <summary>
 /// Token-to-display names for one candidate assembly, projected from the already-extracted
@@ -399,7 +400,8 @@ internal static class MatchDiscoveryFormatter
     /// <para>
     /// The address must be one the caller can still use after this process exits. A package is
     /// extracted to a temporary directory that the command deletes, so a package-sourced run
-    /// discloses the package and the library inside it rather than the extraction path.
+    /// discloses the package and the library inside it rather than the extraction path, including
+    /// when that package image is also the image the caller named.
     /// </para>
     /// </summary>
     internal static string DisclosureFor(MatchDiscoveryRequest request)
@@ -409,15 +411,25 @@ internal static class MatchDiscoveryFormatter
                 + Path.GetFileName(candidateAssembly)
                 + ", which defines them rather than the assembly named on the command line; run "
                 + "pairwise `match` on a candidate with `"
-                + (request.CandidatePackage is string candidatePackage
-                    ? "--package " + ShellCommandText.Quote(candidatePackage)
-                        + " --library " + ShellCommandText.Quote(candidateAssembly)
-                        + (request.CandidateTfm is string candidateTfm
-                            ? " --tfm " + ShellCommandText.Quote(candidateTfm)
-                            : "")
-                    : "--library " + ShellCommandText.Quote(candidateAssembly))
+                + ReplayOptions(request, candidateAssembly)
                 + "` to obtain a checked relation."
-            : Disclosure;
+            : request.CandidatePackage is string
+                && request.ReplayLibrary is string replayLibrary
+                    ? DisclosurePrefix
+                        + "Ranked tokens index the package image selected for this run; run "
+                        + "pairwise `match` on a candidate with `"
+                        + ReplayOptions(request, replayLibrary)
+                        + "` to obtain a checked relation against that same image."
+                    : Disclosure;
+
+    static string ReplayOptions(MatchDiscoveryRequest request, string library)
+        => request.CandidatePackage is string candidatePackage
+            ? "--package " + ShellCommandText.Quote(candidatePackage)
+                + " --library " + ShellCommandText.Quote(library)
+                + (request.CandidateTfm is string candidateTfm
+                    ? " --tfm " + ShellCommandText.Quote(candidateTfm)
+                    : "")
+            : "--library " + ShellCommandText.Quote(library);
 
     internal static (MatchDiscoveryView View, MatchDiscoveryDocument Document) BuildView(
         MatchDiscoveryRequest request,

@@ -457,9 +457,13 @@ extraction and cache paths are implementation details, so naming the extracted
 image can satisfy every rule above while still handing back a path the caller
 cannot replay. A candidate image drawn from a package is therefore disclosed as
 the resolved exact package coordinate, exact package-relative asset, and TFM.
-That address survives package ranges and same-named assets in other TFMs
-(`Similar_PackageForwardedPopulation_DisclosesTheExactReplayAddress`). An image
-the caller supplied directly outlives the command and is disclosed unchanged
+That includes the ordinary case where the package image is also the image the
+caller named: the original package spelling may float to another version, so it
+cannot be the replay address for a printed MethodDef token. The exact address
+survives package ranges and same-named assets in other TFMs
+(`Similar_PackageForwardedPopulation_DisclosesTheExactReplayAddress`,
+`Similar_PackageSameImage_DisclosesTheExactReplayAddress`). An image the caller
+supplied directly outlives the command and is disclosed unchanged
 (`ReplayableCandidateAddress_ForADirectlyNamedLibrary_KeepsThePathIntact`,
 `ReplayableCandidateAddress_ForAnImageOutsideTheExtraction_KeepsThePathIntact`).
 

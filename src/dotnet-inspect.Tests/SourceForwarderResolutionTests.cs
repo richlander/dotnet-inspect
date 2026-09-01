@@ -425,6 +425,7 @@ public class SourceForwarderResolutionTests
                 PackageVersion: "1.0.0",
                 ResolvedPackagePath:
                     "Microsoft.Root.Symbols@1.0.0",
+                PackageExtractPath: null,
                 ApiSource: SourceKind.NuGet,
                 ApiVersion: "1.0.0",
                 PlatformFramework: null,
@@ -494,6 +495,7 @@ public class SourceForwarderResolutionTests
                 PackageName: packageName,
                 PackageVersion: "2.0.0",
                 ResolvedPackagePath: null,
+                PackageExtractPath: null,
                 ApiSource: SourceKind.Project,
                 ApiVersion: "2.0.0",
                 PlatformFramework: null,

@@ -1227,6 +1227,51 @@ public sealed class MatchDiscoveryTests
     }
 
     [Fact]
+    public async Task Similar_PackageSameImage_DisclosesTheExactReplayAddress()
+    {
+        string fixtureDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"match-same-image-replay-{Guid.NewGuid():N}");
+        string package = Path.Combine(fixtureDirectory, "Same.Image.Fixture.1.0.0.nupkg");
+        string asset = $"lib/net10.0/{Path.GetFileName(TestAssembly)}";
+        Directory.CreateDirectory(fixtureDirectory);
+
+        try
+        {
+            using (ZipArchive archive = ZipFile.Open(package, ZipArchiveMode.Create))
+                archive.CreateEntryFromFile(TestAssembly, asset);
+
+            var options = new MatchOptions
+            {
+                LeftSelector = SampleSeed,
+                PackagePath = package,
+                AssemblyPath = Path.GetFileName(TestAssembly),
+                IncludeAll = true,
+                Similar = true,
+                JsonOutput = true,
+            };
+
+            var (exitCode, output, error) = await RunAsync(options);
+
+            Assert.Equal(0, exitCode);
+            Assert.Empty(error);
+            JsonElement document = Parse(output);
+            Assert.False(document.TryGetProperty("candidate_assembly", out _));
+            Assert.NotEmpty(document.GetProperty("candidates").EnumerateArray());
+            Assert.Contains(
+                $"--package '{package}' --library '{asset}' --tfm 'net10.0'",
+                document.GetProperty("disclosure").GetString());
+            Assert.Contains(
+                "against that same image",
+                document.GetProperty("disclosure").GetString());
+        }
+        finally
+        {
+            Directory.Delete(fixtureDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Similar_UnavailableForwardedSeed_ReportsTheTypedFailureAndTarget()
     {
         string directory = Path.Combine(
@@ -1530,6 +1575,17 @@ public sealed class MatchDiscoveryTests
     {
         string? package = MatchDiscovery.GetReplayablePackage(
             "Fixture@1.0.0..2.0.0",
+            "Fixture",
+            "1.2.3");
+
+        Assert.Equal("Fixture@1.2.3", package);
+    }
+
+    [Fact]
+    public void ReplayablePackage_ReplacesAnUnversionedCoordinateWithTheResolvedExactVersion()
+    {
+        string? package = MatchDiscovery.GetReplayablePackage(
+            "Fixture",
             "Fixture",
             "1.2.3");
 
