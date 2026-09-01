@@ -40,6 +40,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Progressive Disclosure](design/progressive-disclosure.md) | Current model for base/domain scope, discovery budgets, `-D`/`-S`, capabilities, counts, and row limits. |
 | [Bare `-S` Default View](design/info-view.md) | Bullseye questions and section profiles for curated high-density default views. |
 | [Platform Components](platform-components.md) | Accessing SDK libraries vs NuGet packages. |
+| [NuGet Package Structure](nuget-package-structure.md) | Compile and implementation asset roles, `ref`/`lib`/RID-specific selection, and explicit empty compile groups. |
 | [Private NuGet Feeds](private-feeds.md) | How to give the tool access to a private feed: installing a credential provider, unattended and CI setup, and the `nuget.config` fallback. |
 | [Signals](assembly-audit.md) | Understanding Signals output and network scope flags. |
 | [SourceLink Exposure](sourcelink-exposure.md) | Where SourceLink appears in package/library/type/member flows and how PDB/network costs are controlled. |
