@@ -226,18 +226,47 @@ the `MethodSemanticsRowReader` leaf check performs the same admission. Because
 those entry points now raise the typed mechanisms where they previously
 returned `null`, the direct consumers that would otherwise lose the
 distinction — `AssemblySetResolutionSession` in Services,
-`WorkspaceContextLoader` in Queries, and the CLI's `TimelineCommand` — preserve
-them as typed unsupported-format and malformed-root outcomes rather than
-acquisition failures. The Analysis, Decompiler, Research, ILDiff, remaining
+`WorkspaceContextLoader` in Queries, and the CLI's `TimelineCommand` and
+`DependsCommand` — preserve them as typed unsupported-format and malformed-root
+outcomes rather than acquisition failures. A dependency scan's rejections scope
+to their own participant, so `DependsCommand` names each excluded assembly and
+its mechanism on standard error and returns a distinct uncertified-scan exit
+code (`3`) instead of presenting the result as a certified success. This is a
+bounded, explicit relaxation of the partial-rows prohibition above, and it
+applies only to a dependency scan: the emitted edges are sound, but
+completeness is unknown, so the result is reported as uncertified rather than
+as either a complete graph or a certified absence. A "not found" answer is
+likewise returned as uncertified when a candidate was excluded, because the
+requested type may be defined in the rejected assembly. No output stream
+presents an uncertified scan as a complete one.
+The Analysis, Decompiler, Research, ILDiff, remaining
 Queries, and remaining CLI owners have not adopted it, and no gate yet requires
 universal adoption; each remaining owner adopts it in a focused successor
 tracked by #4877. Until those land, callers must not infer that the contract's
 existence closes the repository-wide `MDP017` entry-point inventory.
 
-Metadata-owner adoption is gated by `MetadataAdmissionCleanupTests`, by the
-consumer-facing cases in `MetadataImageFormatClassifierTests`, and by the
+One un-adopted CLI path was found to be success-shaped rather than merely
+incomplete, and is therefore closed here rather than deferred:
+`ApiServices.ResolveSummaryForwardedTypes` catches
+`BadImageFormatException` and `NotSupportedException` — the base types of both
+typed mechanisms — and previously recorded only a `VerboseLogger` line, so a
+forwarded target that was rejected was omitted from a platform API summary
+without a structured `ApiSurfaceInspectionFailure`. It now records the
+mechanism through `AddForwardedTargetFailure`, matching the full-surface
+sibling path `ApiServices.ExtractForwarders`, which preserves it through
+`TypeDefinitionResolutionSession`'s failure out-parameter. The remaining
+un-adopted CLI call sites are not success-shaped: they surface the typed
+mechanism through the process-level handler in `Program.cs`.
+
+Metadata-owner adoption is gated by `MetadataAdmissionCleanupTests`, including
+`DependencyScan_MalformedRootKeepsItsExactReasonBesideHealthyNeighbor`, which
+pins a malformed-root participant to its exact reason rather than the generic
+invalid-image kind when a healthy neighbor survives the scan. Adoption is
+further gated by the consumer-facing cases in
+`MetadataImageFormatClassifierTests`, by the
 typed-outcome cases in `AssemblySetResolutionSessionTests`,
-`WorkspaceContextLoaderTests`, and `TimelineCommandTests`.
+`WorkspaceContextLoaderTests`, and `TimelineCommandTests`, and by
+`CommandExecutionTests.Depends_NamesAnExcludedUnsupportedAssemblyInsteadOfReportingACleanPartialGraph`.
 
 ### Lossless `MethodSemantics` row boundary
 

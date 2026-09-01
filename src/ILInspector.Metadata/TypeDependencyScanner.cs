@@ -119,8 +119,12 @@ public static class TypeDependencyScanner
                     // That is an ordinary invalid-image outcome rather than an
                     // admission failure, and it still has to stay visible
                     // instead of silently dropping the participant.
+                    // MalformedMetadataRootException derives from
+                    // BadImageFormatException, so it is excluded here to reach
+                    // its own handler and keep its exact root reason.
                     catch (Exception invalidImage) when (
-                        invalidImage is BadImageFormatException
+                        invalidImage is not MalformedMetadataRootException
+                        && invalidImage is BadImageFormatException
                             or OverflowException)
                     {
                         firstInvalidImage ??= ExceptionDispatchInfo.Capture(

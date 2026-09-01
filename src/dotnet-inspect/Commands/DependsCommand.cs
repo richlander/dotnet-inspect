@@ -20,6 +20,13 @@ public class DependsCommand
     /// </summary>
     internal const int TypeNotFoundExitCode = 2;
 
+    /// <summary>
+    /// Returned when the scan produced usable output but at least one candidate
+    /// assembly was excluded, so completeness is unknown. The result is not a
+    /// certified success and must not be consumed as one.
+    /// </summary>
+    internal const int UncertifiedScanExitCode = 3;
+
     public static async Task<int> ExecuteTypeDependsAsync(DependsOptions options)
     {
         var context = new CommandContext(options.Verbose);
@@ -40,9 +47,21 @@ public class DependsCommand
             var result = await DependencyGraphService.BuildTypeDependencyTreeAsync(
                 context.HttpClient, options, logger);
 
+            // A rejected participant scopes to itself and leaves the rest of
+            // the scan intact, but the resulting graph is uncertified: it may
+            // omit edges the rejected assembly would have contributed. Name
+            // each rejection before any result or absence claim, so neither a
+            // partial graph nor a "not found" is reported as certified.
+            WriteRejectionWarnings(result.Rejections);
+            bool uncertified = result.Rejections.Count > 0;
+
             if (!result.Found)
             {
-                return TypeNotFoundExitCode;
+                // An absence claim cannot be certified when a candidate was
+                // excluded: the type may be defined in the rejected assembly.
+                return uncertified
+                    ? UncertifiedScanExitCode
+                    : TypeNotFoundExitCode;
             }
 
             if (result.Tree.Count == 0)
@@ -50,12 +69,12 @@ public class DependsCommand
                 if (options.Count)
                 {
                     WriteCount(0);
-                    return 0;
+                    return uncertified ? UncertifiedScanExitCode : 0;
                 }
 
                 CommandError.WriteLine(
                     $"Type '{ContainLabel(result.MatchedType ?? options.TargetType)}' has no type dependencies beyond System.Object.");
-                return 0;
+                return uncertified ? UncertifiedScanExitCode : 0;
             }
 
             var visibleNodes = TreeRowWindow.Apply(
@@ -103,7 +122,7 @@ public class DependsCommand
                 }
             }
 
-            return 0;
+            return uncertified ? UncertifiedScanExitCode : 0;
         }
         catch (Exception ex)
         {
@@ -256,6 +275,25 @@ public class DependsCommand
     /// shape of the tree itself (issue #3319). Containment goes here, at
     /// construction, so every renderer of the node inherits it.
     /// </summary>
+    private static void WriteRejectionWarnings(
+        IReadOnlyList<TypeDependencyRejection> rejections)
+    {
+        foreach (TypeDependencyRejection rejection in rejections)
+        {
+            string mechanism = rejection.Kind switch
+            {
+                TypeDependencyRejectionKind.UnsupportedMetadataFormat =>
+                    "unsupported metadata format (Windows Metadata)",
+                TypeDependencyRejectionKind.MalformedMetadataRoot =>
+                    $"malformed metadata root ({rejection.MetadataRootReason})",
+                _ => "invalid image",
+            };
+            CommandError.WriteWarning(
+                $"Excluded '{ContainLabel(Path.GetFileName(rejection.AssemblyPath))}' from the dependency scan: {mechanism}.",
+                "The dependency graph below may be incomplete.");
+        }
+    }
+
     private static string ContainLabel(string label)
         => CSharpIdentifier.ContainRenderedText(label);
 

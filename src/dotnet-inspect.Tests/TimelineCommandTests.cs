@@ -483,7 +483,7 @@ public sealed class TimelineCommandTests
         }
     }
 
-    static byte[] BuildWindowsMetadataImage()
+    internal static byte[] BuildWindowsMetadataImage()
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(

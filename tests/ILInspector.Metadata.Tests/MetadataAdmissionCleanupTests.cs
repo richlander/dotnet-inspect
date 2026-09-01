@@ -250,6 +250,36 @@ public sealed class MetadataAdmissionCleanupTests
     }
 
     [Fact]
+    public void DependencyScan_MalformedRootKeepsItsExactReasonBesideHealthyNeighbor()
+    {
+        string malformed = WriteTempImage(BuildMalformedMetadataRoot());
+        string healthy =
+            typeof(MetadataAdmissionCleanupTests).Assembly.Location;
+        try
+        {
+            TypeDependencyResult result =
+                TypeDependencyScanner.BuildDependencyTree(
+                    typeof(MetadataAdmissionCleanupTests).FullName!,
+                    [malformed, healthy]);
+
+            Assert.True(result.Found);
+            TypeDependencyRejection rejection = Assert.Single(
+                result.Rejections);
+            Assert.Equal(malformed, rejection.AssemblyPath);
+            Assert.Equal(
+                TypeDependencyRejectionKind.MalformedMetadataRoot,
+                rejection.Kind);
+            Assert.Equal(
+                MetadataRootMalformedReason.InvalidSignature,
+                rejection.MetadataRootReason);
+        }
+        finally
+        {
+            File.Delete(malformed);
+        }
+    }
+
+    [Fact]
     public void DependencyScan_InvalidImageDoesNotHideHealthyNeighbor()
     {
         string malformed = WriteTempImage(

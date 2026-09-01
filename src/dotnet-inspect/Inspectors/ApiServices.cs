@@ -684,6 +684,18 @@ internal static class ApiServices
                         or NotSupportedException
                         or ArgumentException)
                 {
+                    // BadImageFormatException and NotSupportedException are the
+                    // base types of the typed admission mechanisms, so this
+                    // filter intercepts them. Record the mechanism as a
+                    // structured failure — matching the full-surface sibling
+                    // path — instead of dropping the forwarded types behind a
+                    // verbose-only log.
+                    AddForwardedTargetFailure(
+                        api,
+                        group.Assembly,
+                        group.Types,
+                        ex.GetType().Name,
+                        ex.Message);
                     logger.Log(
                         $"Error reading resolved assembly '{group.Assembly.Identity.Name}': {ex.Message}");
                 }
