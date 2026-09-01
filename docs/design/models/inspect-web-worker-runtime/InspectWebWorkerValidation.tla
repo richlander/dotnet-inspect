@@ -30,12 +30,16 @@ EpochStates == {Ready, Draining, Closed}
 NoMutation == "None"
 AcceptMismatchedAllowance == "AcceptMismatchedAllowance"
 AcceptReusedWorkSequence == "AcceptReusedWorkSequence"
+AcceptActiveDuplicateWorkStart == "AcceptActiveDuplicateWorkStart"
 AcceptUnmatchedWorkFinish == "AcceptUnmatchedWorkFinish"
+AcceptDuplicateWorkFinish == "AcceptDuplicateWorkFinish"
 Mutations ==
     {NoMutation,
      AcceptMismatchedAllowance,
      AcceptReusedWorkSequence,
-     AcceptUnmatchedWorkFinish}
+     AcceptActiveDuplicateWorkStart,
+     AcceptUnmatchedWorkFinish,
+     AcceptDuplicateWorkFinish}
 
 ASSUME
     /\ Cardinality(Operations) = 2
@@ -53,7 +57,9 @@ VARIABLES
     activeWork,
     startedWork,
     finishedWork,
-    protocolFailure
+    protocolFailure,
+    invalidWorkStartObserved,
+    invalidWorkFinishObserved
 
 vars ==
     <<epochState,
@@ -64,7 +70,9 @@ vars ==
       activeWork,
       startedWork,
       finishedWork,
-      protocolFailure>>
+      protocolFailure,
+      invalidWorkStartObserved,
+      invalidWorkFinishObserved>>
 
 Init ==
     /\ epochState = Ready
@@ -77,6 +85,8 @@ Init ==
     /\ startedWork = {}
     /\ finishedWork = {}
     /\ protocolFailure = FALSE
+    /\ invalidWorkStartObserved = FALSE
+    /\ invalidWorkFinishObserved = FALSE
 
 UnchangedWork ==
     UNCHANGED
@@ -93,7 +103,9 @@ AssignOperation(o) ==
         <<epochState,
           accepted,
           advertisedAllowance,
-          protocolFailure>>
+          protocolFailure,
+          invalidWorkStartObserved,
+          invalidWorkFinishObserved>>
     /\ UnchangedWork
 
 ReceiveAccepted(o, allowance) ==
@@ -117,7 +129,10 @@ ReceiveAccepted(o, allowance) ==
                   /\ UNCHANGED accepted
                   /\ epochState' = Draining
                   /\ protocolFailure' = TRUE
-    /\ UNCHANGED assigned
+    /\ UNCHANGED
+        <<assigned,
+          invalidWorkStartObserved,
+          invalidWorkFinishObserved>>
     /\ UnchangedWork
 
 ReceiveWorkStarted(sequence) ==
@@ -131,8 +146,10 @@ ReceiveWorkStarted(sequence) ==
            /\ UNCHANGED
                <<epochState,
                  finishedWork,
-                 protocolFailure>>
+                 protocolFailure,
+                 invalidWorkStartObserved>>
        ELSE
+           /\ invalidWorkStartObserved' = TRUE
            /\ IF Mutation = AcceptReusedWorkSequence
                  /\ sequence \in finishedWork
               THEN
@@ -144,17 +161,29 @@ ReceiveWorkStarted(sequence) ==
                         finishedWork,
                         protocolFailure>>
               ELSE
-                  /\ epochState' = Draining
-                  /\ protocolFailure' = TRUE
-                  /\ UNCHANGED
-                      <<workHighWater,
-                        activeWork,
-                        startedWork,
-                        finishedWork>>
+                  /\ IF Mutation = AcceptActiveDuplicateWorkStart
+                        /\ sequence \in activeWork
+                     THEN
+                         /\ UNCHANGED
+                             <<epochState,
+                               workHighWater,
+                               activeWork,
+                               startedWork,
+                               finishedWork,
+                               protocolFailure>>
+                     ELSE
+                         /\ epochState' = Draining
+                         /\ protocolFailure' = TRUE
+                         /\ UNCHANGED
+                             <<workHighWater,
+                               activeWork,
+                               startedWork,
+                               finishedWork>>
     /\ UNCHANGED
         <<assigned,
           accepted,
-          advertisedAllowance>>
+          advertisedAllowance,
+          invalidWorkFinishObserved>>
 
 ReceiveWorkFinished(sequence) ==
     /\ epochState = Ready
@@ -167,8 +196,10 @@ ReceiveWorkFinished(sequence) ==
                <<epochState,
                  workHighWater,
                  startedWork,
-                 protocolFailure>>
+                 protocolFailure,
+                 invalidWorkFinishObserved>>
        ELSE
+           /\ invalidWorkFinishObserved' = TRUE
            /\ IF Mutation = AcceptUnmatchedWorkFinish
                  /\ sequence \notin startedWork
               THEN
@@ -180,17 +211,29 @@ ReceiveWorkFinished(sequence) ==
                         startedWork,
                         protocolFailure>>
               ELSE
-                  /\ epochState' = Draining
-                  /\ protocolFailure' = TRUE
-                  /\ UNCHANGED
-                      <<workHighWater,
-                        activeWork,
-                        startedWork,
-                        finishedWork>>
+                  /\ IF Mutation = AcceptDuplicateWorkFinish
+                        /\ sequence \in finishedWork
+                     THEN
+                         /\ UNCHANGED
+                             <<epochState,
+                               workHighWater,
+                               activeWork,
+                               startedWork,
+                               finishedWork,
+                               protocolFailure>>
+                     ELSE
+                         /\ epochState' = Draining
+                         /\ protocolFailure' = TRUE
+                         /\ UNCHANGED
+                             <<workHighWater,
+                               activeWork,
+                               startedWork,
+                               finishedWork>>
     /\ UNCHANGED
         <<assigned,
           accepted,
-          advertisedAllowance>>
+          advertisedAllowance,
+          invalidWorkStartObserved>>
 
 DestroyRealm ==
     /\ epochState = Draining
@@ -203,7 +246,9 @@ DestroyRealm ==
           workHighWater,
           startedWork,
           finishedWork,
-          protocolFailure>>
+          protocolFailure,
+          invalidWorkStartObserved,
+          invalidWorkFinishObserved>>
 
 Next ==
     \/ \E o \in Operations: AssignOperation(o)
@@ -232,6 +277,8 @@ TypeOK ==
     /\ startedWork \subseteq 1..MaxWorkSequence
     /\ finishedWork \subseteq 1..MaxWorkSequence
     /\ protocolFailure \in BOOLEAN
+    /\ invalidWorkStartObserved \in BOOLEAN
+    /\ invalidWorkFinishObserved \in BOOLEAN
 
 AcceptedAllowanceMatchesRegistration ==
     \A o \in accepted:
@@ -250,6 +297,18 @@ ActiveWorkWasNotFinished ==
 
 FinishedWorkWasStarted ==
     finishedWork \subseteq startedWork
+
+InvalidWorkStartFailsEpoch ==
+    invalidWorkStartObserved
+    =>
+    /\ protocolFailure
+    /\ epochState \in {Draining, Closed}
+
+InvalidWorkFinishFailsEpoch ==
+    invalidWorkFinishObserved
+    =>
+    /\ protocolFailure
+    /\ epochState \in {Draining, Closed}
 
 DrainingEventuallyCloses ==
     epochState = Draining ~> epochState = Closed

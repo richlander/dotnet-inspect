@@ -14,8 +14,8 @@ allowances plus epoch-work inputs. It covers:
 - exact allowance echo on `Accepted`;
 - mismatched allowance entering protocol-failure draining rather than active
   liveness accounting;
-- replayed work starts and unmatched work finishes entering protocol-failure
-  draining; and
+- replayed or active-duplicate work starts and unmatched or duplicate work
+  finishes entering protocol-failure draining; and
 - eventual realm closure after invalid input.
 
 `InspectWebWorkerProtocol.tla` models two operation references assigned to one
@@ -32,7 +32,8 @@ worker epoch. It covers:
   earlier response;
 - operation-sequence high-water replay rejection without completed-ID
   tombstones;
-- epoch-work sequence high-water and active-set validation;
+- epoch-work sequence high-water and active-set validation, including explicit
+  receipt-to-failure evidence for duplicate starts and finishes;
 - exact replacement binding from worker source plus epoch token, including
   valid replacement traffic and independently stale source or token; and
 - failed draining, realm release, and callbacks after release.
@@ -59,7 +60,12 @@ probe register. It covers:
 - watchdog adoption of an already-outstanding control-response probe;
 - deferred control coverage when any outstanding probe predates the command;
 - immutable response-obligation snapshots;
-- exact probe acknowledgment;
+- exact probe acknowledgment, including independently generated mismatched and
+  no-outstanding acknowledgment inputs;
+- a host register that remains bound to the exact physical probe sequence
+  through lifecycle recovery;
+- finite task-evidence saturation that cannot disable a matching
+  acknowledgment;
 - maximum probe-sequence retirement entering failed draining rather than
   leaving a live epoch without another sequence;
 - missing-response failure after serialized command completion;
@@ -151,11 +157,21 @@ The probe model assumes:
 - a covered omitted response means the command completed without its required
   response, so acknowledgment proves a protocol defect; and
 - the worker's next reply sequence is retained independently from the host's
-  outstanding register so accidental register replacement produces an
-  ordinary mismatched-acknowledgment failure;
+  outstanding register and nondeterministically represents matching, stale, or
+  future input, so ordinary invalid-acknowledgment rejection is reachable
+  without enabling a receiver mutation;
+- invalid acknowledgments have distinct failure evidence from covered omitted
+  responses;
+- the finite task-evidence counter saturates independently from acknowledgment
+  eligibility;
 - retiring the maximum bounded sequence represents exhaustion of the product's
   safe-integer allocator and commits failed draining; and
 - `MaxProbeSequence = 2` is a state-space bound, not a product limit.
+
+The probe model's `protocolFailure` variable is the specific
+`control-response` classification. `invalidAcknowledgmentFailure` separately
+records invalid-acknowledgment protocol failure so the proof cannot substitute
+one cause for the other.
 
 The validation model assumes:
 
@@ -196,6 +212,8 @@ among several distinct bounded durations.
 | `not-active` cannot acknowledge a future sequence | `NotActiveRequiresReceivedSequence` |
 | Epoch-work sequences do not restart or reuse | `WorkSequenceNeverReused`, `StartedWorkTracksHighWater` |
 | Work finish requires a recorded start | `WorkFinishRequiresActiveStart` |
+| Any invalid work start fails and drains the epoch | `InvalidWorkStartFailsEpoch` |
+| Any invalid work finish fails and drains the epoch | `InvalidWorkFinishFailsEpoch` |
 | Only exact replacement worker-source and token identity can mutate replacement state | `OnlyCurrentBindingMutatesReplacement` |
 | No callback runs after realm release | `NoCallbackAfterRealmRelease` |
 | Protocol failure leaves ready operation | `ProtocolFailureLeavesReadyState` |
@@ -237,6 +255,8 @@ among several distinct bounded durations.
 | Mismatched allowance fails and drains the epoch | `MismatchedAllowanceFailsEpoch` |
 | Active work was not already finished | `ActiveWorkWasNotFinished` |
 | Finished work has a recorded start | `FinishedWorkWasStarted` |
+| Any invalid work start fails and drains the epoch | `InvalidWorkStartFailsEpoch` |
+| Any invalid work finish fails and drains the epoch | `InvalidWorkFinishFailsEpoch` |
 | Invalid-input draining eventually closes | `DrainingEventuallyCloses` |
 
 ### Probe arbitration
@@ -244,11 +264,14 @@ among several distinct bounded durations.
 | Design property | Model property |
 | --- | --- |
 | At most one physical probe is in flight | `OnePhysicalProbe` |
-| Acknowledgment must match the outstanding sequence | `ProbeSequenceIsExact` |
+| An accepted acknowledgment must match the outstanding sequence | `ProbeSequenceIsExact` |
+| A mismatched or no-outstanding acknowledgment fails the epoch | `InvalidAcknowledgmentFails` |
+| A matching acknowledgment remains processable after finite evidence saturation | `MatchingProbeAcknowledgmentRemainsProcessable` |
 | An older probe cannot cover a later command | `OlderProbeDoesNotCoverLaterCommand` |
 | A covered omitted response fails the epoch | `CoveredOmissionFails` |
 | Probe acknowledgment clears watchdog suspicion | `ProbeAcknowledgmentClearsSuspicion` |
-| Probe-driven protocol failure is limited to a covered omission | `ProtocolFailureIsOnlyCoveredOmission` |
+| Lifecycle recovery preserves the exact physical outstanding register | `OutstandingRegisterMatchesPhysicalProbe` |
+| `control-response` failure is limited to a covered omission | `ProtocolFailureIsOnlyCoveredOmission` |
 | A control-response failure requires proof that the retiring probe covered the omitted response | `ProtocolFailureHasCoveredOmissionProof` |
 | Probe exhaustion cannot leave a live epoch | `NoLiveEpochAfterProbeSequenceExhaustion` |
 
@@ -301,15 +324,22 @@ The recorded runs used OpenJDK 21.0.12 and TLA+ tools 1.8.0
 
 | Configuration | Bounds | Generated | Distinct | Depth | Result |
 | --- | --- | ---: | ---: | ---: | --- |
-| `InspectWebWorkerValidation.cfg` | 2 operations, 2 allowance classes, `MaxWorkSequence = 2` | 622 | 351 | 11 | No error |
-| `InspectWebWorkerProtocol.cfg` | 2 operations, `MaxWorkSequence = 2` | 244,951 | 72,321 | 22 | No error |
+| `InspectWebWorkerValidation.cfg` | 2 operations, 2 allowance classes, `MaxWorkSequence = 2` | 685 | 477 | 11 | No error |
+| `InspectWebWorkerProtocol.cfg` | 2 operations, `MaxWorkSequence = 2` | 866,584 | 222,090 | 23 | No error |
 | `InspectWebWorkerLifecycle.cfg` | 2 operations, all budgets = 1 | 87,452 | 20,268 | 18 | No error |
 | `InspectWebWorkerLifecycle_BoundedSilence.cfg` | No recurring task evidence or unbounded work; all budgets = 1 | 2,569 | 1,036 | 13 | No error |
-| `InspectWebWorkerProbe.cfg` | 1 command, `MaxProbeSequence = 2` | 827 | 316 | 10 | No error |
+| `InspectWebWorkerProbe.cfg` | 1 command, `MaxProbeSequence = 2` | 2,195 | 655 | 10 | No error |
 
 Generated and distinct counts are stable across worker counts. The protocol
-row's depth 22 is the single-worker breadth-first result; parallel runs can
-report depth 22-24 because worker discovery order changes the reported maximum.
+row's depth 23 is the single-worker breadth-first result; parallel runs can
+report depth 23-24 because worker discovery order changes the reported maximum.
+
+## Reachability witness
+
+`InspectWebWorkerProbe_TaskEvidenceSaturationReachable.cfg` checks
+`TaskEvidenceHasNotSaturated` and is expected to violate it. That counterexample
+gates the reachable finite-bound precondition used by the
+`MatchingProbeAcknowledgmentRemainsProcessable` negative control.
 
 ## Mutation results
 
@@ -335,7 +365,9 @@ violation.
 | `InspectWebWorkerProtocolProbeOvertakesControl.cfg` | A probe overtakes unfinished cancellation for an accepted operation | `MissingResponseProofRequiresCompletedOmission` |
 | `InspectWebWorkerProtocolFutureCancelNotActive.cfg` | Acknowledges a never-received future sequence | `NotActiveRequiresReceivedSequence` |
 | `InspectWebWorkerProtocolReuseWorkSequence.cfg` | Restarts a completed work sequence | `WorkSequenceNeverReused` |
+| `InspectWebWorkerProtocolAcceptActiveDuplicateWorkStart.cfg` | Accepts an active duplicate work start as an idempotent no-op | `InvalidWorkStartFailsEpoch` |
 | `InspectWebWorkerProtocolUnmatchedWorkFinish.cfg` | Finishes work without an active lease | `WorkFinishRequiresActiveStart` |
+| `InspectWebWorkerProtocolAcceptDuplicateWorkFinish.cfg` | Accepts a duplicate completed work finish as an idempotent no-op | `InvalidWorkFinishFailsEpoch` |
 | `InspectWebWorkerProtocolAcceptDuringDrain.cfg` | Accepts a new assignment while draining | `DrainingRefusesStarts` |
 | `InspectWebWorkerProtocolStaleEpochMutation.cfg` | Accepts a stale worker source carrying the current token | `OnlyCurrentBindingMutatesReplacement` |
 | `InspectWebWorkerProtocolWrongEpochTokenMutation.cfg` | Accepts the current worker source carrying a stale token | `OnlyCurrentBindingMutatesReplacement` |
@@ -375,8 +407,10 @@ violation.
 | `InspectWebWorkerProbe_MutationOlderWatchdogCoversControl.cfg` | An older watchdog probe falsely proves a later command missing | `ProtocolFailureIsOnlyCoveredOmission` |
 | `InspectWebWorkerProbe_MutationIgnoreCoveredOmission.cfg` | Acknowledgment ignores a covered omitted response | `CoveredOmissionFails` |
 | `InspectWebWorkerProbe_MutationAckLeavesSuspect.cfg` | Valid acknowledgment leaves watchdog suspicion active | `ProbeAcknowledgmentClearsSuspicion` |
-| `InspectWebWorkerProbe_MutationAcceptWrongAck.cfg` | Acknowledgment accepts the wrong probe sequence | `ProbeSequenceIsExact` |
-| `InspectWebWorkerProbe_MutationResumeRetiresRegister.cfg` | Lifecycle recovery replaces a live probe and the old acknowledgment fails the epoch | `ProtocolFailureIsOnlyCoveredOmission` |
+| `InspectWebWorkerProbe_MutationAcceptWrongAck.cfg` | Acknowledgment accepts a mismatched or no-outstanding probe sequence | `InvalidAcknowledgmentFails` |
+| `InspectWebWorkerProbe_MutationAcceptWrongAckSequence.cfg` | Acknowledgment accepts a sequence other than the physical outstanding probe | `ProbeSequenceIsExact` |
+| `InspectWebWorkerProbe_MutationEvidenceBoundBlocksAck.cfg` | Finite task-evidence saturation disables a matching acknowledgment | `MatchingProbeAcknowledgmentRemainsProcessable` |
+| `InspectWebWorkerProbe_MutationResumeRetiresRegister.cfg` | Lifecycle recovery replaces the outstanding probe register | `OutstandingRegisterMatchesPhysicalProbe` |
 | `InspectWebWorkerProbe_MutationTaskEvidenceRetiresRegister.cfg` | Non-acknowledgment task evidence discards a covered omission | `CoveredOmissionFails` |
 | `InspectWebWorkerProbe_MutationRetainAfterProbeExhaustion.cfg` | The epoch remains live after retiring its maximum probe sequence | `NoLiveEpochAfterProbeSequenceExhaustion` |
 | `InspectWebWorkerProbe_MutationMisclassifyExhaustionAsProtocolFailure.cfg` | An uncovered omitted response replaces maximum-sequence exhaustion with control-response failure | `ProtocolFailureHasCoveredOmissionProof` |
@@ -387,7 +421,9 @@ violation.
 | --- | --- | --- |
 | `InspectWebWorkerValidationAcceptMismatch.cfg` | Mismatched advertised allowance becomes active | `AcceptedAllowanceMatchesRegistration` |
 | `InspectWebWorkerValidationAcceptReusedWork.cfg` | Replayed completed work sequence becomes active | `ActiveWorkWasNotFinished` |
+| `InspectWebWorkerValidationAcceptActiveDuplicateStart.cfg` | Active duplicate work start is accepted as an idempotent no-op | `InvalidWorkStartFailsEpoch` |
 | `InspectWebWorkerValidationAcceptUnmatchedFinish.cfg` | Unstarted work sequence becomes finished | `FinishedWorkWasStarted` |
+| `InspectWebWorkerValidationAcceptDuplicateFinish.cfg` | Duplicate completed work finish is accepted as an idempotent no-op | `InvalidWorkFinishFailsEpoch` |
 
 ## Abstraction boundary
 

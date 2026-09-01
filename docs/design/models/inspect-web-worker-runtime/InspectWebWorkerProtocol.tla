@@ -75,7 +75,9 @@ IgnoreMissingResponse == "IgnoreMissingResponse"
 ProbeOvertakesControl == "ProbeOvertakesControl"
 FutureCancelNotActive == "FutureCancelNotActive"
 ReuseWorkSequence == "ReuseWorkSequence"
+AcceptActiveDuplicateWorkStart == "AcceptActiveDuplicateWorkStart"
 UnmatchedWorkFinish == "UnmatchedWorkFinish"
+AcceptDuplicateWorkFinish == "AcceptDuplicateWorkFinish"
 AcceptDuringDrain == "AcceptDuringDrain"
 StaleEpochMutation == "StaleEpochMutation"
 WrongEpochTokenMutation == "WrongEpochTokenMutation"
@@ -98,7 +100,9 @@ Mutations ==
      ProbeOvertakesControl,
      FutureCancelNotActive,
      ReuseWorkSequence,
+     AcceptActiveDuplicateWorkStart,
      UnmatchedWorkFinish,
+     AcceptDuplicateWorkFinish,
      AcceptDuringDrain,
      StaleEpochMutation,
      WrongEpochTokenMutation,
@@ -145,6 +149,8 @@ VARIABLES
     finishedWork,
     workSequenceReuseObserved,
     unmatchedWorkFinishObserved,
+    invalidWorkStartObserved,
+    invalidWorkFinishObserved,
     replacementOpen,
     staleEpochChangedState,
     callbackAfterCloseObserved
@@ -180,6 +186,8 @@ vars ==
       finishedWork,
       workSequenceReuseObserved,
       unmatchedWorkFinishObserved,
+      invalidWorkStartObserved,
+      invalidWorkFinishObserved,
       replacementOpen,
       staleEpochChangedState,
       callbackAfterCloseObserved>>
@@ -215,6 +223,8 @@ Init ==
     /\ finishedWork = {}
     /\ workSequenceReuseObserved = FALSE
     /\ unmatchedWorkFinishObserved = FALSE
+    /\ invalidWorkStartObserved = FALSE
+    /\ invalidWorkFinishObserved = FALSE
     /\ replacementOpen = FALSE
     /\ staleEpochChangedState = FALSE
     /\ callbackAfterCloseObserved = FALSE
@@ -230,6 +240,8 @@ UnchangedProtocolFlags ==
           futureNotActiveObserved,
           workSequenceReuseObserved,
           unmatchedWorkFinishObserved,
+          invalidWorkStartObserved,
+          invalidWorkFinishObserved,
           replacementOpen,
           staleEpochChangedState,
           callbackAfterCloseObserved>>
@@ -431,6 +443,8 @@ ProbeOvertakesControlMutation ==
           finishedWork,
           workSequenceReuseObserved,
           unmatchedWorkFinishObserved,
+          invalidWorkStartObserved,
+          invalidWorkFinishObserved,
           replacementOpen,
           staleEpochChangedState,
           callbackAfterCloseObserved>>
@@ -527,6 +541,8 @@ DispatchHeld(o) ==
           futureNotActiveObserved,
           workSequenceReuseObserved,
           unmatchedWorkFinishObserved,
+          invalidWorkStartObserved,
+          invalidWorkFinishObserved,
           replacementOpen,
           staleEpochChangedState,
           callbackAfterCloseObserved>>
@@ -590,6 +606,8 @@ DispatchCanceledHeldMutation(o) ==
           futureNotActiveObserved,
           workSequenceReuseObserved,
           unmatchedWorkFinishObserved,
+          invalidWorkStartObserved,
+          invalidWorkFinishObserved,
           replacementOpen,
           staleEpochChangedState,
           callbackAfterCloseObserved>>
@@ -681,6 +699,8 @@ AcceptDuringDrainMutation(o) ==
           futureNotActiveObserved,
           workSequenceReuseObserved,
           unmatchedWorkFinishObserved,
+          invalidWorkStartObserved,
+          invalidWorkFinishObserved,
           replacementOpen,
           staleEpochChangedState,
           callbackAfterCloseObserved>>
@@ -878,6 +898,8 @@ SettleBeforeAcceptedMutation(o) ==
           futureNotActiveObserved,
           workSequenceReuseObserved,
           unmatchedWorkFinishObserved,
+          invalidWorkStartObserved,
+          invalidWorkFinishObserved,
           replacementOpen,
           staleEpochChangedState,
           callbackAfterCloseObserved>>
@@ -966,6 +988,8 @@ RetireBeforeAckMutation(o) ==
           futureNotActiveObserved,
           workSequenceReuseObserved,
           unmatchedWorkFinishObserved,
+          invalidWorkStartObserved,
+          invalidWorkFinishObserved,
           replacementOpen,
           staleEpochChangedState,
           callbackAfterCloseObserved>>
@@ -1008,6 +1032,8 @@ ReplayStart(o) ==
           futureNotActiveObserved,
           workSequenceReuseObserved,
           unmatchedWorkFinishObserved,
+          invalidWorkStartObserved,
+          invalidWorkFinishObserved,
           replacementOpen,
           staleEpochChangedState,
           callbackAfterCloseObserved>>
@@ -1106,6 +1132,8 @@ FutureCancelNotActiveMutation(o) ==
           probeOvertakeObserved,
           workSequenceReuseObserved,
           unmatchedWorkFinishObserved,
+          invalidWorkStartObserved,
+          invalidWorkFinishObserved,
           replacementOpen,
           staleEpochChangedState,
           callbackAfterCloseObserved>>
@@ -1167,17 +1195,46 @@ FinishEpochWork(sequence) ==
           sourceRevoked>>
     /\ UnchangedProtocolFlags
 
-ReuseWorkSequenceMutation(sequence) ==
-    /\ Mutation = ReuseWorkSequence
+ReceiveInvalidEpochWorkStart(sequence) ==
     /\ epochState = Ready
-    /\ sequence \in startedWork
-    /\ sequence \notin activeWork
-    /\ activeWork' = activeWork \cup {sequence}
-    /\ workSequenceReuseObserved' = TRUE
-    /\ UNCHANGED <<workHighWater, startedWork, finishedWork>>
+    /\ ~sourceRevoked
+    /\ sequence \in 1..MaxWorkSequence
+    /\ sequence <= workHighWater
+    /\ invalidWorkStartObserved' = TRUE
+    /\ IF Mutation = ReuseWorkSequence
+          /\ sequence \in finishedWork
+       THEN
+           /\ activeWork' = activeWork \cup {sequence}
+           /\ workSequenceReuseObserved' = TRUE
+           /\ UNCHANGED
+               <<epochState,
+                 protocolFailure,
+                 workHighWater,
+                 startedWork,
+                 finishedWork>>
+       ELSE
+           /\ IF Mutation = AcceptActiveDuplicateWorkStart
+                 /\ sequence \in activeWork
+              THEN
+                  /\ UNCHANGED
+                      <<epochState,
+                        protocolFailure,
+                        workHighWater,
+                        activeWork,
+                        startedWork,
+                        finishedWork,
+                        workSequenceReuseObserved>>
+              ELSE
+                  /\ epochState' = Draining
+                  /\ protocolFailure' = TRUE
+                  /\ UNCHANGED
+                      <<workHighWater,
+                        activeWork,
+                        startedWork,
+                        finishedWork,
+                        workSequenceReuseObserved>>
     /\ UNCHANGED
-        <<epochState,
-          readyMatched,
+        <<readyMatched,
           recordPhase,
           acceptedEver,
           rejectedEver,
@@ -1191,7 +1248,6 @@ ReuseWorkSequenceMutation(sequence) ==
           settlementCount,
           responseProbeOutstanding,
           missingResponseProven,
-          protocolFailure,
           sourceRevoked,
           startDuringDrain,
           dispatchBeforeReadyObserved,
@@ -1201,21 +1257,51 @@ ReuseWorkSequenceMutation(sequence) ==
           probeOvertakeObserved,
           futureNotActiveObserved,
           unmatchedWorkFinishObserved,
+          invalidWorkFinishObserved,
           replacementOpen,
           staleEpochChangedState,
           callbackAfterCloseObserved>>
 
-UnmatchedWorkFinishMutation(sequence) ==
-    /\ Mutation = UnmatchedWorkFinish
-    /\ epochState = Ready
+ReceiveInvalidEpochWorkFinish(sequence) ==
+    /\ epochState \in {Ready, Draining}
+    /\ ~sourceRevoked
     /\ sequence \in 1..MaxWorkSequence
     /\ sequence \notin activeWork
-    /\ finishedWork' = finishedWork \cup {sequence}
-    /\ unmatchedWorkFinishObserved' = TRUE
-    /\ UNCHANGED <<workHighWater, activeWork, startedWork>>
+    /\ invalidWorkFinishObserved' = TRUE
+    /\ IF Mutation = UnmatchedWorkFinish
+          /\ sequence \notin startedWork
+       THEN
+           /\ finishedWork' = finishedWork \cup {sequence}
+           /\ unmatchedWorkFinishObserved' = TRUE
+           /\ UNCHANGED
+               <<epochState,
+                 protocolFailure,
+                 workHighWater,
+                 activeWork,
+                 startedWork>>
+       ELSE
+           /\ IF Mutation = AcceptDuplicateWorkFinish
+                 /\ sequence \in finishedWork
+              THEN
+                  /\ UNCHANGED
+                      <<epochState,
+                        protocolFailure,
+                        workHighWater,
+                        activeWork,
+                        startedWork,
+                        finishedWork,
+                        unmatchedWorkFinishObserved>>
+              ELSE
+                  /\ epochState' = Draining
+                  /\ protocolFailure' = TRUE
+                  /\ UNCHANGED
+                      <<workHighWater,
+                        activeWork,
+                        startedWork,
+                        finishedWork,
+                        unmatchedWorkFinishObserved>>
     /\ UNCHANGED
-        <<epochState,
-          readyMatched,
+        <<readyMatched,
           recordPhase,
           acceptedEver,
           rejectedEver,
@@ -1229,7 +1315,6 @@ UnmatchedWorkFinishMutation(sequence) ==
           settlementCount,
           responseProbeOutstanding,
           missingResponseProven,
-          protocolFailure,
           sourceRevoked,
           startDuringDrain,
           dispatchBeforeReadyObserved,
@@ -1239,6 +1324,7 @@ UnmatchedWorkFinishMutation(sequence) ==
           probeOvertakeObserved,
           futureNotActiveObserved,
           workSequenceReuseObserved,
+          invalidWorkStartObserved,
           replacementOpen,
           staleEpochChangedState,
           callbackAfterCloseObserved>>
@@ -1314,6 +1400,8 @@ OpenReplacement ==
           finishedWork,
           workSequenceReuseObserved,
           unmatchedWorkFinishObserved,
+          invalidWorkStartObserved,
+          invalidWorkFinishObserved,
           staleEpochChangedState,
           callbackAfterCloseObserved>>
 
@@ -1360,6 +1448,8 @@ ReceiveReplacementMessage(workerSource, epochToken) ==
           finishedWork,
           workSequenceReuseObserved,
           unmatchedWorkFinishObserved,
+          invalidWorkStartObserved,
+          invalidWorkFinishObserved,
           replacementOpen,
           callbackAfterCloseObserved>>
 
@@ -1399,6 +1489,8 @@ CallbackAfterCloseMutation ==
           finishedWork,
           workSequenceReuseObserved,
           unmatchedWorkFinishObserved,
+          invalidWorkStartObserved,
+          invalidWorkFinishObserved,
           replacementOpen,
           staleEpochChangedState>>
 
@@ -1436,9 +1528,10 @@ Next ==
     \/ \E o \in Operations: FutureCancelNotActiveMutation(o)
     \/ \E sequence \in 1..MaxWorkSequence: StartEpochWork(sequence)
     \/ \E sequence \in 1..MaxWorkSequence: FinishEpochWork(sequence)
-    \/ \E sequence \in 1..MaxWorkSequence: ReuseWorkSequenceMutation(sequence)
     \/ \E sequence \in 1..MaxWorkSequence:
-           UnmatchedWorkFinishMutation(sequence)
+           ReceiveInvalidEpochWorkStart(sequence)
+    \/ \E sequence \in 1..MaxWorkSequence:
+           ReceiveInvalidEpochWorkFinish(sequence)
     \/ DestroyRealm
     \/ OpenReplacement
     \/ ReceiveReplacementMessage(ReplacementWorkerSource, EpochCurrent)
@@ -1482,6 +1575,8 @@ TypeOK ==
     /\ finishedWork \subseteq 1..MaxWorkSequence
     /\ workSequenceReuseObserved \in BOOLEAN
     /\ unmatchedWorkFinishObserved \in BOOLEAN
+    /\ invalidWorkStartObserved \in BOOLEAN
+    /\ invalidWorkFinishObserved \in BOOLEAN
     /\ replacementOpen \in BOOLEAN
     /\ staleEpochChangedState \in BOOLEAN
     /\ callbackAfterCloseObserved \in BOOLEAN
@@ -1563,6 +1658,18 @@ WorkFinishRequiresActiveStart ==
 
 StartedWorkTracksHighWater ==
     \A sequence \in startedWork: sequence <= workHighWater
+
+InvalidWorkStartFailsEpoch ==
+    invalidWorkStartObserved
+    =>
+    /\ protocolFailure
+    /\ epochState \in {Draining, Closed}
+
+InvalidWorkFinishFailsEpoch ==
+    invalidWorkFinishObserved
+    =>
+    /\ protocolFailure
+    /\ epochState \in {Draining, Closed}
 
 OnlyCurrentBindingMutatesReplacement ==
     ~staleEpochChangedState
