@@ -17,10 +17,10 @@ public sealed class ArtifactContractTests
         {
             first = scope.Register(
                 new Provenance("first"),
-                () => StreamFor([1]));
+                _ => StreamFor([1]));
             second = scope.Register(
                 new Provenance("second"),
-                () => StreamFor([2]));
+                _ => StreamFor([2]));
         }
 
         var secondOwner = new ArtifactGenerationAuthority();
@@ -32,7 +32,7 @@ public sealed class ArtifactContractTests
         {
             foreign = scope.Register(
                 new Provenance("foreign"),
-                () => StreamFor([3]));
+                _ => StreamFor([3]));
         }
 
         Assert.NotSame(first.Descriptor.Identity, second.Descriptor.Identity);
@@ -49,7 +49,7 @@ public sealed class ArtifactContractTests
         Assert.Throws<ArgumentException>(
             () => secondOwner.CreateRetainedContent(
                 first.Registration,
-                () => StreamFor([4])));
+                _ => StreamFor([4])));
     }
 
     [Fact]
@@ -62,19 +62,19 @@ public sealed class ArtifactContractTests
             owner.BeginContribution(authorization);
         ArtifactContribution contribution = scope.Register(
             new Provenance("local"),
-            () => StreamFor([1, 2, 3]));
+            _ => StreamFor([1, 2, 3]));
         ArtifactAdmissionLease lease = owner.IssueLease(authorization);
         scope.Dispose();
 
         Assert.Throws<ObjectDisposedException>(
             () => scope.Register(
                 new Provenance("late"),
-                () => StreamFor([4])));
+                _ => StreamFor([4])));
 
         using Stream opened = contribution.OpenRead(lease);
         owner.CreateRetainedContent(
             contribution.Registration,
-            () => StreamFor([1, 2, 3]));
+            _ => StreamFor([1, 2, 3]));
         owner.CompleteAdmission(authorization);
 
         Assert.Equal(1, opened.ReadByte());
@@ -109,7 +109,7 @@ public sealed class ArtifactContractTests
         {
             contribution = scope.Register(
                 new Provenance("local"),
-                () => StreamFor([1]));
+                _ => StreamFor([1]));
         }
 
         Assert.Throws<InvalidOperationException>(
@@ -117,11 +117,11 @@ public sealed class ArtifactContractTests
 
         owner.CreateRetainedContent(
             contribution.Registration,
-            () => StreamFor([1]));
+            _ => StreamFor([1]));
         Assert.Throws<InvalidOperationException>(
             () => owner.CreateRetainedContent(
                 contribution.Registration,
-                () => StreamFor([2])));
+                _ => StreamFor([2])));
 
         owner.CompleteAdmission(authorization);
     }
@@ -142,7 +142,7 @@ public sealed class ArtifactContractTests
                             owner.BeginContribution(authorization);
                         return scope.Register(
                             new Provenance(index.ToString()),
-                            () => StreamFor([unchecked((byte)index)]));
+                            _ => StreamFor([unchecked((byte)index)]));
                     })));
 
         Assert.Equal(
@@ -163,7 +163,7 @@ public sealed class ArtifactContractTests
         {
             owner.CreateRetainedContent(
                 contribution.Registration,
-                () => StreamFor([1]));
+                _ => StreamFor([1]));
         }
         owner.CompleteAdmission(authorization);
     }
@@ -181,13 +181,13 @@ public sealed class ArtifactContractTests
         {
             contribution = scope.Register(
                 new Provenance("snapshot"),
-                () => StreamFor(snapshot));
+                _ => StreamFor(snapshot));
         }
 
         RetainedArtifactContent retained =
             owner.CreateRetainedContent(
                 contribution.Registration,
-                () => StreamFor(snapshot));
+                _ => StreamFor(snapshot));
         owner.CompleteAdmission(admission);
 
         ArtifactQueryAuthorization query =
@@ -227,6 +227,283 @@ public sealed class ArtifactContractTests
     }
 
     [Fact]
+    public async Task ArtifactAccess_OpenRegistrationIsAtomicWithGenerationEnd()
+    {
+        var entered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var owner = new ArtifactGenerationAuthority();
+        ArtifactAdmissionAuthorization admission =
+            owner.CreateAdmissionAuthorization();
+        ArtifactContribution contribution;
+        using (ArtifactContributionScope scope =
+            owner.BeginContribution(admission))
+        {
+            contribution = scope.Register(
+                new Provenance("blocking-opener"),
+                cancellationToken =>
+                {
+                    entered.TrySetResult();
+                    cancellationToken.WaitHandle.WaitOne();
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return StreamFor([1]);
+                });
+        }
+        using ArtifactAdmissionLease lease = owner.IssueLease(admission);
+
+        Task<Stream> opening =
+            Task.Run(() => contribution.OpenRead(lease));
+        await entered.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+        Task ending = owner.EndGenerationAsync().AsTask();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () => await opening);
+        await ending;
+        Assert.Throws<UnauthorizedAccessException>(
+            () => contribution.OpenRead(lease));
+    }
+
+    [Fact]
+    public async Task ArtifactAccess_RetainedOpenerIsCancelledAfterGateAdmission()
+    {
+        var entered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var owner = new ArtifactGenerationAuthority();
+        ArtifactAdmissionAuthorization admission =
+            owner.CreateAdmissionAuthorization();
+        ArtifactContribution contribution;
+        using (ArtifactContributionScope scope =
+            owner.BeginContribution(admission))
+        {
+            contribution = scope.Register(
+                new Provenance("retained-opener"),
+                _ => StreamFor([1]));
+        }
+        RetainedArtifactContent retained =
+            owner.CreateRetainedContent(
+                contribution.Registration,
+                cancellationToken =>
+                {
+                    entered.TrySetResult();
+                    cancellationToken.WaitHandle.WaitOne();
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return StreamFor([1]);
+                });
+        owner.CompleteAdmission(admission);
+        ArtifactQueryAuthorization query =
+            owner.CreateQueryAuthorization();
+        using ArtifactQueryLease lease = owner.IssueLease(query);
+
+        Task<Stream> opening =
+            Task.Run(() => retained.OpenRead(lease));
+        await entered.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+        Task ending = owner.EndGenerationAsync().AsTask();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () => await opening);
+        await ending;
+    }
+
+    [Fact]
+    public async Task ArtifactAccess_AuthorizationReplacementIsAtomicWithOpenRegistration()
+    {
+        var entered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        int openCount = 0;
+        var owner = new ArtifactGenerationAuthority();
+        ArtifactAdmissionAuthorization admission =
+            owner.CreateAdmissionAuthorization();
+        ArtifactContribution contribution;
+        using (ArtifactContributionScope scope =
+            owner.BeginContribution(admission))
+        {
+            contribution = scope.Register(
+                new Provenance("replacement-race"),
+                _ => StreamFor([1]));
+        }
+        RetainedArtifactContent retained =
+            owner.CreateRetainedContent(
+                contribution.Registration,
+                _ =>
+                {
+                    Interlocked.Increment(ref openCount);
+                    entered.TrySetResult();
+                    release.Task.GetAwaiter().GetResult();
+                    return StreamFor([1]);
+                });
+        owner.CompleteAdmission(admission);
+        ArtifactQueryAuthorization query =
+            owner.CreateQueryAuthorization();
+        using ArtifactQueryLease lease = owner.IssueLease(query);
+
+        Task<Stream> opening =
+            Task.Run(() => retained.OpenRead(lease));
+        await entered.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+        ArtifactQueryAuthorization replacement =
+            owner.ReplaceQueryAuthorization(query);
+        release.SetResult();
+
+        using Stream opened = await opening;
+        Assert.Equal(1, opened.ReadByte());
+        Assert.Throws<UnauthorizedAccessException>(
+            () => retained.OpenRead(lease));
+        Assert.Equal(1, Volatile.Read(ref openCount));
+        using ArtifactQueryLease replacementLease =
+            owner.IssueLease(replacement);
+    }
+
+    [Fact]
+    public async Task ArtifactAccess_MaterializationReadPreservesCallerCancellation()
+    {
+        var entered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancellationObserved = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var owner = new ArtifactGenerationAuthority();
+        ArtifactAdmissionAuthorization admission =
+            owner.CreateAdmissionAuthorization();
+        ArtifactContribution contribution;
+        using (ArtifactContributionScope scope =
+            owner.BeginContribution(admission))
+        {
+            contribution = scope.Register(
+                new Provenance("caller-cancelled-read"),
+                _ => new CancellationCaptureReadStream(
+                    entered,
+                    cancellationObserved));
+        }
+        using ArtifactAdmissionLease lease = owner.IssueLease(admission);
+        using Stream opened = contribution.OpenRead(lease);
+        using var cancellation = new CancellationTokenSource();
+
+        Task<int> read =
+            opened.ReadAsync(
+                    new byte[1],
+                    cancellation.Token)
+                .AsTask();
+        await entered.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+        cancellation.Cancel();
+
+        OperationCanceledException exception =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () => await read);
+        await cancellationObserved.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            cancellation.Token,
+            exception.CancellationToken);
+        using ArtifactContributionScope stillActive =
+            owner.BeginContribution(admission);
+    }
+
+    [Fact]
+    public async Task ArtifactAccess_ReturnedStreamKeepsGenerationAliveUntilDisposed()
+    {
+        var owner = new ArtifactGenerationAuthority();
+        ArtifactAdmissionAuthorization admission =
+            owner.CreateAdmissionAuthorization();
+        ArtifactContribution contribution;
+        using (ArtifactContributionScope scope =
+            owner.BeginContribution(admission))
+        {
+            contribution = scope.Register(
+                new Provenance("snapshot"),
+                _ => StreamFor([1, 2]));
+        }
+        RetainedArtifactContent retained =
+            owner.CreateRetainedContent(
+                contribution.Registration,
+                _ => StreamFor([1, 2]));
+        owner.CompleteAdmission(admission);
+        ArtifactQueryAuthorization query =
+            owner.CreateQueryAuthorization();
+        using ArtifactQueryLease lease = owner.IssueLease(query);
+        Stream opened = retained.OpenRead(lease);
+
+        Task ending = owner.EndGenerationAsync().AsTask();
+
+        Assert.False(ending.IsCompleted);
+        Assert.Equal(1, opened.ReadByte());
+        Assert.Throws<UnauthorizedAccessException>(
+            () => retained.OpenRead(lease));
+
+        opened.Dispose();
+        await ending;
+    }
+
+    [Fact]
+    public async Task ArtifactAccess_StreamDisposalFailureStillReportsQuiescence()
+    {
+        var owner = new ArtifactGenerationAuthority();
+        ArtifactAdmissionAuthorization admission =
+            owner.CreateAdmissionAuthorization();
+        ArtifactContribution contribution;
+        using (ArtifactContributionScope scope =
+            owner.BeginContribution(admission))
+        {
+            contribution = scope.Register(
+                new Provenance("throwing-dispose"),
+                _ => StreamFor([1]));
+        }
+        RetainedArtifactContent retained =
+            owner.CreateRetainedContent(
+                contribution.Registration,
+                _ => new ThrowingDisposeReadStream());
+        owner.CompleteAdmission(admission);
+        ArtifactQueryAuthorization query =
+            owner.CreateQueryAuthorization();
+        using ArtifactQueryLease lease = owner.IssueLease(query);
+        Stream opened = retained.OpenRead(lease);
+        Task ending = owner.EndGenerationAsync().AsTask();
+
+        Assert.Throws<IOException>(opened.Dispose);
+        await ending;
+    }
+
+    [Fact]
+    public async Task ArtifactAccess_LeaseDisposalIsAtomicWithOpenRegistration()
+    {
+        var entered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var owner = new ArtifactGenerationAuthority();
+        ArtifactAdmissionAuthorization admission =
+            owner.CreateAdmissionAuthorization();
+        ArtifactContribution contribution;
+        using (ArtifactContributionScope scope =
+            owner.BeginContribution(admission))
+        {
+            contribution = scope.Register(
+                new Provenance("admitted-opener"),
+                _ =>
+                {
+                    entered.TrySetResult();
+                    release.Task.GetAwaiter().GetResult();
+                    return StreamFor([1]);
+                });
+        }
+        ArtifactAdmissionLease lease = owner.IssueLease(admission);
+
+        Task<Stream> opening =
+            Task.Run(() => contribution.OpenRead(lease));
+        await entered.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+        lease.Dispose();
+        release.SetResult();
+
+        using Stream opened = await opening;
+        Assert.Equal(1, opened.ReadByte());
+        Assert.Throws<ObjectDisposedException>(
+            () => contribution.OpenRead(lease));
+    }
+
+    [Fact]
     public void DisposedLease_RejectsNewOpen()
     {
         var owner = new ArtifactGenerationAuthority();
@@ -238,13 +515,13 @@ public sealed class ArtifactContractTests
         {
             contribution = scope.Register(
                 new Provenance("snapshot"),
-                () => StreamFor([1]));
+                _ => StreamFor([1]));
         }
 
         RetainedArtifactContent retained =
             owner.CreateRetainedContent(
                 contribution.Registration,
-                () => StreamFor([1]));
+                _ => StreamFor([1]));
         owner.CompleteAdmission(admission);
         ArtifactQueryAuthorization query =
             owner.CreateQueryAuthorization();
@@ -300,7 +577,7 @@ public sealed class ArtifactContractTests
         {
             contribution = scope.Register(
                 new Provenance("package"),
-                () => StreamFor([1]));
+                _ => StreamFor([1]));
         }
 
         List<ArtifactContribution> source = [contribution];
@@ -387,6 +664,80 @@ public sealed class ArtifactContractTests
 
     private static MemoryStream StreamFor(byte[] content) =>
         new(content, writable: false);
+
+    private sealed class ThrowingDisposeReadStream :
+        MemoryStream
+    {
+        public ThrowingDisposeReadStream()
+            : base([1], writable: false)
+        {
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            throw new IOException("stream cleanup failed");
+        }
+    }
+
+    private sealed class CancellationCaptureReadStream(
+        TaskCompletionSource entered,
+        TaskCompletionSource cancellationObserved) : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length =>
+            throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            entered.TrySetResult();
+            try
+            {
+                await Task.Delay(
+                    Timeout.InfiniteTimeSpan,
+                    cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                cancellationObserved.TrySetResult();
+                throw;
+            }
+
+            throw new InvalidOperationException(
+                "Caller cancellation was not observed.");
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+
+        public override void Flush() =>
+            throw new NotSupportedException();
+
+        public override long Seek(
+            long offset,
+            SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+    }
 
     private sealed record Provenance(string Source) :
         IArtifactProvenance;

@@ -32,49 +32,42 @@ models demand admission, single-flight joining, and disposal-forced draining,
 and treats "the dependent group reports quiescent" as an abstract given event
 (its `GroupBecomesQuiescent` action). This model is about what quiescence must
 mean for content access — registered opener callbacks, materialization reads,
-and returned streams — and shows that the current mechanics have no way to
-observe it. The two models share no state; each names the other's scope as a
-non-claim.
+and returned streams — and shows that the pre-implementation mechanics had no way to observe it. The
+two models share no state; each names the other's scope as a non-claim.
 
-## Current mechanics versus target design
+## Pre-implementation mechanics versus target design
 
-Two constant-selected policy dimensions separate the shipped mechanics
-(`src/DotnetInspector.Artifacts/ArtifactAccess.cs`,
-`src/DotnetInspector.Artifacts.Workspaces/ArtifactSetSession.cs`) from the
-design intent:
+Two constant-selected policy dimensions preserve the pre-implementation
+mechanics as counterexample configurations and the implemented target in
+`src/DotnetInspector.Artifacts/ArtifactAccess.cs` and
+`src/DotnetInspector.Artifacts.Workspaces/ArtifactSetSession.cs` as positive
+configurations:
 
-- **`OpenMode`.** `"Recheck"` (current): `ArtifactContribution.OpenRead`
-  (`ArtifactAccess.cs:142`) and `RetainedArtifactContent.OpenRead`
-  (`ArtifactAccess.cs:190`) validate volatile flags outside the authority
-  gate (`ArtifactAccessLease.EnsureAccess`, `ArtifactAccess.cs:568`) and then
-  run the opener unconditionally, so an open can complete strictly after
-  `EndGeneration` (`ArtifactAccess.cs:399`) despite its contract to reject
-  "every future open or mint". `"Gated"` (target): registering an open is
-  atomic with the ended decision; the potentially blocking opener runs after
-  registration and before a stream is returned.
-- **`ReleaseMode`.** `"Immediate"` (current):
-  `ArtifactSetSession.TerminateAsync` (`ArtifactSetSession.cs:627`) sets the
-  disposed state, calls `EndGeneration` (line 654), and disposes every
-  acquisition lease (line 657) without waiting for an in-flight sealing read
-  (`MaterializeAsync`, `ArtifactSetSession.cs:577`) or an open query stream.
-  `"AwaitQuiescence"` (target): termination ends the generation immediately
-  — closing new access, exactly as `EndGeneration` documents — cancels
-  registered opener callbacks and an in-flight materialization read it owns,
-  and releases acquisition leases only once no registered opener, read, or
-  returned stream remains.
+- **`OpenMode`.** `"Recheck"` preserves the former validate-then-open window,
+  in which an opener could complete strictly after `EndGeneration`.
+  `"Gated"` matches the implementation: registering an open is atomic with
+  generation end or lease disposal; the potentially blocking opener runs
+  after registration and before a stream is returned.
+- **`ReleaseMode`.** `"Immediate"` preserves the former termination sequence,
+  which disposed acquisition leases without waiting for an in-flight sealing
+  read or open query stream. `"AwaitQuiescence"` matches the implementation:
+  termination ends the generation immediately, cancels registered opener
+  callbacks and an in-flight materialization read it owns, and releases
+  acquisition leases only once no registered opener, read, or returned stream
+  remains.
 
 `OpeningCancelMode = "Disabled"` is a mutation that removes target owner
 cancellation of registered openers. `PublishMode = "Unguarded"` removes
 publication's sealing-state guard, mirroring the existing product test
 `ArtifactSetSession_DisposalDuringSealCannotPublish`.
 
-The structural root is that nothing reports content quiescence:
-`ArtifactAccessLease.Dispose` (`ArtifactAccess.cs:596`) only latches a local
-flag and never informs the authority, opener callbacks run after validation
-without registration, and returned streams are untracked. `TerminateAsync`
-therefore has nothing it could wait on even if it wanted to. The session's own
-remarks (`ArtifactSetSession.cs:80`) state the slice "does not yet implement …
-dependent-group quiescence".
+The structural root preserved by the modeled current configurations is that
+nothing reports content quiescence: lease disposal is outside the authority
+gate, opener callbacks run after validation without registration, and returned
+streams are untracked. The implementation closes those gaps through
+authority-gated access registration, tracked stream disposal, owner
+cancellation for admission reads, and `EndGenerationAsync` before acquisition
+lease release.
 
 ## Files
 
@@ -185,19 +178,15 @@ java -cp /path/to/tla2tools.jar tlc2.TLC \
   stream surviving `EndGeneration` is not a defect — it is the documented
   access contract — which is why the target design waits for streams at
   release rather than revoking them at the end.
-- The target design's liveness carries three obligations the owning document
-  does not state today. First, a registered opener must be interruptible by
-  its owner: `OpenReadable` invokes a synchronous `Func<Stream>` with no
-  cancellation or bounded-completion contract, so a stalled callback can
-  otherwise block termination. Second, an in-flight materialization read must
-  likewise be owner-interruptible: the implementation awaits
-  `Stream.ReadAsync` with only the caller token. The model includes both
-  cancellation paths and makes no fairness assumption that an opener or
-  adapter read completes on its own. Third, abandoned returned query streams
-  need a policy (bound the wait, or invalidate visibly): termination completes
-  only because every consumer eventually closes its stream, encoded as a
-  fairness assumption the authority cannot enforce today. All three belong in
-  the owning document's termination contract.
+- The target design's liveness carries three obligations now stated by the
+  owning document. A registered opener receives and must observe the owner's
+  cancellation token whenever it may block, without depending on a worker
+  thread. An in-flight
+  asynchronous materialization read combines caller and owner cancellation.
+  Returned query streams remain valid after generation end and pin release
+  until disposal; there is deliberately no timeout or invisible invalidation,
+  so an abandoned stream leaves `DisposeAsync` incomplete. `ReaderClose`
+  fairness encodes that explicit consumer-disposal obligation.
 
 ## Assumptions and simplifications
 
@@ -222,5 +211,4 @@ The model says nothing about demand admission or single-flight joining
 digests, adapter behavior behind a disposed lease, multiple concurrent
 generations, or the assembly-group quiescence protocol above this layer.
 These results establish evidence about the model, not the implementation;
-the implementation-facing statements above cite the exact code they
-describe.
+the named product gates establish implementation conformance.

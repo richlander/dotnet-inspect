@@ -382,20 +382,27 @@ opens, so the target design registers each admitted open atomically with
 generation end, runs its potentially blocking opener after registration, ends
 access immediately at termination, cancels registered openers and an in-flight
 materialization read it owns, and releases acquisition leases only at content
-quiescence. The target configurations pass safety and
-liveness; three committed current-mechanics configurations produce
+quiescence. Source and retained-content openers therefore accept the
+generation owner's cancellation token; a potentially blocking opener must
+observe it promptly without depending on a worker thread. Admission stream
+wrappers combine that token with the caller token for asynchronous
+materialization reads. Returned query streams are the
+intentional exception: they remain readable after generation end and pin
+backing leases until disposal. `DisposeAsync` has no timeout and remains
+incomplete for an abandoned query stream; query consumers are required to
+dispose every returned stream. This follows the repository's
+`AssemblyContextGroup` gate-and-active-count release pattern and its
+`NuGetOperationDeadline.DeadlineStream` linked-cancellation pattern, while
+preserving the artifact contract's longer-lived returned stream.
+The target configurations pass safety and liveness; three committed
+current-mechanics configurations produce
 counterexamples showing an open can complete after `EndGeneration`, a
 disposal racing `SealAsync` disposes acquisition leases under an active
 materialization read, and leases can be released while a published
 generation's query stream is open. Its `README.md` records the checked
-bounds, results, assumptions, and the three termination-policy obligations it
-exposes: a registered opener must be owner-interruptible (today
-`OpenReadable` invokes a synchronous `Func<Stream>` with no cancellation or
-bounded-completion contract), an in-flight materialization read must likewise
-be owner-interruptible (today it awaits `Stream.ReadAsync` with only the caller
-token), and abandoned returned query streams need a stated policy (bound the
-wait, or invalidate visibly). These results establish evidence about the
-model, not the implementation.
+bounds, results, assumptions, and the three termination-policy obligations
+enforced by this contract. These results establish evidence about the model,
+not the implementation.
 
 ### Supplemental acquisition bridge
 
@@ -2418,7 +2425,16 @@ The target is complete only when tests equivalent to these exist:
 - `ArtifactSetSession_DisposalDuringAcquisitionDisposesLateLease`
 - `ArtifactSetSession_SealRejectsAcquisitionInProgress`
 - `ArtifactSetSession_DisposalDuringSealCannotPublish`
+- `ArtifactAccess_OpenRegistrationIsAtomicWithGenerationEnd`
+- `ArtifactAccess_RetainedOpenerIsCancelledAfterGateAdmission`
+- `ArtifactAccess_AuthorizationReplacementIsAtomicWithOpenRegistration`
+- `ArtifactAccess_LeaseDisposalIsAtomicWithOpenRegistration`
+- `ArtifactAccess_ReturnedStreamKeepsGenerationAliveUntilDisposed`
+- `ArtifactAccess_StreamDisposalFailureStillReportsQuiescence`
+- `ArtifactAccess_MaterializationReadPreservesCallerCancellation`
 - `ArtifactSetSession_ReleasesLeasesOnlyAfterDependentGroupsQuiesce`
+- `ArtifactSetSession_DisposalCancelsInFlightMaterialization`
+- `ArtifactSetSession_CancellationCallbackFailureDoesNotSkipLeaseCleanup`
 - `ArtifactSetSession_PreservesPrimaryFailureWhenCleanupFails`
 - `SupplementalAcquisition_RequiredCheckpointPreservesSealOutcome`
 - `SupplementalAcquisition_SealUsesCheckpointedSnapshots`
@@ -2542,6 +2558,12 @@ checkpoint, reuse of checkpointed snapshots, finite pre-adapter capacity,
 empty-batch lease ownership, exact visible failure, atomic scoped nonempty
 admission, validation-failure cleanup, termination cleanup, late-diagnostic
 projection, and cancellation preservation.
+The seven named `ArtifactAccess_*` gates and three
+`ArtifactSetSession_*` content-quiescence gates enforce gate-atomic open and
+lease-disposal admission, owner interruption of stalled opening and
+materialization, returned-stream validity through generation end, deferred
+acquisition-lease release, and quiescence reporting even when stream cleanup
+fails.
 `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`
 deletes its temporary source after publication, then passes an
 `ArtifactContentReference`'s guarded published snapshot opener to Metadata, so
@@ -2554,8 +2576,7 @@ explicit-empty-group cases, including typed compile-library absence, package
 documents, manifest dependencies, and no fabricated default assembly.
 
 Workspace-wide admission budgets, single-flight/reentrancy, content digests,
-dependent-group quiescence, and Metadata consumption of workspace roles remain
-unverified.
+and Metadata consumption of workspace roles remain unverified.
 
 ## Non-goals
 

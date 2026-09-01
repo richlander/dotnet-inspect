@@ -2030,12 +2030,12 @@ public class ResearchTargetResolverTests
         {
             contribution = scope.Register(
                 TestArtifactProvenance.Instance,
-                openRead);
+                _ => openRead());
         }
 
         authority.CreateRetainedContent(
             contribution.Registration,
-            openRead);
+            _ => openRead());
         authority.CompleteAdmission(admission);
         return contribution.Registration;
     }
