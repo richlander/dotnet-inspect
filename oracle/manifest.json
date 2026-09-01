@@ -34,6 +34,86 @@
           "overload": 1
         }
       ]
+    },
+    {
+      "sourceUrl": "https://raw.githubusercontent.com/dotnet/dotnet/f7d90799ce4ef09a0bb257852a57248d2a8fb8dd/src/runtime/src/libraries/System.Runtime.Serialization.Formatters/src/System/Runtime/Serialization/Formatters/Binary/BinaryAssemblyInfo.cs",
+      "checksumAlgorithm": "SHA256",
+      "checksum": "73A3C1CB6AEFCBFBE9D824B478D6FFE059725BAF81435B17458BF49D08B0A58F",
+      "printerProfile": "default-v1",
+      "requirePrinterExact": true,
+      "expectedFeatures": [
+        "expression.equals",
+        "expression.identifier-name",
+        "expression.invocation",
+        "expression.null-literal",
+        "expression.object-creation",
+        "expression.simple-assignment",
+        "expression.simple-member-access",
+        "statement.expression",
+        "statement.if",
+        "statement.return",
+        "statement.throw"
+      ],
+      "members": [
+        {
+          "assembly": "System.Runtime.Serialization.Formatters",
+          "assemblyVersion": "10.0.0.0",
+          "moduleVersionId": "53810d48-6104-4fad-b854-9b5c1cb93d2b",
+          "metadataToken": 100663670,
+          "type": "System.Runtime.Serialization.Formatters.Binary.BinaryAssemblyInfo",
+          "method": "GetAssembly",
+          "overload": 0
+        }
+      ]
+    },
+    {
+      "sourceUrl": "https://raw.githubusercontent.com/dotnet/dotnet/f7d90799ce4ef09a0bb257852a57248d2a8fb8dd/src/runtime/src/libraries/System.Reflection.Context/src/System/Reflection/Context/Virtual/VirtualPropertyBase.PropertyGetterBase.cs",
+      "checksumAlgorithm": "SHA256",
+      "checksum": "BE3B78215D77971B27E4E15D5F75CB4C2F1F2F05A06DE57D8B1ABED1265D3297",
+      "printerProfile": "default-v1",
+      "requirePrinterExact": true,
+      "expectedFeatures": [
+        "expression.identifier-name",
+        "expression.invocation",
+        "expression.simple-member-access",
+        "statement.return",
+        "syntax.generic-name"
+      ],
+      "members": [
+        {
+          "assembly": "System.Reflection.Context",
+          "assemblyVersion": "10.0.0.10",
+          "moduleVersionId": "94498402-c7a5-4de7-b614-b6fe0ea2eae7",
+          "metadataToken": 100664084,
+          "type": "System.Reflection.Context.Virtual.VirtualPropertyBase.PropertyGetterBase",
+          "method": "GetParameterTypes",
+          "overload": 0
+        }
+      ]
+    },
+    {
+      "sourceUrl": "https://raw.githubusercontent.com/dotnet/dotnet/f7d90799ce4ef09a0bb257852a57248d2a8fb8dd/src/runtime/src/libraries/System.Reflection.Metadata/src/System/Reflection/Metadata/HandleKind.cs",
+      "checksumAlgorithm": "SHA256",
+      "checksum": "16E7432CC83812875B464C289B0FB66A9BD9D38C4FE8DF7D8A85649619C2CF23",
+      "printerProfile": "default-v1",
+      "requirePrinterExact": true,
+      "expectedFeatures": [
+        "expression.greater-than-or-equal",
+        "expression.identifier-name",
+        "expression.simple-member-access",
+        "statement.return"
+      ],
+      "members": [
+        {
+          "assembly": "System.Reflection.Metadata",
+          "assemblyVersion": "10.0.0.0",
+          "moduleVersionId": "ef1403e6-bb3c-4941-bb0c-0d714056a836",
+          "metadataToken": 100665090,
+          "type": "System.Reflection.Metadata.HandleKindExtensions",
+          "method": "IsHeapHandle",
+          "overload": 0
+        }
+      ]
     }
   ]
 }
