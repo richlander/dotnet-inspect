@@ -97,9 +97,11 @@ substrates, and inspection producers that will extend that space.
   resolves facts through targets to multi-span nodes, filters the stable node-kind
   vocabulary, and keeps unanchored facts visible without inventing coordinates.
 - `prototypes/inspect-web/` is the browser/Wasm product host. Its
-  [UI design](design/inspect-web-ui.md) owns the website's shared presentation
-  and interaction language while individual components retain rendering,
-  binding, and state-transition responsibilities.
+  [UI design](design/inspect-web-ui.md) composes the website's shared
+  presentation language, navigation rendering, navigation-result consumer,
+  shell interaction, and page-level composition across five focused owners
+  while individual components retain rendering, binding, and
+  state-transition responsibilities.
 - `tools/DecompilerHarness/` owns ReturnToSender closure discovery,
   type-cluster planning, compile-back reference selection and closure, and
   generated-artifact admission and receipt-gated verdict composition. RTS
@@ -243,8 +245,13 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   host-neutral root, Library, Type, and Member descriptors, availability,
   initial recommendations, transitions, reconciliation, and model-checked
   retained-session authority.
-- [Inspect Web UI](design/inspect-web-ui.md): shared website control states,
-  interaction grammar, and visual composition rules.
+- [Inspect Web UI](design/inspect-web-ui.md): composition map for the website
+  redesign, linking
+  [presentation language](design/inspect-web-presentation-language.md),
+  [navigation presentation](design/inspect-web-navigation-presentation.md),
+  [navigation consumer](design/inspect-web-navigation-consumer.md),
+  [shell interaction](design/inspect-web-shell-interaction.md), and
+  [surface composition](design/inspect-web-surface-composition.md).
 - [Annotated Source viewer interaction](design/annotated-source-viewer-interaction.md):
   viewer-local disclosure, actions, selection, annotations, media, Escape, and
   focus inside the embedded reader and modal viewer.

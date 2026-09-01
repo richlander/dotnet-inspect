@@ -23,13 +23,17 @@ artifact evaluation are future scope and are unverified.
 
 ## Shell placement boundary
 
-Inspect Web UI owns shell placement, lifecycle, focus, responsive composition,
-and browser history. Its `/query` route, Search entry, and Workspace handoff are
-specified in [inspect-web-ui.md](inspect-web-ui.md#package-query). Its
-replacement of package tabs with Workspace supersedes this document's former
-`Query`-tab placement and package-tab handoff path. This document continues to
-own the query surface's internal request, state, evidence, and rendering
-contract.
+[Inspect Web Surface Composition](inspect-web-surface-composition.md) owns
+`/query` route placement, layout, and placement of the per-row
+`Open in workspace` action.
+[Inspect Web Shell Interaction](inspect-web-shell-interaction.md#search) owns
+the Search entry. This document owns the action's package-ID/version request
+semantics as part of the query surface contract.
+[Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md#package-query-entry-and-return)
+owns commitment of the returned result, including focus and browser history.
+Together these focused owners replace this document's former `Query`-tab
+placement and package-tab handoff path. This document continues to own the
+query surface's internal request, state, evidence, and rendering contract.
 
 ## Why this is not another workbench lens
 
@@ -77,7 +81,10 @@ is exposed by this contract.
 ## Layout
 
 The query content is a full-bleed working surface rather than a modal over one
-package. Its `/query` route and Search lifecycle are owned by Inspect Web UI:
+package. Its `/query` route and layout are owned by
+[Inspect Web Surface Composition](inspect-web-surface-composition.md#package-query);
+its Search entry is owned by
+[Inspect Web Shell Interaction](inspect-web-shell-interaction.md#search):
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -105,9 +112,10 @@ package. Its `/query` route and Search lifecycle are owned by Inspect Web UI:
 - **Result stream**: rows append incrementally. Each row is a compact
   nuspec-derived summary plus the product-authored evidence for *why* it
   matched — never a bare name.
-- **Handoff, not duplication**: `Open in workspace` submits the result's
-  product-issued package coordinate through the standard typed Workspace
-  transition — the funnel never grows its own type/member browser.
+- **Handoff, not duplication**: `Open in workspace` submits the row's
+  product-issued package ID and exact version once through the standard typed
+  Workspace transition, without inferring a framework, source, or fallback
+  from display text — the funnel never grows its own type/member browser.
 
 ## States
 
@@ -120,6 +128,11 @@ package. Its `/query` route and Search lifecycle are owned by Inspect Web UI:
 | Failed | The request itself never reached a completion (a rejected/thrown source, not just a per-page failure) | A distinct "query failed" state naming the error, never rendered as a confirmed empty or still-streaming result |
 | Cancelled with no rows yet | The user cancels before any page arrived | A distinct "cancelled before any matches" state, never rendered as a confirmed empty result |
 | Empty | Predicate matches nothing *and* the search actually finished with no failures | Empty-state card suggesting a broader facet, not a bare blank pane |
+
+Changing the prefix, toggling a facet, cancelling, leaving the route, or
+starting another run aborts or supersedes the active source operation. Rows
+already received remain visible after explicit cancellation, while events from
+an older generation cannot enter a replacement outcome.
 
 ## Sharing and URL shape
 
@@ -273,9 +286,42 @@ preset never needs to "contain" its own history.
   with two front ends, not two designs to keep in sync.
 - No client-side re-filtering of a fetched result set — every facet change is
   a new request, keeping displayed counts honest.
-- No archive, assembly, metadata, or IL evaluation. This surface is nuspec-only.
+- No archive, assembly, metadata, or IL evaluation. This surface is
+  nuspec-only: it renders exactly the product-issued nuspec facet catalog and
+  does not render promoted facets, selection checkboxes, or `Deepen`. Those
+  controls require a separately owned product operation and UI change.
 - No persistence, sharing, or outcome cache in the current slice.
 - No chart or aggregation surface in the current slice.
+
+## Acceptance scenarios
+
+An implementation claiming this contract is complete must satisfy these
+outcomes. Route placement, page geometry, and responsive layout for these
+scenarios are proved by
+[Inspect Web Surface Composition](inspect-web-surface-composition.md#package-query-route),
+and browser-history and focus-return outcomes are proved by
+[Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md#package-query-entry-and-return).
+
+1. Load `/query` directly and on refresh and confirm that the route starts
+   without a persisted request, selected facets, or inferred package
+   coordinate.
+2. Toggle two product-issued nuspec facets and confirm that each change starts
+   a fresh engine request with opaque IDs, cancels the prior request, and
+   suppresses its late rows and failures.
+3. Confirm that product rows, evidence, partial failures, and exhausted,
+   bounded, failed, cancelled, and zero-row completion states remain distinct
+   per the [States](#states) table.
+4. Cancel after rows arrive and confirm that the rows remain visible, the state
+   reads as cancelled, and the Browser source operation stops.
+5. Change the prefix, leave the route, and start another run; confirm each
+   aborts or supersedes the active source operation and that events from an
+   older generation cannot enter a replacement outcome.
+6. Open a row in Workspace and confirm one typed package transition using its
+   exact product-issued ID and version, without inferring a framework, source,
+   or fallback from display text. Confirm that a typed failure retains
+   `/query`, the result set, and the request.
+7. Confirm that no promoted facet, selection checkbox, or `Deepen` control is
+   rendered in this nuspec-only slice.
 
 ## Landing sequence
 
