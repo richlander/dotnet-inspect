@@ -17,7 +17,7 @@ The package source model consumes these owner-issued inputs:
 | Input | Owning contract | Use here |
 | --- | --- | --- |
 | Active configured source declarations and package-source mapping aliases | Package configuration | Select the declarations eligible for one canonical package ID. |
-| HTTP endpoint admission and local-source classification inputs | Package configuration and local-source owner | Classify before any source client or network authority exists. |
+| HTTP endpoint admission and local-source classification inputs | Package configuration and [local package source identity](local-package-source-identity.md) | Classify before any source client or network authority exists. |
 | `PackageSourceAssociation`, `IPackageSourceClient`, `PackageSourceOperationResult<T>`, and source-result identity | [Browser package sources](browser-package-sources.md#nugetfetch-typed-source-result-identity) | Invoke protocol-independent operations and recover the exact caller authority from each result. |
 | `NuGetOperationContext` and typed deadline failures | [Browser package sources](browser-package-sources.md#operation-context-handoff) | Share one caller identity and operation ceiling across every selected authority and route. |
 | Plugin-authentication context and target authorization | [NuGet feed authentication](nuget-authentication.md#source-scoped-plugin-authentication-context) | Bind configurable V3 routes and compatibility requests to the selected configured authority. |
@@ -40,8 +40,11 @@ construction, retry, failure construction, authentication internals, deadline
 mechanics, or stream translation. It does not own Core HTTP-pipeline
 construction or offline diagnostic rendering. It does not define browser
 source profiles, package-profile or CLI presentation, or local-folder feed
-identity and acquisition. Local-folder identity and capabilities remain owned
-by [#3759](https://github.com/richlander/dotnet-inspect/issues/3759);
+identity and acquisition. Canonical local identity is owned by
+[Local package source identity](local-package-source-identity.md); folder-feed
+capabilities remain [#5399](https://github.com/richlander/dotnet-inspect/issues/5399),
+and package-level acquisition composition remains
+[#5400](https://github.com/richlander/dotnet-inspect/issues/5400);
 package-profile projection remains owned by
 [#4806](https://github.com/richlander/dotnet-inspect/issues/4806).
 
@@ -107,9 +110,14 @@ created.
 
 Relative config paths resolve from the declaring config file; relative
 command-line paths resolve from the command working directory. Path
-canonicalization, `file://` equivalence, platform case behavior, folder
-enumeration, and local payload acquisition are #3759 responsibilities. This
-owner only dispatches to that boundary and preserves its result.
+canonicalization, `file://` equivalence, and platform case behavior are owned
+by
+[Local package source identity](local-package-source-identity.md). Folder
+enumeration and local payload operations remain
+[#5399](https://github.com/richlander/dotnet-inspect/issues/5399)
+responsibilities. Package-level adoption remains
+[#5400](https://github.com/richlander/dotnet-inspect/issues/5400). This owner
+only dispatches to those boundaries and preserves their results.
 
 When the local owner classifies a valid authority but the current host lacks a
 requested local capability, the package result retains that authority and a
@@ -152,6 +160,7 @@ the owner does not pick the first declaration.
 Declaration order has no semantic-version or same-tier payload precedence. It
 may make diagnostics stable, but it cannot decide which version wins or
 authorize bytes. `PackageSourceMapping_SelectsAliasesBeforeAuthorityCollapse`,
+`ResolveSourcesForPackage_MappingClassifiesOnlySelectedAliases`,
 `PackageSourceMapping_ConflictingAliasPoliciesFailBeforeClientCreation`, and
 `SourceOrder_DoesNotChooseVersionOrSameTierPayload` gate these rules.
 
