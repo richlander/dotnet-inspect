@@ -309,10 +309,11 @@ Worker creation starts one non-renewable active-time startup budget. Only a
 matching `Ready` received before the budget is exhausted succeeds. The handler
 compares the active-time deadline before opening the epoch; matching readiness
 at or after exhaustion closes the partial realm as startup failure. Heartbeats
-or probe acknowledgments can demonstrate a responsive JavaScript realm but
-cannot renew, reset, or satisfy that budget. Lifecycle suspension and a
-detected main-loop discontinuity pause active elapsed time; they preserve the
-remaining budget rather than grant a fresh one.
+or probe acknowledgments received before matching `Ready` are protocol-invalid
+and immediately close the partial realm as described below; they cannot renew,
+reset, or satisfy that budget. Lifecycle suspension and a detected main-loop
+discontinuity pause active elapsed time; they preserve the remaining budget
+rather than grant a fresh one.
 
 Startup rejection or budget exhaustion closes admission, terminates the
 partial realm, reports unexpected startup failure for every activated held
@@ -452,7 +453,10 @@ Before matching readiness it immediately revokes and closes the partial realm;
 after matching readiness it begins bounded protocol-failure draining. The
 `StartupFailed` and a mismatched `Ready` echo retain `startup`; every other
 pre-readiness fault retains its specific `protocol` or `worker-message`
-failure kind.
+failure kind. A delivered envelope that is malformed or illegal in startup
+state, including `Heartbeat` or unsolicited `ProbeAcknowledged`, is
+`protocol`. A browser worker `error` or `messageerror` event is
+`worker-message`.
 
 ## Cancellation and record release
 
@@ -547,14 +551,17 @@ watchdog stage-one timestamp when applicable:
   command in its immutable snapshot cannot add it after send, so it records a
   deferred control-probe need; and
 - after the matching acknowledgment retires the outstanding probe, any still
-  unresolved deferred obligation is covered by the next probe.
+  unresolved deferred obligation keeps the next control-probe dispatch enabled
+  until the response arrives, that probe is sent, or the epoch enters draining.
 
 An acknowledgment first validates every covered response obligation. A missing
 required response fails the epoch even though the acknowledgment also proves
 that the worker task loop ran. Otherwise it clears watchdog suspicion, retires
-the register, and permits any deferred control probe to be sent. This
-arbitration preserves one sequence space and at most one in-flight probe
-without letting an older watchdog probe prove completion of a later command.
+the register, and schedules any unresolved deferred control probe before that
+obligation can be forgotten. While the response remains unresolved, the host
+must eventually send that probe or enter draining. This arbitration preserves
+one sequence space and at most one in-flight probe without letting an older
+watchdog probe prove completion of a later command.
 Heartbeat evidence clears suspicion and renews the liveness origin but does
 not retire the shared probe register, invalidate its sequence, discard its
 response-obligation snapshot, or prove that the serialized lane passed the
@@ -725,6 +732,12 @@ Ordinary success, failure, progress, or cancellation messages arriving after
 that commit cannot replace the fixed closure. They may still prove physical
 release while the realm drains.
 
+A later protocol, message, or worker-declared fault during draining cannot
+replace the first committed cause, diagnostic, or producer outcomes. A worker
+crash during draining proves that the realm is already gone, so the host closes
+and releases immediately while preserving that first cause and those outcomes
+rather than waiting for the remaining drain budget.
+
 A live failed realm receives one bounded active-time drain budget. It may
 release accepted operations and epoch-work leases naturally. It is terminated
 when all assigned resources release or when the budget expires. Missing
@@ -812,7 +825,7 @@ epoch-local feature state.
 
 ## Model evidence
 
-The companion model directory contains four finite models:
+The companion model directory contains five finite models:
 
 - `InspectWebWorkerValidation.tla` covers registered versus advertised
   operation allowances, epoch-work identity validation, and mismatch-driven
@@ -829,9 +842,14 @@ The companion model directory contains four finite models:
   triggers over the one physical probe register, including adoption, deferred
   coverage, exact acknowledgment, exhaustion, missing-response failure, and
   exact-probe marking for a causally later serialized response.
+- `InspectWebWorkerProbeMarks.tla` expands the seam to two command records and
+  two probe generations. Its exact-command failure property rejects false
+  attribution to a replacement probe; a separate global-mark mutation detector
+  exposes overwriting an earlier record's authoritative mark.
 
 The models separate allowance validation, protocol bookkeeping, clock and
-worker lifetime, and the cross-cutting probe arbitration seam. Their README
+worker lifetime, cross-cutting probe arbitration, and per-command mark
+ownership. Their README
 records assumptions, bounds, checked properties, counterexample mutations, and
 exact TLC results. They prove no TypeScript, browser, worker, managed, or
 feature implementation behavior.
@@ -870,7 +888,9 @@ feature implementation behavior.
   acknowledgment from the serialized command lane proves a missing covered
   response and begins bounded draining, a later serialized response proving a
   missing probe acknowledgment, heartbeats alone preserving that outstanding
-  register without manufacturing proof, plus asynchronous cancellation that
+  register without manufacturing proof, exact immutable command-record marks
+  that a later command cannot overwrite, deferred probe dispatch that cannot
+  stall after the older register retires, plus asynchronous cancellation that
   cannot be overtaken by a later probe;
 - probe-sequence monotonicity, matching, exhaustion, duplicate, future, and
   stale acknowledgment cases, including retirement of the maximum safe
@@ -935,14 +955,20 @@ feature implementation behavior.
   `error`, worker `messageerror`, bootstrap rejection sending
   `StartupFailed` and immediately releasing the partial realm, protocol
   failure, worker-declared failure, and watchdog loss, with an illegal
-  pre-`Ready` message also immediately releasing the partial realm;
+  pre-`Ready` heartbeat or probe acknowledgment immediately releasing the
+  partial realm as `protocol`, while worker `error` and `messageerror` retain
+  `worker-message`;
 - planned restart cancellation versus unexpected boundary failure;
+- a later fault during draining preserving the first committed cause and
+  outcomes, plus a crash during draining closing immediately without waiting
+  for the drain deadline;
 - preparation followed by epoch closure before activation, preserving planned
   versus unexpected classification;
 - bounded failed draining with early natural release and deadline hard
   termination;
 - source revocation and no message, progress callback, managed callback, or
-  sink delivery after realm release;
+  sink delivery after realm release, with the same callback path first shown
+  reachable while source authority is live;
 - unresolved operation quiescence only after its resource settles or the realm
   is destroyed; and
 - explicit replacement-worker creation with stale old-epoch events.

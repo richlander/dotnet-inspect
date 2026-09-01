@@ -91,6 +91,12 @@ AcceptReadyAfterStartupExpiry == "AcceptReadyAfterStartupExpiry"
 PreReadyProtocolFailureDrains == "PreReadyProtocolFailureDrains"
 PreReadyProtocolAsStartup == "PreReadyProtocolAsStartup"
 PreReadyWorkerMessageAsProtocol == "PreReadyWorkerMessageAsProtocol"
+IgnorePreReadyHeartbeat == "IgnorePreReadyHeartbeat"
+IgnorePreReadyProbeAck == "IgnorePreReadyProbeAck"
+PreReadyHeartbeatAsWorkerMessage == "PreReadyHeartbeatAsWorkerMessage"
+ReplaceCauseDuringDrain == "ReplaceCauseDuringDrain"
+RewriteOutcomeDuringDrain == "RewriteOutcomeDuringDrain"
+CrashDuringDrainWaits == "CrashDuringDrainWaits"
 Mutations ==
     {NoMutation,
      RenewStartupFromMessage,
@@ -114,7 +120,25 @@ Mutations ==
      AcceptReadyAfterStartupExpiry,
      PreReadyProtocolFailureDrains,
      PreReadyProtocolAsStartup,
-     PreReadyWorkerMessageAsProtocol}
+     PreReadyWorkerMessageAsProtocol,
+     IgnorePreReadyHeartbeat,
+     IgnorePreReadyProbeAck,
+     PreReadyHeartbeatAsWorkerMessage,
+     ReplaceCauseDuringDrain,
+     RewriteOutcomeDuringDrain,
+     CrashDuringDrainWaits}
+
+FaultDuringDrainEvent == "FaultDuringDrainEvent"
+CrashDuringDrainEvent == "CrashDuringDrainEvent"
+DrainEvents == {FaultDuringDrainEvent, CrashDuringDrainEvent}
+
+NoInvalidPreReadyInput == "NoInvalidPreReadyInput"
+UnexpectedPreReadyHeartbeatInput == "UnexpectedPreReadyHeartbeatInput"
+UnexpectedProbeAcknowledgmentInput == "UnexpectedProbeAcknowledgmentInput"
+PreReadyInputKinds ==
+    {NoInvalidPreReadyInput,
+     UnexpectedPreReadyHeartbeatInput,
+     UnexpectedProbeAcknowledgmentInput}
 
 BoundedSilenceScenario ==
     Mutation \in {BoundedSilenceRun, AllowanceChurnRenews}
@@ -165,7 +189,10 @@ VARIABLES
     unexpectedOutcomeMismatch,
     quiescedBeforeRelease,
     callbackAfterReleaseObserved,
-    nonTaskMessageRenewed
+    callbackDelivered,
+    nonTaskMessageRenewed,
+    preReadyInvalidInputKind,
+    drainEventsSeen
 
 vars ==
     <<epochState,
@@ -202,7 +229,10 @@ vars ==
       unexpectedOutcomeMismatch,
       quiescedBeforeRelease,
       callbackAfterReleaseObserved,
-      nonTaskMessageRenewed>>
+      callbackDelivered,
+      nonTaskMessageRenewed,
+      preReadyInvalidInputKind,
+      drainEventsSeen>>
 
 Init ==
     /\ epochState = Starting
@@ -239,7 +269,10 @@ Init ==
     /\ unexpectedOutcomeMismatch = FALSE
     /\ quiescedBeforeRelease = FALSE
     /\ callbackAfterReleaseObserved = FALSE
+    /\ callbackDelivered = FALSE
     /\ nonTaskMessageRenewed = FALSE
+    /\ preReadyInvalidInputKind = NoInvalidPreReadyInput
+    /\ drainEventsSeen = {}
 
 UnchangedMutationFlags ==
     UNCHANGED
@@ -253,8 +286,77 @@ UnchangedMutationFlags ==
           unexpectedOutcomeMismatch,
           quiescedBeforeRelease,
           callbackAfterReleaseObserved,
+          callbackDelivered,
           nonTaskMessageRenewed,
-          preReadyFaultKind>>
+          preReadyFaultKind,
+          preReadyInvalidInputKind,
+          drainEventsSeen>>
+
+UnchangedMutationFlagsExceptPreReadyInput ==
+    UNCHANGED
+        <<startDuringDrain,
+          mismatchedReadyAccepted,
+          probeSatisfiedStartup,
+          watchdogWithoutProbe,
+          unboundedWatchdogFailure,
+          mainGapWatchdogFailure,
+          plannedOutcomeMismatch,
+          unexpectedOutcomeMismatch,
+          quiescedBeforeRelease,
+          callbackAfterReleaseObserved,
+          callbackDelivered,
+          nonTaskMessageRenewed,
+          preReadyFaultKind,
+          drainEventsSeen>>
+
+UnchangedMutationFlagsExceptPreReadyInputAndProbe ==
+    UNCHANGED
+        <<startDuringDrain,
+          mismatchedReadyAccepted,
+          watchdogWithoutProbe,
+          unboundedWatchdogFailure,
+          mainGapWatchdogFailure,
+          plannedOutcomeMismatch,
+          unexpectedOutcomeMismatch,
+          quiescedBeforeRelease,
+          callbackAfterReleaseObserved,
+          callbackDelivered,
+          nonTaskMessageRenewed,
+          preReadyFaultKind,
+          drainEventsSeen>>
+
+UnchangedMutationFlagsExceptDrainEvent ==
+    UNCHANGED
+        <<startDuringDrain,
+          mismatchedReadyAccepted,
+          probeSatisfiedStartup,
+          watchdogWithoutProbe,
+          unboundedWatchdogFailure,
+          mainGapWatchdogFailure,
+          plannedOutcomeMismatch,
+          unexpectedOutcomeMismatch,
+          quiescedBeforeRelease,
+          callbackAfterReleaseObserved,
+          callbackDelivered,
+          nonTaskMessageRenewed,
+          preReadyFaultKind,
+          preReadyInvalidInputKind>>
+
+UnchangedMutationFlagsExceptCallback ==
+    UNCHANGED
+        <<startDuringDrain,
+          mismatchedReadyAccepted,
+          probeSatisfiedStartup,
+          watchdogWithoutProbe,
+          unboundedWatchdogFailure,
+          mainGapWatchdogFailure,
+          plannedOutcomeMismatch,
+          unexpectedOutcomeMismatch,
+          quiescedBeforeRelease,
+          nonTaskMessageRenewed,
+          preReadyFaultKind,
+          preReadyInvalidInputKind,
+          drainEventsSeen>>
 
 AssignOperation(o) ==
     /\ epochState \in {Starting, Ready, Suspect}
@@ -359,7 +461,10 @@ AcceptDuringDrainMutation(o) ==
           unexpectedOutcomeMismatch,
           quiescedBeforeRelease,
           callbackAfterReleaseObserved,
-          nonTaskMessageRenewed>>
+          callbackDelivered,
+          nonTaskMessageRenewed,
+          preReadyInvalidInputKind,
+          drainEventsSeen>>
 
 StartupTick ==
     /\ epochState = Starting
@@ -393,18 +498,69 @@ StartupTick ==
           assignedAtClosure>>
     /\ UnchangedMutationFlags
 
-StartupMessage ==
+ClosePartialRealm(cause, faultKind, invalidInputKind) ==
     /\ epochState = Starting
-    /\ IF Mutation = RenewStartupFromMessage
-       THEN
-           /\ startupRemaining' = MaxStartupBudget
-           /\ startupRenewed' = TRUE
-       ELSE
-           /\ UNCHANGED <<startupRemaining, startupRenewed>>
+    /\ cause \in
+        {StartupFailureCause,
+         PreReadyProtocolCause,
+         PreReadyWorkerMessageCause}
+    /\ faultKind \in PreReadyFaultKinds
+    /\ epochState' = Closed
+    /\ closureCause' = cause
+    /\ preReadyFaultKind' = faultKind
+    /\ preReadyInvalidInputKind' = invalidInputKind
+    /\ assignedAtClosure' = assigned \ released
+    /\ outcome' =
+        [o \in Operations |->
+            IF o \in assigned \ released
+            THEN FailedOutcome
+            ELSE outcome[o]]
+    /\ released' = released \cup (assigned \ released)
+    /\ quiesced' = quiesced \cup (assigned \ released)
+    /\ accepted' = {}
+    /\ workState' = NoWork
+    /\ realmDestroyed' = TRUE
+    /\ sourceRevoked' = TRUE
+    /\ probeOutstanding' = FALSE
+    /\ UNCHANGED
+        <<startupRemaining,
+          startupRenewed,
+          readyMatched,
+          lifecycleActive,
+          suspensionBudget,
+          mainLoopContinuous,
+          gapBudget,
+          assigned,
+          silenceRemaining,
+          probeWasSent,
+          firstExpiryObserved,
+          drainRemaining>>
+    /\ UNCHANGED
+        <<startDuringDrain,
+          mismatchedReadyAccepted,
+          probeSatisfiedStartup,
+          watchdogWithoutProbe,
+          unboundedWatchdogFailure,
+          mainGapWatchdogFailure,
+          plannedOutcomeMismatch,
+          unexpectedOutcomeMismatch,
+          quiescedBeforeRelease,
+          callbackAfterReleaseObserved,
+          callbackDelivered,
+          nonTaskMessageRenewed,
+          drainEventsSeen>>
+
+IgnoreUnexpectedPreReadyInput(inputKind) ==
+    /\ epochState = Starting
+    /\ inputKind \in
+        {UnexpectedPreReadyHeartbeatInput,
+         UnexpectedProbeAcknowledgmentInput}
+    /\ preReadyInvalidInputKind' = inputKind
     /\ UNCHANGED
         <<epochState,
           closureCause,
-          preReadyFaultKind,
+          startupRemaining,
+          startupRenewed,
           readyMatched,
           lifecycleActive,
           suspensionBudget,
@@ -424,7 +580,52 @@ StartupMessage ==
           realmDestroyed,
           sourceRevoked,
           assignedAtClosure>>
-    /\ UnchangedMutationFlags
+    /\ UnchangedMutationFlagsExceptPreReadyInput
+
+StartupHeartbeat ==
+    /\ epochState = Starting
+    /\ IF Mutation = RenewStartupFromMessage
+       THEN
+           /\ startupRemaining' = MaxStartupBudget
+           /\ startupRenewed' = TRUE
+           /\ preReadyInvalidInputKind' = UnexpectedPreReadyHeartbeatInput
+           /\ UNCHANGED
+               <<epochState,
+                 closureCause,
+                 readyMatched,
+                 lifecycleActive,
+                 suspensionBudget,
+                 mainLoopContinuous,
+                 gapBudget,
+                 assigned,
+                 accepted,
+                 released,
+                 outcome,
+                 quiesced,
+                 workState,
+                 silenceRemaining,
+                 probeOutstanding,
+                 probeWasSent,
+                 firstExpiryObserved,
+                 drainRemaining,
+                 realmDestroyed,
+                 sourceRevoked,
+                 assignedAtClosure>>
+           /\ UnchangedMutationFlagsExceptPreReadyInput
+       ELSE
+           IF Mutation = IgnorePreReadyHeartbeat
+           THEN
+               IgnoreUnexpectedPreReadyInput(
+                   UnexpectedPreReadyHeartbeatInput)
+           ELSE
+               ClosePartialRealm(
+                   IF Mutation = PreReadyHeartbeatAsWorkerMessage
+                   THEN PreReadyWorkerMessageCause
+                   ELSE PreReadyProtocolCause,
+                   IF Mutation = PreReadyHeartbeatAsWorkerMessage
+                   THEN PreReadyWorkerMessageFault
+                   ELSE PreReadyProtocolFault,
+                   UnexpectedPreReadyHeartbeatInput)
 
 StartupProbeAcknowledged ==
     /\ epochState = Starting
@@ -433,42 +634,41 @@ StartupProbeAcknowledged ==
            /\ epochState' = Ready
            /\ readyMatched' = FALSE
            /\ probeSatisfiedStartup' = TRUE
+           /\ preReadyInvalidInputKind' = UnexpectedProbeAcknowledgmentInput
+           /\ UNCHANGED
+               <<closureCause,
+                 preReadyFaultKind,
+                 startupRemaining,
+                 startupRenewed,
+                 lifecycleActive,
+                 suspensionBudget,
+                 mainLoopContinuous,
+                 gapBudget,
+                 assigned,
+                 accepted,
+                 released,
+                 outcome,
+                 quiesced,
+                 workState,
+                 silenceRemaining,
+                 probeOutstanding,
+                 probeWasSent,
+                 firstExpiryObserved,
+                 drainRemaining,
+                 realmDestroyed,
+                 sourceRevoked,
+                 assignedAtClosure>>
+           /\ UnchangedMutationFlagsExceptPreReadyInputAndProbe
        ELSE
-           /\ UNCHANGED <<epochState, readyMatched>>
-           /\ probeSatisfiedStartup' = FALSE
-    /\ UNCHANGED
-        <<closureCause,
-          preReadyFaultKind,
-          startupRemaining,
-          startupRenewed,
-          lifecycleActive,
-          suspensionBudget,
-          mainLoopContinuous,
-          gapBudget,
-          assigned,
-          accepted,
-          released,
-          outcome,
-          quiesced,
-          workState,
-          silenceRemaining,
-          probeOutstanding,
-          probeWasSent,
-          firstExpiryObserved,
-          drainRemaining,
-          realmDestroyed,
-          sourceRevoked,
-          assignedAtClosure,
-          startDuringDrain,
-          mismatchedReadyAccepted,
-          watchdogWithoutProbe,
-          unboundedWatchdogFailure,
-          mainGapWatchdogFailure,
-          plannedOutcomeMismatch,
-          unexpectedOutcomeMismatch,
-          quiescedBeforeRelease,
-          callbackAfterReleaseObserved,
-          nonTaskMessageRenewed>>
+           IF Mutation = IgnorePreReadyProbeAck
+           THEN
+               IgnoreUnexpectedPreReadyInput(
+                   UnexpectedProbeAcknowledgmentInput)
+           ELSE
+               ClosePartialRealm(
+                   PreReadyProtocolCause,
+                   PreReadyProtocolFault,
+                   UnexpectedProbeAcknowledgmentInput)
 
 ReceiveReady ==
     /\ epochState = Starting
@@ -531,58 +731,12 @@ AcceptReadyAfterStartupExpiryMutation ==
           assignedAtClosure>>
     /\ UnchangedMutationFlags
 
-ClosePartialRealm(cause, faultKind) ==
-    /\ epochState = Starting
-    /\ cause \in
-        {StartupFailureCause,
-         PreReadyProtocolCause,
-         PreReadyWorkerMessageCause}
-    /\ faultKind \in PreReadyFaultKinds
-    /\ epochState' = Closed
-    /\ closureCause' = cause
-    /\ preReadyFaultKind' = faultKind
-    /\ assignedAtClosure' = assigned \ released
-    /\ outcome' =
-        [o \in Operations |->
-            IF o \in assigned \ released
-            THEN FailedOutcome
-            ELSE outcome[o]]
-    /\ released' = released \cup (assigned \ released)
-    /\ quiesced' = quiesced \cup (assigned \ released)
-    /\ accepted' = {}
-    /\ workState' = NoWork
-    /\ realmDestroyed' = TRUE
-    /\ sourceRevoked' = TRUE
-    /\ probeOutstanding' = FALSE
-    /\ UNCHANGED
-        <<startupRemaining,
-          startupRenewed,
-          readyMatched,
-          lifecycleActive,
-          suspensionBudget,
-          mainLoopContinuous,
-          gapBudget,
-          assigned,
-          silenceRemaining,
-          probeWasSent,
-          firstExpiryObserved,
-          drainRemaining>>
-    /\ UNCHANGED
-        <<startDuringDrain,
-          mismatchedReadyAccepted,
-          probeSatisfiedStartup,
-          watchdogWithoutProbe,
-          unboundedWatchdogFailure,
-          mainGapWatchdogFailure,
-          plannedOutcomeMismatch,
-          unexpectedOutcomeMismatch,
-          quiescedBeforeRelease,
-          callbackAfterReleaseObserved,
-          nonTaskMessageRenewed>>
-
 ReceiveMismatchedReady ==
     /\ Mutation # AcceptMismatchedReady
-    /\ ClosePartialRealm(StartupFailureCause, NoPreReadyFault)
+    /\ ClosePartialRealm(
+        StartupFailureCause,
+        NoPreReadyFault,
+        NoInvalidPreReadyInput)
 
 AcceptMismatchedReadyMutation ==
     /\ Mutation = AcceptMismatchedReady
@@ -622,15 +776,24 @@ AcceptMismatchedReadyMutation ==
           unexpectedOutcomeMismatch,
           quiescedBeforeRelease,
           callbackAfterReleaseObserved,
-          nonTaskMessageRenewed>>
+          callbackDelivered,
+          nonTaskMessageRenewed,
+          preReadyInvalidInputKind,
+          drainEventsSeen>>
 
 StartupExpires ==
     /\ startupRemaining = 0
-    /\ ClosePartialRealm(StartupFailureCause, NoPreReadyFault)
+    /\ ClosePartialRealm(
+        StartupFailureCause,
+        NoPreReadyFault,
+        NoInvalidPreReadyInput)
 
 ReceiveBootstrapFailure ==
     /\ Mutation # BootstrapFailureDrains
-    /\ ClosePartialRealm(StartupFailureCause, NoPreReadyFault)
+    /\ ClosePartialRealm(
+        StartupFailureCause,
+        NoPreReadyFault,
+        NoInvalidPreReadyInput)
 
 ReceivePreReadyProtocolFailure ==
     /\ Mutation # PreReadyProtocolFailureDrains
@@ -638,14 +801,16 @@ ReceivePreReadyProtocolFailure ==
         IF Mutation = PreReadyProtocolAsStartup
         THEN StartupFailureCause
         ELSE PreReadyProtocolCause,
-        PreReadyProtocolFault)
+        PreReadyProtocolFault,
+        NoInvalidPreReadyInput)
 
 ReceivePreReadyWorkerMessageFailure ==
     /\ ClosePartialRealm(
         IF Mutation = PreReadyWorkerMessageAsProtocol
         THEN PreReadyProtocolCause
         ELSE PreReadyWorkerMessageCause,
-        PreReadyWorkerMessageFault)
+        PreReadyWorkerMessageFault,
+        NoInvalidPreReadyInput)
 
 PreReadyProtocolFailureDrainsMutation ==
     /\ Mutation = PreReadyProtocolFailureDrains
@@ -690,7 +855,10 @@ PreReadyProtocolFailureDrainsMutation ==
           unexpectedOutcomeMismatch,
           quiescedBeforeRelease,
           callbackAfterReleaseObserved,
-          nonTaskMessageRenewed>>
+          callbackDelivered,
+          nonTaskMessageRenewed,
+          preReadyInvalidInputKind,
+          drainEventsSeen>>
 
 BootstrapFailureDrainsMutation ==
     /\ Mutation = BootstrapFailureDrains
@@ -970,7 +1138,10 @@ NonTaskMessage ==
           plannedOutcomeMismatch,
           unexpectedOutcomeMismatch,
           quiescedBeforeRelease,
-          callbackAfterReleaseObserved>>
+          callbackAfterReleaseObserved,
+          callbackDelivered,
+          preReadyInvalidInputKind,
+          drainEventsSeen>>
 
 SilenceTick ==
     /\ epochState \in {Ready, Suspect}
@@ -1061,7 +1232,10 @@ FirstSilenceExpiry ==
           quiescedBeforeRelease,
           callbackAfterReleaseObserved,
           nonTaskMessageRenewed,
-          preReadyFaultKind>>
+          preReadyFaultKind,
+          callbackDelivered,
+          preReadyInvalidInputKind,
+          drainEventsSeen>>
 
 AllowanceChurnRenewalMutation ==
     /\ Mutation = AllowanceChurnRenews
@@ -1103,7 +1277,10 @@ AllowanceChurnRenewalMutation ==
           unexpectedOutcomeMismatch,
           quiescedBeforeRelease,
           callbackAfterReleaseObserved,
-          nonTaskMessageRenewed>>
+          callbackDelivered,
+          nonTaskMessageRenewed,
+          preReadyInvalidInputKind,
+          drainEventsSeen>>
 
 SecondSilenceExpiry ==
     /\ epochState = Suspect
@@ -1184,7 +1361,10 @@ TerminateWhileUnboundedMutation ==
           quiescedBeforeRelease,
           callbackAfterReleaseObserved,
           nonTaskMessageRenewed,
-          preReadyFaultKind>>
+          preReadyFaultKind,
+          callbackDelivered,
+          preReadyInvalidInputKind,
+          drainEventsSeen>>
 
 TerminateAcrossMainGapMutation ==
     /\ Mutation = TerminateAcrossMainGap
@@ -1229,7 +1409,10 @@ TerminateAcrossMainGapMutation ==
           quiescedBeforeRelease,
           callbackAfterReleaseObserved,
           nonTaskMessageRenewed,
-          preReadyFaultKind>>
+          preReadyFaultKind,
+          callbackDelivered,
+          preReadyInvalidInputKind,
+          drainEventsSeen>>
 
 StartEpochWork(work) ==
     /\ epochState \in {Ready, Suspect}
@@ -1393,7 +1576,10 @@ EnterClosure(cause) ==
           quiescedBeforeRelease,
           callbackAfterReleaseObserved,
           nonTaskMessageRenewed,
-          preReadyFaultKind>>
+          preReadyFaultKind,
+          callbackDelivered,
+          preReadyInvalidInputKind,
+          drainEventsSeen>>
 
 ReleaseDuringDrain(o) ==
     /\ epochState = Draining
@@ -1469,7 +1655,10 @@ QuiesceBeforeReleaseMutation(o) ==
           plannedOutcomeMismatch,
           unexpectedOutcomeMismatch,
           callbackAfterReleaseObserved,
-          nonTaskMessageRenewed>>
+          callbackDelivered,
+          nonTaskMessageRenewed,
+          preReadyInvalidInputKind,
+          drainEventsSeen>>
 
 DrainTick ==
     /\ epochState = Draining
@@ -1570,10 +1759,106 @@ WorkerCrash ==
           drainRemaining>>
     /\ UnchangedMutationFlags
 
-CallbackAfterReleaseMutation ==
-    /\ Mutation = CallbackAfterRelease
-    /\ epochState = Closed
-    /\ callbackAfterReleaseObserved' = TRUE
+FaultDuringDrain ==
+    /\ epochState = Draining
+    /\ FaultDuringDrainEvent \notin drainEventsSeen
+    /\ drainEventsSeen' = drainEventsSeen \cup {FaultDuringDrainEvent}
+    /\ closureCause' =
+        IF Mutation = ReplaceCauseDuringDrain
+        THEN
+            IF closureCause = PlannedCause
+            THEN UnexpectedCause
+            ELSE PlannedCause
+        ELSE closureCause
+    /\ IF Mutation = RewriteOutcomeDuringDrain
+       THEN
+           /\ OperationA \in assignedAtClosure
+           /\ outcome' =
+               [outcome EXCEPT
+                   ![OperationA] =
+                       IF @ = FailedOutcome
+                       THEN CanceledOutcome
+                       ELSE FailedOutcome]
+       ELSE
+           /\ UNCHANGED outcome
+    /\ UNCHANGED
+        <<epochState,
+          preReadyFaultKind,
+          startupRemaining,
+          startupRenewed,
+          readyMatched,
+          lifecycleActive,
+          suspensionBudget,
+          mainLoopContinuous,
+          gapBudget,
+          assigned,
+          accepted,
+          released,
+          quiesced,
+          workState,
+          silenceRemaining,
+          probeOutstanding,
+          probeWasSent,
+          firstExpiryObserved,
+          drainRemaining,
+          realmDestroyed,
+          sourceRevoked,
+          assignedAtClosure>>
+    /\ UnchangedMutationFlagsExceptDrainEvent
+
+WorkerCrashDuringDrain ==
+    /\ epochState = Draining
+    /\ CrashDuringDrainEvent \notin drainEventsSeen
+    /\ drainEventsSeen' = drainEventsSeen \cup {CrashDuringDrainEvent}
+    /\ IF Mutation = CrashDuringDrainWaits
+       THEN
+           /\ UNCHANGED
+               <<epochState,
+                 accepted,
+                 released,
+                 quiesced,
+                 workState,
+                 probeOutstanding,
+                 realmDestroyed,
+                 sourceRevoked>>
+       ELSE
+           /\ epochState' = Closed
+           /\ accepted' = {}
+           /\ released' = released \cup assignedAtClosure
+           /\ quiesced' = quiesced \cup assignedAtClosure
+           /\ workState' = NoWork
+           /\ probeOutstanding' = FALSE
+           /\ realmDestroyed' = TRUE
+           /\ sourceRevoked' = TRUE
+    /\ UNCHANGED
+        <<closureCause,
+          preReadyFaultKind,
+          startupRemaining,
+          startupRenewed,
+          readyMatched,
+          lifecycleActive,
+          suspensionBudget,
+          mainLoopContinuous,
+          gapBudget,
+          assigned,
+          outcome,
+          silenceRemaining,
+          probeWasSent,
+          firstExpiryObserved,
+          drainRemaining,
+          assignedAtClosure>>
+    /\ UnchangedMutationFlagsExceptDrainEvent
+
+DeliverCallback ==
+    /\ ~callbackDelivered
+    /\ IF Mutation = CallbackAfterRelease
+       THEN epochState \in {Ready, Suspect, Draining, Closed}
+       ELSE
+           /\ epochState \in {Ready, Suspect, Draining}
+           /\ ~realmDestroyed
+           /\ ~sourceRevoked
+    /\ callbackDelivered' = TRUE
+    /\ callbackAfterReleaseObserved' = (realmDestroyed \/ sourceRevoked)
     /\ UNCHANGED
         <<epochState,
           closureCause,
@@ -1598,24 +1883,15 @@ CallbackAfterReleaseMutation ==
           drainRemaining,
           realmDestroyed,
           sourceRevoked,
-          assignedAtClosure,
-          startDuringDrain,
-          mismatchedReadyAccepted,
-          probeSatisfiedStartup,
-          watchdogWithoutProbe,
-          unboundedWatchdogFailure,
-          mainGapWatchdogFailure,
-          plannedOutcomeMismatch,
-          unexpectedOutcomeMismatch,
-          quiescedBeforeRelease,
-          nonTaskMessageRenewed>>
+          assignedAtClosure>>
+    /\ UnchangedMutationFlagsExceptCallback
 
 Next ==
     \/ \E o \in Operations: AssignOperation(o)
     \/ \E o \in Operations: AcceptOperation(o)
     \/ \E o \in Operations: AcceptDuringDrainMutation(o)
     \/ StartupTick
-    \/ StartupMessage
+    \/ StartupHeartbeat
     \/ StartupProbeAcknowledged
     \/ ReceiveReady
     \/ AcceptReadyAfterStartupExpiryMutation
@@ -1651,7 +1927,9 @@ Next ==
     \/ DrainTick
     \/ DestroyRealm
     \/ WorkerCrash
-    \/ CallbackAfterReleaseMutation
+    \/ FaultDuringDrain
+    \/ WorkerCrashDuringDrain
+    \/ DeliverCallback
 
 Spec ==
     /\ Init
@@ -1701,7 +1979,10 @@ TypeOK ==
     /\ unexpectedOutcomeMismatch \in BOOLEAN
     /\ quiescedBeforeRelease \in BOOLEAN
     /\ callbackAfterReleaseObserved \in BOOLEAN
+    /\ callbackDelivered \in BOOLEAN
     /\ nonTaskMessageRenewed \in BOOLEAN
+    /\ preReadyInvalidInputKind \in PreReadyInputKinds
+    /\ drainEventsSeen \subseteq DrainEvents
 
 StartupBudgetDoesNotRenew ==
     ~startupRenewed
@@ -1754,6 +2035,12 @@ ClosureCauseDeterminesOutcome ==
        =>
        \A o \in assignedAtClosure: outcome[o] = FailedOutcome
 
+ClosureCauseIsStable ==
+    [][closureCause # NoCause => closureCause' = closureCause]_vars
+
+CommittedOutcomesAreStable ==
+    [][closureCause # NoCause => outcome' = outcome]_vars
+
 StartupFailureClosesImmediately ==
     closureCause = StartupFailureCause
     =>
@@ -1774,6 +2061,23 @@ PreReadyFaultClassificationIsPreserved ==
     /\ preReadyFaultKind = PreReadyWorkerMessageFault
        => closureCause = PreReadyWorkerMessageCause
 
+UnexpectedPreReadyInputClosesImmediately ==
+    preReadyInvalidInputKind # NoInvalidPreReadyInput
+    =>
+    /\ epochState = Closed
+    /\ realmDestroyed
+    /\ sourceRevoked
+
+PreReadyInvalidInputClassificationIsExact ==
+    /\ preReadyInvalidInputKind = UnexpectedPreReadyHeartbeatInput
+       =>
+       /\ preReadyFaultKind = PreReadyProtocolFault
+       /\ closureCause = PreReadyProtocolCause
+    /\ preReadyInvalidInputKind = UnexpectedProbeAcknowledgmentInput
+       =>
+       /\ preReadyFaultKind = PreReadyProtocolFault
+       /\ closureCause = PreReadyProtocolCause
+
 FailedDrainingRequiresReadiness ==
     epochState = Draining /\ closureCause \in UnexpectedCauses
     => readyMatched
@@ -1787,6 +2091,27 @@ RealmReleaseRevokesSource ==
 
 NoCallbackAfterRealmRelease ==
     ~callbackAfterReleaseObserved
+
+CallbackDeliveryRequiresLiveAuthority ==
+    [][(/\ ~callbackDelivered
+         /\ callbackDelivered')
+       =>
+       /\ ~realmDestroyed
+       /\ ~sourceRevoked]_vars
+
+CallbackDeliveryIsReachable ==
+    ~callbackDelivered
+
+CrashDuringDrainClosesImmediately ==
+    CrashDuringDrainEvent \in drainEventsSeen
+    =>
+    /\ epochState = Closed
+    /\ realmDestroyed
+    /\ sourceRevoked
+
+FaultThenCrashIsReachable ==
+    ~(FaultDuringDrainEvent \in drainEventsSeen
+      /\ CrashDuringDrainEvent \in drainEventsSeen)
 
 ClosedEpochHasNoLiveResources ==
     epochState = Closed

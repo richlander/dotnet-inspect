@@ -25,7 +25,8 @@ CONSTANTS
     MUTATION_EVIDENCE_BOUND_BLOCKS_ACK,
     MUTATION_IGNORE_MISSING_PROBE_ACK,
     MUTATION_SERIALIZED_RESPONSE_LEAVES_SUSPECT,
-    MUTATION_STALE_PROBE_MARK
+    MUTATION_STALE_PROBE_MARK,
+    MUTATION_DEFERRED_PROBE_STALL
 
 ASSUME MaxProbeSequence = 2
 
@@ -182,6 +183,7 @@ CommitControlResponse ==
     /\ responseState = PendingResponse
     /\ ~(probeCount = 1 /\ CurrentProbeMark)
     /\ responseState' = ResponsePresent
+    /\ deferredControlProbe' = FALSE
     /\ IF watchdogState \in {NormalWatchdog, SuspectWatchdog}
        THEN
            /\ taskEvidenceCount' = SaturatingEvidenceIncrement
@@ -198,7 +200,6 @@ CommitControlResponse ==
           nextProbeSequence,
           coveredResponse,
           controlGraceExpired,
-          deferredControlProbe,
           protocolFailure>>
     /\ UnchangedMutationFlags
 
@@ -574,6 +575,7 @@ ReceiveUnexpectedProbeAcknowledgment ==
           markedProbeSequence>>
 
 DispatchDeferredControlProbe ==
+    /\ ~MUTATION_DEFERRED_PROBE_STALL
     /\ probeCount = 0
     /\ deferredControlProbe
     /\ responseState \in {PendingResponse, ResponseOmitted}
@@ -720,7 +722,10 @@ Next ==
     \/ HeartbeatEvidence
     \/ RetireDeferredAfterResponse
 
-Spec == Init /\ [][Next]_vars
+Spec ==
+    /\ Init
+    /\ [][Next]_vars
+    /\ WF_vars(DispatchDeferredControlProbe)
 
 TypeOK ==
     /\ probeCount \in 0..2
@@ -830,6 +835,13 @@ OrdinarySerializedResponseClearsSuspicion ==
          /\ ~(probeCount = 1 /\ CurrentProbeMark)
          /\ watchdogState = SuspectWatchdog)
        => watchdogState' = NormalWatchdog]_vars
+
+DeferredControlProbeEventuallyResolves ==
+    /\ deferredControlProbe
+    /\ probeCount = 0
+    ~>
+    \/ ~deferredControlProbe
+    \/ watchdogState = DrainingWatchdog
 
 NoLiveEpochAfterProbeSequenceExhaustion ==
     /\ nextProbeSequence > MaxProbeSequence

@@ -1,6 +1,6 @@
 # Inspect-web worker runtime models
 
-This directory model-checks four mechanisms owned by
+This directory model-checks five mechanisms owned by
 [Inspect-web worker runtime](../../inspect-web-worker-runtime.md). The models
 supplement the readable design. They prove nothing about TypeScript, browser
 workers, clocks, .NET, generated facades, managed callbacks, or feature
@@ -75,12 +75,23 @@ probe register. It covers:
   proof; and
 - lifecycle recovery preserving an outstanding register and acknowledgment.
 
+`InspectWebWorkerProbeMarks.tla` models two command records across two probe
+generations. It covers:
+
+- immutable per-command probe marks rather than one mutable host-global mark;
+- exact mark discharge when the named probe register retires;
+- a later command not re-marking an earlier pending command; and
+- a response failing the epoch only when that command's own mark still names
+  the exact outstanding probe.
+
 Keeping the models separate prevents protocol bookkeeping from multiplying
 every clock state. The validation model isolates response-field and epoch-work
 input validation. The protocol model abstracts time and liveness arithmetic.
 The lifecycle model abstracts payload parsing, sequence replay, and operation
 message inventory. The probe model isolates the cross-cutting arbitration seam
-that would otherwise be abstracted differently by those models.
+that would otherwise be abstracted differently by those models. The
+probe-marks model separately expands the command cardinality needed to check
+record-local mark ownership without multiplying the arbitration state.
 
 ## Assumptions and bounds
 
@@ -138,11 +149,21 @@ The lifecycle model assumes:
 - worker crash has already destroyed the realm;
 - bootstrap rejection is a distinct startup cause that destroys and releases
   the partial realm immediately;
+- a heartbeat and a probe acknowledgment before readiness are explicit
+  protocol-invalid inputs that immediately destroy the partial realm; worker
+  `error` or `messageerror` retains the distinct `worker-message`
+  classification;
 - a current-source protocol fault before readiness retains its protocol
   classification but uses the same immediate partial-realm closure mechanics;
 - worker-declared epoch failure refines the same unexpected-closure transition
   as other post-readiness live-realm failures while retaining its distinct
-  cause; and
+  cause;
+- a later fault during draining preserves the first committed cause, while a
+  crash during draining proves physical loss and closes immediately without
+  replacing that cause or its outcomes;
+- ordinary callback delivery is reachable only while source authority remains
+  live, and the callback mutation relaxes that same delivery gate after
+  revocation; and
 - weak fairness covers lifecycle and main-loop resume, startup ticking and
   expiry, both silence-expiry stages, drain ticking, and realm destruction.
 
@@ -170,20 +191,32 @@ The probe model assumes:
   that same sequence remains outstanding proves the missing probe
   acknowledgment, while register retirement clears the mark before a later
   probe can be installed;
-- the one-command state-space bound does not distinguish an immutable mark
-  stored on each command record from a host-global mark field; the design
-  requires the former, and posting a later command must not re-mark an earlier
-  record;
+- the one-command arbitration model delegates per-command mark ownership to
+  `InspectWebWorkerProbeMarks.tla`, whose two commands span two probe
+  generations; this is a by-construction composition boundary rather than a
+  checked refinement mapping between the modules;
 - probe acknowledgment and later immediate responses use one ordered
   worker-to-main channel, so the host cannot observe the later response before
   an acknowledgment the worker actually committed first;
 - heartbeat evidence has no serialized-lane ordering claim and cannot supply
   that proof;
+- weak fairness applies to dispatch of a ready deferred control probe, so an
+  unresolved obligation cannot remain indefinitely after the older register
+  retires;
 - the finite task-evidence counter saturates independently from acknowledgment
   eligibility;
 - retiring the maximum bounded sequence represents exhaustion of the product's
   safe-integer allocator and commits failed draining; and
 - `MaxProbeSequence = 2` is a state-space bound, not a product limit.
+
+The probe-marks model assumes:
+
+- two command records are enough to expose re-marking and overwrite defects;
+- `authorityMark` is the design-required record-local mark after exact
+  register discharge, while `implementationMark` is the value consulted by
+  response classification; and
+- `MaxProbeSequence = 2` is enough for one command to outlive its first probe
+  and race a second command posted during the next probe generation.
 
 The probe model's `protocolFailure` variable is the `control-response`
 classification for either a covered omitted command response or a missing
@@ -252,15 +285,20 @@ among several distinct bounded durations.
 | A main-loop gap cannot fail the worker watchdog | `MainLoopGapCannotFailWatchdog` |
 | Planned restart cancels pending work | `PlannedRestartCancelsPendingOperations` |
 | Unexpected loss fails pending work | `UnexpectedLossFailsPendingOperations` |
+| Unexpected current-source startup inputs immediately close the partial realm | `UnexpectedPreReadyInputClosesImmediately` |
+| Pre-readiness heartbeat and probe-acknowledgment inputs retain `protocol` classification | `PreReadyInvalidInputClassificationIsExact` |
 | Startup failure closes and releases the partial realm immediately | `StartupFailureClosesImmediately` |
 | A current-source protocol fault before readiness closes the partial realm immediately | `PreReadyProtocolFailureClosesImmediately` |
 | Pre-readiness protocol and worker-message faults retain their classifications | `PreReadyFaultClassificationIsPreserved` |
 | Failed draining begins only after matching readiness | `FailedDrainingRequiresReadiness` |
 | Worker-declared failure records an unexpected cause and fails pending work | `ClosureCauseDeterminesOutcome` |
 | One fixed closure cause determines every affected outcome | `ClosureCauseDeterminesOutcome` |
+| The first committed closure cause never changes | `ClosureCauseIsStable` |
+| Producer outcomes fixed by closure never change | `CommittedOutcomesAreStable` |
+| A crash during draining closes the already-lost realm immediately | `CrashDuringDrainClosesImmediately` |
 | Quiescence follows natural or realm release | `QuiescenceRequiresPhysicalRelease` |
 | Realm destruction revokes the source and leaves no live records | `RealmReleaseRevokesSource`, `ClosedEpochHasNoLiveResources` |
-| No callback runs after release | `NoCallbackAfterRealmRelease` |
+| Callback delivery requires live source authority | `CallbackDeliveryRequiresLiveAuthority`, `NoCallbackAfterRealmRelease` |
 | Startup eventually succeeds or fails | `StartingEventuallyLeaves` |
 | Draining eventually destroys the realm | `DrainingEventuallyCloses` |
 | Continuous bounded silence drains despite bounded callback churn | `ContinuousBoundedSilenceEventuallyDrains` |
@@ -290,11 +328,19 @@ among several distinct bounded durations.
 | A covered omitted response fails the epoch | `CoveredOmissionFails` |
 | Probe acknowledgment clears watchdog suspicion | `ProbeAcknowledgmentClearsSuspicion` |
 | An ordinary serialized response clears watchdog suspicion | `OrdinarySerializedResponseClearsSuspicion` |
+| A ready deferred control probe eventually dispatches or the epoch drains | `DeferredControlProbeEventuallyResolves` |
 | Lifecycle recovery preserves the exact physical outstanding register | `OutstandingRegisterMatchesPhysicalProbe` |
 | A later-command mark names the exact outstanding probe | `ProbeMarkMatchesOutstandingRegister` |
 | `control-response` failure has a known omitted protocol response | `ControlResponseFailureHasKnownOmission` |
 | A control-response failure has covered-response or causally later lane proof | `ControlResponseFailureHasProof` |
 | Probe exhaustion cannot leave a live epoch | `NoLiveEpochAfterProbeSequenceExhaustion` |
+
+### Per-command probe marks
+
+| Design property | Model property |
+| --- | --- |
+| Every nonzero command mark names the exact outstanding probe | `MarksNameTheOutstandingProbe` |
+| `control-response` failure names a command whose own mark proves the omission | `ControlResponseFailureHasExactCommandProof` |
 
 ## Running TLC
 
@@ -329,6 +375,11 @@ java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
   -workers 4 -cleanup \
   -config InspectWebWorkerProbe.cfg \
   InspectWebWorkerProbe.tla
+
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+  -workers 4 -cleanup \
+  -config InspectWebWorkerProbeMarks.cfg \
+  InspectWebWorkerProbeMarks.tla
 ```
 
 Substitute any mutation configuration filename for the positive configuration.
@@ -347,20 +398,42 @@ The recorded runs used OpenJDK 21.0.12 and TLA+ tools 1.8.0
 | --- | --- | ---: | ---: | ---: | --- |
 | `InspectWebWorkerValidation.cfg` | 2 operations, 2 allowance classes, `MaxWorkSequence = 2` | 685 | 477 | 11 | No error |
 | `InspectWebWorkerProtocol.cfg` | 2 operations, `MaxWorkSequence = 2` | 866,584 | 222,090 | 23 | No error |
-| `InspectWebWorkerLifecycle.cfg` | 2 operations, all budgets = 1 | 87,452 | 20,268 | 18 | No error |
-| `InspectWebWorkerLifecycle_BoundedSilence.cfg` | No recurring task evidence or unbounded work; all budgets = 1 | 2,569 | 1,036 | 13 | No error |
-| `InspectWebWorkerProbe.cfg` | 1 command, `MaxProbeSequence = 2` | 1,731 | 557 | 9 | No error |
+| `InspectWebWorkerLifecycle.cfg` | 2 operations, all budgets = 1 | 411,179 | 82,656 | 20 | No error |
+| `InspectWebWorkerLifecycle_BoundedSilence.cfg` | No recurring task evidence or unbounded work; all budgets = 1 | 14,837 | 4,520 | 15 | No error |
+| `InspectWebWorkerProbe.cfg` | 1 command, `MaxProbeSequence = 2` | 1,653 | 528 | 9 | No error |
+| `InspectWebWorkerProbeMarks.cfg` | 2 commands, `MaxProbeSequence = 2` | 135 | 75 | 9 | No error |
 
 Generated and distinct counts are stable across worker counts. The protocol
 row's depth 23 is the single-worker breadth-first result; parallel runs can
 report depth 23-24 because worker discovery order changes the reported maximum.
 
-## Reachability witness
+## Reachability witnesses
 
 `InspectWebWorkerProbe_TaskEvidenceSaturationReachable.cfg` checks
 `TaskEvidenceHasNotSaturated` and is expected to violate it. That counterexample
 gates the reachable finite-bound precondition used by the
 `MatchingProbeAcknowledgmentRemainsProcessable` negative control.
+
+`InspectWebWorkerProbeMarks_TwoCommandsReachable.cfg` checks
+`BothCommandsCanBePending` and is expected to violate it. That counterexample
+proves the multi-command state needed by the global re-marking controls is
+reachable.
+
+`InspectWebWorkerLifecycleCallbackReachable.cfg` checks
+`CallbackDeliveryIsReachable` and is expected to violate it. That
+counterexample proves ordinary callback delivery exists before source
+revocation rather than only in the after-release mutation.
+
+`InspectWebWorkerLifecycleFaultThenCrashReachable.cfg` checks
+`FaultThenCrashIsReachable` and is expected to violate it. That counterexample
+proves a later fault can be followed by physical worker loss during the same
+drain.
+
+`InspectWebWorkerProbeMarks_CrossGenerationRaceReachable.cfg` checks
+`CrossGenerationResponseRaceIsReachable` and is expected to violate it. That
+counterexample proves an earlier pending command can have its first mark
+discharged while a second probe is outstanding, which is the precondition for
+the global re-marking false-positive control.
 
 ## Mutation results
 
@@ -399,8 +472,11 @@ violation.
 | Configuration | Injected defect | Observed violation |
 | --- | --- | --- |
 | `InspectWebWorkerLifecycleRenewStartupFromMessage.cfg` | A startup message renews the budget | `StartupBudgetDoesNotRenew` |
+| `InspectWebWorkerLifecycleIgnorePreReadyHeartbeat.cfg` | A pre-readiness heartbeat remains live without renewing the budget | `UnexpectedPreReadyInputClosesImmediately` |
 | `InspectWebWorkerLifecycleResetStartupOnResume.cfg` | Lifecycle resume resets startup | `StartupBudgetDoesNotRenew` |
 | `InspectWebWorkerLifecycleProbeSatisfiesStartup.cfg` | Probe acknowledgment opens the epoch | `ProbeCannotSatisfyStartup` |
+| `InspectWebWorkerLifecycleIgnorePreReadyProbeAck.cfg` | A pre-readiness probe acknowledgment remains live without opening the epoch | `UnexpectedPreReadyInputClosesImmediately` |
+| `InspectWebWorkerLifecyclePreReadyHeartbeatAsWorkerMessage.cfg` | A pre-readiness heartbeat is misclassified as a browser worker-message fault | `PreReadyInvalidInputClassificationIsExact` |
 | `InspectWebWorkerLifecycleAcceptMismatchedReady.cfg` | Mismatched readiness opens the epoch | `MismatchedReadyCannotOpenEpoch` |
 | `InspectWebWorkerLifecycleAcceptReadyAfterStartupExpiry.cfg` | Matching readiness opens the epoch after the startup budget expires | `ReadyRequiresUnexpiredStartup` |
 | `InspectWebWorkerLifecyclePreReadyProtocolFailureDrains.cfg` | A pre-readiness protocol fault enters bounded draining | `PreReadyProtocolFailureClosesImmediately` |
@@ -415,7 +491,11 @@ violation.
 | `InspectWebWorkerLifecycleBootstrapFailureDrains.cfg` | Bootstrap rejection waits in draining instead of releasing the partial realm | `StartupFailureClosesImmediately` |
 | `InspectWebWorkerLifecycleWorkerDeclaredAsCancellation.cfg` | Worker-declared failure reports cancellation | `ClosureCauseDeterminesOutcome` |
 | `InspectWebWorkerLifecycleQuiesceBeforeRelease.cfg` | Quiescence precedes physical release | `QuiescenceRequiresPhysicalRelease` |
-| `InspectWebWorkerLifecycleCallbackAfterRelease.cfg` | Callback survives realm release | `NoCallbackAfterRealmRelease` |
+| `InspectWebWorkerLifecycleCallbackAfterRelease.cfg` | The ordinary callback gate is relaxed to allow delivery after realm release | `NoCallbackAfterRealmRelease` |
+| `InspectWebWorkerLifecycleCallbackRequiresAuthority.cfg` | The same relaxed callback gate ignores revoked source authority | `CallbackDeliveryRequiresLiveAuthority` |
+| `InspectWebWorkerLifecycleClosureCauseStable.cfg` | A later fault replaces the first committed drain cause | `ClosureCauseIsStable` |
+| `InspectWebWorkerLifecycleRewriteOutcomeDuringDrain.cfg` | A later drain fault rewrites an already fixed producer outcome | `CommittedOutcomesAreStable` |
+| `InspectWebWorkerLifecycleCrashDuringDrainWaits.cfg` | A crash during draining waits for the drain deadline | `CrashDuringDrainClosesImmediately` |
 | `InspectWebWorkerLifecycleDrainNeverCloses.cfg` | Failed draining cannot destroy the realm | `DrainingEventuallyCloses` |
 | `InspectWebWorkerLifecycleNonTaskMessageRenews.cfg` | Progress-like callback activity renews the watchdog | `NonTaskMessagesDoNotRenewWatchdog` |
 | `InspectWebWorkerLifecycleAllowanceChurnRenews.cfg` | Bounded allowance churn repeatedly clears suspicion and renews the origin | `ContinuousBoundedSilenceEventuallyDrains` |
@@ -425,6 +505,7 @@ violation.
 | Configuration | Injected defect | Observed violation |
 | --- | --- | --- |
 | `InspectWebWorkerProbe_MutationDuplicateWatchdogProbe.cfg` | Watchdog sends a second probe instead of adopting the control probe | `OnePhysicalProbe` |
+| `InspectWebWorkerProbe_MutationDeferredProbeStall.cfg` | A ready unresolved deferred obligation never receives its next control probe | `DeferredControlProbeEventuallyResolves` |
 | `InspectWebWorkerProbe_MutationOlderWatchdogCoversControl.cfg` | An older watchdog probe falsely proves a later command missing | `ControlResponseFailureHasKnownOmission` |
 | `InspectWebWorkerProbe_MutationIgnoreCoveredOmission.cfg` | Acknowledgment ignores a covered omitted response | `CoveredOmissionFails` |
 | `InspectWebWorkerProbe_MutationAckLeavesSuspect.cfg` | Valid acknowledgment leaves watchdog suspicion active | `ProbeAcknowledgmentClearsSuspicion` |
@@ -439,6 +520,13 @@ violation.
 | `InspectWebWorkerProbe_MutationTaskEvidenceRetiresRegister.cfg` | Heartbeat evidence discards a covered omission | `CoveredOmissionFails` |
 | `InspectWebWorkerProbe_MutationRetainAfterProbeExhaustion.cfg` | The epoch remains live after retiring its maximum probe sequence | `NoLiveEpochAfterProbeSequenceExhaustion` |
 | `InspectWebWorkerProbe_MutationMisclassifyExhaustionAsProtocolFailure.cfg` | An uncovered omitted response replaces maximum-sequence exhaustion with control-response failure | `ControlResponseFailureHasProof` |
+
+### Per-command mark mutations
+
+| Configuration | Injected defect | Observed violation |
+| --- | --- | --- |
+| `InspectWebWorkerProbeMarks_MutationGlobalRemark.cfg` | Posting a later command re-marks an earlier pending command, whose response then falsely accuses the new probe | `ControlResponseFailureHasExactCommandProof` |
+| `InspectWebWorkerProbeMarks_MutationGlobalRemarkState.cfg` | A host-global mark overwrites an earlier command's record-local authority; the equality invariant is a focused mutation detector | `ImplementationUsesPerCommandMarks` |
 
 ### Input-validation mutations
 
