@@ -154,14 +154,17 @@ entry gate invalidates every later result, so run it first and report it.
 
    Filter to a class while iterating, e.g.
    `… -c Release -- -filter "/*/*/IteratorAcknowledgmentPassTests/*"`.
-   The decompiler test host rejects an explicit `-class`, `-method`, or
-   `-filter` selector that matches no discovered test, including one unmatched
-   selector alongside valid selectors. Every requested `-id` must resolve
-   after the other filters, even when another ID is valid. The host also
-   rejects standalone or combined direct selections that resolve to no
-   runnable test, including through explicit-test mode, and reports stale or
-   malformed `-run` serializations directly. A misspelled targeted gate
-   therefore fails instead of reporting a successful zero-test or partial run.
+   [The repository xUnit test host](design/xunit-test-host.md) owns
+   explicit-selection non-vacuity. The decompiler host owns `--gate` preset
+   expansion and applies its current preflight to the expanded xUnit argument
+   vector. It rejects an explicit `-class`, `-method`, or `-filter` selector
+   that matches no discovered test. Every requested `-id` must resolve after
+   the other filters, even when another ID is valid. The host also rejects
+   standalone or combined direct selections that resolve to no runnable test,
+   including through explicit-test mode, and reports stale or malformed
+   `-run` serializations directly. Namespace, trait, and partially disjoint
+   final-witness coverage remain unverified until adoption of the repository
+   host contract tracked by #5379.
    Preflight discovery runs in a short-lived child process so its serializer
    registration and disposable theory data cannot alter the real runner process.
    `ExplicitFilterGuardTests.TestHost_RejectsEveryUnmatchedExplicitFilter` is

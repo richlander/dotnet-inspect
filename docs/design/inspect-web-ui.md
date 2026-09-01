@@ -271,9 +271,12 @@ They do not repeat:
 - the package and version.
 
 API content begins immediately after lens navigation. Source places only its
-compact provenance and action row before source content. The removed fields do
-not leave placeholders or reserved vertical space. They are also not moved
-into collapsed duplicate headers on either lens.
+compact provenance and action row before source content. Annotated Source puts
+its **Copy** and **Explore** actions in the page-owned inspection-command row,
+begins immediately with highlighted source content, and places compact
+provenance after that content. The removed fields do not leave placeholders or
+reserved vertical space. They are also not moved into collapsed duplicate
+headers on either lens.
 
 This makes the API surface or source document the primary content of its page
 and increases the amount visible without scrolling.
@@ -1169,15 +1172,24 @@ Their layout is:
 ```text
 Types or Members | PDB Source                    open source   copy
                  | source content
+
+Types or Members | selected subject                         Copy   Explore
+                 | annotated source content
+                 | product provenance
 ```
 
-The compact provenance/action row remains attached to the source pane. The
-navigation pane and source content may scroll independently. Collapsing
-navigation gives the working surface the full viewport width.
+Source retains its compact provenance/action row. Annotated Source gives the
+page-owned inspection-command row its contextual actions and keeps provenance
+as a compact footer attached to the source pane. It does not add another
+visible title or presentation summary inside the pane. The navigation pane and
+source content may scroll independently. Collapsing navigation gives the
+working surface the full viewport width.
 
 Annotated Source appears inline by default and may open the full-bleed modal
 viewer governed by the shared transient-surface contract. This document owns
-that composition, not the Annotated Source document model or viewer internals.
+that composition, including C# highlighting that preserves the product
+document's exact text and coordinates, not the Annotated Source document model
+or viewer internals.
 
 Decompiler style is contextual:
 
