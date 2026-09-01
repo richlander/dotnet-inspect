@@ -168,7 +168,9 @@ public static class StructuralTypeIdentity
         return result.ToString();
     }
 
-    static string Named(string @namespace, IEnumerable<string> metadataSegments)
+    internal static string Named(
+        string @namespace,
+        IEnumerable<string> metadataSegments)
     {
         string typeName = string.Join(
             '.',

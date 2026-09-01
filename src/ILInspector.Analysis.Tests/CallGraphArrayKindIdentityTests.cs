@@ -137,6 +137,70 @@ public sealed class CallGraphArrayKindIdentityTests
                 .Member);
     }
 
+    [Fact]
+    public void Resolve_EscapesLiteralArraySyntaxInNamedElements()
+    {
+        byte[] image = BuildLiteralArrayNameImage();
+        using var peReader = new PEReader(new MemoryStream(image));
+        MetadataReader reader = peReader.GetMetadataReader();
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name == "ArrayCallGraphKinds");
+        ApiMember[] members =
+        [
+            .. type.Members
+                .Where(member => member.Name == "M")
+                .OrderBy(member => member.MetadataToken),
+        ];
+
+        Assert.Equal(2, members.Length);
+        string[] expected =
+        [
+            "N.A[][*]",
+            @"N.A\[\][*]",
+        ];
+        var selectors = new List<CallGraphMemberSelector>(members.Length);
+        for (int index = 0; index < members.Length; index++)
+        {
+            ApiMember member = members[index];
+            int token = Assert.IsType<int>(member.MetadataToken);
+            MemberRef reference = MemberResolver.ResolveMethod(
+                reader,
+                MetadataTokens.EntityHandle(token),
+                GenericScope.Empty);
+            CallGraphMemberSelector apiSelector =
+                CallGraphMemberResolver.CreateSelector(type, member);
+            CallGraphMemberSelector referenceSelector =
+                CallGraphMemberResolver.CreateSelector(reference);
+            selectors.Add(apiSelector);
+
+            Assert.Equal(
+                expected[index],
+                apiSelector.StructuralParameterTypes[0]);
+            Assert.Equal(referenceSelector.Key, apiSelector.Key);
+            Assert.Same(
+                member,
+                CallGraphMemberResolver.Resolve(
+                    type,
+                    referenceSelector.Name,
+                    referenceSelector.Key)!
+                    .Member);
+            Assert.Same(
+                member,
+                CallGraphMemberResolver.Resolve(
+                    type,
+                    referenceSelector.Name,
+                    referenceSelector.Key,
+                    metadataToken: token)!
+                    .Member);
+        }
+
+        Assert.NotEqual(selectors[0].Key, selectors[1].Key);
+    }
+
     static void AssertStructuralParameter(
         ApiType type,
         IReadOnlyDictionary<
@@ -233,6 +297,52 @@ public sealed class CallGraphArrayKindIdentityTests
                     IsGeneric: false),
                 new("ReturnVector", null, sz, IsGeneric: false),
                 new("ReturnMd1", null, md1, IsGeneric: false),
+            ],
+            metadata);
+    }
+
+    static byte[] BuildLiteralArrayNameImage()
+    {
+        var metadata = CreateMetadata();
+        AssemblyReferenceHandle systemRuntime =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(8, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle objectType = metadata.AddTypeReference(
+            systemRuntime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+        TypeDefinitionHandle ordinary = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("A"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle literal = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("A[]"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        return BuildImage(
+            [
+                new(
+                    "M",
+                    MdArray(Sz(Class(ordinary)), rank: 1),
+                    Void,
+                    IsGeneric: false),
+                new(
+                    "M",
+                    MdArray(Class(literal), rank: 1),
+                    Void,
+                    IsGeneric: false),
             ],
             metadata);
     }
@@ -358,6 +468,15 @@ public sealed class CallGraphArrayKindIdentityTests
         signature.WriteCompressedInteger(
             (MetadataTokens.GetRowNumber(modifier) << 2) | 1);
         signature.WriteBytes(inner);
+        return signature.ToArray();
+    }
+
+    static byte[] Class(TypeDefinitionHandle definition)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x12);
+        signature.WriteCompressedInteger(
+            MetadataTokens.GetRowNumber(definition) << 2);
         return signature.ToArray();
     }
 

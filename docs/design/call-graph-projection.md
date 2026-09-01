@@ -108,6 +108,9 @@ The projection owns everything a host must not re-invent in JavaScript:
   payload whenever a non-SZ array requires it, and the Analysis `MemberRef`
   producer emits the byte-identical payload from `TypeRef`; normalized display
   spelling remains compatibility-only and does not erase exact array kind.
+  Exact metadata-name segments nested in that payload use the same escaping on
+  both producer paths, so literal array grammar in a type name cannot alias an
+  actual array wrapper.
   An older surface without that structural payload cannot claim a structural
   match for `T[*]`, but an exact MethodDef-token candidate may still recover
   the body when no structural candidate matches.

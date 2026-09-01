@@ -352,6 +352,13 @@ internal sealed class NamedTypeNode(
         return IsReferenceType && IsNullableAnnotated ? $"{effective}?" : effective;
     }
 
+    internal override string StructuralIdentity()
+        => metadataName is null
+            ? base.StructuralIdentity()
+            : StructuralTypeIdentity.Named(
+                metadataName.Namespace,
+                metadataName.Segments);
+
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
     {
         byte b = ConsumeByte(bytes, ref position, defaultByte);
