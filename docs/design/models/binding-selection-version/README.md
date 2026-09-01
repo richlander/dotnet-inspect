@@ -73,8 +73,9 @@ Its refreshed retry runs against stable replacement state. Repeated delegate
 or route changes may supersede repeated generations; convergence under
 continuing policy churn and the timing of another attempt belong to the
 workspace owner rather than this policy-local model.
-Issue #5224 owns miss dispositions; #5214 owns the future complete
-identity-eligible composition handoff; #5216 owns workspace generation
+Issue #5224 owns miss dispositions; the
+[binding composition-currency model](../binding-composition-currency/README.md)
+owns the complete identity-eligible handoff; #5216 owns workspace generation
 replacement. TLC results establish properties of these state machines under
 the stated bounds, not of the shipped implementation. Formal
 model-to-implementation correspondence is unverified.

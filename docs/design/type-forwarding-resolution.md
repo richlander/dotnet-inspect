@@ -854,7 +854,8 @@ public enum AssemblyBindingFailureKind
     IdentityPolicyRequired,
     CandidateUnavailable,
     UnsupportedScope,
-    InvalidPolicyResult
+    InvalidPolicyResult,
+    InvalidCompositionResult
 }
 
 public sealed record AssemblyBindingFailure(
@@ -919,7 +920,7 @@ public abstract class AssemblyBindingSelection
 
     public static AssemblyBindingSelection Found(
         ResolvedAssemblyReference assembly) =>
-        new Selected(assembly);
+        new Selected(assembly, []);
 
     public static AssemblyBindingSelection NotFound() =>
         new Missing(AssemblyBindingMissDisposition.Undifferentiated);
@@ -936,7 +937,21 @@ public abstract class AssemblyBindingSelection
 
     public static AssemblyBindingSelection Multiple(
         ImmutableArray<ResolvedAssemblyReference> assemblies) =>
-        new Ambiguous(assemblies);
+        new Ambiguous(assemblies, []);
+
+    public static AssemblyBindingSelection RequireComposition(
+        ImmutableArray<ResolvedAssemblyReference> candidates)
+    {
+        if (candidates.IsDefaultOrEmpty)
+        {
+            throw new ArgumentException(
+                "A composition domain cannot be empty.",
+                nameof(candidates));
+        }
+
+        return new CompositionRequired(
+            new AssemblyBindingCandidateDomain(candidates));
+    }
 
     public static AssemblyBindingSelection Invalid(
         AssemblyBindingFailure failure) =>
@@ -944,10 +959,19 @@ public abstract class AssemblyBindingSelection
 
     public sealed class Selected : AssemblyBindingSelection
     {
-        internal Selected(ResolvedAssemblyReference assembly) =>
+        internal Selected(
+            ResolvedAssemblyReference assembly,
+            ImmutableArray<ResolvedAssemblyReference> shadows)
+        {
             Assembly = assembly;
+            ShadowedAssemblies = shadows;
+        }
 
         public ResolvedAssemblyReference Assembly { get; }
+        public ImmutableArray<ResolvedAssemblyReference> ShadowedAssemblies
+        {
+            get;
+        }
     }
 
     public sealed class Missing : AssemblyBindingSelection
@@ -969,10 +993,18 @@ public abstract class AssemblyBindingSelection
     public sealed class Ambiguous : AssemblyBindingSelection
     {
         internal Ambiguous(
-            ImmutableArray<ResolvedAssemblyReference> assemblies) =>
+            ImmutableArray<ResolvedAssemblyReference> assemblies,
+            ImmutableArray<ResolvedAssemblyReference> shadows)
+        {
             Assemblies = assemblies;
+            ShadowedAssemblies = shadows;
+        }
 
         public ImmutableArray<ResolvedAssemblyReference> Assemblies { get; }
+        public ImmutableArray<ResolvedAssemblyReference> ShadowedAssemblies
+        {
+            get;
+        }
     }
 
     public sealed class Rejected : AssemblyBindingSelection
@@ -982,6 +1014,27 @@ public abstract class AssemblyBindingSelection
 
         public AssemblyBindingFailure Failure { get; }
     }
+
+    public sealed class CompositionRequired : AssemblyBindingSelection
+    {
+        internal CompositionRequired(
+            AssemblyBindingCandidateDomain domain) =>
+            Domain = domain;
+
+        public AssemblyBindingCandidateDomain Domain { get; }
+    }
+}
+
+public sealed class AssemblyBindingCandidateDomain
+{
+    internal AssemblyBindingCandidateDomain(
+        ImmutableArray<ResolvedAssemblyReference> candidates) =>
+        Candidates = candidates;
+
+    public ImmutableArray<ResolvedAssemblyReference> Candidates { get; }
+
+    public AssemblyBindingSelection Finalize(
+        ImmutableArray<ResolvedAssemblyReference> contenders);
 }
 
 public sealed class AssemblyBindingSelectionSnapshot
@@ -1014,10 +1067,19 @@ public abstract class AssemblyBindingOutcome
 
     public sealed class Resolved : AssemblyBindingOutcome
     {
-        internal Resolved(ResolvedAssemblyCandidate candidate) =>
+        internal Resolved(
+            ResolvedAssemblyCandidate candidate,
+            ImmutableArray<ResolvedAssemblyReference> shadows)
+        {
             Candidate = candidate;
+            ShadowedAssemblies = shadows;
+        }
 
         public ResolvedAssemblyCandidate Candidate { get; }
+        public ImmutableArray<ResolvedAssemblyReference> ShadowedAssemblies
+        {
+            get;
+        }
     }
 
     public sealed class Missing : AssemblyBindingOutcome
@@ -1039,10 +1101,18 @@ public abstract class AssemblyBindingOutcome
     public sealed class Ambiguous : AssemblyBindingOutcome
     {
         internal Ambiguous(
-            ImmutableArray<ResolvedAssemblyCandidate> candidates) =>
+            ImmutableArray<ResolvedAssemblyCandidate> candidates,
+            ImmutableArray<ResolvedAssemblyReference> shadows)
+        {
             Candidates = candidates;
+            ShadowedAssemblies = shadows;
+        }
 
         public ImmutableArray<ResolvedAssemblyCandidate> Candidates { get; }
+        public ImmutableArray<ResolvedAssemblyReference> ShadowedAssemblies
+        {
+            get;
+        }
     }
 
     public sealed class Rejected : AssemblyBindingOutcome
@@ -1083,9 +1153,9 @@ internal interface IAssemblyBindingResolver
 one request. It atomically carries the exact
 `AssemblyBindingPolicyVersion` of the immutable policy state that produced the
 selection. The selection may be any current arm, preserving its descriptors,
-shadow evidence, miss disposition, or typed failure; #5214 may add its
-composition handoff to the same closed selection hierarchy without changing
-the version association.
+shadow evidence, miss disposition, typed failure, or the
+[complete composition handoff](#complete-identity-eligible-binding-composition)
+without changing the version association.
 
 `IAssemblyBindingPolicy.Version` remains the identity of the policy state that
 is current when observed. A policy captures one immutable state and its version
@@ -1202,8 +1272,8 @@ version starts a new generation and may reuse a resolution recipe only after
 the refreshed binding snapshots compare structurally equal under the existing
 recipe rules.
 
-This focused contract does not define #5224's miss ownership, #5214's complete
-identity-eligible candidate handoff, #5216's workspace construction and
+This focused contract does not define #5224's miss ownership, the complete
+identity-eligible candidate handoff below, #5216's workspace construction and
 replacement, or the #5133 successor's designated/platform arbitration. It
 also does not prescribe host retry timing after a superseded generation or
 transactional rollback of acquisition and declaration evidence.
@@ -1215,6 +1285,122 @@ mutations, commit-point validation, pre-commit policy-publication exclusion,
 and eventual publication. Its companion composite model checks matching success,
 foreign-snapshot propagation, state refresh, route replacement, and retry
 progress.
+
+#### Complete identity-eligible binding composition
+
+> **Status: design-only and unverified in the product.** The companion TLA+
+> model checks the bounded interaction contract. Product correspondence
+> requires focused Release gates when this contract is implemented.
+
+`AssemblyBindingCandidateDomain` is the binding identity owner's immutable
+handoff for one exact `AssemblyBindingRequest`. It contains every and only
+`ResolvedAssemblyReference` that the issuing policy state has proved eligible
+under its identity and scope rules. It does not say which eligible candidate
+has the preferred workspace role. A transforming composite may apply one
+adjacent arbitration policy without repeating identity matching by consuming a
+new `AssemblyBindingSelection.CompositionRequired` arm that carries this
+domain.
+
+The domain is complete at issuance. Candidate membership is by
+`AssemblyAcquisitionRegistration` reference identity, and each registration
+appears exactly once with the exact owner-issued descriptor. The immutable
+candidate sequence has one deterministic order for an equal request under one
+`AssemblyBindingPolicyVersion`. The identity owner chooses that order; it is
+not path order, discovery order, or an arbitration ranking. Consumers preserve
+it as evidence; the handoff grants no permission to treat an earlier member as
+the arbitration winner.
+
+An empty eligible set does not produce a domain. It produces the applicable
+missing, unavailable, or rejected result under the existing owner contracts.
+Likewise, a candidate that the identity owner cannot admit does not enter the
+domain merely so that a later policy can reject it. Completeness means complete
+within the issuing identity policy, not every same-named file in an acquisition
+or workspace. The public factory rejects a default or empty candidate array so
+an invalid handoff cannot stand in for one of those owner-issued results.
+
+The handoff owns finalization. The adjacent consumer supplies only the nonempty
+set of highest-precedence contenders:
+
+- one contender becomes `Selected`;
+- more than one contender becomes `Ambiguous`; and
+- every domain member not in that contender set becomes inactive shadow
+  evidence.
+
+The final selection therefore partitions the issued domain exactly: active
+contenders and inactive shadows are disjoint, their union is the complete
+domain, and every descriptor is preserved unchanged. `Ambiguous` gains the
+same inactive-shadow evidence as `Selected`; its active candidates are only the
+unruled top-precedence tie, not lower-precedence candidates that the consumer
+has already classified as inactive. The handoff derives the inactive set
+rather than accepting a consumer-supplied partial list.
+
+Only `AssemblyBindingCandidateDomain.Finalize` may mint a selection with
+inactive shadows. The public `Found` and `Multiple` factories create final
+no-shadow results and cannot reopen an earlier result. A policy that needs
+later arbitration issues a complete domain instead of passing a chosen
+descriptor and shadows to another owner.
+
+Finalization accepts only the exact descriptors present in the handoff. A
+foreign registration, duplicate contender, empty contender set, or substituted
+descriptor is visible as `Rejected(InvalidCompositionResult)`. It never becomes
+a partial success, an inferred miss, or an exception-shaped fallback. A valid
+decision retains the domain's deterministic order within both its active and
+inactive projections.
+
+Existing result arms do not become candidate domains:
+
+- `Selected` and `Ambiguous` are terminal policy decisions. Their inactive
+  shadows remain inactive and cannot be reopened or promoted by a later
+  owner.
+- `Unavailable` and `Rejected` remain their exact typed failures.
+- `NameOwnedNoMatch` and `Undifferentiated` remain terminal misses.
+- `NoNameOwner` may advance only through the separately modeled fixed policy
+  tier chain. It supplies no candidate evidence and cannot itself produce a
+  composition handoff.
+- `CompositionRequired` is not a missing result and therefore cannot authorize
+  same-request tier fallthrough. It must be finalized by its designated
+  adjacent arbitration owner before Metadata can intern or freeze the result.
+
+If `CompositionRequired` reaches the Metadata adapter without that owner, the
+request validator returns `Rejected(InvalidCompositionResult)`. The adapter
+does not intern any domain member, freeze the handoff, or treat it as a miss.
+This is the fail-closed boundary for a missing or bypassed arbitration owner.
+After valid finalization, the adapter interns only the active selected or
+ambiguous descriptors. It copies inactive descriptors to
+`AssemblyBindingOutcome` unchanged and in domain order; inactive evidence does
+not receive a catalog candidate id.
+
+The handoff is carried inside the atomic
+`AssemblyBindingSelectionSnapshot` defined above. A transforming composite
+validates the delegated snapshot against its captured delegate version before
+inspecting the domain. It returns the handoff-produced terminal selection under
+the composite's own captured version, as required by the adjacent composite
+version contract. A delegated snapshot whose token does not match the
+composite's captured delegate token is not interpreted. A later replacement of
+either delegate or composite policy state prevents stale publication through
+the existing `PolicyVersionChanged` generation control path; provisional work
+that already matched its captured token remains governed by the atomic snapshot
+contract above. Binding and resolution caches never key a handoff independently
+from its request and governing version. The companion model checks the
+delegated snapshot's pre-consumption match; the existing selection/version
+models check the distinct outer-token association, later replacement, and
+commit point.
+
+This contract owns identity-domain completeness, descriptor preservation,
+deterministic evidence order, and the closed finalization boundary. It does not
+define how identity eligibility is computed; designated/platform roles or
+precedence; package, project, platform, or local acquisition; construction or
+ordering of a policy-tier route; workspace participant adoption; workspace
+publication or replacement; or retry after policy-version supersession. #5216
+must supply a workspace whose participants and versions make the handoff
+consumable. The #5133 successor may rank only members of the issued domain and
+owns the meaning of its role precedence.
+
+The executable
+[binding composition-currency model](models/binding-composition-currency/README.md)
+checks complete and order-independent issuance, exact final partitioning,
+non-domain-result preservation, empty/foreign-decision rejection, foreign
+snapshot exclusion, and eventual completion.
 
 #### Binding miss name ownership
 
@@ -1232,9 +1418,9 @@ version that produced it:
   pretending that the name is owned or unowned.
 
 These are composition facts, not candidate evidence. `NoNameOwner` permits a
-composite policy to invoke its next policy tier or request the next composition
-step defined by #5214, but it does not establish identity eligibility,
-authorize candidate selection, or permit inactive-shadow promotion.
+composite policy to invoke its next policy tier, but it does not establish
+identity eligibility, authorize candidate selection, or permit inactive-shadow
+promotion.
 `NameOwnedNoMatch` and `Undifferentiated` are terminal for composition.
 Treating `Undifferentiated` as terminal is fail-closed behavior, not evidence
 that the producer owned the name. A concrete unavailable or rejected result
@@ -1302,8 +1488,8 @@ Type resolution may continue to project every binding miss to
 resolution outcome hierarchy or expose tier internals through presentation.
 
 This focused contract does not define adjacent package, project, sibling,
-platform, or local name-ownership rules; #5214's complete identity-eligible
-candidate currency; the atomic answer/version association above; #5216's
+platform, or local name-ownership rules; the complete identity-eligible
+candidate currency above; the atomic answer/version association above; #5216's
 workspace realization; or the #5133 successor's designated/platform role
 arbitration.
 
@@ -2386,6 +2572,10 @@ current ownership boundaries.
   [binding name-ownership model](models/binding-name-ownership/README.md)
   and its mapped Release gates remain the executable evidence for
   miss-composition interactions.
+- The focused
+  [binding composition-currency model](models/binding-composition-currency/README.md)
+  is bounded design evidence for complete handoff and finalization
+  interactions; product correspondence remains unverified.
 - `SourceRelativeAssemblyGroupBindingPolicy_ContinuesOnlyAfterNoNameOwner`,
   `AssemblyBindingMissDisposition_CompleteExhaustionRequired`, and
   `AssemblyBindingMissDisposition_SurvivesInterningAndFrozenReuse` prove that
