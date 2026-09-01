@@ -37,7 +37,7 @@ ASSUME
     /\ DecisionMode \in
         {"Policy", "AcceptInjection", "DropInactive",
          "PromoteSelectedShadow", "PromoteAmbiguousShadow",
-         "ReverseProjection"}
+         "ReverseProjection", "SubstituteContender"}
     /\ BoundaryMode \in {"Policy", "LeakUnfinalized"}
     /\ VersionMode \in {"Policy", "InterpretForeignSnapshot"}
 
@@ -188,6 +188,12 @@ Init ==
         /\ attemptedContenders \subseteq identityEligible
         /\ Cardinality(attemptedContenders) >= 2
         /\ consumerPresent)
+    /\ (DecisionMode = "SubstituteContender" =>
+        /\ sourceKind = CompositionRequired
+        /\ Cardinality(attemptedContenders) = 1
+        /\ attemptedContenders \subseteq identityEligible
+        /\ identityEligible \ attemptedContenders # {}
+        /\ consumerPresent)
     /\ (BoundaryMode = "LeakUnfinalized" =>
         /\ sourceKind = CompositionRequired
         /\ ~consumerPresent)
@@ -300,16 +306,21 @@ Finalize ==
                     IF Cardinality(attemptedContenders) = 1
                     THEN "Selected"
                     ELSE "Ambiguous"
-                /\ resultActive' = attemptedContenders
+                /\ resultActive' =
+                    IF DecisionMode = "SubstituteContender"
+                    THEN
+                        {CHOOSE candidate
+                            \in domain \ attemptedContenders: TRUE}
+                    ELSE attemptedContenders
                 /\ IF DecisionMode = "DropInactive"
                    THEN
                         resultInactive' =
-                            (domain \ attemptedContenders)
+                            (domain \ resultActive')
                                 \ {FirstCanonical(
-                                    domain \ attemptedContenders)}
+                                    domain \ resultActive')}
                    ELSE
                         resultInactive' =
-                            domain \ attemptedContenders
+                            domain \ resultActive'
                 /\ IF DecisionMode = "ReverseProjection"
                    THEN
                         resultActiveOrder' =
@@ -321,7 +332,7 @@ Finalize ==
                         resultActiveOrder' =
                             OrderedBy(
                                 domainOrder,
-                                attemptedContenders)
+                                resultActive')
                 /\ resultInactiveOrder' =
                     OrderedBy(domainOrder, resultInactive')
             ELSE
@@ -455,6 +466,20 @@ FinalProjectionOrderIsPreserved ==
     =>
         /\ resultActiveOrder = OrderedBy(domainOrder, resultActive)
         /\ resultInactiveOrder = OrderedBy(domainOrder, resultInactive)
+
+ValidDecisionIsHonored ==
+    /\ sourceKind = CompositionRequired
+    /\ phase = "Completed"
+    /\ consumerPresent
+    /\ snapshotVersion = capturedVersion
+    /\ ValidDecision
+    =>
+        /\ resultActive = attemptedContenders
+        /\ resultInactive = domain \ attemptedContenders
+        /\ resultKind =
+            IF Cardinality(attemptedContenders) = 1
+            THEN "Selected"
+            ELSE "Ambiguous"
 
 MalformedDecisionIsRejected ==
     /\ sourceKind = CompositionRequired

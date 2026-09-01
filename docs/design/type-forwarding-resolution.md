@@ -1416,8 +1416,9 @@ owns the meaning of its role precedence.
 The executable
 [binding composition-currency model](models/binding-composition-currency/README.md)
 checks complete and order-independent issuance, exact final partitioning,
-non-domain-result preservation, empty/foreign-decision rejection, foreign
-snapshot exclusion, and eventual completion.
+valid-decision correspondence, non-domain-result preservation,
+empty/foreign-decision rejection, foreign snapshot exclusion, and eventual
+completion.
 
 #### Binding miss name ownership
 

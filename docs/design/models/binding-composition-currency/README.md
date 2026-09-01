@@ -11,6 +11,8 @@ The model answers these focused questions:
 - Can one acquisition registration appear more than once in the handoff?
 - Is its evidence order independent of incidental enumeration order?
 - Can a consumer inject a candidate or silently drop one from the final result?
+- Can finalization substitute another in-domain candidate for the proposed
+  contender?
 - Does finalization preserve a complete active/inactive partition?
 - Does an empty or foreign decision become a visible rejection?
 - Can a terminal selection or ambiguity be reopened to promote an inactive
@@ -95,6 +97,7 @@ implementation. Formal model-to-product correspondence is unverified.
 | `BindingCompositionCurrencyBrokenDuplicateRegistration.cfg` | Repeats one eligible registration in the issued sequence. It must violate `DomainOrderMatchesMembers`. |
 | `BindingCompositionCurrencyBrokenOrder.cfg` | Uses incidental enumeration order for the issued sequence. It must violate `DomainOrderIsCanonical`. |
 | `BindingCompositionCurrencyBrokenInjection.cfg` | Accepts a contender outside the issued domain. It must violate `FinalCandidatesComeFromDomain`. |
+| `BindingCompositionCurrencyBrokenDecisionSubstitution.cfg` | Substitutes another in-domain contender for a valid proposed winner. It must violate `ValidDecisionIsHonored`. |
 | `BindingCompositionCurrencyBrokenDrop.cfg` | Drops one non-contending domain member instead of retaining it as inactive. It must violate `FinalPartitionPreservesDomain`. |
 | `BindingCompositionCurrencyBrokenSelectedShadowPromotion.cfg` | Reopens a terminal selected result and selects one of its inactive shadows. It must violate `InactiveEvidenceNeverPromoted`. |
 | `BindingCompositionCurrencyBrokenShadowPromotion.cfg` | Reopens a terminal ambiguity and selects one of its inactive shadows. It must violate `InactiveEvidenceNeverPromoted`. |
@@ -104,7 +107,7 @@ implementation. Formal model-to-product correspondence is unverified.
 
 `TypeOK`, `NonDomainResultsNeverIssueDomain`,
 `NonDomainResultsArePreserved`, and `SupersededPublishesNoDecision` are
-whole-state structural checks. The eleven
+whole-state structural checks. The twelve
 broken configurations are independent negative controls for the interaction
 claims most likely to regress.
 
@@ -143,6 +146,7 @@ for config in \
   BindingCompositionCurrencyBrokenDuplicateRegistration \
   BindingCompositionCurrencyBrokenOrder \
   BindingCompositionCurrencyBrokenInjection \
+  BindingCompositionCurrencyBrokenDecisionSubstitution \
   BindingCompositionCurrencyBrokenDrop \
   BindingCompositionCurrencyBrokenSelectedShadowPromotion \
   BindingCompositionCurrencyBrokenShadowPromotion \
@@ -162,7 +166,7 @@ The positive configurations completed with no errors:
 
 | Configuration | Generated states | Distinct states | Maximum depth | Result |
 | --- | ---: | ---: | ---: | --- |
-| Safety | 9,504 | 9,504 | 3 | All 15 invariants passed. |
+| Safety | 9,504 | 9,504 | 3 | All 16 invariants passed. |
 | Liveness | 9,504 | 9,504 | 3 | `CompositionConverges` passed. |
 
 The safety graph starts 4,416 initial states and covers both consumer-presence
@@ -180,6 +184,7 @@ Each mutation exited with TLC status 12 on its intended invariant:
 | Broken duplicate registration | 1,345 / 1,345 | 2 | A repeated eligible registration violated `DomainOrderMatchesMembers` before finalization. |
 | Broken order | 1,729 / 1,729 | 2 | Incidental enumeration reversed a two-member issued sequence, violating `DomainOrderIsCanonical`. |
 | Broken injection | 721 / 721 | 3 | A foreign contender became selected while the real domain member became inactive, violating `FinalCandidatesComeFromDomain`. |
+| Broken decision substitution | 217 / 217 | 3 | Another in-domain candidate replaced the proposed contender, violating `ValidDecisionIsHonored`. |
 | Broken drop | 289 / 289 | 3 | Finalization selected one of two domain members and discarded the other instead of retaining it as inactive, violating `FinalPartitionPreservesDomain`. |
 | Broken selected-shadow promotion | 121 / 121 | 3 | A terminal selected result was reopened and its inactive candidate became selected, violating `InactiveEvidenceNeverPromoted`. |
 | Broken ambiguous-shadow promotion | 25 / 25 | 3 | A terminal two-way tie with one inactive candidate was reopened and that inactive candidate became selected, violating `InactiveEvidenceNeverPromoted`. |
