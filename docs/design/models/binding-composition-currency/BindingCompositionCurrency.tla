@@ -33,7 +33,7 @@ ASSUME
     /\ Cardinality(Versions) = 2
     /\ DomainMode \in
         {"Policy", "OmitEligible", "AddIneligible",
-         "EnumerationOrder", "ReopenTerminal"}
+         "EnumerationOrder", "DuplicateRegistration", "ReopenTerminal"}
     /\ DecisionMode \in
         {"Policy", "AcceptInjection", "DropInactive",
          "PromoteSelectedShadow", "PromoteAmbiguousShadow",
@@ -90,7 +90,10 @@ IssuedOrder(enumeration, candidateSet) ==
     IN
         IF DomainMode = "EnumerationOrder"
         THEN OrderedBy(enumeration, issued)
-        ELSE CanonicalFor(issued)
+        ELSE
+            IF DomainMode = "DuplicateRegistration"
+            THEN Append(CanonicalFor(issued), FirstCanonical(issued))
+            ELSE CanonicalFor(issued)
 
 InputActive(sourceKind, candidateSet) ==
     CASE sourceKind = "Selected" ->
@@ -149,6 +152,8 @@ Init ==
         /\ sourceKind = CompositionRequired
         /\ identityEligible # Candidates)
     /\ (DomainMode = "EnumerationOrder" =>
+        sourceKind = CompositionRequired)
+    /\ (DomainMode = "DuplicateRegistration" =>
         sourceKind = CompositionRequired)
     /\ (DomainMode = "ReopenTerminal" =>
         /\ sourceKind \in {"Selected", "Ambiguous"}

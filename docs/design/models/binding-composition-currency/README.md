@@ -8,6 +8,7 @@ the delegated snapshot's pre-consumption validity, and the Metadata boundary.
 The model answers these focused questions:
 
 - Does the handoff contain every and only identity-eligible candidate?
+- Can one acquisition registration appear more than once in the handoff?
 - Is its evidence order independent of incidental enumeration order?
 - Can a consumer inject a candidate or silently drop one from the final result?
 - Does finalization preserve a complete active/inactive partition?
@@ -70,7 +71,9 @@ owner's stable order for an equal request and version; it does not prescribe a
 product sort key. Candidate decisions are sets in the model, so duplicate
 array entries and descriptor substitution under one registration cannot be
 expressed; those target-contract checks remain unverified pending product
-gates. Empty and foreign decisions are model-checked.
+gates. Empty and foreign decisions are model-checked. The issued domain remains
+an ordered sequence, so a separate mutation checks duplicate registration
+issuance.
 
 Identity matching and nonempty domain construction are model inputs. The
 product factory is the proposed nonempty-domain gate; the model cannot reach an
@@ -89,6 +92,7 @@ implementation. Formal model-to-product correspondence is unverified.
 | `BindingCompositionCurrencyLiveness.cfg` | Checks that every non-domain result or matching handoff eventually completes through preservation, finalization, boundary rejection, or snapshot supersession under weak fairness. |
 | `BindingCompositionCurrencyBrokenOmission.cfg` | Omits one identity-eligible candidate. It must violate `DomainIsComplete`. |
 | `BindingCompositionCurrencyBrokenAddition.cfg` | Adds one identity-ineligible candidate. It must violate `DomainContainsOnlyEligible`. |
+| `BindingCompositionCurrencyBrokenDuplicateRegistration.cfg` | Repeats one eligible registration in the issued sequence. It must violate `DomainOrderMatchesMembers`. |
 | `BindingCompositionCurrencyBrokenOrder.cfg` | Uses incidental enumeration order for the issued sequence. It must violate `DomainOrderIsCanonical`. |
 | `BindingCompositionCurrencyBrokenInjection.cfg` | Accepts a contender outside the issued domain. It must violate `FinalCandidatesComeFromDomain`. |
 | `BindingCompositionCurrencyBrokenDrop.cfg` | Drops one non-contending domain member instead of retaining it as inactive. It must violate `FinalPartitionPreservesDomain`. |
@@ -98,9 +102,9 @@ implementation. Formal model-to-product correspondence is unverified.
 | `BindingCompositionCurrencyBrokenUnfinalized.cfg` | Lets an unconsumed handoff reach Metadata as `CompositionRequired`. It must violate `UnfinalizedHandoffIsRejected`. |
 | `BindingCompositionCurrencyBrokenStaleVersion.cfg` | Interprets a snapshot whose returned token differs from the captured delegate token. It must violate `ForeignSnapshotIsNotInterpreted`. |
 
-`TypeOK`, `DomainOrderMatchesMembers`,
-`NonDomainResultsNeverIssueDomain`, `NonDomainResultsArePreserved`, and
-`SupersededPublishesNoDecision` are whole-state structural checks. The ten
+`TypeOK`, `NonDomainResultsNeverIssueDomain`,
+`NonDomainResultsArePreserved`, and `SupersededPublishesNoDecision` are
+whole-state structural checks. The eleven
 broken configurations are independent negative controls for the interaction
 claims most likely to regress.
 
@@ -136,6 +140,7 @@ The mutation configurations are expected to exit unsuccessfully:
 for config in \
   BindingCompositionCurrencyBrokenOmission \
   BindingCompositionCurrencyBrokenAddition \
+  BindingCompositionCurrencyBrokenDuplicateRegistration \
   BindingCompositionCurrencyBrokenOrder \
   BindingCompositionCurrencyBrokenInjection \
   BindingCompositionCurrencyBrokenDrop \
@@ -172,6 +177,7 @@ Each mutation exited with TLC status 12 on its intended invariant:
 | --- | ---: | ---: | --- |
 | Broken omission | 769 / 769 | 2 | An eligible two-member set issued only `candidateOne`, violating `DomainIsComplete`. |
 | Broken addition | 1,153 / 1,153 | 2 | A singleton eligible set issued an added ineligible candidate, violating `DomainContainsOnlyEligible`. |
+| Broken duplicate registration | 1,345 / 1,345 | 2 | A repeated eligible registration violated `DomainOrderMatchesMembers` before finalization. |
 | Broken order | 1,729 / 1,729 | 2 | Incidental enumeration reversed a two-member issued sequence, violating `DomainOrderIsCanonical`. |
 | Broken injection | 721 / 721 | 3 | A foreign contender became selected while the real domain member became inactive, violating `FinalCandidatesComeFromDomain`. |
 | Broken drop | 289 / 289 | 3 | Finalization selected one of two domain members and discarded the other instead of retaining it as inactive, violating `FinalPartitionPreservesDomain`. |

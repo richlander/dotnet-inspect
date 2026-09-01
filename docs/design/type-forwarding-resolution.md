@@ -948,6 +948,21 @@ public abstract class AssemblyBindingSelection
                 "A composition domain cannot be empty.",
                 nameof(candidates));
         }
+        if (candidates.Any(static candidate => candidate is null))
+        {
+            throw new ArgumentException(
+                "A composition domain cannot contain null descriptors.",
+                nameof(candidates));
+        }
+        if (candidates
+            .Select(static candidate => candidate.Registration)
+            .Distinct(ReferenceEqualityComparer.Instance)
+            .Count() != candidates.Length)
+        {
+            throw new ArgumentException(
+                "A composition domain cannot repeat a registration.",
+                nameof(candidates));
+        }
 
         return new CompositionRequired(
             new AssemblyBindingCandidateDomain(candidates));
@@ -1316,7 +1331,9 @@ Likewise, a candidate that the identity owner cannot admit does not enter the
 domain merely so that a later policy can reject it. Completeness means complete
 within the issuing identity policy, not every same-named file in an acquisition
 or workspace. The public factory rejects a default or empty candidate array so
-an invalid handoff cannot stand in for one of those owner-issued results.
+an invalid handoff cannot stand in for one of those owner-issued results. It
+also rejects null descriptors and repeated
+`AssemblyAcquisitionRegistration` identities before issuing a domain.
 
 The handoff owns finalization. The adjacent consumer supplies only the nonempty
 set of highest-precedence contenders:
