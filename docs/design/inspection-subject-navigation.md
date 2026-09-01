@@ -17,8 +17,11 @@ identity foundation is implemented by
 `MemberIdentity_BindsExactDeclaringTypeAndAnchor`, and
 `Construction_RejectsAbsentOwnerIssuedComponents`. Exact lens identity,
 retained evaluation bases, and pure lens recommendation are implemented by
-`NavigationLensRecommendation` and gated at their claims below. Initial
-subject selection, activation, reconciliation, revision behavior, retained
+`NavigationLensRecommendation` and gated at their claims below. Pure initial
+subject ranking over already trustworthy Type candidates and already available
+Library candidates is implemented by `NavigationInitialSubjectRecommendation`
+and gated at its claim below. Candidate availability and failure
+classification, activation, reconciliation, revision behavior, retained
 sessions, synchronization, and restoration remain unverified until their
 implementation gates in [Verification](#verification) land.
 
@@ -311,6 +314,15 @@ subject is selected.
 
 When no Library is available, Root is selected. This allows root-only package
 coordinates, including the tools-v2 pointer-package case tracked by #4829.
+
+The pure ranking over already trustworthy Type candidates and already
+available Library candidates is gated by
+`NavigationInitialSubjectRecommendationTests.InitialRecommendation_PrefersTypeThenLibraryThenRoot`,
+`TypeRecommendation_UsesPrimaryLibraryAccessibilityAndProducerOrder`, and
+`InitialRecommendation_NeverChoosesMember`. Candidate coordinate, Library,
+Type, primary-role, and accessibility consistency is gated by
+`CandidateConstruction_RejectsInconsistentOwnerIssuedEvidence`. Producer
+trust, availability, and failure classification remain unverified.
 
 ### Lens recommendation
 
