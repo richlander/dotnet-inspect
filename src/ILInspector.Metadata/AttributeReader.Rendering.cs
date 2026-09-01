@@ -306,7 +306,7 @@ public static partial class AttributeReader
         null => "null",
         // A Type argument decodes to its name string; spell only simple source
         // type names we can render faithfully.
-        _ when type == "System.Type" && value is string typeName => RenderTypeArgument(typeName),
+        _ when SystemTypeArgumentName.Matches(type) && value is string typeName => RenderTypeArgument(typeName),
         string s => "\"" + EscapeStringLiteral(s) + "\"",
         bool b => b ? "true" : "false",
         char c => $"'{EscapeCharLiteral(c)}'",

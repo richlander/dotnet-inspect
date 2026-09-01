@@ -391,8 +391,8 @@ public static class AttributeDecoder
             _ => "object",
         };
 
-        public string GetSystemType() => "System.Type";
-        public bool IsSystemType(string type) => type == "System.Type";
+        public string GetSystemType() => SystemTypeArgumentName.Rendered;
+        public bool IsSystemType(string type) => SystemTypeArgumentName.Matches(type);
         public string GetSZArrayType(string elementType) => elementType + "[]";
         public string GetTypeFromDefinition(MetadataReader r, TypeDefinitionHandle handle, byte rawTypeKind)
         {

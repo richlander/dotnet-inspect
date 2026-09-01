@@ -1374,16 +1374,17 @@ public static class CustomAttributeValueGuard
 
     static bool IsSrmSystemType(MetadataReader reader, EntityHandle handle)
     {
-        // Match ArgTypeProvider.IsSystemType (rendered name == "System.Type").
-        // Do not charge through the observer: ResolveEnum already charges when
-        // the product path supplies a name oracle, and this check must not
-        // double-count or shift declared-slot charges.
+        // Classify through the one shared rule, so this side cannot drift from
+        // ArgTypeProvider.IsSystemType. Do not charge through the observer:
+        // ResolveEnum already charges when the product path supplies a name
+        // oracle, and this check must not double-count or shift declared-slot
+        // charges.
         string? name = handle.Kind == HandleKind.TypeDefinition
             ? TypeResolver.GetTypeNameFromDefinition(
                 reader,
                 (TypeDefinitionHandle)handle)
             : TypeResolver.GetTypeName(reader, handle);
-        return name == "System.Type";
+        return SystemTypeArgumentName.Matches(name);
     }
 
     static bool TryReadElementType(ref BlobReader blob, out byte code)
