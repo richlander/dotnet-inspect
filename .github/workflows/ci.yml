@@ -396,6 +396,14 @@ jobs:
         working-directory: prototypes/inspect-web
         run: npm test
 
+      - name: Install Firefox for Annotated Source browser tests
+        working-directory: prototypes/inspect-web
+        run: npx playwright install --with-deps firefox
+
+      - name: Test Annotated Source in Firefox
+        working-directory: prototypes/inspect-web
+        run: npm run test:browser
+
       - name: Test inspect-web promotion validation
         run: dotnet run eng/validate-inspect-web-promotion.cs -- --self-test
 

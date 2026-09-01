@@ -179,6 +179,29 @@ test("navigation focus and scroll survive completion before loading focus restor
   assert.equal(elements.get("#type-list")!.scrollTop, 87);
 });
 
+test("stable annotated source segments retain focus across member completion renders", () => {
+  const { document, element } = createDocument();
+  const selector = "#annotated-source-modal-segment-42";
+  const initialSegment = element(selector, {
+    id: "annotated-source-modal-segment-42",
+  });
+  document.activeElement = initialSegment;
+  const snapshot = captureMemberFocus(document);
+
+  initialSegment.isConnected = false;
+  const replacementSegment = element(selector, {
+    id: "annotated-source-modal-segment-42",
+  });
+  document.activeElement = document.body;
+  restoreMemberFocus(document, snapshot, callback => {
+    callback(0);
+    return 1;
+  });
+
+  assert.equal(snapshot.selector, selector);
+  assert.equal(document.activeElement, replacementSegment);
+});
+
 test("navigation scroll is not copied into a different list scope", () => {
   const { document, element } = createDocument();
   element("#type-list", {
