@@ -27,7 +27,8 @@ public sealed class PackageAssemblyContextCompletionTests
             "Second.Projection",
             ("lib/net11.0/Second.Projection.dll", secondImage));
         PackageRootBinding[] bindings = [first, second];
-        using var workspace = new InspectionWorkspace();
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
         PackageAssemblyContextCompletion completion =
             await ExecuteAsync(workspace, bindings);
         PackageRootIdentity[] firstDemand =
@@ -96,7 +97,8 @@ public sealed class PackageAssemblyContextCompletionTests
     public async Task PackageRealizationProjection_OneReturnDoesNotInvalidateAnotherDemand()
     {
         PackageRootBinding binding = SharedBinding("Independent.Demand");
-        using var workspace = new InspectionWorkspace();
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
         PackageAssemblyContextCompletion completion =
             await ExecuteAsync(workspace, [binding]);
         PackageAssemblyContextProjection first =
@@ -172,7 +174,8 @@ public sealed class PackageAssemblyContextCompletionTests
     public async Task PackageRealizationReturnedLease_RejectsProjectionAccess()
     {
         PackageRootBinding binding = SharedBinding("Returned.Demand");
-        using var workspace = new InspectionWorkspace();
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
         PackageAssemblyContextCompletion completion =
             await ExecuteAsync(workspace, [binding]);
         PackageAssemblyContextProjection projection =
@@ -195,7 +198,8 @@ public sealed class PackageAssemblyContextCompletionTests
     public async Task PackageRealizationConcurrentUseAndReturn_LinearizesBeforeCleanup()
     {
         PackageRootBinding binding = SharedBinding("Concurrent.Return");
-        using var workspace = new InspectionWorkspace();
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
         PackageAssemblyContextCompletion completion =
             await ExecuteAsync(workspace, [binding]);
         PackageAssemblyContextProjection projection =
@@ -236,7 +240,8 @@ public sealed class PackageAssemblyContextCompletionTests
     public async Task PackageRealizationProjection_ReentrantReturnRejectsBeforeMutation()
     {
         PackageRootBinding binding = SharedBinding("Reentrant.Return");
-        using var workspace = new InspectionWorkspace();
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
         PackageAssemblyContextCompletion completion =
             await ExecuteAsync(workspace, [binding]);
         PackageAssemblyContextProjection projection =
@@ -268,7 +273,8 @@ public sealed class PackageAssemblyContextCompletionTests
     public async Task PackageRealizationCompletion_LastReturnAndCloseStartCleanupOnce()
     {
         PackageRootBinding binding = SharedBinding("Last.Return");
-        using var workspace = new InspectionWorkspace();
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
         PackageAssemblyContextCompletion completion =
             await ExecuteAsync(workspace, [binding]);
         PackageAssemblyContextProjection first =
@@ -291,7 +297,8 @@ public sealed class PackageAssemblyContextCompletionTests
     public async Task PackageRealizationCompletion_CloseReturnsExactKeyedCleanupDomain()
     {
         PackageRootBinding binding = SeparateBinding("Keyed.Cleanup");
-        using var workspace = new InspectionWorkspace();
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
         PackageAssemblyContextCompletion completion =
             await ExecuteAsync(workspace, [binding]);
 
@@ -320,7 +327,8 @@ public sealed class PackageAssemblyContextCompletionTests
     public async Task PackageRealizationCompletion_RepeatedCloseSharesReport()
     {
         PackageRootBinding binding = SharedBinding("Repeated.Close");
-        using var workspace = new InspectionWorkspace();
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
         PackageAssemblyContextCompletion completion =
             await ExecuteAsync(workspace, [binding]);
 
@@ -338,7 +346,8 @@ public sealed class PackageAssemblyContextCompletionTests
     public async Task PackageRealizationLease_ReturnIsIdempotent()
     {
         PackageRootBinding binding = SharedBinding("Repeated.Return");
-        using var workspace = new InspectionWorkspace();
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
         PackageAssemblyContextCompletion completion =
             await ExecuteAsync(workspace, [binding]);
         PackageAssemblyContextProjection projection =
@@ -357,7 +366,8 @@ public sealed class PackageAssemblyContextCompletionTests
     public async Task PackageRealizationRelease_WaitsForEveryLease()
     {
         PackageRootBinding binding = SharedBinding("Every.Lease");
-        using var workspace = new InspectionWorkspace();
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
         PackageAssemblyContextCompletion completion =
             await ExecuteAsync(workspace, [binding]);
         PackageAssemblyContextProjection first =
@@ -377,7 +387,8 @@ public sealed class PackageAssemblyContextCompletionTests
     public async Task PackageRealizationRelease_UsesPackageRoleCompletionExactlyOnce()
     {
         PackageRootBinding binding = SeparateBinding("Exact.Release");
-        using var workspace = new InspectionWorkspace();
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
         PackageAssemblyContextCompletion completion =
             await ExecuteAsync(workspace, [binding]);
         var surface = new CountingResource();
@@ -398,7 +409,8 @@ public sealed class PackageAssemblyContextCompletionTests
     public async Task PackageRealizationCleanupFailure_RemainsVisible()
     {
         PackageRootBinding binding = SharedBinding("Failed.Cleanup");
-        using var workspace = new InspectionWorkspace();
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
         PackageAssemblyContextCompletion completion =
             await ExecuteAsync(workspace, [binding]);
         completion.SurfaceAssemblyContextGroup.RegisterOwnedResource(
@@ -424,7 +436,8 @@ public sealed class PackageAssemblyContextCompletionTests
     public async Task PackageRealizationOperation_IsWorkspaceOwnedAndCallerIndependent()
     {
         PackageRootBinding binding = SharedBinding("Caller.Independent");
-        using var workspace = new InspectionWorkspace();
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
         var resume =
             new TaskCompletionSource(
                 TaskCreationOptions.RunContinuationsAsynchronously);
@@ -455,7 +468,8 @@ public sealed class PackageAssemblyContextCompletionTests
     public async Task PackageRealizationOperation_CannotRunBeforeInFlightPublication()
     {
         PackageRootBinding binding = SharedBinding("Published.Operation");
-        using var workspace = new InspectionWorkspace();
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
         PackageAssemblyContextCompletionOperation operation =
             workspace.PreparePackageAssemblyContextCompletion([binding]);
 
@@ -473,6 +487,19 @@ public sealed class PackageAssemblyContextCompletionTests
     }
 
     [Fact]
+    public void PackageRealizationOperation_AwaitedAdmissionRequiresAsynchronousWorkspace()
+    {
+        PackageRootBinding binding =
+            SharedBinding("Async.Workspace.Required");
+        using var workspace = new InspectionWorkspace();
+
+        Assert.Throws<InvalidOperationException>(
+            () => workspace.PreparePackageAssemblyContextCompletion(
+                [binding]));
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
     public async Task PackageRealizationOperation_HasBoundedCooperativeProgress()
     {
         PackageRootBinding first = SharedBinding("Yield.First");
@@ -482,7 +509,8 @@ public sealed class PackageAssemblyContextCompletionTests
                 "lib/net11.0/Yield.Second.dll",
                 File.ReadAllBytes(
                     typeof(AssemblyReferenceIdentity).Assembly.Location)));
-        using var workspace = new InspectionWorkspace();
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
         int yields = 0;
         PackageAssemblyContextCompletionOperation operation =
             workspace.PreparePackageAssemblyContextCompletion(
@@ -510,7 +538,7 @@ public sealed class PackageAssemblyContextCompletionTests
         return await operation.ExecuteAsync(operation.Identity);
     }
 
-    static PackageRootBinding SharedBinding(string packageId) =>
+    internal static PackageRootBinding SharedBinding(string packageId) =>
         Binding(
             packageId,
             (
@@ -519,7 +547,7 @@ public sealed class PackageAssemblyContextCompletionTests
                     typeof(PackageAssemblyContextCompletionTests)
                         .Assembly.Location)));
 
-    static PackageRootBinding SeparateBinding(string packageId)
+    internal static PackageRootBinding SeparateBinding(string packageId)
     {
         byte[] image =
             File.ReadAllBytes(
