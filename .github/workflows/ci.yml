@@ -132,20 +132,29 @@ jobs:
         with:
           globs: '**/*.md'
 
-  # Upholds the bar in docs/tla-plus-methodology.md for every committed
-  # TLA+ model: SANY parses every module, and TLC runs every .cfg to
-  # completion without an unexpected error. See eng/run-tla-checks.sh for
-  # what "unexpected" excludes (an intentional violation verdict) and why
-  # (some committed .cfg files are negative controls expected to find one).
+  # Upholds the bar in docs/tla-plus-methodology.md for TLA+ models changed by
+  # this candidate, plus one fast real-tool canary when gate infrastructure
+  # changes: SANY parses every selected module, and TLC runs the selected
+  # directories' .cfg files to completion without an unexpected error. See
+  # eng/run-tla-checks.sh for what "unexpected" excludes (an intentional
+  # violation verdict) and why (some committed .cfg files are negative controls
+  # expected to find one).
   tla-plus:
     needs: changes
-    # Temporarily disabled by #5331. Restore this path gate when the runner
-    # checks only model directories changed by the candidate.
-    if: false
+    if: needs.changes.outputs.tla == 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
+        with:
+          # The gate diffs the effective candidate against its event-provided
+          # base so it can select only the model directories changed by the PR,
+          # push, or merge-group candidate.
+          fetch-depth: 0
+
+      - name: Self-test TLA+ runner scope
+        shell: bash
+        run: eng/test-tla-checks.sh
 
       # Ubuntu 26.04's default-jre metapackage resolves to OpenJDK 25,
       # matching the Java pin in docs/runbooks/tla-plus-setup.md.
@@ -185,7 +194,16 @@ jobs:
 
       - name: Run TLA+ checks
         shell: bash
+        env:
+          CI_BEFORE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
         run: |
+          set -euo pipefail
+          if [ -z "$CI_BEFORE_SHA" ] \
+             || [ "$CI_BEFORE_SHA" = "0000000000000000000000000000000000000000" ] \
+             || ! git cat-file -e "${CI_BEFORE_SHA}^{commit}"; then
+            echo "::error::Could not resolve the base commit for scoped TLA+ checks."
+            exit 1
+          fi
           export TLA_TOOLS_JAR="$HOME/.local/share/tlaplus/tla2tools.jar"
           # Tighter than the script's 600s local-dev default: this repo's
           # shared CI runners are slower than a typical contributor
@@ -194,7 +212,8 @@ jobs:
           # hit it (a hit is a warning, not a failure -- see
           # eng/run-tla-checks.sh).
           export TLA_CHECK_TIMEOUT_SECONDS=120
-          eng/run-tla-checks.sh
+          git diff --no-renames --name-only -z "$CI_BEFORE_SHA" HEAD -- |
+            eng/run-tla-checks.sh --changed-files0
 
   inspect-web:
     needs: changes

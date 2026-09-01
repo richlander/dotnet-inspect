@@ -1056,6 +1056,20 @@ internal static class DetectionTestSuite
                 FormatValues(tlaRunner));
         }
 
+        Dictionary<string, string> tlaRunnerTest = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/test-tla-checks.sh",
+            outputs);
+        if (tlaRunnerTest["tla"] != "true"
+            || tlaRunnerTest["code"] != "false")
+        {
+            throw new InvalidOperationException(
+                "TLA+ runner test canary did not select only tla: " +
+                FormatValues(tlaRunnerTest));
+        }
+
         Dictionary<string, string> tlaOverrides = RunDetection(
             repository,
             body,

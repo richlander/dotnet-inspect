@@ -491,7 +491,7 @@ while IFS= read -r -d '' file; do
     docs/models/*.tla|docs/models/*.cfg) TLA=true ;;
   esac
   case "$file" in
-    eng/run-tla-checks.sh|eng/tla-module-overrides.txt) TLA=true ;;
+    eng/run-tla-checks.sh|eng/test-tla-checks.sh|eng/tla-module-overrides.txt) TLA=true ;;
   esac
   # The decompiler docket/byte-neutrality gates cost ~8 minutes, so
   # they run as their own job rather than in the hot `test` lane.
