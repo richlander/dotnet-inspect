@@ -1919,6 +1919,36 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void ToDisplayRows_DoesNotDescribeDirectiveInMainScanAsDeclaredName()
+    {
+        // Round-10 review (reviewer A and reviewer B, independently):
+        // round-9 recognized `#` as a body-start marker, reasoning that a
+        // preprocessor directive could legally separate a parameter list
+        // from its body. But a directive can just as legally separate a
+        // *return type* from the *name* -- here, between the tuple return
+        // type's own group and `Other` -- where `#` proves nothing about a
+        // body starting. Recognizing it as proof there would wrongly stop
+        // the scan at the tuple-return-type's own preceding modifier
+        // (`static`) instead of continuing to the real name (`Other`). The
+        // decompiler's own printer never emits directives here either; `#`
+        // is now an unconditional bail in the main scan, mirroring the
+        // existing '/' comment bail, rather than a body-start marker.
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return New(value);\nstatic (int, int)\n#line 1\nOther() => (1, 2);",
+            new NodeSpec("InvocationExpression", "New(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static (int, int)\n#line 1\nOther() => (1, 2);", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> New(value)", changed.Detail);
+    }
+
+    [Fact]
     public void ToDisplayRows_DoesNotDescribeCommentInMainScanAsDeclaredName()
     {
         // Round-6 review (reviewers A and B): the round-5 fix only bailed on
@@ -2106,15 +2136,19 @@ public class CSharpStructuralComparisonTests
     [Fact]
     public void ToDisplayRows_DescribesCallTargetRenamedToLocalFunctionNamedModifierKeywordAcrossPreprocessorDirective()
     {
-        // Round-9 review (reviewer B): the body-start probe only recognized
-        // `{` and `=>`, so a preprocessor directive (e.g. `#line`) between
-        // the parameter list and the body -- legal trivia inside a
-        // LocalFunctionStatement's own text -- defeated it: the probe saw
-        // neither marker immediately, fell back to treating the
-        // modifier-spelled name as a modifier, and continued scanning into
-        // the body, where it could misattribute a body call as the
-        // declaration's own name. Recognizing `#` as a body-start marker
-        // too closes this gap.
+        // Round-9 review (reviewer B) added `#` as a third body-start
+        // marker, reasoning that a preprocessor directive (e.g. `#line`)
+        // between the parameter list and the body -- legal trivia inside a
+        // LocalFunctionStatement's own text -- could otherwise defeat the
+        // probe and let the scan misattribute a body call as the
+        // declaration's own name. Round-10 review (reviewer A and reviewer
+        // B, independently) showed that same `#` marker is unsound: a
+        // directive can just as legally separate a *return type* from the
+        // *name*, where `#` proves nothing about a body starting. Since
+        // the printer never emits directives in either position, `#` is
+        // now an unconditional bail instead of a body-start marker -- this
+        // shape isn't recognized at all, so no caption is produced, but
+        // for the safer reason (bail) rather than the unsound one (proof).
         var before = TrustedDocument(
             "return Old(value);",
             new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
@@ -2129,6 +2163,7 @@ public class CSharpStructuralComparisonTests
         var changed = Assert.Single(display, row => row.Change == "Changed");
         Assert.Equal("Old(value) -> New(value)", changed.Detail);
     }
+
 
     [Fact]
     public void ToDisplayRows_DoesNotDescribeUnrelatedCalleeRenameWhenDeclarationHasUnspellableName()

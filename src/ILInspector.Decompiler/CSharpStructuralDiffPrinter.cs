@@ -649,6 +649,27 @@ public static class CSharpStructuralDiffPrinter
             if (current == '/')
                 return false;
 
+            // The printer never emits preprocessor directives inside a
+            // declaration header or parameter list (confirmed: no
+            // `#line`/`#region`/`#pragma` emission anywhere in
+            // CSharpPrinter or LocalFunctionRaisingPass), so this is
+            // defense in depth, not a reachable product scenario -- the
+            // same posture as the `/` comment bail above. Round-9 review
+            // (reviewer B) added `#` as a *body-start proof* instead of a
+            // bail, reasoning a directive could legally separate the
+            // parameter list from the body. But round-10 review (reviewer
+            // A and reviewer B, independently) showed that same `#` can
+            // just as legally separate a return type from the name (e.g. a
+            // `#line` directive between a tuple return type and the
+            // function name), where treating it as body-start proof
+            // wrongly stops the scan early and misattributes the
+            // preceding modifier-spelled token as the declared name. Since
+            // neither shape is reachable from this printer, bailing
+            // unconditionally is strictly safer than trying to reason
+            // about which side of the header a directive fell on.
+            if (current == '#')
+                return false;
+
             if (depth == 0)
             {
                 if (current == '<')
@@ -739,6 +760,31 @@ public static class CSharpStructuralDiffPrinter
                         return false;
                     }
 
+                    // Known residual gap (round-10 review, reviewer B): the
+                    // whitespace boundary above assumes whitespace always
+                    // separates two distinct tokens, but the decompiler
+                    // also preserves compiler-unspellable names that
+                    // themselves *contain* whitespace (e.g. `bad name`).
+                    // For such a declaration, this scan still stops at the
+                    // last whitespace run and captures only the trailing
+                    // word (`name`), which can coincidentally match an
+                    // unrelated call's own rename. Distinguishing that case
+                    // from an ordinary `ReturnType Name(...)` declaration
+                    // -- where the preceding word is a genuine, unrelated
+                    // return type and the captured word is correctly the
+                    // whole name -- is not decidable from local lexical
+                    // context alone: both shapes are, textually, two
+                    // whitespace-separated words before an opening paren.
+                    // Requiring proof here (the way the modifier-keyword
+                    // branch below does) would reject the ordinary,
+                    // overwhelmingly common `ReturnType Name(...)` shape
+                    // for every real declaration, which is not an
+                    // acceptable trade against an edge case that needs both
+                    // an embedded-whitespace unspellable name *and* a
+                    // coincidental exact-text collision with an unrelated
+                    // rename target. This is accepted as a known,
+                    // documented limitation rather than fixed.
+
                     if (char.IsDigit(text[tokenStart]))
                         return false;
 
@@ -756,26 +802,30 @@ public static class CSharpStructuralDiffPrinter
                         // group instead, and the body opens immediately
                         // after -- round-8 review, reviewer A. Peeking past
                         // the closing paren for an immediate body start (a
-                        // block's `{`, an expression body's `=>`, or a
-                        // preprocessor directive's `#` -- e.g. a `#line`
-                        // directive between the parameter list and the body,
-                        // round-9 review, reviewer B) distinguishes the two.
-                        // No valid C# declaration puts a real modifier or
-                        // tuple-return-type prefix immediately before a
-                        // body: it always still needs a name and that
-                        // name's own parameter list first. So finding a
-                        // body right here proves, rather than guesses, that
-                        // this token is the declaration's own name despite
-                        // its spelling -- round-9 review, reviewer B found
-                        // the original round-8 fix threw away a legitimate
-                        // caption by bailing here instead of drawing this
-                        // conclusion.
+                        // block's `{` or an expression body's `=>`)
+                        // distinguishes the two. No valid C# declaration
+                        // puts a real modifier or tuple-return-type prefix
+                        // immediately before a body: it always still needs
+                        // a name and that name's own parameter list first.
+                        // So finding a body right here proves, rather than
+                        // guesses, that this token is the declaration's own
+                        // name despite its spelling -- round-9 review,
+                        // reviewer B found the original round-8 fix threw
+                        // away a legitimate caption by bailing here instead
+                        // of drawing this conclusion. (Round-9 also treated
+                        // `#` as a third body-start marker, reasoning a
+                        // preprocessor directive could legally separate the
+                        // parameter list from the body; round-10 review
+                        // showed that same directive can just as legally
+                        // separate a return type from the name, where `#`
+                        // then proves nothing. `#` is unconditionally
+                        // bailed above instead, since the printer never
+                        // emits directives either way.)
                         int probe = index + 1;
                         while (probe < text.Length && char.IsWhiteSpace(text[probe]))
                             probe++;
                         bool bodyStartsHere = probe < text.Length
                             && (text[probe] == '{'
-                                || text[probe] == '#'
                                 || (text[probe] == '=' && probe + 1 < text.Length && text[probe + 1] == '>'));
 
                         if (!bodyStartsHere)
