@@ -154,6 +154,23 @@ public sealed class NavigationLensRecommendationTests
         Assert.Same(request, exact.Request);
         Assert.Same(resolution, exact.Result);
         Assert.Null(unavailable.EffectiveLens);
+        var crossKindRequest = new NavigationLensIdentity(
+            subject,
+            new ViewFacetId("root.overview"));
+        ViewFacetDescriptor crossKindDescriptor = Option(
+            "root.overview",
+            StructuralSubjectKind.Root,
+            300,
+            ViewFacetRole.RootOverview,
+            ViewFacetAvailability.Available.Instance).Descriptor;
+        var crossKindResolution =
+            new ViewFacetResolution.Inapplicable(crossKindDescriptor);
+        var crossKindExact =
+            new NavigationLensEvaluationBasis.ExactRequest(
+                crossKindRequest,
+                crossKindResolution);
+        Assert.Same(crossKindRequest, crossKindExact.Request);
+        Assert.Same(crossKindResolution, crossKindExact.Result);
         ViewFacetDescriptor otherDescriptor = Option(
             "type.metadata",
             StructuralSubjectKind.Type,
