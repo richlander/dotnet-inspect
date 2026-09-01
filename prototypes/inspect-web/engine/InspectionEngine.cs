@@ -95,14 +95,14 @@ public static partial class InspectionEngine
                     coordinate.Version,
                     BrowserFrameworks(coordinate.Selection),
                     BrowserFramework(coordinate),
-                    coordinate.Package.Icon,
+                    BrowserPackageWireProjection.Project(coordinate.Package.Icon),
                     DefaultAssemblyId: null,
                     compileLibrary,
                     Assemblies: [],
                     Types: [],
                     Accessibility: [],
                     TotalMembers: 0,
-                    [.. coordinate.Package.Documents()],
+                    BrowserPackageWireProjection.Project(coordinate.Package.Documents()),
                     InspectionErrors: [],
                     InspectionError: null),
                 ApiSurfaces: null);
@@ -167,14 +167,14 @@ public static partial class InspectionEngine
                 coordinate.Version,
                 BrowserFrameworks(coordinate.Selection),
                 BrowserFramework(coordinate),
-                coordinate.Package.Icon,
+                BrowserPackageWireProjection.Project(coordinate.Package.Icon),
                 defaultAssemblyId,
                 compileLibrary,
                 projected.Assemblies,
                 projected.Types,
                 projected.Accessibility,
                 projected.TotalMembers,
-                [.. coordinate.Package.Documents()],
+                BrowserPackageWireProjection.Project(coordinate.Package.Documents()),
                 projected.InspectionErrors,
                 projected.InspectionError),
             surfaces);
@@ -1436,8 +1436,10 @@ public static partial class InspectionEngine
     public static async Task<string> GetPackageDocument(string packageId, string version, string path)
     {
         BrowserPackage package = await BrowserPackageWorkspace.AcquireAsync(packageId, version);
+        BrowserPackageDocumentContent document =
+            BrowserPackageWireProjection.Project(package.ReadDocument(path));
         return JsonSerializer.Serialize(
-            package.ReadDocument(path),
+            document,
             BrowserJsonContext.Default.BrowserPackageDocumentContent);
     }
 
@@ -1547,9 +1549,14 @@ public static partial class InspectionEngine
 
     /// <summary>Session acquisition statistics. Inspects no artifact and opens no workspace.</summary>
     [JSExport]
-    public static string PackageCacheStats() => JsonSerializer.Serialize(
-        BrowserPackageWorkspace.Stats(),
-        BrowserJsonContext.Default.BrowserPackageCacheStats);
+    public static string PackageCacheStats()
+    {
+        BrowserPackageCacheStats stats =
+            BrowserPackageWireProjection.Project(BrowserPackageWorkspace.Stats());
+        return JsonSerializer.Serialize(
+            stats,
+            BrowserJsonContext.Default.BrowserPackageCacheStats);
+    }
 
     /// <summary>Version, source revision, and build time embedded in this browser engine.</summary>
     [JSExport]

@@ -10,6 +10,28 @@ using NuGetFetch;
 
 namespace InspectWeb.Engine;
 
+internal sealed record BrowserPackageCacheSnapshot(
+    int Packages,
+    int Resident,
+    int Workspaces,
+    long ResidentBytes);
+
+internal sealed record BrowserPackageDocumentEntry(
+    string Kind,
+    string Name,
+    string Path,
+    int Size);
+
+internal sealed record BrowserPackageDocumentPayload(
+    string Kind,
+    string Name,
+    string Path,
+    string Text);
+
+internal sealed record BrowserPackageIconPayload(
+    string MediaType,
+    string Base64);
+
 /// <summary>
 /// Browser acquisition adapter: shared package owners resolve and admit payloads, while this host
 /// owns the bounded session cache and registry of open workspaces.
@@ -160,7 +182,7 @@ internal static class BrowserPackageWorkspace
         bool RemovalRequested,
         Action<IDisposable>? OnDisposed);
 
-    public static BrowserPackageCacheStats Stats() =>
+    public static BrowserPackageCacheSnapshot Stats() =>
         new(
             Downloaded.Count,
             Cache.Count,
@@ -1393,7 +1415,7 @@ internal sealed class BrowserPackage
 {
     const long MaxTextEntryBytes = 16L * 1024 * 1024;
     readonly AcquiredPackageSourcePayload? _acquiredPayload;
-    readonly Lazy<BrowserPackageIcon?> _icon;
+    readonly Lazy<BrowserPackageIconPayload?> _icon;
 
     public BrowserPackage(
         string packageId,
@@ -1458,7 +1480,7 @@ internal sealed class BrowserPackage
 
     internal byte[] RetainedBytes { get; }
 
-    public BrowserPackageIcon? Icon => _icon.Value;
+    public BrowserPackageIconPayload? Icon => _icon.Value;
 
     internal PackageRootBinding CreateRootBinding(string? targetFramework) =>
         PackageRootBinding.CreateFromSource(
@@ -1473,9 +1495,9 @@ internal sealed class BrowserPackage
     /// <see cref="ReadDocument"/>, which accepts only a path from this list, so no caller can
     /// coax an arbitrary entry — an assembly, a signature — out of the package.
     /// </summary>
-    public IReadOnlyList<BrowserPackageDocument> Documents()
+    public IReadOnlyList<BrowserPackageDocumentEntry> Documents()
     {
-        var documents = new List<BrowserPackageDocument>();
+        var documents = new List<BrowserPackageDocumentEntry>();
         foreach (PackageContentEntry entry in Content.EnumerateEntriesWithLengths())
         {
             string[] segments = entry.Path.Split('/');
@@ -1496,7 +1518,7 @@ internal sealed class BrowserPackage
                     + "limit.");
             }
 
-            documents.Add(new BrowserPackageDocument(
+            documents.Add(new BrowserPackageDocumentEntry(
                 kind,
                 kind == "skill" ? SkillDisplayName(segments) : fileName,
                 entry.Path,
@@ -1511,14 +1533,14 @@ internal sealed class BrowserPackage
         ];
     }
 
-    public BrowserPackageDocumentContent ReadDocument(string path)
+    public BrowserPackageDocumentPayload ReadDocument(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        BrowserPackageDocument document = Documents()
+        BrowserPackageDocumentEntry document = Documents()
             .FirstOrDefault(candidate => candidate.Path.Equals(path, StringComparison.Ordinal))
             ?? throw new InvalidOperationException(
                 $"'{path}' is not a browsable document in {PackageId} {Version}.");
-        return new BrowserPackageDocumentContent(
+        return new BrowserPackageDocumentPayload(
             document.Kind,
             document.Name,
             document.Path,
@@ -1576,14 +1598,14 @@ internal sealed class BrowserPackage
     internal bool TryReadText(string path, out byte[] bytes) =>
         TryRead(path, MaxTextEntryBytes, out bytes);
 
-    BrowserPackageIcon? ProjectIcon()
+    BrowserPackageIconPayload? ProjectIcon()
     {
         PackageIconResult result =
             PackageIconQuery.Execute(Content, PackageId, Version);
         if (result is not PackageIconResult.Available available)
             return null;
 
-        return new BrowserPackageIcon(
+        return new BrowserPackageIconPayload(
             available.Value.MediaType,
             Convert.ToBase64String(available.Value.Bytes.AsSpan()));
     }
