@@ -558,6 +558,8 @@ internal static class DetectionTestSuite
         foreach (string webGateInput in new[]
         {
             "eng/generate-inspect-web-engine-facade.sh",
+            "eng/generate-inspect-web-multi-facade-canary.sh",
+            "eng/test-inspect-web-multi-facade-canary.sh",
             "eng/verify-inspect-web-async-deployment.sh",
         })
         {

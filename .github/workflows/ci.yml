@@ -274,6 +274,9 @@ jobs:
       - name: Check generated inspect-web TypeScript facade for drift
         run: eng/generate-inspect-web-engine-facade.sh --check
 
+      - name: Test shared-runtime multi-facade canary
+        run: eng/test-inspect-web-multi-facade-canary.sh
+
       - name: Typecheck generated ts-jsexport facade
         run: eng/test-ts-jsexport-typescript.sh
 
