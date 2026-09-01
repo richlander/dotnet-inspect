@@ -8,8 +8,9 @@ Findings from observing LLM sessions using dotnet-inspect to migrate a project f
 > owns agent-first compatibility policy. [CLI change classification and
 > obsolete inputs](cli-change-classification.md) owns published-surface change
 > classification and input-transition mechanics. [Item and line
-> limits](item-and-line-limits.md) owns count-bearing options and the short
-> `-m`/`-t` selector aliases.
+> limits](item-and-line-limits.md) records the later composition that
+> superseded this investigation's count-bearing and short `-m`/`-t`
+> assumptions; it explicitly does not own product syntax.
 
 ## Context
 

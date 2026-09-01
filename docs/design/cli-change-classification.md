@@ -53,8 +53,8 @@ The following do not publish a surface by themselves:
 - a test that pins behavior no owner has declared as a contract.
 
 A hidden input is current supported syntax only when its owner justifies it as
-useful in today's interface. Hidden inputs retained solely because an older
-release accepted them are compatibility debt, not precedent.
+useful in today's interface under development practices. Historical acceptance
+does not determine its state in this design.
 
 The README and product skills are publication evidence and versioned
 consumers, not owners of producer semantics or structured-output schemas.
@@ -123,8 +123,8 @@ decides the current surface. They must not be inferred from `Hidden = true`.
 | State | Meaning |
 | ----- | ------- |
 | Published syntax | Current supported syntax exposed through help, README, a product skill, or an explicit owner. |
-| Ordinary alias | A co-equal spelling with independent utility in today's interface. It is supported because it improves the current surface, not because an older release had it. |
-| Compatibility-only alias or shim | An old spelling retained only so yesterday's invocation continues to work. This is nonconforming debt and a removal candidate. |
+| Ordinary alias | A co-equal spelling whose owner has justified independent utility in today's interface under development practices. |
+| Compatibility-only alias or shim | A former spelling retained only so an earlier invocation continues to work. Development practices governs its disposition. |
 | Focused invalid-input guard | A rejected token sequence is recognized because ordinary current use could otherwise bind or route to a different operation. It emits a bounded diagnostic and fails non-zero. |
 | Removed and reserved | The old operation is gone, but its command token remains reserved because releasing it would silently reinterpret the input through current implicit routing. |
 | Internal hidden input | Parser or router composition state that was never published. It can change without CLI migration treatment, subject to its owning internal tests. |
@@ -176,12 +176,12 @@ one manifest:
 
 - hidden `api` is a terminal compatibility shim. It writes replacements for
   `type` and `member` to stderr and returns non-zero without performing the old
-  operation. It predates this policy, has only a parse gate, and is a removal
-  candidate; removal must decide whether `api` remains reserved;
+  operation. It predates the agent-first policy and has only a parse gate; if
+  removed, the change must decide whether `api` remains reserved;
 - `--authored-source` and the `Original Source` selector are hidden
   compatibility-only aliases for `--pdb-source` and `PDB Source`. No
-  independent current-interface rationale is recorded, so they are removal
-  candidates rather than precedent;
+  independent current-interface rationale is recorded, so their disposition
+  under development practices is unresolved;
 - `SelectResolver.LegacySectionAliases` contains a broader set of former
   section spellings. Their entry-by-entry current utility and removal status
   have not been classified, so that inventory is **unverified** under this

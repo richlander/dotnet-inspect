@@ -189,6 +189,6 @@ This document does not:
 - define producer algorithms or typed-result semantics;
 - make the CLI the owner of the inspection space;
 - require other hosts to copy command syntax or presentation models; or
-- replace the compatibility, command-transition, progressive-disclosure,
-  output-shape, or focused
+- replace the change-classification, command-transition,
+  progressive-disclosure, output-shape, or focused
   producer designs.
