@@ -5,6 +5,34 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator("#explore-annotated")).toBeVisible();
 });
 
+test("inline source uses the page bar and ends with provenance", async ({ page }) => {
+  await expect(page.locator(".annotated-reader-head")).toHaveCount(0);
+  await expect(page.locator(".detail-head #copy-annotated")).toHaveText("Copy");
+  await expect(page.locator(".detail-head #explore-annotated")).toHaveText("Explore");
+  await expect(page.locator(".annotated-reader-footer")).toContainText(
+    "browser-gate product fixture",
+  );
+});
+
+test("inline source owns horizontal scrolling for long product lines", async ({ page }) => {
+  const source = page.locator(".annotated-reader > .annotated-source-code");
+  await source.locator(".annotated-source-line code").first().evaluate(element => {
+    element.textContent = "return " + "VeryLongIdentifier.".repeat(80) + "Value;";
+  });
+
+  const metrics = await source.evaluate(element => {
+    element.scrollLeft = 240;
+    return {
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      scrollLeft: element.scrollLeft,
+    };
+  });
+
+  expect(metrics.scrollWidth).toBeGreaterThan(metrics.clientWidth);
+  expect(metrics.scrollLeft).toBeGreaterThan(0);
+});
+
 test("source copy excludes annotation and inspector chrome", async ({ page }) => {
   await page.locator("#copy-annotated").click();
   const copied = await page.locator("body").getAttribute("data-copied-source");

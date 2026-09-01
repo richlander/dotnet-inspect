@@ -28,26 +28,6 @@ Those responsibilities remain with:
 This document classifies changes to those owner-issued contracts. It does not
 redefine them.
 
-## Versioning baseline
-
-[Semantic Versioning 2.0](https://semver.org/spec/v2.0.0.html) says that a
-`0.y.z` public API is in initial development and may change at any time.
-`dotnet-inspect` applies a stronger process while its `VersionPrefix` remains
-below `1.0`: published changes must be classified, current guidance must move
-with the product, breaking changes must be disclosed, and the claimed current
-behavior must be evidenced.
-
-That stronger rule is about truthful current releases, not preserving
-yesterday's CLI. A command, flag, default, or workflow may change before `1.0`
-without a compatibility alias or grace period. The release remains coherent
-when visible help, the root README, embedded product skills, release notes, and
-focused designs describe the same current behavior.
-
-Explicitly owned serialized formats, protocols, library APIs, and other
-non-CLI compatibility contracts retain their own versioning rules. Once the
-tool declares a `1.0` public API, release versioning must satisfy SemVer's
-normal compatibility rules in addition to this policy.
-
 ## Current guidance is the CLI compatibility layer
 
 Embedded product skills are the authoritative current agent guides. The root
@@ -276,7 +256,6 @@ claiming a global compatibility gate.
 This design does not:
 
 - preserve obsolete commands, flags, aliases, defaults, or output bytes;
-- promise that pre-`1.0` breaking changes require a major version;
 - define producer facts, section semantics, JSON schemas, or presentation
   layouts owned by focused designs;
 - make all hidden parser inputs supported syntax;

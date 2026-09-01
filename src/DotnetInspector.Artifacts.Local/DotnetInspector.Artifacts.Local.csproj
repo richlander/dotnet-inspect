@@ -10,7 +10,7 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>Bounded immutable local-file acquisition for source-neutral artifact sessions</Description>
+    <Description>Bounded immutable local file and directory acquisition for source-neutral artifact sessions</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
