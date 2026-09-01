@@ -42,15 +42,21 @@ relative declarations before construction.
 The configuration adapter expands NuGet's `%NAME%` environment-variable syntax
 but retains each expanded value with its declaring base until hierarchy merge
 has applied alias replacement, `<clear/>`, and disabled-source policy. It calls
-this owner only for aliases included in the requested effective view.
-Command-line sources are not given a second environment expansion after shell
-processing.
+this owner only for aliases included in the requested effective view. The
+adapter exposes that pre-classification state as a
+`PackageSourceDeclaration`: alias name is available for selection, while source
+text, declaring base, and credentials remain encapsulated until `Resolve()`
+constructs an authority-bearing `PackageSource`. Holding a declaration is not
+source authority. Command-line sources are not given a second environment
+expansion after shell processing.
 
 `SourceResolverTests.ResolveSources_ConfigRelativePathsUseEachDeclaringDirectory`,
 `SourceResolverTests.ResolveSources_ConfigExpandsPercentEnvironmentVariables`,
 `SourceResolverTests.MergeConfigFiles_OverrideSkipsUnusableInheritedSource`,
 `SourceResolverTests.ResolveSources_ClearInNearestConfig_ClearsParentSources`,
 `SourceResolverTests.ResolveSources_DisabledSource_IsExcluded`,
+`NuGetSearchSourcesTests.ResolveSources_DisabledMalformedAliasDoesNotInvalidateExplicitConfig`,
+`NuGetSearchSourcesTests.ResolveSourcesForPackage_MappingClassifiesOnlySelectedAliases`,
 and
 `SourceResolverTests.ResolveSources_CommandRelativePathUsesWorkingDirectory`
 are the Release gates for this handoff.
@@ -119,11 +125,19 @@ non-broadening persistent Windows folding against the active comparer.
 
 ## Consumer handoff
 
-`NuGetFetch.SourceResolver` canonicalizes local declarations while their
-resolution base is still known. The resulting `PackageSource.Url` carries the
-canonical path for legacy consumers. Package-source mapping continues to
-select configured alias names first; only selected aliases may collapse by
-local identity.
+`NuGetFetch.SourceResolver` carries local declarations while their resolution
+base is still known. The package consumer selects effective alias names,
+including package-source mapping when present, before resolving selected
+declarations. The resulting `PackageSource.Url` carries the canonical path for
+legacy consumers. Only selected aliases may collapse by local identity.
+
+Parse-time explicit-config validation checks file readability, XML shape, and
+whether the merged configuration declares an alias. It does not classify
+source values because package mapping, ordinary disabled-source policy, and
+explicit endpoint selection are not all known at that phase. A selected
+unusable declaration remains a visible source failure before client
+construction; an unselected declaration is not authority and cannot fail the
+operation.
 
 Persistent consumers derive their opaque key from the same owner-issued local
 identity. They do not independently call `Path.GetFullPath`, parse a file URI,

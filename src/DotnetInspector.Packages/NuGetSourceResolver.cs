@@ -179,24 +179,27 @@ public static class NuGetSourceResolver
         if (options.ResolvedSources is { } resolvedSources)
             return [.. resolvedSources];
 
-        IReadOnlyList<NuGetSource> configured = SourceResolver.ResolveSources(
-            explicitSource: null,
-            configPath: options.ConfigFile,
-            additionalSources: null,
-            workingDirectory: workingDirectory);
-        IReadOnlyList<NuGetSource> configuredAliases =
+        IReadOnlyList<PackageSourceDeclaration> activeDeclarations =
+            SourceResolver.GetEffectiveSourceDeclarations(
+                options.ConfigFile,
+                workingDirectory);
+        IReadOnlyList<PackageSourceDeclaration> configuredAliases =
             options.Sources.Length > 0 || options.AdditionalSources.Length > 0
-                ? SourceResolver.ResolveConfiguredSourceAliases(
+                ? SourceResolver.GetConfiguredSourceAliasDeclarations(
                     options.ConfigFile,
                     workingDirectory)
-                : configured;
+                : activeDeclarations;
 
         List<NuGetSource> selected = options.Sources.Length > 0
             ? SelectExplicitSources(
                 options.Sources,
                 configuredAliases,
                 workingDirectory)
-            : [.. configured];
+            :
+            [
+                .. activeDeclarations.Select(
+                    static declaration => declaration.Resolve()),
+            ];
         AddExplicitSources(
             selected,
             options.AdditionalSources,
@@ -225,37 +228,82 @@ public static class NuGetSourceResolver
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
 
-        List<NuGetSource> activeAliases = ResolveSources(options, workingDirectory);
+        options ??= NuGetSourceOptions.Default;
         PackageSourceMapping mapping = ResolvePackageSourceMapping(options, workingDirectory);
-
-        IReadOnlyList<NuGetSource> eligibleAliases = activeAliases;
-        if (mapping.IsEnabled)
+        if (!mapping.IsEnabled)
         {
-            IReadOnlyList<string> mappedNames =
-                mapping.GetConfiguredPackageSources(packageId);
-            if (mappedNames.Count == 0)
-            {
-                throw new PackageSourceMappingException(
-                    PackageSourceMappingFailure.NoPattern,
-                    $"Package source mapping has no pattern for package '{packageId}'.");
-            }
+            return CollapseAliases(
+                ResolveSources(options, workingDirectory),
+                packageId);
+        }
 
-            var allowedNames = new HashSet<string>(
-                mappedNames,
-                StringComparer.OrdinalIgnoreCase);
-            eligibleAliases =
-            [
-                .. activeAliases.Where(source => allowedNames.Contains(source.Name)),
-            ];
-            if (eligibleAliases.Count == 0)
-            {
-                throw new PackageSourceMappingException(
-                    PackageSourceMappingFailure.InactiveSource,
-                    $"Package '{packageId}' maps to source"
-                    + $"{(mappedNames.Count == 1 ? "" : "s")} "
-                    + $"'{string.Join("', '", mappedNames)}', but "
-                    + $"{(mappedNames.Count == 1 ? "it is not" : "none are")} active.");
-            }
+        IReadOnlyList<string> mappedNames =
+            mapping.GetConfiguredPackageSources(packageId);
+        if (mappedNames.Count == 0)
+        {
+            throw new PackageSourceMappingException(
+                PackageSourceMappingFailure.NoPattern,
+                $"Package source mapping has no pattern for package '{packageId}'.");
+        }
+
+        if (options.ConfigFile is not null)
+        {
+            ValidateExplicitConfig(options.ConfigFile);
+        }
+
+        var allowedNames = new HashSet<string>(
+            mappedNames,
+            StringComparer.OrdinalIgnoreCase);
+        List<NuGetSource> selected;
+        if (options.ResolvedSources is { } resolvedSources)
+        {
+            selected = [.. resolvedSources];
+        }
+        else
+        {
+            IReadOnlyList<PackageSourceDeclaration> activeDeclarations =
+                SourceResolver.GetEffectiveSourceDeclarations(
+                    options.ConfigFile,
+                    workingDirectory);
+            IReadOnlyList<PackageSourceDeclaration> configuredAliases =
+                options.Sources.Length > 0
+                    || options.AdditionalSources.Length > 0
+                    ? SourceResolver.GetConfiguredSourceAliasDeclarations(
+                        options.ConfigFile,
+                        workingDirectory)
+                    : activeDeclarations;
+
+            selected = options.Sources.Length > 0
+                ? SelectExplicitSources(
+                    options.Sources,
+                    configuredAliases,
+                    workingDirectory)
+                :
+                [
+                    .. activeDeclarations
+                        .Where(declaration =>
+                            allowedNames.Contains(declaration.Name))
+                        .Select(static declaration => declaration.Resolve()),
+                ];
+            AddExplicitSources(
+                selected,
+                options.AdditionalSources,
+                configuredAliases,
+                workingDirectory);
+        }
+
+        IReadOnlyList<NuGetSource> eligibleAliases =
+        [
+            .. selected.Where(source => allowedNames.Contains(source.Name)),
+        ];
+        if (eligibleAliases.Count == 0)
+        {
+            throw new PackageSourceMappingException(
+                PackageSourceMappingFailure.InactiveSource,
+                $"Package '{packageId}' maps to source"
+                + $"{(mappedNames.Count == 1 ? "" : "s")} "
+                + $"'{string.Join("', '", mappedNames)}', but "
+                + $"{(mappedNames.Count == 1 ? "it is not" : "none are")} active.");
         }
 
         return CollapseAliases(eligibleAliases, packageId);
@@ -337,23 +385,13 @@ public static class NuGetSourceResolver
             return $"NuGet config file '{configFile}' could not be read: {ex.Message}";
         }
 
-        // Well-formed XML is not enough. Any XML file parses — a .csproj passed by mistake
-        // reaches this point — and an explicitly selected config starts from an empty source
-        // layer rather than inheriting the ambient NuGet.org default.
-        try
+        // Well-formed XML is not enough. Any XML file parses — a .csproj passed
+        // by mistake reaches this point. Source values remain unresolved here:
+        // package mapping and explicit selection have not selected aliases yet.
+        if (SourceResolver.GetConfiguredSourceAliasDeclarations(
+                configFile).Count == 0)
         {
-            if (SourceResolver.ResolveConfiguredSourceAliases(configFile).Count == 0)
-            {
-                return $"NuGet config file '{configFile}' declares no usable package sources.";
-            }
-        }
-        catch (UnsupportedSourceException ex)
-        {
-            // Resolution rejects a source the config declares. That rejection is a throw because
-            // it guards every path that reaches a feed, most of which are far past parsing; here,
-            // where the config is only being inspected, it converts back to the returned string
-            // this method promises so the CLI reports it as an option error.
-            return ex.Message;
+            return $"NuGet config file '{configFile}' declares no package sources.";
         }
 
         return null;
@@ -397,7 +435,7 @@ public static class NuGetSourceResolver
     /// </remarks>
     private static List<NuGetSource> SelectExplicitSources(
         IEnumerable<string> urls,
-        IReadOnlyList<NuGetSource> configured,
+        IReadOnlyList<PackageSourceDeclaration> configured,
         string? workingDirectory)
     {
         List<NuGetSource> selected = [];
@@ -408,7 +446,7 @@ public static class NuGetSourceResolver
     private static void AddExplicitSources(
         List<NuGetSource> selected,
         IEnumerable<string> urls,
-        IReadOnlyList<NuGetSource> configured,
+        IReadOnlyList<PackageSourceDeclaration> configured,
         string? workingDirectory)
     {
         foreach (string url in urls)
@@ -446,14 +484,27 @@ public static class NuGetSourceResolver
     /// </remarks>
     private static IReadOnlyList<NuGetSource> Match(
         string url,
-        IReadOnlyList<NuGetSource> configured)
+        IReadOnlyList<PackageSourceDeclaration> configured)
     {
-        List<NuGetSource> matches =
-        [
-            .. configured
-                .Where(source => IsSameSource(source.Url, url))
-                .Select(source => source with { Url = url }),
-        ];
+        List<NuGetSource> matches = [];
+        foreach (PackageSourceDeclaration declaration in configured)
+        {
+            NuGetSource source;
+            try
+            {
+                source = declaration.Resolve();
+            }
+            catch (UnsupportedSourceException)
+            {
+                continue;
+            }
+
+            if (IsSameSource(source.Url, url))
+            {
+                matches.Add(source with { Url = url });
+            }
+        }
+
         return matches.Count == 0
             ? [new NuGetSource(url, url)]
             : matches;

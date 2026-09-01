@@ -895,7 +895,7 @@ public class NuGetSearchSourcesTests
             var ex = Assert.Throws<InvalidOperationException>(() =>
                 NuGetSourceResolver.ResolveSources(new NuGetSourceOptions { ConfigFile = path }));
 
-            Assert.Contains("no usable package sources", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("no package sources", ex.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -1063,6 +1063,32 @@ public class NuGetSearchSourcesTests
 
         NuGetSource source = Assert.Single(sources);
         Assert.Equal(IndexUrl, source.Url);
+    }
+
+    [Fact]
+    public void ResolveSources_DisabledMalformedAliasDoesNotInvalidateExplicitConfig()
+    {
+        using var config = new TempNuGetConfig(
+            [("current", IndexUrl), ("legacy", "file:relative")],
+            disabledSources: ["legacy"]);
+
+        Assert.Null(
+            NuGetSourceResolver.DescribeConfigProblem(
+                config.Path));
+
+        PackageSource ordinary = Assert.Single(
+            NuGetSourceResolver.ResolveSources(
+                new NuGetSourceOptions { ConfigFile = config.Path }));
+        Assert.Equal("current", ordinary.Name);
+
+        PackageSource explicitlySelected = Assert.Single(
+            NuGetSourceResolver.ResolveSources(
+                new NuGetSourceOptions
+                {
+                    ConfigFile = config.Path,
+                    Sources = [IndexUrl],
+                }));
+        Assert.Equal("current", explicitlySelected.Name);
     }
 
     [Fact]
@@ -1480,6 +1506,29 @@ public class NuGetSearchSourcesTests
                 "B.Package"));
 
         Assert.Equal("b", source.Name);
+    }
+
+    [Fact]
+    public void ResolveSourcesForPackage_MappingClassifiesOnlySelectedAliases()
+    {
+        using var config = new TempNuGetConfig(
+            [("current", IndexUrl), ("legacy", "file:relative")],
+            mappings:
+            [
+                ("current", "Contoso.*"),
+                ("legacy", "Legacy.*"),
+            ]);
+
+        PackageSource current = Assert.Single(
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions { ConfigFile = config.Path },
+                "Contoso.Package"));
+
+        Assert.Equal("current", current.Name);
+        Assert.Throws<UnsupportedSourceException>(
+            () => NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions { ConfigFile = config.Path },
+                "Legacy.Package"));
     }
 
     [Fact]

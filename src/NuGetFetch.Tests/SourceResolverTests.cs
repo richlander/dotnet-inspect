@@ -322,6 +322,15 @@ public class SourceResolverTests : IDisposable
 
         Assert.Single(sources);
         Assert.Equal("EnabledFeed", sources[0].Name);
+        IReadOnlyList<PackageSourceDeclaration> declarations =
+            SourceResolver.GetConfiguredSourceAliasDeclarations(
+                configPath);
+        Assert.Equal(2, declarations.Count);
+        PackageSourceDeclaration disabled = Assert.Single(
+            declarations,
+            declaration => declaration.Name == "DisabledFeed");
+        Assert.Throws<UnsupportedSourceException>(
+            () => disabled.Resolve());
         Assert.Throws<UnsupportedSourceException>(
             () => SourceResolver.ResolveConfiguredSourceAliases(
                 configPath));

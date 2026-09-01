@@ -44,6 +44,49 @@ public sealed class UnsupportedSourceException(string message) : Exception(messa
 }
 
 /// <summary>
+/// One effective configured alias whose source value has not yet been
+/// classified or canonicalized.
+/// </summary>
+/// <remarks>
+/// Holding a declaration is not source authority. Consumers select alias names
+/// first and call <see cref="Resolve"/> only for declarations included in the
+/// requested effective view.
+/// </remarks>
+public sealed class PackageSourceDeclaration
+{
+    private readonly string _value;
+    private readonly string? _baseDirectory;
+    private readonly PackageSourceCredential? _credential;
+
+    internal PackageSourceDeclaration(
+        string name,
+        string value,
+        string? baseDirectory,
+        PackageSourceCredential? credential)
+    {
+        Name = name;
+        _value = value;
+        _baseDirectory = baseDirectory;
+        _credential = credential;
+    }
+
+    /// <summary>Gets the configured alias name.</summary>
+    public string Name { get; }
+
+    /// <summary>
+    /// Classifies and canonicalizes this selected declaration.
+    /// </summary>
+    /// <exception cref="UnsupportedSourceException">
+    /// The selected source value is unusable.
+    /// </exception>
+    public PackageSource Resolve() =>
+        new(
+            Name,
+            SourceResolver.ResolveSourceValue(_value, _baseDirectory),
+            _credential);
+}
+
+/// <summary>
 /// Resolves NuGet package sources from nuget.config files.
 /// </summary>
 public static class SourceResolver
@@ -245,11 +288,46 @@ public static class SourceResolver
     public static IReadOnlyList<PackageSource> ResolveConfiguredSourceAliases(
         string? configPath = null,
         string? workingDirectory = null)
-        => Validated(BuildConfiguredSources(
+        => Validated(
+        [
+            .. GetConfiguredSourceAliasDeclarations(
+                configPath,
+                workingDirectory)
+                .Select(static declaration => declaration.Resolve()),
+        ]);
+
+    /// <summary>
+    /// Reads active source declarations after configuration hierarchy merge
+    /// without classifying their values.
+    /// </summary>
+    public static IReadOnlyList<PackageSourceDeclaration>
+        GetEffectiveSourceDeclarations(
+            string? configPath = null,
+            string? workingDirectory = null)
+        => BuildConfiguredSourceDeclarations(
             configPath,
             workingDirectory,
             configPath is null ? PackageSources.Default : PackageSources.Empty,
-            includeDisabled: true));
+            includeDisabled: false);
+
+    /// <summary>
+    /// Reads every effective configured alias, including disabled aliases,
+    /// without classifying source values.
+    /// </summary>
+    /// <remarks>
+    /// Explicit source selection uses this view to find a configured alias and
+    /// credentials for the endpoint the user selected. Ordinary resolution
+    /// uses <see cref="GetEffectiveSourceDeclarations"/>.
+    /// </remarks>
+    public static IReadOnlyList<PackageSourceDeclaration>
+        GetConfiguredSourceAliasDeclarations(
+            string? configPath = null,
+            string? workingDirectory = null)
+        => BuildConfiguredSourceDeclarations(
+            configPath,
+            workingDirectory,
+            configPath is null ? PackageSources.Default : PackageSources.Empty,
+            includeDisabled: true);
 
     /// <summary>
     /// Resolves package source mapping from the same configuration hierarchy as package sources.
@@ -294,18 +372,51 @@ public static class SourceResolver
         string? workingDirectory,
         IReadOnlyList<PackageSource> initialSources,
         bool includeDisabled = false)
+        =>
+        [
+            .. BuildConfiguredSourceDeclarations(
+                configPath,
+                workingDirectory,
+                initialSources,
+                includeDisabled)
+                .Select(static declaration => declaration.Resolve()),
+        ];
+
+    private static IReadOnlyList<PackageSourceDeclaration>
+        BuildConfiguredSourceDeclarations(
+            string? configPath,
+            string? workingDirectory,
+            IReadOnlyList<PackageSource> initialSources,
+            bool includeDisabled)
     {
         IReadOnlyList<string> configFiles = configPath is not null
             ? [configPath]
             : FindConfigFiles(workingDirectory);
 
-        return MergeConfigFiles(configFiles, initialSources, includeDisabled);
+        return MergeConfigDeclarations(
+            configFiles,
+            initialSources,
+            includeDisabled);
     }
 
     internal static IReadOnlyList<PackageSource> MergeConfigFiles(
         IReadOnlyList<string> configFiles,
         IReadOnlyList<PackageSource> initialSources,
         bool includeDisabled = false)
+        =>
+        [
+            .. MergeConfigDeclarations(
+                configFiles,
+                initialSources,
+                includeDisabled)
+                .Select(static declaration => declaration.Resolve()),
+        ];
+
+    private static IReadOnlyList<PackageSourceDeclaration>
+        MergeConfigDeclarations(
+            IReadOnlyList<string> configFiles,
+            IReadOnlyList<PackageSource> initialSources,
+            bool includeDisabled)
     {
         ArgumentNullException.ThrowIfNull(configFiles);
         ArgumentNullException.ThrowIfNull(initialSources);
@@ -347,7 +458,7 @@ public static class SourceResolver
                 credentials);
         }
 
-        List<PackageSource> sources = [];
+        List<PackageSourceDeclaration> declarations = [];
         IEnumerable<string> configuredSources = sourceOrder
             .Where(name => !inheritedSourceNames.Contains(name));
         IEnumerable<string> inheritedSources = sourceOrder
@@ -363,16 +474,15 @@ public static class SourceResolver
 
             credentials.TryGetValue(name, out PackageSourceCredential? credential);
             SourceDeclaration declaration = mergedSources[name];
-            sources.Add(
-                new PackageSource(
+            declarations.Add(
+                new PackageSourceDeclaration(
                     name,
-                    ResolveSourceValue(
-                        declaration.Value,
-                        declaration.BaseDirectory),
+                    declaration.Value,
+                    declaration.BaseDirectory,
                     credential));
         }
 
-        return sources.Count == 0 ? PackageSources.Empty : sources;
+        return declarations;
     }
 
     private static void MergePackageSourceMappingFile(

@@ -160,6 +160,7 @@ the owner does not pick the first declaration.
 Declaration order has no semantic-version or same-tier payload precedence. It
 may make diagnostics stable, but it cannot decide which version wins or
 authorize bytes. `PackageSourceMapping_SelectsAliasesBeforeAuthorityCollapse`,
+`ResolveSourcesForPackage_MappingClassifiesOnlySelectedAliases`,
 `PackageSourceMapping_ConflictingAliasPoliciesFailBeforeClientCreation`, and
 `SourceOrder_DoesNotChooseVersionOrSameTierPayload` gate these rules.
 
