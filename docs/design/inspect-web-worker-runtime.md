@@ -518,6 +518,22 @@ obligation normally. The acknowledgment still retires the probe and does not
 fail the epoch merely because its original snapshot is now empty. Requests
 posted after the probe are not covered by it.
 
+While a probe is outstanding, the host marks every later `Start` and `Cancel`
+command record against that exact probe sequence. That mark is immutable:
+posting a later command never re-marks an earlier record. Main-to-worker
+delivery preserves posting order, the serialized worker lane preserves
+processing order, and the worker posts `ProbeAcknowledged` and later immediate
+responses through the same worker-to-main channel whose delivery preserves
+posting order. An immediate response for one of those commands while that same
+probe remains outstanding therefore proves that the lane passed the probe
+without committing `ProbeAcknowledged`. The host records `control-response`
+failure and begins bounded draining before treating that later response as
+liveness evidence. A matching acknowledgment or other register retirement
+discharges every mark for that probe; it cannot accuse a response that arrives
+after the register has moved to a later probe. This proof uses local posting
+order and the response's existing operation correlation; it does not add a
+wire command sequence.
+
 Control-response proof and the silence watchdog share one physical probe
 register. The register holds the probe sequence, its immutable
 response-obligation snapshot, whether the watchdog has adopted it, and the
@@ -539,13 +555,18 @@ that the worker task loop ran. Otherwise it clears watchdog suspicion, retires
 the register, and permits any deferred control probe to be sent. This
 arbitration preserves one sequence space and at most one in-flight probe
 without letting an older watchdog probe prove completion of a later command.
-Other task-loop evidence clears suspicion and renews the liveness origin but
-does not retire the shared probe register, invalidate its sequence, or discard
-its response-obligation snapshot.
+Heartbeat evidence clears suspicion and renews the liveness origin but does
+not retire the shared probe register, invalidate its sequence, discard its
+response-obligation snapshot, or prove that the serialized lane passed the
+probe. A serialized response for a command posted after the probe takes the
+failure path above instead of ordinary renewal.
 
 An unbounded operation that prevents the worker from processing both the
 request and probe has not supplied that proof. It remains eligible only for an
-explicit hard-termination choice, not an elapsed-time inference.
+explicit hard-termination choice, not an elapsed-time inference. The same is
+true when neither the probe acknowledgment nor a causally later serialized
+response arrives: heartbeats alone do not manufacture a missing-response
+proof.
 
 Probe sequences begin at one per epoch, strictly increase, and never wrap.
 Retiring a valid probe whose sequence is JavaScript's maximum safe integer
@@ -584,7 +605,9 @@ narrow:
 
 - `Heartbeat` and `ProbeAcknowledged` prove a worker task ran;
 - `Accepted`, `Rejected`, and `CancelAcknowledged` prove the serialized
-  protocol-command lane processed an inbound task; and
+  protocol-command lane processed an inbound task, except that a response for
+  a command posted after an unacknowledged probe first proves
+  `control-response` failure as described above; and
 - matching readiness ends startup but is not a post-readiness renewal.
 
 Matching readiness establishes the first complete post-readiness idle
@@ -608,7 +631,9 @@ allowance is `unbounded`, silence alone cannot trigger automatic termination.
 
 The host retains the active-time origin of the last task-loop evidence.
 `Accepted` installs its allowance and then renews that origin because its
-serialized response is task-loop evidence. A bounded-to-bounded allowance-set
+serialized response is task-loop evidence, unless its command was marked as
+posted after the still-outstanding probe and therefore takes the
+`control-response` failure path first. A bounded-to-bounded allowance-set
 change recomputes the deadline from the retained origin, not from the topology
 message's receipt. Starting or finishing bounded epoch work and settling a
 bounded operation therefore cannot renew the watchdog through callback churn.
@@ -653,8 +678,10 @@ responsiveness.
 
 `Suspect` is an admitting sub-state of ready: existing protocol validation,
 sequence consumption, and the serialized command lane continue to accept new
-assignments until draining commits. A newly committed serialized response is
-task-loop evidence and clears the suspicion in the ordinary way.
+assignments until draining commits. A newly committed serialized response for
+a command not marked against the outstanding probe is task-loop evidence and
+clears the suspicion in the ordinary way. A response marked against that probe
+takes the `control-response` failure path instead.
 
 This watchdog detects loss of the worker event loop only where the active
 allowance set is bounded. It is not an operation timeout, managed deadlock
@@ -800,7 +827,8 @@ The companion model directory contains four finite models:
   and quiescence.
 - `InspectWebWorkerProbe.tla` composes control-response and watchdog probe
   triggers over the one physical probe register, including adoption, deferred
-  coverage, exact acknowledgment, exhaustion, and missing-response failure.
+  coverage, exact acknowledgment, exhaustion, missing-response failure, and
+  exact-probe marking for a causally later serialized response.
 
 The models separate allowance validation, protocol bookkeeping, clock and
 worker lifetime, and the cross-cutting probe arbitration seam. Their README
@@ -840,7 +868,9 @@ feature implementation behavior.
   retention;
 - unanswered start and cancellation requests where matching probe
   acknowledgment from the serialized command lane proves a missing covered
-  response and begins bounded draining, plus asynchronous cancellation that
+  response and begins bounded draining, a later serialized response proving a
+  missing probe acknowledgment, heartbeats alone preserving that outstanding
+  register without manufacturing proof, plus asynchronous cancellation that
   cannot be overtaken by a later probe;
 - probe-sequence monotonicity, matching, exhaustion, duplicate, future, and
   stale acknowledgment cases, including retirement of the maximum safe
@@ -892,8 +922,9 @@ feature implementation behavior.
 - one shared probe register, watchdog adoption of an outstanding control
   probe, deferred control coverage behind an older probe, and no
   duplicate in-flight probe;
-- heartbeat and serialized command-response evidence clearing suspicion
-  without retiring the shared register or its obligation snapshot;
+- heartbeat evidence clearing suspicion without retiring the shared register
+  or its obligation snapshot, while a response for a command posted after the
+  probe proves its missing acknowledgment and begins draining;
 - lifecycle and main-loop recovery preserving an outstanding probe sequence
   and control-response snapshot;
 - first expiry obtaining a probe without termination, second expiry permitting

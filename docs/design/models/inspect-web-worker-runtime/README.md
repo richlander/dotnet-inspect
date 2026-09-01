@@ -69,7 +69,10 @@ probe register. It covers:
 - maximum probe-sequence retirement entering failed draining rather than
   leaving a live epoch without another sequence;
 - missing-response failure after serialized command completion;
-- task-loop evidence clearing watchdog suspicion; and
+- a response for a command posted after an outstanding probe proving that the
+  lane omitted `ProbeAcknowledged`;
+- heartbeat evidence clearing watchdog suspicion without supplying that lane
+  proof; and
 - lifecycle recovery preserving an outstanding register and acknowledgment.
 
 Keeping the models separate prevents protocol bookkeeping from multiplying
@@ -162,16 +165,31 @@ The probe model assumes:
   without enabling a receiver mutation;
 - invalid acknowledgments have distinct failure evidence from covered omitted
   responses;
+- `PostControlCommand` while a probe is outstanding represents a command that
+  the host marked with that exact probe sequence; committing its response while
+  that same sequence remains outstanding proves the missing probe
+  acknowledgment, while register retirement clears the mark before a later
+  probe can be installed;
+- the one-command state-space bound does not distinguish an immutable mark
+  stored on each command record from a host-global mark field; the design
+  requires the former, and posting a later command must not re-mark an earlier
+  record;
+- probe acknowledgment and later immediate responses use one ordered
+  worker-to-main channel, so the host cannot observe the later response before
+  an acknowledgment the worker actually committed first;
+- heartbeat evidence has no serialized-lane ordering claim and cannot supply
+  that proof;
 - the finite task-evidence counter saturates independently from acknowledgment
   eligibility;
 - retiring the maximum bounded sequence represents exhaustion of the product's
   safe-integer allocator and commits failed draining; and
 - `MaxProbeSequence = 2` is a state-space bound, not a product limit.
 
-The probe model's `protocolFailure` variable is the specific
-`control-response` classification. `invalidAcknowledgmentFailure` separately
-records invalid-acknowledgment protocol failure so the proof cannot substitute
-one cause for the other.
+The probe model's `protocolFailure` variable is the `control-response`
+classification for either a covered omitted command response or a missing
+probe acknowledgment proved by a causally later serialized response.
+`invalidAcknowledgmentFailure` separately records invalid-acknowledgment
+protocol failure so the proof cannot substitute one cause for another.
 
 The validation model assumes:
 
@@ -267,12 +285,15 @@ among several distinct bounded durations.
 | An accepted acknowledgment must match the outstanding sequence | `ProbeSequenceIsExact` |
 | A mismatched or no-outstanding acknowledgment fails the epoch | `InvalidAcknowledgmentFails` |
 | A matching acknowledgment remains processable after finite evidence saturation | `MatchingProbeAcknowledgmentRemainsProcessable` |
+| A later serialized response proves the outstanding probe acknowledgment was omitted | `LaterSerializedResponseProvesMissingProbeAcknowledgment` |
 | An older probe cannot cover a later command | `OlderProbeDoesNotCoverLaterCommand` |
 | A covered omitted response fails the epoch | `CoveredOmissionFails` |
 | Probe acknowledgment clears watchdog suspicion | `ProbeAcknowledgmentClearsSuspicion` |
+| An ordinary serialized response clears watchdog suspicion | `OrdinarySerializedResponseClearsSuspicion` |
 | Lifecycle recovery preserves the exact physical outstanding register | `OutstandingRegisterMatchesPhysicalProbe` |
-| `control-response` failure is limited to a covered omission | `ProtocolFailureIsOnlyCoveredOmission` |
-| A control-response failure requires proof that the retiring probe covered the omitted response | `ProtocolFailureHasCoveredOmissionProof` |
+| A later-command mark names the exact outstanding probe | `ProbeMarkMatchesOutstandingRegister` |
+| `control-response` failure has a known omitted protocol response | `ControlResponseFailureHasKnownOmission` |
+| A control-response failure has covered-response or causally later lane proof | `ControlResponseFailureHasProof` |
 | Probe exhaustion cannot leave a live epoch | `NoLiveEpochAfterProbeSequenceExhaustion` |
 
 ## Running TLC
@@ -328,7 +349,7 @@ The recorded runs used OpenJDK 21.0.12 and TLA+ tools 1.8.0
 | `InspectWebWorkerProtocol.cfg` | 2 operations, `MaxWorkSequence = 2` | 866,584 | 222,090 | 23 | No error |
 | `InspectWebWorkerLifecycle.cfg` | 2 operations, all budgets = 1 | 87,452 | 20,268 | 18 | No error |
 | `InspectWebWorkerLifecycle_BoundedSilence.cfg` | No recurring task evidence or unbounded work; all budgets = 1 | 2,569 | 1,036 | 13 | No error |
-| `InspectWebWorkerProbe.cfg` | 1 command, `MaxProbeSequence = 2` | 2,195 | 655 | 10 | No error |
+| `InspectWebWorkerProbe.cfg` | 1 command, `MaxProbeSequence = 2` | 1,731 | 557 | 9 | No error |
 
 Generated and distinct counts are stable across worker counts. The protocol
 row's depth 23 is the single-worker breadth-first result; parallel runs can
@@ -404,16 +425,20 @@ violation.
 | Configuration | Injected defect | Observed violation |
 | --- | --- | --- |
 | `InspectWebWorkerProbe_MutationDuplicateWatchdogProbe.cfg` | Watchdog sends a second probe instead of adopting the control probe | `OnePhysicalProbe` |
-| `InspectWebWorkerProbe_MutationOlderWatchdogCoversControl.cfg` | An older watchdog probe falsely proves a later command missing | `ProtocolFailureIsOnlyCoveredOmission` |
+| `InspectWebWorkerProbe_MutationOlderWatchdogCoversControl.cfg` | An older watchdog probe falsely proves a later command missing | `ControlResponseFailureHasKnownOmission` |
 | `InspectWebWorkerProbe_MutationIgnoreCoveredOmission.cfg` | Acknowledgment ignores a covered omitted response | `CoveredOmissionFails` |
 | `InspectWebWorkerProbe_MutationAckLeavesSuspect.cfg` | Valid acknowledgment leaves watchdog suspicion active | `ProbeAcknowledgmentClearsSuspicion` |
 | `InspectWebWorkerProbe_MutationAcceptWrongAck.cfg` | Acknowledgment accepts a mismatched or no-outstanding probe sequence | `InvalidAcknowledgmentFails` |
 | `InspectWebWorkerProbe_MutationAcceptWrongAckSequence.cfg` | Acknowledgment accepts a sequence other than the physical outstanding probe | `ProbeSequenceIsExact` |
 | `InspectWebWorkerProbe_MutationEvidenceBoundBlocksAck.cfg` | Finite task-evidence saturation disables a matching acknowledgment | `MatchingProbeAcknowledgmentRemainsProcessable` |
+| `InspectWebWorkerProbe_MutationIgnoreMissingProbeAck.cfg` | A later serialized response is treated as ordinary liveness while its preceding probe remains unacknowledged | `LaterSerializedResponseProvesMissingProbeAcknowledgment` |
 | `InspectWebWorkerProbe_MutationResumeRetiresRegister.cfg` | Lifecycle recovery replaces the outstanding probe register | `OutstandingRegisterMatchesPhysicalProbe` |
-| `InspectWebWorkerProbe_MutationTaskEvidenceRetiresRegister.cfg` | Non-acknowledgment task evidence discards a covered omission | `CoveredOmissionFails` |
+| `InspectWebWorkerProbe_MutationSerializedResponseLeavesSuspect.cfg` | An ordinary serialized response leaves watchdog suspicion active | `OrdinarySerializedResponseClearsSuspicion` |
+| `InspectWebWorkerProbe_MutationStaleProbeMark.cfg` | A command mark survives probe retirement and accuses a response under a later probe | `ControlResponseFailureHasProof` |
+| `InspectWebWorkerProbe_MutationStaleProbeMarkRetention.cfg` | A command mark survives retirement of the exact probe that it names | `ProbeMarkMatchesOutstandingRegister` |
+| `InspectWebWorkerProbe_MutationTaskEvidenceRetiresRegister.cfg` | Heartbeat evidence discards a covered omission | `CoveredOmissionFails` |
 | `InspectWebWorkerProbe_MutationRetainAfterProbeExhaustion.cfg` | The epoch remains live after retiring its maximum probe sequence | `NoLiveEpochAfterProbeSequenceExhaustion` |
-| `InspectWebWorkerProbe_MutationMisclassifyExhaustionAsProtocolFailure.cfg` | An uncovered omitted response replaces maximum-sequence exhaustion with control-response failure | `ProtocolFailureHasCoveredOmissionProof` |
+| `InspectWebWorkerProbe_MutationMisclassifyExhaustionAsProtocolFailure.cfg` | An uncovered omitted response replaces maximum-sequence exhaustion with control-response failure | `ControlResponseFailureHasProof` |
 
 ### Input-validation mutations
 
