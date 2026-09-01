@@ -101,61 +101,25 @@ public static class ResearchMemberIdentity
                 : "");
 
     static BodyMemberIdentity BodyIdentityFromTarget(
-        ResolvedMemberTarget target,
-        bool positionalGenericIdentity = false)
+        ResolvedMemberTarget target)
     {
         var member = target.ApiMember.Member;
         var signature = member.SignatureModel;
         var memberName = member.Kind == "constructor"
             ? "#ctor"
             : string.IsNullOrWhiteSpace(signature?.MemberName) ? member.Name : signature!.MemberName!;
-        if (positionalGenericIdentity)
-        {
-            memberName = NormalizeGenericParameters(
-                memberName,
-                target.ApiType,
-                signature);
-        }
-
-        if (positionalGenericIdentity
-            && signature is { TypeParameters.Count: > 0 }
-            && memberName.LastIndexOf('<') is int genericStart
-            && genericStart > 0
-            && memberName.EndsWith('>'))
-        {
-            memberName = memberName[..genericStart];
-        }
         var generic = signature is { TypeParameters.Count: > 0 }
-            ? positionalGenericIdentity
-                ? $"<{string.Join(",", Enumerable.Range(
-                    0,
-                    signature.TypeParameters.Count).Select(
-                        static index => $"!!{index}"))}>"
-                : $"<{string.Join(",", signature.TypeParameters.Select(
-                    parameter => parameter.Name))}>"
+            ? $"<{string.Join(",", signature.TypeParameters.Select(
+                parameter => parameter.Name))}>"
             : "";
         var parameters = signature is null
             ? "()"
             : $"({string.Join(",", signature.Parameters.Select(parameter =>
-                positionalGenericIdentity
-                    ? NormalizeGenericParameters(
-                        BodyParameterTypeName(
-                            parameter.CanonicalTypeWithModifier),
-                        target.ApiType,
-                        signature)
-                    : BodyParameterTypeName(
-                        parameter.TypeWithModifier)))})";
+                BodyParameterTypeName(parameter.TypeWithModifier)))})";
         var declaringType = target.Body?.DeclaringType
             ?? (member.IsExtension && !string.IsNullOrWhiteSpace(member.DeclaringType)
                 ? member.DeclaringType!
                 : target.Anchor.TypeFullName);
-        if (positionalGenericIdentity)
-        {
-            declaringType = NormalizeGenericParameters(
-                declaringType,
-                target.ApiType,
-                method: null);
-        }
 
         var selectorName = target.Anchor.StableSelector.Split('~')[0];
         if (member.IsExtension && !selectorName.StartsWith("extension:", StringComparison.Ordinal))
@@ -169,107 +133,8 @@ public static class ResearchMemberIdentity
             // Mirror the conversion-operator return-type disambiguation used by the API
             // anchor and the method-body path, so all identity producers agree.
             ApiMemberIdentity.IsConversionOperator(member.Name) && !string.IsNullOrWhiteSpace(signature?.ReturnType)
-                ? $"~{(positionalGenericIdentity
-                    ? NormalizeGenericParameters(
-                        BodyParameterTypeName(
-                            signature!.EffectiveCanonicalReturnType!),
-                        target.ApiType,
-                        signature)
-                    : BodyParameterTypeName(signature!.ReturnType!))}"
+                ? $"~{BodyParameterTypeName(signature!.ReturnType!)}"
                 : "");
-    }
-
-    internal static string CanonicalBodyIdentity(ResolvedMemberTarget target)
-        => BodyIdentityFromTarget(
-            target,
-            positionalGenericIdentity: true).CanonicalSignature;
-
-    static string NormalizeGenericParameters(
-        string value,
-        ApiType type,
-        ApiSignature? method)
-    {
-        string normalized = value;
-        if (method is not null)
-        {
-            for (int index = 0; index < method.TypeParameters.Count; index++)
-            {
-                normalized = ReplaceIdentifier(
-                    normalized,
-                    method.TypeParameters[index].Name,
-                    $"!!{index}");
-            }
-        }
-
-        for (int index = 0; index < type.TypeParameters.Count; index++)
-        {
-            normalized = ReplaceIdentifier(
-                normalized,
-                type.TypeParameters[index].Name,
-                $"!{index}");
-        }
-
-        return normalized;
-    }
-
-    static string ReplaceIdentifier(
-        string value,
-        string identifier,
-        string replacement)
-    {
-        if (identifier.StartsWith('@'))
-            identifier = identifier[1..];
-        if (string.IsNullOrEmpty(identifier)
-            || value.IndexOf(identifier, StringComparison.Ordinal) < 0)
-        {
-            return value;
-        }
-
-        var result = new System.Text.StringBuilder(value.Length);
-        int copyFrom = 0;
-        for (int index = 0;
-            index <= value.Length - identifier.Length;)
-        {
-            int matchStart =
-                index > 0 && value[index - 1] == '@'
-                    ? index - 1
-                    : index;
-            if (!value.AsSpan(index).StartsWith(
-                    identifier,
-                    StringComparison.Ordinal)
-                || (matchStart > 0
-                    && IsIdentifierPart(value[matchStart - 1]))
-                || (matchStart > 0
-                    && value[matchStart - 1] is '.' or '+')
-                || (index + identifier.Length < value.Length
-                    && IsIdentifierPart(
-                        value[index + identifier.Length])))
-            {
-                index++;
-                continue;
-            }
-
-            result.Append(value, copyFrom, matchStart - copyFrom);
-            result.Append(replacement);
-            index += identifier.Length;
-            copyFrom = index;
-        }
-
-        if (copyFrom == 0)
-            return value;
-
-        result.Append(value, copyFrom, value.Length - copyFrom);
-        return result.ToString();
-
-        static bool IsIdentifierPart(char value)
-            => char.IsLetterOrDigit(value)
-                || value == '_'
-                || char.GetUnicodeCategory(value)
-                    is System.Globalization.UnicodeCategory.ConnectorPunctuation
-                        or System.Globalization.UnicodeCategory.Format
-                        or System.Globalization.UnicodeCategory.NonSpacingMark
-                        or System.Globalization.UnicodeCategory
-                            .SpacingCombiningMark;
     }
 
     static BodyMemberIdentity CreateBodyIdentity(

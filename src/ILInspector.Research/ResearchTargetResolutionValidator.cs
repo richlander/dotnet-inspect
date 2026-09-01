@@ -287,6 +287,48 @@ static class ResearchTargetResolutionValidator
             return;
         }
 
+        ImmutableArray<ResearchTargetAttempt> unkeyable =
+        [
+            .. resolved.Where(
+                attempt =>
+                    attempt.Outcome is ResearchTargetOutcome.Resolved
+                    {
+                        Role: not ResearchTargetRelationshipRole.None,
+                        BodyIdentity: null,
+                    }),
+        ];
+        if (!unkeyable.IsEmpty)
+        {
+            Require(
+                outcomes.Length == resolved.Length
+                    && outcomes.All(
+                        outcome => outcome
+                            is ResearchTargetCorrespondenceOutcome
+                                .CounterpartUnavailable),
+                "Unavailable body identity must retain every resolved endpoint without correspondence keys.");
+            foreach ((
+                ResearchTargetAttempt attempt,
+                ResearchTargetCorrespondenceOutcome outcome)
+                in resolved.Zip(outcomes))
+            {
+                var unavailable =
+                    (ResearchTargetCorrespondenceOutcome
+                        .CounterpartUnavailable)outcome;
+                ValidateUnavailableTarget(
+                    unavailable,
+                    attempt,
+                    expectKeys: false);
+                ValidateTaint(
+                    unavailable.Taint,
+                    domain,
+                    ResearchTargetTaintKind.BodyIdentityUnavailable,
+                    unkeyable,
+                    [],
+                    []);
+            }
+            return;
+        }
+
         ResearchTargetAttempt? beforeTarget =
             resolved.SingleOrDefault(
                 attempt =>
@@ -491,16 +533,14 @@ static class ResearchTargetResolutionValidator
             attempt.Outcome as ResearchTargetOutcome.Resolved
             ?? throw Violation(
                 "A correspondence key requires a resolved attempt.");
-        string canonical =
-            resolved.Role == ResearchTargetRelationshipRole.None
-                ? resolved.Anchor.CanonicalSignature
-                : ResearchMemberIdentity.CanonicalBodyIdentity(
-                    resolved.Target);
         return new(
             attempt.Request.Scope,
             attempt.Request.Domain,
             resolved.Role,
-            canonical);
+            resolved.BodyIdentity,
+            resolved.Role == ResearchTargetRelationshipRole.None
+                ? resolved.Anchor
+                : null);
     }
 
     static void ValidateKeyAbsenceProof(
@@ -1133,20 +1173,33 @@ static class ResearchTargetResolutionValidator
             }
         }
 
+        ResearchTargetBodyIdentity? expectedBodyIdentity = null;
+        if (derivedRole != ResearchTargetRelationshipRole.None)
+        {
+            TryCreateExpectedBodyIdentity(
+                input,
+                derivedAddress!.Value.Token,
+                target,
+                derivedRole.Value,
+                out expectedBodyIdentity);
+        }
+
         ValidateResolved(
             outcome as ResearchTargetOutcome.Resolved
                 ?? throw Violation(
                     "A validated Metadata target must terminate Resolved."),
             request,
             input,
-            evidence);
+            evidence,
+            expectedBodyIdentity);
     }
 
     static void ValidateResolved(
         ResearchTargetOutcome.Resolved resolved,
         ResearchTargetRequest request,
         ResearchAdmittedInput input,
-        ResearchTargetValidationEvidence evidence)
+        ResearchTargetValidationEvidence evidence,
+        ResearchTargetBodyIdentity? expectedBodyIdentity)
     {
         MemberTargetResolution metadata =
             ValidateMetadataResolution(request, evidence);
@@ -1181,6 +1234,11 @@ static class ResearchTargetResolutionValidator
             (resolved.Address is null)
                 == (expectedRole == ResearchTargetRelationshipRole.None),
             "A durable address exists exactly when the derived relationship is physical.");
+        Require(
+            Equals(resolved.BodyIdentity, expectedBodyIdentity)
+                && (expectedRole != ResearchTargetRelationshipRole.None
+                    || resolved.BodyIdentity is null),
+            "A resolved body identity must re-derive from the exact Analysis MethodDef.");
 
         if (resolved.Address is { } address)
         {
@@ -1207,6 +1265,39 @@ static class ResearchTargetResolutionValidator
                     && resolved.Role == request.AssertedRole,
                 "A resolved exact request must equal its asserted address and role.");
         }
+    }
+
+    static bool TryCreateExpectedBodyIdentity(
+        ResearchAdmittedInput input,
+        int metadataToken,
+        ResolvedMemberTarget target,
+        ResearchTargetRelationshipRole role,
+        out ResearchTargetBodyIdentity? identity)
+    {
+        identity = null;
+        if (input.Occurrence
+            is not ImplementationComparisonInputOccurrence occurrence)
+        {
+            return false;
+        }
+
+        MethodIdentity? method = null;
+        foreach (MethodIdentity candidate
+            in occurrence.BodyIndex.DeclaredMethods)
+        {
+            if (candidate.MetadataToken != metadataToken)
+                continue;
+            if (method is not null)
+                return false;
+            method = candidate;
+        }
+
+        return method is not null
+            && ResearchTargetBodyIdentity.TryCreate(
+                method,
+                target,
+                role,
+                out identity);
     }
 
     static void ValidateNotFound(

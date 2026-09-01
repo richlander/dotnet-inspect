@@ -251,7 +251,8 @@ public abstract class ResearchTargetOutcome
             MetadataMethodAddress? address,
             ResearchTargetRelationshipRole role,
             LibraryBodyModuleIdentity module,
-            ImmutableArray<MemberTargetCandidate> candidates)
+            ImmutableArray<MemberTargetCandidate> candidates,
+            ResearchTargetBodyIdentity? bodyIdentity = null)
             : base(ResearchTargetOutcomeKind.Resolved)
         {
             Target = target;
@@ -259,6 +260,7 @@ public abstract class ResearchTargetOutcome
             Role = role;
             Module = module;
             Candidates = candidates;
+            BodyIdentity = bodyIdentity;
         }
 
         /// <summary>The exact Metadata-issued resolved target.</summary>
@@ -287,6 +289,12 @@ public abstract class ResearchTargetOutcome
 
         /// <summary>The exact Metadata-issued candidate set.</summary>
         public ImmutableArray<MemberTargetCandidate> Candidates { get; }
+
+        /// <summary>
+        /// The Analysis-issued structured physical body identity. Null exactly
+        /// when <see cref="Role"/> is <see cref="ResearchTargetRelationshipRole.None"/>.
+        /// </summary>
+        public ResearchTargetBodyIdentity? BodyIdentity { get; }
     }
 
     /// <summary>

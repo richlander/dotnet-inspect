@@ -37,6 +37,12 @@ public enum ResearchTargetTaintKind
 
     /// <summary>The opposite not-found evidence does not cover the resolved key.</summary>
     AbsenceNotProven,
+
+    /// <summary>
+    /// Selection succeeded, but Analysis supplied no complete structured body
+    /// identity from which correspondence could be established.
+    /// </summary>
+    BodyIdentityUnavailable,
 }
 
 /// <summary>The closed correspondence outcome for one target domain.</summary>
@@ -152,12 +158,30 @@ public sealed class ResearchTargetCorrespondenceKey :
         ResearchTargetScopeId scope,
         ResearchTargetDomainId domain,
         ResearchTargetRelationshipRole role,
-        string canonicalIdentity)
+        ResearchTargetBodyIdentity? bodyIdentity,
+        MemberAnchor? anchor)
     {
+        if ((role == ResearchTargetRelationshipRole.None)
+            != (anchor is not null))
+        {
+            throw new ArgumentException(
+                "Only a role-None correspondence key retains an API anchor.");
+        }
+        if ((role == ResearchTargetRelationshipRole.None)
+            == (bodyIdentity is not null))
+        {
+            throw new ArgumentException(
+                "Exactly one typed body identity or API anchor is required.");
+        }
+
         Scope = scope;
         Domain = domain;
         Role = role;
-        CanonicalIdentity = canonicalIdentity;
+        BodyIdentity = bodyIdentity;
+        Anchor = anchor;
+        CanonicalIdentity =
+            bodyIdentity?.CanonicalIdentity
+            ?? anchor!.CanonicalSignature;
     }
 
     public ResearchTargetScopeId Scope { get; }
@@ -166,6 +190,10 @@ public sealed class ResearchTargetCorrespondenceKey :
 
     public ResearchTargetRelationshipRole Role { get; }
 
+    public ResearchTargetBodyIdentity? BodyIdentity { get; }
+
+    public MemberAnchor? Anchor { get; }
+
     public string CanonicalIdentity { get; }
 
     public bool Equals(ResearchTargetCorrespondenceKey? other)
@@ -173,9 +201,10 @@ public sealed class ResearchTargetCorrespondenceKey :
             && ReferenceEquals(Scope, other.Scope)
             && ReferenceEquals(Domain, other.Domain)
             && Role == other.Role
+            && Equals(BodyIdentity, other.BodyIdentity)
             && string.Equals(
-                CanonicalIdentity,
-                other.CanonicalIdentity,
+                Anchor?.CanonicalSignature,
+                other.Anchor?.CanonicalSignature,
                 StringComparison.Ordinal);
 
     public override bool Equals(object? obj)
@@ -186,7 +215,8 @@ public sealed class ResearchTargetCorrespondenceKey :
             RuntimeHelpers.GetHashCode(Scope),
             RuntimeHelpers.GetHashCode(Domain),
             Role,
-            StringComparer.Ordinal.GetHashCode(CanonicalIdentity));
+            BodyIdentity,
+            Anchor?.CanonicalSignature);
 }
 
 /// <summary>
@@ -545,6 +575,37 @@ internal static class ResearchTargetCorrespondenceBuilder
             return;
         }
 
+        ImmutableArray<ResearchTargetAttempt> unkeyable =
+        [
+            .. resolvedAttempts.Where(
+                attempt =>
+                    attempt.Outcome is ResearchTargetOutcome.Resolved
+                    {
+                        Role: not ResearchTargetRelationshipRole.None,
+                        BodyIdentity: null,
+                    }),
+        ];
+        if (!unkeyable.IsEmpty)
+        {
+            ResearchTargetTaintEvidence taint = new(
+                ResearchTargetTaintKind.BodyIdentityUnavailable,
+                domain,
+                unkeyable,
+                [],
+                []);
+            foreach (ResearchTargetAttempt attempt in resolvedAttempts)
+            {
+                outcomes.Add(
+                    new ResearchTargetCorrespondenceOutcome
+                        .CounterpartUnavailable(
+                            domain,
+                            attempt,
+                            keyedTarget: null,
+                            taint));
+            }
+            return;
+        }
+
         ImmutableArray<ResearchCorrespondingTarget> targets =
             [.. resolvedAttempts.Select(Target)];
         ResearchCorrespondingTarget? beforeTarget =
@@ -669,15 +730,14 @@ internal static class ResearchTargetCorrespondenceBuilder
             resolved.Role,
             address,
             anchor);
-        string canonical =
-            resolved.Role == ResearchTargetRelationshipRole.None
-                ? resolved.Anchor.CanonicalSignature
-                : ResearchMemberIdentity.CanonicalBodyIdentity(resolved.Target);
         var correspondence = new ResearchTargetCorrespondenceKey(
             attempt.Request.Scope,
             attempt.Request.Domain,
             resolved.Role,
-            canonical);
+            resolved.BodyIdentity,
+            resolved.Role == ResearchTargetRelationshipRole.None
+                ? resolved.Anchor
+                : null);
         return new ResearchCorrespondingTarget(
             attempt,
             strict,

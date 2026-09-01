@@ -251,7 +251,8 @@ public class ResearchTargetResolverTests
                 resolved.Address,
                 ResearchTargetRelationshipRole.Getter,
                 resolved.Module,
-                resolved.Candidates));
+                resolved.Candidates,
+                resolved.BodyIdentity));
         Rejects(
             new ResearchTargetOutcome.Resolved(
                 resolved.Target,
@@ -259,14 +260,16 @@ public class ResearchTargetResolverTests
                 resolved.Role,
                 LibraryBodyIndex.Open(
                     FixtureCatalog.DiffV1.AssemblyPath()).ModuleIdentity,
-                resolved.Candidates));
+                resolved.Candidates,
+                resolved.BodyIdentity));
         Rejects(
             new ResearchTargetOutcome.Resolved(
                 resolved.Target,
                 resolved.Address,
                 resolved.Role,
                 resolved.Module,
-                []));
+                [],
+                resolved.BodyIdentity));
         Rejects(
             new ResearchTargetOutcome.NotFound(
                 new MemberTargetDiagnostic(
@@ -321,7 +324,15 @@ public class ResearchTargetResolverTests
             beforeOnly.Scope,
             beforeOnly.DomainId,
             beforeOnly.Before.CorrespondenceKey.Role,
-            beforeOnly.Before.CorrespondenceKey.CanonicalIdentity + "-stale");
+            new ResearchTargetBodyIdentity(
+                beforeOnly.Before.CorrespondenceKey.BodyIdentity!.DeclaringType,
+                beforeOnly.Before.CorrespondenceKey.BodyIdentity.Name + "-stale",
+                beforeOnly.Before.CorrespondenceKey.BodyIdentity.GenericArity,
+                beforeOnly.Before.CorrespondenceKey.BodyIdentity.ParameterTypes,
+                beforeOnly.Before.CorrespondenceKey.BodyIdentity
+                    .ConversionReturnType,
+                beforeOnly.Before.CorrespondenceKey.BodyIdentity.IsExtension),
+            anchor: null);
         RejectsProjection(
             valid.Censuses,
             [
@@ -901,10 +912,15 @@ public class ResearchTargetResolverTests
         Assert.Equal(
             ResearchTargetRelationshipRole.Method,
             extension.Before.CorrespondenceKey.Role);
-        Assert.Contains(
-            "DiffFixtureSample.ExtensionSample.Twice",
-            extension.Before.CorrespondenceKey.CanonicalIdentity,
-            StringComparison.Ordinal);
+        Assert.Equal(
+            "Twice",
+            extension.Before.CorrespondenceKey.BodyIdentity!.Name);
+        Assert.Equal(
+            "DiffFixtureSample.ExtensionSample",
+            extension.Before.CorrespondenceKey.BodyIdentity
+                .DeclaringType.ToQualifiedDisplayString());
+        Assert.True(
+            extension.Before.CorrespondenceKey.BodyIdentity.IsExtension);
         Assert.True(
             extension.Before.Target.Target.ApiMember.Member.IsExtension);
 
@@ -915,10 +931,10 @@ public class ResearchTargetResolverTests
                 Assert.Single(
                     nestedFixture.ResolveDefault(NestedType, "Method")
                         .Correspondences));
-        Assert.Contains(
-            "TargetOuter.TargetInner",
-            nested.Before.CorrespondenceKey.CanonicalIdentity,
-            StringComparison.Ordinal);
+        Assert.Equal(
+            ["TargetOuter", "TargetInner"],
+            nested.Before.CorrespondenceKey.BodyIdentity!.DeclaringType
+                .Resolution!.Type.Segments);
 
         TargetFixture accessorFixture =
             TargetFixture.Create([(Sample(), Sample(), null)]);
@@ -983,58 +999,117 @@ public class ResearchTargetResolverTests
     [Fact]
     public void ResearchTargetKeys_UseTupleErasedCanonicalTypes()
     {
-        TargetFixture sampleFixture =
-            TargetFixture.Create([(Sample(), null, null)]);
-        ResolvedMemberTarget method = Assert.IsType<
-            ResearchTargetCorrespondenceOutcome.BeforeOnly>(
+        TargetFixture fixture = TargetFixture.Create(
+            [(
+                Diff(FixtureCatalog.DiffV1),
+                Diff(FixtureCatalog.DiffV2),
+                null)]);
+        var paired = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.Paired>(
                 Assert.Single(
-                    sampleFixture.ResolveDefault(
-                            SampleType,
-                            "Overloaded:1")
-                        .Correspondences))
-            .Before.Target.Target;
-        ApiParameter parameter =
-            Assert.Single(method.ApiMember.Member.SignatureModel!.Parameters);
-        parameter.Type = "(int left, int right)";
-        parameter.CanonicalType = "System.ValueTuple<int, int>";
-        string first =
-            ResearchMemberIdentity.CanonicalBodyIdentity(method);
-        parameter.Type = "(int x, int y)";
-        string second =
-            ResearchMemberIdentity.CanonicalBodyIdentity(method);
+                    fixture.ResolveDefault(
+                            "CorrespondenceIdentity.GenericCollisions",
+                            "Tuple")
+                        .Correspondences));
 
-        Assert.Equal(first, second);
-        Assert.Contains(
-            "System.ValueTuple",
-            first,
-            StringComparison.Ordinal);
-        Assert.DoesNotContain("left", first, StringComparison.Ordinal);
+        Assert.Equal(
+            paired.Before.CorrespondenceKey.BodyIdentity,
+            paired.After.CorrespondenceKey.BodyIdentity);
+        Assert.Equal(
+            TypeRefKind.GenericInstance,
+            Assert.Single(
+                paired.Before.CorrespondenceKey.BodyIdentity!.ParameterTypes)
+                .Kind);
+    }
 
-        TargetFixture conversionFixture = TargetFixture.Create(
-            [(Diff(FixtureCatalog.DiffV1), null, null)]);
-        ResolvedMemberTarget conversion = Assert.IsType<
-            ResearchTargetCorrespondenceOutcome.BeforeOnly>(
+    [Fact]
+    public void ResearchTargetKeys_UseTypedBodyIdentityForGenericAndNestedCollisions()
+    {
+        TargetFixture fixture = TargetFixture.Create(
+            [(
+                Diff(FixtureCatalog.DiffV1),
+                Diff(FixtureCatalog.DiffV2),
+                null)]);
+
+        var namedType = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.Paired>(
                 Assert.Single(
-                    conversionFixture.ResolveDefault(
-                            "DiffFixtureSample.ConversionSample",
-                            "op_Implicit:1")
-                        .Correspondences))
-            .Before.Target.Target;
-        ApiSignature? signature =
-            conversion.ApiMember.Member.SignatureModel;
-        Assert.NotNull(signature);
-        signature.ReturnType = "(int left, int right)";
-        signature.CanonicalReturnType = "System.ValueTuple<int, int>";
-        first = ResearchMemberIdentity.CanonicalBodyIdentity(conversion);
-        signature.ReturnType = "(int x, int y)";
-        second = ResearchMemberIdentity.CanonicalBodyIdentity(conversion);
+                    fixture.ResolveDefault(
+                            "CorrespondenceIdentity.GenericCollisions",
+                            "NamedType")
+                        .Correspondences));
+        Assert.Equal(
+            namedType.Before.CorrespondenceKey.BodyIdentity,
+            namedType.After.CorrespondenceKey.BodyIdentity);
+        Assert.Equal(
+            TypeRefKind.MethodGenericParameter,
+            namedType.Before.CorrespondenceKey.BodyIdentity!
+                .ParameterTypes[0].Kind);
+        Assert.Equal(
+            TypeRefKind.Definition,
+            namedType.Before.CorrespondenceKey.BodyIdentity
+                .ParameterTypes[1].Kind);
+        Assert.Equal(
+            "T",
+            namedType.Before.CorrespondenceKey.BodyIdentity
+                .ParameterTypes[1].Name);
 
-        Assert.Equal(first, second);
-        Assert.Contains(
-            "~System.ValueTuple",
-            first,
-            StringComparison.Ordinal);
-        Assert.DoesNotContain("left", first, StringComparison.Ordinal);
+        var primitiveName = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.Paired>(
+                Assert.Single(
+                    fixture.ResolveDefault(
+                            "CorrespondenceIdentity.GenericCollisions",
+                            "PrimitiveName")
+                        .Correspondences));
+        Assert.Equal(
+            primitiveName.Before.CorrespondenceKey.BodyIdentity,
+            primitiveName.After.CorrespondenceKey.BodyIdentity);
+        Assert.Equal(
+            TypeRefKind.MethodGenericParameter,
+            Assert.Single(
+                primitiveName.Before.CorrespondenceKey.BodyIdentity!
+                    .ParameterTypes).Kind);
+
+        ResearchTargetResolution nested = fixture.ResolveDefault(
+            "CorrespondenceIdentity.Outer.Inner",
+            "M");
+        ResearchTargetCorrespondenceOutcome.CounterpartUnavailable[] drift =
+        [
+            .. nested.Correspondences
+                .Select(Assert.IsType<
+                    ResearchTargetCorrespondenceOutcome
+                        .CounterpartUnavailable>),
+        ];
+        Assert.Equal(2, drift.Length);
+        Assert.All(
+            drift,
+            outcome => Assert.Equal(
+                ResearchTargetTaintKind.SelectionDrift,
+                outcome.Taint.Kind));
+
+        MetadataTypeDefinitionName? beforeType =
+            drift.Single(outcome =>
+                    outcome.Attempt.Request.Side
+                        == ResearchComparisonSide.Before)
+                .CorrespondenceKey!.BodyIdentity!
+                .DeclaringType.Resolution?.Type;
+        MetadataTypeDefinitionName? afterType =
+            drift.Single(outcome =>
+                    outcome.Attempt.Request.Side
+                        == ResearchComparisonSide.After)
+                .CorrespondenceKey!.BodyIdentity!
+                .DeclaringType.Resolution?.Type;
+        Assert.NotNull(beforeType);
+        Assert.NotNull(afterType);
+        Assert.Equal(
+            ["Outer", "Inner"],
+            beforeType!.Segments);
+        Assert.Equal(
+            ["Inner"],
+            afterType!.Segments);
+        Assert.Equal(
+            "CorrespondenceIdentity.Outer",
+            afterType.Namespace);
     }
 
     [Fact]
@@ -2184,9 +2259,18 @@ public class ResearchTargetResolverTests
             ResearchTargetDiagnosticKind.IncompleteMetadataSurface,
             failed.Diagnostic.Kind);
 
+        ResearchTargetResolution resolved =
+            fixture.ResolveDefault("N.C", "M");
         Assert.IsType<ResearchTargetOutcome.Resolved>(
-            Assert.Single(
-                fixture.ResolveDefault("N.C", "M").Attempts).Outcome);
+            Assert.Single(resolved.Attempts).Outcome);
+        var unavailable = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.CounterpartUnavailable>(
+                Assert.Single(resolved.Correspondences));
+        Assert.Null(unavailable.StrictKey);
+        Assert.Null(unavailable.CorrespondenceKey);
+        Assert.Equal(
+            ResearchTargetTaintKind.BodyIdentityUnavailable,
+            unavailable.Taint.Kind);
     }
 
     [Fact]

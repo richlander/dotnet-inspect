@@ -564,17 +564,21 @@ owner-issued target evidence:
   relationship role, and the exact `MetadataMethodAddress` for a physical
   method. A non-method-like target instead retains its exact `MemberAnchor`
   with role `None`; and
-- the correspondence key retains scope, domain, relationship role, and the
-  canonical body identity produced by `ResearchMemberIdentity` from the exact
-  `ResolvedMemberTarget`. It erases side, admitted-input identity, assembly
-  version, MVID, and MethodDef token. For role `None`, it retains the exact API
-  `MemberAnchor` canonical identity because no body identity exists.
+- the correspondence key retains scope, domain, relationship role, and a
+  Research-owned body identity projected from the exact Analysis-issued
+  `MethodIdentity` for the resolved MethodDef. It erases side, admitted-input
+  identity, assembly version, MVID, MethodDef token, and generic-parameter
+  names. For role `None`, it retains the exact API `MemberAnchor` canonical
+  identity because no body identity exists.
 
-The Research body identity preserves physical declaring type, member name,
-generic arity, open parameter types, conversion return shape, and projected
-extension body target. Nested-type spelling flows through the existing
-API-to-body bridge. Distinct assembly domains, overload shapes, relationship
-roles, extension bodies, and nested types therefore remain distinct even when
+The Research body identity preserves the structured physical declaring
+`TypeRef`, the selected declaration name and open parameter shape normalized
+for its accessor role, generic arity, conversion return shape, and the
+Analysis-issued extension projection. Analysis generic parameters participate
+by kind and position, and exact metadata definition names preserve namespace
+and nested-type segments separately. Distinct assembly domains, overload
+shapes, relationship roles, extension bodies, and nested types therefore
+remain distinct even when
 a display name matches.
 
 The key grammar and constructors are Research-owned. Metadata does not group
@@ -582,6 +586,12 @@ targets into Research correspondence domains, and callers do not author or
 parse either key. Rendered assembly identities, list position, normalized
 display text, selector strings, and `ResearchSubjectKey.Id` are not
 correspondence keys.
+
+If Metadata selection succeeds but the admitted Analysis index has no complete
+structured `MethodIdentity` for that MethodDef, the attempt remains `Resolved`.
+Research emits `CounterpartUnavailable` with `BodyIdentityUnavailable` taint
+and no correspondence key rather than converting selection success into a
+failure or comparing a lossy textual fallback.
 
 Correspondence is scope-local and has these closed outcomes:
 

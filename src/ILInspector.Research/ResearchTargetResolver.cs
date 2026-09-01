@@ -693,12 +693,57 @@ public static class ResearchTargetResolver
             }
         }
 
+        ResearchTargetBodyIdentity? bodyIdentity = null;
+        if (role != ResearchTargetRelationshipRole.None)
+        {
+            TryCreateBodyIdentity(
+                planned.Input,
+                address!.Value.Token,
+                target,
+                role.Value,
+                out bodyIdentity);
+        }
+
         return new ResearchTargetOutcome.Resolved(
             target,
             address,
             role.Value,
             module,
-            candidates);
+            candidates,
+            bodyIdentity);
+    }
+
+    static bool TryCreateBodyIdentity(
+        ResearchAdmittedInput input,
+        int metadataToken,
+        ResolvedMemberTarget target,
+        ResearchTargetRelationshipRole role,
+        out ResearchTargetBodyIdentity? identity)
+    {
+        identity = null;
+        if (input.Occurrence
+            is not ImplementationComparisonInputOccurrence occurrence)
+        {
+            return false;
+        }
+
+        MethodIdentity? method = null;
+        foreach (MethodIdentity candidate
+            in occurrence.BodyIndex.DeclaredMethods)
+        {
+            if (candidate.MetadataToken != metadataToken)
+                continue;
+            if (method is not null)
+                return false;
+            method = candidate;
+        }
+
+        return method is not null
+            && ResearchTargetBodyIdentity.TryCreate(
+                method,
+                target,
+                role,
+                out identity);
     }
 
     static ApiSurfaceInspectionFailure? FindPotentiallyCoveringFailure(
