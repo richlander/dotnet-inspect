@@ -132,13 +132,24 @@ positive and negative forms;
 `StateMachineRelationshipIndex_RejectsMalformedAsyncEnumeratorShape` gates the
 constructed-interface distinction.
 
-`AbsentFromArtifact` is narrower than failure to resolve a role. It is issued
-for classic `SetStateMachine` only when the bounded scan finds neither an exact
-`MethodImpl` declaration for that role nor any implicit-name MethodDef
-candidate on the state-machine type. A candidate that is malformed, bodyless,
-static, custom-modified, wrong-signature, or ambiguous remains `Rejected`.
-Malformed references and exhausted scan or decode budgets also remain
-`Rejected`; they never certify absence.
+`AbsentFromArtifact` is narrower than failure to resolve a role. Candidate
+recognition happens before full role validation:
+
+- an explicit candidate is a `MethodImpl` whose readable declaration names the
+  required interface and role, before its signature or body is accepted; and
+- an implicit candidate is a MethodDef on the state-machine type with the exact
+  role name, before its visibility, flags, signature, or body is accepted.
+
+Existing explicit-over-implicit precedence still determines whether a valid
+role resolves. If no valid role resolves, classic `SetStateMachine` receives
+`AbsentFromArtifact` only when the bounded scan found no candidate in either
+tier. Any candidate that fails full validation instead produces `Rejected`.
+That includes an explicit declaration with the right interface and role name
+but a wrong signature, even when its body uses an interface-qualified or
+otherwise non-implicit name.
+
+Unreadable or malformed declarations and exhausted scan or decode budgets also
+remain `Rejected`; they never certify absence.
 
 This narrow rule records what the inspected artifact contains without treating
 post-link incompleteness as missing identity. Extending
@@ -227,7 +238,8 @@ Release gates for:
 - complete role-disposition publication with no omitted classic role;
 - rejection when `MoveNext` is missing or invalid; and
 - rejection, rather than absence, for malformed, bodyless, ambiguous, or
-  contradictory `SetStateMachine` candidates.
+  contradictory `SetStateMachine` candidates, including a wrong-signature
+  explicit declaration whose body does not have the implicit role name.
 
 `ClassicAsyncArtifactMatrixTests.TrimmedArtifactWithoutRolePreservation_RetainsKickoffButCannotFormRequest`
 currently gates the artifact premise and the old rejection behavior.
