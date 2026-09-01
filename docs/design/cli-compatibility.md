@@ -90,6 +90,23 @@ interpretation, or a success-shaped failure. A correction can be intentionally
 breaking; it must be named as such rather than described as compatible because
 the new behavior is preferable.
 
+## Change classifications
+
+Classification and transition state are separate decisions. A change can use a
+compatibility alias without being deprecated, or use a terminal deprecation
+while making an intentional break.
+
+| Classification | Definition | Disclosure and evidence |
+| -------------- | ---------- | ----------------------- |
+| Compatible | Every previously published invocation and owner-issued outcome contract remains valid. Additions have cleared routing, binding, default, vocabulary, and strict-consumer collisions. | Gate the old neighboring case and the new case. A **Breaking** release-note label is not used. |
+| Migration-preserving | The canonical surface changes, but each old published invocation remains recognized and operational through a compatibility alias or forwarding shim with the same operation and owner-issued result meaning. New guidance or canonical output may identify the replacement. | Release notes name the replacement. Gate old and new invocations, equivalence of the owned result, guidance channel when present, and unchanged success class. |
+| Corrective but breaking | A bug, unsafe interpretation, success-shaped failure, or false result is corrected by changing a previously observable contract. | Use a **Breaking** release-note entry that explains the correction and migration. Gate the former pathological case to the corrected result, channel, and exit class. |
+| Intentionally breaking | A command, spelling, default, operation, or output contract is removed or redesigned for reasons other than correcting false behavior. | Use a **Breaking** release-note entry and an explicit migration. Deprecate first unless the PR justifies direct removal. Gate the replacement and the old input's final migration or removal behavior. |
+
+A terminal deprecation is corrective or intentionally breaking because the old
+invocation no longer succeeds. Recognition and guidance make the break
+actionable; they do not make it compatible.
+
 ## Additive changes are not automatically compatible
 
 A new command, alias, option, output field, or accepted spelling is only
@@ -97,10 +114,10 @@ additive after its effect on existing inputs has been checked.
 
 The required pathological cases are:
 
-- **Implicit package routing:** command names are reserved before a bare token
-  can route to package inspection. Adding a command or alias can therefore
-  change an existing invocation from "inspect this package" to "run this
-  command."
+- **Implicit target routing:** command names are reserved before a bare token
+  can enter the platform-preferred, NuGet-fallback router. Adding a command or
+  alias can therefore change an existing invocation from "resolve this
+  target" to "run this command."
 - **Parser binding:** an option, optional value, alias, or more-lenient parse
   can consume a token that previously belonged to an argument, another option,
   or the `--` literal region.
@@ -139,8 +156,9 @@ to an explicit deprecation or approve an intentional breaking removal.
 
 A deprecation must:
 
-1. Name one canonical replacement, or state plainly that no equivalent
-   operation remains.
+1. Name the canonical replacement for each accepted old operation, give a
+   deterministic choice rule when several replacements divide the old
+   surface, or state plainly that no equivalent operation remains.
 2. Choose forwarding or terminal behavior based on whether continuing the old
    operation would be truthful and safe.
 3. Keep migration guidance on stderr and make terminal shims fail non-zero.
@@ -196,7 +214,13 @@ one manifest:
   replacement guidance, while removed `package --readme` is diagnosed at the
   package parse boundary; and
 - removed command names including `audit`, `source`, `list`, and `ls` remain
-  reserved by the implicit router rather than becoming package-name inputs.
+  reserved rather than re-entering implicit target resolution.
+
+The `api` terminal shim predates this policy. Its diagnostic gives a task-based
+choice between `type` and `member`, but no release-note migration entry was
+found and its execution behavior lacks the required gate. It is recorded as
+nonconforming transition debt and must satisfy those requirements before the
+shim is materially changed or removed.
 
 Existing gates prove parts of those transitions:
 

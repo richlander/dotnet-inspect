@@ -262,8 +262,7 @@ category, `@Metadata`, registered the same way `@Performance` is:
 The lens therefore adds **no new shape flags**. Metadata tables introduce no new
 currency — they are sections, addressed by name — so they are reached with the
 existing selection vocabulary rather than a focused flag. It rides the `library`
-command (the assembly-oriented surface; note the deprecated `package X
---metadata` alias already redirects there):
+command, the assembly-oriented surface:
 
 ```bash
 # Document: every projected table
