@@ -378,6 +378,14 @@ jobs:
         working-directory: prototypes/inspect-web
         run: npm test
 
+      - name: Install Firefox for Annotated Source browser tests
+        working-directory: prototypes/inspect-web
+        run: npx playwright install --with-deps firefox
+
+      - name: Test Annotated Source in Firefox
+        working-directory: prototypes/inspect-web
+        run: npm run test:browser
+
       - name: Test inspect-web promotion validation
         run: dotnet run eng/validate-inspect-web-promotion.cs -- --self-test
 
@@ -1166,7 +1174,7 @@ jobs:
           if-no-files-found: error
 
       - name: Install tool from local packages
-        run: dotnet tool install --global dotnet-inspect --add-source ./artifacts/package/release --no-cache
+        run: dotnet tool install --global dotnet-inspect --source ./artifacts/package/release --no-cache
 
       - name: Smoke test - version
         run: |
@@ -1220,10 +1228,14 @@ jobs:
           grep -q "JsonSerializer" smoke-member.md
           grep -q "Serialize" smoke-member.md
 
-      - name: Smoke test - platform command
+      - name: Smoke test - platform library
         run: |
-          dotnet-inspect platform list > smoke-platform.txt || true
-          cat smoke-platform.txt
+          dotnet-inspect library System.Private.CoreLib -v:q --json > smoke-platform.json
+          cat smoke-platform.json
+          jq -e '
+            .source == "Platform"
+            and .assembly_info.assembly_name == "System.Private.CoreLib"
+          ' smoke-platform.json > /dev/null
 
       - name: Validate markdown output
         run: |

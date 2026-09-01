@@ -26,6 +26,7 @@ public enum FixtureBoundary
     FrameworkReference,
     ModuleAttribute,
     OutputKind,
+    PostBuildTransformation,
     SidecarAsset,
     TargetFramework,
     UntrustedText,
@@ -84,6 +85,8 @@ public static class FixtureIds
 
     public const string DecompilerCheckedArithmetic = "decompiler.checked-arithmetic";
     public const string DecompilerClassicAsync = "decompiler.classic-async";
+    public const string DecompilerClassicAsyncArtifacts =
+        "decompiler.classic-async-artifacts";
     public const string DecompilerExpressionTreeSpoof = "decompiler.expression-tree-spoof";
     public const string DecompilerClassicStateMachines = "decompiler.classic-state-machines";
     public const string DecompilerLadderIterator = "decompiler.ladder.iterator";
@@ -383,6 +386,21 @@ public static class FixtureCatalog
         Boundaries(FixtureBoundary.CompilerLowering),
         "decompiler", "async", "classic-async", "compiler-axis", "rts-candidate");
 
+    public static readonly FixtureDefinition DecompilerClassicAsyncArtifacts =
+        Fixture(
+            FixtureIds.DecompilerClassicAsyncArtifacts,
+            "ILInspector.Decompiler.Fixtures.ClassicAsyncArtifacts",
+            "ILInspector.Decompiler.Fixtures.ClassicAsyncArtifacts.dll",
+            Boundaries(
+                FixtureBoundary.CompilerLowering,
+                FixtureBoundary.OutputKind,
+                FixtureBoundary.PostBuildTransformation),
+            "decompiler",
+            "async",
+            "classic-async",
+            "artifact-matrix",
+            "compiler-axis");
+
     public static readonly FixtureDefinition DecompilerExpressionTreeSpoof = Fixture(
         FixtureIds.DecompilerExpressionTreeSpoof,
         "ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof",
@@ -525,6 +543,7 @@ public static class FixtureCatalog
         DecompilerCheckedArithmetic,
         DecompilerTypeIdentity,
         DecompilerClassicAsync,
+        DecompilerClassicAsyncArtifacts,
         DecompilerExpressionTreeSpoof,
         DecompilerClassicStateMachines,
         DecompilerLadderIterator,
@@ -581,6 +600,7 @@ public static class FixtureCatalog
         [
             DecompilerCheckedArithmetic,
             DecompilerClassicAsync,
+            DecompilerClassicAsyncArtifacts,
             DecompilerClassicStateMachines,
             DecompilerLadderIterator,
             DecompilerLadderRung1,
