@@ -676,9 +676,10 @@ static class ValidityCheck
         string parameters = productParameterList ?? string.Join(", ", function.Signature.Parameters.Select(ParameterText));
         // A decompiled async method renders its awaiting constructs faithfully, but
         // the original `async` modifier lives in metadata, not in the body. Use the
-        // printer's typed requirement rather than searching for AwaitExpression:
-        // later raises may consume the expression into `await using` while the body
-        // still requires an async context. The signature return type is already the
+        // function's unified typed context rather than searching for AwaitExpression:
+        // runtime-async metadata remains decisive when no await survives, while later
+        // classic raises may consume the expression into `await using` and leave the
+        // body requiring an async context. The signature return type is already the
         // awaitable (Task/Task<T>/ValueTask, or void for async void), so `async`
         // binds cleanly.
         // `unsafe` and `async` are mutually exclusive here: the blanket `unsafe`
@@ -686,7 +687,7 @@ static class ValidityCheck
         // (CS4004) — so an awaiting body takes `async` INSTEAD of `unsafe`. Async
         // method bodies do not carry pointer operations across awaits, so dropping the
         // unsafe context costs nothing.
-        string modifier = function.RequiresAsyncBodyModifier ? "async" : "unsafe";
+        string modifier = function.RequiresAsyncMethodContext ? "async" : "unsafe";
         return $$"""
             #pragma warning disable
             using System;

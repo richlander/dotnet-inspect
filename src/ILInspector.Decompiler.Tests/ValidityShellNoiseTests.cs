@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspector.Fixtures;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
 using Microsoft.CodeAnalysis;
@@ -13,6 +14,66 @@ public class ValidityShellNoiseTests
 
     static readonly TypeRef NonGenericConvertType =
         TypeRef.Definition("ILInspector.Decompiler", "ILInspector.Decompiler.Pipeline", "Convert");
+
+    [Fact]
+    public void RuntimeAsyncNoAwaitShell_UsesMetadataAsyncContext()
+    {
+        using var source = MetadataSource.Open(
+            FixtureCatalog.DecompilerRuntimeAsync.AssemblyPath());
+        var function = IrImporter.Import(
+            source,
+            "ILInspector.Decompiler.Fixtures.ClassicAsync.AsyncFixtures",
+            "NoAwait");
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+
+        Assert.Equal(MetadataFactState.Yes, function.IsRuntimeAsync);
+        Assert.False(function.RequiresAsyncBodyModifier);
+
+        string body = Assert.IsType<string>(
+            CSharpPrinter.Print(function).Output);
+        string shell = ValidityCheck.Shell(
+            function,
+            body,
+            function.DeclaringType.Name,
+            function.Name,
+            new Dictionary<string, Dictionary<string, string>>());
+
+        Assert.Contains("async Task __M(", shell);
+        Assert.DoesNotContain(
+            Compile(shell),
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void OrdinaryTaskReturningShell_DoesNotInferAsyncFromReturnType()
+    {
+        TypeRef task = TypeRef.CoreLib(
+            "System.Threading.Tasks",
+            "Task");
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("fixture", "", "Ordinary"),
+            new MethodSignature(
+                task,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            new BlockContainer());
+
+        string shell = ValidityCheck.Shell(
+            function,
+            "return null;\n",
+            function.DeclaringType.Name,
+            function.Name,
+            new Dictionary<string, Dictionary<string, string>>());
+
+        Assert.Contains("unsafe Task __M(", shell);
+        Assert.DoesNotContain(
+            Compile(shell),
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+    }
 
     [Theory]
     [InlineData(nameof(CfgSampleClass.AwaitUsingResource))]
