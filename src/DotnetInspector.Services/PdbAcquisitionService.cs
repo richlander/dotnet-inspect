@@ -122,14 +122,19 @@ public static class PdbAcquisitionService
         Action<string>? log,
         bool cacheOnly = false,
         NuGetSourceOptions? sourceOptions = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? fallbackPackageName = null,
+        string? fallbackPackageVersion = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(assembly);
         ArgumentNullException.ThrowIfNull(httpClient);
 
         var (packageName, packageVersion, isPlatformAssembly) =
-            GetAcquisitionCoordinates(assembly);
+            GetAcquisitionCoordinates(
+                assembly,
+                fallbackPackageName,
+                fallbackPackageVersion);
         return AcquireAsync(
             context,
             httpClient,
@@ -152,7 +157,9 @@ public static class PdbAcquisitionService
         bool cacheOnly = false,
         NuGetSourceOptions? sourceOptions = null,
         CancellationToken cancellationToken = default,
-        SymbolAcquisitionLimits? limits = null)
+        SymbolAcquisitionLimits? limits = null,
+        string? fallbackPackageName = null,
+        string? fallbackPackageVersion = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(assembly);
@@ -164,7 +171,10 @@ public static class PdbAcquisitionService
             return Task.CompletedTask;
 
         var (packageName, packageVersion, isPlatformAssembly) =
-            GetAcquisitionCoordinates(assembly);
+            GetAcquisitionCoordinates(
+                assembly,
+                fallbackPackageName,
+                fallbackPackageVersion);
 
         return AcquireCoreAsync(
             context,
@@ -187,13 +197,23 @@ public static class PdbAcquisitionService
         string? PackageVersion,
         bool IsPlatformAssembly)
         GetAcquisitionCoordinates(
-            ResolvedAssemblyReference assembly)
+            ResolvedAssemblyReference assembly,
+            string? fallbackPackageName,
+            string? fallbackPackageVersion)
         => assembly.Provenance switch
         {
             AssemblyResolutionProvenance.PackageAsset package =>
                 (package.PackageId, package.PackageVersion, false),
             AssemblyResolutionProvenance.PlatformAsset =>
                 (null, null, true),
+            AssemblyResolutionProvenance.ProjectAsset
+                or AssemblyResolutionProvenance.LocalAsset
+                or AssemblyResolutionProvenance.DesignatedAsset
+                when !string.IsNullOrWhiteSpace(
+                        fallbackPackageName)
+                    && !string.IsNullOrWhiteSpace(
+                        fallbackPackageVersion) =>
+                (fallbackPackageName, fallbackPackageVersion, false),
             _ => (null, null, false),
         };
 }
