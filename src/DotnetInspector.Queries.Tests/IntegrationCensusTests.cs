@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection;
 
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -693,67 +694,181 @@ public sealed class IntegrationCensusTests
     // ---- Candidate attempt accounting -----------------------------------
 
     [Fact]
-    public void IntegrationCensus_CandidateAttemptsCoverCoalescedCandidatesByContext()
+    public void IntegrationCensus_ContextIncidenceExactlyCoversSourceParticipants()
     {
-        IntegrationSourceParticipantIdentity participant = Portable();
-        var participants = new[] { participant };
-        IntegrationCandidateIdentity candidate = ObservedCandidate(
-            participant,
-            IntegrationConceptCatalog.AI,
-            DefaultPeer);
-        IContext first = new Context();
-        IContext second = new Context();
+        IntegrationSourceParticipantIdentity first = Portable("first");
+        IntegrationSourceParticipantIdentity second = Portable("second");
+        IntegrationSourceParticipantIdentity foreign = Portable("foreign");
+        var participants = new[] { first, second };
+        IContext context = new Context();
 
-        // Two candidates? No: one candidate over two contexts => two attempts.
-        List<IntegrationProducerPolicyAttempt> producers = Producers(
-            participants,
-            Completed(participant, Ecosystem, candidate));
-
-        _ = Snapshot(
-            participants,
-            producerAttempts: producers,
-            contexts: [first, second],
-            candidateAttempts:
-            [
-                ClassifiedOut(candidate, first),
-                ClassifiedOut(candidate, second),
-            ]);
-
-        // Missing one context attempt.
         Assert.Throws<ArgumentException>(() =>
             Snapshot(
                 participants,
-                producerAttempts: producers,
-                contexts: [first, second],
-                candidateAttempts: [ClassifiedOut(candidate, first)]));
-        // Duplicate.
+                contexts: [context],
+                contextIncidence: [Incidence(first, context)]));
         Assert.Throws<ArgumentException>(() =>
             Snapshot(
                 participants,
-                producerAttempts: producers,
-                contexts: [first, second],
-                candidateAttempts:
+                contexts: [context],
+                contextIncidence:
                 [
-                    ClassifiedOut(candidate, first),
-                    ClassifiedOut(candidate, second),
-                    ClassifiedOut(candidate, first),
-                ]));
-        // Extraneous (context not declared).
-        Assert.Throws<ArgumentException>(() =>
-            Snapshot(
-                participants,
-                producerAttempts: producers,
-                contexts: [first, second],
-                candidateAttempts:
-                [
-                    ClassifiedOut(candidate, first),
-                    ClassifiedOut(candidate, second),
-                    ClassifiedOut(candidate, new Context()),
+                    Incidence(first, context),
+                    Incidence(second, context),
+                    Incidence(foreign, context),
                 ]));
     }
 
     [Fact]
-    public void IntegrationCensus_SemanticContextProductUsesHashBackedAddressing()
+    public void IntegrationCensus_ContextIncidenceRejectsDuplicateOrForeignContexts()
+    {
+        IntegrationSourceParticipantIdentity participant = Portable();
+        IContext first = new Context();
+        IContext second = new Context();
+        IContext foreign = new Context();
+
+        Assert.Throws<ArgumentException>(() =>
+            new IntegrationBindingContextAccess(
+                [first, first],
+                [Incidence(participant, first)]));
+        Assert.Throws<ArgumentException>(() =>
+            Incidence(participant, first, first));
+        Assert.Throws<ArgumentException>(() =>
+            new IntegrationBindingContextAccess(
+                [first, second],
+                [Incidence(participant, foreign)]));
+        Assert.Throws<ArgumentException>(() =>
+            new IntegrationBindingContextAccess(
+                [first, second],
+                [
+                    Incidence(participant, first),
+                    Incidence(participant, second),
+                ]));
+
+        IntegrationBindingContextAccess access = new(
+            [first, second],
+            [Incidence(participant, second, first)]);
+        IntegrationSourceBindingContextIncidence incidence =
+            Assert.Single(access.SourceIncidence);
+        Assert.Equal([first, second], incidence.BindingContexts);
+        Assert.Same(first, incidence.BindingContexts[0]);
+        Assert.Same(second, incidence.BindingContexts[1]);
+    }
+
+    [Fact]
+    public void IntegrationCensus_CandidateAttemptsFollowOwnerIssuedContextIncidence()
+    {
+        IntegrationSourceParticipantIdentity firstParticipant =
+            Portable("first");
+        IntegrationSourceParticipantIdentity secondParticipant =
+            Portable("second");
+        var participants = new[] { firstParticipant, secondParticipant };
+        IntegrationCandidateIdentity firstCandidate = ObservedCandidate(
+            firstParticipant,
+            IntegrationConceptCatalog.AI,
+            DefaultPeer);
+        IntegrationCandidateIdentity secondCandidate = ObservedCandidate(
+            secondParticipant,
+            IntegrationConceptCatalog.AI,
+            AssemblyPeer(
+                Assembly("Second.Peer"),
+                TypeName("Peer", "SecondClient")));
+        IContext first = new Context();
+        IContext second = new Context();
+
+        List<IntegrationProducerPolicyAttempt> producers = Producers(
+            participants,
+            Completed(firstParticipant, Ecosystem, firstCandidate),
+            Completed(secondParticipant, Ecosystem, secondCandidate));
+        IntegrationSourceBindingContextIncidence[] incidence =
+        [
+            Incidence(firstParticipant, second, first),
+            Incidence(secondParticipant, first),
+        ];
+
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            participants,
+            producerAttempts: producers,
+            contexts: [first, second],
+            contextIncidence: incidence,
+            candidateAttempts:
+            [
+                ClassifiedOut(secondCandidate, first),
+                ClassifiedOut(firstCandidate, second),
+                ClassifiedOut(firstCandidate, first),
+            ]);
+        Assert.Equal(
+            [
+                new IntegrationCandidateAttemptAddress(firstCandidate, first),
+                new IntegrationCandidateAttemptAddress(firstCandidate, second),
+                new IntegrationCandidateAttemptAddress(secondCandidate, first),
+            ],
+            snapshot.CandidateAttempts.Select(attempt => attempt.Address));
+        Assert.Equal(
+            participants,
+            snapshot.SourceContextIncidence.Select(
+                entry => entry.Participant));
+        Assert.Same(
+            firstParticipant,
+            snapshot.SourceContextIncidence[0].Participant);
+        Assert.Equal(
+            [first, second],
+            snapshot.SourceContextIncidence[0].BindingContexts);
+
+        Assert.Throws<ArgumentException>(() =>
+            Snapshot(
+                participants,
+                producerAttempts: producers,
+                contexts: [first, second],
+                contextIncidence: incidence,
+                candidateAttempts:
+                [
+                    ClassifiedOut(firstCandidate, first),
+                    ClassifiedOut(secondCandidate, first),
+                ]));
+        Assert.Throws<ArgumentException>(() =>
+            Snapshot(
+                participants,
+                producerAttempts: producers,
+                contexts: [first, second],
+                contextIncidence: incidence,
+                candidateAttempts:
+                [
+                    ClassifiedOut(firstCandidate, first),
+                    ClassifiedOut(firstCandidate, second),
+                    ClassifiedOut(secondCandidate, first),
+                    ClassifiedOut(secondCandidate, first),
+                ]));
+        Assert.Throws<ArgumentException>(() =>
+            Snapshot(
+                participants,
+                producerAttempts: producers,
+                contexts: [first, second],
+                contextIncidence: incidence,
+                candidateAttempts:
+                [
+                    ClassifiedOut(firstCandidate, first),
+                    ClassifiedOut(firstCandidate, second),
+                    ClassifiedOut(secondCandidate, first),
+                    ClassifiedOut(secondCandidate, second),
+                ]));
+        Assert.Throws<ArgumentException>(() =>
+            Snapshot(
+                participants,
+                producerAttempts: producers,
+                contexts: [first, second],
+                contextIncidence: incidence,
+                candidateAttempts:
+                [
+                    ClassifiedOut(firstCandidate, first),
+                    ClassifiedOut(firstCandidate, second),
+                    ClassifiedOut(secondCandidate, first),
+                    ClassifiedOut(secondCandidate, new Context()),
+                ]));
+    }
+
+    [Fact]
+    public void IntegrationCensus_SemanticContextIncidenceUsesHashBackedAddressing()
     {
         IntegrationSourceParticipantIdentity participant = Portable();
         var participants = new[] { participant };
@@ -841,6 +956,122 @@ public sealed class IntegrationCensusTests
         Assert.True(
             CountingContext.EqualsCalls < 20_000,
             $"Expected hash-backed addressing, but observed {CountingContext.EqualsCalls} context equality calls.");
+    }
+
+    [Fact]
+    public void IntegrationCensus_SourceParticipantsRequireIncidentContext()
+    {
+        IntegrationSourceParticipantIdentity participant = Portable();
+        var participants = new[] { participant };
+        IntegrationCandidateIdentity candidate = ObservedCandidate(
+            participant,
+            IntegrationConceptCatalog.AI,
+            DefaultPeer);
+
+        Assert.Throws<ArgumentException>(() =>
+            Snapshot(
+                participants,
+                producerAttempts: Producers(
+                    participants,
+                    Completed(participant, Ecosystem, candidate)),
+                contexts: [],
+                contextIncidence: [Incidence(participant)]));
+    }
+
+    [Fact]
+    public void IntegrationCensus_RequiresExactContextIncidenceRequirement()
+    {
+        AnalysisRequestPlan plan = Plan();
+        var withoutIncidence = new AnalysisRequestPlan(
+            plan.Request,
+            plan.Analysis,
+            plan.ReportSurface,
+            plan.Universe,
+            plan.Projection,
+            [
+                .. plan.UniverseRequirements.Where(requirement =>
+                    !ReferenceEquals(
+                        requirement,
+                        IntegrationAnalysisCatalog
+                            .BindingContextsRequirement)),
+            ],
+            plan.Cost);
+
+        Assert.Throws<ArgumentException>(() =>
+            Snapshot(
+                [Portable()],
+                plan: withoutIncidence));
+    }
+
+    [Fact]
+    public void IntegrationCensus_ContextAccessExposesOnlyImmutableOwnerIdentities()
+    {
+        Type access = typeof(IntegrationBindingContextAccess);
+        Assert.False(typeof(IDisposable).IsAssignableFrom(access));
+        Assert.DoesNotContain(
+            access.GetMethods(
+                BindingFlags.Public
+                    | BindingFlags.Instance
+                    | BindingFlags.DeclaredOnly),
+            method => !method.IsSpecialName);
+        Assert.Equal(
+            ["BindingContexts", "SourceIncidence"],
+            access.GetProperties().Select(property => property.Name));
+
+        Type[] forbidden =
+        [
+            typeof(InspectionWorkspace),
+            typeof(AssemblyContextGroup),
+            typeof(AnalysisUniverseExecutionAccess),
+            typeof(AnalysisUniverseCapabilityLease<>),
+        ];
+        IEnumerable<Type> publicShape =
+            access.GetProperties().Select(property => property.PropertyType)
+                .Concat(
+                    access.GetConstructors().SelectMany(constructor =>
+                        constructor.GetParameters().Select(
+                            parameter => parameter.ParameterType)));
+        Assert.All(
+            publicShape,
+            shape => Assert.DoesNotContain(
+                forbidden,
+                type => TypeShapeContains(shape, type)));
+    }
+
+    [Fact]
+    public void IntegrationCapability_ExecutableHandoffProvidesTypedContextIncidence()
+    {
+        using var workspace = new InspectionWorkspace();
+        IntegrationSourceParticipantIdentity participant = Portable();
+        IContext context = new Context();
+        var contextAccess = new IntegrationBindingContextAccess(
+            [context],
+            [Incidence(participant, context)]);
+        AnalysisUniverseCapabilityDescriptor[] capabilities =
+        [
+            .. IntegrationAnalysisCatalog.UniverseRequirements
+                .Select(requirement => requirement.Capability),
+        ];
+        AnalysisUniverseOffer offer = workspace.CreateAnalysisUniverseOffer(
+            new UniverseIdentity(),
+            new UniverseBoundary(),
+            new UniverseBoundary(),
+            capabilities,
+            new UniverseCompleteness(),
+            capabilities.Select(capability =>
+                Registration(capability, contextAccess)));
+        AnalysisRequestPlan plan = Plan(universe: offer.Description);
+
+        using AnalysisUniverseExecutionAccess execution =
+            Assert.IsType<AnalysisUniverseIssuanceResult.Ready>(
+                offer.IssueExecutionAccess(
+                    plan,
+                    Xunit.TestContext.Current.CancellationToken))
+            .Access;
+
+        Assert.Same(
+            contextAccess,
+            IntegrationAnalysisCatalog.GetBindingContextAccess(execution));
     }
 
     [Fact]
@@ -1818,6 +2049,8 @@ public sealed class IntegrationCensusTests
         IEnumerable<IntegrationProducerPolicyAttempt>? producerAttempts = null,
         IEnumerable<IntegrationTypeIdentity>? selectedTypes = null,
         IEnumerable<IIntegrationBindingContextIdentity>? contexts = null,
+        IEnumerable<IntegrationSourceBindingContextIncidence>?
+            contextIncidence = null,
         IEnumerable<IntegrationCandidateAttempt>? candidateAttempts = null,
         AnalysisRequestPlan? plan = null,
         bool admitSources = true)
@@ -1840,14 +2073,58 @@ public sealed class IntegrationCensusTests
             }
         }
 
+        IIntegrationBindingContextIdentity[] contextRoster =
+            [.. contexts ?? [new Context()]];
+        IntegrationBindingContextAccess contextAccess = new(
+            contextRoster,
+            contextIncidence
+                ?? participants.Select(participant =>
+                    new IntegrationSourceBindingContextIncidence(
+                        participant,
+                        contextRoster)));
+
         return new(
             plan ?? Plan(),
             participants,
             selected,
-            contexts ?? [new Context()],
+            contextAccess,
             sourceAttempts ?? participants.Select(Available),
             producers,
             candidateAttempts ?? []);
+    }
+
+    static IntegrationSourceBindingContextIncidence Incidence(
+        IntegrationSourceParticipantIdentity participant,
+        params IIntegrationBindingContextIdentity[] contexts) =>
+        new(participant, contexts);
+
+    static AnalysisUniverseCapabilityRegistration Registration(
+        AnalysisUniverseCapabilityDescriptor capability,
+        IntegrationBindingContextAccess contextAccess)
+    {
+        if (ReferenceEquals(
+                capability,
+                IntegrationAnalysisCatalog.BindingContexts))
+        {
+            return new AnalysisUniverseCapabilityRegistration<
+                IntegrationBindingContextAccess>(
+                    capability,
+                    (_, _) =>
+                        new AnalysisUniverseCapabilityAcquisition<
+                            IntegrationBindingContextAccess>.Ready(
+                                new AnalysisUniverseCapabilityLease<
+                                    IntegrationBindingContextAccess>(
+                                        contextAccess,
+                                        static () => { })));
+        }
+
+        return new AnalysisUniverseCapabilityRegistration<object>(
+            capability,
+            (_, _) =>
+                new AnalysisUniverseCapabilityAcquisition<object>.Ready(
+                    new AnalysisUniverseCapabilityLease<object>(
+                        new object(),
+                        static () => { })));
     }
 
     // ---- Request plan helpers (mirroring IntegrationAnalysisCatalogTests) ----
@@ -1932,6 +2209,18 @@ public sealed class IntegrationCensusTests
     sealed class PolicyUnavailable : IIntegrationProducerPolicyUnavailable;
     sealed class PolicyFailure : IIntegrationProducerPolicyFailure;
     sealed class CandidateFailure : IIntegrationCandidateFailure;
+
+    static bool TypeShapeContains(Type shape, Type expected)
+    {
+        if (shape == expected
+            || shape.IsGenericType
+                && shape.GetGenericTypeDefinition() == expected)
+        {
+            return true;
+        }
+        return shape.GetGenericArguments().Any(argument =>
+            TypeShapeContains(argument, expected));
+    }
 
     // A same-context observed adapter member and opportunity sharing one
     // concept and exact target. The proof source is the SDK Type the adapter
