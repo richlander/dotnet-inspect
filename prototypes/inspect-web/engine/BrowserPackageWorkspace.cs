@@ -1727,16 +1727,13 @@ internal sealed class BrowserPackageCoordinate
     }
 
     /// <summary>
-    /// The implementation assembly for one assembly name. Reference assemblies carry no method
-    /// bodies, so body-backed work resolves the matching asset from the shared effective
-    /// implementation universe rather than reasoning about package paths.
+    /// The implementation assembly for one assembly name. Body-backed work resolves the matching
+    /// asset from the shared effective implementation universe rather than reasoning about
+    /// package paths.
     /// </summary>
     public PackageCompileAsset ImplementationAsset(string assemblyIdOrName)
     {
         PackageCompileAsset selected = CompileAsset(assemblyIdOrName);
-        if (selected.Kind == PackageCompileAssetKind.Library)
-            return selected;
-
         return Selection.FindImplementationAsset(selected)
             ?? throw new InvalidOperationException(
                 $"The requested compile assembly in {PackageId} {Version} is a reference "

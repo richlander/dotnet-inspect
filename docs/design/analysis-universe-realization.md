@@ -19,9 +19,10 @@ Issuance remains synchronous and sequential, reacquires authorization for each
 plan, and publishes no partial access.
 
 The first intended adopter is Workspace-backed analysis. Integration defines
-its owner-specific typed binding-context roster and incidence payload for this
-handoff; its Census executor remains a prospective consumer and is not part of
-this owner's contract.
+its owner-specific typed participant, selected-Type, binding-context,
+producer-policy, peer-binding, exact-resolution, and completeness payloads for
+this handoff. Its sequential Census executor consumes those exact bindings
+without becoming part of this owner's contract.
 
 ## Authority
 
@@ -365,7 +366,7 @@ implementation.
 3. Define the Integration-owned typed binding-context roster and incidence
    payload and derive Census attempt addresses from it. Complete.
 4. Adopt the executable bindings in the Integration Census executor under the
-   Integration owner.
+   Integration owner. Complete.
 5. Let later analysis owners adopt the same pattern independently.
 
 The generic Workspace adoption does not implement an Integration capability,
