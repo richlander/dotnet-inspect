@@ -1,11 +1,11 @@
 # Design scope and composition
 
 [Development practices](development-practices.md#design-establishes-the-footing)
-and
-[Design scope and composition](../AGENTS.md#design-scope-and-composition) state
+places design before implementation.
+[Design scope and composition](../AGENTS.md#design-scope-and-composition) states
 the binding rules: one architectural owner per design effort, and a broad,
-multi-component design requires explicit user approval. This document owns the
-full mechanics and recovery procedure.
+multi-component design requires explicit user approval. This document owns
+the full mechanics and recovery procedure.
 
 ## One owner per focused design
 

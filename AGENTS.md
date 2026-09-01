@@ -26,7 +26,8 @@ development model and rationale. The binding summary:
 - **Demonstrate the pathological case.** Build boundary and failure fixtures;
   preserve valuable non-CI fixtures as reproducible design evidence.
 - **Survey analogous implementations.** Use their behavior, omissions, and
-  boundaries as evidence, not as authority or a source of copied architecture.
+  boundaries as evidence, not authority; transfer code or architecture only
+  when license, provenance, assumptions, and architectural fit all transfer.
 - **Bias toward progress through narrow slices.** Land independently coherent
   planned shapes before later hardening when the design makes that safe; never
   present unfinished behavior as supported.

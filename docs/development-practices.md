@@ -165,8 +165,9 @@ requires separate authorization.
 
 The primary threat is untrusted internet-origin content such as packages,
 symbols, and source. The tool does not execute inspected code. Prefer
-construction-time containment threaded through typed models, following
-`InertString` and `HardenedJson`, and do not broaden work to local,
-same-machine, or intra-repository actors unless an owning design explicitly
-opts in. The complete boundary is owned by the
+construction-time containment threaded through typed models, with
+`InertString` as the stronger pattern. `HardenedJson` is a weaker centralized
+entry point, not a type whose construction enforces containment. Do not broaden
+work to local, same-machine, or intra-repository actors unless an owning design
+explicitly opts in. The complete boundary is owned by the
 [Untrusted data threat model](design/untrusted-data-threat-model.md).
