@@ -1,10 +1,28 @@
 # Embedded skill guidance
 
-Use this when editing `skills/dotnet-inspect/SKILL.md`.
+Use this when editing user-facing product skills under `skills/`, especially
+`skills/dotnet-inspect/SKILL.md`.
 
 ## Purpose
 
-The embedded skill is the authoritative agent guide for `dotnet-inspect`. It should teach reliable workflows, syntax guardrails, output-shape expectations, and high-value examples. It should not be a changelog or an exhaustive command manual.
+The embedded skills are the authoritative current agent guides for
+`dotnet-inspect`. They should teach reliable workflows, syntax guardrails,
+output-shape expectations, and high-value examples. They should not be a
+changelog or an exhaustive command manual.
+
+## Current guidance is the compatibility layer
+
+Product skills are the primary compatibility mitigation for this fast-moving
+agent-focused CLI. The checked-in skill and the behavior it teaches move
+together: an agent asks the current binary for current guidance rather than
+relying on yesterday's flags or defaults.
+
+Update every affected product skill in the same change as a command, flag,
+default, workflow, or output-shape change. Re-run examples against the changed
+tool. Do not retain obsolete CLI syntax solely because an earlier skill taught
+it, and do not describe migration history; replace it with the current best
+workflow. A stale shipped skill is a compatibility failure even when an old
+invocation still happens to work.
 
 ## Good
 
@@ -56,6 +74,7 @@ Why it is bad:
 - Explain `--preview` as the single prerelease opt-in alias in the skill, even when other aliases exist.
 - Keep SourceLink/PDB wording precise: PDBs carry SourceLink data; they are not SourceLink themselves.
 - Keep Signals row ownership clear; avoid describing rows as belonging to multiple sections.
+- Update every affected product skill in the same PR as the behavior it teaches.
 - Update examples when output shape changes, especially compact context rows and selected-section output.
 
 ## User-facing vs. repo-local skills

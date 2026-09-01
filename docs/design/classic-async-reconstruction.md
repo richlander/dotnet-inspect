@@ -187,6 +187,86 @@ enough evidence; the inverse cannot infer it locally. Supplying an authenticated
 pre-trim assembly or another body source would require a separate acquisition
 and request-adapter contract.
 
+### Recipe demonstration matrix
+
+The existing compiler-produced `ClassicAsync` fixture family provides the
+recipe-level inputs that the proof-carrying core will consume:
+
+| Case | Fixture method | Current observable outcome |
+| --- | --- | --- |
+| Neighboring accepted recipe | `TwoSequentialAwaits` | `Full`; both awaits and their ordering are reconstructed. |
+| Effect nested in a conditional result | `AwaitConditionalWithWrappedResult` | `Partial` with visible `DEC0004`; the kickoff remains. |
+| Effectful await operand inside a loop | `AwaitInLoopWithWrappedOperand` | `Partial` with visible `DEC0004`; the kickoff remains. |
+| Store nested in loop control | `LoopWithAccumulatorWrite` | `Partial` with visible `DEC0004`; the kickoff remains. |
+| Guarded effect in `finally` | `AwaitInTryFinallyWithGuardedCall` | `Partial` with visible `DEC0004`; the kickoff remains. |
+
+`ClassicAsyncReconstructionHonestyTests` gates those current outcomes. A
+single-method demonstration uses the same built assembly and product pipeline:
+
+```bash
+dotnet build src/ILInspector.Decompiler.Fixtures.ClassicAsync -c Release
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicAsync/release/ILInspector.Decompiler.Fixtures.ClassicAsync.dll \
+  --dump \
+  'ILInspector.Decompiler.Fixtures.ClassicAsync.AsyncFixtures::LoopWithAccumulatorWrite' \
+  --lowered --remarks
+```
+
+The broader `ClassicStateMachines` fixture and
+`--corpus-profile classic-state-machines` process retain the neighboring
+builder, exception, iterator, and async-iterator population. These fixtures
+make the cases repeatable; their current honesty outcomes do not by themselves
+prove the new physical, semantic, or structured-ancestor ledgers.
+
+### Artifact demonstration matrix
+
+`ILInspector.Decompiler.Fixtures.ClassicAsyncArtifacts` compiles one classic
+async source population into implementation and SDK reference assemblies.
+`ClassicAsyncArtifactMatrixTests` additionally publishes that project twice
+with full trimming: once under ordinary reachability and once with the fixture
+assembly rooted so every classic role remains available.
+
+The resulting matrix separates artifact availability from reconstruction:
+
+| Artifact | Observed method evidence | Relationship/core boundary |
+| --- | --- | --- |
+| Implementation | Kickoff, `MoveNext`, and `SetStateMachine` retain compiler IL. | Authenticated request; the neighboring accepted recipe reconstructs. |
+| SDK reference | The same MethodDefs retain synthesized `ldnull; throw` bodies. | Authenticated request; `ClassicInverseBodyReplacingReferenceAssembliesDecline` remains the core gate. |
+| Ordinary trim, reachable method | Kickoff and `MoveNext` remain, but ILLink removes `SetStateMachine`. | Metadata rejects the relationship, so no core request forms. |
+| Ordinary trim, unused method | The kickoff and generated state machine are removed. | No core request forms. |
+| Role-preserved trim | All required MethodDefs retain post-trim IL. | Authenticated request; the accepted recipe reconstructs from the trimmed artifact. |
+| Default-interface implementation | The kickoff and execution MethodDefs carry managed IL. | Authenticated request without a declaring-type category exclusion. |
+
+Run the slow Release fixture gate to build and prove all artifacts:
+
+```bash
+dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- \
+  -class '*ClassicAsyncArtifactMatrixTests*'
+```
+
+The cross-platform publish recipe is owned by
+`eng/classic-async-artifact-matrix.proj`; the test invokes that project with
+the current host RID rather than assembling a test-local compiler command.
+The publish outputs remain under
+`artifacts/classic-async-artifact-matrix/<host-rid>/`. They can be passed
+directly to `DecompilerHarness --dump` for the PR demo. These fixture gates
+prove the stated artifact premises; they do not substitute for the unverified
+inverse-core decision gates below.
+
+Before #5277 supplies the authenticated request boundary, the legacy
+`ClassicAsyncReconstructionPass` still reports `Full` for both trimmed
+variants: it discovers the generated execution sibling directly and therefore
+bypasses Metadata's rejection in the ordinary-trim case. That measured
+pre-implementation behavior is not a valid core request. The eventual
+end-to-end demo must stop reconstructing the ordinary-trim artifact while the
+role-preserved artifact continues to produce:
+
+```csharp
+int left = await first;
+int right = await second;
+GC.KeepAlive((left, right));
+```
+
 The terminal result is:
 
 ```text
