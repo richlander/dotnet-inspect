@@ -867,21 +867,84 @@ sealed record AssemblyContextGroupReleaseResult(Exception? Failure);
 /// <summary>
 /// Terminal release result for one group admitted by an asynchronous workspace.
 /// </summary>
-public sealed class InspectionWorkspaceGroupCloseResult
+public abstract class InspectionWorkspaceGroupCloseResult
 {
     internal InspectionWorkspaceGroupCloseResult(
-        int registrationIndex,
-        Exception? failure)
+        int registrationIndex)
     {
         RegistrationIndex = registrationIndex;
-        Failure = failure;
     }
 
     public int RegistrationIndex { get; }
+}
+
+/// <summary>
+/// Terminal result for one workspace-owned direct group release.
+/// </summary>
+public sealed class InspectionWorkspaceDirectGroupCloseResult
+    : InspectionWorkspaceGroupCloseResult
+{
+    internal InspectionWorkspaceDirectGroupCloseResult(
+        int registrationIndex,
+        Exception? failure)
+        : base(registrationIndex)
+    {
+        Failure = failure;
+    }
 
     public bool Succeeded => Failure is null;
 
     public Exception? Failure { get; }
+}
+
+/// <summary>
+/// Terminal result retained from an adjacent coordinated release owner.
+/// </summary>
+public sealed class InspectionWorkspaceCoordinatedGroupCloseResult<TResult>
+    : InspectionWorkspaceGroupCloseResult
+{
+    internal InspectionWorkspaceCoordinatedGroupCloseResult(
+        int registrationIndex,
+        TResult result)
+        : base(registrationIndex)
+    {
+        Result = result;
+    }
+
+    public TResult Result { get; }
+}
+
+internal interface IWorkspaceCoordinatedGroupParticipation
+{
+    WorkspaceCoordinatedAdmissionGate WorkspaceAdmission { get; }
+
+    void RequestRelease();
+
+    Task<InspectionWorkspaceGroupCloseResult> GetCloseResultAsync(
+        int registrationIndex);
+}
+
+internal sealed class WorkspaceCoordinatedAdmissionGate
+{
+    readonly object _gate = new();
+    bool _closed;
+
+    internal TResult Admit<TResult>(Func<TResult> create)
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(
+                _closed,
+                nameof(PackageAssemblyContextCompletion));
+            return create();
+        }
+    }
+
+    internal void Close()
+    {
+        lock (_gate)
+            _closed = true;
+    }
 }
 
 /// <summary>
@@ -966,7 +1029,8 @@ public sealed partial class InspectionWorkspace :
                 == InspectionWorkspaceLifetimeMode.Asynchronous)
             {
                 admission = new WorkspaceGroupAdmission(
-                    _nextRegistrationIndex++);
+                    _nextRegistrationIndex++,
+                    coordinatedParticipation: null);
                 _admissions.Add(admission);
             }
         }
@@ -1081,8 +1145,10 @@ public sealed partial class InspectionWorkspace :
         {
             if (_state == InspectionWorkspaceState.Open)
             {
-                _state = InspectionWorkspaceState.Closing;
                 admissions = [.. _admissions];
+                foreach (WorkspaceGroupAdmission admission in admissions)
+                    admission.CloseWorkspaceAdmission();
+                _state = InspectionWorkspaceState.Closing;
                 foreach (AssemblyContextGroup group in _groups)
                 {
                     group.CloseAdmissionFromWorkspace(
@@ -1125,6 +1191,110 @@ public sealed partial class InspectionWorkspace :
             _groups.Remove(group);
     }
 
+    internal ImmutableArray<WorkspaceCoordinatedGroupAdmission>
+        BeginCoordinatedGroupAdmissions(
+            ImmutableArray<IWorkspaceCoordinatedGroupParticipation>
+                participations)
+    {
+        if (_lifetimeMode
+            != InspectionWorkspaceLifetimeMode.Asynchronous)
+        {
+            throw new InvalidOperationException(
+                "Coordinated package-role completion requires a workspace created by CreateAsynchronous.");
+        }
+        if (participations.IsDefaultOrEmpty
+            || participations.Any(
+                static participation => participation is null))
+        {
+            throw new ArgumentException(
+                "Coordinated group admission requires one participation handle per planned group.",
+                nameof(participations));
+        }
+
+        var admissions =
+            ImmutableArray.CreateBuilder<
+                WorkspaceCoordinatedGroupAdmission>(
+                participations.Length);
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(
+                _state != InspectionWorkspaceState.Open,
+                this);
+            foreach (IWorkspaceCoordinatedGroupParticipation participation
+                in participations)
+            {
+                var admission = new WorkspaceGroupAdmission(
+                    _nextRegistrationIndex++,
+                    participation);
+                _admissions.Add(admission);
+                admissions.Add(
+                    new WorkspaceCoordinatedGroupAdmission(
+                        this,
+                        admission));
+            }
+        }
+
+        return admissions.MoveToImmutable();
+    }
+
+    internal bool CompleteCoordinatedGroupAdmissions(
+        ImmutableArray<WorkspaceCoordinatedGroupAdmission> admissions,
+        ImmutableArray<AssemblyContextGroup> groups)
+    {
+        if (admissions.IsDefaultOrEmpty
+            || admissions.Length != groups.Length)
+        {
+            throw new ArgumentException(
+                "Every coordinated admission must complete with one exact physical group.",
+                nameof(groups));
+        }
+        for (int index = 0; index < admissions.Length; index++)
+        {
+            ArgumentNullException.ThrowIfNull(admissions[index]);
+            ArgumentNullException.ThrowIfNull(groups[index]);
+            if (!ReferenceEquals(admissions[index]._workspace, this))
+            {
+                throw new InvalidOperationException(
+                    "A coordinated admission belongs to a different inspection workspace.");
+            }
+        }
+
+        bool published;
+        lock (_gate)
+        {
+            published = _state == InspectionWorkspaceState.Open;
+            for (int index = 0; index < admissions.Length; index++)
+            {
+                WorkspaceCoordinatedGroupAdmission admission =
+                    admissions[index];
+                admission._admission.SetRegistration(
+                    new WorkspaceGroupRegistration(
+                        admission._admission.RegistrationIndex,
+                        groups[index],
+                        admission._admission.CoordinatedParticipation));
+            }
+        }
+
+        foreach (WorkspaceCoordinatedGroupAdmission admission in admissions)
+            admission._admission.FinishRegistration();
+
+        return published;
+    }
+
+    internal void CompleteCoordinatedGroupAdmissionsWithoutGroups(
+        ImmutableArray<WorkspaceCoordinatedGroupAdmission> admissions)
+    {
+        foreach (WorkspaceCoordinatedGroupAdmission admission in admissions)
+        {
+            if (!ReferenceEquals(admission._workspace, this))
+            {
+                throw new InvalidOperationException(
+                    "A coordinated admission belongs to a different inspection workspace.");
+            }
+            admission._admission.Complete(registration: null);
+        }
+    }
+
     async Task<InspectionWorkspaceCloseReport> CloseCoreAsync(
         Task<ImmutableArray<WorkspaceGroupAdmission>> start)
     {
@@ -1160,7 +1330,32 @@ public sealed partial class InspectionWorkspace :
         return report;
     }
 
-    sealed class WorkspaceGroupAdmission(int registrationIndex)
+    internal sealed class WorkspaceCoordinatedGroupAdmission
+    {
+        internal readonly InspectionWorkspace _workspace;
+        internal readonly WorkspaceGroupAdmission _admission;
+
+        internal WorkspaceCoordinatedGroupAdmission(
+            InspectionWorkspace workspace,
+            WorkspaceGroupAdmission admission)
+        {
+            _workspace = workspace;
+            _admission = admission;
+        }
+
+        internal AssemblyContextGroup CreateGroup(
+            IEnumerable<AssemblyContextParticipant> participants,
+            AssemblyContextGroupOptions? options) =>
+            new(
+                participants,
+                options,
+                _workspace.RemoveGroup,
+                captureReleaseFailuresByDefault: false);
+    }
+
+    internal sealed class WorkspaceGroupAdmission(
+        int registrationIndex,
+        IWorkspaceCoordinatedGroupParticipation? coordinatedParticipation)
     {
         readonly object _gate = new();
         readonly TaskCompletionSource _constructionCompletion =
@@ -1172,14 +1367,27 @@ public sealed partial class InspectionWorkspace :
 
         internal int RegistrationIndex { get; } = registrationIndex;
 
+        internal IWorkspaceCoordinatedGroupParticipation?
+            CoordinatedParticipation { get; } =
+                coordinatedParticipation;
+
+        internal void CloseWorkspaceAdmission() =>
+            CoordinatedParticipation?.WorkspaceAdmission.Close();
+
         internal void TryRequestRelease()
         {
             WorkspaceGroupRegistration? registration;
             lock (_gate)
                 registration = _registration;
 
-            if (registration is not null)
+            if (CoordinatedParticipation is not null)
+            {
+                CoordinatedParticipation.RequestRelease();
+            }
+            else if (registration is not null)
+            {
                 _ = registration.Group.RequestReleaseAsync();
+            }
         }
 
         internal async Task<InspectionWorkspaceGroupCloseResult?>
@@ -1208,9 +1416,45 @@ public sealed partial class InspectionWorkspace :
             _constructionCompletion.SetResult();
         }
 
+        internal void SetRegistration(
+            WorkspaceGroupRegistration registration)
+        {
+            ArgumentNullException.ThrowIfNull(registration);
+            lock (_gate)
+            {
+                if (_registration is not null)
+                {
+                    throw new InvalidOperationException(
+                        "A workspace group admission completed more than once.");
+                }
+                _registration = registration;
+            }
+        }
+
+        internal void FinishRegistration()
+        {
+            WorkspaceGroupRegistration registration;
+            lock (_gate)
+            {
+                registration =
+                    _registration
+                    ?? throw new InvalidOperationException(
+                        "A workspace group admission has no registration to finish.");
+            }
+
+            ObserveRelease(registration);
+            _constructionCompletion.SetResult();
+        }
+
         void ObserveRelease(
             WorkspaceGroupRegistration registration)
         {
+            if (registration.CoordinatedParticipation is not null)
+            {
+                ObserveCoordinatedRelease(registration);
+                return;
+            }
+
             Task<AssemblyContextGroupReleaseResult> completion =
                 registration.Group.ReleaseCompletion;
             var awaiter =
@@ -1233,9 +1477,57 @@ public sealed partial class InspectionWorkspace :
             WorkspaceGroupRegistration registration,
             AssemblyContextGroupReleaseResult release)
         {
-            var result = new InspectionWorkspaceGroupCloseResult(
+            var result = new InspectionWorkspaceDirectGroupCloseResult(
                 registration.RegistrationIndex,
                 release.Failure);
+            CompleteRelease(registration, result);
+        }
+
+        void ObserveCoordinatedRelease(
+            WorkspaceGroupRegistration registration)
+        {
+            Task<InspectionWorkspaceGroupCloseResult> completion =
+                registration.CoordinatedParticipation!
+                    .GetCloseResultAsync(
+                        registration.RegistrationIndex);
+            _ = CompleteCoordinatedReleaseAsync(
+                registration,
+                completion);
+        }
+
+        async Task CompleteCoordinatedReleaseAsync(
+            WorkspaceGroupRegistration registration,
+            Task<InspectionWorkspaceGroupCloseResult> completion)
+        {
+            InspectionWorkspaceGroupCloseResult result;
+            try
+            {
+                result =
+                    await completion.ConfigureAwait(false);
+            }
+            catch (Exception failure)
+            {
+                lock (_gate)
+                {
+                    if (ReferenceEquals(
+                            _registration,
+                            registration))
+                    {
+                        _registration = null;
+                    }
+                }
+
+                _terminalCompletion.SetException(failure);
+                return;
+            }
+
+            CompleteRelease(registration, result);
+        }
+
+        void CompleteRelease(
+            WorkspaceGroupRegistration registration,
+            InspectionWorkspaceGroupCloseResult result)
+        {
             lock (_gate)
             {
                 if (ReferenceEquals(
@@ -1250,9 +1542,11 @@ public sealed partial class InspectionWorkspace :
         }
     }
 
-    sealed record WorkspaceGroupRegistration(
+    internal sealed record WorkspaceGroupRegistration(
         int RegistrationIndex,
-        AssemblyContextGroup Group);
+        AssemblyContextGroup Group,
+        IWorkspaceCoordinatedGroupParticipation?
+            CoordinatedParticipation = null);
 
     enum InspectionWorkspaceLifetimeMode
     {
