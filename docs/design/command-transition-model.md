@@ -447,6 +447,18 @@ projected only from the rows an image defines, so a forwarded type can never
 label a local row with a name from another assembly
 (`Names_DoNotLabelALocalRowWithAForwardedTypesName`).
 
+The disclosed address must also still exist once the command exits. `--package`
+extracts to a temporary directory that the command deletes on the way out, so
+naming the extracted image would satisfy every rule above and still hand back an
+address that had already stopped existing — discovery reporting success while
+the command it printed fails with "File not found". A candidate image drawn from
+that extraction is therefore disclosed as the package the caller named plus the
+library's own name within it, which is the spelling that replays
+(`ReplayableCandidateAddress_ForAnImageInsideTheExtraction_NamesThePackage`). An
+image the caller supplied directly outlives the command and is disclosed
+unchanged (`ReplayableCandidateAddress_ForADirectlyNamedLibrary_KeepsThePathIntact`,
+`ReplayableCandidateAddress_ForAnImageOutsideTheExtraction_KeepsThePathIntact`).
+
 The candidate population follows the disclosure rules rather than the focus
 rules. Type-scoped retrieval is the bounded default and is inferred from the
 seed's declaring type; whole-assembly search changes the cost class and so

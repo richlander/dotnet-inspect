@@ -1138,6 +1138,101 @@ public sealed class MatchDiscoveryTests
         Assert.Contains("type scope", error);
     }
 
+    // ---- Round 9 review findings: the disclosed address must outlive the command ----
+
+    /// <summary>
+    /// A package is extracted to a temporary directory that <c>match</c> deletes as it exits, so
+    /// disclosing that extraction path handed the caller an address that no longer existed by the
+    /// time they could type it: discovery completed at exit 0 and the command it printed failed
+    /// with "File not found". A package-sourced run must disclose the package and the library
+    /// inside it, which is what actually replays.
+    /// </summary>
+    [Fact]
+    public void Disclosure_ForAPackageSourcedRun_NamesThePackageRatherThanTheExtractionPath()
+    {
+        var request = new MatchDiscoveryRequest(
+            "A.Type.Member",
+            "A.Type",
+            "Target.dll",
+            new ILInspector.Analysis.StructuralCloneRetrievalLimits(1, 1),
+            null,
+            CandidatePackage: "Fixture.1.0.0.nupkg");
+
+        string disclosure = MatchDiscoveryFormatter.DisclosureFor(request);
+
+        Assert.Contains("`--package Fixture.1.0.0.nupkg --library Target.dll`", disclosure);
+    }
+
+    /// <summary>
+    /// The directly named library keeps its full path, which is already replayable. Only the
+    /// package case may substitute a package-relative spelling.
+    /// </summary>
+    [Fact]
+    public void Disclosure_ForADirectlyNamedLibrary_KeepsThePathAndNamesNoPackage()
+    {
+        var request = new MatchDiscoveryRequest(
+            "A.Type.Member",
+            "A.Type",
+            "/images/Target.dll",
+            new ILInspector.Analysis.StructuralCloneRetrievalLimits(1, 1),
+            null);
+
+        string disclosure = MatchDiscoveryFormatter.DisclosureFor(request);
+
+        Assert.Contains("`--library /images/Target.dll`", disclosure);
+        Assert.DoesNotContain("--package", disclosure);
+    }
+
+    /// <summary>
+    /// The candidate image that came out of a package extraction is addressed by the package the
+    /// caller named plus the library's own name, because the extraction directory is deleted as
+    /// this command exits.
+    /// </summary>
+    [Fact]
+    public void ReplayableCandidateAddress_ForAnImageInsideTheExtraction_NamesThePackage()
+    {
+        string extraction = Path.Combine(Path.GetTempPath(), "inspect-api-xyz");
+
+        (string? package, string library) = MatchDiscovery.ReplayableCandidateAddress(
+            "Fixture.1.0.0.nupkg",
+            extraction,
+            Path.Combine(extraction, "extracted", "lib", "net10.0", "Target.dll"));
+
+        Assert.Equal("Fixture.1.0.0.nupkg", package);
+        Assert.Equal("Target.dll", library);
+    }
+
+    /// <summary>
+    /// A directly named library outlives the command, so its path is disclosed unchanged. Nothing
+    /// here may shorten an address the caller can still use.
+    /// </summary>
+    [Fact]
+    public void ReplayableCandidateAddress_ForADirectlyNamedLibrary_KeepsThePathIntact()
+    {
+        (string? package, string library) =
+            MatchDiscovery.ReplayableCandidateAddress(null, null, "/images/Target.dll");
+
+        Assert.Null(package);
+        Assert.Equal("/images/Target.dll", library);
+    }
+
+    /// <summary>
+    /// A package run whose candidate image lives outside the extraction is a path the caller
+    /// supplied, so it survives the command and must not be rewritten to a bare file name that
+    /// the package does not contain.
+    /// </summary>
+    [Fact]
+    public void ReplayableCandidateAddress_ForAnImageOutsideTheExtraction_KeepsThePathIntact()
+    {
+        (string? package, string library) = MatchDiscovery.ReplayableCandidateAddress(
+            "Fixture.1.0.0.nupkg",
+            Path.Combine(Path.GetTempPath(), "inspect-api-xyz"),
+            "/images/Target.dll");
+
+        Assert.Null(package);
+        Assert.Equal("/images/Target.dll", library);
+    }
+
     /// <summary>
     /// The README tells same-image callers to confirm a candidate with the pairwise form. That
     /// instruction must stay scoped, because there is no cross-image confirmation to run.

@@ -17,7 +17,8 @@ internal sealed record MatchDiscoveryRequest(
     string Scope,
     string? CandidateAssembly,
     StructuralCloneRetrievalLimits Limits,
-    int? Top);
+    int? Top,
+    string? CandidatePackage = null);
 
 /// <summary>
 /// Token-to-display names for one candidate assembly, projected from the already-extracted
@@ -393,6 +394,11 @@ internal static class MatchDiscoveryFormatter
     /// A run that carries a candidate assembly is exactly the run whose ranked tokens index an
     /// image other than the one the caller named, because discovery leaves the candidate assembly
     /// null when the population lives in the caller's own image.
+    /// <para>
+    /// The address must be one the caller can still use after this process exits. A package is
+    /// extracted to a temporary directory that the command deletes, so a package-sourced run
+    /// discloses the package and the library inside it rather than the extraction path.
+    /// </para>
     /// </summary>
     internal static string DisclosureFor(MatchDiscoveryRequest request)
         => request.CandidateAssembly is string candidateAssembly
@@ -400,8 +406,10 @@ internal static class MatchDiscoveryFormatter
                 + "Ranked tokens index "
                 + Path.GetFileName(candidateAssembly)
                 + ", which defines them rather than the assembly named on the command line; run "
-                + "pairwise `match` on a candidate with `--library "
-                + candidateAssembly
+                + "pairwise `match` on a candidate with `"
+                + (request.CandidatePackage is string candidatePackage
+                    ? "--package " + candidatePackage + " --library " + candidateAssembly
+                    : "--library " + candidateAssembly)
                 + "` to obtain a checked relation."
             : Disclosure;
 

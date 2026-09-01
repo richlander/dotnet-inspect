@@ -184,13 +184,20 @@ internal static class MatchDiscovery
             AssemblyContextStructuralCloneRetrievalResult result =
                 AssemblyContextStructuralCloneRetrievalQuery.Execute(input);
 
+            // A package is extracted to a temporary directory that this command deletes as it
+            // exits, so that extraction path addresses nothing by the time the caller could type
+            // it. Disclose the package and the library within it, which is what actually replays.
+            (string? candidatePackage, string candidateLibrary) =
+                ReplayableCandidateAddress(options.PackagePath, seed.TempDir, candidateImage);
+
             var view = MatchDiscoveryFormatter.BuildView(
                 new MatchDiscoveryRequest(
                     resolvedSeed.Display!,
                     scopeDisplay!,
-                    tokensIndexCallerImage ? null : candidateImage,
+                    tokensIndexCallerImage ? null : candidateLibrary,
                     limits,
-                    options.Top),
+                    options.Top,
+                    tokensIndexCallerImage ? null : candidatePackage),
                 result,
                 MatchDiscoveryNames.Build(namesSurface, candidateImage));
 
@@ -247,6 +254,29 @@ internal static class MatchDiscovery
         }
     }
 
+
+    /// <summary>
+    /// Chooses an address for the candidate image that the caller can still use after this command
+    /// exits.
+    /// <para>
+    /// A package is extracted to a temporary directory that <see cref="LoadedSide.Dispose"/>
+    /// deletes, so disclosing the extraction path handed back an address that had already stopped
+    /// existing: discovery reported success and the command it printed failed with "File not
+    /// found". When the candidate image came out of that extraction, the replayable address is the
+    /// package plus the library's name within it. Every other candidate image is a path the caller
+    /// supplied and is disclosed unchanged.
+    /// </para>
+    /// </summary>
+    internal static (string? Package, string Library) ReplayableCandidateAddress(
+        string? packagePath,
+        string? extractionDirectory,
+        string candidateImage)
+        => packagePath is not null
+            && extractionDirectory is not null
+            && candidateImage.StartsWith(
+                Path.GetFullPath(extractionDirectory), StringComparison.Ordinal)
+                ? (packagePath, Path.GetFileName(candidateImage))
+                : (null, candidateImage);
 
     /// <summary>
     /// Resolves the seed to a MethodDef token. A raw <c>0x06......</c> token passes through; any
@@ -478,6 +508,12 @@ internal static class MatchDiscovery
         internal ApiSurface Api { get; } = api;
         internal string ApiDllPath { get; } = apiDllPath;
 
-        public void Dispose() => TryDeleteTempDir(tempDir);
+        /// <summary>
+        /// The extraction root when this side came from a package, so a disclosure can tell that
+        /// an image path is ephemeral rather than replayable. Null for a directly named library.
+        /// </summary>
+        internal string? TempDir { get; } = tempDir;
+
+        public void Dispose() => TryDeleteTempDir(TempDir);
     }
 }
