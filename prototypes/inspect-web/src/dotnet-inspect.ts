@@ -283,10 +283,10 @@ import {
 import {
   bindSettingsPanel,
   renderSettingsView,
-  renderTastePopover,
   type StyleOption,
   type StyleTier,
 } from "./settings-panel.ts";
+import { renderBrand } from "./brand.ts";
 import { loadPlatformIndex, type PlatformIndex } from "./platform-index.ts";
 import {
   createSpotlight,
@@ -762,7 +762,6 @@ const initialState = {
   styleOptions: null,
   styleCatalogError: "",
   taste: loadStoredTaste(),
-  tasteOpen: false,
   settings: false,
   settingsReturn: "home",
   typeCursor: 0,
@@ -1554,7 +1553,6 @@ function focusTypeList(generation = spotlightFocusGeneration) {
 
 function openSpotlight(seed = "", spotlightScope: SpotlightScope = "all") {
   if (state.loading || state.error) return;
-  state.tasteOpen = false;
   beginSpotlightNavigation();
   spotlight.open(seed, spotlightScope);
 }
@@ -2663,6 +2661,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const annotatedActionsEnabled =
     annotatedWorkingSurface;
   const subjectPath = currentInspectedSubjectPath();
+  const subjectPathLabel = subjectPath.map(segment => segment.label).join(" > ");
 
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal ? " inert" : ""}>
@@ -2671,21 +2670,27 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
       })}
 
       <header class="subject-zone" aria-label="Inspected subject">
-        <div class="nav-history">
-          <button id="nav-back" ${navigationHistory.canBack() ? "" : "disabled"} title="Back (Alt+← or Shift+←)" aria-label="Back">‹</button>
-          <button id="nav-forward" ${navigationHistory.canForward() ? "" : "disabled"} title="Forward (Alt+→ or Shift+→)" aria-label="Forward">›</button>
-        </div>
-        <div class="subject-path" aria-label="${escapeHtml(subjectPath.join(" > "))}" title="${escapeHtml(subjectPath.join(" > "))}">
+        <span class="subject-icon" aria-hidden="true">${scope() === "workspace" ? "W" : pkg.isRuntimePack ? "◎" : "⬡"}</span>
+        <div class="subject-path" aria-label="${escapeHtml(subjectPathLabel)}" title="${escapeHtml(subjectPathLabel)}">
           ${renderInspectedSubjectPath(subjectPath)}
         </div>
         <div class="subject-advertisements"></div>
+        <div class="subject-navigation">
+          <div class="nav-history">
+            <button id="nav-back" ${navigationHistory.canBack() ? "" : "disabled"} title="Back (Alt+← or Shift+←)" aria-label="Back">←</button>
+            <button id="nav-forward" ${navigationHistory.canForward() ? "" : "disabled"} title="Forward (Alt+→ or Shift+→)" aria-label="Forward">→</button>
+          </div>
+          <button id="open-search" class="subject-search" type="button" aria-haspopup="dialog" title="Search (Ctrl/Command+P)">
+            <span class="subject-search-glyph" aria-hidden="true">⌕</span>
+            <span class="subject-search-label">Search types, members, packages</span>
+            <kbd>Ctrl P</kbd>
+          </button>
+        </div>
         <div class="detail-actions${annotatedPageContext ? " annotated-page-actions" : ""}">
           <button id="share" type="button">Share</button>
           ${annotatedPageContext
             ? renderAnnotatedSourcePageActions(annotatedActionsEnabled)
-            : scope() === "workspace"
-            ? ""
-            : `<button id="copy-name" type="button">copy name</button><button id="taste-btn" class="${state.taste.length ? "active" : ""}" title="Decompiler style (taste)">taste${state.taste.length ? ` · ${state.taste.length}` : ""}</button>`}
+            : ""}
         </div>
       </header>
 
@@ -2731,7 +2736,6 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
       ${state.spotlightOpen ? spotlight.modalHtml() : ""}
       ${state.graphSourceOpen ? renderGraphSource() : ""}
       ${state.docViewerOpen ? renderDocViewer() : ""}
-      ${state.tasteOpen ? renderTastePopoverHtml() : ""}
     </div>
     ${renderAnnotatedSourceModal()}`;
 
@@ -2825,56 +2829,65 @@ function renderNavPane(
     : renderTypeNavPane(current, visible);
 }
 
-function inspectedSubjectName(
-  pkg: AppPackage,
-  current: AppTypeSurface | null | undefined,
-): string {
-  if (scope() === "workspace") return "Workspace";
-  if (state.atPackageRoot)
-    return `${packageDisplayName(pkg)}@${pkg.version}`;
-  if (!current) return packageDisplayName(pkg);
-  const typeName = current.namespace
-    ? `${current.namespace}.${typeDisplayName(current)}`
-    : typeDisplayName(current);
-  const member = scope() === "member" ? selectedMember(current) : null;
-  return member ? `${typeName}.${member.name}` : typeName;
-}
+type SubjectPathKind = "workspace" | "package" | "type" | "member";
 
-function currentInspectedSubjectName(): string {
-  return state.package
-    ? inspectedSubjectName(state.package, selectedType())
-    : "";
+interface SubjectPathSegment {
+  kind: SubjectPathKind;
+  label: string;
+  copyable: boolean;
 }
 
 function inspectedSubjectPath(
   pkg: AppPackage,
   current: AppTypeSurface | null | undefined,
-): readonly string[] {
-  if (scope() === "workspace") return ["Workspace"];
-  const path = [packageDisplayName(pkg)];
+): readonly SubjectPathSegment[] {
+  if (scope() === "workspace") {
+    return [{ kind: "workspace", label: "Workspace", copyable: false }];
+  }
+  const path: SubjectPathSegment[] = [{
+    kind: "package",
+    label: packageDisplayName(pkg),
+    copyable: true,
+  }];
   if (state.atPackageRoot || !current) return path;
-  path.push(current.namespace
-    ? `${current.namespace}.${typeDisplayName(current)}`
-    : typeDisplayName(current));
+  path.push({
+    kind: "type",
+    label: current.namespace
+      ? `${current.namespace}.${typeDisplayName(current)}`
+      : typeDisplayName(current),
+    copyable: true,
+  });
   const member = scope() === "member" ? selectedMember(current) : null;
-  if (member) path.push(member.name);
+  if (member) {
+    path.push({
+      kind: "member",
+      label: member.name,
+      copyable: true,
+    });
+  }
   return path;
 }
 
-function currentInspectedSubjectPath(): readonly string[] {
+function currentInspectedSubjectPath(): readonly SubjectPathSegment[] {
   return state.package
     ? inspectedSubjectPath(state.package, selectedType())
     : [];
 }
 
-function renderInspectedSubjectPath(path: readonly string[]): string {
+function renderInspectedSubjectPath(
+  path: readonly SubjectPathSegment[],
+): string {
   return path.map((segment, index) => {
     const root = index === 0 ? " root" : "";
     const current = index === path.length - 1 ? " current" : "";
     const separator = index === 0
       ? ""
       : '<span class="subject-path-separator" aria-hidden="true">&gt;</span>';
-    return `${separator}<span class="subject-path-segment${root}${current}">${escapeHtml(segment)}</span>`;
+    const label = escapeHtml(segment.label);
+    const content = segment.copyable
+      ? `<button type="button" class="subject-path-segment${root}${current}" data-subject-copy="${index}" title="Copy ${label}" aria-label="Copy ${escapeHtml(segment.kind)} name ${label}">${label}</button>`
+      : `<span class="subject-path-segment${root}${current}">${label}</span>`;
+    return `${separator}${content}`;
   }).join("");
 }
 
@@ -4856,10 +4869,6 @@ function bindTypePanelEvents() {
       if (state.memberSource)
         void copyText(state.memberSource.text, "source copied");
     },
-    onCopyName: () => {
-      const subjectName = currentInspectedSubjectName();
-      if (subjectName) void copyText(subjectName, "name copied");
-    },
     onCopySignature: () => {
       const type = selectedType();
       const member = selectedMember(type);
@@ -5055,10 +5064,6 @@ function bindSettingsPanelEvents() {
     onClose: closeSettings,
     onOpen: openSettings,
     onTasteClear: clearTaste,
-    onTasteOpenToggle: () => {
-      state.tasteOpen = !state.tasteOpen;
-      render();
-    },
     onTasteToggle: toggleTaste,
     onThemeSelect: setTheme,
   });
@@ -5147,7 +5152,6 @@ function openAnnotatedSourceModal() {
   const opened = openModalSession(model, embedded);
   state.memberAnnotatedEmbedded = opened.embedded;
   state.memberAnnotatedModal = opened.modal;
-  state.tasteOpen = false;
   spotlight.reset();
   sourceInspection.clearGraphSource();
   documentInspection.clear();
@@ -5267,6 +5271,11 @@ function bindAnnotatedSourceEvents() {
 }
 
 const workbenchShellActions: WorkbenchShellBindingActions = {
+  onCopySubjectSegment: index => {
+    const segment = currentInspectedSubjectPath()[index];
+    if (segment?.copyable)
+      void copyText(segment.label, `${segment.kind} name copied`);
+  },
   onDismissNotice: dismissQueryNotice,
   onDismissPackageNotice: () => {
     const pkg = currentPackage();
@@ -6452,8 +6461,7 @@ function renderPreservingMemberFocus(
 }
 
 function workbenchOverlayOwnsFocus() {
-  return workbenchModalOwnsFocus()
-    || state.tasteOpen;
+  return workbenchModalOwnsFocus();
 }
 
 function workbenchModalOwnsFocus() {
@@ -7152,7 +7160,7 @@ function renderHomeView() {
   app.innerHTML = `
     <div class="home">
       <header class="home-bar">
-        <a class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
+        ${renderBrand()}
         <div class="home-bar-actions">
           <a class="home-link" href="https://github.com/richlander/dotnet-inspect" target="_blank" rel="noreferrer">GitHub</a>
           <button id="home-settings" aria-label="Open settings" title="Settings">⚙</button>
@@ -9159,20 +9167,6 @@ function renderDocViewer() {
   });
 }
 
-// The decompiler style ("taste") catalog, grouped by tier, as checkbox rows. Shared by the
-// detail-view taste popover and the Settings page so both stay in lockstep with the engine's
-// StyleOptionCatalog (fetched once into state.styleTiers/state.styleOptions).
-function renderTastePopoverHtml() {
-  return renderTastePopover(
-    {
-      styleTiers: state.styleTiers,
-      styleOptions: state.styleOptions,
-      styleCatalogError: state.styleCatalogError,
-      taste: state.taste,
-    },
-    escapeHtml);
-}
-
 function invalidateSourceCaches() {
   state.memberSource = null;
   state.memberSourceKey = "";
@@ -9244,7 +9238,6 @@ function clearTaste() {
 function openSettings(from: "home" | "workbench") {
   state.settingsReturn = from === "workbench" ? "workbench" : "home";
   state.settings = true;
-  state.tasteOpen = false;
   render();
 }
 
@@ -10565,18 +10558,6 @@ keybindings.register({
 });
 
 keybindings.register({
-  id: "taste.dismiss",
-  key: "Escape",
-  allowExtraModifiers: true,
-  priority: WORKBENCH_KEYBINDING_PRIORITY.popover,
-  when: () => workspaceKeyboardContextIsActive() && state.tasteOpen,
-  run: () => {
-    state.tasteOpen = false;
-    render();
-    return true;
-  },
-});
-keybindings.register({
   id: "workspace.drill-out-escape",
   key: "Escape",
   allowExtraModifiers: true,
@@ -10760,15 +10741,6 @@ keybindings.register({
 
 keybindings.attach(document);
 
-document.addEventListener("mousedown", event => {
-  if (!state.tasteOpen) return;
-  if (event.target instanceof Element
-    && (event.target.closest("#taste-popover")
-      || event.target.closest("#taste-btn"))) return;
-  state.tasteOpen = false;
-  render();
-});
-
 // Re-apply state when the address bar changes underneath us (browser back/forward, or a
 // hand-edited URL). Within the loaded package we mutate selection directly; a different
 // package is (re)loaded with the URL selection queued as a deep link.
@@ -10784,7 +10756,6 @@ function dismissModalsForRoutedNavigation() {
   const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal(false);
   state.settings = false;
   state.explorer = null;
-  state.tasteOpen = false;
   spotlight.reset();
   sourceInspection.clearGraphSource();
   documentInspection.clear();

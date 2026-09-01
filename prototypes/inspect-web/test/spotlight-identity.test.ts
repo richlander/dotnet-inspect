@@ -1179,7 +1179,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     ?? "";
   assert.match(
     shellControlsSource,
-    /export function bindWorkbenchShell\([\s\S]*#share[\s\S]*#dismiss-notice[\s\S]*#retry-notice[\s\S]*#dismiss-package-notice[\s\S]*#nav-back[\s\S]*#nav-forward[\s\S]*#open-search[\s\S]*#help[\s\S]*export function focusWorkbenchSearch\([\s\S]*#open-search/);
+    /export function bindWorkbenchShell\([\s\S]*\[data-subject-copy\][\s\S]*#share[\s\S]*#dismiss-notice[\s\S]*#retry-notice[\s\S]*#dismiss-package-notice[\s\S]*#nav-back[\s\S]*#nav-forward[\s\S]*#open-search[\s\S]*#help[\s\S]*export function focusWorkbenchSearch\([\s\S]*#open-search/);
   assert.match(
     shellControlsSource,
     /export function bindHomeShell\([\s\S]*#home-theme[\s\S]*#dismiss-notice[\s\S]*#home-credits[\s\S]*\[data-home-demo\]/);
@@ -1203,7 +1203,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /app\.innerHTML = `[\s\S]*bindLoadErrorShell\(document, loadErrorShellActions\)/);
   assert.match(
     workbenchActions,
-    /onDismissNotice: dismissQueryNotice,\n  onDismissPackageNotice:/);
+    /onCopySubjectSegment: index => \{[\s\S]*currentInspectedSubjectPath\(\)\[index\][\s\S]*copyText\(segment\.label, `\$\{segment\.kind\} name copied`\)[\s\S]*onDismissNotice: dismissQueryNotice,\n  onDismissPackageNotice:/);
   assert.match(
     workbenchActions,
     /onDismissPackageNotice: \(\) => \{[\s\S]*pkg\.inspectionErrors = \[\];[\s\S]*pkg\.inspectionError = "";[\s\S]*render\(\);\s*\},\n  onHelp:/);
@@ -1218,7 +1218,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /onOpenPackage: openPackageQuery,\s*onRetry: \(\) => \{\s*if \(state\.retryAction === retryUnavailable\) return;\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\);\s*\}/);
   assert.doesNotMatch(
     appSource,
-    /\bquerySelector(?:All)?(?:<[^>]+>)?\("(?:#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|open-search|help|home-theme|home-credits|retry-load|error-package-query|error-package-input|toggle-error-detail)|\[data-home-demo\]|\.load-error-detail)"\)/);
+    /\bquerySelector(?:All)?(?:<[^>]+>)?\("(?:#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|open-search|help|home-theme|home-credits|retry-load|error-package-query|error-package-input|toggle-error-detail)|\[data-subject-copy\]|\[data-home-demo\]|\.load-error-detail)"\)/);
   assert.doesNotMatch(
     workspaceBinding,
     /#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|open-search|help)/);
@@ -1231,18 +1231,25 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
 test("the full-width subject zone advertises the typed subject hierarchy", () => {
   const renderNode = functionDeclaration("render");
   const subjectPathNode = functionDeclaration("inspectedSubjectPath");
+  const subjectPathRenderer = functionDeclaration("renderInspectedSubjectPath");
   const render = appSource.slice(renderNode.start, renderNode.end);
   const subjectPath = appSource.slice(subjectPathNode.start, subjectPathNode.end);
+  const renderer =
+    appSource.slice(subjectPathRenderer.start, subjectPathRenderer.end);
 
   assert.match(
     render,
-    /<header class="subject-zone"[\s\S]*class="subject-path"[\s\S]*class="subject-advertisements"[\s\S]*<main class="workspace">/);
+    /<header class="subject-zone"[\s\S]*class="subject-icon"[\s\S]*class="subject-path"[\s\S]*class="subject-advertisements"[\s\S]*class="subject-navigation"[\s\S]*id="nav-back"[\s\S]*id="nav-forward"[\s\S]*id="open-search"[\s\S]*id="share"[\s\S]*<main class="workspace">/);
+  assert.doesNotMatch(render, /id="copy-name"|id="taste-btn"/);
   assert.doesNotMatch(
     render,
     /<section class="detail-pane">\s*<header class="detail-head">/);
   assert.match(
     subjectPath,
-    /const path = \[packageDisplayName\(pkg\)\][\s\S]*path\.push\(current\.namespace[\s\S]*if \(member\) path\.push\(member\.name\)/);
+    /kind: "package"[\s\S]*label: packageDisplayName\(pkg\)[\s\S]*kind: "type"[\s\S]*current\.namespace[\s\S]*kind: "member"[\s\S]*label: member\.name/);
+  assert.match(
+    renderer,
+    /segment\.label[\s\S]*segment\.copyable[\s\S]*data-subject-copy="\$\{index\}"[\s\S]*segment\.kind/);
 });
 
 test("typed graph interactions own graph controls and Mermaid node bindings", () => {
@@ -1332,7 +1339,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.doesNotMatch(
     appSource,
     /document\.querySelector\("\[data-graph-back\]"\)/);
-  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 3);
+  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 2);
 });
 
 test("typed document inspection owns package document request coordination", () => {
@@ -1424,7 +1431,8 @@ test("typed type panel owns its rendered control bindings", () => {
     /\[data-member-kind-filter\][\s\S]*\[data-member-access-filter\][\s\S]*\[data-member-trait-filter\][\s\S]*#clear-member-filter[\s\S]*#member-filter/);
   assert.match(
     typePanelSource,
-    /\[data-member-jump-kind\][\s\S]*\[data-member-jump-access\][\s\S]*\[data-member-jump-trait\][\s\S]*\[data-member\][\s\S]*\[data-overload\][\s\S]*#member-back[\s\S]*#copy-name[\s\S]*#copy-signature[\s\S]*\[data-copy-anchor\][\s\S]*#copy-source[\s\S]*#copy-type-source/);
+    /\[data-member-jump-kind\][\s\S]*\[data-member-jump-access\][\s\S]*\[data-member-jump-trait\][\s\S]*\[data-member\][\s\S]*\[data-overload\][\s\S]*#member-back[\s\S]*#copy-signature[\s\S]*\[data-copy-anchor\][\s\S]*#copy-source[\s\S]*#copy-type-source/);
+  assert.doesNotMatch(typePanelSource, /#copy-name|onCopyName/);
   assert.doesNotMatch(
     appSource,
     /document\.querySelectorAll<HTMLElement>\("\[data-member-(?:kind|access|trait)-filter\]"\)/);
@@ -1436,7 +1444,7 @@ test("typed type panel owns its rendered control bindings", () => {
     /document\.querySelectorAll<HTMLElement>\("\[data-(?:member-jump-(?:kind|access|trait)|member|overload|copy-anchor)\]"\)/);
   assert.doesNotMatch(
     appSource,
-    /document\.querySelector\("#(?:member-back|copy-name|copy-signature|copy-source|copy-type-source)"\)/);
+    /document\.querySelector\("#(?:member-back|copy-signature|copy-source|copy-type-source)"\)/);
   assert.match(
     binding,
     /const enterMemberNavigation = \(action: \(\) => void\) => \{[\s\S]*beginSpotlightNavigation\(\);[\s\S]*action\(\);[\s\S]*focusTypeList\(focusGeneration\)/);
@@ -1464,9 +1472,9 @@ test("typed type panel owns its rendered control bindings", () => {
   assert.match(
     binding,
     /onMemberBack: drillOut[\s\S]*onMemberOverloadOpen: openOverload/);
-  assert.match(
+  assert.doesNotMatch(
     binding,
-    /onCopyName: \(\) => \{\s*const subjectName = currentInspectedSubjectName\(\);\s*if \(subjectName\) void copyText\(subjectName, "name copied"\)/);
+    /onCopyName|currentInspectedSubjectName/);
   assert.match(
     binding,
     /onCopySignature: \(\) => \{[\s\S]*void copyText\(overload\.signature, "signature copied"\)/);
@@ -1732,7 +1740,7 @@ test("typed settings panel owns its rendered control bindings", () => {
   assert.equal(innerSettingsCall.arguments.length, 2);
   assertIdentifierArgument(innerSettingsCall, 0, "document", "bindSettingsPanel");
   const actions = objectArgument(innerSettingsCall, 1, "bindSettingsPanel");
-  assert.equal(actions.properties.length, 6);
+  assert.equal(actions.properties.length, 5);
   const settingsActions: readonly (readonly [string, string])[] = [
     ["onClose", "closeSettings"],
     ["onOpen", "openSettings"],
@@ -1747,13 +1755,6 @@ test("typed settings panel owns its rendered control bindings", () => {
       `${name} settings action must be an identifier, found ${target.type}`);
     assert.equal(target.name, value);
   }
-  const tasteOpenToggle = callbackProperty(actions, "onTasteOpenToggle");
-  assert.deepEqual(
-    statementSignatures(tasteOpenToggle.body.body),
-    [
-      "assign:state.tasteOpen = !state.tasteOpen",
-      "call:render()",
-    ]);
   assert.match(
     appSource,
     /import \{(?=[^}]*\bbindSettingsPanel,)[^}]*} from "\.\/settings-panel\.ts";/);
@@ -1762,15 +1763,18 @@ test("typed settings panel owns its rendered control bindings", () => {
     /\bquerySelector(?:All)?\b|\baddEventListener\b/);
   assert.match(
     settingsPanelSource,
-    /export function bindSettingsPanel\([\s\S]*#settings-close[\s\S]*#home-settings[\s\S]*#open-settings[\s\S]*#taste-btn[\s\S]*stopPropagation\(\)[\s\S]*\.settings-seg\[data-theme\][\s\S]*\.settings-taste \[data-taste\][\s\S]*#settings-taste-clear[\s\S]*#taste-popover \[data-taste\][\s\S]*#taste-clear/);
+    /export function bindSettingsPanel\([\s\S]*#settings-close[\s\S]*#home-settings[\s\S]*#open-settings[\s\S]*\.settings-seg\[data-theme\][\s\S]*\.settings-taste \[data-taste\][\s\S]*#settings-taste-clear/);
+  assert.doesNotMatch(
+    settingsPanelSource,
+    /#taste-btn|#taste-popover|#taste-clear|renderTastePopover|onTasteOpenToggle/);
   const nonSettingsPanelSource = productionTypeScriptSources
     .filter(({ path }) => path.replaceAll("\\", "/") !== "settings-panel.ts")
     .map(({ source }) => source)
     .join("\n");
   const entrySelectorAccess =
-    /(?:querySelector(?:All)?\s*(?:<[^>\n]+>)?|getElementById)\s*\(\s*(["'`])#?(?:home-settings|open-settings|taste-btn)\1\s*\)/g;
+    /(?:querySelector(?:All)?\s*(?:<[^>\n]+>)?|getElementById)\s*\(\s*(["'`])#?(?:home-settings|open-settings)\1\s*\)/g;
   assert.equal(nonSettingsPanelSource.match(entrySelectorAccess)?.length ?? 0, 0);
-  assert.equal(settingsPanelSource.match(entrySelectorAccess)?.length, 3);
+  assert.equal(settingsPanelSource.match(entrySelectorAccess)?.length, 2);
   for (const selector of ["#home-settings", "#open-settings"]) {
     const selectorToken = new RegExp(`${selector}(?![-\\w])`, "g");
     assert.equal(
@@ -1782,23 +1786,14 @@ test("typed settings panel owns its rendered control bindings", () => {
       1,
       selector);
   }
-  assert.equal(
-    nonSettingsPanelSource.match(/#taste-btn(?![-\w])/g)?.length,
-    1);
-  assert.equal(
-    nonSettingsPanelSource.match(
-      /\.closest\(\s*(["'`])#taste-btn\1\s*\)/g)?.length,
-    1);
-  assert.equal(
-    settingsPanelSource.match(/#taste-btn(?![-\w])/g)?.length,
-    1);
+  assert.doesNotMatch(
+    productionTypeScriptSources.map(({ source }) => source).join("\n"),
+    /#taste-btn|#taste-popover|#taste-clear|tasteOpen/);
   for (const selector of [
     "#settings-close",
     ".settings-seg[data-theme]",
     ".settings-taste [data-taste]",
     "#settings-taste-clear",
-    "#taste-popover [data-taste]",
-    "#taste-clear",
   ]) {
     assert.equal(appSource.split(selector).length - 1, 0, selector);
   }
@@ -2161,12 +2156,12 @@ test("global workbench shortcuts respect the topmost modal", () => {
   assert.match(
     appSource,
     /id: "spotlight\.open-commands"[\s\S]*commandOrControl: true[\s\S]*openSpotlight\("", "commands"\)[\s\S]*id: "spotlight\.open-all"[\s\S]*openSpotlight\(\)[\s\S]*id: "spotlight\.contain-browser-find"/);
+  assert.doesNotMatch(
+    appSource,
+    /id: "taste\.dismiss"|state\.tasteOpen/);
   assert.match(
     appSource,
-    /id: "taste\.dismiss"[\s\S]*priority: WORKBENCH_KEYBINDING_PRIORITY\.popover[\s\S]*state\.tasteOpen = false/);
-  assert.match(
-    appSource,
-    /function openSpotlight\(seed = "", spotlightScope: SpotlightScope = "all"\) \{\s*if \(state\.loading \|\| state\.error\) return;\s*state\.tasteOpen = false;/);
+    /function openSpotlight\(seed = "", spotlightScope: SpotlightScope = "all"\) \{\s*if \(state\.loading \|\| state\.error\) return;\s*beginSpotlightNavigation\(\)/);
   assert.match(
     spotlightSource,
     /function bind\(root: ParentNode, mode: "modal" \| "inline"\)[\s\S]*if \(mode === "modal"\)[\s\S]*focus\(\);/);
@@ -2658,7 +2653,7 @@ test("malformed package routes use the contained restore failure path", () => {
     /function clearWorkspaceRouteFailure\(recoveryUrl\?: string\) \{\s*if \(failedWorkspaceUrlState\?\.kind !== "route"\) return true;\s*if \(!recoverWorkspaceRouteFailure\(\s*failedWorkspaceUrlState,\s*location,\s*url => workspaceLocation\.replace\(url, history\.state\),\s*recoveryUrl\)\) \{\s*return false;\s*\}\s*failedWorkspaceUrlState = null;\s*return true;\s*\}[\s\S]*function dismissQueryNotice\(\) \{\s*const routeFailureOnHome =\s*failedWorkspaceUrlState\?\.kind === "route" && state\.home;\s*state\.queryNotice = "";\s*state\.queryNoticeRetryAction = null;\s*if \(!clearWorkspaceRouteFailure\(routeFailureOnHome \? "\/" : undefined\)\) \{\s*render\(\);\s*return;\s*\}\s*failedWorkspaceUrlState = null;\s*render\(\);\s*\}/);
   assert.match(
     appSource,
-    /const workbenchShellActions: WorkbenchShellBindingActions = \{\s*onDismissNotice: dismissQueryNotice,/);
+    /const workbenchShellActions: WorkbenchShellBindingActions = \{\s*onCopySubjectSegment: index => \{[\s\S]*onDismissNotice: dismissQueryNotice,/);
   assert.match(
     appSource,
     /const homeShellActions: HomeShellBindingActions = \{\s*onDemo: runHomeDemo,\s*onDismissNotice: dismissQueryNotice,/);
@@ -2874,7 +2869,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /const navigationSeq = navigationSequence\.begin\(\);\s*let leftPackageQueryForWorkspaceSuccessor = false;\s*const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\)/);
   assert.match(
     appSource,
-    /function dismissModalsForRoutedNavigation\(\) \{\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.explorer = null;\s*state\.tasteOpen = false;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
+    /function dismissModalsForRoutedNavigation\(\) \{\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
   assert.match(
     route,
     /dismissModalsForRoutedNavigation\(\);\s*navigationSequence\.begin\(\)/);
@@ -3133,7 +3128,7 @@ test("Type Source completion settles behind workbench overlays", () => {
     ?? "";
   assert.match(
     appSource,
-    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\)\s*\|\| state\.tasteOpen;[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| state\.graphSourceOpen\s*\|\| state\.docViewerOpen\s*\|\| state\.memberAnnotatedModal !== null;/);
+    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| state\.graphSourceOpen\s*\|\| state\.docViewerOpen\s*\|\| state\.memberAnnotatedModal !== null;/);
   assert.match(
     appSource,
     /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*currentSourceOperationKind\(\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);

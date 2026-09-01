@@ -73,7 +73,7 @@ This document consumes, without redefining:
 The first persistent row is one non-wrapping title line:
 
 ```text
-dotnet-inspect  Workspace Package Type Member  API Metadata Source  Search Help Settings
+dotnet-inspect  Workspace Package Type Member  API Metadata Source  Help Settings
 ```
 
 It follows the product's CLI grammar without becoming an editable command:
@@ -83,8 +83,8 @@ It follows the product's CLI grammar without becoming an editable command:
    inspectors immediately after the product root. Package coordinate controls
    belong to the Package working surface.
 3. Fixed global actions remain reachable at the trailing edge. Help and
-   Settings are the first actions removed from visual layout as width narrows;
-   Search and the product Home control remain.
+   Settings are removed from visual layout as width narrows; the product Home
+   control remains.
 
 The title line contains no workspace tabs, indexed workspace selectors, or
 separate Platform workspace, active-package title, or package coordinate
@@ -97,22 +97,32 @@ The title line does not show the fully qualified Library, Type, or Member
 identity. [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md)
 owns the full-width subject zone beneath it.
 
-Search is a visible trailing action that opens Spotlight, not an
-always-editable query input or a visually dominant command center. The global
-shell exposes:
+Search is a visible input-like control in the subject zone that opens
+Spotlight. It is not editable in place and does not become a dominant centered
+command control. Compact Back and Forward buttons sit immediately to its left,
+following VS Code only for this bounded adjacency and arrow treatment. The
+global title line exposes:
 
 ```text
-dotnet-inspect (Home)   Search   Open   Help   Settings
+dotnet-inspect (Home)   Open   Help   Settings
 ```
 
-An optional decorative glyph does not replace any visible label.
+The subject zone exposes:
+
+```text
+Back   Forward   Search types, members, packages   Share
+```
+
+The dotnet-bot image is the product mark and occupies the same fixed-width icon
+slot used by the subject-zone root mark. The visible `dotnet-inspect` label
+remains; the image does not replace it.
 
 ### Incremental adoption
 
 The shell may land before adjacent redesign owners. During that transition:
 
-- currently supported Search and Settings actions may occupy the target top row
-  before local-artifact Open is available;
+- currently supported Settings may occupy the target top row before
+  local-artifact Open is available;
 - Open remains absent rather than appearing disabled or committing a
   success-shaped placeholder action;
 - the `dotnet-inspect` root control is the sole persistent Home affordance;
@@ -191,6 +201,10 @@ Spotlight as the one search experience for:
 - Members;
 - platform inputs; and
 - commands.
+
+The subject-zone Search control remains visible beside Back and Forward. It
+advertises the search scope in its label and transfers focus to Spotlight's
+editable input when activated.
 
 Coordinate activation always opens the coordinate menu. That menu contains an
 explicit `Search packages` action that closes the menu and opens Spotlight in
@@ -284,14 +298,18 @@ outcomes.
 4. Select a Type or Member and confirm that the full-width subject zone below
    the title line advertises the Package, Type, and Member path in order.
 5. Select Package and confirm that Version and Framework appear in its working
-   surface. Confirm that Share and Copy name remain with the exact identity,
-   while `dotnet-inspect` is the sole Home affordance and Help and Settings
-   remain global title-line actions.
+   surface. Confirm that every product-issued subject-path segment copies its
+   own typed canonical name, there is no separate Copy name action, and Share
+   remains with the exact identity. `dotnet-inspect` is the sole Home affordance
+   and Help and Settings remain global title-line actions.
 6. Narrow the viewport and confirm that Help and Settings disappear before
    Search, the product Home control, the subject controls, or the
    inspected-subject actions.
-7. Confirm that no persistent package-query input or centered command-center
-   control appears, and that the visible Search action opens Spotlight.
+7. Confirm that the product bot and subject root use equal icon slots and the
+   Package name begins in the same column as `dotnet-inspect`.
+8. Confirm that no persistent package-query input or centered command-center
+   control appears, and that Back and Forward sit immediately left of the
+   visible Search control, which opens Spotlight.
 
 ### Search input
 

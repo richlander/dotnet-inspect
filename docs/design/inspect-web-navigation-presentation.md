@@ -96,7 +96,7 @@ An inspection workspace has two persistent lines before its primary content:
 1. The title line begins with `dotnet-inspect`, then renders the subject ladder,
    active inspectors, and global actions.
 2. The full-width **subject zone** advertises the ordered active subject path,
-   then direct Share and Copy name actions, before the working-content grid.
+   then history, Search, and Share actions, before the working-content grid.
 
 The title line follows the CLI's product-to-subject-to-inspector grammar but is
 not command text. Inventories, hierarchy menus, and other target navigation
@@ -141,20 +141,31 @@ below its top row. Narrower segments follow in order and the current leaf
 remains visually identifiable. The complete path remains in the accessible
 name and title when visible segments elide.
 
+Each product-issued Package, Library, Type, or Member segment is an individually
+copyable control. Activating one copies that segment's owner-issued canonical
+name, not the combined rendered path or text parsed from another segment.
+Workspace is presentation-owned retained-coordinate management and remains
+plain orientation text rather than inventing a canonical name.
+
+The subject zone begins with a fixed-width root-icon slot. A package uses a
+generic package mark until product data supplies an owner-issued package icon;
+platform and other root subjects may use their own marks. The title line gives
+the `dotnet-inspect` bot the same fixed-width slot, left padding, and text gap,
+so the Package name begins in the same column as `dotnet-inspect`.
+
 The zone reserves elastic space between the subject path and actions for
 concise owner-issued advertisements. Advertisements yield space before the
 subject path or direct actions and may not become another persistent tab strip,
 coordinate selector, or independently reconstructed identity.
 
-Trailing `Share` copies the canonical workspace link. `Copy name` appears only
-when the active subject has a product-issued canonical name and copies that
-name. Workspace is presentation-owned retained-coordinate management, so it
-does not invent a name-copy action. Neither action reconstructs identity from
-display text.
+Trailing `Share` copies the canonical workspace link. A separate `Copy name`
+action is absent because copy belongs to the segment whose typed identity is
+being copied.
 
-Browser Back and Forward own navigation history. Existing in-surface history
-buttons may remain during incremental adoption, but they are not part of the
-subject-path contract.
+Browser Back and Forward own navigation history. Compact Back and Forward
+buttons sit immediately to the left of the visible Spotlight Search control at
+the trailing side of the subject zone. They are outside the subject path and
+do not become breadcrumbs.
 
 ### Workspace surface
 
@@ -404,7 +415,7 @@ controls render in the Package working surface:
 
 ```text
 dotnet-inspect  Workspace Package Type Member  Overview Dependencies Metadata
-System.Text.Json@10.0.0  Share  copy name
+⬡ System.Text.Json                         ← → Search...  Share
 
 Package coordinate
 Version 10.0.0   Framework net10.0

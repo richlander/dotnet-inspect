@@ -197,6 +197,12 @@ Type, and Member path. Package coordinate options belong to Package content.
 Content headings may use the shorter local name. This section defines how
 lenses retain that orientation without restoring duplicated hero metadata.
 
+Within the subject path, Package is the largest and strongest text. Type and
+Member are smaller than Package but use emphasized text and weight above
+ordinary body copy; the current leaf also receives the shared accent. Segment
+copy controls preserve this typography without button chrome and gain an
+underline on hover plus an explicit keyboard focus outline.
+
 ### API and Source lenses
 
 API and Source render a compact local heading followed by their primary

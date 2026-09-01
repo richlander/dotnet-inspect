@@ -219,12 +219,17 @@ One information hierarchy adapts across viewport sizes:
   `Types` or `Members` button that opens the shared modal navigation drawer;
 - the title line and full-width subject zone each remain one line;
 - the subject zone remains outside and above the navigation/content grid;
-- Share and Copy name remain visible on the subject zone;
+- the product and subject-root icon slots have equal width and padding so their
+  following text shares one left alignment;
+- Back and Forward remain immediately left of the subject-zone Search control,
+  and Share remains visible;
 - Help and Settings disappear before Search, the `dotnet-inspect` Home
   control, subject navigation, or inspected-subject actions;
 - subject and inspector navigation scroll horizontally instead of wrapping;
 - subject-path segments and optional advertisements elide visually without
-  losing the complete accessible subject path; and
+  losing the complete accessible subject path or segment-level copy controls;
+  the Search label may collapse to its icon after those semantics are retained;
+  and
 - full identities remain available through accessible labels and focused or
   expanded states.
 

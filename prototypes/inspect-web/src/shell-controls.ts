@@ -6,11 +6,13 @@ import {
   isProductHomeDemoId,
   type ProductHomeDemoId,
 } from "./product-home-demos.ts";
+import { renderBrand } from "./brand.ts";
 
 /** Product home-demo ids (`ProductInspectionDemos` / CLI `demo <id>`). */
 export type HomeDemo = ProductHomeDemoId;
 
 export interface WorkbenchShellBindingActions {
+  onCopySubjectSegment: (index: number) => void;
   onDismissNotice: () => void;
   onDismissPackageNotice: () => void;
   onHelp: () => void;
@@ -42,11 +44,10 @@ export function workbenchShellHtml(
 ): string {
   return `
       <header class="titlebar">
-        <a class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
+        ${renderBrand()}
         ${options.subjectInspectorHtml}
         <nav class="title-actions" aria-label="Application">
           <button id="help" type="button" aria-label="Keyboard help">?</button>
-          <button id="open-search" type="button" aria-haspopup="dialog" title="Search (Ctrl/Command+P)">Search</button>
           <button id="open-settings" type="button">Settings</button>
         </nav>
       </header>`;
@@ -56,6 +57,12 @@ export function bindWorkbenchShell(
   root: ParentNode,
   actions: WorkbenchShellBindingActions,
 ) {
+  root.querySelectorAll<HTMLElement>("[data-subject-copy]").forEach(button =>
+    button.addEventListener("click", () => {
+      const index = Number(button.dataset.subjectCopy);
+      if (Number.isInteger(index) && index >= 0)
+        actions.onCopySubjectSegment(index);
+    }));
   root.querySelector("#share")
     ?.addEventListener("click", actions.onShare);
   root.querySelector("#dismiss-notice")

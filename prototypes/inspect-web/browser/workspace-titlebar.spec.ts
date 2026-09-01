@@ -19,6 +19,10 @@ test("the title bar contains no tab-like active package identity", async ({
   await expect(page.locator(".titlebar")).not.toContainText("0:");
   await expect(page.locator(".titlebar")).not.toContainText("Platform");
   await expect(page.locator(".workspace-window")).toHaveCount(0);
+  await expect(page.locator(".titlebar #open-search")).toHaveCount(0);
+  await expect(page.locator(".brand-icon img")).toHaveAttribute(
+    "src",
+    "/assets/dotnet-inspect-bot.png");
 });
 
 test("subjects and inspectors share the title bar without package selectors", async ({
@@ -36,6 +40,13 @@ test("subjects and inspectors share the title bar without package selectors", as
   await expect(page.locator(".detail-scroll #package-version")).toBeVisible();
   await expect(page.locator(".detail-scroll #framework")).toBeVisible();
   await expect(page.locator("#go-home")).toHaveCount(0);
+
+  const productName = await box(page, ".brand > span:last-child");
+  const packageName = await box(page, ".subject-path-segment.root");
+  const productIcon = await box(page, ".brand-icon");
+  const packageIcon = await box(page, ".subject-icon");
+  expect(packageName.x).toBeCloseTo(productName.x, 0);
+  expect(packageIcon.width).toBeCloseTo(productIcon.width, 0);
 });
 
 test("narrow layout preserves the two-line hierarchy and primary actions", async ({
@@ -59,7 +70,8 @@ test("narrow layout preserves the two-line hierarchy and primary actions", async
     "System.Text.Json.JsonSerializer",
   ]);
   await expect(page.locator(".subject-zone #share")).toBeVisible();
-  await expect(page.locator("#copy-name")).toBeVisible();
+  await expect(page.locator("#copy-name")).toHaveCount(0);
+  await expect(page.locator("#taste-btn")).toHaveCount(0);
   await expect(page.locator("#help")).toBeHidden();
   await expect(page.locator("#open-settings")).toBeHidden();
   expect(titlebar.y).toBeLessThan(subjectZone.y);
@@ -81,6 +93,27 @@ test("the subject zone advertises the typed Package, Type, and Member path", asy
     "DeserializeSync",
   ]);
   await expect(page.locator(".subject-path-separator")).toHaveCount(2);
+  await expect(page.locator("[data-subject-copy]")).toHaveCount(3);
+  await expect(page.locator(".subject-path-segment.current")).toHaveCSS(
+    "color",
+    "rgb(229, 102, 63)");
+  const packageText = await page.locator(".subject-path-segment").nth(0)
+    .evaluate(element => getComputedStyle(element).fontSize);
+  const typeText = await page.locator(".subject-path-segment").nth(1)
+    .evaluate(element => getComputedStyle(element).fontSize);
+  const typeWeight = await page.locator(".subject-path-segment").nth(1)
+    .evaluate(element => getComputedStyle(element).fontWeight);
+  expect(Number.parseFloat(packageText)).toBeGreaterThan(
+    Number.parseFloat(typeText));
+  expect(Number.parseInt(typeWeight, 10)).toBeGreaterThanOrEqual(600);
+  await page.locator("[data-subject-copy='1']").click();
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-copied-subject",
+    "System.Text.Json.JsonSerializer");
+  const forward = await box(page, "#nav-forward");
+  const search = await box(page, "#open-search");
+  expect(forward.x + forward.width).toBeLessThanOrEqual(search.x);
+  expect(search.x - (forward.x + forward.width)).toBeLessThanOrEqual(7);
   const zone = await box(page, ".subject-zone");
   const workspace = await box(page, ".workspace");
   expect(zone.x).toBe(0);
@@ -103,4 +136,5 @@ test("Workspace gives retained coordinates the pane and keeps Share readable", a
     .toBeLessThanOrEqual(list.y + list.height);
   expect(share.width).toBeGreaterThan(40);
   await expect(page.locator("#copy-name")).toHaveCount(0);
+  await expect(page.locator("[data-subject-copy]")).toHaveCount(0);
 });

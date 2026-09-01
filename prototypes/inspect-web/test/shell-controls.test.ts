@@ -92,10 +92,14 @@ test("workbench shell binds every rendered control without eager work", () => {
   for (const selector of controls.keys()) {
     root.add(selector, new FakeElement());
   }
+  const packageSubject = new FakeElement({ subjectCopy: "0" });
+  const typeSubject = new FakeElement({ subjectCopy: "1" });
+  root.addAll("[data-subject-copy]", packageSubject, typeSubject);
   const calls: string[] = [];
   let searchArgumentCount = -1;
 
   bindWorkbenchShell(fakeDom.parentNode(root), {
+    onCopySubjectSegment: index => calls.push(`copy-subject:${index}`),
     onDismissNotice: () => calls.push("dismiss-notice"),
     onDismissPackageNotice: () => calls.push("dismiss-package-notice"),
     onHelp: () => calls.push("help"),
@@ -114,7 +118,10 @@ test("workbench shell binds every rendered control without eager work", () => {
     root.querySelector(selector)?.dispatch("click");
     assert.equal(calls.at(-1), call);
   }
-  assert.equal(calls.length, controls.size);
+  packageSubject.dispatch("click");
+  typeSubject.dispatch("click");
+  assert.deepEqual(calls.slice(-2), ["copy-subject:0", "copy-subject:1"]);
+  assert.equal(calls.length, controls.size + 2);
   assert.equal(searchArgumentCount, 0);
 });
 
@@ -130,7 +137,8 @@ test("workbench shell renders subjects after the product root and before identit
   assert.doesNotMatch(
     html,
     /workspace-title|coordinate-selectors|package-version|framework-select/);
-  assert.match(html, /id="open-search"[^>]*>Search<\/button>/);
+  assert.match(html, /class="brand-icon"[\s\S]*dotnet-inspect-bot\.png/);
+  assert.doesNotMatch(html, /id="open-search"/);
   assert.doesNotMatch(html, /id="go-home"|>Home<\/button>/);
   assert.match(html, /id="open-settings"[^>]*>Settings<\/button>/);
   assert.doesNotMatch(html, /id="share"/);
@@ -248,6 +256,7 @@ test("load error shell parses replacement packages and owns local detail state",
 test("shell bindings tolerate inactive surfaces", () => {
   const root = fakeDom.parentNode(new FakeRoot());
   assert.doesNotThrow(() => bindWorkbenchShell(root, {
+    onCopySubjectSegment() {},
     onDismissNotice() {},
     onDismissPackageNotice() {},
     onHelp() {},

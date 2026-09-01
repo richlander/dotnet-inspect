@@ -78,7 +78,7 @@ independent cosmetic changes.
 | Persistent hierarchy | Use one title line for product, subjects, inspectors, and global actions; use one full-width subject zone before content |
 | Workspace title bar | Follow the CLI grammar after `dotnet-inspect`: subject and inspector, followed by global actions |
 | Subject navigation | Establish Workspace, Package, Type, and Member in the title line now; add Library when product descriptors are ready |
-| Subject zone | Advertise the typed Package > Library > Type > Member path on the full-width line below, with Share, Copy name, and room for bounded owner-issued context |
+| Subject zone | Align a root icon and typed Package > Library > Type > Member path beneath the product mark, make each typed segment copyable, and place Back/Forward directly before Search with Share trailing |
 | Workspace selection | Keep ordinary single-workspace use free of tabs; manage retained coordinates inside the Workspace subject |
 | Package coordinate | Render version and TFM selectors in Package content; platform is workspace content, not a workspace |
 | Library inspection | Select all libraries or one library within Library |
@@ -86,17 +86,18 @@ independent cosmetic changes.
 | Filters | Collapse selector rows by default and summarize hidden restrictions |
 | Selected controls | Use one accent selected-state treatment across selector families |
 | Source provenance | Use a compact status/action row without validation prose or link glyphs |
-| Search and opening | Use Spotlight for search and a separate local-artifact Open flow |
+| Search and opening | Open Spotlight from an input-like subject-zone control adjacent to Back/Forward; use a separate local-artifact Open flow |
 | Settings | Use one Settings experience with contextual entry points |
 | Data bar | Show build identity, acquired source, CLI, and skill links on one line |
 
 Together, these decisions make the web shell read like the CLI without
 rendering a command string. The title line progresses from `dotnet-inspect` to
 the active subject and inspector, then global actions. The full-width zone below
-advertises the ordered subject path and owns Share, Copy name, and bounded
-owner-issued context. Package coordinate editing, target inventories, and
-navigation remain inside the working surface rather than consuming persistent
-chrome.
+advertises the ordered subject path, owns segment-level copy, Back/Forward,
+Search, Share, and bounded owner-issued context. Equal icon slots align its
+Package name with `dotnet-inspect`. Package coordinate editing, target
+inventories, and other navigation remain inside the working surface rather
+than consuming persistent chrome.
 
 ## Cross-document relationships
 

@@ -17,12 +17,20 @@ const workspaceMode = params.has("workspace");
 const packageMode = params.has("package");
 const memberMode = params.has("member");
 const subjectPath = workspaceMode
-  ? ["Workspace"]
+  ? [{ kind: "workspace", label: "Workspace", copyable: false }]
   : packageMode
-    ? ["System.Text.Json"]
+    ? [{ kind: "package", label: "System.Text.Json", copyable: true }]
     : memberMode
-      ? ["System.Text.Json", "System.Text.Json.JsonSerializer", "DeserializeSync"]
-      : ["System.Text.Json", "System.Text.Json.JsonSerializer"];
+      ? [
+          { kind: "package", label: "System.Text.Json", copyable: true },
+          { kind: "type", label: "System.Text.Json.JsonSerializer", copyable: true },
+          { kind: "member", label: "DeserializeSync", copyable: true },
+        ]
+      : [
+          { kind: "package", label: "System.Text.Json", copyable: true },
+          { kind: "type", label: "System.Text.Json.JsonSerializer", copyable: true },
+        ];
+const subjectPathLabel = subjectPath.map(segment => segment.label).join(" > ");
 const coordinates = [
   {
     id: "System.Text.Json",
@@ -113,19 +121,36 @@ app.innerHTML = `
       }),
     })}
     <header class="subject-zone" aria-label="Inspected subject">
-      <div class="subject-path" aria-label="${subjectPath.join(" > ")}" title="${subjectPath.join(" > ")}">
-        ${subjectPath.map((segment, index) =>
-          `${index === 0 ? "" : '<span class="subject-path-separator" aria-hidden="true">&gt;</span>'}<span class="subject-path-segment${index === 0 ? " root" : ""}${index === subjectPath.length - 1 ? " current" : ""}">${escapeHtml(segment)}</span>`).join("")}
+      <span class="subject-icon" aria-hidden="true">${workspaceMode ? "W" : "⬡"}</span>
+      <div class="subject-path" aria-label="${subjectPathLabel}" title="${subjectPathLabel}">
+        ${subjectPath.map((segment, index) => {
+          const className = `subject-path-segment${index === 0 ? " root" : ""}${index === subjectPath.length - 1 ? " current" : ""}`;
+          const content = segment.copyable
+            ? `<button type="button" class="${className}" data-subject-copy="${index}" title="Copy ${escapeHtml(segment.label)}" aria-label="Copy ${segment.kind} name ${escapeHtml(segment.label)}">${escapeHtml(segment.label)}</button>`
+            : `<span class="${className}">${escapeHtml(segment.label)}</span>`;
+          return `${index === 0 ? "" : '<span class="subject-path-separator" aria-hidden="true">&gt;</span>'}${content}`;
+        }).join("")}
       </div>
       <div class="subject-advertisements"></div>
-      <div class="detail-actions"><button id="share">Share</button>${workspaceMode ? "" : '<button id="copy-name">copy name</button>'}</div>
+      <div class="subject-navigation">
+        <div class="nav-history">
+          <button id="nav-back" disabled aria-label="Back">←</button>
+          <button id="nav-forward" disabled aria-label="Forward">→</button>
+        </div>
+        <button id="open-search" class="subject-search" type="button" aria-haspopup="dialog">
+          <span class="subject-search-glyph" aria-hidden="true">⌕</span>
+          <span class="subject-search-label">Search types, members, packages</span>
+          <kbd>Ctrl P</kbd>
+        </button>
+      </div>
+      <div class="detail-actions"><button id="share">Share</button></div>
     </header>
     <div class="notice-stack"></div>
     <main class="workspace">
       ${navigationHtml}
       <section class="detail-pane">
         <article class="detail-scroll">
-          <h1>${subjectPath.at(-1)}</h1>
+          <h1>${subjectPath.at(-1)?.label}</h1>
           ${packageMode ? `
             <section class="document-section package-coordinate-editor">
               <div class="section-title"><h2>Package coordinate</h2><span>1 target framework</span></div>
@@ -138,3 +163,9 @@ app.innerHTML = `
       </section>
     </main>
   </div>`;
+
+document.querySelectorAll<HTMLElement>("[data-subject-copy]").forEach(button =>
+  button.addEventListener("click", () => {
+    const index = Number(button.dataset.subjectCopy);
+    document.body.dataset.copiedSubject = subjectPath[index]?.label ?? "";
+  }));
