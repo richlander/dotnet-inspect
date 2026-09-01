@@ -138,6 +138,11 @@ result.
 
 The CLI keeps typed product data separate from host presentation:
 
+Successful result payloads go to stdout or the explicit output destination.
+Diagnostics and tips go to stderr and must not be mixed into machine payloads.
+A focused command or output contract may render a typed failure payload while
+returning non-zero; that payload remains output rather than diagnostic prose.
+
 | Area | Role |
 | ---- | ---- |
 | `Models/` | CLI compatibility and document data without Markout presentation attributes. |

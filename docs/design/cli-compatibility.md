@@ -96,9 +96,19 @@ Classification and transition state are separate decisions. A change can use a
 compatibility alias without being deprecated, or use a terminal deprecation
 while making an intentional break.
 
+The classifications are mutually exclusive. Apply them in this order:
+
+1. A correctness, safety, or failure-visibility repair that changes an
+   observable contract is **corrective but breaking**.
+2. Any other removal or meaning, default, operation, or output-contract change
+   that invalidates a published use is **intentionally breaking**.
+3. A canonical-surface change that keeps every old published invocation
+   operational is **migration-preserving**.
+4. A change that does none of the above is **compatible**.
+
 | Classification | Definition | Disclosure and evidence |
 | -------------- | ---------- | ----------------------- |
-| Compatible | Every previously published invocation and owner-issued outcome contract remains valid. Additions have cleared routing, binding, default, vocabulary, and strict-consumer collisions. | Gate the old neighboring case and the new case. A **Breaking** release-note label is not used. |
+| Compatible | No existing spelling is demoted from canonical or co-equal status, every previously published invocation and owner-issued outcome contract remains valid, and additions have cleared routing, binding, default, vocabulary, and strict-consumer collisions. | Gate the old neighboring case and the new case. A **Breaking** release-note label is not used. |
 | Migration-preserving | The canonical surface changes, but each old published invocation remains recognized and operational through a compatibility alias or forwarding shim with the same operation and owner-issued result meaning. New guidance or canonical output may identify the replacement. | Release notes name the replacement. Gate old and new invocations, equivalence of the owned result, guidance channel when present, and unchanged success class. |
 | Corrective but breaking | A bug, unsafe interpretation, success-shaped failure, or false result is corrected by changing a previously observable contract. | Use a **Breaking** release-note entry that explains the correction and migration. Gate the former pathological case to the corrected result, channel, and exit class. |
 | Intentionally breaking | A command, spelling, default, operation, or output contract is removed or redesigned for reasons other than correcting false behavior. | Use a **Breaking** release-note entry and an explicit migration. Deprecate first unless the PR justifies direct removal. Gate the replacement and the old input's final migration or removal behavior. |
