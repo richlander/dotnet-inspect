@@ -114,10 +114,13 @@ positive and fit the integer representation used by typed L3 intent. Zero,
 signs, and overflow fail value validation. `A + K - 1` must also fit that
 representation. `A..B` requires `B >= A`.
 
-`--rows` accepts only a range form. A bare integer is not a range and fails
-with guidance to use `-n N`. The boundless semantic identity Window is not
-exposed as `--rows ..`; a no-op option is more likely an incomplete request
-than useful intent.
+`--rows` accepts only a range form. A bare integer value, separated or attached
+as `--rows=6`, is the released count form, not a Window. It receives the
+`-n <positive-count>` retirement template only when the active command or
+active common route envelope supports Head; otherwise it produces capability
+rejection. The boundless semantic identity Window is not exposed as
+`--rows ..`; a no-op option is more likely an incomplete request than useful
+intent.
 
 `--head` and `--tail` are direction modifiers for the one `-n` gesture. They
 carry no count, conflict with each other, and fail when no `-n` or bare `-N`
@@ -129,9 +132,9 @@ Before positional binding on an adopted command, a recognized `--head` or
 decimal token is the retired count-bearing form. It fails at the modifier
 token with the canonical form `-n <positive-count> --head` or
 `-n <positive-count> --tail`. This is a syntax template, not a reconstructed
-or paste-ready full argv. Retirement guidance is available only when the
-active command or active common route envelope supports the replacement
-Head/Tail gesture; otherwise the recognized retired form produces ordinary
+or paste-ready full argv. As with every retired spelling, guidance is available
+only when the active command or active common route envelope supports the
+replacement gesture; otherwise the recognized form produces ordinary
 capability rejection. The rule applies only before `--`;
 `-n 5 --tail -- 20` preserves `20` as a positional literal.
 
@@ -146,14 +149,15 @@ one `Top`, one explicit `--order-by` in the same invocation attaches to that
 `Top` stage and is not also promoted to baseline order. Its position in argv
 does not create a stage or change the `Top` stage's position.
 
-Without `--top`, `--order-by` retains its L2-owned baseline-order role. With
-`--top` and no explicit `--order-by`, L2 may use only the schema's declared
-default Top ranking. A default baseline order is not a ranking. This grammar
-does not provide two simultaneous explicit order operands; a command that
-needs both an explicit baseline order and a different explicit Top ranking
-must wait for a separately designed spelling. The same limitation prevents an
-explicit baseline order from composing with the default Top ranking: in an
-invocation containing `--top`, the one explicit order always belongs to Top.
+Without `--top`, `--order-by` retains its L2-owned baseline-order role. Per
+[row query order](row-query-order.md#ranking-order-for-top), `--top` with no
+explicit `--order-by` can use only the schema's declared default Top ranking;
+a default baseline order is not a ranking. This grammar does not provide two
+simultaneous explicit order operands; a command that needs both an explicit
+baseline order and a different explicit Top ranking must wait for a separately
+designed spelling. The same limitation prevents an explicit baseline order
+from composing with the default Top ranking: in an invocation containing
+`--top`, the one explicit order always belongs to Top.
 
 Each of `-n`, `--rows`, `--top`, and an exposed `--order-by` may occur at most
 once in one adopted invocation. This keeps modifier and Top-order binding
@@ -265,9 +269,12 @@ route-independent envelope:
 - while every candidate route is unadopted, the released router grammar and
   behavior remain unchanged;
 - when an owned current or retired row-selection gesture is requested and
-  candidate routes have mixed adoption or assign different meanings to that
-  gesture, the invocation fails without routing and directs the caller to name
-  an explicit command;
+  candidate routes have mixed adoption, assign different meanings to that
+  gesture, or differ in support or required adjacent capability, the invocation
+  fails without routing and directs the caller to name an explicit command;
+- when every candidate route is adopted but every candidate uniformly lacks
+  the requested gesture or required adjacent capability, the invocation fails
+  with common capability rejection without routing;
 - the new route-independent grammar is active only when every candidate route
   has adopted the same meaning and required adjacent capability; and
 - once active, malformed row-selection spellings, common retired
@@ -279,7 +286,9 @@ token, the arity union marks that token indeterminate as well as protected.
 Every envelope decision that depends on whether the token is an option value,
 bare shorthand, positional, or a modifier's companion is deferred to the
 authoritative child. Protection prevents premature reinterpretation; it does
-not manufacture a route-independent absence or conflict.
+not manufacture a route-independent gesture, mixed-adoption rejection,
+absence, or conflict. Only a determinate owned gesture activates those
+envelope decisions.
 
 After routing, the authoritative child parse performs ordinary lowering. This
 design does not claim that L2 order or schema resolution happens before target
@@ -326,6 +335,12 @@ Every L3 lowering failure:
 - occurs before the active command executes;
 - emits no success-shaped empty result.
 
+Any argv-derived text included in a lowering diagnostic remains untrusted
+presentation data and passes through the existing CLI diagnostic-containment
+discipline. The presentation boundary and risk are defined by the
+[untrusted-data threat model](untrusted-data-threat-model.md#trust-boundaries);
+this design changes diagnostic selection, not containment.
+
 An explicit command reports these failures before command-owned acquisition.
 An implicit route follows the narrower
 [route-independent envelope](#implicit-routing). L2 resolution and adjacent
@@ -339,6 +354,10 @@ its ownership for the active command or active common route envelope:
 - a token consumed as a required option value is never reinterpreted;
 - a token after `--` is a positional literal;
 - an attached value remains owned by its option;
+- released count-bearing retired options are recognized with separated or
+  attached values, including `--take 5`, `--take=5`, `--head=5`, and
+  `--tail=5`; attachment preserves option ownership but does not hide the
+  retired form;
 - an otherwise-unrecognized option spelling may receive the focused retirement
   diagnostic; and
 - before positional binding, a recognized `--head` or `--tail` plus its
@@ -388,8 +407,9 @@ An implicit invocation has two ordered phases:
    the first active-envelope supported retired-form guidance, common row-option
    token or arity failure, malformed value, repeated gesture or token-completed
    modifier conflict, end-of-argv absence conflict, or mixed/non-uniform
-   capability rejection, using that listed category order and the corresponding
-   explicit-command tie-breaker within each category; and
+   or uniformly unsupported capability rejection, using that listed category
+   order and the corresponding explicit-command tie-breaker within each
+   category; and
 2. after successful routing, the authoritative child applies the explicit
    command order above, including child-specific retired and unknown options.
 
@@ -437,6 +457,8 @@ Compatibility is deliberately low. As each command adopts:
   options retire;
 - `--take` and count-bearing `--head`/`--tail` do not remain as compatibility
   aliases;
+- integer-only `--rows <count>` and released `--rows <count>` direction
+  combinations retire; guidance never recommends an integer-only `--rows`;
 - a retired spelling fails with its supported `-n`, `--rows`, or `--top`
   replacement form rather than a reconstructed full argv;
 - when `--top` is present, the one explicit `--order-by` becomes Top's operand
@@ -482,20 +504,24 @@ owned by a later implementation.
 
 ## Required gates
 
-All gates run in Release. Until implemented, each property is **unverified**.
+All gates run in Release. New gates are **unverified** until implemented.
+`UntrustedArgumentDiagnosticContainmentTests` already exists and remains the
+enforcing gate for argv-derived diagnostic containment; each implemented
+spelling adds its new diagnostic channels to that gate.
 
 | Gate | Property |
 | --- | --- |
-| `CliRowSelectionGrammarTests` | Positive representable counts, lexical shorthand recognition, zero and overflow across `-n`, bare `-N`, `--rows`, and `--top`, sign-bearing values for value-taking gestures, range-only Window forms, modifiers including tolerated line/tail redundancy, repetition, and replacement diagnostics lower according to this grammar. |
+| `CliRowSelectionGrammarTests` | Positive representable counts, lexical shorthand recognition, zero and overflow across `-n`, bare `-N`, `--rows`, and `--top`, sign-bearing values for value-taking gestures, range-only Window forms, modifiers including tolerated line/tail redundancy, repetition, and replacement diagnostics follow this grammar. |
 | `CliRowSelectionOrderTests` | `-n`, `--rows`, and `--top` preserve argv order; modifiers change unit or direction without becoming stages. |
 | `CliRowSelectionBareShorthandTests` | Required, optional, boolean, attached, positional, router, parent-option, and `--` cases classify bare `-N` by parsed arity and ownership; normalization precedes retired-form and duplicate-gesture lowering. |
 | `CliRowSelectionCapabilityTests` | Only the active adopted leaf command accepts its declared gestures; shared helpers and parent commands do not imply adoption. |
-| `CliRowSelectionRouterPreflightTests` | All-unadopted routes preserve released behavior; gesture-free mixed routes preserve released routing; a requested gesture across mixed routes requires an explicit command; all-adopted routes reject common row-option arity, repetition, and malformed grammar before target resolution; arity-union-indeterminate cases defer dependent decisions while preserving required negative option values; every envelope failure returns nonzero and emits no success-shaped result. |
+| `CliRowSelectionRouterPreflightTests` | All-unadopted routes preserve released behavior; gesture-free mixed routes preserve released routing; a determinate requested gesture across mixed or non-uniform routes requires an explicit command; uniform all-adopted non-support rejects current and retired gestures before routing; all-adopted supported routes reject common row-option arity, repetition, and malformed grammar before target resolution; arity-union-indeterminate cases defer dependent decisions while preserving required negative option values; every envelope failure returns nonzero and emits no success-shaped result. |
 | `CliRowSelectionTopOrderBindingTests` | One explicit `--order-by` attaches only to the one Top stage; no explicit order uses only a schema default Top ranking; baseline order is not inferred as ranking. |
 | `CliRowSelectionPreExecutionFailureTests` | L3-decidable explicit-command failures occur before command execution or command-owned acquisition, return nonzero, and emit no success-shaped result; L2 ranking failures follow L2-owned timing. |
 | `CliRowSelectionFailurePrecedenceTests` | Explicit and implicit multi-fault invocations, token-completed conflicts, tied end-of-argv absence conflicts, multiple capability rejections, retired count-bearing modifier forms, and owned retired-looking values produce the one diagnostic selected by their applicable precedence. |
 | `CliRowSelectionCountHandoffTests` | Semantic intent remains ordered and intact when terminal `--count` is handed to L2; line/Count behavior is not invented by L3. |
-| `CliRowSelectionMigrationTests` | Adopted commands expose only current count spellings; retired `--take`, `--head N`, and `--tail N` before positional binding name a supported current-form template without claiming a reconstructed runnable argv; unsupported replacement gestures receive capability rejection; unadopted commands retain accurate released help. |
+| `CliRowSelectionMigrationTests` | Adopted commands expose only current count spellings; separated and attached retired `--take`, `--head N`, and `--tail N`, separated and attached integer-only `--rows`, and released `--rows <count>` direction combinations name a supported current-form template without claiming a reconstructed runnable argv; unsupported replacement gestures receive capability rejection; stale preprocessing never recommends integer-only `--rows`; unadopted commands retain accurate released help. |
+| `UntrustedArgumentDiagnosticContainmentTests` | Every argv-derived token echoed by parse-time or lowering diagnostics is contained at the CLI presentation boundary, including `-n`, `--rows`, `--top`, and retirement failures. |
 | `CliRowSelectionGuidanceTests` | Help, README examples, workflows, and shipped skills teach only behavior available on their named command. |
 
 Each command adoption adds its own outcome-level gate proving selected row
