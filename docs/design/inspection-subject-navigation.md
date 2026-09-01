@@ -15,9 +15,15 @@ identity foundation is implemented by
 `StructuralSubjectIdentityTests.KindVocabulary_IsClosedAndStructurallyOrdered`,
 `Identities_BindExactOwnerIssuedComponents`,
 `MemberIdentity_BindsExactDeclaringTypeAndAnchor`, and
-`Construction_RejectsAbsentOwnerIssuedComponents`. Product navigation
-behavior remains unverified until the remaining implementation gates in
-[Verification](#verification) land.
+`Construction_RejectsAbsentOwnerIssuedComponents`. Exact lens identity,
+retained evaluation bases, and pure lens recommendation are implemented by
+`NavigationLensRecommendation` and gated at their claims below. Pure initial
+subject ranking over already trustworthy Type candidates and already available
+Library candidates is implemented by `NavigationInitialSubjectRecommendation`
+and gated at its claim below. Candidate availability and failure
+classification, activation, reconciliation, revision behavior, retained
+sessions, synchronization, and restoration remain unverified until their
+implementation gates in [Verification](#verification) land.
 
 The concurrency claims are specified separately as executable TLA+ models under
 [`models/inspection-subject-navigation/`](models/inspection-subject-navigation/).
@@ -189,7 +195,8 @@ owns the exact subject binding. `type.api` on two exact Types therefore names
 two navigation lenses, while Library Metadata and Type Metadata can share a
 label without sharing either facet or navigation identity. Consumers treat the
 combined identity as opaque and never reconstruct it from kind, display text,
-or active UI state.
+or active UI state. This is gated by
+`NavigationLensRecommendationTests.LensIdentity_BindsExactStructuralSubjectAndFacet`.
 
 ### Snapshot
 
@@ -218,6 +225,12 @@ A lens outcome retains one evaluation basis:
 | Recommendation | Exact subject, preferred role, and complete target-aware Registry options |
 | Exact request | Exact subject-bound navigation lens identity and exact Registry result |
 
+Descriptor-bearing `Available`, `Unavailable`, and `Failed` exact results match
+the requested subject kind because the Registry produces them only after
+structural applicability succeeds. `Inapplicable` may describe another kind;
+retaining that cross-kind descriptor is the exact evidence for rejecting the
+request rather than treating it as unknown.
+
 An effective outcome carries the selected exact navigation lens. A
 non-effective recommendation outcome carries no invented lens identity; a
 non-effective exact-request outcome retains the requested identity without
@@ -226,6 +239,9 @@ host hint. Recommendation installs a recommendation basis whether it selects a
 lens or not. An explicit lens command installs an exact-request basis even when
 it selects the same lens, recording that subsequent refresh must preserve the
 exact request rather than resume automatic fallback.
+
+The implemented basis shapes are gated by
+`NavigationLensRecommendationTests.LensOutcome_RetainsRecommendationOrExactRequestBasis`.
 
 ### Descriptor states
 
@@ -299,6 +315,15 @@ subject is selected.
 When no Library is available, Root is selected. This allows root-only package
 coordinates, including the tools-v2 pointer-package case tracked by #4829.
 
+The pure ranking over already trustworthy Type candidates and already
+available Library candidates is gated by
+`NavigationInitialSubjectRecommendationTests.InitialRecommendation_PrefersTypeThenLibraryThenRoot`,
+`TypeRecommendation_UsesPrimaryLibraryAccessibilityAndProducerOrder`, and
+`InitialRecommendation_NeverChoosesMember`. Candidate coordinate, Library,
+Type, primary-role, and accessibility consistency is gated by
+`CandidateConstruction_RejectsInconsistentOwnerIssuedEvidence`. Producer
+trust, availability, and failure classification remain unverified.
+
 ### Lens recommendation
 
 Lens recommendation is a pure policy over one exact structural subject and the
@@ -343,6 +368,17 @@ is available while an applicable option could not be evaluated.
 Recommendation never changes the active subject. An unavailable or failed
 recommendation leaves that exact subject active and installs the corresponding
 lens outcome with no effective lens.
+
+The pure recommendation policy is gated by
+`NavigationLensRecommendationTests.LensRecommendation_UsesPreferredRoleBeforeRegistryOrder`,
+`LensRecommendation_FallsBackToFirstAvailableInRegistryOrder`,
+`LensRecommendation_ConsumesRegistryOrderWithoutResorting`,
+`LensRecommendation_RetainsAllRegistryOptionsAndEvidence`,
+`LensRecommendation_MissingPreferredRoleFails`,
+`LensRecommendation_EmptyOptionsFails`,
+`LensRecommendation_FailedDominatesUnavailableWhenNoOptionIsAvailable`,
+`LensRecommendation_AllUnavailableReturnsUnavailable`, and
+`MemberRecommendation_UsesMemberOverviewRole`.
 
 ### Type-inventory Library context
 

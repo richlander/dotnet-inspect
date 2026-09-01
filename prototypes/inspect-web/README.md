@@ -622,15 +622,18 @@ span walk. `src/document-model.ts` provides typed aliases over that owner for
 Vite and the tests; Vite bundles the shared implementation into the deployable
 browser artifact without copying its logic.
 
-The embedded reader shows complete product-issued C# with the catalog's default
-Finding annotations, Finding detail, source-only copy, and **Explore**. Each
-**Explore** activation creates a fresh full-bleed modal session with C# visible,
-IL and UTF-16 ranges hidden, default annotations active, and no transferred
-detail. The modal adds catalog-driven annotation and medium controls,
-product-issued structure, deterministic invocation-preferred source hit
-testing, node selection, and one persistent inspector action for every Finding,
-including unanchored Findings. Annotation rows preserve the product-issued
-source prefix as layout geometry, so each CodeLens-like row appears immediately
+The inline working surface shows complete product-issued, C#-highlighted source
+with the catalog's default Finding annotations and Finding detail. The
+page-owned contextual bar supplies source-only **Copy** and **Explore**, while
+compact product provenance follows the source instead of introducing a second
+reader header. Each **Explore** activation creates a fresh full-bleed modal
+session with C# visible, IL and UTF-16 ranges hidden, default annotations
+active, and no transferred detail. The modal adds catalog-driven annotation
+and medium controls, product-issued structure, deterministic
+invocation-preferred source hit testing, node selection, and one persistent
+inspector action for every Finding, including unanchored Findings. Annotation
+rows preserve the product-issued source prefix as layout geometry, so each
+CodeLens-like row appears immediately
 before its target line and begins at the anchored span without flattening the
 language's visible indentation. Dismissal destroys modal-local presentation
 and annotation state while retaining only an eligible embedded Finding primary.

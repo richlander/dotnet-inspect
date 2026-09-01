@@ -722,10 +722,11 @@ One focused context shape composes:
 - zero or more exact local files designated by the caller; and
 - one exact installed-platform realization.
 
-This section owns acquisition, role assignment, lifetime, and atomic workspace
-publication for that shape. It consumes shared local-path admission from #5096
-and admission-scoped assembly projection from #5143,
-and the platform closure and overlay policy from
+This section owns acquisition, role assignment, binding-policy realization,
+lifetime, and atomic workspace publication for that shape. It consumes shared
+local-path admission from #5096, admission-scoped assembly projection from
+[#5143](https://github.com/richlander/dotnet-inspect/issues/5143), and the
+platform closure and overlay policy from
 [platform composition and overlays](platform-composition-and-overlays.md);
 it does not redefine local path normalization or entry classification,
 assembly identity/MVID construction, assembly-identity matching,
@@ -848,10 +849,12 @@ before content access.
 The workspace remains the sole owner of the group and artifact session.
 Disposing a context view revokes that query access but does not release the
 session, and dropping a `Realized` handle has no lifetime effect. This focused
-shape adds no independently disposable context: the session, group, count, and
-retained-byte charges remain until workspace disposal. Workspace disposal
-closes admission, ends every generation, and follows the content-quiescence
-contract in the
+shape adds no independently disposable context. A current generation's
+session, group, count, and retained-byte charges remain until workspace
+disposal or workspace-owned retirement. Retirement blocks new admission
+immediately but releases those charges only after existing generation work
+quiesces. Workspace disposal closes admission, ends every generation, and
+follows the content-quiescence contract in the
 [generation-access interaction model](models/artifact-generation-access/README.md).
 Both adapters must honor owner cancellation during acquisition and
 materialization and provide bounded snapshot openers that cannot wait on their
@@ -872,11 +875,12 @@ invokes the exact-file local adapter and installed-platform adapter within one
 `ArtifactSetSession`. Every supplied local coordinate and every selected
 platform member is required. It projects managed assembly participants only
 after all acquisitions succeed, using #5143's admission-scoped assembly facts,
-then atomically publishes the sealed session and group. An invalid managed
-image, missing required platform member, failed acquisition, projection
-failure, role conflict, or budget exhaustion publishes neither a shortened
-group nor a partial session. Cancellation remains cancellation and follows the
-session cleanup contract.
+then seals the session privately. It completes the binding-policy preparation
+below before constructing or publishing the group. An invalid managed image,
+missing required platform member, failed acquisition, projection failure, role
+conflict, or budget exhaustion publishes neither a shortened group nor a
+partial session. Cancellation remains cancellation and follows the session
+cleanup contract.
 
 Workspace admission, rather than an adapter or downstream assembly consumer,
 assigns these roles:
@@ -922,8 +926,126 @@ hive, family, version, layout kind, member registrations, and current
 generation. It does not construct or reinterpret closure membership. Missing
 or mismatched proof, an unavailable requested closure, or a realization that
 violates the owner-issued uniqueness contract fails visibly without
-publication. Exact closure membership and fallback exclusions remain
-unverified until #5139 lands.
+publication. Exact closure membership and fallback exclusions are defined by
+[#5139](https://github.com/richlander/dotnet-inspect/issues/5139) but remain
+product-unverified.
+
+#### Binding-policy preparation and generation replacement
+
+After assembly-registration projection and role assignment are final, but
+before constructing any `AssemblyContextParticipant`, the workspace issues one
+immutable `AssemblyBindingPolicyPreparation` for that private context
+generation. The preparation carries owner-issued identities for:
+
+- the context generation and preparation occurrence;
+- the exact ordered participant plan;
+- the exact role projection over those participants;
+- the exact delegated-policy map consumed by composition; and
+- the non-reusable `AssemblyBindingPolicyVersion` captured from the composed
+  binding policy before composition begins.
+
+The participant plan, role projection, and delegate map are already complete.
+The workspace cannot append a late participant, change a role, or replace one
+delegate after issuing the preparation. Binding composition consumes the
+complete candidate-domain and finalization contracts from
+[complete identity-eligible binding composition](type-forwarding-resolution.md#complete-identity-eligible-binding-composition).
+The delegated-policy map names the delegates and routes used to build that
+composite. Their individual versions and refresh remain internal to the
+composite owner. The workspace captures and later compares only the
+composite's distinct outer token; delegate drift reaches the workspace when the
+composite publishes a refreshed state and outer token.
+This section does not reconstruct selections from evidence order or define
+selection, ambiguity, miss, or precedence semantics.
+
+The binding-policy owner may instead return a typed completion failure. The
+workspace preserves that failure as `NotRealized`, constructs no group, and
+publishes no current generation. `PolicyVersionChanged(expected, observed)` is
+one such control result. Binding-selection results such as selected, ambiguous,
+unavailable, rejected, and miss arms retain their adjacent meanings; none is
+reclassified merely because it is carried by a completed policy.
+
+Successful composition returns one immutable
+`CompletedAssemblyBindingPolicy` receipt. In addition to the owner-issued
+policy capability, the receipt repeats the exact preparation,
+participant-plan, role-projection, delegate-map, and captured outer-version
+identities. These fields are correspondence evidence, not values that the
+workspace may normalize or infer. Before adopting the receipt, the workspace
+validates them in that order and finally compares the composite policy's
+current outer version with the captured version. The first failed check returns
+one of these typed reasons:
+
+| Failed check | Reason |
+| --- | --- |
+| Preparation identity | `ForeignPreparation` |
+| Participant-plan identity | `ParticipantPlanMismatch` |
+| Role-projection identity | `RoleProjectionMismatch` |
+| Delegate-map identity | `DelegateMapMismatch` |
+| Receipt's captured version | `CompletionVersionMismatch` |
+| Composite policy's current outer token | `PolicyVersionMismatch` |
+
+A rejected receipt remains failed with that exact reason. It cannot become an
+empty policy, trigger group construction, or promise an automatic successful
+retry. Cleanup follows the private generation's ordinary failure path.
+Multiple simultaneous correspondence mismatches are reported by the first
+table row in validation order. The TLA+ model isolates each cause; the named
+implementation gate below owns this precedence.
+
+Successful adoption records the immutable receipt and captured outer token in
+the private generation. Only then may the workspace construct each
+`AssemblyContextParticipant` in the exact plan with that adopted composed
+policy, followed by the `AssemblyContextGroup`. Neither a participant nor the
+group has a policy setter or rebinding path. The composite may still refresh
+its own immutable internal state and outer token under the adjacent
+binding-version contract; that owner-local refresh does not mutate any
+participant, the group, or adopted receipt. If the outer token changes before
+publication, `PolicyVersionChanged(expected, observed)` projects to workspace
+`PolicyVersionMismatch`, the private generation fails, and nothing becomes
+current.
+
+Workspace publication is one atomic transition to a
+`CurrentExplicitAssemblyContextGeneration` containing the sealed artifact
+session, exact group and root, and adopted policy from the same generation.
+The artifact-session model continues to own its internal seal and cleanup;
+the workspace model projects only the group/policy visibility needed to prove
+that no observer can obtain a group without its policy, a policy without its
+group, or an old group paired with a replacement policy.
+
+The adopted receipt and captured token remain immutable after publication.
+Before returning a current context view, and during the existing per-operation
+authorization revalidation before participant or cached-result access, the
+workspace compares the captured token with the composite's current outer token.
+An access request may wait before that gate without entering the generation.
+At the gate, a mismatch is the observation and retirement linearization point:
+that operation rejects with typed `PolicyVersionMismatch`, and the workspace
+atomically removes both the group and policy from current-generation admission.
+
+Retirement means that no new view or operation can enter the old generation.
+It does not revoke work that already passed its access linearization point or
+mean that the old session and group have physically quiesced. Existing leases,
+budget retention, callback completion, and eventual cleanup remain governed by
+the generation-access and group-lifecycle contracts.
+
+Only after that atomic removal may a subsequent authorized realization or
+current-access demand start a replacement preparation. The replacement
+receives a new context-generation identity, a new preparation identity, and
+the then-current non-reusable outer token. It does not mutate or rebind the
+retired group. Admission uses the workspace's ordinary aggregate budget and
+may wait for the old generation to quiesce and release its charges. A budget
+rejection or any other replacement failure remains `NotRealized` with no
+current generation and no automatic retry.
+
+For a started, admitted replacement whose composite token remains stable, fair
+preparation, adoption, construction, and publication eventually settle. Under
+continuing churn, each demand makes at most one attempt: another token change
+returns typed `PolicyVersionMismatch`, and only a later authorized demand may
+try again. The workspace performs no unbounded retry loop and makes no
+convergence or elapsed-time guarantee.
+
+The workspace may observe drift at realization and current-access boundaries;
+this contract does not require a background watcher, prescribe notification or
+polling cadence, or make elapsed-time claims. Acquisition, binding arbitration,
+query semantics, and post-retirement resource cleanup remain with their
+adjacent owners.
 
 #### Duplicate and collision policy
 
@@ -973,29 +1095,36 @@ before admission. Browser/Wasm does not reinterpret an upload as a local file
 or silently switch to remote platform acquisition; those are separate context
 shapes.
 
-Realization is one-shot and immutable. All adapters finish before publication,
-and adding, removing, or replacing any input requires a new session and
-generation in the owning workspace. Concurrent realization and retained
-contexts draw from that workspace's one aggregate budget. Artifact-count and
-retained-byte charges remain until workspace disposal releases the session.
+Each generation's realization is one-shot and immutable. All adapters and
+binding-policy composition finish before publication, and adding, removing, or
+replacing any input requires a new session and generation in the owning
+workspace. Observed binding-version drift also retires rather than mutates the
+current generation. Concurrent realization and retained contexts draw from
+that workspace's one aggregate budget. Artifact-count and retained-byte
+charges remain while a generation is current and, after retirement or
+workspace disposal, until quiescent cleanup releases the session.
+
 This design introduces no incremental admission, independently disposable
-context, cross-spelling convergence, mutable candidate set, or publication
-schedule beyond the existing workspace admission lifecycle. The existing
+context, cross-spelling convergence, mutable candidate set, background polling,
+or elapsed-time replacement guarantee. The existing
 [artifact-session admission model](../models/artifact-session-admission/ArtifactSessionAdmission.tla)
 covers one demand generation's single-flight lifecycle, pending cancellation,
 attached cancellation before and after disposal enters draining, and aggregate
 publication ordering, while the
 [generation-access model](models/artifact-generation-access/README.md) covers
-one generation's content-access and workspace-disposal handoff.
+one generation's content-access and workspace-disposal handoff. The
+[workspace binding-policy realization model](models/workspace-binding-policy-realization/README.md)
+covers exact policy completion adoption, policy-before-group construction,
+atomic group/policy publication, observed-drift retirement, and replacement
+ordering across two generations.
 `ExplicitAssemblyContext_FailurePublishesNoPartialGroup`, not the admission
 model, owns evidence that several source acquisitions publish all-or-nothing.
 Designated/platform selection remains covered by the
-[platform-overlay model](models/platform-overlay-resolution/README.md). A new
-TLA+ model is therefore not warranted for this composition; the lifecycle
-models' existing multi-generation non-claims do not become claims here.
+[platform-overlay model](models/platform-overlay-resolution/README.md).
 Introducing incremental inputs, cross-spelling convergence, per-context
-release, concurrent realization outside the existing admission lifecycle, or
-mutable role grants requires stopping and modeling those interactions first.
+release, concurrent realization outside the existing admission lifecycle,
+mutable role grants, or eager replacement preparation requires stopping and
+modeling those interactions first.
 
 #### Mock realization
 
@@ -1025,6 +1154,29 @@ candidate later wins. As a neighboring negative case,
 `designated = [/work/]` produces typed rejected local-path-admission evidence
 for an unexpected entry kind and no published session; it does not designate
 `App.dll`, `System.Collections.dll`, or any sibling.
+
+The same realization's policy lifecycle is:
+
+```text
+g1 prepares participants [p1, p2, p3, p4], their roles, and delegate map d1
+the composed binding policy contributes outer token v1
+g1 adopts the exact completed policy, constructs its group, and publishes
+delegate drift makes the composite publish refreshed outer token v2
+a current-access gate observes v2, rejects entry, and atomically retires g1
+a later authorized demand prepares the same requested context at v2
+g2 adopts its exact completed policy, constructs its group, and publishes
+```
+
+No state exposes the `g1` group with the `g2` policy, exposes either policy
+without its matching group, or admits new work to `g1` after observed drift.
+The trace does not claim that an unchanged request must produce identical
+participants or policy answers after the composite's outer token advances.
+
+As a correspondence near miss, suppose the `g1` receipt names delegate map
+`d2` while its preparation names `d1`. Adoption returns
+`DelegateMapMismatch`; no group is constructed and no current generation is
+published. It does not guess which map was intended or continue with an empty
+policy.
 
 #### Required implementation gates
 
@@ -1068,6 +1220,49 @@ These properties remain unverified until the named Release gates land:
 - `ExplicitAssemblyContext_RoleProjectionPreservesEveryGrant` proves the
   context generation preserves each participant registration and exact
   workspace-role set without provenance translation;
+- `ExplicitAssemblyContext_PolicyCompletionPrecedesGroupConstruction` proves
+  no absent, pending, or rejected policy receipt can reach group construction;
+- `ExplicitAssemblyContext_EveryParticipantUsesAdoptedPolicy` proves each
+  participant in the exact plan is constructed only after adoption and receives
+  that receipt's exact composed-policy capability rather than a placeholder or
+  foreign policy;
+- `ExplicitAssemblyContext_PolicyAdoptionRequiresExactPreparation` proves a
+  completion from another preparation is rejected without group construction
+  or publication;
+- `ExplicitAssemblyContext_PolicyAdoptionRequiresExactParticipants` proves a
+  completion over a shortened, extended, reordered, or foreign participant
+  plan is rejected;
+- `ExplicitAssemblyContext_PolicyAdoptionRequiresExactRoles` proves changed,
+  omitted, or foreign role-projection evidence is rejected;
+- `ExplicitAssemblyContext_PolicyAdoptionRequiresExactDelegateMap` proves a
+  changed, omitted, or foreign delegated-policy map is rejected;
+- `ExplicitAssemblyContext_PolicyAdoptionRequiresCapturedVersion` proves both a
+  receipt carrying another captured version and a composite outer token that
+  advanced before publication fail without publishing;
+- `ExplicitAssemblyContext_PolicyAdoptionFailuresAreTypedAndExact` proves each
+  correspondence mismatch retains the first exact typed reason above rather
+  than collapsing into empty policy or generic failure;
+- `ExplicitAssemblyContext_PublishesGroupAndPolicyAtomically` proves observers
+  can see neither half alone nor a group/policy pair from different
+  generations;
+- `ExplicitAssemblyContext_ObservedPolicyDriftRetiresCurrentGeneration` proves
+  current-view acquisition and warm and cold operation gates reject after
+  observing drift and atomically remove both old current handles;
+- `ExplicitAssemblyContext_ReplacementStartsOnlyAfterRetirement` proves a new
+  generation cannot enter preparation while the prior group and policy remain
+  current, even though already admitted old-generation work may continue
+  toward quiescence;
+- `ExplicitAssemblyContext_ReplacementPublishesOnlyAfterRetirement`
+  independently proves a new generation cannot become current before the prior
+  group and policy are retired;
+- `ExplicitAssemblyContext_StableAdmittedReplacementEventuallyPublishes`
+  proves a started replacement with admitted budget and a stable composite
+  token reaches publication under fair execution;
+- `ExplicitAssemblyContext_ReplacementFailureRemainsUnavailable` proves a
+  budget, composition, correspondence, or version failure in the replacement
+  leaves no current generation and schedules no automatic retry;
+- `ExplicitAssemblyContext_SealedGroupPolicyCannotRebind` proves no post-build
+  path can replace a group's adopted policy or version in place;
 - `ExplicitAssemblyContext_AdmissionProjectionRetainsNoContentAuthority`
   proves #5143 projection runs before publication under the exact admission
   authority and returns matching artifact/assembly registration, identity, and
@@ -2088,8 +2283,13 @@ Several current types are migration inputs, not target precedent:
 - No current realizer owns the explicit local/designated/installed-platform
   request above. `ArtifactWorkspaceRole` exposes `CallerDesignated` but not
   `PlatformAuthorized`; no package-free installed-platform adapter contributes
-  a validated closure to an `ArtifactSetSession`; and #5139 has not yet defined
-  the exact implementation-closure membership proof.
+  a validated #5139 closure to an `ArtifactSetSession`.
+- No current workspace-issued preparation binds one completed composed policy
+  to the exact context generation, ordered participants, roles, delegate map,
+  and captured non-reusable composite-policy token. Group construction and
+  current publication therefore have no implementation correspondence for
+  policy adoption, observed-drift retirement, or ordered generation
+  replacement.
 - Current artifact-backed Metadata projection requires a query-authorized
   `ArtifactContentReference` from an already published session and returns a
   descriptor with public path/opener compatibility surfaces. #5143 owns the
@@ -2320,7 +2520,9 @@ or bytes across artifacts or generations.
 `LocalArtifactSourceTests` enforce pre-registration local snapshots, typed
 path-admission outcomes, expected kinds, link handling, pre-open rejection of
 stable non-regular entries, once-opened generation identity, mutation and
-deletion resistance, and cancellation remaining cancellation. The executable
+deletion resistance, bounded deterministic top-level directory selection,
+atomic empty and failed directory batches, directory provenance, immutable
+directory snapshots, and cancellation remaining cancellation. The executable
 NativeAOT and Browser/Wasm probes enforce the normalized `Stat`/`FStat` imports
 and the platform-specific missing, not-directory, and link-loop outcome
 mappings. Deep Inspect's Windows `platform-test` execution of
@@ -2329,18 +2531,17 @@ mappings. Deep Inspect's Windows `platform-test` execution of
 `LocalPathAdmission_WindowsAncestorLinkLoopIsRejected` enforces
 extended-coordinate admission through a parent-relative symbolic-link target,
 absolute-target syntax preservation, and rejected ancestor link cycles.
-The three named `LocalDirectoryAcquisition_*` gates remain unverified. Together
-they require bounded deterministic top-level selection, source-neutral
-exclusions, atomic empty and failure outcomes, directory provenance, immutable
-batch snapshots, and cancellation preservation. Shared local-path admission
-remains with the
+The three named `LocalDirectoryAcquisition_*` gates enforce bounded
+deterministic top-level selection, source-neutral exclusions, atomic empty and
+failure outcomes, directory provenance, immutable batch snapshots, and
+cancellation preservation. Shared local-path admission remains with the
 [local adapter](#shared-local-path-admission) rather than these directory
 gates.
-The eleven named `SupplementalAcquisition_*` gates remain unverified. Together
-they require the one-way required checkpoint, reuse of checkpointed snapshots,
-finite pre-adapter capacity, empty-batch lease ownership, exact visible
-failure, atomic scoped nonempty admission, validation-failure cleanup,
-termination cleanup, late-diagnostic projection, and cancellation preservation.
+The eleven named `SupplementalAcquisition_*` gates enforce the one-way required
+checkpoint, reuse of checkpointed snapshots, finite pre-adapter capacity,
+empty-batch lease ownership, exact visible failure, atomic scoped nonempty
+admission, validation-failure cleanup, termination cleanup, late-diagnostic
+projection, and cancellation preservation.
 `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`
 deletes its temporary source after publication, then passes an
 `ArtifactContentReference`'s guarded published snapshot opener to Metadata, so
@@ -2352,8 +2553,7 @@ compile assets. `BrowserEngineBoundaryTests` enforce the tools-v2 pointer and
 explicit-empty-group cases, including typed compile-library absence, package
 documents, manifest dependencies, and no fabricated default assembly.
 
-Supplemental acquisition, workspace-wide admission budgets,
-single-flight/reentrancy, directory acquisition, content digests,
+Workspace-wide admission budgets, single-flight/reentrancy, content digests,
 dependent-group quiescence, and Metadata consumption of workspace roles remain
 unverified.
 

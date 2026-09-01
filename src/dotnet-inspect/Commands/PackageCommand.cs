@@ -2991,7 +2991,7 @@ public class PackageCommand
     private static bool ShouldPopulatePackageSourceFiles(InspectionOptions options)
         => options.IncludeSections?.Contains(PackageSections.SourceLinkFiles) == true;
 
-    private static PackageSourceQueryPlan CreatePackageSourceQueryPlan(
+    internal static PackageSourceQueryPlan CreatePackageSourceQueryPlan(
         SectionCatalog<InspectionResult> sectionCatalog,
         InspectionQueryCatalog<SourceLinkQueryContext> queryCatalog,
         InspectionOptions options,
@@ -3017,7 +3017,7 @@ public class PackageCommand
             queryPlan);
     }
 
-    private readonly record struct PackageSourceQueryPlan(
+    internal readonly record struct PackageSourceQueryPlan(
         SectionQueryPlan SectionPlan,
         InspectionQueryPlan<SourceLinkQueryContext> QueryPlan);
 

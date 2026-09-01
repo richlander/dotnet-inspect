@@ -521,15 +521,16 @@ abstract completions; their internal contracts remain owned by
 [`AssemblyContextGroupLifecycle.tla`](models/assembly-context-group-lifecycle/AssemblyContextGroupLifecycle.tla).
 The model checks the target design, not current implementation conformance.
 
-The direct-group foundation is implemented. The parameterless constructor
-retains synchronous compatibility. `CreateAsynchronous()` selects the awaited
-lifetime before admission, `CloseAsync()` returns one shared
-`Task<InspectionWorkspaceCloseReport>`, `DisposeAsync()` awaits that task, and
-`CloseReport` exposes the same immutable report after completion. Each direct
-group has one release completion. An asynchronous workspace captures cleanup
-failure as `InspectionWorkspaceGroupCloseResult.Failure`; synchronous
-compatibility continues to throw the same cleanup failure while requesting the
-same group-owned release.
+The direct and coordinated workspace-close paths are implemented. The
+parameterless constructor retains synchronous compatibility.
+`CreateAsynchronous()` selects the awaited lifetime before admission,
+`CloseAsync()` returns one shared `Task<InspectionWorkspaceCloseReport>`,
+`DisposeAsync()` awaits that task, and `CloseReport` exposes the same immutable
+report after completion. Each direct group has one release completion. An
+asynchronous workspace captures that outcome as an
+`InspectionWorkspaceDirectGroupCloseResult`; synchronous compatibility
+continues to throw the same cleanup failure while requesting the same
+group-owned release.
 
 The direct implementation is enforced by these Release gates:
 
@@ -554,21 +555,80 @@ The direct implementation is enforced by these Release gates:
   and reaches terminal close through awaited progress without a blocking wait
   or background-thread requirement.
 
-Coordinated package-role adoption remains unverified. The current
-`PackageAssemblyContextRoles` path independently disposes its role groups and
-does not yet supply the owner-issued participation and completion contracts
-required above. These remaining Release gates belong to that adjacent
-composition:
+Shareable package-role completion uses the coordinated path. It batch-registers
+every planned physical group before awaited construction, pre-issues the exact
+`PackageRoleGroupId` and terminal `PackageRoleCleanupReport` task, and closes
+projection admission through a workspace-owned gate before owner release is
+requested. The workspace never adds those groups to its direct-release set.
+Package-role completion remains their sole physical release authority, while
+`InspectionWorkspaceCoordinatedGroupCloseResult<PackageRoleGroupCleanupRecord>`
+retains the exact keyed cleanup record without translating it.
+
+The shareable completion operation requires `CreateAsynchronous()` because its
+construction has awaited admission and it does not provide a synchronous
+request-release adapter. The synchronous caller-owned
+`CreatePackageAssemblyContextRoles` path remains unchanged.
+
+The coordinated composition is enforced by these Release gates:
 
 - `WorkspaceClose_DirectAndCoordinatedGroupsReleaseExactlyOnce`;
 - `WorkspaceClose_ExistingCoordinatedLeaseRemainsUsableUntilOwnerRelease`; and
 - `WorkspaceClose_OwnerFirstReleaseDeactivatesRegistrationAndRetainsReport`.
+
+`WorkspaceClose_CoordinatedLateGroupsCommitHistoryBeforeOwnerRelease` proves
+that close racing a separate-topology construction records both planned
+admissions in registration order before dispatching their shared owner release,
+returns no completion to the late caller, and retains both exact keyed cleanup
+records.
 
 This contract does not define package admission keys, cache policy, package
 selection, role planning, participant projection, package cleanup-record shape,
 artifact acquisition lifetime, query-specific participant release policy, or
 the implementation of
 [#4960](https://github.com/richlander/dotnet-inspect/issues/4960).
+
+#### Retained package-realization caller
+
+**Status:** no approved product caller.
+
+The `inspect-web` prototype is the only current multi-operation consumer of
+package roles. Its `BrowserPackageWorkspace` retains a bounded registry of
+complete `BrowserInspectionScope` instances keyed by an exact
+package-coordinate set; the prototype's README owns that retention and eviction
+policy. Each scope owns one `InspectionWorkspace` and one package-role
+realization. The registry returns the already-open scope for a later exact
+request, so the workspace never receives a second independent package-role
+demand and cannot exercise workspace-local exact-request admission.
+
+Moving reuse below that boundary would be a product-topology migration, not a
+narrow caller adoption. A Browser-session owner would need to adopt the landed
+demand-projection and coordinated-release contracts across the prototype:
+replace retained whole scopes with independently returned demand projections,
+migrate every scope query to projection-safe access, attach package-archive
+retention to the shared completion instead of one demand, and define awaited
+session reset or shutdown so retained entries eventually close.
+
+A one-request workspace beneath each existing registry key cannot receive a
+second independent exact demand because the outer registry returns the retained
+scope first. An Integrations-only workspace would duplicate the ordinary
+realization solely to resubmit a demand that Integrations already answers from
+the retained scope. Neither topology adds an independently useful product
+lifetime.
+
+The retained Browser platform path is not a package-role caller: each cumulative
+rebuild creates a fresh `InspectionWorkspace` through `WorkspaceContextLoader`
+instead of submitting repeated package-role demands. The CLI, the only shipped
+host, remains operation-scoped. Therefore no existing component justifies the
+lower-level retained cache, and
+[#4960](https://github.com/richlander/dotnet-inspect/issues/4960) remains
+deferred. A future caller proposal must establish its product lifetime first,
+including explicit bounds for retained or in-flight exact requests, concurrent
+physical operations, and aggregate retained-byte reservation, and must name one
+real repeated exact-demand scenario plus one neighboring distinct-demand
+scenario. Once that caller is approved, the admission implementation owns the
+observable ready-reuse, non-hit, capacity-rejection, and terminal-cleanup gates
+through that caller. Admission must not be implemented or a caller lifetime
+manufactured solely to make those gates pass.
 
 `WorkspaceContextLoader` now realizes package, platform, and embedded
 coordinates without requiring a filesystem. A platform coordinate maps the
