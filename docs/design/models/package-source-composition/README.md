@@ -78,8 +78,8 @@ assumptions and bounds, not properties of the shipped implementation.
 | `PackageSourceCompositionPinned.cfg` | Pinned-payload safety and liveness under the same policy. |
 | `BrokenHealthySubsetComplete.cfg` | Lets a healthy subset publish complete and must violate `CompleteRequiresEveryAuthority`. |
 | `BrokenProducerAssociation.cfg` | Lets same-producer equality replace exact association for any result and must violate `AdoptedResultsKeepAssociation`. |
-| `BrokenProducerAbsenceAssociation.cfg` | Constrains the producer-collapse mutation to authoritative absence and must violate `AbsentResultsKeepAssociation`. |
-| `BrokenProducerTerminalFailureAssociation.cfg` | Constrains the producer-collapse mutation to a final request timeout or transport failure and must violate `TerminalFailureResultsKeepAssociation`. |
+| `BrokenProducerAbsenceAssociation.cfg` | Checks the producer-collapse mutation specifically on authoritative absence and must violate `AbsentResultsKeepAssociation`. |
+| `BrokenProducerTerminalFailureAssociation.cfg` | Checks the producer-collapse mutation specifically on final request timeout or transport failure and must violate `TerminalFailureResultsKeepAssociation`. |
 | `BrokenRestartedOperationCeiling.cfg` | Lets an expired operation continue and must violate `OperationTimeoutIsTerminal`. |
 | `BrokenFailureAsAbsence.cfg` | Converts a final route failure into absence and must violate `TerminalFailuresRemainVisible`. |
 | `PartialDiscoveryReachability.cfg` | Must reach usable discovery evidence plus a failed authority and violate `PartialAfterSourceFailureNotObserved`. |
@@ -130,6 +130,8 @@ performed.
 
 SANY parsed the module without error. All TLC runs used breadth-first search,
 seed `1`, fingerprint seed `1`, and automatic parallel workers.
+Counts for configurations that stop at a counterexample record this run and
+may vary with worker scheduling; the named violation is the required result.
 
 | Configuration | Result | Generated | Distinct | Depth |
 | --- | --- | ---: | ---: | ---: |
@@ -153,6 +155,13 @@ authority fails, and terminal shared-ceiling expiry. The six mutations
 independently show the unsafe healthy-subset, found-result producer collapse,
 authoritative-absence producer collapse, terminal-failure producer collapse,
 deadline-restart, and failure-as-absence policies.
+
+The positive discovery configuration also provides non-vacuity for both
+category-specific association properties. Removing only the
+authoritative-absence adoption write makes it violate
+`AbsentResultsKeepAssociation`; removing only the request-timeout and
+transport-failure adoption writes makes it violate
+`TerminalFailureResultsKeepAssociation`.
 
 These intentional violations are negative controls and reachability evidence,
 not product defects. No unexpected counterexample was found.
