@@ -2231,6 +2231,22 @@ public class ApiCommand
 
         if (options is TypeOptions { ShapeOutput: true } typeOptions && !options.Count)
         {
+            if (options.Rows is { IsUnlimited: false } shapeWindow)
+            {
+                string gesture = shapeWindow.Kind == RowWindowKind.Range
+                    ? "--rows"
+                    : "-n";
+                string selection = shapeWindow.Kind == RowWindowKind.Range
+                    ? "rows"
+                    : "items";
+                CommandError.Write(
+                    $"{gesture} cannot select {selection} in the type shape view, "
+                    + "which renders a tree with no declared row set. Use "
+                    + "-n N --lines to limit rendered lines, or select a row "
+                    + "section with -S.");
+                return 1;
+            }
+
             if (LensProjection.TryProject(
                     options,
                     "--shape",

@@ -172,7 +172,7 @@ public readonly record struct RowSpec
 
         if (string.IsNullOrWhiteSpace(text))
         {
-            error = "a row selection is required, such as 6, 2..10, 2+10, or 10..";
+            error = "a row selection is required, such as 2..10, 2+10, or 10..";
             return false;
         }
 

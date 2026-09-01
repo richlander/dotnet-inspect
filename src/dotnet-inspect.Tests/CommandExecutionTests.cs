@@ -12127,6 +12127,39 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("NuGet source", error);
     }
 
+    [Fact]
+    public async Task DiscoveryTopRejectsBeforeSourceAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "Missing.Type",
+            "--package", "Does.Not.Exist.5144",
+            "-D",
+            "--top", "1",
+            "--source", "http://127.0.0.1:9/index.json",
+            "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--top cannot be combined with -D/--discover",
+            error);
+        Assert.DoesNotContain("source did not answer", error);
+    }
+
+    [Fact]
+    public async Task RowsWhitespaceDiagnosticSuggestsOnlyRanges()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "demo", "list", "--rows", " ");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--rows a row selection is required, such as 2..10, 2+10, or 10..",
+            error);
+        Assert.DoesNotContain("such as 6", error);
+    }
+
     [Theory]
     [InlineData("--versions", "--print")]
     [InlineData("--versions-with-feed", "--value")]
@@ -17741,12 +17774,43 @@ public partial class CommandExecutionTests
     public async Task Type_StaticClass_RendersStaticClassModifierOnly()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Math", "--shape", "--tips", "q", "-n", "1");
+            "type", "System.Math", "--shape", "--tips", "q",
+            "-n", "1", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.StartsWith("static class System.Math", output, StringComparison.Ordinal);
         Assert.DoesNotContain("static abstract sealed class", output);
+    }
+
+    [Fact]
+    public async Task TypeShapeRejectsRowWindowsAndAllowsLineWindows()
+    {
+        var item = await RunAppAsync(
+            "type", "System.String", "--shape", "-n", "2", "--tips", "q");
+        var range = await RunAppAsync(
+            "type", "System.String", "--shape", "--rows", "2..3", "--tips", "q");
+        var lines = await RunAppAsync(
+            "type", "System.String", "--shape",
+            "-n", "2", "--lines", "--tips", "q");
+
+        Assert.Equal(1, item.Exit);
+        Assert.Empty(item.Output);
+        Assert.Contains(
+            "-n cannot select items in the type shape view",
+            item.Error);
+        Assert.Equal(1, range.Exit);
+        Assert.Empty(range.Output);
+        Assert.Contains(
+            "--rows cannot select rows in the type shape view",
+            range.Error);
+        Assert.Equal(0, lines.Exit);
+        Assert.Empty(lines.Error);
+        Assert.Equal(
+            2,
+            lines.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries).Length);
     }
 
     [Fact]

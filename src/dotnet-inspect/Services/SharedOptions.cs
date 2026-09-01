@@ -307,6 +307,16 @@ public class SharedOptions
                 result.AddError("--top must be a positive integer.");
 
             if (topSpecified
+                && command.Options.Contains(Discover)
+                && result.GetResult(Discover) is { Implicit: false })
+            {
+                result.AddError(
+                    "--top cannot be combined with -D/--discover because "
+                    + "discovery rows have no ranking default. Use -n N for "
+                    + "a positional discovery limit.");
+            }
+
+            if (topSpecified
                 && countSpecified
                 && !linesRequested)
             {
