@@ -93,6 +93,16 @@ public static class TypeDependencyScanner
 
                         MetadataReader mdReader =
                             MetadataFormatAdmission.GetMetadataReader(peReader);
+
+                        // Stage this participant's rows separately. A rejection
+                        // must exclude the whole participant, so rows decoded
+                        // before a later failure cannot be allowed to reach the
+                        // shared index — they would shadow a healthy same-name
+                        // definition under TryAdd and make the emitted tree
+                        // wrong rather than merely incomplete.
+                        var staged =
+                            new Dictionary<string, (PEReader, MetadataReader, TypeDefinition)>(
+                                StringComparer.OrdinalIgnoreCase);
                         foreach (var typeDefHandle in mdReader.TypeDefinitions)
                         {
                             var typeDef = mdReader.GetTypeDefinition(typeDefHandle);
@@ -107,8 +117,11 @@ public static class TypeDependencyScanner
                             var fullName = TypeResolver.GetFullName(ns, name);
 
                             // Index by ECMA name for lookup
-                            typeIndex.TryAdd(fullName, (peReader, mdReader, typeDef));
+                            staged.TryAdd(fullName, (peReader, mdReader, typeDef));
                         }
+
+                        foreach (var entry in staged)
+                            typeIndex.TryAdd(entry.Key, entry.Value);
 
                         // Only a participant that decoded all the way through
                         // counts as surviving. A partially indexed one cannot

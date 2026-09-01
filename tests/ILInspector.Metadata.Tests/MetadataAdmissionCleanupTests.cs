@@ -249,6 +249,109 @@ public sealed class MetadataAdmissionCleanupTests
             rejected.Failure.Kind);
     }
 
+    static string? LastPublicTypeIndexedBeforeDecodeFailure(string path)
+    {
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(
+            stream,
+            PEStreamOptions.LeaveOpen);
+        MetadataReader reader =
+            MetadataFormatAdmission.GetMetadataReader(peReader);
+
+        string? indexed = null;
+        try
+        {
+            foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
+            {
+                TypeDefinition typeDefinition =
+                    reader.GetTypeDefinition(handle);
+                if (!typeDefinition.IsPublic)
+                    continue;
+
+                string name = reader.GetString(typeDefinition.Name);
+                if (TypeFilters.IsCompilerGenerated(name))
+                    continue;
+
+                string ns = reader.GetString(typeDefinition.Namespace);
+                indexed = TypeResolver.GetFullName(ns, name);
+            }
+        }
+        catch (BadImageFormatException)
+        {
+            return indexed;
+        }
+
+        return null;
+    }
+
+    internal static byte[] BuildTruncatedStringHeapAt(int pct)
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(MetadataAdmissionCleanupTests).Assembly.Location);
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        int metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            image.AsSpan(metadataStart + 12, sizeof(int)));
+        int cursor = metadataStart + 16 + versionLength + sizeof(ushort);
+        int streamCount = BinaryPrimitives.ReadUInt16LittleEndian(
+            image.AsSpan(cursor, sizeof(ushort)));
+        cursor += sizeof(ushort);
+        for (int i = 0; i < streamCount; i++)
+        {
+            int sizeOffset = cursor + sizeof(int);
+            int nameOffset = cursor + (2 * sizeof(int));
+            int nameEnd = nameOffset;
+            while (image[nameEnd] != 0) nameEnd++;
+            int nameLength = nameEnd - nameOffset;
+            if (Encoding.ASCII.GetString(image, nameOffset, nameLength) is "#Strings")
+            {
+                int size = BinaryPrimitives.ReadInt32LittleEndian(
+                    image.AsSpan(sizeOffset, sizeof(int)));
+                BinaryPrimitives.WriteInt32LittleEndian(
+                    image.AsSpan(sizeOffset, sizeof(int)),
+                    (int)(((long)size * pct / 100) & ~3));
+                return image;
+            }
+            cursor = nameOffset + ((nameLength + 1 + 3) & ~3);
+        }
+        throw new InvalidOperationException("no #Strings");
+    }
+
+    [Fact]
+    public void DependencyScan_RejectedParticipantContributesNoRowsToTheIndex()
+    {
+        // A 90% string-heap truncation decodes several public type rows before
+        // failing, which is what makes the contamination observable; the 50%
+        // fixture fails before any public row and cannot exercise it.
+        string truncated = WriteTempImage(BuildTruncatedStringHeapAt(90));
+        // A neighbor that does not define the probed name, so resolving it can
+        // only come from the rejected participant's rows.
+        string healthy = typeof(string).Assembly.Location;
+        try
+        {
+            string? leaked =
+                LastPublicTypeIndexedBeforeDecodeFailure(truncated);
+            Assert.NotNull(leaked);
+
+            TypeDependencyResult result =
+                TypeDependencyScanner.BuildDependencyTree(
+                    leaked!,
+                    [truncated, healthy]);
+
+            // The participant is reported as rejected, so none of its rows may
+            // resolve. Otherwise the scan emits a tree built from an assembly
+            // it simultaneously reports as excluded — and these names are read
+            // from the truncated heap, so they are not even correct.
+            Assert.Single(result.Rejections);
+            Assert.False(result.Found);
+        }
+        finally
+        {
+            File.Delete(truncated);
+        }
+    }
+
     [Fact]
     public void DependencyScan_MalformedRootKeepsItsExactReasonBesideHealthyNeighbor()
     {
