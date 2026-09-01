@@ -46,8 +46,8 @@ development model and rationale. The binding summary:
 - **Use the Markdown fast path.** For Markdown-only PRs at non-boundary rounds,
   `markdownlint` replaces `ci-required` as the pre-review and per-round gate.
 - **Use bounded adversarial review to find design and implementation gaps.**
-  Most changes get two seats; repeated findings are evidence to revisit design,
-  and six rounds ends the current review block.
+  Every non-trivial change gets two seats; repeated findings are evidence to
+  revisit design, and six rounds ends the current review block.
 - **Keep security work inside the repository threat model.** Focus on
   untrusted internet-origin data and construction-time containment, not local
   or intra-repository actors unless an owning design explicitly opts in.
