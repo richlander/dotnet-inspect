@@ -4773,6 +4773,38 @@ public class PackageCommand
                 nameof(exception)),
         };
 
+    internal static string DescribeLibraryInspectionFormatFailure(
+        TfmSelector.PackageTypeProbeFailure failure) =>
+        failure.Kind switch
+        {
+            TfmSelector.PackageTypeProbeFailureKind
+                .UnsupportedMetadataFormat =>
+                "unsupported metadata format",
+            TfmSelector.PackageTypeProbeFailureKind
+                .MalformedMetadataRoot
+                    when failure.MetadataRootReason is { } reason =>
+                $"malformed metadata root ({reason})",
+            _ => throw new ArgumentException(
+                "The failure is not a metadata-format failure.",
+                nameof(failure)),
+        };
+
+    internal static string DescribeLibraryInspectionFormatError(
+        TfmSelector.PackageTypeProbeFailure failure) =>
+        failure.Kind switch
+        {
+            TfmSelector.PackageTypeProbeFailureKind
+                .UnsupportedMetadataFormat =>
+                new UnsupportedMetadataFormatException().Message,
+            TfmSelector.PackageTypeProbeFailureKind
+                .MalformedMetadataRoot
+                    when failure.MetadataRootReason is { } reason =>
+                new MalformedMetadataRootException(reason).Message,
+            _ => throw new ArgumentException(
+                "The failure is not a metadata-format failure.",
+                nameof(failure)),
+        };
+
     internal static bool WriteIdentifierAuditFailures(
         IEnumerable<(
             string FileName,

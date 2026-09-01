@@ -188,6 +188,59 @@ public sealed class MetadataImageFormatClassifierTests
         }
     }
 
+    [Theory]
+    [InlineData(PdbContextOverflowOpenPath.DefaultPath)]
+    [InlineData(PdbContextOverflowOpenPath.MetadataOnlyPath)]
+    [InlineData(PdbContextOverflowOpenPath.PrefetchedPath)]
+    [InlineData(PdbContextOverflowOpenPath.Descriptor)]
+    public void
+        Mdp017_PdbContextRejectsMetadataStreamCountOverflowBeforePublication(
+            PdbContextOverflowOpenPath openPath)
+    {
+        byte[] image =
+            MetadataAdmissionCleanupTests
+                .BuildOverflowingMetadataStreamCount();
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"pdb-context-overflow-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, image);
+        var descriptor = ResolvedAssemblyReference.Create(
+            new AssemblyReferenceIdentity(
+                "Overflow",
+                new Version(1, 0, 0, 0),
+                Culture: null,
+                PublicKeyToken: null),
+            path: null,
+            () => new MemoryStream(image, writable: false),
+            AssemblyResolutionProvenance.Local(
+                "PdbContext overflow regression"));
+        try
+        {
+            Action open = openPath switch
+            {
+                PdbContextOverflowOpenPath.DefaultPath =>
+                    () => PdbContext.Open(path).Dispose(),
+                PdbContextOverflowOpenPath.MetadataOnlyPath =>
+                    () => PdbContext.OpenMetadataOnly(path).Dispose(),
+                PdbContextOverflowOpenPath.PrefetchedPath =>
+                    () => PdbContext.OpenPrefetched(path).Dispose(),
+                PdbContextOverflowOpenPath.Descriptor =>
+                    () => PdbContext.Open(descriptor).Dispose(),
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(openPath)),
+            };
+
+            BadImageFormatException invalid =
+                Assert.IsAssignableFrom<BadImageFormatException>(
+                    Record.Exception(open));
+            Assert.IsNotType<MalformedMetadataRootException>(invalid);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public void Mdp017_SnapshotPreservesTypedUnsupportedRejection()
     {
@@ -633,6 +686,14 @@ public sealed class MetadataImageFormatClassifierTests
             image,
             MetadataImageFormatClassifier.FixedPrefixLength
                 + versionLength);
+    }
+
+    public enum PdbContextOverflowOpenPath
+    {
+        DefaultPath,
+        MetadataOnlyPath,
+        PrefetchedPath,
+        Descriptor,
     }
 
     sealed class ArmableReadFailureStream(byte[] image)

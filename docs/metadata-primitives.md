@@ -205,9 +205,13 @@ same unsupported-format reason instead of treating the image as unreadable.
 Dependency snapshots use the same Metadata-owned admission helper before
 identity decoding. Multi-library package commands scope unsupported and
 malformed metadata to the rejected participant, emit a bounded failure, and
-continue rendering valid neighboring assemblies. A single selected package
-member retains the direct typed rejection used by single-library inspection,
-including when grouped Integrations preflight discovers the rejection.
+continue rendering valid neighboring assemblies. Package `type`, `member`, and
+`depends` probes retain typed per-participant receipts while searching later
+candidates, then render bounded warnings beside a healthy match or the direct
+typed error when every selected participant is rejected. A single selected
+package member retains the direct typed rejection used by single-library
+inspection, including when grouped Integrations preflight discovers the
+rejection.
 
 The nullable `AssemblyDependencyResolver.Resolve`, `Acquire`, and
 `AcquireTargetAssembly` compatibility entry points likewise rethrow exact
@@ -284,6 +288,25 @@ contract.
 Assembly-binding and workspace-load failures likewise retain the exact reason
 in non-positional properties, while browser and command adapters include the
 bounded enum reason without exposing artifact text.
+
+A multi-candidate scan scopes each rejection to its own participant. An index
+that publishes entries aliasing a reader transfers that reader's ownership
+before indexing begins, so a later decode failure leaves the reader alive for
+the whole walk instead of disposing one the index still references;
+`MetadataAdmissionCleanupTests.ExtensionScanner_PartialIndexKeepsReaderAliveForWholeWalk`
+gates that property in a child process because the regression terminates the
+host. A retained candidate rejection is an established outcome, so intrinsic
+core-library binding disposes without replacing it
+(`MetadataFormatAdmissionTests.IntrinsicBinding_CleanupCannotReplaceRetainedCandidateFailure`).
+Package type probing returns a healthy match alongside its per-participant
+receipts and surfaces a typed rejection only when the scan matched nothing
+(`MetadataFormatAdmissionTests.PackageTypeProbe_RejectedMemberDoesNotHideHealthyMatch`
+and `PackageTypeProbe_SoleRejectedMemberSurfacesTypedFailure`). `depends`
+applies the same rule across its selected assemblies rather than aborting the
+scan: `CommandExecutionTests.DependsTypeProbe_RejectedLibraryDoesNotHideHealthyNeighbor`
+gates the scoped scan, and `DependsTypeProbe_SoleRejectedSelectionUsesBoundedError`
+gates the bounded typed error when the single selected target framework is
+rejected.
 Frozen `TypeResolutionContext` binding outcomes construct their public
 `AssemblyBindingFailure` from the retained `CandidateOpenFailure`; selected,
 multi-candidate, and requesting-origin failures therefore keep the candidate
@@ -303,9 +326,13 @@ the rejected participant, declaration inventory and Corpus return typed
 failures, path and assembly-set surface classification preserve healthy
 neighbors, Research API comparison records the failed participant without
 retrying it as a module, and TypeScript commands emit bounded diagnostics
-rather than an unhandled exception. The defensive `MethodSemanticsRowReader`
-leaf maps the same SRM construction failure to
-`MetadataReaderRejected`.
+rather than an unhandled exception. Direct `AssemblyReader` projections return
+their established no-result outcome, `PdbContext` rejects before publishing an
+invalid context, and the `mdi` metadata lens emits its bounded read diagnostic.
+The defensive `MethodSemanticsRowReader` leaf maps the same SRM construction
+failure to `MetadataReaderRejected`. Designated-overlay candidate aggregation
+retains the deterministic first equal-precedence typed failure and its exact
+malformed-root reason.
 Platform type lookup appends distinct no-metadata, unsupported-format, and
 malformed-root failure kinds and carries the exact malformed reason
 non-positionally. Per-catalog and cross-framework aggregation prefer those

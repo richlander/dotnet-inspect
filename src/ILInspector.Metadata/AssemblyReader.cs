@@ -49,6 +49,7 @@ public static class AssemblyReader
                 and (IOException
                     or UnauthorizedAccessException
                     or BadImageFormatException
+                    or OverflowException
                     or ArgumentException))
         {
             return null;
@@ -121,6 +122,14 @@ public static class AssemblyReader
             return null;
         }
         catch (ArgumentException ex)
+        {
+            OwnedResourceCleanup.DisposeAfterFailure(
+                ref peReader,
+                ref ownedStream,
+                ex);
+            return null;
+        }
+        catch (OverflowException ex)
         {
             OwnedResourceCleanup.DisposeAfterFailure(
                 ref peReader,
@@ -212,6 +221,14 @@ public static class AssemblyReader
             return null;
         }
         catch (ArgumentException ex)
+        {
+            OwnedResourceCleanup.DisposeAfterFailure(
+                ref peReader,
+                ref ownedStream,
+                ex);
+            return null;
+        }
+        catch (OverflowException ex)
         {
             OwnedResourceCleanup.DisposeAfterFailure(
                 ref peReader,

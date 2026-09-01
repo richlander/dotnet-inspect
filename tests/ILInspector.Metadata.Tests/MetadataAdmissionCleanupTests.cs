@@ -1,14 +1,174 @@
 using System.Buffers.Binary;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text;
 
 namespace ILInspector.Metadata.Tests;
 
 public sealed class MetadataAdmissionCleanupTests
 {
+    const string ExtensionScannerWorkerVariable =
+        "DOTNET_INSPECT_EXTENSION_SCANNER_LIFETIME_WORKER";
+
+    // A reader whose types were partially indexed is still aliased by every
+    // published index entry, so it must stay alive for the whole walk. The
+    // regression this guards terminates the process, so it runs in a child.
+    [Fact]
+    public void ExtensionScanner_PartialIndexKeepsReaderAliveForWholeWalk()
+        => RunExtensionScannerWorker(
+            nameof(ExtensionScannerPartialIndexWorker));
+
+    [Fact]
+    public void ExtensionScannerPartialIndexWorker()
+    {
+        if (!IsSelectedExtensionScannerWorker(
+                nameof(ExtensionScannerPartialIndexWorker)))
+        {
+            return;
+        }
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-partial-index-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, BuildTruncatedStringHeap());
+        try
+        {
+            string indexed = LastTypeIndexedBeforeDecodeFailure(path);
+
+            try
+            {
+                ExtensionMethodScanner.FindReachableTypes(
+                    indexed,
+                    [path],
+                    maxDepth: 3);
+            }
+            catch (BadImageFormatException)
+            {
+                // A visible decode failure is an acceptable outcome. Reading
+                // through a disposed reader would terminate the process, which
+                // the parent observes as a non-zero exit code.
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    static string LastTypeIndexedBeforeDecodeFailure(string path)
+    {
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(
+            stream,
+            PEStreamOptions.LeaveOpen);
+        Assert.True(MetadataFormatAdmission.AdmitImage(peReader));
+        MetadataReader reader =
+            MetadataFormatAdmission.GetMetadataReader(peReader);
+
+        string? indexed = null;
+        try
+        {
+            foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
+            {
+                TypeDefinition typeDefinition =
+                    reader.GetTypeDefinition(handle);
+                string fullName = reader.GetFullTypeName(typeDefinition);
+                _ = reader.GetString(typeDefinition.Name);
+                indexed = fullName;
+            }
+        }
+        catch (BadImageFormatException)
+        {
+            Assert.NotNull(indexed);
+            return indexed;
+        }
+
+        Assert.Fail(
+            "The truncated string heap indexed every type without failing, "
+            + "so the reader-lifetime property is not exercised.");
+        return indexed!;
+    }
+
+    internal static byte[] BuildTruncatedStringHeap()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(MetadataAdmissionCleanupTests).Assembly.Location);
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        int metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            image.AsSpan(metadataStart + 12, sizeof(int)));
+        int cursor =
+            metadataStart
+            + 16
+            + versionLength
+            + sizeof(ushort);
+        int streamCount = BinaryPrimitives.ReadUInt16LittleEndian(
+            image.AsSpan(cursor, sizeof(ushort)));
+        cursor += sizeof(ushort);
+        for (int i = 0; i < streamCount; i++)
+        {
+            int sizeOffset = cursor + sizeof(int);
+            int nameOffset = cursor + (2 * sizeof(int));
+            int nameEnd = nameOffset;
+            while (image[nameEnd] != 0)
+                nameEnd++;
+
+            int nameLength = nameEnd - nameOffset;
+            if (Encoding.ASCII.GetString(image, nameOffset, nameLength)
+                is "#Strings")
+            {
+                int size = BinaryPrimitives.ReadInt32LittleEndian(
+                    image.AsSpan(sizeOffset, sizeof(int)));
+                BinaryPrimitives.WriteInt32LittleEndian(
+                    image.AsSpan(sizeOffset, sizeof(int)),
+                    (size / 2) & ~3);
+                return image;
+            }
+
+            cursor = nameOffset + ((nameLength + 1 + 3) & ~3);
+        }
+
+        throw new InvalidOperationException(
+            "The image does not declare a #Strings heap.");
+    }
+
+    static bool IsSelectedExtensionScannerWorker(string methodName)
+        => Environment.GetEnvironmentVariable(
+            ExtensionScannerWorkerVariable) == methodName;
+
+    static void RunExtensionScannerWorker(string workerMethod)
+    {
+        var startInfo = new ProcessStartInfo("dotnet")
+        {
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add(
+            typeof(MetadataAdmissionCleanupTests).Assembly.Location);
+        startInfo.ArgumentList.Add("-method");
+        startInfo.ArgumentList.Add($"*{workerMethod}*");
+        startInfo.Environment[ExtensionScannerWorkerVariable] = workerMethod;
+
+        using Process? process = Process.Start(startInfo);
+        Assert.NotNull(process);
+        bool exited = process.WaitForExit(120_000);
+        if (!exited)
+            process.Kill(entireProcessTree: true);
+        string standardOutput = process.StandardOutput.ReadToEnd();
+        string standardError = process.StandardError.ReadToEnd();
+
+        Assert.True(exited, $"Child worker {workerMethod} timed out.");
+        Assert.True(
+            process.ExitCode == 0,
+            $"Child worker {workerMethod} exited {process.ExitCode}.\n"
+            + $"stdout:\n{standardOutput}\nstderr:\n{standardError}");
+    }
     [Fact]
     public void TypeDeclarationInventory_CleanupCannotReplaceFormatRejection()
     {
@@ -109,6 +269,49 @@ public sealed class MetadataAdmissionCleanupTests
             () => AssemblyReader.ExtractApiSummarySurface(
                 new ThrowingDisposeMemoryStream(
                     BuildManagedWindowsMetadata())));
+    }
+
+    [Theory]
+    [InlineData(AssemblyReaderOverflowEntryPoint.ModulePath)]
+    [InlineData(AssemblyReaderOverflowEntryPoint.ApiSurfacePath)]
+    [InlineData(AssemblyReaderOverflowEntryPoint.ApiSurfaceStream)]
+    [InlineData(AssemblyReaderOverflowEntryPoint.ApiSummaryPath)]
+    [InlineData(AssemblyReaderOverflowEntryPoint.ApiSummaryStream)]
+    public void
+        AssemblyReader_MetadataStreamCountOverflowUsesInvalidImageOutcome(
+            AssemblyReaderOverflowEntryPoint entryPoint)
+    {
+        byte[] image = BuildOverflowingMetadataStreamCount();
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"assembly-reader-overflow-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, image);
+        try
+        {
+            ApiSurface? surface = entryPoint switch
+            {
+                AssemblyReaderOverflowEntryPoint.ModulePath =>
+                    AssemblyReader.ExtractModuleApiSurface(path),
+                AssemblyReaderOverflowEntryPoint.ApiSurfacePath =>
+                    AssemblyReader.ExtractApiSurface(path),
+                AssemblyReaderOverflowEntryPoint.ApiSurfaceStream =>
+                    AssemblyReader.ExtractApiSurface(
+                        new MemoryStream(image, writable: false)),
+                AssemblyReaderOverflowEntryPoint.ApiSummaryPath =>
+                    AssemblyReader.ExtractApiSummarySurface(path),
+                AssemblyReaderOverflowEntryPoint.ApiSummaryStream =>
+                    AssemblyReader.ExtractApiSummarySurface(
+                        new MemoryStream(image, writable: false)),
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(entryPoint)),
+            };
+
+            Assert.Null(surface);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -559,6 +762,15 @@ public sealed class MetadataAdmissionCleanupTests
             image.AsSpan(streamCountOffset, sizeof(ushort)),
             ushort.MaxValue);
         return image;
+    }
+
+    public enum AssemblyReaderOverflowEntryPoint
+    {
+        ModulePath,
+        ApiSurfacePath,
+        ApiSurfaceStream,
+        ApiSummaryPath,
+        ApiSummaryStream,
     }
 
     static byte[] BuildManagedModule()

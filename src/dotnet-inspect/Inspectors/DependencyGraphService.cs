@@ -33,8 +33,52 @@ internal static class DependencyGraphService
             {
                 logger.Log($"Scanning {assemblySet.Assemblies.Count} libraries for type {options.TargetType}");
                 var assemblyPaths = assemblySet.Assemblies.Select(a => a.Path).ToList();
-                return TypeDependencyScanner.BuildDependencyTree(options.TargetType, assemblyPaths);
+                TypeDependencyResult result =
+                    TypeDependencyScanner.BuildDependencyTree(options.TargetType, assemblyPaths);
+                return result.Rejections.Count == 0
+                    ? result
+                    : result with
+                    {
+                        Rejections = RelativizeRejections(
+                            result.Rejections,
+                            assemblySet),
+                    };
             });
+    }
+
+    /// <summary>
+    /// Rewrites rejection paths as package-relative paths so the reported
+    /// participant matches the identity the other package commands print.
+    /// </summary>
+    private static IReadOnlyList<TypeDependencyRejection> RelativizeRejections(
+        IReadOnlyList<TypeDependencyRejection> rejections,
+        AssemblySet assemblySet)
+    {
+        return [.. rejections.Select(
+            rejection => rejection with
+            {
+                AssemblyPath = PackageRelativePath(
+                    rejection.AssemblyPath,
+                    assemblySet.OwnedTemporaryDirectories),
+            })];
+    }
+
+    private static string PackageRelativePath(
+        string assemblyPath,
+        IReadOnlyList<string> roots)
+    {
+        foreach (var root in roots)
+        {
+            var relative = Path.GetRelativePath(root, assemblyPath)
+                .Replace('\\', '/');
+            if (!relative.StartsWith("../", StringComparison.Ordinal)
+                && !Path.IsPathRooted(relative))
+            {
+                return relative;
+            }
+        }
+
+        return Path.GetFileName(assemblyPath);
     }
 
     public static async Task<LibraryDependencyGraphResult> BuildLibraryDependencyTreeAsync(

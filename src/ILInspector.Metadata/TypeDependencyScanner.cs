@@ -10,11 +10,36 @@ namespace ILInspector.Metadata;
 public record TypeDependencyNode(string TypeName, List<TypeDependencyNode> Children);
 
 /// <summary>
+/// Identifies why a candidate assembly was rejected during a dependency scan.
+/// </summary>
+public enum TypeDependencyRejectionKind
+{
+    UnsupportedMetadataFormat,
+    MalformedMetadataRoot,
+}
+
+/// <summary>
+/// Records a candidate assembly that a dependency scan rejected. A rejection
+/// scopes to its own participant and never aborts the surrounding scan.
+/// </summary>
+public sealed record TypeDependencyRejection(
+    string AssemblyPath,
+    TypeDependencyRejectionKind Kind)
+{
+    public MetadataRootMalformedReason? MetadataRootReason { get; init; }
+}
+
+/// <summary>
 /// Result of building a type dependency tree.
 /// </summary>
 public record TypeDependencyResult(string? MatchedType, List<TypeDependencyNode> Tree)
 {
     public bool Found => MatchedType != null;
+
+    /// <summary>
+    /// Candidate assemblies the scan rejected on metadata-format grounds.
+    /// </summary>
+    public IReadOnlyList<TypeDependencyRejection> Rejections { get; init; } = [];
 }
 
 /// <summary>
@@ -36,6 +61,8 @@ public static class TypeDependencyScanner
         var typeIndex = new Dictionary<string, (PEReader PeReader, MetadataReader MdReader, TypeDefinition TypeDef)>(
             StringComparer.OrdinalIgnoreCase);
         var peReaders = new List<PEReader>();
+        var rejections = new List<TypeDependencyRejection>();
+        var admittedAny = false;
 
         try
         {
@@ -60,6 +87,7 @@ public static class TypeDependencyScanner
                         continue;
 
                     var mdReader = MetadataFormatAdmission.GetMetadataReader(peReader);
+                    admittedAny = true;
                     foreach (var typeDefHandle in mdReader.TypeDefinitions)
                     {
                         var typeDef = mdReader.GetTypeDefinition(typeDefHandle);
@@ -77,6 +105,26 @@ public static class TypeDependencyScanner
                         typeIndex.TryAdd(fullName, (peReader, mdReader, typeDef));
                     }
                 }
+                // A rejected candidate scopes to itself: record it exactly and
+                // keep scanning the remaining assemblies.
+                catch (UnsupportedMetadataFormatException)
+                {
+                    rejections.Add(
+                        new TypeDependencyRejection(
+                            path,
+                            TypeDependencyRejectionKind
+                                .UnsupportedMetadataFormat));
+                }
+                catch (MalformedMetadataRootException ex)
+                {
+                    rejections.Add(
+                        new TypeDependencyRejection(
+                            path,
+                            TypeDependencyRejectionKind.MalformedMetadataRoot)
+                        {
+                            MetadataRootReason = ex.Reason,
+                        });
+                }
                 // Skip assemblies that can't be read
                 catch (Exception ex) when (
                     ex is not UnsupportedMetadataFormatException
@@ -85,16 +133,36 @@ public static class TypeDependencyScanner
                 }
             }
 
+            // Scoping only applies when the scan had a surviving participant.
+            // If every candidate was rejected there is nothing to scope the
+            // rejection against, so it stays the caller's exact outcome.
+            if (!admittedAny && rejections.FirstOrDefault() is { } soleRejection)
+            {
+                throw soleRejection.Kind switch
+                {
+                    TypeDependencyRejectionKind.UnsupportedMetadataFormat =>
+                        new UnsupportedMetadataFormatException(),
+                    TypeDependencyRejectionKind.MalformedMetadataRoot
+                        when soleRejection.MetadataRootReason is { } reason =>
+                        (Exception)new MalformedMetadataRootException(reason),
+                    _ => new InvalidOperationException(
+                        "Unknown metadata-format rejection."),
+                };
+            }
+
             // Find the target type
             var normalizedTarget = FqnParser.NormalizeTypeName(targetType);
             var matchKey = typeIndex.Keys.FirstOrDefault(k => TypeMatcher.Matches(k, normalizedTarget));
             if (matchKey == null)
-                return new TypeDependencyResult(null, []);
+                return new TypeDependencyResult(null, []) { Rejections = rejections };
 
             var match = typeIndex[matchKey];
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var tree = BuildNode(match.MdReader, match.TypeDef, typeIndex, seen);
-            return new TypeDependencyResult(TypeResolver.FormatDisplayName(matchKey), tree);
+            return new TypeDependencyResult(TypeResolver.FormatDisplayName(matchKey), tree)
+            {
+                Rejections = rejections,
+            };
         }
         finally
         {

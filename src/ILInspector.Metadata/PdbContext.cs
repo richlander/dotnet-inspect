@@ -636,7 +636,25 @@ public class PdbContext : IDisposable
             peReader = new PEReader(
                 stream,
                 streamOptions | PEStreamOptions.LeaveOpen);
-            assemblyRegistration?.ValidateArtifactContent(peReader);
+            bool hasMetadata;
+            try
+            {
+                hasMetadata =
+                    MetadataFormatAdmission.AdmitImage(peReader);
+                if (hasMetadata)
+                {
+                    _ = MetadataFormatAdmission
+                        .GetMetadataReader(peReader);
+                }
+                assemblyRegistration?.ValidateArtifactContent(peReader);
+            }
+            catch (OverflowException ex)
+            {
+                throw new BadImageFormatException(
+                    "The selected image metadata is invalid.",
+                    ex);
+            }
+
             context = new PdbContext(
                 stream,
                 peReader,
@@ -646,7 +664,7 @@ public class PdbContext : IDisposable
                 log,
                 (streamOptions & PEStreamOptions.PrefetchEntireImage) != 0,
                 lastWriteTimeUtc);
-            if (!MetadataFormatAdmission.AdmitImage(peReader))
+            if (!hasMetadata)
                 return context;
 
             context.ReadDebugDirectory(

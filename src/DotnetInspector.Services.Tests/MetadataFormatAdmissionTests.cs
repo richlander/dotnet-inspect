@@ -73,6 +73,36 @@ public sealed class MetadataFormatAdmissionTests
         Assert.Equal(1, opened!.DisposeCount);
     }
 
+    [Fact]
+    public void IntrinsicBinding_CleanupCannotReplaceRetainedCandidateFailure()
+    {
+        ThrowingDisposeMemoryStream? opened = null;
+        var assembly = ResolvedAssemblyReference.Create(
+            new AssemblyReferenceIdentity(
+                "Consumer",
+                new Version(1, 0, 0, 0),
+                Culture: null,
+                PublicKeyToken: null),
+            path: null,
+            () => opened = new ThrowingDisposeMemoryStream(
+                BuildCoreLibraryReferenceAssembly()),
+            AssemblyResolutionProvenance.Local(
+                "services format admission test"));
+
+        var unavailable =
+            Assert.IsType<AssemblyBindingSelection.Unavailable>(
+                IntrinsicCoreLibraryBinding.Select(
+                    assembly,
+                    static _ => CandidateFailure(
+                        CandidateOpenFailureKind
+                            .UnsupportedMetadataFormat)));
+
+        Assert.Equal(
+            CandidateOpenFailureKind.UnsupportedMetadataFormat,
+            unavailable.Failure.CandidateFailureKind);
+        Assert.Equal(1, opened!.DisposeCount);
+    }
+
     [Theory]
     [InlineData(0, false)]
     [InlineData(0, true)]
@@ -155,6 +185,70 @@ public sealed class MetadataFormatAdmissionTests
                 ? MetadataRootMalformedReason.InvalidSignature
                 : null,
             unavailable.Failure.MetadataRootReason);
+    }
+
+    [Fact]
+    public void PackageTypeProbe_RejectedMemberDoesNotHideHealthyMatch()
+    {
+        string typeName = typeof(MetadataFormatAdmissionTests).FullName!;
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-type-probe-{Guid.NewGuid():N}");
+        string healthy = Path.Combine(root, "lib", "net8.0", "Lib.dll");
+        string unsupported = Path.Combine(root, "lib", "net10.0", "Lib.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(healthy)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(unsupported)!);
+        File.Copy(
+            typeof(MetadataFormatAdmissionTests).Assembly.Location,
+            healthy);
+        File.WriteAllBytes(unsupported, BuildManagedWindowsMetadata());
+        try
+        {
+            TfmSelector.PackageTypeAssemblyResolution resolution =
+                TfmSelector.FindAssemblyContainingTypeWithFailures(
+                    root,
+                    typeName);
+
+            Assert.Equal(healthy, resolution.Path);
+            Assert.Equal(
+                TfmSelector.PackageTypeProbeFailureKind
+                    .UnsupportedMetadataFormat,
+                Assert.Single(resolution.Failures).Kind);
+
+            // The rejected higher-TFM member scopes to itself, so it must not
+            // replace the healthy match the same scan established.
+            (string? path, string? tfm) =
+                TfmSelector.FindAssemblyContainingType(root, typeName);
+
+            Assert.Equal(healthy, path);
+            Assert.Equal("net8.0", tfm);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void PackageTypeProbe_SoleRejectedMemberSurfacesTypedFailure()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-type-probe-{Guid.NewGuid():N}");
+        string unsupported = Path.Combine(root, "lib", "net10.0", "Lib.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(unsupported)!);
+        File.WriteAllBytes(unsupported, BuildManagedWindowsMetadata());
+        try
+        {
+            Assert.Throws<UnsupportedMetadataFormatException>(
+                () => TfmSelector.FindAssemblyContainingType(
+                    root,
+                    typeof(MetadataFormatAdmissionTests).FullName!));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     static byte[] BuildManagedWindowsMetadata()

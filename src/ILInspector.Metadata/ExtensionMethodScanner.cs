@@ -404,6 +404,15 @@ public static class ExtensionMethodScanner
                     }
 
                     var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
+
+                    // Index entries below alias this reader for the whole walk,
+                    // so ownership transfers before indexing begins. A later
+                    // decode failure must leave the reader alive rather than
+                    // disposing one the dictionaries still reference.
+                    disposables.Add(peReader);
+                    disposables.Add(stream);
+                    retained = true;
+
                     foreach (var typeDefHandle in reader.TypeDefinitions)
                     {
                         var typeDef = reader.GetTypeDefinition(typeDefHandle);
@@ -411,10 +420,6 @@ public static class ExtensionMethodScanner
                         byFullName.TryAdd(reader.GetFullTypeName(typeDef), (reader, typeDefHandle));
                         bySimpleName.TryAdd(reader.GetString(typeDef.Name), (reader, typeDefHandle));
                     }
-
-                    disposables.Add(peReader);
-                    disposables.Add(stream);
-                    retained = true;
                 }
                 catch (Exception ex) when (
                     ex is UnsupportedMetadataFormatException

@@ -1759,6 +1759,145 @@ public class AssemblyDependencyResolverTests
     }
 
     [Theory]
+    [InlineData(
+        DesignatedAdmissionFixture.Unsupported,
+        DesignatedAdmissionFixture.InvalidSignature)]
+    [InlineData(
+        DesignatedAdmissionFixture.InvalidSignature,
+        DesignatedAdmissionFixture.Unsupported)]
+    [InlineData(
+        DesignatedAdmissionFixture.InvalidSignature,
+        DesignatedAdmissionFixture.UnmappableMetadataDirectory)]
+    [InlineData(
+        DesignatedAdmissionFixture.UnmappableMetadataDirectory,
+        DesignatedAdmissionFixture.InvalidSignature)]
+    public void
+        SelectAndResolve_DesignatedOverlayRetainsFirstEqualPrecedenceFailure(
+            DesignatedAdmissionFixture first,
+            DesignatedAdmissionFixture second)
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "designated-equal-precedence-").FullName;
+        try
+        {
+            string firstDirectory = Path.Combine(root, "first");
+            string secondDirectory = Path.Combine(root, "second");
+            Directory.CreateDirectory(firstDirectory);
+            Directory.CreateDirectory(secondDirectory);
+            string firstPath = Path.Combine(
+                firstDirectory,
+                "Shared.dll");
+            string secondPath = Path.Combine(
+                secondDirectory,
+                "Shared.dll");
+            File.WriteAllBytes(firstPath, Image(first));
+            File.WriteAllBytes(secondPath, Image(second));
+
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(
+                    typeof(AssemblyDependencyResolverTests)
+                        .Assembly.Location)
+                {
+                    PackageRoots = [],
+                    CorpusAssemblyPaths = [firstPath, secondPath],
+                    IncludeSiblingAssemblies = false,
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                    SnapshotAssemblyImages = true,
+                });
+            var identity = new AssemblyReferenceIdentity(
+                "Shared",
+                Version: null,
+                Culture: null,
+                PublicKeyToken: null);
+            var request = new AssemblyBindingRequest(
+                AssemblyBindingTarget.Reference(identity),
+                AssemblyBindingOrigin.Global(),
+                AssemblyResolutionScope.Any);
+            var unavailable =
+                Assert.IsType<AssemblyBindingSelection.Unavailable>(
+                    resolver.Select(request));
+            (
+                CandidateOpenFailureKind expectedKind,
+                MetadataRootMalformedReason? expectedReason) =
+                Expected(first);
+
+            Assert.Equal(
+                AssemblyBindingFailureKind.CandidateUnavailable,
+                unavailable.Failure.Kind);
+            Assert.Equal(
+                expectedKind,
+                unavailable.Failure.CandidateFailureKind);
+            Assert.Equal(
+                expectedReason,
+                unavailable.Failure.MetadataRootReason);
+
+            Exception? resolveFailure = Record.Exception(
+                () => resolver.Resolve(
+                    identity,
+                    AssemblyResolutionScope.Any));
+            if (first == DesignatedAdmissionFixture.Unsupported)
+            {
+                Assert.IsType<UnsupportedMetadataFormatException>(
+                    resolveFailure);
+            }
+            else
+            {
+                var malformed =
+                    Assert.IsType<MalformedMetadataRootException>(
+                        resolveFailure);
+                Assert.Equal(expectedReason, malformed.Reason);
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+
+        static byte[] Image(
+            DesignatedAdmissionFixture fixture) =>
+            fixture switch
+            {
+                DesignatedAdmissionFixture.Unsupported =>
+                    CreateUnsupportedMetadataImage(),
+                DesignatedAdmissionFixture.InvalidSignature =>
+                    CreateFormatRejectedMetadataImage(
+                        unsupported: false),
+                DesignatedAdmissionFixture
+                    .UnmappableMetadataDirectory =>
+                    CreateUnmappableMetadataImage(),
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(fixture)),
+            };
+
+        static (
+            CandidateOpenFailureKind Kind,
+            MetadataRootMalformedReason? Reason) Expected(
+                DesignatedAdmissionFixture fixture) =>
+            fixture switch
+            {
+                DesignatedAdmissionFixture.Unsupported =>
+                    (
+                        CandidateOpenFailureKind
+                            .UnsupportedMetadataFormat,
+                        null),
+                DesignatedAdmissionFixture.InvalidSignature =>
+                    (
+                        CandidateOpenFailureKind.InvalidImage,
+                        MetadataRootMalformedReason.InvalidSignature),
+                DesignatedAdmissionFixture
+                    .UnmappableMetadataDirectory =>
+                    (
+                        CandidateOpenFailureKind.InvalidImage,
+                        MetadataRootMalformedReason
+                            .UnmappableMetadataDirectory),
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(fixture)),
+            };
+    }
+
+    [Theory]
     [InlineData(false, false)]
     [InlineData(false, true)]
     [InlineData(true, false)]
@@ -2409,6 +2548,13 @@ public class AssemblyDependencyResolverTests
                 token),
             AssemblyResolutionScope.Platform);
         Assert.Null(future);
+    }
+
+    public enum DesignatedAdmissionFixture
+    {
+        Unsupported,
+        InvalidSignature,
+        UnmappableMetadataDirectory,
     }
 
     sealed class SelectedPolicy(

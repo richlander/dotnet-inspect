@@ -588,6 +588,7 @@ public static class MdiCommand
            or IOException
            or UnauthorizedAccessException
            or ArgumentException
+           or OverflowException
            or NotSupportedException;
 
     static bool TryParseFormat(string text, out MetadataTableFormat format)

@@ -490,8 +490,14 @@ public sealed partial class AssemblyDependencyResolver :
                 && (designated
                     || PathNameMatches(dependency, identity)))
             {
-                admissionFailureKind = descriptor.FailureKind;
-                admissionFailure = descriptor.AdmissionFailure;
+                if (ShouldReplaceCandidateFailure(
+                        admissionFailureKind,
+                        admissionFailure,
+                        descriptor))
+                {
+                    admissionFailureKind = descriptor.FailureKind;
+                    admissionFailure = descriptor.AdmissionFailure;
+                }
             }
         }
 

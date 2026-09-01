@@ -1,4 +1,5 @@
 using DotnetInspector.Packages;
+using ILInspector.Metadata;
 using NuGetFetch;
 
 namespace DotnetInspector.Services;
@@ -28,6 +29,24 @@ public static class TfmSelector
     {
         public bool IsSelected => Status == PackageLibraryResolutionStatus.Selected && Paths.Count > 0;
     }
+
+    public enum PackageTypeProbeFailureKind
+    {
+        UnsupportedMetadataFormat,
+        MalformedMetadataRoot,
+    }
+
+    public sealed record PackageTypeProbeFailure(
+        string PackageRelativePath,
+        PackageTypeProbeFailureKind Kind)
+    {
+        public MetadataRootMalformedReason? MetadataRootReason { get; init; }
+    }
+
+    public sealed record PackageTypeAssemblyResolution(
+        string? Path,
+        string? Tfm,
+        IReadOnlyList<PackageTypeProbeFailure> Failures);
 
     public static IOrderedEnumerable<T> OrderByTfmPriorityDescending<T>(
         IEnumerable<T> items,
@@ -493,16 +512,58 @@ public static class TfmSelector
         return (selectedPath ?? matchingFiles[0], selectedTfm ?? tfm);
     }
 
-    public static (string? path, string? tfm) FindAssemblyContainingType(string extractPath, string typeName, string? tfm = null)
+    public static (string? path, string? tfm) FindAssemblyContainingType(
+        string extractPath,
+        string typeName,
+        string? tfm = null)
+    {
+        PackageTypeAssemblyResolution resolution =
+            FindAssemblyContainingTypeWithFailures(
+                extractPath,
+                typeName,
+                tfm);
+
+        // A rejected participant scopes to itself, so it may not replace a
+        // match established elsewhere in the package. Only a scan that found
+        // nothing surfaces the first rejection.
+        if (resolution.Path is null
+            && resolution.Failures.FirstOrDefault() is { } failure)
+        {
+            throw failure.Kind switch
+            {
+                PackageTypeProbeFailureKind.UnsupportedMetadataFormat =>
+                    new UnsupportedMetadataFormatException(),
+                PackageTypeProbeFailureKind.MalformedMetadataRoot
+                    when failure.MetadataRootReason is { } reason =>
+                    new MalformedMetadataRootException(reason),
+                _ => new InvalidOperationException(
+                    "Unknown package type-probe failure."),
+            };
+        }
+
+        return (resolution.Path, resolution.Tfm);
+    }
+
+    public static PackageTypeAssemblyResolution
+        FindAssemblyContainingTypeWithFailures(
+            string extractPath,
+            string typeName,
+            string? tfm = null)
     {
         var dlls = !string.IsNullOrEmpty(tfm)
             ? SelectAssembliesByTfmFromPackage(extractPath, tfm).paths
             : GetPackageAssemblies(extractPath);
         if (dlls.Count == 0)
-            return (null, null);
+        {
+            return new PackageTypeAssemblyResolution(
+                Path: null,
+                Tfm: null,
+                Failures: []);
+        }
 
         string? selectedTfm = tfm;
         var candidateDlls = new List<string>();
+        var failures = new List<PackageTypeProbeFailure>();
 
         if (!string.IsNullOrEmpty(tfm))
         {
@@ -516,10 +577,13 @@ public static class TfmSelector
 
         foreach (var dll in candidateDlls)
         {
-            if (PlatformResolver.HasType(dll, typeName))
+            if (HasType(dll, typeName, extractPath, failures))
             {
                 selectedTfm ??= TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, dll).Replace('\\', '/'));
-                return (dll, selectedTfm);
+                return new PackageTypeAssemblyResolution(
+                    dll,
+                    selectedTfm,
+                    failures.ToArray());
             }
         }
 
@@ -527,15 +591,66 @@ public static class TfmSelector
         // `find` results from multi-library packages still lead to a working follow-up.
         foreach (var dll in dlls.Except(candidateDlls))
         {
-            if (PlatformResolver.HasType(dll, typeName))
+            if (HasType(dll, typeName, extractPath, failures))
             {
                 var matchedTfm = TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, dll).Replace('\\', '/'));
-                return (dll, matchedTfm ?? selectedTfm);
+                return new PackageTypeAssemblyResolution(
+                    dll,
+                    matchedTfm ?? selectedTfm,
+                    failures.ToArray());
             }
         }
 
-        return (null, selectedTfm);
+        return new PackageTypeAssemblyResolution(
+            Path: null,
+            selectedTfm,
+            failures.ToArray());
     }
+
+    static bool HasType(
+        string assemblyPath,
+        string typeName,
+        string extractPath,
+        List<PackageTypeProbeFailure> failures)
+    {
+        try
+        {
+            return PlatformResolver.HasType(
+                assemblyPath,
+                typeName);
+        }
+        catch (UnsupportedMetadataFormatException)
+        {
+            failures.Add(
+                new PackageTypeProbeFailure(
+                    PackageRelativePath(
+                        extractPath,
+                        assemblyPath),
+                    PackageTypeProbeFailureKind
+                        .UnsupportedMetadataFormat));
+            return false;
+        }
+        catch (MalformedMetadataRootException ex)
+        {
+            failures.Add(
+                new PackageTypeProbeFailure(
+                    PackageRelativePath(
+                        extractPath,
+                        assemblyPath),
+                    PackageTypeProbeFailureKind
+                        .MalformedMetadataRoot)
+                {
+                    MetadataRootReason = ex.Reason,
+                });
+            return false;
+        }
+    }
+
+    static string PackageRelativePath(
+        string extractPath,
+        string assemblyPath) =>
+        Path.GetRelativePath(extractPath, assemblyPath)
+            .Replace('\\', '/');
 
     private static string? GetTfm(string extractPath, string path)
         => TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, path).Replace('\\', '/'));

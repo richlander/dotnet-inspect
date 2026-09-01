@@ -17,7 +17,7 @@ static class IntrinsicCoreLibraryBinding
 
         Stream? stream = null;
         PEReader? peReader = null;
-        bool noMetadataEstablished = false;
+        bool rejectionEstablished = false;
         try
         {
             stream = requestingAssembly.OpenRead();
@@ -26,7 +26,7 @@ static class IntrinsicCoreLibraryBinding
                 PEStreamOptions.LeaveOpen);
             if (!MetadataFormatAdmission.AdmitImage(peReader))
             {
-                noMetadataEstablished = true;
+                rejectionEstablished = true;
                 return CandidateUnavailable();
             }
 
@@ -61,6 +61,10 @@ static class IntrinsicCoreLibraryBinding
                 }
             }
 
+            // A retained candidate failure and an unsupported scope are both
+            // established rejections, so cleanup must not replace either with
+            // a disposal exception.
+            rejectionEstablished = true;
             return retainedFailure
                 ?? AssemblyBindingSelection.CannotSelect(
                     new AssemblyBindingFailure(
@@ -100,7 +104,7 @@ static class IntrinsicCoreLibraryBinding
         }
         finally
         {
-            if (noMetadataEstablished)
+            if (rejectionEstablished)
             {
                 DisposeWithoutReplacingOutcome(ref peReader);
                 DisposeWithoutReplacingOutcome(ref stream);

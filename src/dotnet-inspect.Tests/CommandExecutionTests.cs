@@ -954,7 +954,8 @@ public partial class CommandExecutionTests
 
     private static (string PackagePath, string TempDir)
         CreateMetadataAdmissionMixedPackage(
-            bool includeIdentifierAuditFailure = false)
+            bool includeIdentifierAuditFailure = false,
+            bool includeUnsupportedMember = true)
     {
         string tempDir = Path.Combine(
             Path.GetTempPath(),
@@ -993,8 +994,11 @@ public partial class CommandExecutionTests
         }
         WriteMalformedMetadataRootAssembly(
             Path.Combine(net9Directory, "Lib.dll"));
-        WriteUnsupportedMetadataAssembly(
-            Path.Combine(net10Directory, "Lib.dll"));
+        if (includeUnsupportedMember)
+        {
+            WriteUnsupportedMetadataAssembly(
+                Path.Combine(net10Directory, "Lib.dll"));
+        }
 
         string packagePath = Path.Combine(
             tempDir,
@@ -25019,6 +25023,208 @@ public partial class CommandExecutionTests
                     "MalformedMetadataRootException",
                     result.Error);
             }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    // `depends` selects a single target framework, so it has no healthy
+    // neighbour to fall back on; its own scoping is gated separately below.
+    [Theory]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task
+        PackageTypeProbe_UnsupportedMemberDoesNotHideHealthyNeighbor(
+            string command)
+    {
+        var (packagePath, tempDir) =
+            CreateMetadataAdmissionMixedPackage();
+        try
+        {
+            var result = await RunAppAsync(
+                command,
+                "CommandExecutionTests",
+                "--package",
+                packagePath,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Contains("CommandExecutionTests", result.Output);
+            Assert.Contains(
+                "Library inspection failed for "
+                + "'lib/net10.0/Lib.dll': "
+                + "unsupported metadata format",
+                result.Error);
+            Assert.DoesNotContain(
+                "UnsupportedMetadataFormatException",
+                result.Error);
+            Assert.DoesNotContain(".cs:line", result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task
+        PackageTypeProbe_MalformedMemberDoesNotHideHealthyNeighbor(
+            string command)
+    {
+        var (packagePath, tempDir) =
+            CreateMetadataAdmissionMixedPackage(
+                includeUnsupportedMember: false);
+        try
+        {
+            var result = await RunAppAsync(
+                command,
+                "CommandExecutionTests",
+                "--package",
+                packagePath,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Contains("CommandExecutionTests", result.Output);
+            Assert.Contains(
+                "Library inspection failed for "
+                + "'lib/net9.0/Lib.dll': "
+                + "malformed metadata root (InvalidSignature)",
+                result.Error);
+            Assert.DoesNotContain(
+                "MalformedMetadataRootException",
+                result.Error);
+            Assert.DoesNotContain(".cs:line", result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        DependsTypeProbe_RejectedLibraryDoesNotHideHealthyNeighbor()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"depends-admission-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        string unsupportedPath = Path.Combine(tempDir, "Unsupported.dll");
+        WriteUnsupportedMetadataAssembly(unsupportedPath);
+        try
+        {
+            var result = await RunAppAsync(
+                "depends",
+                "CommandExecutionTests",
+                "--library",
+                TestAssemblyPath,
+                "--library",
+                unsupportedPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Contains(
+                "Library inspection failed for 'Unsupported.dll': "
+                + "unsupported metadata format",
+                result.Error);
+            Assert.DoesNotContain(
+                "UnsupportedMetadataFormatException",
+                result.Error);
+            Assert.DoesNotContain(".cs:line", result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(
+        true,
+        "Windows Metadata is not a supported metadata format.")]
+    [InlineData(
+        false,
+        "The assembly metadata root is malformed (InvalidSignature).")]
+    public async Task
+        DependsTypeProbe_SoleRejectedSelectionUsesBoundedError(
+            bool unsupported,
+            string expectedError)
+    {
+        var (packagePath, tempDir) =
+            CreateMetadataAdmissionMixedPackage(
+                includeUnsupportedMember: unsupported);
+        try
+        {
+            var result = await RunAppAsync(
+                "depends",
+                "CommandExecutionTests",
+                "--package",
+                packagePath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                $"Error: {expectedError}",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                unsupported
+                    ? "UnsupportedMetadataFormatException"
+                    : "MalformedMetadataRootException",
+                result.Error);
+            Assert.DoesNotContain(".cs:line", result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(
+        true,
+        "Windows Metadata is not a supported metadata format.")]
+    [InlineData(
+        false,
+        "The assembly metadata root is malformed (InvalidSignature).")]
+    public async Task
+        PackageTypeProbe_SoleRejectedMemberUsesBoundedError(
+            bool unsupported,
+            string expectedError)
+    {
+        var (packagePath, tempDir) =
+            CreateMetadataAdmissionSinglePackage(unsupported);
+        try
+        {
+            var result = await RunAppAsync(
+                "type",
+                "CommandExecutionTests",
+                "--package",
+                packagePath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                $"Error: {expectedError}",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                unsupported
+                    ? "UnsupportedMetadataFormatException"
+                    : "MalformedMetadataRootException",
+                result.Error);
+            Assert.DoesNotContain(".cs:line", result.Error);
         }
         finally
         {
