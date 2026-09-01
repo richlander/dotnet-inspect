@@ -521,15 +521,16 @@ abstract completions; their internal contracts remain owned by
 [`AssemblyContextGroupLifecycle.tla`](models/assembly-context-group-lifecycle/AssemblyContextGroupLifecycle.tla).
 The model checks the target design, not current implementation conformance.
 
-The direct-group foundation is implemented. The parameterless constructor
-retains synchronous compatibility. `CreateAsynchronous()` selects the awaited
-lifetime before admission, `CloseAsync()` returns one shared
-`Task<InspectionWorkspaceCloseReport>`, `DisposeAsync()` awaits that task, and
-`CloseReport` exposes the same immutable report after completion. Each direct
-group has one release completion. An asynchronous workspace captures cleanup
-failure as `InspectionWorkspaceGroupCloseResult.Failure`; synchronous
-compatibility continues to throw the same cleanup failure while requesting the
-same group-owned release.
+The direct and coordinated workspace-close paths are implemented. The
+parameterless constructor retains synchronous compatibility.
+`CreateAsynchronous()` selects the awaited lifetime before admission,
+`CloseAsync()` returns one shared `Task<InspectionWorkspaceCloseReport>`,
+`DisposeAsync()` awaits that task, and `CloseReport` exposes the same immutable
+report after completion. Each direct group has one release completion. An
+asynchronous workspace captures that outcome as an
+`InspectionWorkspaceDirectGroupCloseResult`; synchronous compatibility
+continues to throw the same cleanup failure while requesting the same
+group-owned release.
 
 The direct implementation is enforced by these Release gates:
 
@@ -554,15 +555,31 @@ The direct implementation is enforced by these Release gates:
   and reaches terminal close through awaited progress without a blocking wait
   or background-thread requirement.
 
-Coordinated package-role adoption remains unverified. The current
-`PackageAssemblyContextRoles` path independently disposes its role groups and
-does not yet supply the owner-issued participation and completion contracts
-required above. These remaining Release gates belong to that adjacent
-composition:
+Shareable package-role completion uses the coordinated path. It batch-registers
+every planned physical group before awaited construction, pre-issues the exact
+`PackageRoleGroupId` and terminal `PackageRoleCleanupReport` task, and closes
+projection admission through a workspace-owned gate before owner release is
+requested. The workspace never adds those groups to its direct-release set.
+Package-role completion remains their sole physical release authority, while
+`InspectionWorkspaceCoordinatedGroupCloseResult<PackageRoleGroupCleanupRecord>`
+retains the exact keyed cleanup record without translating it.
+
+The shareable completion operation requires `CreateAsynchronous()` because its
+construction has awaited admission and it does not provide a synchronous
+request-release adapter. The synchronous caller-owned
+`CreatePackageAssemblyContextRoles` path remains unchanged.
+
+The coordinated composition is enforced by these Release gates:
 
 - `WorkspaceClose_DirectAndCoordinatedGroupsReleaseExactlyOnce`;
 - `WorkspaceClose_ExistingCoordinatedLeaseRemainsUsableUntilOwnerRelease`; and
 - `WorkspaceClose_OwnerFirstReleaseDeactivatesRegistrationAndRetainsReport`.
+
+`WorkspaceClose_CoordinatedLateGroupsCommitHistoryBeforeOwnerRelease` proves
+that close racing a separate-topology construction records both planned
+admissions in registration order before dispatching their shared owner release,
+returns no completion to the late caller, and retains both exact keyed cleanup
+records.
 
 This contract does not define package admission keys, cache policy, package
 selection, role planning, participant projection, package cleanup-record shape,
