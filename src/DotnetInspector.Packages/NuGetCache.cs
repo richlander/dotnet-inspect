@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using DotnetInspector.Core;
 using NuGet.Versioning;
+using NuGetFetch;
 
 namespace DotnetInspector.Packages;
 
@@ -36,6 +37,10 @@ public static class NuGetCache
     private const string PackageContentCategory = "package-content-v5";
     private const string PackageContentCategoryPrefix = "package-content-v";
     public const string CommitMarkerFileName = ".dotnet-inspect.complete";
+    private static readonly Encoding s_utf8Strict =
+        new UTF8Encoding(
+            encoderShouldEmitUTF8Identifier: false,
+            throwOnInvalidBytes: true);
     private static string? _appName;
     private static bool _skipNuGetCache;
 
@@ -403,7 +408,8 @@ public static class NuGetCache
             return true;
         }
         catch (Exception ex) when (ex is
-            IOException
+            ArgumentException
+            or IOException
             or UnauthorizedAccessException
             or System.Text.Json.JsonException
             or InvalidOperationException
@@ -888,13 +894,15 @@ public static class NuGetCache
     /// the cache can already see which packages were fetched. Protecting feed
     /// identity from a local reader would require cache permissions, not a hash.
     ///
-    /// Canonicalization is delegated to
-    /// <see cref="NuGetCredentialScope.CanonicalizeEndpoint"/> so a source has
-    /// one identity across the tool. Two feeds that method holds apart — such as
-    /// <c>/FeedA</c> and <c>/feeda</c>, which a case-sensitive server may serve
-    /// differently — get separate cache slots.
+    /// HTTP canonicalization is delegated to
+    /// <see cref="NuGetCredentialScope.CanonicalizeEndpoint"/>. Local
+    /// canonicalization is delegated to
+    /// <see cref="LocalPackageSourceIdentity"/>. Each source kind therefore has
+    /// one identity across resolution, authorization, and cache provenance.
     /// </remarks>
-    /// <param name="sourceUrl">The source URL, or a local folder path.</param>
+    /// <param name="sourceUrl">
+    /// The source URL, or an absolute local folder path.
+    /// </param>
     /// <returns>A short hex digest identifying the source.</returns>
     public static string GetSourceKey(string? sourceUrl)
     {
@@ -904,37 +912,20 @@ public static class NuGetCache
         var trimmed = sourceUrl.Trim();
         string normalized;
 
-        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) && !uri.IsFile)
+        if (LocalPackageSourceIdentity.IsLocalSource(trimmed))
         {
-            normalized = NuGetCredentialScope.CanonicalizeEndpoint(uri);
+            normalized =
+                LocalPackageSourceIdentity.CreateAbsolute(trimmed).PersistentValue;
         }
         else
         {
-            // A local folder source. Resolve it so a relative and an absolute
-            // spelling of one directory share a slot. Case is preserved on
-            // every platform: case-insensitive volumes exist on all of them and
-            // case-sensitive ones do too, so the running OS does not answer
-            // whether two spellings name one directory. A spare slot costs a
-            // duplicate download; a folded one serves another directory's bytes.
-            string resolved;
-            try
-            {
-                resolved = Path.GetFullPath(uri?.IsFile == true ? uri.LocalPath : trimmed);
-            }
-            catch (ArgumentException)
-            {
-                resolved = trimmed;
-            }
-            catch (IOException)
-            {
-                resolved = trimmed;
-            }
+            if (!Uri.TryCreate(trimmed, UriKind.Absolute, out Uri? uri))
+                throw new ArgumentException("The package source is unusable.", nameof(sourceUrl));
 
-            normalized = resolved.TrimEnd(
-                Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            normalized = NuGetCredentialScope.CanonicalizeEndpoint(uri);
         }
 
-        var digest = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
+        var digest = SHA256.HashData(s_utf8Strict.GetBytes(normalized));
         return Convert.ToHexStringLower(digest.AsSpan(0, 16));
     }
 
