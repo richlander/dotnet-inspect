@@ -33,9 +33,9 @@ development model and rationale. The binding summary:
 - **Survey analogous implementations.** Use their behavior, omissions, and
   boundaries as evidence, not authority; transfer code or architecture only
   when license, provenance, assumptions, and architectural fit all transfer.
-- **Bias toward progress through narrow slices.** Land independently coherent
-  planned shapes before later hardening when the design makes that safe; never
-  present unfinished behavior as supported.
+- **Bias toward progress and low carrying cost.** Land independently coherent
+  slices; never present unfinished behavior as supported or preserve CLI flags
+  solely for compatibility. Shipped product skills must match current behavior.
 - **Lead with a demo.** Every PR demonstrates the scenario (a mockup for
   docs-only PRs) without fitting the implementation only to that example.
 - **Treat critical review feedback as a design question first.** Ask whether
