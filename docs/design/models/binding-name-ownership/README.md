@@ -25,16 +25,16 @@ and one result for each tier: `NoNameOwner`, `NameOwnedNoMatch`,
 `Undifferentiated`, `Selected`, `Ambiguous`, `Unavailable`, or `Rejected`.
 The policy mode validates the target before interpreting a miss, advances only
 after a valid assembly-reference `NoNameOwner`, and treats every other result
-as terminal. A composite can report `NoNameOwner` only after evaluating every
-tier in the complete chain and receiving that result from each. A second
-transition freezes the result without changing it.
+in this finalized-result set as terminal. A composite can report `NoNameOwner`
+only after evaluating every tier in the complete chain and receiving that
+result from each. A second transition freezes the result without changing it.
 
 The two-tier bound is sufficient for the composition rule: any longer policy
 chain is repeated application of the same current-tier/next-tier decision.
 TLC explores both targets, every one-tier result, and all 49 two-tier result
-pairs rather than relying on selected scenarios. A mutation independently
-varies the configured chain from the request-eligible chain to check that
-declared exhaustion cannot substitute for completeness.
+pairs from the finalized-result set rather than relying on selected scenarios.
+A mutation independently varies the configured chain from the request-eligible
+chain to check that declared exhaustion cannot substitute for completeness.
 
 ## Assumptions and non-claims
 
@@ -48,8 +48,15 @@ alternatives; or workspace lifecycle. Each facade alternative is a distinct
 assembly-reference sub-request, not another policy tier for the same request.
 
 Atomic association between an answer and its governing policy version belongs
-to #5213 and is outside this model. The #5214 composition handoff may consume
-`NoNameOwner`, but its candidate-domain semantics are also outside this model.
+to #5213 and is outside this model. The
+[binding composition-currency model](../binding-composition-currency/README.md)
+checks the separate complete candidate-domain handoff; `NoNameOwner` carries
+no candidate evidence and only advances the fixed tier chain modeled here.
+`CompositionRequired` is not one of this model's seven finalized results: it
+stops the tier chain because it is not a miss, then transfers to the companion
+model before any Metadata freeze. That model checks both successful
+finalization and fail-closed rejection when no arbitration consumer is
+present.
 TLC results establish properties of this bounded state machine. The following
 Release tests enforce the corresponding product behavior:
 
