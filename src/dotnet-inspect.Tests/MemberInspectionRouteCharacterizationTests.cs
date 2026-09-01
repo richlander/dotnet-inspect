@@ -3,6 +3,8 @@ using System.IO.Compression;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Security.Cryptography;
+using System.Text;
 using DotnetInspector.Commands;
 using DotnetInspector.Core;
 using DotnetInspector.Fixtures;
@@ -77,6 +79,13 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         {
             Discover = [PackageSections.PackageInfo],
         };
+        var packageProducerOptions = PackageCommand.CreateProducerOptions(
+            packageDiscoveryOptions with { Verbosity = Verbosity.Detailed },
+            packageDiscoveryOptions.Verbosity,
+            packagePipeline);
+        var packageDiscoveryDemand = new ProducerDemandPlan(
+            packageProducerOptions.Verbosity,
+            packageProducerOptions.IncludeSections);
 
         var libraryPipeline = LibrarySections.CreateCatalog().Pipeline;
         HashSet<string> librarySections =
@@ -93,10 +102,6 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             LibrarySourcePlans.For(Verbosity.Minimal, libraryInfoSections);
         var libraryInfoDiscoveryAuthorization =
             LibrarySourcePlans.For(Verbosity.Normal, libraryInfoSections);
-        var libraryDiscoveryDemand = new ProducerDemandPlan(
-            Verbosity.Detailed,
-            libraryInfoSections,
-            LibraryCommand.DiscoveryQueries);
 
         var assemblyTypeOptions = new TypeOptions();
         var typeMemberOptions = new TypeOptions
@@ -127,7 +132,8 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                     + PackageCommand.AllowsVulnerabilityTraffic(packageOptions)
                     + ";discovery:vulnerability-traffic="
                     + PackageCommand.AllowsVulnerabilityTraffic(
-                        packageDiscoveryOptions)),
+                        packageProducerOptions),
+                packageDiscoveryDemand),
             Observe(
                 "package-single-library",
                 await ObservePackageLibraryDiscoveryAsync(),
@@ -150,8 +156,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 $"focus:{libraryFocusCapabilities};"
                     + "discovery:"
                     + FormatLibraryCapabilities(
-                        libraryInfoDiscoveryAuthorization),
-                libraryDiscoveryDemand),
+                        libraryInfoDiscoveryAuthorization)),
             Observe(
                 "assembly-type-list",
                 await ObserveApiDiscoveryAsync(assemblyTypeOptions),
@@ -193,7 +198,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "package",
                 "schema-static-without-target/effective-with-target",
-                "Package",
+                "Package[schema:21:89E96945321E]",
                 "focus=SourceLink: Availability->SourceLink availability;"
                     + "discovery=none",
                 "focus:vulnerability-traffic=True;"
@@ -201,7 +206,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "package-single-library",
                 "schema/discovery-after-package-acquisition",
-                "Library",
+                "Library[schema:78:31F48B8AF860]",
                 "focus=Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
@@ -212,7 +217,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "package-all-libraries",
                 "discovery-rejected",
-                "Library",
+                "Library[render:Library Info]",
                 "focus=Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
@@ -222,7 +227,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "direct-library",
                 "schema-static-without-target/effective-with-target",
-                "Library",
+                "Library[schema:78:31F48B8AF860]",
                 "focus=Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
@@ -238,37 +243,37 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "assembly-type-list",
                 "schema-static/effective-deferred",
-                "ApiType",
+                "ApiType[schema:8:48BFB3F24BAF]",
                 "focus=none;discovery=none",
                 "focus:none"),
             new(
                 "type-member-list",
                 "schema-static/effective-deferred",
-                "ApiMember",
+                "ApiMember[schema:31:FA0DE00248FC]",
                 "focus=none;discovery=none",
                 "focus:pdb=True;source=False"),
             new(
                 "member-type-view",
                 "schema-static/effective-deferred",
-                "ApiMember",
+                "ApiMember[schema:31:FA0DE00248FC]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(
                 "overload-inventory",
                 "schema-static/effective-deferred",
-                "ApiMemberOverload",
+                "ApiMemberOverload[schema:35:2D851DCA3871]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(
                 "exact-member-detail",
                 "schema-static/effective-deferred",
-                "ApiMemberDetail",
+                "ApiMemberDetail[schema:25:4AED453578B2]",
                 "focus=none;discovery=none",
                 "focus:pdb=True;source=True"),
             new(
                 "hidden-router",
                 "router-to-member/schema-static",
-                "ApiMember",
+                "ApiMember[schema:31:FA0DE00248FC]",
                 "focus=none;discovery=none",
                 "focus:none"),
         ];
@@ -501,13 +506,15 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 AssemblyName = typeof(BodyShapeFixture).Assembly.Location,
                 Discover = [SectionNames.LibraryInfo],
                 Effective = true,
+                Trace = true,
             }));
         Assert.Equal(0, effective.ExitCode);
         Assert.Contains("| Architecture | field", effective.Output);
-        Assert.Empty(effective.Error);
+        Assert.Contains("trace: library", effective.Error);
         return new(
             "schema-static-without-target/effective-with-target",
-            IdentifyCatalog(schema.Output));
+            IdentifyCatalog(schema.Output),
+            FormatDemandFromTrace(effective.Error));
     }
 
     private static async Task<DiscoveryObservation> ObserveApiDiscoveryAsync(
@@ -621,6 +628,10 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         {
             discoveryDemandText = "rejected";
         }
+        else if (discovery.ProducerDemand is { } observedDemand)
+        {
+            discoveryDemandText = observedDemand;
+        }
         else if (discoveryDemand is null)
         {
             discoveryDemandText = "none";
@@ -662,6 +673,44 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             : string.Join(",", values);
     }
 
+    private static string FormatDemandFromTrace(string trace)
+    {
+        List<(string Reason, string Query)> demand = [];
+        bool readingDemand = false;
+        foreach (string line in trace.Split('\n'))
+        {
+            string trimmed = line.TrimEnd('\r');
+            if (trimmed is "  sections demanding a query"
+                or "  queries demanded by the command")
+            {
+                readingDemand = true;
+                continue;
+            }
+
+            if (trimmed.StartsWith("  ", StringComparison.Ordinal)
+                && !trimmed.StartsWith("    ", StringComparison.Ordinal))
+            {
+                readingDemand = false;
+                continue;
+            }
+
+            if (!readingDemand
+                || !trimmed.StartsWith("    ", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string[] parts = trimmed.Trim().Split(
+                " -> ",
+                2,
+                StringSplitOptions.None);
+            Assert.Equal(2, parts.Length);
+            demand.Add((parts[0], parts[1]));
+        }
+
+        return FormatDemand(demand);
+    }
+
     private static string IdentifyCatalog(string schemaOutput)
     {
         string[] sections = schemaOutput
@@ -672,7 +721,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             .Order(StringComparer.Ordinal)
             .ToArray();
         Assert.NotEmpty(sections);
-        return IdentifyCatalog(sections);
+        return FormatCatalog(IdentifyCatalogName(sections), sections);
     }
 
     private static string IdentifyCatalogFromRenderedSection(
@@ -680,14 +729,15 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         string section)
     {
         Assert.Contains(section, output);
-        return Assert.Single(
+        string name = Assert.Single(
             Catalogs(),
             candidate => candidate.Sections.Contains(
                 section,
                 StringComparer.Ordinal)).Name;
+        return $"{name}[render:{section}]";
     }
 
-    private static string IdentifyCatalog(IEnumerable<string> sectionNames)
+    private static string IdentifyCatalogName(IEnumerable<string> sectionNames)
     {
         HashSet<string> sections = sectionNames.ToHashSet(StringComparer.Ordinal);
         var matches = Catalogs()
@@ -709,6 +759,18 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             $"Schema sections did not identify one catalog: "
                 + string.Join(", ", sections.Order(StringComparer.Ordinal)));
         return matches[0].Name;
+    }
+
+    private static string FormatCatalog(
+        string name,
+        IReadOnlyCollection<string> sectionNames)
+    {
+        string value = string.Join(
+            "\n",
+            sectionNames.Order(StringComparer.Ordinal));
+        string fingerprint = Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(value)))[..12];
+        return $"{name}[schema:{sectionNames.Count}:{fingerprint}]";
     }
 
     private static (string Name, IReadOnlyList<string> Sections)[] Catalogs()
@@ -769,12 +831,15 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         string ProducerDemand,
         string CapabilityAuthorization);
 
-    private sealed record DiscoveryObservation(string Mode, string Catalog);
+    private sealed record DiscoveryObservation(
+        string Mode,
+        string Catalog,
+        string? ProducerDemand = null);
 
     private sealed record ProducerDemandPlan(
         Verbosity Verbosity,
         HashSet<string>? Include,
-        IReadOnlyList<HostQueryDemand>? CommandDemand,
+        IReadOnlyList<HostQueryDemand>? CommandDemand = null,
         bool ExcludeUnbounded = false);
 
     private sealed record DeclarationObservation(
