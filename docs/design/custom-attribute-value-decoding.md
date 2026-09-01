@@ -71,6 +71,29 @@ execution but resource exhaustion and misread memory: a small download that
 costs disproportionate CPU or memory, or a decode that reads a length from the
 wrong offset.
 
+### Prior art: there is no upstream bound to inherit
+
+Every mainstream .NET consumer of custom-attribute blobs allocates on the
+attacker-declared count before reading a single element.
+
+| Consumer | Decoder | Bounds the declared count first? |
+| --- | --- | --- |
+| `System.Reflection.Metadata` | own | No — `ImmutableArray.CreateBuilder<CustomAttributeTypedArgument<T>>(count)` |
+| Roslyn `MetadataDecoder` | own, not SRM | No — `new TypedConstant[count]` |
+| ILSpy, ILCompiler (Native AOT) | SRM `DecodeValue` | No; inherited from SRM |
+| ILLink | Mono.Cecil | No — `new CustomAttributeArgument[uint32]` |
+| CoreCLR `ParseCaValue` | native | Effectively yes — appends into a dynamic `SArray`, never sized upfront |
+
+The prevailing model is "decode and throw; the caller catches
+`BadImageFormatException`." That model is correct for a compiler or an
+interactive decompiler, whose inputs the developer chose to reference. It is not
+correct here, where the assembly author is the adversary and the tool inspects
+whatever a public feed serves.
+
+`BlobReader.RemainingBytes` is public and would answer the question, but no
+decode path consults it before sizing an allocation. So the pre-walk in this
+component is not redundant with an upstream check; there is no upstream check.
+
 ## The containment invariants
 
 Three properties must hold together. They are independent: any one can break
@@ -246,6 +269,44 @@ Two consequences follow, and both are load-bearing:
    element code or an unsupported serialized form is refused, not deferred.
    Widening the rule past that distinction would convert a deliberate refusal
    into approval.
+
+#### Width agreement is a resource property, not only a fidelity one
+
+This is the documented root cause of `dotnet/runtime#57531`, filed against SRM
+in August 2021 by a NuGet engineer scanning packages on nuget.org — the same
+tool category as this one. A shipping package on the feed drove the reporter's
+scanner to a 28.5 GB allocation:
+
+```text
+Reading attribute 'RegisterPageBuilderLocalizationResourceAttribute'... found bad image format!
+Memory is at 28517.114097595215 MB
+BIG MEMORY!
+```
+
+The reporter's provider resolved every enum as `Int32`:
+
+```csharp
+public PrimitiveTypeCode GetUnderlyingEnumType(object type) => PrimitiveTypeCode.Int32;
+```
+
+The issue was closed on exactly that basis: an incorrect `GetUnderlyingEnumType`
+makes the decoder consume the wrong number of bytes, the cursor drifts, and a
+later field is then read as an array count. The pre-allocation itself was never
+changed, and the current source still has no length check.
+
+Two things follow. A width disagreement does not merely produce a wrong value —
+it relocates every subsequent read, so it can convert a valid blob into a
+multi-gigabyte allocation request. And the published position of the decoder's
+owner is that width agreement is a **caller obligation**. I1 is therefore
+load-bearing for I2, and the asymmetry recorded as Gap 5 is a bound defect
+rather than a fidelity nicety.
+
+Roslyn, which maintains its own decoder rather than calling SRM, resolves the
+same two width paths — the value-side serialized name and the signature-side
+type — through a single symbol-model lookup, and treats an unresolvable
+underlying type as a hard failure (`throw new UnsupportedSignatureContent()`)
+rather than defaulting to `Int32`. That is the same discipline stated as
+consequence 1 above, reached independently by the other production decoder.
 
 ## Known gaps
 
@@ -837,6 +898,25 @@ product decode at depth 200 for exactly this reason.
 `MaxSerializedDepth` also caps chains the guard walks, which has a practical
 consequence for tests: a fixture built with more than 512 custom modifiers is
 refused before any behavior under test is reached.
+
+### What a declared count can claim
+
+The bounds above are ours. The ceilings that make them necessary are SRM's, and
+they are not uniform:
+
+| Declared count | Read as | Ceiling | Slot |
+| --- | --- | --- | --- |
+| `SZARRAY` element count | `Int32` from the value blob | `int.MaxValue` | `CustomAttributeTypedArgument<T>`, two references |
+| Fixed-argument count | compressed integer from the constructor signature | 0x1FFFFFFF | same |
+| Named-argument count | `UInt16` from the value blob | 65,535 | `CustomAttributeNamedArgument<T>` |
+
+Only the array count is a serious amplifier: a blob of a dozen bytes can ask for
+tens of gigabytes. The named-argument count is capped by its own encoding at
+roughly two megabytes and should not be described as an equivalent threat. The
+fixed-argument count is sometimes assumed safe because it comes from the
+constructor signature rather than the value blob, but in a hostile assembly that
+signature is attacker-written too, so it is bounded only by the compressed-integer
+encoding.
 
 ### Charging is refusal accounting, not materialization
 

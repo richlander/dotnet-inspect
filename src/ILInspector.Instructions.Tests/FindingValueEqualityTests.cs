@@ -15,6 +15,59 @@ public class FindingValueEqualityTests
     static ImmutableArray<Finding<string>> Atoms(params string[] keys)
         => [.. keys.Select(Atom)];
 
+    static FindingSoftMatchCandidate SoftCandidate(
+        int oldIndex,
+        int newIndex,
+        string tier,
+        int confidence)
+        => new(
+            oldIndex,
+            newIndex,
+            new FindingMatchProvenance(
+                new FindingMatchTier(tier, confidence),
+                confidence));
+
+    [Fact]
+    public void FindingKey_UsesOrderedSoftKeyEquality()
+    {
+        var first = new FindingKey(
+            "identity",
+            "scope",
+            [
+                new FindingSoftKey(new FindingMatchTier("name", 80), "n", "v1"),
+                new FindingSoftKey(new FindingMatchTier("shape", 70), "s", "v2"),
+            ]);
+        var equivalent = new FindingKey(
+            "identity",
+            "scope",
+            [
+                new FindingSoftKey(new FindingMatchTier("name", 80), "n", "v1"),
+                new FindingSoftKey(new FindingMatchTier("shape", 70), "s", "v2"),
+            ]);
+        var reordered = new FindingKey(
+            "identity",
+            "scope",
+            [
+                new FindingSoftKey(new FindingMatchTier("shape", 70), "s", "v2"),
+                new FindingSoftKey(new FindingMatchTier("name", 80), "n", "v1"),
+            ]);
+
+        Assert.Equal(first, equivalent);
+        Assert.Equal(first.GetHashCode(), equivalent.GetHashCode());
+        Assert.NotEqual(first, reordered);
+    }
+
+    [Fact]
+    public void FindingKey_RejectsDefaultSoftKeyArray()
+    {
+        ImmutableArray<FindingSoftKey> softKeys = default;
+
+        var error = Assert.Throws<ArgumentException>(
+            () => new FindingKey("identity", null, softKeys));
+
+        Assert.Equal("SoftKeys", error.ParamName);
+    }
+
     [Fact]
     public void InspectionComplete_UsesOrderedSequenceEquality()
     {
@@ -47,7 +100,14 @@ public class FindingValueEqualityTests
             [
                 new FindingMoveCandidate(0, 1, 75, "content+scope"),
                 new FindingMoveCandidate(0, 1, 75, "content+scope"),
-            ]);
+            ])
+        {
+            SoftCandidates =
+            [
+                SoftCandidate(0, 1, "name", 80),
+                SoftCandidate(2, 3, "shape", 70),
+            ],
+        };
         var equivalent = new FindingMatch(
             [
                 new FindingEdge(FindingEdgeKind.Matched, 0, 0, 100),
@@ -56,18 +116,38 @@ public class FindingValueEqualityTests
             [
                 new FindingMoveCandidate(0, 1, 75, "content+scope"),
                 new FindingMoveCandidate(0, 1, 75, "content+scope"),
-            ]);
+            ])
+        {
+            SoftCandidates =
+            [
+                SoftCandidate(0, 1, "name", 80),
+                SoftCandidate(2, 3, "shape", 70),
+            ],
+        };
         var reordered = new FindingMatch(
             [first.Edges[1], first.Edges[0]],
-            first.MoveCandidates);
+            first.MoveCandidates)
+        {
+            SoftCandidates = first.SoftCandidates,
+        };
         var fewerDuplicates = new FindingMatch(
             first.Edges,
-            [first.MoveCandidates[0]]);
+            [first.MoveCandidates[0]])
+        {
+            SoftCandidates = first.SoftCandidates,
+        };
+        var reorderedSoftCandidates = new FindingMatch(
+            first.Edges,
+            first.MoveCandidates)
+        {
+            SoftCandidates = [first.SoftCandidates[1], first.SoftCandidates[0]],
+        };
 
         Assert.Equal(first, equivalent);
         Assert.Equal(first.GetHashCode(), equivalent.GetHashCode());
         Assert.NotEqual(first, reordered);
         Assert.NotEqual(first, fewerDuplicates);
+        Assert.NotEqual(first, reorderedSoftCandidates);
         Assert.Throws<ArgumentException>(
             () => new FindingMatch(default, []));
         Assert.Throws<ArgumentException>(
@@ -76,6 +156,8 @@ public class FindingValueEqualityTests
             () => new FindingMatch([null!], []));
         Assert.Throws<ArgumentException>(
             () => first with { MoveCandidates = default });
+        Assert.Throws<ArgumentException>(
+            () => first with { SoftCandidates = default });
     }
 
     [Fact]
@@ -160,6 +242,17 @@ public class FindingValueEqualityTests
 
         Assert.Equal(first, equivalent);
         Assert.Equal(first.GetHashCode(), equivalent.GetHashCode());
+    }
+
+    [Fact]
+    public void FindingCensusCorrelation_RejectsDefaultInspectionArray()
+    {
+        ImmutableArray<VersionedFindingInspection<string>> inspections = default;
+
+        var error = Assert.Throws<ArgumentException>(
+            () => FindingCensusCorrelation<string>.Create(inspections));
+
+        Assert.Equal("inspections", error.ParamName);
     }
 
     [Fact]

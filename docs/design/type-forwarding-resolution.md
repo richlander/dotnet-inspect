@@ -1237,12 +1237,15 @@ An explicit disposition is valid only for
 `AssemblyBindingTarget.AssemblyReference`, whose structured identity supplies
 the requested name. An intrinsic-core-library request has no requested
 assembly name and continues to use a selected, unavailable, or rejected
-outcome rather than a name-ownership miss. Every wrapper or composite validates
-each delegated result against the original request before interpreting it. A
-missing result for an intrinsic-core-library request immediately becomes
-`Rejected(InvalidPolicyResult)` and no later tier is invoked. The Metadata
-adapter applies the same validation to a final policy result, so direct and
-composed policies share one closed rule.
+outcome rather than a name-ownership miss. Every wrapper or composite
+validates each delegated result against the request that produced it before
+interpreting it. An intrinsic facade search issues a distinct
+assembly-reference sub-request for each facade identity. A valid miss for one
+facade may advance to the next facade identity, but it cannot become the final
+intrinsic result. Exhausting all facade identities without a selection returns
+`Unavailable(UnsupportedScope)`. The Metadata adapter rejects a missing final
+result for the enclosing intrinsic request, so direct and composed policies
+share one closed final-result rule.
 
 Only the policy owner that holds the complete frozen name-ownership decision
 for the exact request may issue `NoNameOwner` or `NameOwnedNoMatch`. This
@@ -1258,22 +1261,18 @@ Composition preserves each policy result exactly:
 - `NoNameOwner` alone permits evaluation of the next tier;
 - `NameOwnedNoMatch` stops at the issuing tier;
 - `Undifferentiated` stops rather than falling through; and
-- a composite may return `NoNameOwner` only after exhausting its complete
-  frozen request-eligible tier chain and receiving `NoNameOwner` from every
-  tier in that chain.
+- a composite may return `NoNameOwner` only after exhausting its concrete fixed
+  tier chain and receiving `NoNameOwner` from every tier in that chain.
 
-The complete request-eligible chain is an owner-attested input independent of
-the results its tiers return. A configured tier list without that completeness
-attestation is an invalid policy input and produces
-`Rejected(InvalidPolicyResult)` before a no-owner result can be issued. This
-contract consumes the closed chain and does not define how an adjacent
-workspace owner constructs or publishes it.
+Whether a configured chain includes every independently owner-attested
+request-eligible tier is workspace-owned completeness evidence supplied by
+issue #5216 and remains unverified here. This contract governs the fixed chain it
+receives; it does not construct or certify a workspace-wide complete chain.
 
 A final `NoNameOwner` attests only that the exact composite, origin, scope, and
-version exhausted that complete chain. It is not evidence that no owner exists
-globally or in a later independently owned composite. A skipped, unconfigured,
-or unevaluated request-eligible tier prevents the composite from issuing
-`NoNameOwner`.
+version exhausted that fixed chain. It is not evidence that no owner exists
+globally or in a later independently owned composite. An unevaluated tier in
+the configured chain prevents the composite from issuing `NoNameOwner`.
 
 A wrapper around `IAssemblyBindingPolicy` preserves the delegated disposition.
 The nullable `IAssemblyReferenceResolver` adapter cannot infer ownership from a
@@ -1284,8 +1283,8 @@ the complete empty decision.
 
 The Metadata adapter copies the disposition unchanged from
 `AssemblyBindingSelection.Missing` to `AssemblyBindingOutcome.Missing`.
-`AssemblyBindingSnapshot` and every frozen binding dependency include the
-disposition, so cache equality never collapses `NoNameOwner`,
+The frozen Metadata binding outcome and every cached binding dependency include
+the disposition, so cache equality never collapses `NoNameOwner`,
 `NameOwnedNoMatch`, and `Undifferentiated`. A disposition change for an equal
 request is a policy-answer change and therefore requires a different
 `AssemblyBindingPolicyVersion`; the atomic selection snapshot above carries
@@ -2377,11 +2376,14 @@ current ownership boundaries.
   [binding name-ownership model](models/binding-name-ownership/README.md)
   remain the executable evidence for policy-version and miss-composition
   interactions.
-- `AssemblyBindingMissDisposition_OnlyNoNameOwnerContinues`,
+- `SourceRelativeAssemblyGroupBindingPolicy_ContinuesOnlyAfterNoNameOwner`,
   `AssemblyBindingMissDisposition_CompleteExhaustionRequired`, and
   `AssemblyBindingMissDisposition_SurvivesInterningAndFrozenReuse` prove that
-  only complete owner-attested absence falls through and that every miss kind
-  survives frozen reuse.
+  only `NoNameOwner` advances through the concrete fixed chain, incomplete
+  evaluation cannot issue it, and every miss kind survives frozen reuse.
+- `ValidateForRequest_RejectsMissForIntrinsicTarget` and
+  `IntrinsicBindingMiss_IsRejectedBeforeFreezing` prove a target-invalid miss
+  cannot become the final intrinsic result or frozen Metadata evidence.
 - Reusing one acquisition registration yields one catalog candidate, inventory,
   and demanded durable session. A separately minted registration remains a
   distinct conservative candidate even when visible descriptor fields match.
