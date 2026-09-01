@@ -208,10 +208,11 @@ many primary subject payloads may be acquired. Output shape controls how
 already-selected data is projected or reduced. These cardinalities are
 independent.
 
-The result-limit gestures in this section describe the approved
-[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) target, not
-released behavior. [Item and line limits](item-and-line-limits.md) records the
-current implementation status and required gates.
+The result-limit gestures in this section describe historical
+[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) target
+behavior, not a released or implementation-ready contract. [Item and line
+limits](item-and-line-limits.md) records the replacement composition and
+focused-owner gaps; it defines no product syntax, behavior, or gates.
 
 `--versions` selects a version **Vector** while retaining package focus. A bare
 package's Vector is newest-first. A `Package@A..B` Vector instead preserves the

@@ -8,9 +8,11 @@ The command modes, listing rules, source-scoped candidate caches, and
 payload-provenance rules describe current behavior. Package source mapping and
 the remaining source-policy boundaries are tracked by the
 [package source model](package-source-model.md).
-Result-limit and short-selector examples use the approved target contract from
-[Item and line limits](item-and-line-limits.md); those spellings remain
-unreleased until its implementation lands.
+Result-limit and short-selector examples use spellings from the retired #4677
+umbrella design. [Item and line
+limits](item-and-line-limits.md) records the replacement composition and
+focused-owner gaps; those spellings are historical proposals, not
+implementation-ready syntax.
 
 ## Four modes
 

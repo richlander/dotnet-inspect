@@ -32,9 +32,10 @@ canary.
 Still proposal-only: CLI `--where` wiring, the tier capability gate, and the
 promoted IL tier. Despite the Sections migration landing,
 `find --package-prefix`'s corpus limit is also still spelled `-t`, not the
-settled `-n` target from [Item and line limits](item-and-line-limits.md),
-which resolves the repository-wide flag-numbering problem this document
-surfaced.
+historical #4677 `-n` target. [Item and line
+limits](item-and-line-limits.md) records that CLI syntax ownership remains
+pending, so the target does not resolve the repository-wide flag-numbering
+problem this document surfaced.
 
 Related docs:
 
@@ -157,10 +158,10 @@ not define how `--count` composes with L2 row windows.
 decoupled, and the migration landed first. The CLI facet wiring in
 [Landing sequence](#landing-sequence) step 4 should not silently inherit `-t`
 as precedent — it should either retire `-t` for `-n` itself, or explicitly
-hand that retirement to whatever implements #4677 across the CLI, naming
-which PR owns it so it does not fall through the gap a second time.
+hand that retirement to a focused CLI item-limit owner, naming which PR owns it
+so it does not fall through the gap a second time.
 
-### `-t` is the wrong flag to build on; `-n` owns the corpus limit
+### `-t` is the wrong flag to build on; the historical target proposed `-n`
 
 The `-t 100` `find --package-prefix` uses reuses `find`'s own pre-existing
 `-t`, whose description #4551 widens from "Limit type count (`-t 5`) or
@@ -176,7 +177,7 @@ row-count flag.
 Working through this surfaced a repository-wide flag-numbering problem:
 rendered-line `-n`, count-form `--rows`, ranked `--top`, and command-owned
 `-t`/`-m`/`--take` counts all answered adjacent "how many" questions.
-[Item and line limits](item-and-line-limits.md) settles them:
+The historical #4677 target proposed:
 
 - `-n`/bare `-N` is the universal first/last item count;
 - `--rows` carries only absolute row ranges;
@@ -288,9 +289,10 @@ not need to translate a differently-shaped CLI completion signal.
 
 One ordering question is new once `--where` and `--deepen` exist: does the
 corpus bound apply before or after a nuspec-tier predicate runs?
-[Item and line limits](item-and-line-limits.md) settles `-n` as post-filter and
-post-order. The same before/after question matters because a predicate can
-shrink what the bound counts:
+The historical #4677 target placed `-n` after filtering and ordering; focused
+CLI ownership for that proposal remains pending in [Item and line
+limits](item-and-line-limits.md). The same before/after question matters
+because a predicate can shrink what the bound counts:
 
 - **Nuspec-tier `--where`** should filter before `-n` truncates: `-n 500`
   should mean "the first 500 packages that match," not "the first 500
