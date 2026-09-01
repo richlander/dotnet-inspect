@@ -101,6 +101,17 @@ public static class AssemblyContextIntegrationsQuery
     }
 
     /// <summary>
+    /// Scans a demand-local package-role view without exposing its shared
+    /// assembly context group.
+    /// </summary>
+    public static AssemblyContextIntegrationsResult Execute(
+        PackageAssemblyContextRoleProjection role)
+    {
+        ArgumentNullException.ThrowIfNull(role);
+        return role.Use(Execute);
+    }
+
+    /// <summary>
     /// Scans one participant without releasing its retained image, so a reusable group remains
     /// available to later queries.
     /// </summary>
@@ -120,6 +131,29 @@ public static class AssemblyContextIntegrationsQuery
         }
 
         return ExecuteParticipantCore(group, participant);
+    }
+
+    /// <summary>
+    /// Scans one participant through a demand-local package-role view without
+    /// releasing its retained shared image.
+    /// </summary>
+    public static AssemblyIntegrationsEntry ExecuteParticipant(
+        PackageAssemblyContextRoleProjection role,
+        PackageAssemblyRoleParticipant participant)
+    {
+        ArgumentNullException.ThrowIfNull(role);
+        ArgumentNullException.ThrowIfNull(participant);
+        if (!role.Participants.Contains(participant))
+        {
+            throw new ArgumentException(
+                "The requested participant is not a member of the package-role projection.",
+                nameof(participant));
+        }
+
+        return role.Use(group =>
+            ExecuteParticipantCore(
+                group,
+                participant.Participant));
     }
 
     /// <summary>

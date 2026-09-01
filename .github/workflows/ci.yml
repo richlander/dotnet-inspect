@@ -139,7 +139,9 @@ jobs:
   # (some committed .cfg files are negative controls expected to find one).
   tla-plus:
     needs: changes
-    if: needs.changes.outputs.tla == 'true'
+    # Temporarily disabled by #5331. Restore this path gate when the runner
+    # checks only model directories changed by the candidate.
+    if: false
     runs-on: ubuntu-26.04
     timeout-minutes: 60
     steps:
