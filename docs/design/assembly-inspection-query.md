@@ -3,12 +3,11 @@
 > Design north-star for the CLI-thinning work tracked in
 > [#2122](https://github.com/richlander/dotnet-inspect/issues/2122). Describes the target
 > boundary between the CLI and the metadata/service layers for *acquiring and inspecting an
-> assembly*: the CLI forms a query, the service resolves, opens, and returns the finished shape.
+> assembly*: the CLI forms a query, the service resolves, opens, and returns the finished typed result.
 > It defines the **assembly** seam concretely and its **method-body / coordinate** sibling seam
-> (see [below](#the-sibling-seam-method-body--coordinate-inspection)). This is the
-> acquisition-seam counterpart to
-> [`service-model-refactoring.md`](service-model-refactoring.md), which covers the
-> output-shape seam.
+> (see [below](#the-sibling-seam-method-body--coordinate-inspection)). The
+> [Find type-search service](find-search-service.md) is a separate CLI-scoped
+> composition boundary, not a general output-shape counterpart to this seam.
 
 ## The question that started this
 
@@ -109,7 +108,7 @@ on-disk assembly) and **inspection** (read that assembly and produce a result) i
 re-do both by hand: open the PE image itself, and re-derive or manually forward the identity
 the resolver already computed.
 
-## Target: the CLI forms a query, a service returns the final shape
+## Target: the CLI forms a query, a service returns the complete typed result
 
 The CLI should express *what it wants* and receive *the finished result*. It should never
 hold a `PEReader` and never re-derive provenance.
@@ -984,24 +983,27 @@ public sealed class AssemblyInspectionSession : IDisposable
 }
 ```
 
-The CLI collapses to *selection and rendering* — it chooses the source and sections (the
-query) and renders the returned shape, but it does not construct facts, hold PE types, or
-re-derive provenance:
+The CLI collapses to *selection and rendering* — it chooses the source and
+sections (the query), projects the returned typed result through L2, and
+renders it, but it does not construct facts, hold PE types, or re-derive
+provenance:
 
 ```csharp
 foreach (var resolved in await resolver.ResolveAsync(query.Target.Location))  // rich descriptors, nothing discarded
 {
     using var asm = AssemblyInspectionSession.Open(resolved);
-    inspections.Add(InspectionAssembler.Build(query, resolved, asm)); // final, section-shaped result
+    inspections.Add(InspectionAssembler.Build(query, resolved, asm)); // complete typed inspection result
 }
 ```
 
-The boundary is deliberate: per [`service-model-refactoring.md`](service-model-refactoring.md)
-the returned shape should already be *view-compatible* (section-shaped), so the CLI selects
-facets and renders (Markout / writers) rather than transforming service data into view models.
-"Mapping" that constructs inspection facts or section shapes belongs **below** the CLI; only
-facet selection and rendering stay above it. This is what keeps the "service returns the final
-shape" promise from quietly regressing into today's formatter/service leakage.
+The boundary is deliberate: the query returns the complete typed inspection
+result required by the selected facets. Per
+[Inspection layers](inspection-layers.md), L2 owns section-shaped projection
+and the CLI selects facets and renders through Markout or another writer.
+Mapping that constructs inspection facts belongs below the CLI; mapping typed
+facts into a presentation view does not move into the query merely to reduce
+adapter code. This keeps the assembly owner from regressing into formatter
+logic without making view types the currency of the service boundary.
 
 ### 4. `MemorySafetyMetadataIndex` — shared module and member meaning
 
@@ -1143,7 +1145,7 @@ out, over the *same* shared PE-owner (so the body path does not re-open the imag
    MemberQuery / ILCoordinateQuery                 MethodBodyInspection
  CLI  ─────────────────────────────►  Service  ──────────────────────────►  CLI
       (assembly + member or IL coord;        (select member → import body →
-       which body sections)                   source / IL / facts → final shape)
+       which body sections)                   source / IL / facts → typed result)
 ```
 
 `ILOffsetProjectionProducer` is the first concrete body seam: top-level Research request/result
@@ -1193,11 +1195,13 @@ Trace a member query end-to-end — e.g. `member JsonSerializer.Serialize:1 --pl
    `1`, runs the requested facets (source, IL, calls, allocation/safety/cost, decompiled/annotated
    source, …), and returns a section-ready `MethodBodyInspection`. See
    [Method Body Inspection](method-body-inspection.md).
-5. **Render (CLI).** The CLI maps requested sections onto facets and renders the returned shape
-   (Markout / writers). It never opened a `PEReader`, never classified an opcode, never
-   re-derived the assembly's identity. Because the selector narrowed resolution to the one
-   defining assembly (the fan-out rule above), this `InspectionQuery` returns a single
-   `MethodBodyInspection` — not a multi-assembly `InspectionReport`.
+5. **Render (CLI).** The CLI maps requested sections onto facets, projects the
+   returned typed result through L2, and renders the selected shape through
+   Markout or another writer. It never opened a `PEReader`, never classified an
+   opcode, and never re-derived the assembly's identity. Because the selector
+   narrowed resolution to the one defining assembly (the fan-out rule above),
+   this `InspectionQuery` returns a single `MethodBodyInspection` — not a
+   multi-assembly `InspectionReport`.
 
 The positional argument's whole journey: a string the CLI parses once into a typed **selector**
 (`:1` → `MemberQuery.OverloadIndex`), paired with an assembly **location** that resolves to a
@@ -1280,14 +1284,19 @@ architecture seen from two ends. "Why does the CLI open assemblies?" resolves to
 resolution → inspection seam is a string instead of a descriptor, so both the *opening* and
 the *provenance* have to be redone in the CLI."
 
-## Relationship to `service-model-refactoring.md`
+## Relationship to the Find type-search service
 
-`service-model-refactoring.md` covers the *output* seam: services should return
-view-compatible shapes so commands stop transforming. This doc covers the *input/acquisition*
-seam: services should accept a query and own resolution + PE lifetime so commands stop opening
-files and forwarding loose provenance. Together they realize the same principle —
-**the command forms a query; the service returns the final shape** — at both ends of the
-pipeline.
+[Find type-search service](find-search-service.md) owns a different,
+CLI-scoped composition seam. It consumes host-authorized candidate inventories,
+classifies type patterns, and returns typed `TypeFindResult` rows; output owners
+then project those rows for rendering. It does not establish that every service
+returns a view-compatible or section-shaped model.
+
+This document's assembly seam ends at typed inspection results over
+service-owned resolution and PE lifetime. L2 and the host compose those results
+into selected sections and formats. The shared principle is narrower: commands
+must not open metadata or reconstruct producer facts, while typed operation
+results remain separate from presentation views.
 
 ## Prior art: the Research producer registry
 
@@ -1354,10 +1363,11 @@ alignment above.
 
 ## What legitimately stays in the CLI / elsewhere
 
-- **Selection and rendering:** building the query from options (source + sections/facets) and
-  rendering the returned section-shaped result (Markout / writers) is CLI work. Constructing
-  the inspection facts / section shapes is **not** — that lives in the service (see the
-  boundary note above).
+- **Selection and rendering:** building the query from options (source +
+  sections/facets), projecting typed results through L2, and rendering the
+  selected shape through Markout or another writer are host composition.
+  Constructing inspection facts is **not** CLI work; that remains with the
+  service/query owner (see the boundary note above).
 
 Two things are often *called* "already correct" but really need to be **unified by the
 session**, not left parallel (they are the source of [Symptom 3](#symptom-3-the-same-image-is-parsed-multiple-times)):
