@@ -307,8 +307,19 @@ public sealed class PackageAssemblyRoleParticipant
         PackageRootRealization package,
         PackageCompileAsset asset,
         AssemblyContextParticipant participant)
+        : this(package.Identity, asset, participant)
     {
-        Package = package.Identity;
+    }
+
+    internal PackageAssemblyRoleParticipant(
+        PackageRootIdentity package,
+        PackageCompileAsset asset,
+        AssemblyContextParticipant participant)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+        ArgumentNullException.ThrowIfNull(asset);
+        ArgumentNullException.ThrowIfNull(participant);
+        Package = package;
         Asset = asset;
         Participant = participant;
     }
@@ -392,6 +403,45 @@ public sealed partial class InspectionWorkspace
         PackageAssemblyContextRealizationOptions? options = null,
         CancellationToken cancellationToken = default)
     {
+        PackageRoleRealizationPreparation preparation =
+            PreparePackageRoleRealization(
+                packages,
+                options,
+                cancellationToken);
+        if (preparation.SurfaceAssets.IsEmpty)
+        {
+            return new PackageAssemblyContextRealization(
+                roles: null,
+                [],
+                []);
+        }
+
+        ImmutableArray<RoleAssembly> surfaceRole =
+            CreateRole(
+                preparation.SurfaceAssets,
+                preparation.GroupBudget,
+                preparation.Options,
+                cancellationToken);
+        ImmutableArray<RoleAssembly> implementationRole = preparation.Shared
+            ? surfaceRole
+            : CreateRole(
+                preparation.ImplementationAssets,
+                preparation.GroupBudget,
+                preparation.Options,
+                cancellationToken);
+        return CreatePackageAssemblyContextRealization(
+            preparation,
+            surfaceRole,
+            implementationRole,
+            cancellationToken);
+    }
+
+    internal static PackageRoleRealizationPreparation
+        PreparePackageRoleRealization(
+        IEnumerable<PackageRootRealization> packages,
+        PackageAssemblyContextRealizationOptions? options,
+        CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(packages);
         options ??= new PackageAssemblyContextRealizationOptions();
         options.Validate();
@@ -410,28 +460,30 @@ public sealed partial class InspectionWorkspace
                 "Package realization cannot contain a null package.",
                 nameof(packages));
         }
-        ImmutableArray<PackageRootRealization> selectedPackages =
-            [.. packageRoots.Where(package => package.AssetSelection.IsSelected)];
-
-        if (selectedPackages.IsEmpty)
-        {
-            return new PackageAssemblyContextRealization(
-                roles: null,
-                [],
-                []);
-        }
 
         ImmutableArray<RoleAsset> surfaceAssets =
         [
-            .. selectedPackages.SelectMany(package =>
-                package.AssetSelection.Assets.Select(asset =>
-                    new RoleAsset(package, asset))),
+            .. packageRoots.SelectMany(
+                (package, packageIndex) =>
+                    package.AssetSelection.IsSelected
+                        ? package.AssetSelection.Assets.Select(asset =>
+                            new RoleAsset(
+                                packageIndex,
+                                package,
+                                asset))
+                        : []),
         ];
         ImmutableArray<RoleAsset> implementationAssets =
         [
-            .. selectedPackages.SelectMany(package =>
-                package.AssetSelection.ImplementationAssets.Select(asset =>
-                    new RoleAsset(package, asset))),
+            .. packageRoots.SelectMany(
+                (package, packageIndex) =>
+                    package.AssetSelection.IsSelected
+                        ? package.AssetSelection.ImplementationAssets.Select(
+                            asset => new RoleAsset(
+                                packageIndex,
+                                package,
+                                asset))
+                        : []),
         ];
         ValidateAssetCount(surfaceAssets.Length, options);
         ValidateAssetCount(implementationAssets.Length, options);
@@ -446,21 +498,26 @@ public sealed partial class InspectionWorkspace
         if (hasSeparateImplementation)
             ValidateAssets(implementationAssets, groupBudget, options);
 
-        ImmutableArray<RoleAssembly> surfaceRole =
-            CreateRole(surfaceAssets, groupBudget, options, cancellationToken);
-        ImmutableArray<RoleAssembly> implementationRole = shared
-            ? surfaceRole
-            : CreateRole(
-                implementationAssets,
-                groupBudget,
-                options,
-                cancellationToken);
+        return new PackageRoleRealizationPreparation(
+            surfaceAssets,
+            implementationAssets,
+            shared,
+            groupBudget,
+            options);
+    }
+
+    PackageAssemblyContextRealization CreatePackageAssemblyContextRealization(
+        PackageRoleRealizationPreparation preparation,
+        ImmutableArray<RoleAssembly> surfaceRole,
+        ImmutableArray<RoleAssembly> implementationRole,
+        CancellationToken cancellationToken)
+    {
         ImmutableArray<PackageAssemblyRoleCorrespondence> correspondences =
             Correspondences(surfaceRole, implementationRole);
         cancellationToken.ThrowIfCancellationRequested();
         var roleOptions = new AssemblyContextGroupOptions
         {
-            MaxRetainedImageBytes = groupBudget,
+            MaxRetainedImageBytes = preparation.GroupBudget,
         };
 
         PackageAssemblyContextRoles roles = CreatePackageAssemblyContextRoles(
@@ -469,7 +526,7 @@ public sealed partial class InspectionWorkspace
                 ? null
                 : implementationRole.Select(entry => entry.Assembly),
             correspondences,
-            shareImplementationGroup: shared,
+            shareImplementationGroup: preparation.Shared,
             surfaceOptions: roleOptions,
             implementationOptions: roleOptions);
         try
@@ -510,36 +567,48 @@ public sealed partial class InspectionWorkspace
             options.MaxAssemblyEntryBytes);
         for (int index = 0; index < assets.Length; index++)
         {
-            RoleAsset asset = assets[index];
             cancellationToken.ThrowIfCancellationRequested();
-            AssemblyResolutionProvenance provenance =
-                AssemblyResolutionProvenance.Package(
-                    asset.Package.PackageId,
-                    asset.Package.PackageVersion,
-                    asset.Asset.TargetFramework,
-                    rid: null);
-            string fallbackName = "RejectedPackageAsset"
-                + index.ToString(CultureInfo.InvariantCulture);
-            var fallbackIdentity = new AssemblyReferenceIdentity(
-                fallbackName,
-                Version: null,
-                Culture: null,
-                PublicKeyToken: null);
-            Func<Stream> openRead = () => OpenEntry(asset, entryLimit);
-            ResolvedAssemblyReference assembly =
-                ResolvedAssemblyReference.CreateFromStreamWithFallbackIdentity(
-                    openRead,
-                    fallbackIdentity,
-                    provenance,
-                    out bool usedFallbackIdentity);
-            assemblies.Add(new RoleAssembly(
-                asset.Package,
-                asset.Asset,
-                assembly,
-                IdentityDecoded: !usedFallbackIdentity));
+            assemblies.Add(
+                CreateRoleAssembly(
+                    assets[index],
+                    entryLimit,
+                    index));
         }
 
         return assemblies.MoveToImmutable();
+    }
+
+    static RoleAssembly CreateRoleAssembly(
+        RoleAsset asset,
+        long entryLimit,
+        int roleIndex)
+    {
+        AssemblyResolutionProvenance provenance =
+            AssemblyResolutionProvenance.Package(
+                asset.Package.PackageId,
+                asset.Package.PackageVersion,
+                asset.Asset.TargetFramework,
+                rid: null);
+        string fallbackName = "RejectedPackageAsset"
+            + roleIndex.ToString(CultureInfo.InvariantCulture);
+        var fallbackIdentity = new AssemblyReferenceIdentity(
+            fallbackName,
+            Version: null,
+            Culture: null,
+            PublicKeyToken: null);
+        Func<Stream> openRead = () => OpenEntry(asset, entryLimit);
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromStreamWithFallbackIdentity(
+                openRead,
+                fallbackIdentity,
+                provenance,
+                out bool usedFallbackIdentity);
+        return new RoleAssembly(
+            asset.PackageIndex,
+            asset.Package,
+            asset.Asset,
+            assembly,
+            IdentityDecoded: !usedFallbackIdentity);
     }
 
     static Stream OpenEntry(RoleAsset asset, long maxExpandedBytes)
@@ -643,6 +712,7 @@ public sealed partial class InspectionWorkspace
         foreach (RoleAssembly implementation in implementations)
         {
             var roleAsset = new RoleAsset(
+                implementation.PackageIndex,
                 implementation.Package,
                 implementation.Asset);
             if (!implementationsByAsset.TryAdd(roleAsset, implementation))
@@ -665,6 +735,7 @@ public sealed partial class InspectionWorkspace
             if (surface.Asset.Kind == PackageCompileAssetKind.Library)
             {
                 implementationAsset = new RoleAsset(
+                    surface.PackageIndex,
                     surface.Package,
                     surface.Asset);
             }
@@ -756,7 +827,8 @@ public sealed partial class InspectionWorkspace
         return right.All(remaining.Remove) && remaining.Count == 0;
     }
 
-    sealed record RoleAsset(
+    internal sealed record RoleAsset(
+        int PackageIndex,
         PackageRootRealization Package,
         PackageCompileAsset Asset);
 
@@ -805,11 +877,19 @@ public sealed partial class InspectionWorkspace
                 StringComparer.OrdinalIgnoreCase.GetHashCode(key.AssemblyName));
     }
 
-    sealed record RoleAssembly(
+    internal sealed record RoleAssembly(
+        int PackageIndex,
         PackageRootRealization Package,
         PackageCompileAsset Asset,
         ResolvedAssemblyReference Assembly,
         bool IdentityDecoded);
+
+    internal sealed record PackageRoleRealizationPreparation(
+        ImmutableArray<RoleAsset> SurfaceAssets,
+        ImmutableArray<RoleAsset> ImplementationAssets,
+        bool Shared,
+        long GroupBudget,
+        PackageAssemblyContextRealizationOptions Options);
 
     sealed class BoundedPackageEntryStream : Stream
     {
