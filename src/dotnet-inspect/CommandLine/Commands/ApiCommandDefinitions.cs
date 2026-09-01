@@ -63,6 +63,11 @@ public static class ApiCommandDefinitions
         var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
         var shapeOption = new Option<bool>("--shape") { Description = "Output type shape (inheritance, interfaces, members)" };
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter types with unsafe signatures (pointers)" };
+        var repoOption = new Option<string[]>("--repo")
+        {
+            Description = "Read PDB-mapped type source from local git clone(s) by SourceLink commit + PDB checksum, before the network. Can repeat.",
+            AllowMultipleArgumentsPerToken = false
+        };
         var memberOption = new Option<string[]>("-m")
         {
             Description = "Filter members by name or limit count (-m 5)",
@@ -92,6 +97,7 @@ public static class ApiCommandDefinitions
         opts.AddTableOptionsTo(typeCommand);
         typeCommand.Options.Add(shapeOption);
         typeCommand.Options.Add(unsafeOption);
+        typeCommand.Options.Add(repoOption);
         typeCommand.Options.Add(memberOption);
         typeCommand.Options.Add(kindOption);
         opts.AddSectionOptionsTo(typeCommand);
@@ -110,7 +116,7 @@ public static class ApiCommandDefinitions
         var commandArgs = new TypeOptionsParser.TypeCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, projectOption, frameworkOption, tfmOption,
             allOption, typeFilterOption, compactOption,
-            opts.NoHeaders, shapeOption, unsafeOption, memberOption, kindOption, atOption);
+            opts.NoHeaders, shapeOption, unsafeOption, repoOption, memberOption, kindOption, atOption);
 
         typeCommand.SetAction(async (parseResult, ct) =>
         {

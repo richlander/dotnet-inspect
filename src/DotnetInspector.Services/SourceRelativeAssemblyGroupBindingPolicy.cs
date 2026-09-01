@@ -81,7 +81,9 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                         request.Origin);
             }
 
-            return intrinsicSelection.Value;
+            return AssemblyBindingSelection.ValidateForRequest(
+                request,
+                intrinsicSelection.Value);
         }
 
         AssemblyBindingTarget.AssemblyReference? reference =
@@ -125,7 +127,10 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             }
         }
 
-        AssemblyBindingSelection selection = policy.Select(request);
+        AssemblyBindingSelection selection =
+            AssemblyBindingSelection.ValidateForRequest(
+                request,
+                policy.Select(request));
         if (reference is not null
             && pendingDesignated is not null)
         {
@@ -135,9 +140,14 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                 selection);
         }
         if (reference is not null
-            && selection
-                is AssemblyBindingSelection.Missing
-                    or AssemblyBindingSelection.Selected
+            && (selection
+                    is AssemblyBindingSelection.Missing
+                    {
+                        Disposition:
+                            AssemblyBindingMissDisposition.NoNameOwner,
+                    }
+                || selection
+                    is AssemblyBindingSelection.Selected)
             && IdentityMismatchSelection(
                 reference.Identity,
                 (selection as AssemblyBindingSelection.Selected)
@@ -169,7 +179,12 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         AssemblyBindingSelection designated,
         AssemblyBindingSelection policySelection)
     {
-        if (policySelection is AssemblyBindingSelection.Missing)
+        if (policySelection
+            is AssemblyBindingSelection.Missing
+            {
+                Disposition:
+                    AssemblyBindingMissDisposition.NoNameOwner,
+            })
         {
             return designated;
         }
