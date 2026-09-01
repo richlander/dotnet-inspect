@@ -620,7 +620,7 @@ public class TypeResolutionContextTests
     }
 
     [Fact]
-    public void UnresolvedBindingKey_PreservesEveryBindingCoordinate()
+    public void UnresolvedBindingKey_PreservesEveryApplicableBindingCoordinate()
     {
         byte[] firstOwnerImage =
             BuildAssembly("FirstOwner", definesType: false);
@@ -699,10 +699,6 @@ public class TypeResolutionContextTests
                 target,
                 firstOrigin,
                 AssemblyResolutionScope.Platform,
-                TypeName()),
-            TypeResolutionRequest.FromCoreLibrary(
-                firstOwner,
-                AssemblyResolutionScope.Any,
                 TypeName()),
         ];
         TypeResolutionRequest[] requests =
@@ -1812,6 +1808,33 @@ public class TypeResolutionContextTests
                 Assert.IsType<AssemblyBindingOutcome.Resolved>(
                     second.Bind(binding)).ShadowedAssemblies));
         Assert.Equal(0, shadowOpens);
+        Assert.Single(policy.Requests);
+    }
+
+    [Fact]
+    public void IntrinsicBindingMiss_IsRejectedBeforeFreezing()
+    {
+        ResolvedAssemblyReference owner =
+            Descriptor(BuildAssembly("Owner", definesType: false));
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.CoreLibrary(),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Platform);
+        var policy = new RecordingPolicy(
+            _ => AssemblyBindingSelection.NameNotOwned());
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            policy,
+            roots: [owner],
+            bindingRequests: [binding],
+            requests: []);
+
+        var rejected = Assert.IsType<AssemblyBindingOutcome.Rejected>(
+            context.Bind(binding));
+
+        Assert.Equal(
+            AssemblyBindingFailureKind.InvalidPolicyResult,
+            rejected.Failure.Kind);
         Assert.Single(policy.Requests);
     }
 
