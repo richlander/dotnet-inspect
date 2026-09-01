@@ -158,14 +158,21 @@ attributed the failure to the consumer's provider and named a mechanism: a
 stated suspicion that the affected attributes carried "enums that have an
 underlying type that is not `Int32`".
 
-That mechanism does not fit this assembly. In
+That mechanism does not fit this attribute. In
 `Kentico.Xperience.AspNet.Mvc5.Libraries` 13.0.18 the constructor is
 `RegisterPageBuilderLocalizationResourceAttribute(System.Type markedType,
-params string[] cultureCodes)`, which declares no enum parameter, so no enum
-underlying type can desynchronize it. The classification decision above is what
-remains: `IsSystemType` answering `false` for a genuine `System.Type`, after
-which SRM consults `GetUnderlyingEnumType` and reads four bytes. That is the
-evidence for stating I1's surface as classification and not width alone.
+params string[] cultureCodes)`, which declares no enum parameter at all, so a
+declared non-`Int32` enum cannot be what desynchronizes this argument. That
+says nothing about the other reported assemblies, which this account does not
+examine.
+
+Both mechanisms are still present, in the order the section above gives them.
+Classification is the trigger: `IsSystemType` answers `false` for a genuine
+`System.Type`. Width is the cost: SRM then consults `GetUnderlyingEnumType`,
+whose hardcoded `Int32` moves the cursor four bytes. The enum width that drifts
+this blob is the provider's default answer for a type that is not an enum, not
+an underlying type the attribute declared. That is the evidence for stating
+I1's surface as classification and not width alone.
 
 `CustomAttributeValueGuardTests`'s
 `SystemTypeArgumentReadAsEnum_ChargesTheAmplifiedCount_AndIsUnsafe` is the gate
