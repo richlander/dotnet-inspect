@@ -1166,7 +1166,7 @@ jobs:
           if-no-files-found: error
 
       - name: Install tool from local packages
-        run: dotnet tool install --global dotnet-inspect --add-source ./artifacts/package/release --no-cache
+        run: dotnet tool install --global dotnet-inspect --source ./artifacts/package/release --no-cache
 
       - name: Smoke test - version
         run: |
@@ -1220,10 +1220,14 @@ jobs:
           grep -q "JsonSerializer" smoke-member.md
           grep -q "Serialize" smoke-member.md
 
-      - name: Smoke test - platform command
+      - name: Smoke test - platform library
         run: |
-          dotnet-inspect platform list > smoke-platform.txt || true
-          cat smoke-platform.txt
+          dotnet-inspect library System.Private.CoreLib -v:q --json > smoke-platform.json
+          cat smoke-platform.json
+          jq -e '
+            .source == "Platform"
+            and .assembly_info.assembly_name == "System.Private.CoreLib"
+          ' smoke-platform.json > /dev/null
 
       - name: Validate markdown output
         run: |
