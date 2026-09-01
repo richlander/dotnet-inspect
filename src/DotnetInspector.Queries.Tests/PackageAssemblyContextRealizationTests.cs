@@ -1,7 +1,9 @@
+using System.Buffers.Binary;
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Reflection.PortableExecutable;
 
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
@@ -895,6 +897,38 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
+    public void MetadataStreamCountOverflow_RemainsARejectedParticipant()
+    {
+        PackageRootRealization package = Selection(
+            "Overflow.Sample",
+            (
+                "lib/net11.0/Overflow.Sample.dll",
+                OverflowMetadataStreamCount(
+                    File.ReadAllBytes(
+                        typeof(PackageAssemblyContextRealizationTests)
+                            .Assembly.Location))));
+        using var workspace = new InspectionWorkspace();
+        using PackageAssemblyContextRealization realization =
+            workspace.RealizePackageAssemblyContextRoles(
+                [package],
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        PackageAssemblyRoleParticipant participant =
+            Assert.Single(realization.SurfaceParticipants);
+        Assert.Equal(
+            "RejectedPackageAsset0",
+            participant.Participant.Assembly.Identity.Name);
+        AssemblyContextApiSurfaceResult result =
+            AssemblyContextApiSurfaceQuery.Execute(realization.SurfaceGroup);
+        var rejected =
+            Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Rejected>(
+                Assert.Single(result.Assemblies.Assemblies));
+        Assert.Equal(
+            CandidateOpenFailureKind.InvalidImage,
+            rejected.Failure.Kind);
+    }
+
+    [Fact]
     public void MalformedAssets_UseSafeUniqueRejectionCarrierIdentities()
     {
         PackageRootRealization package = Selection(
@@ -1228,6 +1262,24 @@ public sealed class PackageAssemblyContextRealizationTests
         using var stream = new MemoryStream();
         assemblyBuilder.Save(stream);
         return stream.ToArray();
+    }
+
+    static byte[] OverflowMetadataStreamCount(byte[] image)
+    {
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        int metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            image.AsSpan(metadataStart + 12, sizeof(int)));
+        int streamCountOffset =
+            metadataStart
+            + 16
+            + versionLength
+            + sizeof(ushort);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            image.AsSpan(streamCountOffset, sizeof(ushort)),
+            ushort.MaxValue);
+        return image;
     }
 
     static byte[] Archive(

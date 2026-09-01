@@ -432,17 +432,24 @@ public sealed class CallerScopeReachabilityPlan
         var references = ImmutableArray.CreateBuilder<AssemblyReferenceIdentity>();
         bool complete = true;
         bool definesTarget = false;
+        bool unavailableEstablished = false;
+        Stream? stream = null;
+        PEReader? pe = null;
 
         try
         {
-            using Stream stream = assembly.OpenRead();
-            using var pe = new PEReader(
+            stream = assembly.OpenRead();
+            pe = new PEReader(
                 stream,
-                PEStreamOptions.PrefetchMetadata);
-            if (!pe.HasMetadata)
+                PEStreamOptions.LeaveOpen);
+            if (!MetadataFormatAdmission.AdmitImage(pe))
+            {
+                unavailableEstablished = true;
                 return CandidateSnapshot.Unopenable(assembly);
+            }
 
-            MetadataReader reader = pe.GetMetadataReader();
+            MetadataReader reader =
+                MetadataFormatAdmission.GetMetadataReader(pe);
             try
             {
                 foreach (AssemblyReferenceHandle handle
@@ -513,12 +520,54 @@ public sealed class CallerScopeReachabilityPlan
                 complete = false;
             }
         }
+        catch (UnsupportedMetadataFormatException ex)
+        {
+            AnalysisResourceCleanup.DisposeAfterFailure(
+                ref pe,
+                ref stream,
+                ex);
+            throw;
+        }
+        catch (MalformedMetadataRootException ex)
+        {
+            AnalysisResourceCleanup.DisposeAfterFailure(
+                ref pe,
+                ref stream,
+                ex);
+            throw;
+        }
         catch (Exception ex) when (
             ex is IOException
                 or UnauthorizedAccessException
                 or BadImageFormatException)
         {
+            AnalysisResourceCleanup.DisposeAfterFailure(
+                ref pe,
+                ref stream,
+                ex);
             return CandidateSnapshot.Unopenable(assembly);
+        }
+        catch (Exception ex)
+        {
+            AnalysisResourceCleanup.DisposeAfterFailure(
+                ref pe,
+                ref stream,
+                ex);
+            throw;
+        }
+        finally
+        {
+            if (unavailableEstablished)
+            {
+                AnalysisResourceCleanup.DisposeWithoutReplacingOutcome(
+                    ref pe,
+                    ref stream);
+            }
+            else
+            {
+                pe?.Dispose();
+                stream?.Dispose();
+            }
         }
 
         return new CandidateSnapshot(

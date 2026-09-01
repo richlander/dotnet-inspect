@@ -5,11 +5,46 @@ using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.JsExportSurface.PublishabilityFixtures;
 using ILInspector.Metadata;
+using ILInspector.TypeScriptGeneration;
+
 namespace ILInspector.JsExportSurface.Tests;
 
 public sealed class TypeScriptFacadeEmitterTests
 {
     private const string RuntimeModule = "./_framework/dotnet.js";
+
+    [Fact]
+    public void SurfaceLoader_PreservesMalformedMetadataRoot()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(TypeScriptFacadeEmitterTests).Assembly.Location);
+        using (var reader = new PEReader(
+            new MemoryStream(image, writable: false)))
+        {
+            image[reader.PEHeaders.MetadataStartOffset] = 0;
+        }
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"malformed-typescript-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, image);
+        try
+        {
+            MalformedMetadataRootException exception =
+                Assert.Throws<MalformedMetadataRootException>(
+                    () => JsExportSurfaceLoader.TryLoad(
+                        path,
+                        "ts-jsexport",
+                        TextWriter.Null,
+                        out _));
+            Assert.Equal(
+                MetadataRootMalformedReason.InvalidSignature,
+                exception.Reason);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 
     [Fact]
     public void Emit_ProducesOneTypedModuleWithRawWireAndPublicViews()

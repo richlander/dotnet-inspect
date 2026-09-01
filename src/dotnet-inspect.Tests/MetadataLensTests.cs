@@ -1,4 +1,10 @@
+using System.Buffers.Binary;
+using System.Collections.Immutable;
 using System.IO.Compression;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using DotnetInspector.MetadataRendering;
 using DotnetInspector.Models;
 using DotnetInspector.Sections;
@@ -254,6 +260,92 @@ public partial class CommandExecutionTests
             writer.Write((ushort)0);
             writer.Write(0x60000020u);
             image[0x200] = 0xC3;
+            return image;
+        }
+    }
+
+    [Fact]
+    public async Task MetadataLens_UnsupportedFormatFailsVisibly()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"unsupported-metadata-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, CreateUnsupportedMetadataPe());
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                path,
+                "-S",
+                MetadataSectionNames.Image,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "not a supported metadata format",
+                error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(
+                "WindowsRuntime",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+
+        static byte[] CreateUnsupportedMetadataPe()
+        {
+            const int fixedMetadataRootPrefixLength = 16;
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                0,
+                metadata.GetOrAddString("Unsupported.dll"),
+                metadata.GetOrAddGuid(Guid.NewGuid()),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString("Unsupported"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            var peBuilder = new ManagedPEBuilder(
+                PEHeaderBuilder.CreateLibraryHeader(),
+                new MetadataRootBuilder(
+                    metadata,
+                    "WindowsRuntime 1.4;CLR v4.0.30319",
+                    suppressValidation: true),
+                new BlobBuilder(),
+                flags: CorFlags.ILOnly);
+            var imageBuilder = new BlobBuilder();
+            peBuilder.Serialize(imageBuilder);
+            byte[] image = imageBuilder.ToArray();
+            using var peReader =
+                new PEReader(ImmutableArray.Create(image));
+            int metadataStart =
+                peReader.PEHeaders.MetadataStartOffset;
+            int versionLength =
+                BinaryPrimitives.ReadInt32LittleEndian(
+                    image.AsSpan(
+                        metadataStart + 12,
+                        sizeof(int)));
+            BinaryPrimitives.WriteInt32LittleEndian(
+                image.AsSpan(
+                    peReader.PEHeaders.CorHeaderStartOffset + 12,
+                    sizeof(int)),
+                fixedMetadataRootPrefixLength + versionLength);
             return image;
         }
     }

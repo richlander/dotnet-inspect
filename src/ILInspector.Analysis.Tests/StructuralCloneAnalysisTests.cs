@@ -429,6 +429,29 @@ public class StructuralCloneAnalysisTests
     }
 
     [Fact]
+    public void Discover_MalformedMetadataRootPreservesReason()
+    {
+        byte[] bytes = BuildTwinAssembly([0x2A]);
+        using (PEReader validImage = OpenImage(bytes))
+            bytes[validImage.PEHeaders.MetadataStartOffset] = 0;
+        using PEReader image = OpenImage(bytes);
+
+        StructuralCloneDiscoveryResult result =
+            StructuralCloneAnalysis.Discover(
+                image,
+                [
+                    MetadataTokens.MethodDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(2),
+                ]);
+
+        StructuralCloneDiscoveryBlocker blocker =
+            Assert.Single(result.Blockers);
+        Assert.Equal(
+            MetadataRootMalformedReason.InvalidSignature,
+            blocker.MetadataRootReason);
+    }
+
+    [Fact]
     public void Discover_InvalidLimits_AreCallerError()
     {
         using PEReader image = OpenImage(BuildTwinAssembly([0x2A]));
@@ -1282,6 +1305,13 @@ public class StructuralCloneAnalysisTests
             static blocker =>
                 blocker.Kind
                     == StructuralCloneBlockerKind.MetadataReadFailure);
+        Assert.Contains(
+            nameof(MalformedMetadataRootException),
+            Assert.Single(comparison.Blockers).Detail,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            MetadataRootMalformedReason.InvalidSignature,
+            Assert.Single(comparison.Blockers).MetadataRootReason);
     }
 
     [Fact]

@@ -11,6 +11,10 @@ internal sealed record PackageIntegrationAssembly(
     string? TargetFramework,
     string? ContextKey = null);
 
+internal sealed record PackageIntegrationPreflightFailure(
+    string Reason,
+    Exception? AdmissionException = null);
+
 internal sealed class PackageIntegrationAcquisition
 {
     readonly string? _packageId;
@@ -117,13 +121,15 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
 {
     readonly InspectionWorkspace _workspace;
     readonly Dictionary<string, ParticipantResult> _participants;
-    readonly Dictionary<string, string> _preflightFailures;
+    readonly Dictionary<string, PackageIntegrationPreflightFailure>
+        _preflightFailures;
     readonly bool _includeIntegrationOpportunities;
 
     PackageIntegrationsWorkspace(
         InspectionWorkspace workspace,
         Dictionary<string, ParticipantResult> participants,
-        Dictionary<string, string> preflightFailures,
+        Dictionary<string, PackageIntegrationPreflightFailure>
+            preflightFailures,
         int contextGroupCount,
         bool includeIntegrationOpportunities)
     {
@@ -170,8 +176,11 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
         {
             var results = new Dictionary<string, ParticipantResult>(
                 StringComparer.Ordinal);
-            var preflightFailures = new Dictionary<string, string>(
-                StringComparer.Ordinal);
+            var preflightFailures =
+                new Dictionary<
+                    string,
+                    PackageIntegrationPreflightFailure>(
+                        StringComparer.Ordinal);
             int contextGroupCount = 0;
             foreach (IGrouping<string, PackageIntegrationAssembly> context
                 in assemblies.GroupBy(
@@ -195,6 +204,24 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
                                     assembly.Path,
                                     provenance);
                     }
+                    catch (UnsupportedMetadataFormatException ex)
+                    {
+                        preflightFailures.Add(
+                            Path.GetFullPath(assembly.Path),
+                            new PackageIntegrationPreflightFailure(
+                                "The selected image uses an unsupported metadata format.",
+                                ex));
+                        continue;
+                    }
+                    catch (MalformedMetadataRootException ex)
+                    {
+                        preflightFailures.Add(
+                            Path.GetFullPath(assembly.Path),
+                            new PackageIntegrationPreflightFailure(
+                                "The selected image contains invalid metadata.",
+                                ex));
+                        continue;
+                    }
                     catch (Exception ex) when (
                         ex is BadImageFormatException
                             or ArgumentOutOfRangeException
@@ -202,7 +229,8 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
                     {
                         preflightFailures.Add(
                             Path.GetFullPath(assembly.Path),
-                            "The selected image contains invalid metadata.");
+                            new PackageIntegrationPreflightFailure(
+                                "The selected image contains invalid metadata."));
                         continue;
                     }
                     catch (Exception ex) when (
@@ -213,7 +241,8 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
                     {
                         preflightFailures.Add(
                             Path.GetFullPath(assembly.Path),
-                            "The selected image could not be read.");
+                            new PackageIntegrationPreflightFailure(
+                                "The selected image could not be read."));
                         continue;
                     }
 
@@ -321,18 +350,18 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
 
     internal bool TryGetPreflightFailure(
         string path,
-        out string reason)
+        out PackageIntegrationPreflightFailure failure)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         if (_preflightFailures.TryGetValue(
                 Path.GetFullPath(path),
-                out string? failure))
+                out PackageIntegrationPreflightFailure? result))
         {
-            reason = failure;
+            failure = result;
             return true;
         }
 
-        reason = "";
+        failure = null!;
         return false;
     }
 

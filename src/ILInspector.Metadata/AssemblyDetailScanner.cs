@@ -51,10 +51,10 @@ public static class AssemblyDetailScanner
     {
         List<AssemblyAttributeInfo> results = [];
 
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return results;
 
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
 
         const string assemblyMetadataAttributeName = "System.Reflection.AssemblyMetadataAttribute";
 
@@ -96,10 +96,10 @@ public static class AssemblyDetailScanner
     /// </summary>
     public static AssemblyAuditMetadata ScanAuditMetadata(PEReader peReader)
     {
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return new AssemblyAuditMetadata();
 
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         bool? isTrimmable = null;
         bool? isAotCompatible = null;
         int? memorySafetyRulesVersion = null;
@@ -210,10 +210,10 @@ public static class AssemblyDetailScanner
     {
         List<TypeForwarderInfo> results = [];
 
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return results;
 
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
 
         foreach (var handle in reader.ExportedTypes)
         {
@@ -351,7 +351,7 @@ public static class AssemblyDetailScanner
         EcosystemIntegrationPresence? integrationPresence,
         bool scanIntegrationPresence)
     {
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         var flags = new PresenceFlags();
 
         // Resources: cheapest check — just a count

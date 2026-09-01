@@ -181,13 +181,49 @@ complete metadata directory for a lazy `PEReader`; that acquisition-owner cost
 is visible and measured separately. Once the block is available, classifier
 work and allocation are fixed by the root prefix and 256-byte ceiling and do
 not scale with stream, heap, table, or row content.
+An acquisition owner that relies on the classifier's typed mapping constructs
+the assembly reader lazily rather than requesting
+`PEStreamOptions.PrefetchMetadata`, because constructor-time metadata
+materialization would surface a raw `BadImageFormatException` before admission
+can classify an unmappable directory.
 Acquisition or direct projection APIs whose established return shape has no
 failure arm throw `UnsupportedMetadataFormatException` carrying no artifact
-text for unsupported Windows Metadata and `BadImageFormatException` with the
-same text constraint for a malformed-root result. Typed query owners catch and
-preserve those distinct mechanisms as unsupported-input and malformed-input
-results. They must not translate either to `null`, an empty projection, or
-partial rows.
+text for unsupported Windows Metadata and
+`MalformedMetadataRootException : BadImageFormatException` with the same text
+constraint for a malformed-root result. Typed query owners catch and preserve
+those distinct mechanisms as unsupported-input and malformed-input results.
+They must not translate either to `null`, an empty projection, or partial rows.
+An admission owner that rejects an image disposes every reader and stream it
+has not transferred, but a cleanup failure must not replace the admission
+failure or turn a typed rejection into degraded success. When an owner retains
+separate reader and stream handles, it leaves the stream open in the reader and
+disposes each handle exactly once.
+Workspace realization uses
+`WorkspaceContextLoadFailureKind.UnsupportedMetadataFormat` consistently for
+package, platform, and embedded members; grouped package preflight retains the
+same unsupported-format reason instead of treating the image as unreadable.
+Dependency snapshots use the same Metadata-owned admission helper before
+identity decoding. Multi-library package commands scope unsupported and
+malformed metadata to the rejected participant, emit a bounded failure, and
+continue rendering valid neighboring assemblies. Package `type`, `member`, and
+`depends` probes retain typed per-participant receipts while searching later
+candidates, then render bounded warnings beside a healthy match or the direct
+typed error when every selected participant is rejected. A single selected
+package member retains the direct typed rejection used by single-library
+inspection, including when grouped Integrations preflight discovers the
+rejection.
+
+The nullable `AssemblyDependencyResolver.Resolve`, `Acquire`, and
+`AcquireTargetAssembly` compatibility entry points likewise rethrow exact
+unsupported or malformed admission exceptions instead of representing them as
+missing assemblies. `Resolve_FormatAdmissionFailureIsTyped`,
+`Acquire_FormatAdmissionFailureIsTyped`, and
+`AcquireTargetAssembly_FormatAdmissionFailureIsTyped` gate both snapshot and
+live-path acquisition;
+`ResolverEntryPoints_UnmappableMetadataDirectoryIsTyped` gates the
+pre-admission mapping failure, while
+`ResolveAndAcquire_NoMetadataRemainUnresolved` keeps the established
+no-metadata nullable boundary.
 
 `NoMetadata` preserves the acquisition or query owner's established typed
 no-metadata boundary. Neither it nor a malformed-root result is translated to
@@ -195,21 +231,150 @@ no-metadata boundary. Neither it nor a malformed-root result is translated to
 
 Acquisition owners call it before exposing metadata sessions. Public or
 reusable `PEReader` entry points that can bypass those owners call it directly.
+Compatibility entry points that accept both a `PEReader` and a
+`MetadataReader` derive the authoritative reader from the admitted PE; they do
+not consult an independently supplied reader that could describe different
+bytes.
+The lower Instructions substrate exposes no raw `PEReader` entry point; its
+internal helpers consume readers only through admitted higher-layer owners.
 That closure includes `AssemblyImage`, `PdbContext`, Decompiler
-`MetadataSource`, `MetadataImageInspector`, every `MetadataTableProjector`
-table/row/reference/heap operation, and the defensive
+`MetadataSource`, referenced-assembly context, and body production; Analysis
+`LibraryBodyIndex` and its referenced-image consumers; Research and ILDiff
+assembly comparison; Services platform and intrinsic-core-library probes;
+TypeScript-generation acquisition; `MetadataImageInspector`; every
+`MetadataTableProjector`
+table/row/reference/heap operation; and the defensive
 `MethodSemanticsRowReader` leaf check. `MDP017` in
 [member inspection planning and Metadata
 projection](design/member-inspection-planning-and-metadata-projection.md) gates
 the inventory, reader independence, bounded root work, typed failure, and
 no-work-before-reject properties.
 
-The classifier's primitive-local contract is implemented and gated by
+The classifier's primitive-local contract is gated by
 `MetadataImageFormatClassifierTests` and
-`LayeringTests.MetadataPrimitives_MetadataRootClassifierIsIsolated`. Product
-session and projection adoption remains unverified until the focused Metadata
-successor tracked by #4877 lands; callers must not infer that the classifier's
-existence alone closes the repository-wide `MDP017` entry-point inventory.
+`LayeringTests.MetadataPrimitives_MetadataRootClassifierIsIsolated`.
+Metadata-owned session and projection adoption is separately gated by
+`LayeringTests.Metadata_MetadataReadersRequireFormatAdmission` and the
+admission cases in `MetadataImageFormatClassifierTests`.
+`LayeringTests.Metadata_MetadataPredicatesRequireFormatAdmission` prevents a
+raw `PEReader.HasMetadata` predicate from running before that admission in the
+Metadata assembly.
+`LayeringTests.Decompiler_MetadataSourceRequiresFormatAdmission` applies the
+same compiled-IL closure to Decompiler `MetadataSource` predicates and reader
+construction. The `Analysis_MetadataReadersRequireFormatAdmission` and
+`Analysis_MetadataPredicatesRequireFormatAdmission` gates close the same raw
+reader and predicate paths across the Analysis assembly.
+`RemainingProduct_MetadataReadersRequireFormatAdmission` and
+`RemainingProduct_MetadataPredicatesRequireFormatAdmission` close those paths
+across Decompiler, Research, ILDiff, Queries, Services, and TypeScript
+generation without treating wrapper state or portable-PDB readers as
+assembly-metadata admission sites.
+`Product_AssemblyReadersDoNotPrefetchMetadataBeforeAdmission` prevents
+constructor-time assembly metadata materialization from bypassing the typed
+classifier.
+`Instructions_DoesNotExposeAssemblyImageEntryPoints` keeps the lower
+Instructions layer from publishing a raw assembly-image bypass.
+`MetadataAdmissionCleanupTests`,
+`MetadataSourceFormatAdmissionTests`, and
+`SignatureSpellabilityTests.InspectField_CleanupCannotDegradeFormatRejection`
+gate cleanup precedence across the stream-backed Metadata and Decompiler
+admission consumers, including no-metadata results from Metadata scanners and
+descriptor-backed inspection, `AssemblyImage` disposal, constructor failures,
+and prefetched-image ownership transfer. Typed snapshot,
+declaration-inventory, and
+structural-clone failure receipts retain the classifier's exact malformed-root
+reason without changing `CandidateOpenFailure`'s two-position public record
+contract.
+Assembly-binding and workspace-load failures likewise retain the exact reason
+in non-positional properties, while browser and command adapters include the
+bounded enum reason without exposing artifact text.
+
+A multi-candidate scan scopes each rejection to its own participant. An index
+that publishes entries aliasing a reader transfers that reader's ownership
+before indexing begins, so a later decode failure leaves the reader alive for
+the whole walk instead of disposing one the index still references;
+`MetadataAdmissionCleanupTests.ExtensionScanner_PartialIndexKeepsReaderAliveForWholeWalk`
+gates that property in a child process because the regression terminates the
+host. A retained candidate rejection is an established outcome, so intrinsic
+core-library binding disposes without replacing it
+(`MetadataFormatAdmissionTests.IntrinsicBinding_CleanupCannotReplaceRetainedCandidateFailure`).
+Package type probing returns a healthy match alongside its per-participant
+receipts and surfaces a typed rejection only when the scan matched nothing
+(`MetadataFormatAdmissionTests.PackageTypeProbe_RejectedMemberDoesNotHideHealthyMatch`
+and `PackageTypeProbe_SoleRejectedMemberSurfacesTypedFailure`). `depends`
+applies the same rule across its selected assemblies rather than aborting the
+scan: `CommandExecutionTests.DependsTypeProbe_RejectedLibraryDoesNotHideHealthyNeighbor`
+gates the scoped scan, and `DependsTypeProbe_SoleRejectedSelectionUsesBoundedError`
+gates the bounded typed error when the single selected target framework is
+rejected. A participant that passes admission but whose metadata does not
+decode is an ordinary invalid-image outcome rather than an admission failure,
+and it stays visible on both sides of the same rule: it is recorded as a
+per-participant receipt beside surviving neighbours
+(`MetadataAdmissionCleanupTests.DependencyScan_InvalidImageDoesNotHideHealthyNeighbor`)
+and remains the caller's exact outcome, rather than degrading into "type not
+found", when no participant survives
+(`MetadataAdmissionCleanupTests.DependencyScan_SoleInvalidImageStaysExact`).
+Frozen `TypeResolutionContext` binding outcomes construct their public
+`AssemblyBindingFailure` from the retained `CandidateOpenFailure`; selected,
+multi-candidate, and requesting-origin failures therefore keep the candidate
+kind and malformed-root reason after the discovery builder is discarded.
+When every candidate fails, a resource-budget failure retains its established
+precedence; otherwise a typed unsupported-format or malformed-root failure
+outranks an earlier generic unreadable, no-metadata, or invalid-image failure
+so candidate order cannot erase the admission receipt. Requesting-origin
+binding projection consults the retained registration failure directly, so a
+resolution-specific budget result does not erase its
+`CandidateOpenFailureKind.ResourceBudget` binding receipt. Intrinsic
+core-library facade selection applies the same ranking rather than choosing
+the first unsuccessful facade.
+Post-admission SRM validation failures such as an overflowing metadata stream
+count remain ordinary invalid-image outcomes: package role realization retains
+the rejected participant, declaration inventory and Corpus return typed
+failures, path and assembly-set surface classification preserve healthy
+neighbors, Research API comparison records the failed participant without
+retrying it as a module, and TypeScript commands emit bounded diagnostics
+rather than an unhandled exception. Direct `AssemblyReader` projections return
+their established no-result outcome, `PdbContext` rejects before publishing an
+invalid context, and the `mdi` metadata lens emits its bounded read diagnostic.
+The defensive `MethodSemanticsRowReader` leaf maps the same SRM construction
+failure to `MetadataReaderRejected`. Designated-overlay candidate aggregation
+retains the deterministic first equal-precedence typed failure and its exact
+malformed-root reason.
+Platform type lookup appends distinct no-metadata, unsupported-format, and
+malformed-root failure kinds and carries the exact malformed reason
+non-positionally. Per-catalog and cross-framework aggregation prefer those
+typed receipts over generic catalog failures without changing the existing
+numeric values or positional record shape.
+`MetadataFormatAdmissionTests`,
+`CallerScopeReachabilityPlanTests.Candidate_PreservesUnmappableMetadataDirectory`,
+and `AnalysisIndexCacheAdmissionTests` gate Analysis and Research propagation,
+including lazy admission before metadata-directory materialization.
+`IlAssemblyDiffTests.CompareStreams_RejectsWindowsMetadata`,
+`IlAssemblyDiffTests.ReaderTakingOverloads_RejectWindowsMetadata`,
+`IlAssemblyDiffTests.ReaderTakingOverloads_UseAdmittedImageReaders`, and the
+Services `MetadataFormatAdmissionTests` gate ILDiff and Services propagation
+and reader/image association. Services
+`SelectAndResolve_MalformedDesignatedMetadataCannotFallBackToPlatform`,
+workspace malformed-asset tests, browser
+`MetadataProjection_PreservesFormatRejection`, and the mixed-package command
+tests gate exact malformed-root reason retention through their adapters.
+The `TypeResolutionContextTests` malformed candidate, origin, and ambiguous
+binding cases gate frozen binding retention.
+`PackageIntegrationsWorkspaceTests.MalformedMetadataPreflight_PreservesGroupedReason`
+gates grouped multi-library Integration preflight projection through the same
+bounded format-failure diagnostic used by ordinary library inspection.
+`TypeScriptFacadeEmitterTests.SurfaceLoader_PreservesMalformedMetadataRoot`
+gates TypeScript-generation propagation; the malformed-root command tests in
+`TsJsExportCommandTests` gate bounded diagnostics and non-zero exits.
+`CorpusTests.Searches_preserve_typed_metadata_admission_failures` gates typed
+per-member no-metadata, unsupported-format, malformed-root, and invalid-image
+receipts for both Corpus search operations while retaining
+`SkippedAssemblies` as the path-only compatibility projection.
+Browser projection
+preservation is gated by
+`BrowserMetadataOperationsTests.MetadataProjection_PreservesFormatRejection`.
+These focused gates do not close `MDP017`'s separately planned cache,
+PDB-retention, or cross-owner adoption.
 
 ### Lossless `MethodSemantics` row boundary
 

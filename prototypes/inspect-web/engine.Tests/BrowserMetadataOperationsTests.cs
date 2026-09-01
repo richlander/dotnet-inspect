@@ -1,4 +1,9 @@
+using System.Buffers.Binary;
+using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Runtime.Versioning;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
@@ -187,6 +192,62 @@ public sealed class BrowserMetadataOperationsTests
         Assert.Empty(heapResult.Entries);
     }
 
+    [Theory]
+    [InlineData(
+        false,
+        CandidateOpenFailureKind.UnsupportedMetadataFormat,
+        "Assembly unavailable: UnsupportedMetadataFormat.")]
+    [InlineData(
+        true,
+        CandidateOpenFailureKind.InvalidImage,
+        "Assembly unavailable: InvalidImage (InvalidSignature).")]
+    public void MetadataProjection_PreservesFormatRejection(
+        bool malformed,
+        CandidateOpenFailureKind expectedKind,
+        string expectedError)
+    {
+        byte[] image = BuildRejectedImage(malformed);
+        ResolvedAssemblyReference actual =
+            ResolvedAssemblyReference.CreateFromPath(
+                typeof(BrowserMetadataOperationsTests).Assembly.Location,
+                AssemblyResolutionProvenance.Local(
+                    "metadata adapter tests"));
+        ResolvedAssemblyReference unsupported =
+            ResolvedAssemblyReference.Create(
+                actual.Identity,
+                path: null,
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local(
+                    "unsupported metadata adapter test"));
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [
+                    new AssemblyContextParticipant(
+                        unsupported,
+                        new TestBindingPolicy()),
+                ]);
+
+        AssemblyContextEntry<MetadataTableWindow> query =
+            AssemblyContextMetadataTableQuery.ExecuteParticipant(
+                group,
+                group.Participants[0],
+                new MetadataTableWindowRequest(TableIndex.TypeDef));
+        var rejected = Assert.IsType<
+            AssemblyContextEntry<MetadataTableWindow>.Rejected>(query);
+        BrowserMetadataWindow result =
+            InspectionEngine.ProjectMetadataWindow(
+                "Unsupported.dll",
+                (int)TableIndex.TypeDef,
+                query);
+
+        Assert.Equal(
+            expectedKind,
+            rejected.Failure.Kind);
+        Assert.Equal(expectedError, result.Error);
+        Assert.Empty(result.Rows);
+    }
+
     static AssemblyContextGroup Group(InspectionWorkspace workspace) =>
         workspace.CreateAssemblyContextGroup(
             [
@@ -198,6 +259,64 @@ public sealed class BrowserMetadataOperationsTests
                             "metadata adapter tests")),
                     new TestBindingPolicy()),
             ]);
+
+    static byte[] BuildRejectedImage(bool malformed)
+    {
+        const int fixedMetadataRootPrefixLength = 16;
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Unsupported.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Unsupported"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var peBuilder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                malformed
+                    ? "v4.0.30319"
+                    : "WindowsRuntime 1.4;CLR v4.0.30319",
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var imageBuilder = new BlobBuilder();
+        peBuilder.Serialize(imageBuilder);
+        byte[] image = imageBuilder.ToArray();
+        using var peReader = new PEReader(ImmutableArray.Create(image));
+        int metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            image.AsSpan(metadataStart + 12, sizeof(int)));
+        if (malformed)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                image.AsSpan(metadataStart, sizeof(uint)),
+                0xDEADBEEF);
+        }
+        else
+        {
+            BinaryPrimitives.WriteInt32LittleEndian(
+                image.AsSpan(
+                    peReader.PEHeaders.CorHeaderStartOffset + 12,
+                    sizeof(int)),
+                fixedMetadataRootPrefixLength + versionLength);
+        }
+        return image;
+    }
 
     sealed class TestBindingPolicy : IAssemblyBindingPolicy
     {

@@ -433,8 +433,11 @@ public sealed class LibraryBodyIndex
         ImmutableArray<MethodIdentity> methods)
     {
         using var stream = File.OpenRead(path);
-        using var peReader = new PEReader(stream);
-        var reader = peReader.GetMetadataReader();
+        using var peReader = new PEReader(
+            stream,
+            PEStreamOptions.LeaveOpen);
+        MetadataReader reader =
+            MetadataFormatAdmission.GetMetadataReader(peReader);
         var methodMap = MethodDefinitionMap.Create(methods);
         return
         [
@@ -1204,7 +1207,9 @@ public sealed class LibraryBodyIndex
             ? PEStreamOptions.PrefetchEntireImage
             : PEStreamOptions.Default;
         using var stream = File.OpenRead(path);
-        using var peReader = new PEReader(stream, streamOptions);
+        using var peReader = new PEReader(
+            stream,
+            streamOptions | PEStreamOptions.LeaveOpen);
         return BuildFromReader(
             path,
             peReader,
@@ -1241,7 +1246,8 @@ public sealed class LibraryBodyIndex
                 bodyTypeScope);
 
         using var peReader = new PEReader(image);
-        MetadataReader reader = peReader.GetMetadataReader();
+        MetadataReader reader =
+            MetadataFormatAdmission.GetMetadataReader(peReader);
         LibraryBodyRootSnapshot? rootSnapshot =
             resolver is not null
                 && reader.IsAssembly
@@ -1304,12 +1310,12 @@ public sealed class LibraryBodyIndex
         string path,
         PEReader peReader)
     {
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return false;
 
         using var builder = new LibraryBodyAnalysisBuilder(
             path,
-            peReader.GetMetadataReader(),
+            MetadataFormatAdmission.GetMetadataReader(peReader),
             peReader);
         return builder.HasUnsafeEvidence();
     }
@@ -1321,9 +1327,10 @@ public sealed class LibraryBodyIndex
         IAssemblyReferenceResolver? resolver,
         LibraryBodyRootSnapshot? rootSnapshot)
     {
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             throw new BadImageFormatException($"No managed metadata: {path}");
-        var reader = peReader.GetMetadataReader();
+        MetadataReader reader =
+            MetadataFormatAdmission.GetMetadataReader(peReader);
         LibraryBodyModuleIdentity moduleIdentity =
             LibraryBodyModuleIdentity.FromImage(reader);
         IAssemblyReferenceResolver? analysisResolver =
@@ -1413,16 +1420,16 @@ public sealed class LibraryBodyIndex
         using (FileStream stream = File.OpenRead(fullPath))
         using (var peReader = new PEReader(
             stream,
-            PEStreamOptions.LeaveOpen
-                | PEStreamOptions.PrefetchMetadata))
+            PEStreamOptions.LeaveOpen))
         {
-            if (!peReader.HasMetadata)
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
             {
                 throw new BadImageFormatException(
                     $"No managed metadata: {path}");
             }
 
-            MetadataReader reader = peReader.GetMetadataReader();
+            MetadataReader reader =
+                MetadataFormatAdmission.GetMetadataReader(peReader);
             if (!reader.IsAssembly)
                 return null;
             identity =
@@ -1497,9 +1504,15 @@ public sealed class LibraryBodyIndex
 
     static Exception RootSnapshotFailure(
         string path,
-        CandidateOpenFailure failure) =>
-        failure.Kind switch
+        CandidateOpenFailure failure)
+    {
+        if (failure.MetadataRootReason is { } reason)
+            return new MalformedMetadataRootException(reason);
+
+        return failure.Kind switch
         {
+            CandidateOpenFailureKind.UnsupportedMetadataFormat =>
+                new UnsupportedMetadataFormatException(),
             CandidateOpenFailureKind.InvalidImage =>
                 new BadImageFormatException(
                     $"{failure.Detail} Path: {path}"),
@@ -1512,6 +1525,7 @@ public sealed class LibraryBodyIndex
             _ => new InvalidOperationException(
                 $"Unknown root-image failure for {path}."),
         };
+    }
 
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
         => [.. DirectCalls.Where(call => pattern.Matches(call.Callee))];

@@ -82,7 +82,10 @@ public enum StructuralCloneBlockerKind
 public sealed record StructuralCloneBlocker(
     StructuralCloneBlockerKind Kind,
     StructuralCloneSide Side,
-    string Detail);
+    string Detail)
+{
+    public MetadataRootMalformedReason? MetadataRootReason { get; init; }
+}
 
 /// <summary>
 /// One left block and the right blocks in its final normalized refinement class.
@@ -446,10 +449,19 @@ public static partial class StructuralCloneAnalysis
                     StructuralCloneBlockerKind.MetadataReadFailure,
                     StructuralCloneSide.Both,
                     $"The {subject} is invalid: "
-                        + $"{exception.GetType().Name}: {exception.Message}"),
+                        + $"{exception.GetType().Name}: {exception.Message}")
+                {
+                    MetadataRootReason = MalformedRootReason(exception),
+                },
             ],
             new StructuralCloneVerificationReceipt(
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, false));
+
+    static MetadataRootMalformedReason? MalformedRootReason(
+        Exception exception) =>
+        exception is MalformedMetadataRootException malformed
+            ? malformed.Reason
+            : null;
 
     static bool TryGetMetadataReader(
         PEReader image,
@@ -460,7 +472,14 @@ public static partial class StructuralCloneAnalysis
         bool hasMetadata;
         try
         {
-            hasMetadata = image.HasMetadata;
+            hasMetadata =
+                MetadataFormatAdmission.AdmitImage(image);
+        }
+        catch (MalformedMetadataRootException ex)
+        {
+            reader = null!;
+            failure = new("metadata root", ex);
+            return false;
         }
         catch (Exception ex) when (
             ex is BadImageFormatException
@@ -482,7 +501,7 @@ public static partial class StructuralCloneAnalysis
 
         try
         {
-            reader = image.GetMetadataReader();
+            reader = MetadataFormatAdmission.GetMetadataReader(image);
             failure = default;
             return true;
         }

@@ -198,6 +198,7 @@ internal static class AssemblyContextIntegrationsRunner
             ex is IOException
                 or UnauthorizedAccessException
                 or BadImageFormatException
+                or UnsupportedMetadataFormatException
                 or ArgumentOutOfRangeException
                 or OverflowException)
         {

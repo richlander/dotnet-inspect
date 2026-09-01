@@ -1,13 +1,17 @@
+using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using DotnetInspector.AssemblyOnlyHost.Fixture;
+using DotnetInspector.Services;
+using ILInspector.Analysis;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
+using ILInspector.TypeScriptGeneration;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Queries;
@@ -329,6 +333,180 @@ public sealed class LayeringTests
         Assert.DoesNotContain("MetadataTokens", classifier);
         Assert.DoesNotContain("ReadSerializedString", classifier);
         Assert.DoesNotContain("ReadUTF8", classifier);
+    }
+
+    [Fact]
+    public void Metadata_MetadataReadersRequireFormatAdmission()
+    {
+        string[] sites = MetadataReaderConstructionSites(
+                typeof(AssemblyInspectionSession).Assembly.Location)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(
+            [
+                "ILInspector.Metadata.MetadataFormatAdmission.GetMetadataReader/1",
+                "ILInspector.Metadata.MetadataFormatAdmission.GetMetadataReader/2",
+            ],
+            sites);
+    }
+
+    [Fact]
+    public void MetadataReaderConstructionGateRecognizesProviderFactories()
+    {
+        string[] sites = MetadataReaderConstructionSites(
+                typeof(LayeringTests).Assembly.Location)
+            .ToArray();
+
+        Assert.Contains(
+            "DotnetInspector.Tests.LayeringTests.MetadataProviderFromImageFixture/1",
+            sites);
+        Assert.Contains(
+            "DotnetInspector.Tests.LayeringTests.MetadataProviderFromStreamFixture/1",
+            sites);
+        Assert.Contains(
+            "DotnetInspector.Tests.LayeringTests.MetadataCallSiteNestedFixture.MetadataReaderFixture/1",
+            sites);
+        Assert.DoesNotContain(
+            "DotnetInspector.Tests.LayeringTests.PortablePdbProviderFixture/1",
+            sites);
+    }
+
+    [Fact]
+    public void Metadata_MetadataPredicatesRequireFormatAdmission()
+    {
+        Assert.Empty(
+            MetadataHasMetadataSites(
+                typeof(AssemblyInspectionSession).Assembly.Location));
+    }
+
+    [Fact]
+    public void MetadataPredicateGateRecognizesRawHasMetadata()
+    {
+        Assert.Contains(
+            "DotnetInspector.Tests.LayeringTests.MetadataHasMetadataFixture/1",
+            MetadataHasMetadataSites(
+                typeof(LayeringTests).Assembly.Location));
+        Assert.Contains(
+            "DotnetInspector.Tests.LayeringTests.MetadataCallSiteNestedFixture.MetadataHasMetadataFixture/1",
+            MetadataHasMetadataSites(
+                typeof(LayeringTests).Assembly.Location));
+    }
+
+    [Fact]
+    public void Decompiler_MetadataSourceRequiresFormatAdmission()
+    {
+        const string metadataSource =
+            "ILInspector.Decompiler.Pipeline.MetadataSource.";
+        string assembly =
+            typeof(ILInspector.Decompiler.Pipeline.MetadataSource)
+                .Assembly.Location;
+
+        Assert.DoesNotContain(
+            MetadataHasMetadataSites(assembly),
+            site => site.StartsWith(
+                metadataSource,
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            MetadataReaderConstructionSites(assembly),
+            site => site.StartsWith(
+                metadataSource,
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Analysis_MetadataReadersRequireFormatAdmission()
+    {
+        Assert.Empty(
+            MetadataReaderConstructionSites(
+                typeof(LibraryBodyIndex).Assembly.Location));
+    }
+
+    [Fact]
+    public void Analysis_MetadataPredicatesRequireFormatAdmission()
+    {
+        Assert.Empty(
+            MetadataHasMetadataSites(
+                typeof(LibraryBodyIndex).Assembly.Location));
+    }
+
+    [Fact]
+    public void Product_AssemblyReadersDoNotPrefetchMetadataBeforeAdmission()
+    {
+        string sourceRoot = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "src");
+        string[] sites = Directory.EnumerateFiles(
+                sourceRoot,
+                "*.cs",
+                SearchOption.AllDirectories)
+            .Where(path => !path.Contains(
+                $"{Path.DirectorySeparatorChar}obj"
+                    + Path.DirectorySeparatorChar,
+                StringComparison.Ordinal))
+            .Where(path => !path.Contains(
+                ".Tests" + Path.DirectorySeparatorChar,
+                StringComparison.Ordinal))
+            .Where(path => File.ReadAllText(path).Contains(
+                "PEStreamOptions.PrefetchMetadata",
+                StringComparison.Ordinal))
+            .Select(path => Path.GetRelativePath(sourceRoot, path))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.True(
+            sites.Length == 0,
+            "Assembly readers must remain lazy until format admission: "
+                + string.Join(", ", sites));
+    }
+
+    [Fact]
+    public void RemainingProduct_MetadataReadersRequireFormatAdmission()
+    {
+        AssertAdmissionClosed(
+            MetadataReaderConstructionSites,
+            typeof(ILInspector.Decompiler.Pipeline.MetadataSource),
+            typeof(ResearchMatch),
+            typeof(IlAssemblyDiff),
+            typeof(AssemblyContextStructuralCloneRetrievalQuery),
+            typeof(PlatformResolver),
+            typeof(JsExportSurfaceLoader));
+    }
+
+    [Fact]
+    public void RemainingProduct_MetadataPredicatesRequireFormatAdmission()
+    {
+        AssertAdmissionClosed(
+            MetadataHasMetadataSites,
+            typeof(ILInspector.Decompiler.Pipeline.MetadataSource),
+            typeof(ResearchMatch),
+            typeof(IlAssemblyDiff),
+            typeof(AssemblyContextStructuralCloneRetrievalQuery),
+            typeof(PlatformResolver),
+            typeof(JsExportSurfaceLoader));
+    }
+
+    [Fact]
+    public void Instructions_DoesNotExposeAssemblyImageEntryPoints()
+    {
+        string[] methods = typeof(MethodInstructions).Assembly
+            .GetExportedTypes()
+            .SelectMany(type => type.GetMethods(
+                System.Reflection.BindingFlags.Public
+                | System.Reflection.BindingFlags.Static
+                | System.Reflection.BindingFlags.Instance
+                | System.Reflection.BindingFlags.DeclaredOnly))
+            .Where(method => method.GetParameters().Any(
+                parameter => parameter.ParameterType == typeof(PEReader)))
+            .Select(method =>
+                $"{method.DeclaringType!.FullName}.{method.Name}")
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.True(
+            methods.Length == 0,
+            "Instructions exposes raw assembly-image entry points: "
+                + string.Join(", ", methods));
     }
 
     [Fact]
@@ -1046,6 +1224,207 @@ public sealed class LayeringTests
         Assert.True(
             packages.Length == 0,
             $"Forbidden NuGet implementation packages entered the closure: {string.Join(", ", packages)}");
+    }
+
+    static IEnumerable<string> MetadataReaderConstructionSites(
+        string assemblyPath) =>
+        MetadataCallSites(
+            assemblyPath,
+            CallsAssemblyMetadataReaderConstruction);
+
+    static IEnumerable<string> MetadataHasMetadataSites(
+        string assemblyPath) =>
+        MetadataCallSites(
+            assemblyPath,
+            CallsPeReaderHasMetadata);
+
+    static void AssertAdmissionClosed(
+        Func<string, IEnumerable<string>> callSites,
+        params Type[] assemblyMarkers)
+    {
+        foreach (Type marker in assemblyMarkers)
+        {
+            string[] sites =
+                callSites(marker.Assembly.Location)
+                    .Order(StringComparer.Ordinal)
+                    .ToArray();
+            Assert.True(
+                sites.Length == 0,
+                $"Raw assembly metadata calls remain in "
+                + $"{marker.Assembly.GetName().Name}: "
+                + string.Join(", ", sites));
+        }
+    }
+
+    static IEnumerable<string> MetadataCallSites(
+        string assemblyPath,
+        Func<MetadataReader, byte[], bool> matches)
+    {
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        var sites = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (MethodDefinitionHandle handle in reader.MethodDefinitions)
+        {
+            MethodDefinition method = reader.GetMethodDefinition(handle);
+            if (method.RelativeVirtualAddress == 0)
+                continue;
+
+            byte[] il =
+                peReader.GetMethodBody(method.RelativeVirtualAddress)
+                    .GetILBytes()
+                ?? [];
+            if (!matches(reader, il))
+                continue;
+
+            TypeDefinitionHandle declaringHandle =
+                method.GetDeclaringType();
+            int parameterCount = method.GetParameters().Count(
+                parameter =>
+                    reader.GetParameter(parameter).SequenceNumber != 0);
+            sites.Add(
+                $"{MetadataDeclaringTypeName(reader, declaringHandle)}."
+                + $"{reader.GetString(method.Name)}/{parameterCount}");
+        }
+
+        return sites;
+    }
+
+    static string MetadataDeclaringTypeName(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
+    {
+        var names = new Stack<string>();
+        string typeNamespace;
+        while (true)
+        {
+            TypeDefinition type = reader.GetTypeDefinition(handle);
+            names.Push(reader.GetString(type.Name));
+            TypeDefinitionHandle declaring = type.GetDeclaringType();
+            if (declaring.IsNil)
+            {
+                typeNamespace = reader.GetString(type.Namespace);
+                break;
+            }
+
+            handle = declaring;
+        }
+
+        string typeName = string.Join(".", names);
+        return string.IsNullOrEmpty(typeNamespace)
+            ? typeName
+            : $"{typeNamespace}.{typeName}";
+    }
+
+    static bool CallsPeReaderHasMetadata(
+        MetadataReader reader,
+        byte[] il)
+    {
+        foreach (DecodedInstruction instruction in InstructionDecoder.Decode(il))
+        {
+            if (instruction.Operand
+                    is not (OperandKind.InlineMethod or OperandKind.InlineTok))
+            {
+                continue;
+            }
+
+            EntityHandle operand =
+                MetadataTokens.EntityHandle((int)instruction.OperandValue);
+            if (operand.Kind != HandleKind.MemberReference)
+                continue;
+
+            MemberReference member = reader.GetMemberReference(
+                (MemberReferenceHandle)operand);
+            if (member.Parent.Kind != HandleKind.TypeReference)
+                continue;
+
+            TypeReference type = reader.GetTypeReference(
+                (TypeReferenceHandle)member.Parent);
+            if (reader.GetString(type.Name) == nameof(PEReader)
+                && reader.GetString(type.Namespace)
+                    == typeof(PEReader).Namespace
+                && reader.GetString(member.Name) == "get_HasMetadata")
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool CallsAssemblyMetadataReaderConstruction(
+        MetadataReader reader,
+        byte[] il)
+    {
+        foreach (DecodedInstruction instruction in InstructionDecoder.Decode(il))
+        {
+            if (instruction.Operand
+                    is not (OperandKind.InlineMethod or OperandKind.InlineTok))
+            {
+                continue;
+            }
+
+            EntityHandle operand =
+                MetadataTokens.EntityHandle((int)instruction.OperandValue);
+            if (operand.Kind != HandleKind.MemberReference)
+                continue;
+
+            MemberReference member = reader.GetMemberReference(
+                (MemberReferenceHandle)operand);
+            if (member.Parent.Kind != HandleKind.TypeReference)
+            {
+                continue;
+            }
+
+            TypeReference type = reader.GetTypeReference(
+                (TypeReferenceHandle)member.Parent);
+            string methodName = reader.GetString(member.Name);
+            string typeName = reader.GetString(type.Name);
+            string typeNamespace = reader.GetString(type.Namespace);
+            if ((typeName == nameof(PEReaderExtensions)
+                    && typeNamespace == typeof(MetadataReader).Namespace
+                    && methodName
+                        == nameof(MetadataFormatAdmission.GetMetadataReader))
+                || (typeName == nameof(MetadataReaderProvider)
+                    && typeNamespace == typeof(MetadataReader).Namespace
+                    && methodName
+                        is nameof(MetadataReaderProvider.FromMetadataImage)
+                            or nameof(MetadataReaderProvider.FromMetadataStream))
+                || (typeName == nameof(MetadataReader)
+                    && typeNamespace == typeof(MetadataReader).Namespace
+                    && methodName == ".ctor"))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static MetadataReaderProvider MetadataProviderFromImageFixture(
+        ImmutableArray<byte> image)
+        => MetadataReaderProvider.FromMetadataImage(image);
+
+    static MetadataReaderProvider MetadataProviderFromStreamFixture(
+        Stream stream)
+        => MetadataReaderProvider.FromMetadataStream(stream);
+
+    static MetadataReaderProvider PortablePdbProviderFixture(Stream stream)
+        => MetadataReaderProvider.FromPortablePdbStream(stream);
+
+    static bool MetadataHasMetadataFixture(PEReader reader)
+        => reader.HasMetadata;
+
+    static class MetadataCallSiteNestedFixture
+    {
+        internal static MetadataReader MetadataReaderFixture(
+            PEReader reader) =>
+            reader.GetMetadataReader();
+
+        internal static bool MetadataHasMetadataFixture(
+            PEReader reader) =>
+            reader.HasMetadata;
     }
 
     private static bool IsNuGetImplementationPackage(string package) =>

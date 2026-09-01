@@ -516,7 +516,9 @@ internal static class BrowserSurfaceProjection
     }
 
     internal static string RejectedAssembly(CandidateOpenFailure failure) =>
-        $"Assembly unavailable: {failure.Kind}.";
+        failure.MetadataRootReason is { } reason
+            ? $"Assembly unavailable: {failure.Kind} ({reason})."
+            : $"Assembly unavailable: {failure.Kind}.";
 
     internal static string FailedAssembly(Exception error) =>
         $"Assembly inspection failed ({error.GetType().Name}).";

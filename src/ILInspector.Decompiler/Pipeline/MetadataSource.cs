@@ -228,10 +228,10 @@ public sealed class MetadataSource : IDisposable
         try
         {
             peReader = new PEReader(image);
-            if (!peReader.HasMetadata)
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
                 throw new BadImageFormatException($"No managed metadata: {path}");
 
-            var reader = peReader.GetMetadataReader();
+            var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
             string assemblyName = reader.IsAssembly
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : System.IO.Path.GetFileNameWithoutExtension(path);
@@ -272,9 +272,9 @@ public sealed class MetadataSource : IDisposable
                 bindingPolicy,
                 context);
         }
-        catch
+        catch (Exception ex)
         {
-            peReader?.Dispose();
+            DisposeAfterFailure(peReader, stream: null, ex);
             throw;
         }
     }
@@ -293,10 +293,12 @@ public sealed class MetadataSource : IDisposable
         PEReader? peReader = null;
         try
         {
-            peReader = new PEReader(stream);
-            if (!peReader.HasMetadata)
+            peReader = new PEReader(
+                stream,
+                PEStreamOptions.LeaveOpen);
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
                 throw new BadImageFormatException($"No managed metadata: {path}");
-            var reader = peReader.GetMetadataReader();
+            var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
             string assemblyName = reader.IsAssembly
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : System.IO.Path.GetFileNameWithoutExtension(path);
@@ -332,10 +334,9 @@ public sealed class MetadataSource : IDisposable
                 new AssemblyReferenceBindingPolicy(effectiveResolver),
                 context);
         }
-        catch
+        catch (Exception ex)
         {
-            peReader?.Dispose();
-            stream.Dispose();
+            DisposeAfterFailure(peReader, stream, ex);
             throw;
         }
     }
@@ -361,10 +362,12 @@ public sealed class MetadataSource : IDisposable
         PEReader? peReader = null;
         try
         {
-            peReader = new PEReader(stream);
-            if (!peReader.HasMetadata)
+            peReader = new PEReader(
+                stream,
+                PEStreamOptions.LeaveOpen);
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
                 throw new BadImageFormatException($"No managed metadata: {assembly.Identity.Name}");
-            var reader = peReader.GetMetadataReader();
+            var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
             string assemblyName = reader.IsAssembly
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : assembly.Identity.Name;
@@ -385,11 +388,33 @@ public sealed class MetadataSource : IDisposable
                 bindingPolicy,
                 context);
         }
-        catch
+        catch (Exception ex)
+        {
+            DisposeAfterFailure(peReader, stream, ex);
+            throw;
+        }
+    }
+
+    static void DisposeAfterFailure(
+        PEReader? peReader,
+        Stream? stream,
+        Exception primaryFailure)
+    {
+        ArgumentNullException.ThrowIfNull(primaryFailure);
+        try
         {
             peReader?.Dispose();
-            stream.Dispose();
-            throw;
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            stream?.Dispose();
+        }
+        catch
+        {
         }
     }
 
@@ -433,13 +458,7 @@ public sealed class MetadataSource : IDisposable
                     _assemblies.GetOrAdd(
                         sibling,
                         static path => new Lazy<ResolvedAssemblyReference?>(
-                            () => ResolvedAssemblyReference.TryCreateFromPath(
-                                path,
-                                AssemblyResolutionProvenance.Local(
-                                    "SiblingAssembly"),
-                                out ResolvedAssemblyReference? reference)
-                                    ? reference
-                                    : null,
+                            () => CreateCandidate(path),
                             LazyThreadSafetyMode.ExecutionAndPublication)).Value;
                 if (candidate is not null
                     && identity.MatchesCandidate(
@@ -448,6 +467,27 @@ public sealed class MetadataSource : IDisposable
                 {
                     return candidate;
                 }
+            }
+
+            return null;
+        }
+
+        static ResolvedAssemblyReference? CreateCandidate(string path)
+        {
+            bool created = ResolvedAssemblyReference.TryCreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local("SiblingAssembly"),
+                out ResolvedAssemblyReference? reference,
+                out Exception? failure);
+            if (created)
+                return reference;
+
+            if (failure is UnsupportedMetadataFormatException
+                or MalformedMetadataRootException)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo
+                    .Capture(failure)
+                    .Throw();
             }
 
             return null;

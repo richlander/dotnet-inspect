@@ -157,11 +157,18 @@ current project scope. A PE without metadata returns the classifier's typed
 `NoMetadata` arm before requesting a metadata block and preserves the
 projector's no-metadata boundary. The direct projector APIs throw
 `UnsupportedMetadataFormatException` before projecting rows or heaps only for
-unsupported Windows Metadata and `BadImageFormatException` for a malformed
+unsupported Windows Metadata and
+`MalformedMetadataRootException : BadImageFormatException` for a malformed
 root; `AssemblyInspectionSession` and query owners map those specific
 mechanisms to typed unsupported-input and malformed-input results. Neither may
 become `null`, an empty projection, or partial rows. `MDP017` gates every
-existing entry point as well as the CLI metadata lens.
+existing entry point as well as the metadata lens. The Metadata-owned closure
+is enforced by
+`LayeringTests.Metadata_MetadataReadersRequireFormatAdmission`,
+`MetadataImageFormatClassifierTests`, and
+`BrowserMetadataOperationsTests.MetadataProjection_PreservesFormatRejection`.
+The broader cache, PDB-retention, and cross-owner portions of `MDP017` remain
+outside this focused adoption.
 
 The diagnostic lens does not bypass format admission to inspect an arbitrarily
 long nonconforming root version. A padded version field above 256 bytes receives

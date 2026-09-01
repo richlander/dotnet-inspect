@@ -4,6 +4,8 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
+
+using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Analysis;
@@ -33,7 +35,10 @@ public enum StructuralCloneDiscoveryBlockerKind
 /// <summary>One visible discovery failure or limit.</summary>
 public sealed record StructuralCloneDiscoveryBlocker(
     StructuralCloneDiscoveryBlockerKind Kind,
-    string Detail);
+    string Detail)
+{
+    public MetadataRootMalformedReason? MetadataRootReason { get; init; }
+}
 
 /// <summary>Bounded production receipt for one method.</summary>
 public sealed record StructuralCloneMethodReceipt(
@@ -590,7 +595,10 @@ public static partial class StructuralCloneAnalysis
             StructuralCloneDiscoveryBlockerKind.MetadataReadFailure,
             $"The {failure.Subject} is invalid: "
                 + $"{failure.Exception.GetType().Name}: "
-                + failure.Exception.Message);
+                + failure.Exception.Message)
+        {
+            MetadataRootReason = MalformedRootReason(failure.Exception),
+        };
         return new StructuralCloneDiscoveryResult(
             StructuralCloneDiscoveryDisposition.Failed,
             [],

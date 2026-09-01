@@ -141,12 +141,33 @@ internal static class ApiSourceResolver
             }
             else if (!string.IsNullOrEmpty(typeName))
             {
-                var (typeAssembly, matchedTfm) = TfmSelector.FindAssemblyContainingType(searchPath, typeName, options.Tfm);
-                if (typeAssembly != null)
+                TfmSelector.PackageTypeAssemblyResolution resolution =
+                    TfmSelector.FindAssemblyContainingTypeWithFailures(
+                        searchPath,
+                        typeName,
+                        options.Tfm);
+                if (resolution.Path != null)
                 {
-                    searchPath = typeAssembly;
-                    selectedTfm = matchedTfm;
+                    searchPath = resolution.Path;
+                    selectedTfm = resolution.Tfm;
+                    PackageCommand.WriteLibraryInspectionFailures(
+                        resolution.Failures.Select(
+                            failure =>
+                                (
+                                    failure.PackageRelativePath,
+                                    PackageCommand
+                                        .DescribeLibraryInspectionFormatFailure(
+                                            failure))));
                     logger.Log($"Resolved type '{typeName}' to {Path.GetFileName(searchPath)}");
+                }
+                else if (resolution.Failures.FirstOrDefault()
+                    is { } failure)
+                {
+                    CommandError.Write(
+                        PackageCommand
+                            .DescribeLibraryInspectionFormatError(
+                                failure));
+                    return (null!, 1);
                 }
             }
             else if (!string.IsNullOrEmpty(options.Tfm))

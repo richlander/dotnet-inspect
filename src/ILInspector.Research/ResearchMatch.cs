@@ -2,6 +2,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.Analysis;
+using ILInspector.Metadata;
 
 namespace ILInspector.Research;
 
@@ -123,7 +124,8 @@ public static class ResearchMatch
         ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
         ArgumentNullException.ThrowIfNull(image);
 
-        MetadataReader reader = image.GetMetadataReader();
+        MetadataReader reader =
+            MetadataFormatAdmission.GetMetadataReader(image);
         StructuralCloneModuleIdentity moduleIdentity =
             StructuralCloneModuleIdentity.Create(fileName, image, reader);
         StructuralCloneComparison comparison = StructuralCloneAnalysis.Compare(image, left, right, limits);
@@ -147,7 +149,9 @@ public static class ResearchMatch
         ArgumentException.ThrowIfNullOrWhiteSpace(assemblyPath);
 
         using var stream = File.OpenRead(assemblyPath);
-        using var image = new PEReader(stream);
+        using var image = new PEReader(
+            stream,
+            PEStreamOptions.LeaveOpen);
         return Compare(Path.GetFileName(assemblyPath), image, left, right, limits);
     }
 

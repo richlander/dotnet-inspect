@@ -33,8 +33,66 @@ internal static class DependencyGraphService
             {
                 logger.Log($"Scanning {assemblySet.Assemblies.Count} libraries for type {options.TargetType}");
                 var assemblyPaths = assemblySet.Assemblies.Select(a => a.Path).ToList();
-                return TypeDependencyScanner.BuildDependencyTree(options.TargetType, assemblyPaths);
+                TypeDependencyResult result =
+                    TypeDependencyScanner.BuildDependencyTree(options.TargetType, assemblyPaths);
+                return result.Rejections.Count == 0
+                    ? result
+                    : result with
+                    {
+                        Rejections = RelativizeRejections(
+                            result.Rejections,
+                            assemblySet),
+                    };
             });
+    }
+
+    /// <summary>
+    /// Rewrites rejection paths as package-relative paths so the reported
+    /// participant matches the identity the other package commands print.
+    /// </summary>
+    private static IReadOnlyList<TypeDependencyRejection> RelativizeRejections(
+        IReadOnlyList<TypeDependencyRejection> rejections,
+        AssemblySet assemblySet)
+    {
+        return [.. rejections.Select(
+            rejection => rejection with
+            {
+                AssemblyPath = PackageRelativePath(
+                    rejection.AssemblyPath,
+                    assemblySet.OwnedTemporaryDirectories),
+            })];
+    }
+
+    // Package extraction nests the payload under this directory inside the
+    // owned temporary directory (see PackageExtractor). The other package
+    // commands relativize against that directory, so rejection paths have to
+    // resolve against it first to print the same identity.
+    private const string PackageExtractionDirectoryName = "extracted";
+
+    private static string PackageRelativePath(
+        string assemblyPath,
+        IReadOnlyList<string> roots)
+    {
+        foreach (var root in roots)
+        {
+            string[] candidates =
+            [
+                Path.Combine(root, PackageExtractionDirectoryName),
+                root,
+            ];
+            foreach (var candidate in candidates)
+            {
+                var relative = Path.GetRelativePath(candidate, assemblyPath)
+                    .Replace('\\', '/');
+                if (!relative.StartsWith("../", StringComparison.Ordinal)
+                    && !Path.IsPathRooted(relative))
+                {
+                    return relative;
+                }
+            }
+        }
+
+        return Path.GetFileName(assemblyPath);
     }
 
     public static async Task<LibraryDependencyGraphResult> BuildLibraryDependencyTreeAsync(

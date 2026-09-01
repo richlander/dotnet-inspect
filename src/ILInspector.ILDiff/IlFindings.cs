@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.Findings;
+using ILInspector.Metadata;
 
 namespace ILInspector.Instructions;
 
@@ -101,6 +102,7 @@ public static class IlFindings
         ArgumentNullException.ThrowIfNull(pe);
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(subject);
+        reader = MetadataFormatAdmission.GetMetadataReader(pe);
         if (method.IsNil)
             throw new ArgumentException("Method handle must not be nil.", nameof(method));
 
@@ -141,6 +143,8 @@ public static class IlFindings
         ArgumentNullException.ThrowIfNull(newPe);
         ArgumentNullException.ThrowIfNull(newReader);
         ArgumentNullException.ThrowIfNull(subject);
+        oldReader = MetadataFormatAdmission.GetMetadataReader(oldPe);
+        newReader = MetadataFormatAdmission.GetMetadataReader(newPe);
         if (oldMethod.IsNil)
             throw new ArgumentException("Old method handle must not be nil.", nameof(oldMethod));
         if (newMethod.IsNil)

@@ -242,12 +242,22 @@ internal sealed class ApiMemberAnalysisInspection
                     continue;
                 }
 
-                if (ResolvedAssemblyReference.TryCreateFromPath(
+                bool created =
+                    ResolvedAssemblyReference.TryCreateFromPath(
                     path,
                     AssemblyResolutionProvenance.Local("caller scope"),
-                    out ResolvedAssemblyReference? candidate))
+                    out ResolvedAssemblyReference? candidate,
+                    out Exception? failure);
+                if (created && candidate is not null)
                 {
                     candidates.Add(candidate);
+                }
+                else if (failure is UnsupportedMetadataFormatException
+                    or MalformedMetadataRootException)
+                {
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo
+                        .Capture(failure)
+                        .Throw();
                 }
             }
 
@@ -292,9 +302,11 @@ internal sealed class ApiMemberAnalysisInspection
         if (resolved)
             return cached;
 
-        resolved = true;
         if (_callerScopeAssemblies is not { Count: > 0 })
+        {
+            resolved = true;
             return null;
+        }
 
         if (!TryTargetType(methodToken, out Analysis.TypeRef? target))
         {
@@ -304,9 +316,13 @@ internal sealed class ApiMemberAnalysisInspection
                     includeAllocations,
                     includeAsyncSiblingOpportunities);
             if (unfiltered.Count == 0)
+            {
+                resolved = true;
                 return null;
+            }
 
             cached = unfiltered;
+            resolved = true;
             return cached;
         }
 
@@ -319,10 +335,12 @@ internal sealed class ApiMemberAnalysisInspection
         if (opened.Count == 0
             && !plan.HasRuledOutCandidateNotDefinitelyUnopenable)
         {
+            resolved = true;
             return null;
         }
 
         cached = opened;
+        resolved = true;
         return cached;
     }
 
@@ -331,9 +349,11 @@ internal sealed class ApiMemberAnalysisInspection
         if (_calleeScopesResolved)
             return _calleeScopes;
 
-        _calleeScopesResolved = true;
         if (_callerScopeAssemblies is not { Count: > 0 })
+        {
+            _calleeScopesResolved = true;
             return null;
+        }
 
         List<MethodBodyInspectionSession> opened =
             OpenScopes(
@@ -341,9 +361,13 @@ internal sealed class ApiMemberAnalysisInspection
                 _includeGraphAllocations,
                 _includeGraphOpportunities);
         if (opened.Count == 0)
+        {
+            _calleeScopesResolved = true;
             return null;
+        }
 
         _calleeScopes = opened;
+        _calleeScopesResolved = true;
         return _calleeScopes;
     }
 
@@ -538,9 +562,10 @@ internal sealed class ApiMemberAnalysisInspection
                         includeAsyncSiblingOpportunities));
             }
             catch (Exception ex) when (
-                ex is IOException
+                ex is not MalformedMetadataRootException
+                    and (IOException
                     or UnauthorizedAccessException
-                    or BadImageFormatException)
+                    or BadImageFormatException))
             {
                 // Caller scope is best-effort; unreadable assemblies cannot
                 // contribute body edges.

@@ -124,13 +124,13 @@ public static class IntegrationOpportunityScanner
         IReadOnlySet<IntegrationConceptDescriptor> existingIntegrations)
     {
         ArgumentNullException.ThrowIfNull(existingIntegrations);
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return [];
 
         HashSet<IntegrationConceptDescriptor> exactExistingIntegrations = new(
             existingIntegrations,
             ReferenceEqualityComparer.Instance);
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         Dictionary<string, IntegrationOpportunityInfo> gaps = new(StringComparer.Ordinal);
 
         foreach (var handle in reader.TypeDefinitions)

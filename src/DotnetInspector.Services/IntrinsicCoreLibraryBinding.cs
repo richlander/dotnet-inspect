@@ -15,14 +15,23 @@ static class IntrinsicCoreLibraryBinding
         ArgumentNullException.ThrowIfNull(requestingAssembly);
         ArgumentNullException.ThrowIfNull(selectReference);
 
+        Stream? stream = null;
+        PEReader? peReader = null;
+        bool rejectionEstablished = false;
         try
         {
-            using Stream stream = requestingAssembly.OpenRead();
-            using var peReader = new PEReader(stream);
-            if (!peReader.HasMetadata)
+            stream = requestingAssembly.OpenRead();
+            peReader = new PEReader(
+                stream,
+                PEStreamOptions.LeaveOpen);
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
+            {
+                rejectionEstablished = true;
                 return CandidateUnavailable();
+            }
 
-            MetadataReader reader = peReader.GetMetadataReader();
+            MetadataReader reader =
+                MetadataFormatAdmission.GetMetadataReader(peReader);
             if (reader.IsAssembly
                 && IsCoreLibraryFacade(
                     AssemblyReferenceIdentity.FromAssemblyDefinition(
@@ -32,7 +41,7 @@ static class IntrinsicCoreLibraryBinding
                     requestingAssembly);
             }
 
-            AssemblyBindingSelection? firstFailure = null;
+            AssemblyBindingSelection? retainedFailure = null;
             foreach (AssemblyReferenceIdentity facade
                 in CoreLibraryReferences(reader))
             {
@@ -49,13 +58,38 @@ static class IntrinsicCoreLibraryBinding
                     return selection;
                 }
 
-                firstFailure ??= selection;
+                if (ShouldReplaceFailure(
+                        retainedFailure,
+                        selection))
+                {
+                    retainedFailure = selection;
+                }
             }
 
-            return firstFailure
+            // A retained candidate failure and an unsupported scope are both
+            // established rejections, so cleanup must not replace either with
+            // a disposal exception.
+            rejectionEstablished = true;
+            return retainedFailure
                 ?? AssemblyBindingSelection.CannotSelect(
                     new AssemblyBindingFailure(
                         AssemblyBindingFailureKind.UnsupportedScope));
+        }
+        catch (UnsupportedMetadataFormatException ex)
+        {
+            DisposeAfterFailure(
+                ref peReader,
+                ref stream,
+                ex);
+            throw;
+        }
+        catch (MalformedMetadataRootException ex)
+        {
+            DisposeAfterFailure(
+                ref peReader,
+                ref stream,
+                ex);
+            throw;
         }
         catch (Exception ex) when (
             ex is IOException
@@ -67,8 +101,57 @@ static class IntrinsicCoreLibraryBinding
                 or ArgumentException
                 or System.Security.SecurityException)
         {
+            DisposeAfterFailure(
+                ref peReader,
+                ref stream,
+                ex);
             return CandidateUnavailable();
         }
+        finally
+        {
+            if (rejectionEstablished)
+            {
+                DisposeWithoutReplacingOutcome(ref peReader);
+                DisposeWithoutReplacingOutcome(ref stream);
+            }
+            else
+            {
+                peReader?.Dispose();
+                stream?.Dispose();
+            }
+        }
+    }
+
+    static void DisposeAfterFailure<T>(
+        ref T? resource,
+        Exception primaryFailure)
+        where T : class, IDisposable
+    {
+        ArgumentNullException.ThrowIfNull(primaryFailure);
+        DisposeWithoutReplacingOutcome(ref resource);
+    }
+
+    static void DisposeAfterFailure(
+        ref PEReader? peReader,
+        ref Stream? stream,
+        Exception primaryFailure)
+    {
+        DisposeAfterFailure(ref peReader, primaryFailure);
+        DisposeAfterFailure(ref stream, primaryFailure);
+    }
+
+    static void DisposeWithoutReplacingOutcome<T>(
+        ref T? resource)
+        where T : class, IDisposable
+    {
+        try
+        {
+            resource?.Dispose();
+        }
+        catch
+        {
+        }
+        resource = null;
     }
 
     static IEnumerable<AssemblyReferenceIdentity> CoreLibraryReferences(
@@ -92,6 +175,28 @@ static class IntrinsicCoreLibraryBinding
         AssemblyBindingSelection.CannotSelect(
             new AssemblyBindingFailure(
                 AssemblyBindingFailureKind.CandidateUnavailable));
+
+    static bool ShouldReplaceFailure(
+        AssemblyBindingSelection? retained,
+        AssemblyBindingSelection candidate) =>
+        retained is null
+        || FailurePrecedence(candidate)
+            > FailurePrecedence(retained);
+
+    static int FailurePrecedence(
+        AssemblyBindingSelection selection) =>
+        selection is AssemblyBindingSelection.Unavailable unavailable
+            ? unavailable.Failure.CandidateFailureKind switch
+            {
+                CandidateOpenFailureKind.ResourceBudget => 2,
+                CandidateOpenFailureKind
+                    .UnsupportedMetadataFormat => 1,
+                CandidateOpenFailureKind.InvalidImage
+                    when unavailable.Failure.MetadataRootReason
+                        is not null => 1,
+                _ => 0,
+            }
+            : 0;
 
     static bool IsCoreLibraryFacade(string name) =>
         name.Equals(

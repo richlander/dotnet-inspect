@@ -1439,6 +1439,33 @@ public static class ResearchDiff
                     continue;
                 }
             }
+            catch (UnsupportedMetadataFormatException ex)
+            {
+                AddApiSurfaceAcquisitionFailure(
+                    merged,
+                    path,
+                    nameof(UnsupportedMetadataFormatException),
+                    ex.Message);
+                continue;
+            }
+            catch (MalformedMetadataRootException ex)
+            {
+                AddApiSurfaceAcquisitionFailure(
+                    merged,
+                    path,
+                    nameof(MalformedMetadataRootException),
+                    ex.Message);
+                continue;
+            }
+            catch (OverflowException)
+            {
+                AddApiSurfaceAcquisitionFailure(
+                    merged,
+                    path,
+                    CandidateOpenFailureKind.InvalidImage.ToString(),
+                    "The selected assembly metadata is invalid.");
+                continue;
+            }
             catch (Exception ex) when (
                 ex is IOException
                     or UnauthorizedAccessException
@@ -1446,7 +1473,6 @@ public static class ResearchDiff
                     or InvalidOperationException
                     or ArgumentException
                     or NotSupportedException
-                    or OverflowException
                     or IndexOutOfRangeException)
             {
             }
@@ -1513,6 +1539,24 @@ public static class ResearchDiff
             .OrderBy(static type => type.FullName)
             .ToList();
         return merged;
+    }
+
+    static void AddApiSurfaceAcquisitionFailure(
+        ApiSurface surface,
+        string path,
+        string kind,
+        string detail)
+    {
+        surface.InspectionFailures.Add(
+            new ApiSurfaceInspectionFailure(
+                "acquire API surface",
+                0,
+                MetadataTypeNameFailureMechanism.Metadata,
+                kind,
+                detail)
+            {
+                SourceAssemblyPath = path,
+            });
     }
 
     static void MergeSurface(
@@ -1948,22 +1992,60 @@ public static class ResearchDiff
 
         public MethodBodyLookup(string path)
         {
-            _stream = File.OpenRead(path);
-            _peReader = new PEReader(_stream, PEStreamOptions.PrefetchEntireImage);
-            _metadataReader = _peReader.GetMetadataReader();
-            _ownsReaders = true;
+            Stream? stream = null;
+            PEReader? peReader = null;
+            try
+            {
+                stream = File.OpenRead(path);
+                peReader = new PEReader(
+                    stream,
+                    PEStreamOptions.PrefetchEntireImage
+                        | PEStreamOptions.LeaveOpen);
+                _metadataReader =
+                    MetadataFormatAdmission.GetMetadataReader(
+                        peReader);
+                _stream = stream;
+                _peReader = peReader;
+                _ownsReaders = true;
+            }
+            catch (Exception ex)
+            {
+                DisposeAfterFailure(
+                    peReader,
+                    stream,
+                    ex);
+                throw;
+            }
         }
 
         public MethodBodyLookup(BodyIndexEntry entry)
         {
             if (entry.Source is null)
             {
-                _stream = File.OpenRead(entry.Path);
-                _peReader = new PEReader(
-                    _stream,
-                    PEStreamOptions.PrefetchEntireImage);
-                _metadataReader = _peReader.GetMetadataReader();
-                _ownsReaders = true;
+                Stream? stream = null;
+                PEReader? peReader = null;
+                try
+                {
+                    stream = File.OpenRead(entry.Path);
+                    peReader = new PEReader(
+                        stream,
+                        PEStreamOptions.PrefetchEntireImage
+                            | PEStreamOptions.LeaveOpen);
+                    _metadataReader =
+                        MetadataFormatAdmission.GetMetadataReader(
+                            peReader);
+                    _stream = stream;
+                    _peReader = peReader;
+                    _ownsReaders = true;
+                }
+                catch (Exception ex)
+                {
+                    DisposeAfterFailure(
+                        peReader,
+                        stream,
+                        ex);
+                    throw;
+                }
                 return;
             }
 
@@ -2003,6 +2085,29 @@ public static class ResearchDiff
 
             _peReader.Dispose();
             _stream!.Dispose();
+        }
+
+        static void DisposeAfterFailure(
+            PEReader? peReader,
+            Stream? stream,
+            Exception primaryFailure)
+        {
+            ArgumentNullException.ThrowIfNull(primaryFailure);
+            try
+            {
+                peReader?.Dispose();
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                stream?.Dispose();
+            }
+            catch
+            {
+            }
         }
     }
 }

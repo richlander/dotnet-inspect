@@ -252,24 +252,30 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
             ? AssemblyResolutionScope.Platform
             : AssemblyResolutionScope.Any;
 
-    sealed class ReferencedAssemblyMetadata(
+    internal sealed class ReferencedAssemblyMetadata(
         Stream stream,
         PEReader peReader) : IDisposable
     {
         public MetadataReader Reader { get; } =
-            peReader.GetMetadataReader();
+            MetadataFormatAdmission.GetMetadataReader(peReader);
 
         internal static ReferencedAssemblyMetadata? TryOpen(
             ResolvedAssemblyReference assembly)
         {
             Stream? stream = null;
             PEReader? peReader = null;
+            bool unavailableEstablished = false;
             try
             {
                 stream = assembly.OpenRead();
-                peReader = new PEReader(stream);
-                if (!peReader.HasMetadata)
+                peReader = new PEReader(
+                    stream,
+                    PEStreamOptions.LeaveOpen);
+                if (!MetadataFormatAdmission.AdmitImage(peReader))
+                {
+                    unavailableEstablished = true;
                     return null;
+                }
                 var metadata =
                     new ReferencedAssemblyMetadata(
                         stream,
@@ -277,6 +283,22 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
                 stream = null;
                 peReader = null;
                 return metadata;
+            }
+            catch (UnsupportedMetadataFormatException ex)
+            {
+                AnalysisResourceCleanup.DisposeAfterFailure(
+                    ref peReader,
+                    ref stream,
+                    ex);
+                throw;
+            }
+            catch (MalformedMetadataRootException ex)
+            {
+                AnalysisResourceCleanup.DisposeAfterFailure(
+                    ref peReader,
+                    ref stream,
+                    ex);
+                throw;
             }
             catch (Exception ex) when (
                 ex is IOException
@@ -286,12 +308,34 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
                     or NotSupportedException
                     or ArgumentException)
             {
+                AnalysisResourceCleanup.DisposeAfterFailure(
+                    ref peReader,
+                    ref stream,
+                    ex);
                 return null;
+            }
+            catch (Exception ex)
+            {
+                AnalysisResourceCleanup.DisposeAfterFailure(
+                    ref peReader,
+                    ref stream,
+                    ex);
+                throw;
             }
             finally
             {
-                peReader?.Dispose();
-                stream?.Dispose();
+                if (unavailableEstablished)
+                {
+                    AnalysisResourceCleanup
+                        .DisposeWithoutReplacingOutcome(
+                            ref peReader,
+                            ref stream);
+                }
+                else
+                {
+                    peReader?.Dispose();
+                    stream?.Dispose();
+                }
             }
         }
 

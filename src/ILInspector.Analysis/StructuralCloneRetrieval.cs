@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Analysis;
@@ -30,7 +31,10 @@ public enum StructuralCloneRetrievalBlockerKind
 /// <summary>One visible retrieval blocker.</summary>
 public sealed record StructuralCloneRetrievalBlocker(
     StructuralCloneRetrievalBlockerKind Kind,
-    string Detail);
+    string Detail)
+{
+    public MetadataRootMalformedReason? MetadataRootReason { get; init; }
+}
 
 /// <summary>One side-free body-production outcome from retrieval.</summary>
 public sealed record StructuralCloneRetrievalMethodOutcome(
@@ -593,7 +597,10 @@ public static partial class StructuralCloneAnalysis
             StructuralCloneRetrievalBlockerKind.MetadataReadFailure,
             $"The {failure.Subject} is invalid: "
                 + $"{failure.Exception.GetType().Name}: "
-                + failure.Exception.Message);
+                + failure.Exception.Message)
+        {
+            MetadataRootReason = MalformedRootReason(failure.Exception),
+        };
         return new StructuralCloneRetrievalResult(
             StructuralCloneRetrievalDisposition.Failed,
             new StructuralCloneRetrievalMethodOutcome(
@@ -627,7 +634,10 @@ public static partial class StructuralCloneAnalysis
             StructuralCloneRetrievalBlockerKind.MetadataReadFailure,
             $"The candidate {failure.Subject} is invalid: "
                 + $"{failure.Exception.GetType().Name}: "
-                + failure.Exception.Message);
+                + failure.Exception.Message)
+        {
+            MetadataRootReason = MalformedRootReason(failure.Exception),
+        };
         return new StructuralCloneRetrievalResult(
             StructuralCloneRetrievalDisposition.Failed,
             seed,

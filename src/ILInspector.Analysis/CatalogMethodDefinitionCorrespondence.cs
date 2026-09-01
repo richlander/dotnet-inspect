@@ -626,8 +626,8 @@ public sealed class CatalogMethodDefinitionCorrespondencePlan
     static int GetMethodDefinitionCount(AssemblyImageSnapshot image)
     {
         using var peReader = new PEReader(image.Content);
-        return peReader.GetMetadataReader().GetTableRowCount(
-            TableIndex.MethodDef);
+        return MetadataFormatAdmission.GetMetadataReader(peReader)
+            .GetTableRowCount(TableIndex.MethodDef);
     }
 
     static MetadataMethodAddress Address(MethodIdentity method) =>

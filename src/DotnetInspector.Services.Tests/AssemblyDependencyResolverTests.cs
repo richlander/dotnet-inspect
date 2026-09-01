@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -473,6 +474,294 @@ public class AssemblyDependencyResolverTests
         Assert.Equal(
             new FileInfo(path).Length - 1,
             exception.MaxSnapshotImageBytes);
+    }
+
+    [Fact]
+    public void Select_SnapshotUnsupportedMetadataFailureIsTyped()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-assembly-deps-").FullName;
+        try
+        {
+            string targetPath = Path.Combine(root, "Target.dll");
+            string candidatePath = Path.Combine(root, "Dependency.dll");
+            File.Copy(
+                typeof(AssemblyDependencyResolverTests).Assembly.Location,
+                targetPath);
+            File.WriteAllBytes(
+                candidatePath,
+                CreateUnsupportedMetadataImage());
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(targetPath)
+                {
+                    PackageRoots = [],
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                    SnapshotAssemblyImages = true,
+                });
+
+            var selection = Assert.IsType<
+                AssemblyBindingSelection.Unavailable>(
+                    resolver.Select(
+                        new AssemblyBindingRequest(
+                            AssemblyBindingTarget.Reference(
+                                new AssemblyReferenceIdentity(
+                                    "Dependency",
+                                    Version: null,
+                                    Culture: null,
+                                    PublicKeyToken: null)),
+                            AssemblyBindingOrigin.Global(),
+                            AssemblyResolutionScope.Any)));
+
+            Assert.Equal(
+                CandidateOpenFailureKind.UnsupportedMetadataFormat,
+                selection.Failure.CandidateFailureKind);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public void Resolve_FormatAdmissionFailureIsTyped(
+        bool unsupported,
+        bool snapshot)
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-assembly-deps-").FullName;
+        try
+        {
+            string targetPath = Path.Combine(root, "Target.dll");
+            string candidatePath = Path.Combine(root, "Dependency.dll");
+            File.Copy(
+                typeof(AssemblyDependencyResolverTests).Assembly.Location,
+                targetPath);
+            File.WriteAllBytes(
+                candidatePath,
+                CreateFormatRejectedMetadataImage(unsupported));
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(targetPath)
+                {
+                    PackageRoots = [],
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                    SnapshotAssemblyImages = snapshot,
+                });
+
+            AssertFormatAdmissionFailure(
+                unsupported,
+                () => resolver.Resolve(
+                    new AssemblyReferenceIdentity(
+                        "Dependency",
+                        Version: null,
+                        Culture: null,
+                        PublicKeyToken: null),
+                    AssemblyResolutionScope.Any));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public void Acquire_FormatAdmissionFailureIsTyped(
+        bool unsupported,
+        bool snapshot)
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-assembly-deps-").FullName;
+        try
+        {
+            string targetPath = Path.Combine(root, "Target.dll");
+            string candidatePath = Path.Combine(root, "Dependency.dll");
+            File.Copy(
+                typeof(AssemblyDependencyResolverTests).Assembly.Location,
+                targetPath);
+            File.WriteAllBytes(
+                candidatePath,
+                CreateFormatRejectedMetadataImage(unsupported));
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(targetPath)
+                {
+                    SnapshotAssemblyImages = snapshot,
+                });
+            var dependency = new ResolvedAssemblyDependency(
+                candidatePath,
+                AssemblyDependencyProvenance.SiblingAssembly);
+
+            AssertFormatAdmissionFailure(
+                unsupported,
+                () => resolver.Acquire(dependency));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public void AcquireTargetAssembly_FormatAdmissionFailureIsTyped(
+        bool unsupported,
+        bool snapshot)
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-assembly-deps-").FullName;
+        try
+        {
+            string targetPath = Path.Combine(root, "Target.dll");
+            File.WriteAllBytes(
+                targetPath,
+                CreateFormatRejectedMetadataImage(unsupported));
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(targetPath)
+                {
+                    SnapshotAssemblyImages = snapshot,
+                });
+
+            AssertFormatAdmissionFailure(
+                unsupported,
+                () => resolver.AcquireTargetAssembly());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ResolverEntryPoints_UnmappableMetadataDirectoryIsTyped(
+        bool snapshot)
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-assembly-deps-").FullName;
+        try
+        {
+            string validTargetPath = Path.Combine(
+                root,
+                "ValidTarget.dll");
+            string malformedTargetPath = Path.Combine(
+                root,
+                "MalformedTarget.dll");
+            string candidatePath = Path.Combine(root, "Dependency.dll");
+            File.Copy(
+                typeof(AssemblyDependencyResolverTests).Assembly.Location,
+                validTargetPath);
+            byte[] malformed = CreateUnmappableMetadataImage();
+            File.WriteAllBytes(candidatePath, malformed);
+            File.WriteAllBytes(malformedTargetPath, malformed);
+
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(validTargetPath)
+                {
+                    PackageRoots = [],
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                    SnapshotAssemblyImages = snapshot,
+                });
+            var dependency = new ResolvedAssemblyDependency(
+                candidatePath,
+                AssemblyDependencyProvenance.SiblingAssembly);
+
+            AssertFormatAdmissionFailure(
+                unsupported: false,
+                () => resolver.Resolve(
+                    new AssemblyReferenceIdentity(
+                        "Dependency",
+                        Version: null,
+                        Culture: null,
+                        PublicKeyToken: null),
+                    AssemblyResolutionScope.Any),
+                nameof(
+                    MetadataRootMalformedReason
+                        .UnmappableMetadataDirectory));
+            AssertFormatAdmissionFailure(
+                unsupported: false,
+                () => resolver.Acquire(dependency),
+                nameof(
+                    MetadataRootMalformedReason
+                        .UnmappableMetadataDirectory));
+
+            var targetResolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(
+                    malformedTargetPath)
+                {
+                    SnapshotAssemblyImages = snapshot,
+                });
+            AssertFormatAdmissionFailure(
+                unsupported: false,
+                () => targetResolver.AcquireTargetAssembly(),
+                nameof(
+                    MetadataRootMalformedReason
+                        .UnmappableMetadataDirectory));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ResolveAndAcquire_NoMetadataRemainUnresolved(
+        bool snapshot)
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-assembly-deps-").FullName;
+        try
+        {
+            string targetPath = Path.Combine(root, "Target.dll");
+            string candidatePath = Path.Combine(root, "Dependency.dll");
+            File.Copy(
+                typeof(AssemblyDependencyResolverTests).Assembly.Location,
+                targetPath);
+            File.WriteAllBytes(candidatePath, CreateNoMetadataImage());
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(targetPath)
+                {
+                    PackageRoots = [],
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                    SnapshotAssemblyImages = snapshot,
+                });
+            var dependency = new ResolvedAssemblyDependency(
+                candidatePath,
+                AssemblyDependencyProvenance.SiblingAssembly);
+
+            Assert.Null(
+                resolver.Resolve(
+                    new AssemblyReferenceIdentity(
+                        "Dependency",
+                        Version: null,
+                        Culture: null,
+                        PublicKeyToken: null),
+                    AssemblyResolutionScope.Any));
+            Assert.Null(resolver.Acquire(dependency));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]
@@ -1713,6 +2002,504 @@ public class AssemblyDependencyResolverTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Select_UnsupportedDesignatedMetadataCannotFallBackToPlatform(
+        bool renamed)
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-unsupported-overlay-").FullName;
+        try
+        {
+            string platformPath = typeof(System.Runtime.GCSettings)
+                .Assembly.Location;
+            string designatedPath = Path.Combine(
+                root,
+                renamed
+                    ? "overlay.dll"
+                    : Path.GetFileName(platformPath));
+            File.WriteAllBytes(
+                designatedPath,
+                CreateUnsupportedMetadataImage());
+            using var stream = File.OpenRead(platformPath);
+            using var peReader = new PEReader(stream);
+            AssemblyReferenceIdentity platformIdentity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    peReader.GetMetadataReader());
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(platformPath)
+                {
+                    PackageRoots = [],
+                    CorpusAssemblyPaths = [designatedPath],
+                    IncludeSiblingAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                    SnapshotAssemblyImages = true,
+                });
+            var request = new AssemblyBindingRequest(
+                AssemblyBindingTarget.Reference(platformIdentity),
+                AssemblyBindingOrigin.Global(),
+                AssemblyResolutionScope.Platform);
+
+            var unavailable =
+                Assert.IsType<AssemblyBindingSelection.Unavailable>(
+                    resolver.Select(request));
+
+            Assert.Equal(
+                AssemblyBindingFailureKind.CandidateUnavailable,
+                unavailable.Failure.Kind);
+            Assert.Equal(
+                CandidateOpenFailureKind.UnsupportedMetadataFormat,
+                unavailable.Failure.CandidateFailureKind);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SelectAndResolve_MalformedDesignatedMetadataCannotFallBackToPlatform(
+        bool renamed)
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-malformed-overlay-").FullName;
+        try
+        {
+            string platformPath = typeof(System.Runtime.GCSettings)
+                .Assembly.Location;
+            string designatedPath = Path.Combine(
+                root,
+                renamed
+                    ? "overlay.dll"
+                    : Path.GetFileName(platformPath));
+            File.WriteAllBytes(
+                designatedPath,
+                CreateUnmappableMetadataImage());
+            using var stream = File.OpenRead(platformPath);
+            using var peReader = new PEReader(stream);
+            AssemblyReferenceIdentity platformIdentity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    peReader.GetMetadataReader());
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(platformPath)
+                {
+                    PackageRoots = [],
+                    CorpusAssemblyPaths = [designatedPath],
+                    IncludeSiblingAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                    SnapshotAssemblyImages = true,
+                });
+            var request = new AssemblyBindingRequest(
+                AssemblyBindingTarget.Reference(platformIdentity),
+                AssemblyBindingOrigin.Global(),
+                AssemblyResolutionScope.Platform);
+
+            var unavailable =
+                Assert.IsType<AssemblyBindingSelection.Unavailable>(
+                    resolver.Select(request));
+
+            Assert.Equal(
+                AssemblyBindingFailureKind.CandidateUnavailable,
+                unavailable.Failure.Kind);
+            Assert.Equal(
+                CandidateOpenFailureKind.InvalidImage,
+                unavailable.Failure.CandidateFailureKind);
+            Assert.Equal(
+                MetadataRootMalformedReason
+                    .UnmappableMetadataDirectory,
+                unavailable.Failure.MetadataRootReason);
+            Assert.Throws<MalformedMetadataRootException>(
+                () => resolver.Resolve(
+                    platformIdentity,
+                    AssemblyResolutionScope.Platform));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(
+        DesignatedAdmissionFixture.Unsupported,
+        DesignatedAdmissionFixture.InvalidSignature)]
+    [InlineData(
+        DesignatedAdmissionFixture.InvalidSignature,
+        DesignatedAdmissionFixture.Unsupported)]
+    [InlineData(
+        DesignatedAdmissionFixture.InvalidSignature,
+        DesignatedAdmissionFixture.UnmappableMetadataDirectory)]
+    [InlineData(
+        DesignatedAdmissionFixture.UnmappableMetadataDirectory,
+        DesignatedAdmissionFixture.InvalidSignature)]
+    public void
+        SelectAndResolve_DesignatedOverlayRetainsFirstEqualPrecedenceFailure(
+            DesignatedAdmissionFixture first,
+            DesignatedAdmissionFixture second)
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "designated-equal-precedence-").FullName;
+        try
+        {
+            string firstDirectory = Path.Combine(root, "first");
+            string secondDirectory = Path.Combine(root, "second");
+            Directory.CreateDirectory(firstDirectory);
+            Directory.CreateDirectory(secondDirectory);
+            string firstPath = Path.Combine(
+                firstDirectory,
+                "Shared.dll");
+            string secondPath = Path.Combine(
+                secondDirectory,
+                "Shared.dll");
+            File.WriteAllBytes(firstPath, Image(first));
+            File.WriteAllBytes(secondPath, Image(second));
+
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(
+                    typeof(AssemblyDependencyResolverTests)
+                        .Assembly.Location)
+                {
+                    PackageRoots = [],
+                    CorpusAssemblyPaths = [firstPath, secondPath],
+                    IncludeSiblingAssemblies = false,
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                    SnapshotAssemblyImages = true,
+                });
+            var identity = new AssemblyReferenceIdentity(
+                "Shared",
+                Version: null,
+                Culture: null,
+                PublicKeyToken: null);
+            var request = new AssemblyBindingRequest(
+                AssemblyBindingTarget.Reference(identity),
+                AssemblyBindingOrigin.Global(),
+                AssemblyResolutionScope.Any);
+            var unavailable =
+                Assert.IsType<AssemblyBindingSelection.Unavailable>(
+                    resolver.Select(request));
+            (
+                CandidateOpenFailureKind expectedKind,
+                MetadataRootMalformedReason? expectedReason) =
+                Expected(first);
+
+            Assert.Equal(
+                AssemblyBindingFailureKind.CandidateUnavailable,
+                unavailable.Failure.Kind);
+            Assert.Equal(
+                expectedKind,
+                unavailable.Failure.CandidateFailureKind);
+            Assert.Equal(
+                expectedReason,
+                unavailable.Failure.MetadataRootReason);
+
+            Exception? resolveFailure = Record.Exception(
+                () => resolver.Resolve(
+                    identity,
+                    AssemblyResolutionScope.Any));
+            if (first == DesignatedAdmissionFixture.Unsupported)
+            {
+                Assert.IsType<UnsupportedMetadataFormatException>(
+                    resolveFailure);
+            }
+            else
+            {
+                var malformed =
+                    Assert.IsType<MalformedMetadataRootException>(
+                        resolveFailure);
+                Assert.Equal(expectedReason, malformed.Reason);
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+
+        static byte[] Image(
+            DesignatedAdmissionFixture fixture) =>
+            fixture switch
+            {
+                DesignatedAdmissionFixture.Unsupported =>
+                    CreateUnsupportedMetadataImage(),
+                DesignatedAdmissionFixture.InvalidSignature =>
+                    CreateFormatRejectedMetadataImage(
+                        unsupported: false),
+                DesignatedAdmissionFixture
+                    .UnmappableMetadataDirectory =>
+                    CreateUnmappableMetadataImage(),
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(fixture)),
+            };
+
+        static (
+            CandidateOpenFailureKind Kind,
+            MetadataRootMalformedReason? Reason) Expected(
+                DesignatedAdmissionFixture fixture) =>
+            fixture switch
+            {
+                DesignatedAdmissionFixture.Unsupported =>
+                    (
+                        CandidateOpenFailureKind
+                            .UnsupportedMetadataFormat,
+                        null),
+                DesignatedAdmissionFixture.InvalidSignature =>
+                    (
+                        CandidateOpenFailureKind.InvalidImage,
+                        MetadataRootMalformedReason.InvalidSignature),
+                DesignatedAdmissionFixture
+                    .UnmappableMetadataDirectory =>
+                    (
+                        CandidateOpenFailureKind.InvalidImage,
+                        MetadataRootMalformedReason
+                            .UnmappableMetadataDirectory),
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(fixture)),
+            };
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void SelectAndResolve_TypedAdmissionFailureOutranksNoMetadataCandidate(
+        bool malformed,
+        bool admissionFirst)
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-admission-precedence-").FullName;
+        try
+        {
+            string rootPackage = Path.Combine(
+                root,
+                "root.package",
+                "1.0.0");
+            string targetDirectory = Path.Combine(
+                rootPackage,
+                "lib",
+                "net8.0");
+            Directory.CreateDirectory(targetDirectory);
+            string targetPath = Path.Combine(targetDirectory, "Root.dll");
+            File.Copy(
+                typeof(AssemblyDependencyResolverTests).Assembly.Location,
+                targetPath);
+
+            string firstId = admissionFirst
+                ? "A.Format"
+                : "A.NoMetadata";
+            string secondId = admissionFirst
+                ? "B.NoMetadata"
+                : "B.Format";
+            File.WriteAllText(
+                Path.Combine(rootPackage, "root.package.nuspec"),
+                $"""
+                <?xml version="1.0" encoding="utf-8"?>
+                <package>
+                  <metadata>
+                    <dependencies>
+                      <group targetFramework="net8.0">
+                        <dependency id="{firstId}" version="1.0.0" />
+                        <dependency id="{secondId}" version="1.0.0" />
+                      </group>
+                    </dependencies>
+                  </metadata>
+                </package>
+                """);
+
+            byte[] admissionImage = malformed
+                ? CreateUnmappableMetadataImage()
+                : CreateUnsupportedMetadataImage();
+            foreach ((string id, byte[] image) in new[]
+            {
+                (
+                    admissionFirst ? firstId : secondId,
+                    admissionImage),
+                (
+                    admissionFirst ? secondId : firstId,
+                    CreateNoMetadataImage()),
+            })
+            {
+                string directory = Path.Combine(
+                    root,
+                    id.ToLowerInvariant(),
+                    "1.0.0",
+                    "ref",
+                    "net8.0");
+                Directory.CreateDirectory(directory);
+                File.WriteAllBytes(
+                    Path.Combine(directory, "Shared.dll"),
+                    image);
+            }
+
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(targetPath)
+                {
+                    PackageRoots = [root],
+                    IncludeSiblingAssemblies = false,
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                    SnapshotAssemblyImages = true,
+                });
+            var identity = new AssemblyReferenceIdentity(
+                "Shared",
+                Version: null,
+                Culture: null,
+                PublicKeyToken: null);
+            var unavailable =
+                Assert.IsType<AssemblyBindingSelection.Unavailable>(
+                    resolver.Select(
+                        new AssemblyBindingRequest(
+                            AssemblyBindingTarget.Reference(identity),
+                            AssemblyBindingOrigin.Global(),
+                            AssemblyResolutionScope.Any)));
+
+            Assert.Equal(
+                malformed
+                    ? CandidateOpenFailureKind.InvalidImage
+                    : CandidateOpenFailureKind.UnsupportedMetadataFormat,
+                unavailable.Failure.CandidateFailureKind);
+            Assert.Equal(
+                malformed
+                    ? MetadataRootMalformedReason
+                        .UnmappableMetadataDirectory
+                    : null,
+                unavailable.Failure.MetadataRootReason);
+            if (malformed)
+            {
+                Assert.Throws<MalformedMetadataRootException>(
+                    () => resolver.Resolve(
+                        identity,
+                        AssemblyResolutionScope.Any));
+            }
+            else
+            {
+                Assert.Throws<UnsupportedMetadataFormatException>(
+                    () => resolver.Resolve(
+                        identity,
+                        AssemblyResolutionScope.Any));
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SelectAndResolve_ResourceBudgetOutranksFormatFailure(
+        bool budgetFirst)
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-budget-precedence-").FullName;
+        try
+        {
+            string rootPackage = Path.Combine(
+                root,
+                "root.package",
+                "1.0.0");
+            string targetDirectory = Path.Combine(
+                rootPackage,
+                "lib",
+                "net8.0");
+            Directory.CreateDirectory(targetDirectory);
+            string targetPath = Path.Combine(targetDirectory, "Root.dll");
+            File.Copy(
+                typeof(AssemblyDependencyResolverTests).Assembly.Location,
+                targetPath);
+
+            string firstId = budgetFirst
+                ? "A.Budget"
+                : "A.Format";
+            string secondId = budgetFirst
+                ? "B.Format"
+                : "B.Budget";
+            File.WriteAllText(
+                Path.Combine(rootPackage, "root.package.nuspec"),
+                $"""
+                <?xml version="1.0" encoding="utf-8"?>
+                <package>
+                  <metadata>
+                    <dependencies>
+                      <group targetFramework="net8.0">
+                        <dependency id="{firstId}" version="1.0.0" />
+                        <dependency id="{secondId}" version="1.0.0" />
+                      </group>
+                    </dependencies>
+                  </metadata>
+                </package>
+                """);
+
+            byte[] formatImage = CreateUnsupportedMetadataImage();
+            int budget = formatImage.Length + 1;
+            foreach ((string id, byte[] image) in new[]
+            {
+                (
+                    budgetFirst ? firstId : secondId,
+                    new byte[budget + 1]),
+                (
+                    budgetFirst ? secondId : firstId,
+                    formatImage),
+            })
+            {
+                string directory = Path.Combine(
+                    root,
+                    id.ToLowerInvariant(),
+                    "1.0.0",
+                    "ref",
+                    "net8.0");
+                Directory.CreateDirectory(directory);
+                File.WriteAllBytes(
+                    Path.Combine(directory, "Shared.dll"),
+                    image);
+            }
+
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(targetPath)
+                {
+                    PackageRoots = [root],
+                    IncludeSiblingAssemblies = false,
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                    SnapshotAssemblyImages = true,
+                    MaxSnapshotImageBytes = budget,
+                });
+            var identity = new AssemblyReferenceIdentity(
+                "Shared",
+                Version: null,
+                Culture: null,
+                PublicKeyToken: null);
+            var unavailable =
+                Assert.IsType<AssemblyBindingSelection.Unavailable>(
+                    resolver.Select(
+                        new AssemblyBindingRequest(
+                            AssemblyBindingTarget.Reference(identity),
+                            AssemblyBindingOrigin.Global(),
+                            AssemblyResolutionScope.Any)));
+
+            Assert.Equal(
+                CandidateOpenFailureKind.ResourceBudget,
+                unavailable.Failure.CandidateFailureKind);
+            Assert.Null(
+                resolver.Resolve(
+                    identity,
+                    AssemblyResolutionScope.Any));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public void Select_RenamedDesignatedOverlayUsesMetadataIdentity()
     {
@@ -1807,7 +2594,15 @@ public class AssemblyDependencyResolverTests
             string designatedPath = Path.Combine(
                 root,
                 Path.GetFileName(platformPath));
-            File.WriteAllText(designatedPath, "not a managed assembly");
+            File.Copy(platformPath, designatedPath);
+            using var exclusive = new FileStream(
+                designatedPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.None);
+            Assert.True(File.Exists(designatedPath));
+            Assert.Throws<IOException>(
+                () => File.OpenRead(designatedPath));
             using var stream = File.OpenRead(platformPath);
             using var peReader = new PEReader(stream);
             AssemblyReferenceIdentity platformIdentity =
@@ -1855,7 +2650,15 @@ public class AssemblyDependencyResolverTests
             string unreadablePath = Path.Combine(
                 unreadableDirectory,
                 Path.GetFileName(platformPath));
-            File.WriteAllText(unreadablePath, "not a managed assembly");
+            File.Copy(platformPath, unreadablePath);
+            using var exclusive = new FileStream(
+                unreadablePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.None);
+            Assert.True(File.Exists(unreadablePath));
+            Assert.Throws<IOException>(
+                () => File.OpenRead(unreadablePath));
             using var stream = File.OpenRead(platformPath);
             using var peReader = new PEReader(stream);
             AssemblyReferenceIdentity platformIdentity =
@@ -1866,7 +2669,7 @@ public class AssemblyDependencyResolverTests
                 {
                     PackageRoots = [],
                     CorpusAssemblyPaths =
-                        [platformPath, unreadablePath],
+                        [unreadablePath, platformPath],
                     IncludeSiblingAssemblies = false,
                     IncludeAspNetCoreSharedFramework = false,
                     IncludeDepsJsonAssets = false,
@@ -2111,6 +2914,13 @@ public class AssemblyDependencyResolverTests
                 token),
             AssemblyResolutionScope.Platform);
         Assert.Null(future);
+    }
+
+    public enum DesignatedAdmissionFixture
+    {
+        Unsupported,
+        InvalidSignature,
+        UnmappableMetadataDirectory,
     }
 
     sealed class SelectedPolicy(
@@ -2557,6 +3367,116 @@ public class AssemblyDependencyResolverTests
         var image = new BlobBuilder();
         builder.Serialize(image);
         return image.ToArray();
+    }
+
+    static byte[] CreateUnsupportedMetadataImage()
+    {
+        const int fixedMetadataRootPrefixLength = 16;
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Dependency.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Dependency"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var peBuilder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                "WindowsRuntime 1.4;CLR v4.0.30319",
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var imageBuilder = new BlobBuilder();
+        peBuilder.Serialize(imageBuilder);
+        byte[] image = imageBuilder.ToArray();
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        int metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            image.AsSpan(metadataStart + 12, sizeof(int)));
+        BinaryPrimitives.WriteInt32LittleEndian(
+            image.AsSpan(
+                peReader.PEHeaders.CorHeaderStartOffset + 12,
+                sizeof(int)),
+            fixedMetadataRootPrefixLength + versionLength);
+        return image;
+    }
+
+    static byte[] CreateFormatRejectedMetadataImage(bool unsupported)
+    {
+        byte[] image = CreateUnsupportedMetadataImage();
+        if (unsupported)
+            return image;
+
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            image.AsSpan(
+                peReader.PEHeaders.MetadataStartOffset,
+                sizeof(uint)),
+            0);
+        return image;
+    }
+
+    static byte[] CreateUnmappableMetadataImage()
+    {
+        byte[] image = CreateUnsupportedMetadataImage();
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        BinaryPrimitives.WriteInt32LittleEndian(
+            image.AsSpan(
+                peReader.PEHeaders.CorHeaderStartOffset + 8,
+                sizeof(int)),
+            int.MaxValue);
+        return image;
+    }
+
+    static byte[] CreateNoMetadataImage()
+    {
+        byte[] image = CreateUnsupportedMetadataImage();
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        PEHeader peHeader = peReader.PEHeaders.PEHeader!;
+        int directoryBase =
+            peReader.PEHeaders.PEHeaderStartOffset
+            + (peHeader.Magic == PEMagic.PE32Plus ? 112 : 96);
+        image.AsSpan(directoryBase + (14 * 8), 8).Clear();
+        return image;
+    }
+
+    static void AssertFormatAdmissionFailure(
+        bool unsupported,
+        Action action,
+        string expectedMalformedReason = "InvalidSignature")
+    {
+        if (unsupported)
+        {
+            Assert.Throws<UnsupportedMetadataFormatException>(action);
+        }
+        else
+        {
+            var exception =
+                Assert.Throws<MalformedMetadataRootException>(action);
+            Assert.Contains(
+                expectedMalformedReason,
+                exception.Message,
+                StringComparison.Ordinal);
+        }
     }
 
     static ResolvedAssemblyReference Descriptor(

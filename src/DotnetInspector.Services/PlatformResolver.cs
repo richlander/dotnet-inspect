@@ -1105,9 +1105,15 @@ public static class PlatformResolver
                 framework.LatestVersion);
             if (refPath == null)
             {
-                catalogFailure ??= new PlatformTypeLookupFailure(
+                PlatformTypeLookupFailure failure = new(
                     PlatformTypeLookupFailureKind.CatalogUnavailable,
                     $"The {framework.ShortName} reference catalog is unavailable.");
+                if (PlatformTypeCatalog.ShouldReplaceFailure(
+                        catalogFailure,
+                        failure))
+                {
+                    catalogFailure = failure;
+                }
                 continue;
             }
 
@@ -1124,7 +1130,12 @@ public static class PlatformResolver
                     candidates.AddRange(ambiguous.Candidates);
                     break;
                 case PlatformTypeLookupOutcome.Rejected rejected:
-                    catalogFailure ??= rejected.Failure;
+                    if (PlatformTypeCatalog.ShouldReplaceFailure(
+                            catalogFailure,
+                            rejected.Failure))
+                    {
+                        catalogFailure = rejected.Failure;
+                    }
                     break;
             }
         }
@@ -1230,10 +1241,15 @@ public static class PlatformResolver
         try
         {
             using var stream = File.OpenRead(assemblyPath);
-            using var peReader = new System.Reflection.PortableExecutable.PEReader(stream);
-            if (!peReader.HasMetadata) return false;
+            using var peReader =
+                new System.Reflection.PortableExecutable.PEReader(
+                    stream,
+                    PEStreamOptions.LeaveOpen);
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
+                return false;
 
-            var mdReader = peReader.GetMetadataReader();
+            MetadataReader mdReader =
+                MetadataFormatAdmission.GetMetadataReader(peReader);
             foreach (var handle in mdReader.TypeDefinitions)
             {
                 var typeDef = mdReader.GetTypeDefinition(handle);
@@ -1255,7 +1271,17 @@ public static class PlatformResolver
                     return true;
             }
         }
-        catch { }
+        catch (UnsupportedMetadataFormatException)
+        {
+            throw;
+        }
+        catch (MalformedMetadataRootException)
+        {
+            throw;
+        }
+        catch
+        {
+        }
         return false;
     }
 }

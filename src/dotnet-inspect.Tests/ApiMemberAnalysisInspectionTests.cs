@@ -329,6 +329,30 @@ public class ApiMemberAnalysisInspectionTests
         Assert.Null(scopes);
     }
 
+    [Fact]
+    public void CallerScopes_UnsupportedScopeEntryIsTyped()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"unsupported-scope-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, BuildManagedWindowsMetadata());
+        try
+        {
+            ApiMemberAnalysisInspection inspection =
+                Create(SelfPath, [path]);
+            for (int attempt = 0; attempt < 2; attempt++)
+            {
+                Assert.Throws<UnsupportedMetadataFormatException>(
+                    () => inspection
+                    .CallerScopes(includeAllocations: false));
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     // The two lenses are cached independently and must decide identically.
     [Fact]
     public void CallerScopes_CachesTheAllocationLensSeparatelyFromTheCallerLens()
@@ -455,13 +479,11 @@ public class ApiMemberAnalysisInspectionTests
                     == ILInspector.CallGraph.CallGraphNodeKind.Normal);
     }
 
-    // Round-5 review: a zero-byte or malformed *.dll beside real ones was classified as
-    // undecidable, which selects the whole scope and disables the prefilter entirely — the 960 MB
-    // behavior this change exists to remove, reintroduced by one junk file in a --bin directory.
-    // Such an image cannot be opened as a PE at all, and caller analysis opens the same path the
-    // same way, so it could not have contributed edges and must be ruled out instead.
+    // Format admission distinguishes no metadata from a malformed metadata
+    // root. The former cannot contribute caller edges; the latter is a typed
+    // rejection that the caller must not silently reinterpret as absence.
     [Fact]
-    public void CallerScopes_WhenAScopeEntryIsNotAPortableExecutable_StillRulesOutTheOthers()
+    public void CallerScopes_MalformedScopeEntryIsTyped()
     {
         string target = FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
         string lookalike = FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath();
@@ -474,11 +496,18 @@ public class ApiMemberAnalysisInspectionTests
             File.WriteAllBytes(empty, []);
             File.WriteAllBytes(truncated, "MZ not really a PE"u8.ToArray());
 
-            var scopes = Create(target, [empty, truncated, lookalike])
-                .CallerScopes(includeAllocations: true);
-
-            Assert.NotNull(scopes);
-            Assert.Empty(scopes);
+            ApiMemberAnalysisInspection inspection =
+                Create(target, [empty, truncated, lookalike]);
+            for (int attempt = 0; attempt < 2; attempt++)
+            {
+                MalformedMetadataRootException exception =
+                    Assert.Throws<MalformedMetadataRootException>(
+                        () => inspection
+                        .CallerScopes(includeAllocations: true));
+                Assert.Equal(
+                    MetadataRootMalformedReason.UnmappableMetadataDirectory,
+                    exception.Reason);
+            }
         }
         finally
         {
@@ -544,6 +573,43 @@ public class ApiMemberAnalysisInspectionTests
 
     static ApiMemberAnalysisInspection CreateForCallers(string assemblyPath, IReadOnlyList<string>? scope)
         => new(assemblyPath, [], new HashSet<string> { SectionNames.Callers }, scope, null);
+
+    static byte[] BuildManagedWindowsMetadata()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Unsupported.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Unsupported"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                "WindowsRuntime 1.4;CLR v4.0.30319",
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
 
     static int TokenOf(string assemblyPath, string declaringTypeName, string methodName)
         => ILInspector.Analysis.LibraryBodyIndex.Open(assemblyPath).Methods

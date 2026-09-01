@@ -16,8 +16,12 @@
   <!-- System.Reflection.Metadata is part of the BCL -->
 
   <ItemGroup>
+    <InternalsVisibleTo Include="decompiler-harness" />
+    <InternalsVisibleTo Include="DotnetInspector.ILRoundtrip.Tests" />
+    <InternalsVisibleTo Include="ILInspector.Decompiler.Tests" />
     <InternalsVisibleTo Include="ILInspector.ILDiff" />
     <InternalsVisibleTo Include="ILInspector.Instructions.Tests" />
+    <InternalsVisibleTo Include="dotnet-inspect.Tests" />
   </ItemGroup>
 
   <ItemGroup>

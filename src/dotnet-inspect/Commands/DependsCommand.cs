@@ -20,6 +20,21 @@ public class DependsCommand
     /// </summary>
     internal const int TypeNotFoundExitCode = 2;
 
+    private static string DescribeTypeDependencyRejection(
+        TypeDependencyRejection rejection) =>
+        rejection.Kind switch
+        {
+            TypeDependencyRejectionKind.UnsupportedMetadataFormat =>
+                "unsupported metadata format",
+            TypeDependencyRejectionKind.MalformedMetadataRoot
+                when rejection.MetadataRootReason is { } reason =>
+                $"malformed metadata root ({reason})",
+            TypeDependencyRejectionKind.InvalidImage => "invalid image",
+            _ => throw new ArgumentException(
+                "The rejection is not a metadata-format failure.",
+                nameof(rejection)),
+        };
+
     public static async Task<int> ExecuteTypeDependsAsync(DependsOptions options)
     {
         var context = new CommandContext(options.Verbose);
@@ -39,6 +54,15 @@ public class DependsCommand
 
             var result = await DependencyGraphService.BuildTypeDependencyTreeAsync(
                 context.HttpClient, options, logger);
+
+            // A rejected candidate scopes to itself, so it is reported beside
+            // whatever the surviving candidates produced.
+            PackageCommand.WriteLibraryInspectionFailures(
+                result.Rejections.Select(
+                    rejection =>
+                        (
+                            rejection.AssemblyPath,
+                            DescribeTypeDependencyRejection(rejection))));
 
             if (!result.Found)
             {

@@ -42,7 +42,7 @@ public record ILOffsetReturnAddressContextInfo(
 /// </summary>
 public static class InstructionContextResolver
 {
-    public static bool TryDecodeMethod(
+    internal static bool TryDecodeMethod(
         PEReader peReader,
         MetadataReader reader,
         int methodToken,

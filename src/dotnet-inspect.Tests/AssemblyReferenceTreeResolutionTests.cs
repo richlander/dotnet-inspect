@@ -111,6 +111,24 @@ public class AssemblyReferenceTreeResolutionTests
     }
 
     [Fact]
+    public void ReferenceFailureClassification_PreservesMetadataMechanism()
+    {
+        Assert.Equal(
+            IdentifierConfusionAuditFailureKind.InvalidAssemblyMetadata,
+            LibraryMetadataService.ClassifyIdentifierConfusionReferenceFailure(
+                new UnsupportedMetadataFormatException()));
+        Assert.Equal(
+            IdentifierConfusionAuditFailureKind.InvalidAssemblyMetadata,
+            LibraryMetadataService.ClassifyIdentifierConfusionReferenceFailure(
+                new MalformedMetadataRootException(
+                    MetadataRootMalformedReason.InvalidSignature)));
+        Assert.Equal(
+            IdentifierConfusionAuditFailureKind.AssemblyUnreadable,
+            LibraryMetadataService.ClassifyIdentifierConfusionReferenceFailure(
+                new NotSupportedException()));
+    }
+
+    [Fact]
     public void CaseDistinctResolvedPaths_DoNotSuppressDistinctCultures()
     {
         string root = Directory.CreateTempSubdirectory(

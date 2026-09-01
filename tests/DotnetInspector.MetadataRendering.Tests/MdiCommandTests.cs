@@ -1,4 +1,6 @@
+using System.Buffers.Binary;
 using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
 using Mdi;
 
@@ -103,6 +105,7 @@ public class MdiCommandTests
     [InlineData(typeof(BadImageFormatException))]
     [InlineData(typeof(InvalidOperationException))]
     [InlineData(typeof(ArgumentException))]
+    [InlineData(typeof(OverflowException))]
     [InlineData(typeof(NotSupportedException))]
     public void IsExpectedReadFailure_TreatsFileAccessFailuresAsExpected(Type exceptionType)
     {
@@ -117,6 +120,69 @@ public class MdiCommandTests
     {
         var ex = (Exception)Activator.CreateInstance(exceptionType)!;
         Assert.False(MdiCommand.IsExpectedReadFailure(ex));
+    }
+
+    [Theory]
+    [InlineData(MdiOverflowEntryPoint.Tables)]
+    [InlineData(MdiOverflowEntryPoint.Overview)]
+    [InlineData(MdiOverflowEntryPoint.References)]
+    [InlineData(MdiOverflowEntryPoint.Heap)]
+    public void EveryShape_ContainsMetadataStreamCountOverflow(
+        MdiOverflowEntryPoint entryPoint)
+    {
+        string path = WriteOverflowingMetadataStreamCount();
+        try
+        {
+            var output = new StringWriter();
+            var error = new StringWriter();
+            int code = entryPoint switch
+            {
+                MdiOverflowEntryPoint.Tables =>
+                    MdiCommand.Execute(
+                        path,
+                        new MetadataProjectionOptions(),
+                        MetadataTableFormat.Markdown,
+                        output,
+                        error),
+                MdiOverflowEntryPoint.Overview =>
+                    MdiCommand.ExecuteOverview(
+                        path,
+                        MetadataTableFormat.Markdown,
+                        output,
+                        error),
+                MdiOverflowEntryPoint.References =>
+                    MdiCommand.ExecuteReferences(
+                        path,
+                        TableIndex.TypeDef,
+                        targetRowId: 1,
+                        maxReferences: 4096,
+                        MetadataTableFormat.Markdown,
+                        output,
+                        error),
+                MdiOverflowEntryPoint.Heap =>
+                    MdiCommand.ExecuteHeapValue(
+                        path,
+                        HeapKind.String,
+                        address: 1,
+                        new MetadataProjectionOptions(),
+                        MetadataTableFormat.Markdown,
+                        output,
+                        error),
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(entryPoint)),
+            };
+
+            Assert.Equal(1, code);
+            Assert.Empty(output.ToString());
+            Assert.Contains(
+                $"cannot read metadata from '{path}'",
+                error.ToString(),
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -348,5 +414,45 @@ public class MdiCommandTests
         int code = MdiCommand.CreateRootCommand().Parse([SelfPath, "-r", "typedef:1"]).Invoke();
 
         Assert.Equal(0, code);
+    }
+
+    static string WriteOverflowingMetadataStreamCount()
+    {
+        byte[] image = File.ReadAllBytes(SelfPath);
+        using (var peReader = new PEReader(
+            new MemoryStream(image, writable: false)))
+        {
+            int metadataStart =
+                peReader.PEHeaders.MetadataStartOffset;
+            int versionLength =
+                BinaryPrimitives.ReadInt32LittleEndian(
+                    image.AsSpan(
+                        metadataStart + 12,
+                        sizeof(int)));
+            int streamCountOffset =
+                metadataStart
+                + 16
+                + versionLength
+                + sizeof(ushort);
+            BinaryPrimitives.WriteUInt16LittleEndian(
+                image.AsSpan(
+                    streamCountOffset,
+                    sizeof(ushort)),
+                ushort.MaxValue);
+        }
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"mdi-stream-count-overflow-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, image);
+        return path;
+    }
+
+    public enum MdiOverflowEntryPoint
+    {
+        Tables,
+        Overview,
+        References,
+        Heap,
     }
 }

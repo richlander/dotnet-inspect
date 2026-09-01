@@ -4,6 +4,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 
+using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Analysis;
@@ -66,9 +67,12 @@ public sealed record StructuralCloneModuleIdentity
         ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
         ArgumentNullException.ThrowIfNull(image);
         ArgumentNullException.ThrowIfNull(reader);
+        MetadataReader admittedReader =
+            MetadataFormatAdmission.GetMetadataReader(image);
 
         byte[] hash = SHA256.HashData(image.GetEntireImage().GetContent().AsSpan());
-        Guid moduleVersionId = reader.GetGuid(reader.GetModuleDefinition().Mvid);
+        Guid moduleVersionId = admittedReader.GetGuid(
+            admittedReader.GetModuleDefinition().Mvid);
         return new(fileName, Convert.ToHexStringLower(hash), moduleVersionId);
     }
 

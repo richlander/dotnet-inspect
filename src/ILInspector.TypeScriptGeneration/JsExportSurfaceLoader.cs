@@ -42,8 +42,11 @@ internal static class JsExportSurfaceLoader
             apiSurface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
         }
         catch (Exception ex) when (
-            ex is BadImageFormatException or IOException
-                or UnauthorizedAccessException)
+            ex is not MalformedMetadataRootException
+                and (BadImageFormatException
+                    or OverflowException
+                    or IOException
+                    or UnauthorizedAccessException))
         {
             error.WriteLine(
                 $"{toolName}: could not read '{assemblyPath}' as a .NET assembly: "
@@ -83,8 +86,11 @@ internal static class JsExportSurfaceLoader
             return false;
         }
         catch (Exception ex) when (
-            ex is BadImageFormatException or IOException
-                or UnauthorizedAccessException)
+            ex is not MalformedMetadataRootException
+                and (BadImageFormatException
+                    or OverflowException
+                    or IOException
+                    or UnauthorizedAccessException))
         {
             error.WriteLine(
                 $"{toolName}: could not read IL bodies from '{assemblyPath}' "

@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.Text.Json;
 using System.Xml.Linq;
 using System.Runtime.InteropServices;
+using System.Runtime.ExceptionServices;
 using System.Reflection.Metadata;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
@@ -248,8 +249,14 @@ public sealed partial class AssemblyDependencyResolver :
         return resolved;
     }
 
-    public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
-        => ResolveCore(identity, scope).Assembly;
+    public ResolvedAssemblyReference? Resolve(
+        AssemblyReferenceIdentity identity,
+        AssemblyResolutionScope scope)
+    {
+        AssemblyResolutionAttempt attempt = ResolveCore(identity, scope);
+        attempt.AdmissionFailure?.Throw();
+        return attempt.Assembly;
+    }
 
     AssemblyResolutionAttempt ResolveCore(
         AssemblyReferenceIdentity identity,
@@ -267,6 +274,7 @@ public sealed partial class AssemblyDependencyResolver :
         }
 
         CandidateOpenFailureKind? candidateFailure = null;
+        ExceptionDispatchInfo? candidateAdmissionFailure = null;
         CandidateTier? activeTier = null;
 
         foreach (var dependency in candidates)
@@ -288,6 +296,7 @@ public sealed partial class AssemblyDependencyResolver :
                     return new AssemblyResolutionAttempt(
                         Assembly: null,
                         candidateFailure,
+                        AdmissionFailure: candidateAdmissionFailure,
                         MissDisposition:
                             AssemblyBindingMissDisposition.NameOwnedNoMatch);
                 }
@@ -302,9 +311,17 @@ public sealed partial class AssemblyDependencyResolver :
             ResolvedAssemblyReference? selected = descriptor.Assembly;
             if (selected is null)
             {
-                candidateFailure ??=
-                    descriptor.FailureKind
-                    ?? CandidateOpenFailureKind.Unreadable;
+                if (ShouldReplaceCandidateFailure(
+                        candidateFailure,
+                        candidateAdmissionFailure,
+                        descriptor))
+                {
+                    candidateFailure =
+                        descriptor.FailureKind
+                        ?? CandidateOpenFailureKind.Unreadable;
+                    candidateAdmissionFailure =
+                        descriptor.AdmissionFailure;
+                }
                 continue;
             }
             if (!identity.MatchesCandidate(
@@ -325,6 +342,7 @@ public sealed partial class AssemblyDependencyResolver :
             return new AssemblyResolutionAttempt(
                 Assembly: null,
                 candidateFailure,
+                AdmissionFailure: candidateAdmissionFailure,
                 MissDisposition:
                     AssemblyBindingMissDisposition.NameOwnedNoMatch);
         }
@@ -365,9 +383,17 @@ public sealed partial class AssemblyDependencyResolver :
                 ResolvedAssemblyReference? selected = descriptor.Assembly;
                 if (selected is null)
                 {
-                    candidateFailure ??=
-                        descriptor.FailureKind
-                        ?? CandidateOpenFailureKind.Unreadable;
+                    if (ShouldReplaceCandidateFailure(
+                            candidateFailure,
+                            candidateAdmissionFailure,
+                            descriptor))
+                    {
+                        candidateFailure =
+                            descriptor.FailureKind
+                            ?? CandidateOpenFailureKind.Unreadable;
+                        candidateAdmissionFailure =
+                            descriptor.AdmissionFailure;
+                    }
                 }
                 else if (identity.MatchesCandidate(
                         selected.Identity,
@@ -384,11 +410,34 @@ public sealed partial class AssemblyDependencyResolver :
         return new AssemblyResolutionAttempt(
             Assembly: null,
             candidateFailure,
+            AdmissionFailure: candidateAdmissionFailure,
             MissDisposition: activeTier is not null
                 || installedPlatformOwnsName
                     ? AssemblyBindingMissDisposition.NameOwnedNoMatch
                     : AssemblyBindingMissDisposition.NoNameOwner);
     }
+
+    static bool ShouldReplaceCandidateFailure(
+        CandidateOpenFailureKind? retainedKind,
+        ExceptionDispatchInfo? retainedAdmissionFailure,
+        AssemblyDescriptorResolution candidate) =>
+        retainedKind is null
+        || CandidateFailurePrecedence(
+                candidate.FailureKind,
+                candidate.AdmissionFailure)
+            > CandidateFailurePrecedence(
+                retainedKind,
+                retainedAdmissionFailure);
+
+    static int CandidateFailurePrecedence(
+        CandidateOpenFailureKind? kind,
+        ExceptionDispatchInfo? admissionFailure) =>
+        kind switch
+        {
+            CandidateOpenFailureKind.ResourceBudget => 2,
+            _ when admissionFailure is not null => 1,
+            _ => 0,
+        };
 
     AssemblyResolutionAttempt? ResolveDesignatedOverlay(
         IReadOnlyList<ResolvedAssemblyDependency> candidates,
@@ -417,6 +466,8 @@ public sealed partial class AssemblyDependencyResolver :
         }
         var entitled = new List<ResolvedAssemblyReference>();
         CandidateOpenFailureKind? budgetFailure = null;
+        CandidateOpenFailureKind? admissionFailureKind = null;
+        ExceptionDispatchInfo? admissionFailure = null;
         foreach (ResolvedAssemblyDependency dependency in candidates)
         {
             bool designated =
@@ -444,6 +495,22 @@ public sealed partial class AssemblyDependencyResolver :
                 budgetFailure =
                     CandidateOpenFailureKind.ResourceBudget;
             }
+            else if (descriptor.FailureKind
+                    is CandidateOpenFailureKind.UnsupportedMetadataFormat
+                        or CandidateOpenFailureKind.InvalidImage
+                && descriptor.AdmissionFailure is not null
+                && (designated
+                    || PathNameMatches(dependency, identity)))
+            {
+                if (ShouldReplaceCandidateFailure(
+                        admissionFailureKind,
+                        admissionFailure,
+                        descriptor))
+                {
+                    admissionFailureKind = descriptor.FailureKind;
+                    admissionFailure = descriptor.AdmissionFailure;
+                }
+            }
         }
 
         bool allowPlatformVersionRollForward =
@@ -460,6 +527,13 @@ public sealed partial class AssemblyDependencyResolver :
             return new AssemblyResolutionAttempt(
                 Assembly: null,
                 budgetFailure);
+        }
+        if (admissionFailureKind is not null)
+        {
+            return new AssemblyResolutionAttempt(
+                Assembly: null,
+                admissionFailureKind,
+                AdmissionFailure: admissionFailure);
         }
         if (selection is null)
             return null;
@@ -594,7 +668,10 @@ public sealed partial class AssemblyDependencyResolver :
             return AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
                     AssemblyBindingFailureKind.CandidateUnavailable,
-                    ClassifyCandidateOpenFailure(ex)));
+                    ClassifyCandidateOpenFailure(ex))
+                {
+                    MetadataRootReason = MalformedRootReason(ex),
+                });
         }
     }
 
@@ -616,7 +693,11 @@ public sealed partial class AssemblyDependencyResolver :
             ? AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
                     AssemblyBindingFailureKind.CandidateUnavailable,
-                    candidateFailure))
+                    candidateFailure)
+                {
+                    MetadataRootReason = MalformedRootReason(
+                        attempt.AdmissionFailure?.SourceException),
+                })
             : attempt.MissDisposition switch
             {
                 null or AssemblyBindingMissDisposition.Undifferentiated =>
@@ -651,7 +732,11 @@ public sealed partial class AssemblyDependencyResolver :
             ? AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
                     AssemblyBindingFailureKind.CandidateUnavailable,
-                    target.FailureKind))
+                    target.FailureKind)
+                {
+                    MetadataRootReason = MalformedRootReason(
+                        target.AdmissionFailure?.SourceException),
+                })
             : IntrinsicCoreLibraryBinding.Select(
                 target.Assembly,
                 facade => SelectReference(facade, scope));
@@ -698,6 +783,7 @@ public sealed partial class AssemblyDependencyResolver :
             throw new AssemblyDependencySnapshotBudgetExceededException(
                 _options.MaxSnapshotImageBytes);
         }
+        result.AdmissionFailure?.Throw();
 
         return result.Assembly;
     }
@@ -732,7 +818,8 @@ public sealed partial class AssemblyDependencyResolver :
                     Assembly: null,
                     ClassifyCandidateOpenFailure(
                         failure
-                        ?? new BadImageFormatException()));
+                        ?? new BadImageFormatException()),
+                    CaptureAdmissionFailure(failure));
         }
 
         SnapshotImageResolution snapshot =
@@ -749,7 +836,8 @@ public sealed partial class AssemblyDependencyResolver :
             return new(
                 Assembly: null,
                 snapshot.FailureKind
-                ?? CandidateOpenFailureKind.Unreadable);
+                ?? CandidateOpenFailureKind.Unreadable,
+                snapshot.AdmissionFailure);
         }
 
         byte[] image = snapshot.Image;
@@ -783,8 +871,11 @@ public sealed partial class AssemblyDependencyResolver :
 
             using var stream = new MemoryStream(image, writable: false);
             using var reader =
-                new System.Reflection.PortableExecutable.PEReader(stream);
-            if (!reader.HasMetadata)
+                new System.Reflection.PortableExecutable.PEReader(
+                    stream,
+                    System.Reflection.PortableExecutable.PEStreamOptions
+                        .LeaveOpen);
+            if (!MetadataFormatAdmission.AdmitImage(reader))
             {
                 return new(
                     Identity: null,
@@ -794,7 +885,7 @@ public sealed partial class AssemblyDependencyResolver :
 
             AssemblyReferenceIdentity identity =
                 AssemblyReferenceIdentity.FromAssemblyDefinition(
-                    reader.GetMetadataReader());
+                    MetadataFormatAdmission.GetMetadataReader(reader));
             reservedBytes = 0;
             return new(identity, image, FailureKind: null);
         }
@@ -817,7 +908,8 @@ public sealed partial class AssemblyDependencyResolver :
             return new(
                 Identity: null,
                 Image: null,
-                ClassifyCandidateOpenFailure(ex));
+                ClassifyCandidateOpenFailure(ex),
+                CaptureAdmissionFailure(ex));
         }
         finally
         {
@@ -851,6 +943,8 @@ public sealed partial class AssemblyDependencyResolver :
         Exception exception) =>
         exception switch
         {
+            UnsupportedMetadataFormatException =>
+                CandidateOpenFailureKind.UnsupportedMetadataFormat,
             BadImageFormatException
                 or ArgumentOutOfRangeException
                 or OverflowException =>
@@ -859,6 +953,19 @@ public sealed partial class AssemblyDependencyResolver :
                 CandidateOpenFailureKind.ResourceBudget,
             _ => CandidateOpenFailureKind.Unreadable,
         };
+
+    static ExceptionDispatchInfo? CaptureAdmissionFailure(
+        Exception? exception) =>
+        exception is UnsupportedMetadataFormatException
+            or MalformedMetadataRootException
+                ? ExceptionDispatchInfo.Capture(exception)
+                : null;
+
+    static MetadataRootMalformedReason? MalformedRootReason(
+        Exception? exception) =>
+        exception is MalformedMetadataRootException malformed
+            ? malformed.Reason
+            : null;
 
     readonly record struct AssemblyBindingRequestKey(
         AssemblyBindingTarget Target,
@@ -888,6 +995,7 @@ public sealed partial class AssemblyDependencyResolver :
         CandidateOpenFailureKind? CandidateFailure,
         ImmutableArray<ResolvedAssemblyReference> ShadowedAssemblies = default,
         ImmutableArray<ResolvedAssemblyReference> AmbiguousAssemblies = default,
+        ExceptionDispatchInfo? AdmissionFailure = null,
         AssemblyBindingMissDisposition? MissDisposition = null);
 
     readonly record struct AssemblyDescriptorKey(
@@ -896,11 +1004,13 @@ public sealed partial class AssemblyDependencyResolver :
 
     sealed record AssemblyDescriptorResolution(
         ResolvedAssemblyReference? Assembly,
-        CandidateOpenFailureKind? FailureKind);
+        CandidateOpenFailureKind? FailureKind,
+        ExceptionDispatchInfo? AdmissionFailure = null);
 
     sealed record SnapshotImageResolution(
         AssemblyReferenceIdentity? Identity,
         byte[]? Image,
-        CandidateOpenFailureKind? FailureKind);
+        CandidateOpenFailureKind? FailureKind,
+        ExceptionDispatchInfo? AdmissionFailure = null);
 
 }

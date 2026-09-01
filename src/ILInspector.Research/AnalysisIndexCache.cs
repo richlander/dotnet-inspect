@@ -162,9 +162,15 @@ static class AnalysisIndexCache
         }
     }
 
-    static Exception SnapshotFailure(CandidateOpenFailure failure) =>
-        failure.Kind switch
+    static Exception SnapshotFailure(CandidateOpenFailure failure)
+    {
+        if (failure.MetadataRootReason is { } reason)
+            return new MalformedMetadataRootException(reason);
+
+        return failure.Kind switch
         {
+            CandidateOpenFailureKind.UnsupportedMetadataFormat =>
+                new UnsupportedMetadataFormatException(),
             CandidateOpenFailureKind.Unreadable =>
                 new IOException(failure.Detail),
             CandidateOpenFailureKind.InvalidImage =>
@@ -173,6 +179,7 @@ static class AnalysisIndexCache
                 new InvalidOperationException(failure.Detail),
             _ => new InvalidOperationException(failure.Detail),
         };
+    }
 
     sealed record PathCachedIndex(
         string Path,

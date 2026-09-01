@@ -1,4 +1,9 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using DotnetInspector.Core;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
@@ -551,6 +556,134 @@ public sealed class PackageIntegrationsWorkspaceTests
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [Fact]
+    public void UnsupportedMetadataPreflight_PreservesFailureReason()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "package-integrations-unsupported-").FullName;
+        string path = Path.Combine(directory, "Unsupported.dll");
+        File.WriteAllBytes(path, CreateUnsupportedMetadataImage());
+        try
+        {
+            using var workspace =
+                PackageIntegrationsWorkspace.Create(
+                    [new(path, "net11.0")],
+                    "Test.Package",
+                    "1.0.0");
+
+            Assert.True(
+                workspace.TryGetPreflightFailure(
+                    path,
+                    out PackageIntegrationPreflightFailure failure));
+            Assert.Contains(
+                "unsupported metadata format",
+                failure.Reason,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.IsType<UnsupportedMetadataFormatException>(
+                failure.AdmissionException);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task MalformedMetadataPreflight_PreservesGroupedReason()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "package-integrations-malformed-").FullName;
+        string path = Path.Combine(directory, "Malformed.dll");
+        byte[] image = File.ReadAllBytes(
+            typeof(PackageIntegrationsWorkspaceTests).Assembly.Location);
+        using (var peReader = new PEReader(
+            ImmutableArray.Create(image)))
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                image.AsSpan(
+                    peReader.PEHeaders.MetadataStartOffset,
+                    sizeof(uint)),
+                0xDEADBEEF);
+        }
+        File.WriteAllBytes(path, image);
+        try
+        {
+            using var workspace =
+                PackageIntegrationsWorkspace.Create(
+                    [new(path, "net11.0")],
+                    "Test.Package",
+                    "1.0.0");
+            List<(string FileName, string Reason)> failures = [];
+
+            LibraryInspection? inspection =
+                await Commands.PackageCommand
+                    .InspectGroupedAssemblyAsync(
+                        workspace,
+                        path,
+                        "ref/net11.0/Malformed.dll",
+                        failures,
+                        (_, _, _) => throw new InvalidOperationException(
+                            "Inspection must not run."));
+
+            Assert.Null(inspection);
+            var failure = Assert.Single(failures);
+            Assert.Equal(
+                "malformed metadata root (InvalidSignature)",
+                failure.Reason);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static byte[] CreateUnsupportedMetadataImage()
+    {
+        const int fixedMetadataRootPrefixLength = 16;
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Unsupported.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Unsupported"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var peBuilder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                "WindowsRuntime 1.4;CLR v4.0.30319",
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var imageBuilder = new BlobBuilder();
+        peBuilder.Serialize(imageBuilder);
+        byte[] image = imageBuilder.ToArray();
+        using var peReader = new PEReader(ImmutableArray.Create(image));
+        int metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            image.AsSpan(metadataStart + 12, sizeof(int)));
+        BinaryPrimitives.WriteInt32LittleEndian(
+            image.AsSpan(
+                peReader.PEHeaders.CorHeaderStartOffset + 12,
+                sizeof(int)),
+            fixedMetadataRootPrefixLength + versionLength);
+        return image;
     }
 
     [Fact]

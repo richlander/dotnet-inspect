@@ -107,11 +107,17 @@ public enum PlatformTypeLookupFailureKind
     InvalidPattern,
     CatalogUnavailable,
     InvalidAssembly,
+    NoMetadata,
+    UnsupportedMetadataFormat,
+    MalformedMetadataRoot,
 }
 
 public sealed record PlatformTypeLookupFailure(
     PlatformTypeLookupFailureKind Kind,
-    string Detail);
+    string Detail)
+{
+    public MetadataRootMalformedReason? MetadataRootReason { get; init; }
+}
 
 /// <summary>
 /// Closed platform source-selection outcome. Only <see cref="Resolved"/>
@@ -288,6 +294,7 @@ internal sealed class PlatformTypeCatalog
         {
             var entries =
                 ImmutableArray.CreateBuilder<PlatformTypeLookupCandidate>();
+            PlatformTypeLookupFailure? retainedFailure = null;
             string[] assemblyPaths =
             [
                 .. Directory
@@ -303,19 +310,84 @@ internal sealed class PlatformTypeCatalog
 
             foreach (string path in assemblyPaths)
             {
-                ResolvedAssemblyReference assembly =
-                    ResolvedAssemblyReference.CreateFromPath(
-                        path,
-                        AssemblyResolutionProvenance.Platform(
-                            framework,
-                            frameworkVersion,
-                            "PlatformTypeCatalog"));
-                if (AssemblyTypeDeclarationInventoryReader.Read(assembly)
+                ResolvedAssemblyReference? assembly;
+                try
+                {
+                    assembly =
+                        ResolvedAssemblyReference.CreateFromPathIfManaged(
+                            path,
+                            AssemblyResolutionProvenance.Platform(
+                                framework,
+                                frameworkVersion,
+                                "PlatformTypeCatalog"));
+                    if (assembly is null)
+                    {
+                        RetainFailure(
+                            ref retainedFailure,
+                            new PlatformTypeLookupFailure(
+                                PlatformTypeLookupFailureKind.NoMetadata,
+                                "A platform reference assembly contains no managed metadata."));
+                        continue;
+                    }
+                }
+                catch (UnsupportedMetadataFormatException ex)
+                {
+                    RetainFailure(
+                        ref retainedFailure,
+                        new PlatformTypeLookupFailure(
+                            PlatformTypeLookupFailureKind
+                                .UnsupportedMetadataFormat,
+                            ex.Message));
+                    continue;
+                }
+                catch (MalformedMetadataRootException ex)
+                {
+                    RetainFailure(
+                        ref retainedFailure,
+                        new PlatformTypeLookupFailure(
+                            PlatformTypeLookupFailureKind
+                                .MalformedMetadataRoot,
+                            ex.Message)
+                        {
+                            MetadataRootReason = ex.Reason,
+                        });
+                    continue;
+                }
+                catch (Exception ex) when (
+                    ex is BadImageFormatException
+                        or ArgumentOutOfRangeException
+                        or OverflowException)
+                {
+                    RetainFailure(
+                        ref retainedFailure,
+                        new PlatformTypeLookupFailure(
+                            PlatformTypeLookupFailureKind.InvalidAssembly,
+                            "A platform reference assembly contains invalid metadata."));
+                    continue;
+                }
+                catch (Exception ex) when (
+                    ex is IOException or UnauthorizedAccessException)
+                {
+                    RetainFailure(
+                        ref retainedFailure,
+                        new PlatformTypeLookupFailure(
+                            PlatformTypeLookupFailureKind.CatalogUnavailable,
+                            "A platform reference assembly could not be read."));
+                    continue;
+                }
+
+                AssemblyTypeDeclarationInventoryOutcome inventory =
+                    AssemblyTypeDeclarationInventoryReader.Read(assembly);
+                if (inventory
                     is not AssemblyTypeDeclarationInventoryOutcome.Read read)
                 {
-                    return Rejected(
-                        PlatformTypeLookupFailureKind.InvalidAssembly,
-                        "A platform reference assembly could not be inventoried.");
+                    var rejected =
+                        (AssemblyTypeDeclarationInventoryOutcome.Rejected)
+                            inventory;
+                    RetainFailure(
+                        ref retainedFailure,
+                        PlatformFailure(rejected.Failure));
+                    continue;
                 }
 
                 foreach (MetadataTypeDefinitionName definition
@@ -337,6 +409,10 @@ internal sealed class PlatformTypeCatalog
                 }
             }
 
+            if (retainedFailure is not null)
+                return new PlatformTypeCatalogResult.Rejected(
+                    retainedFailure);
+
             return new PlatformTypeCatalogResult.Ready(
                 new PlatformTypeCatalog(
                     entries
@@ -356,14 +432,70 @@ internal sealed class PlatformTypeCatalog
         }
         catch (Exception ex) when (
             ex is IOException
-                or UnauthorizedAccessException
-                or BadImageFormatException)
+                or UnauthorizedAccessException)
         {
             return Rejected(
                 PlatformTypeLookupFailureKind.CatalogUnavailable,
                 "The platform reference catalog could not be built.");
         }
     }
+
+    internal static bool ShouldReplaceFailure(
+        PlatformTypeLookupFailure? retained,
+        PlatformTypeLookupFailure candidate) =>
+        retained is null
+        || FailurePrecedence(candidate)
+            > FailurePrecedence(retained);
+
+    static void RetainFailure(
+        ref PlatformTypeLookupFailure? retained,
+        PlatformTypeLookupFailure candidate)
+    {
+        if (ShouldReplaceFailure(retained, candidate))
+            retained = candidate;
+    }
+
+    static int FailurePrecedence(
+        PlatformTypeLookupFailure failure) =>
+        failure.Kind switch
+        {
+            PlatformTypeLookupFailureKind.InvalidPattern => 3,
+            PlatformTypeLookupFailureKind
+                .UnsupportedMetadataFormat
+                or PlatformTypeLookupFailureKind
+                    .MalformedMetadataRoot => 2,
+            PlatformTypeLookupFailureKind.NoMetadata
+                or PlatformTypeLookupFailureKind.InvalidAssembly => 1,
+            _ => 0,
+        };
+
+    static PlatformTypeLookupFailure PlatformFailure(
+        CandidateOpenFailure failure) =>
+        failure.Kind switch
+        {
+            CandidateOpenFailureKind.UnsupportedMetadataFormat =>
+                new PlatformTypeLookupFailure(
+                    PlatformTypeLookupFailureKind
+                        .UnsupportedMetadataFormat,
+                    failure.Detail),
+            CandidateOpenFailureKind.InvalidImage
+                when failure.MetadataRootReason is not null =>
+                    new PlatformTypeLookupFailure(
+                        PlatformTypeLookupFailureKind
+                            .MalformedMetadataRoot,
+                        failure.Detail)
+                    {
+                        MetadataRootReason =
+                            failure.MetadataRootReason,
+                    },
+            CandidateOpenFailureKind.InvalidImage =>
+                new PlatformTypeLookupFailure(
+                    PlatformTypeLookupFailureKind.InvalidAssembly,
+                    failure.Detail),
+            _ => new PlatformTypeLookupFailure(
+                PlatformTypeLookupFailureKind.CatalogUnavailable,
+                failure.Detail),
+        };
 
     static PlatformTypeCatalogResult.Rejected Rejected(
         PlatformTypeLookupFailureKind kind,

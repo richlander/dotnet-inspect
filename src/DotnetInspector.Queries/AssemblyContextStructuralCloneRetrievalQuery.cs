@@ -805,7 +805,8 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
 
         public static ValidatedImage Create(PEReader image)
         {
-            MetadataReader reader = image.GetMetadataReader();
+            MetadataReader reader =
+                MetadataFormatAdmission.GetMetadataReader(image);
             ValidateMethodOwnership(reader);
             return new ValidatedImage(reader);
         }

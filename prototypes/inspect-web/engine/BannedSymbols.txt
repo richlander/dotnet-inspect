@@ -45,6 +45,7 @@ T:ILInspector.Metadata.MethodClassificationScanner;Method classification belongs
 T:ILInspector.Metadata.ResourceScanner;Resource inspection belongs to product queries, not raw package streams in the browser host.
 T:ILInspector.Metadata.TypeHierarchyScanner;Type-hierarchy inspection belongs to product queries, not raw package streams in the browser host.
 T:ILInspector.Metadata.TypeDependencyScanner;Path-based type dependency inspection belongs to product queries, not the browser host.
+T:ILInspector.Metadata.TypeDependencyRejection;Dependency-scan rejection receipts carry the rejected participant's host path and follow TypeDependencyScanner out of the browser host.
 T:ILInspector.Metadata.MemberSearch;Path-based member inspection belongs to product queries, not the browser host.
 T:ILInspector.Metadata.Corpus;Corpus search opens assembly paths carried by CorpusMember and belongs to product queries, not the browser host.
 T:DotnetInspector.Services.PdbAcquisitionService;PDB acquisition belongs to the source query that owns its metadata context, not the browser host.

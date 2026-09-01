@@ -104,9 +104,9 @@ public static class IlAssemblyDiff
         using var newPe = new PEReader(newStream, PEStreamOptions.LeaveOpen);
         var result = Compare(
             oldPe,
-            oldPe.GetMetadataReader(),
+            MetadataFormatAdmission.GetMetadataReader(oldPe),
             newPe,
-            newPe.GetMetadataReader(),
+            MetadataFormatAdmission.GetMetadataReader(newPe),
             maxExamples,
             normalization);
         return new IlAssemblyDiffPairResult(oldName, newName, result);
@@ -124,6 +124,8 @@ public static class IlAssemblyDiff
         ArgumentNullException.ThrowIfNull(oldReader);
         ArgumentNullException.ThrowIfNull(newPe);
         ArgumentNullException.ThrowIfNull(newReader);
+        oldReader = MetadataFormatAdmission.GetMetadataReader(oldPe);
+        newReader = MetadataFormatAdmission.GetMetadataReader(newPe);
         if (maxExamples < 0)
             throw new ArgumentOutOfRangeException(nameof(maxExamples), maxExamples, "Example count must be non-negative.");
 
@@ -282,6 +284,8 @@ public static class IlAssemblyDiff
         ArgumentNullException.ThrowIfNull(oldReader);
         ArgumentNullException.ThrowIfNull(newPe);
         ArgumentNullException.ThrowIfNull(newReader);
+        oldReader = MetadataFormatAdmission.GetMetadataReader(oldPe);
+        newReader = MetadataFormatAdmission.GetMetadataReader(newPe);
         if (oldMethod.IsNil)
             throw new ArgumentException("Old method handle must not be nil.", nameof(oldMethod));
         if (newMethod.IsNil)

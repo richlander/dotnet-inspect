@@ -424,6 +424,34 @@ public partial class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
+    /// <summary>
+    /// Builds a package whose highest target framework holds both a healthy and
+    /// a rejected assembly. Target-framework selection keeps only that group, so
+    /// this is the shape that exercises a scoped rejection under
+    /// <c>--package</c>.
+    /// </summary>
+    private static (string PackagePath, string TempDir)
+        CreateSameTfmMixedPackage()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"same-tfm-admission-package-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string libDirectory = Path.Combine(packageRoot, "lib", "net10.0");
+        Directory.CreateDirectory(libDirectory);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(libDirectory, "Good.dll"));
+        WriteUnsupportedMetadataAssembly(
+            Path.Combine(libDirectory, "Bad.dll"));
+
+        string packagePath = Path.Combine(
+            tempDir,
+            "Mixed.Neighbor.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
     private static void WriteMalformedTypeNameAssembly(
         string path,
         bool includeHealthyType = false)
@@ -950,6 +978,152 @@ public partial class CommandExecutionTests
         var packagePath = Path.Combine(tempDir, "Test.MultiLib.1.0.0.nupkg");
         ZipFile.CreateFromDirectory(packageRoot, packagePath);
         return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreateMetadataAdmissionMixedPackage(
+            bool includeIdentifierAuditFailure = false,
+            bool includeUnsupportedMember = true)
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"metadata-admission-package-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string net8Directory = Path.Combine(
+            packageRoot,
+            "lib",
+            "net8.0");
+        string net9Directory = Path.Combine(
+            packageRoot,
+            "lib",
+            "net9.0");
+        string net10Directory = Path.Combine(
+            packageRoot,
+            "lib",
+            "net10.0");
+        Directory.CreateDirectory(net8Directory);
+        Directory.CreateDirectory(net9Directory);
+        Directory.CreateDirectory(net10Directory);
+        if (includeIdentifierAuditFailure)
+        {
+            WriteReferenceFixtureAssembly(
+                Path.Combine(net8Directory, "Lib.dll"),
+                "Lib",
+                "Bridge");
+            File.WriteAllText(
+                Path.Combine(net8Directory, "Bridge.dll"),
+                "not a managed assembly");
+        }
+        else
+        {
+            File.Copy(
+                TestAssemblyPath,
+                Path.Combine(net8Directory, "Lib.dll"));
+        }
+        WriteMalformedMetadataRootAssembly(
+            Path.Combine(net9Directory, "Lib.dll"));
+        if (includeUnsupportedMember)
+        {
+            WriteUnsupportedMetadataAssembly(
+                Path.Combine(net10Directory, "Lib.dll"));
+        }
+
+        string packagePath = Path.Combine(
+            tempDir,
+            includeIdentifierAuditFailure
+                ? "Metadata.Admission.Audit.1.0.0.nupkg"
+                : "Metadata.Admission.Mixed.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreateMetadataAdmissionSinglePackage(bool unsupported)
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"metadata-admission-single-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string libraryDirectory = Path.Combine(
+            packageRoot,
+            "lib",
+            "net10.0");
+        Directory.CreateDirectory(libraryDirectory);
+        string assemblyPath = Path.Combine(libraryDirectory, "Lib.dll");
+        if (unsupported)
+            WriteUnsupportedMetadataAssembly(assemblyPath);
+        else
+            WriteMalformedMetadataRootAssembly(assemblyPath);
+
+        string packagePath = Path.Combine(
+            tempDir,
+            unsupported
+                ? "Metadata.Admission.Unsupported.1.0.0.nupkg"
+                : "Metadata.Admission.Malformed.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static void WriteMalformedMetadataRootAssembly(string path)
+    {
+        WriteReferenceFixtureAssembly(path, "Lib");
+        byte[] image = File.ReadAllBytes(path);
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            image.AsSpan(
+                peReader.PEHeaders.MetadataStartOffset,
+                sizeof(uint)),
+            0);
+        File.WriteAllBytes(path, image);
+    }
+
+    private static void WriteUnsupportedMetadataAssembly(string path)
+    {
+        const int fixedMetadataRootPrefixLength = 16;
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(Path.GetFileName(path)),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Lib"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var peBuilder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                "WindowsRuntime 1.4;CLR v4.0.30319",
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var imageBuilder = new BlobBuilder();
+        peBuilder.Serialize(imageBuilder);
+        byte[] image = imageBuilder.ToArray();
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        int metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            image.AsSpan(metadataStart + 12, sizeof(int)));
+        BinaryPrimitives.WriteInt32LittleEndian(
+            image.AsSpan(
+                peReader.PEHeaders.CorHeaderStartOffset + 12,
+                sizeof(int)),
+            fixedMetadataRootPrefixLength + versionLength);
+        File.WriteAllBytes(path, image);
     }
 
     private static (string AssemblyPath, string SourcePath, string FixtureDir)
@@ -19344,12 +19518,18 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Contains("U+0405→S", output);
-            Assert.Equal(
-                "Warning: Identifier audit failed for "
-                + "'lib/net8.0/Root.dll': invalid assembly metadata"
-                + Environment.NewLine,
+            Assert.Contains(
+                "Warning: Library inspection failed for "
+                + "'lib/net8.0/Bridge.dll': malformed metadata root "
+                + "(UnmappableMetadataDirectory)",
                 error);
-            Assert.DoesNotContain("Bridge", error);
+            Assert.Contains(
+                "Warning: Identifier audit failed for "
+                + "'lib/net8.0/Root.dll': invalid assembly metadata",
+                error);
+            Assert.DoesNotContain(
+                "MalformedMetadataRootException",
+                error);
         }
         finally
         {
@@ -24813,6 +24993,424 @@ public partial class CommandExecutionTests
                 error);
             Assert.DoesNotContain(
                 "IdentifierConfusionReferenceTraversalException",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageInspection_FormatRejectedMembersDoNotHideHealthyResults()
+    {
+        var (packagePath, tempDir) =
+            CreateMetadataAdmissionMixedPackage();
+        try
+        {
+            var library = await RunAppAsync(
+                "library",
+                "Lib.dll",
+                "--package",
+                packagePath,
+                "--tfm",
+                "all",
+                "-S",
+                "Library Info",
+                "--tips",
+                "q");
+            var package = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "--tfm",
+                "all",
+                "-S",
+                "Library Info",
+                "--tips",
+                "q");
+
+            foreach (var result in new[] { library, package })
+            {
+                Assert.Equal(1, result.Exit);
+                Assert.Contains("net8.0", result.Output);
+                Assert.Contains(
+                    "Library inspection failed for "
+                    + "'lib/net10.0/Lib.dll': "
+                    + "unsupported metadata format",
+                    result.Error);
+                Assert.Contains(
+                    "Library inspection failed for "
+                    + "'lib/net9.0/Lib.dll': "
+                    + "malformed metadata root (InvalidSignature)",
+                    result.Error);
+                Assert.DoesNotContain(
+                    "UnsupportedMetadataFormatException",
+                    result.Error);
+                Assert.DoesNotContain(
+                    "MalformedMetadataRootException",
+                    result.Error);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    // `depends` selects a single target framework, so it has no healthy
+    // neighbour to fall back on; its own scoping is gated separately below.
+    [Theory]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task
+        PackageTypeProbe_UnsupportedMemberDoesNotHideHealthyNeighbor(
+            string command)
+    {
+        var (packagePath, tempDir) =
+            CreateMetadataAdmissionMixedPackage();
+        try
+        {
+            var result = await RunAppAsync(
+                command,
+                "CommandExecutionTests",
+                "--package",
+                packagePath,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Contains("CommandExecutionTests", result.Output);
+            Assert.Contains(
+                "Library inspection failed for "
+                + "'lib/net10.0/Lib.dll': "
+                + "unsupported metadata format",
+                result.Error);
+            Assert.DoesNotContain(
+                "UnsupportedMetadataFormatException",
+                result.Error);
+            Assert.DoesNotContain(".cs:line", result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task
+        PackageTypeProbe_MalformedMemberDoesNotHideHealthyNeighbor(
+            string command)
+    {
+        var (packagePath, tempDir) =
+            CreateMetadataAdmissionMixedPackage(
+                includeUnsupportedMember: false);
+        try
+        {
+            var result = await RunAppAsync(
+                command,
+                "CommandExecutionTests",
+                "--package",
+                packagePath,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Contains("CommandExecutionTests", result.Output);
+            Assert.Contains(
+                "Library inspection failed for "
+                + "'lib/net9.0/Lib.dll': "
+                + "malformed metadata root (InvalidSignature)",
+                result.Error);
+            Assert.DoesNotContain(
+                "MalformedMetadataRootException",
+                result.Error);
+            Assert.DoesNotContain(".cs:line", result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        DependsTypeProbe_RejectedLibraryDoesNotHideHealthyNeighbor()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"depends-admission-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        string unsupportedPath = Path.Combine(tempDir, "Unsupported.dll");
+        WriteUnsupportedMetadataAssembly(unsupportedPath);
+        try
+        {
+            var result = await RunAppAsync(
+                "depends",
+                "CommandExecutionTests",
+                "--library",
+                TestAssemblyPath,
+                "--library",
+                unsupportedPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Contains(
+                "Library inspection failed for 'Unsupported.dll': "
+                + "unsupported metadata format",
+                result.Error);
+            Assert.DoesNotContain(
+                "UnsupportedMetadataFormatException",
+                result.Error);
+            Assert.DoesNotContain(".cs:line", result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        DependsTypeProbe_PackageRejectionUsesPackageRelativeIdentity()
+    {
+        var (packagePath, tempDir) = CreateSameTfmMixedPackage();
+        try
+        {
+            var result = await RunAppAsync(
+                "depends",
+                "CommandExecutionTests",
+                "--package",
+                packagePath,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+
+            // The rejected participant is named the way every other package
+            // command names it: relative to the extraction directory, with no
+            // temporary-directory scaffolding and no absolute host path.
+            Assert.Contains(
+                "Library inspection failed for 'lib/net10.0/Bad.dll': "
+                + "unsupported metadata format",
+                result.Error);
+            Assert.DoesNotContain("extracted/", result.Error);
+            Assert.DoesNotContain(Path.GetTempPath(), result.Error);
+            Assert.DoesNotContain(
+                "UnsupportedMetadataFormatException",
+                result.Error);
+            Assert.DoesNotContain(".cs:line", result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(
+        true,
+        "Windows Metadata is not a supported metadata format.")]
+    [InlineData(
+        false,
+        "The assembly metadata root is malformed (InvalidSignature).")]
+    public async Task
+        DependsTypeProbe_SoleRejectedSelectionUsesBoundedError(
+            bool unsupported,
+            string expectedError)
+    {
+        var (packagePath, tempDir) =
+            CreateMetadataAdmissionMixedPackage(
+                includeUnsupportedMember: unsupported);
+        try
+        {
+            var result = await RunAppAsync(
+                "depends",
+                "CommandExecutionTests",
+                "--package",
+                packagePath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                $"Error: {expectedError}",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                unsupported
+                    ? "UnsupportedMetadataFormatException"
+                    : "MalformedMetadataRootException",
+                result.Error);
+            Assert.DoesNotContain(".cs:line", result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(
+        true,
+        "Windows Metadata is not a supported metadata format.")]
+    [InlineData(
+        false,
+        "The assembly metadata root is malformed (InvalidSignature).")]
+    public async Task
+        PackageTypeProbe_SoleRejectedMemberUsesBoundedError(
+            bool unsupported,
+            string expectedError)
+    {
+        var (packagePath, tempDir) =
+            CreateMetadataAdmissionSinglePackage(unsupported);
+        try
+        {
+            var result = await RunAppAsync(
+                "type",
+                "CommandExecutionTests",
+                "--package",
+                packagePath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                $"Error: {expectedError}",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                unsupported
+                    ? "UnsupportedMetadataFormatException"
+                    : "MalformedMetadataRootException",
+                result.Error);
+            Assert.DoesNotContain(".cs:line", result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(
+        true,
+        "Windows Metadata is not a supported metadata format.")]
+    [InlineData(
+        false,
+        "The assembly metadata root is malformed (InvalidSignature).")]
+    public async Task PackageInspection_SingleFormatRejectedMemberPreservesTypedError(
+        bool unsupported,
+        string expectedError)
+    {
+        var (packagePath, tempDir) =
+            CreateMetadataAdmissionSinglePackage(unsupported);
+        try
+        {
+            var library = await RunAppAsync(
+                "library",
+                "Lib.dll",
+                "--package",
+                packagePath,
+                "-S",
+                "Metadata: Image",
+                "--tips",
+                "q");
+            var package = await RunAppAsync(
+                "package",
+                packagePath,
+                "--library",
+                "Lib.dll",
+                "-S",
+                "Metadata: Image",
+                "--tips",
+                "q");
+            var allLibraries = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Metadata: Image",
+                "--tips",
+                "q");
+            var groupedAllLibraries = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Configuration",
+                "--tips",
+                "q");
+
+            foreach (var result in new[]
+            {
+                library,
+                package,
+                allLibraries,
+                groupedAllLibraries,
+            })
+            {
+                Assert.Equal(1, result.Exit);
+                Assert.Empty(result.Output);
+                Assert.Equal(
+                    $"Error: {expectedError}{Environment.NewLine}",
+                    result.Error);
+                Assert.DoesNotContain(
+                    "Library inspection failed",
+                    result.Error);
+                Assert.DoesNotContain(
+                    "No libraries could be read",
+                    result.Error);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TfmAll_FormatAndAuditFailuresRemainVisible()
+    {
+        var (packagePath, tempDir) =
+            CreateMetadataAdmissionMixedPackage(
+                includeIdentifierAuditFailure: true);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "Lib.dll",
+                "--package",
+                packagePath,
+                "--tfm",
+                "all",
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Library inspection failed for "
+                + "'lib/net10.0/Lib.dll': unsupported metadata format",
+                error);
+            Assert.Contains(
+                "Library inspection failed for "
+                + "'lib/net9.0/Lib.dll': malformed metadata root "
+                + "(InvalidSignature)",
+                error);
+            Assert.Contains(
+                "Identifier audit failed for "
+                + "'lib/net8.0/Lib.dll': invalid assembly metadata",
+                error);
+            Assert.DoesNotContain(
+                "Error: Identifier audit could not inspect",
                 error);
         }
         finally

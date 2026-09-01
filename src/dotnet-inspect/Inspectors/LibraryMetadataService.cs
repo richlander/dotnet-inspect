@@ -511,6 +511,14 @@ internal static class LibraryMetadataService
         {
             throw;
         }
+        catch (UnsupportedMetadataFormatException)
+        {
+            throw;
+        }
+        catch (MalformedMetadataRootException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             logger.LogWarning($"Failed to inspect {Path.GetFileName(path)}: {ex.Message}");
@@ -1317,6 +1325,8 @@ internal static class LibraryMetadataService
             AssemblyBindingFailure failure) =>
         failure.CandidateFailureKind switch
         {
+            CandidateOpenFailureKind.UnsupportedMetadataFormat =>
+                IdentifierConfusionAuditFailureKind.InvalidAssemblyMetadata,
             CandidateOpenFailureKind.InvalidImage =>
                 IdentifierConfusionAuditFailureKind.InvalidAssemblyMetadata,
             CandidateOpenFailureKind.Unreadable =>
@@ -1326,10 +1336,12 @@ internal static class LibraryMetadataService
             _ => IdentifierConfusionAuditFailureKind.InspectionFailed,
         };
 
-    private static IdentifierConfusionAuditFailureKind
+    internal static IdentifierConfusionAuditFailureKind
         ClassifyIdentifierConfusionReferenceFailure(Exception exception) =>
         exception switch
         {
+            UnsupportedMetadataFormatException =>
+                IdentifierConfusionAuditFailureKind.InvalidAssemblyMetadata,
             BadImageFormatException
                 or ArgumentOutOfRangeException
                 or OverflowException =>

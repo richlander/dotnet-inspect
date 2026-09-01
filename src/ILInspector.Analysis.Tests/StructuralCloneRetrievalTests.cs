@@ -6,6 +6,8 @@ using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Fixtures;
 using ILInspector.Analysis.StructuralCloneFixtures;
+using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -48,6 +50,32 @@ public class StructuralCloneRetrievalTests
                     metadataFree,
                     []));
         Assert.Equal("candidateImage", candidateException.ParamName);
+    }
+
+    [Fact]
+    public void RetrieveSimilar_MalformedMetadataRootPreservesReason()
+    {
+        byte[] bytes = File.ReadAllBytes(
+            typeof(StructuralCloneFixture).Assembly.Location);
+        using (var valid = new PEReader(
+            new MemoryStream(bytes, writable: false)))
+        {
+            bytes[valid.PEHeaders.MetadataStartOffset] = 0;
+        }
+        using var image = new PEReader(
+            new MemoryStream(bytes, writable: false));
+
+        StructuralCloneRetrievalResult result =
+            StructuralCloneAnalysis.RetrieveSimilar(
+                image,
+                MetadataTokens.MethodDefinitionHandle(1),
+                [MetadataTokens.MethodDefinitionHandle(2)]);
+
+        StructuralCloneRetrievalBlocker blocker =
+            Assert.Single(result.Blockers);
+        Assert.Equal(
+            MetadataRootMalformedReason.InvalidSignature,
+            blocker.MetadataRootReason);
     }
 
     [Fact]

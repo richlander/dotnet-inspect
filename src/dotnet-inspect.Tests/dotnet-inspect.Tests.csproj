@@ -33,6 +33,7 @@
     <ProjectReference Include="..\ILInspector.ILDiff\ILInspector.ILDiff.csproj" />
     <ProjectReference Include="..\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
     <ProjectReference Include="..\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
+    <ProjectReference Include="..\ILInspector.TypeScriptGeneration\ILInspector.TypeScriptGeneration.csproj" />
     <ProjectReference Include="..\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\DotnetInspector.HostileNameFixtures\DotnetInspector.HostileNameFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\DotnetInspector.Queries.EmbeddedFixtures\DotnetInspector.Queries.EmbeddedFixtures.csproj" />
