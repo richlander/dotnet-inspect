@@ -2547,7 +2547,7 @@ function typeDisplayName(
   return item?.displayName || item?.name || "";
 }
 
-function render() {
+function render(options: { synchronizeUrl?: boolean } = {}) {
   sourceInspection.cancelHiddenRequest();
   document.body.classList.remove("package-query-route");
 
@@ -2730,7 +2730,7 @@ function render() {
   restorePackageQueryReturnFocus();
   restorePackageQueryWorkspaceFocus();
   recordNav();
-  syncUrl();
+  if (options.synchronizeUrl !== false) syncUrl();
   maybeAutoLoadVisibleSource();
   maybeAutoLoadTypeMetadata();
   maybeAutoLoadPackageDependencies();
@@ -10704,7 +10704,7 @@ window.addEventListener("popstate", () => {
   const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation();
   invalidateMemberCallGraphWork(state);
   invalidateGraphMemberNavigation();
-  if (dismissedAnnotatedSourceModal) render();
+  if (dismissedAnnotatedSourceModal) render({ synchronizeUrl: false });
   if (isPackageQueryPath(location.pathname)) {
     clearNavigationError();
     applyPackageQueryHistory(history.state);

@@ -2055,7 +2055,10 @@ test("annotated source Escape and history ownership track the mounted surface", 
     ?? "";
   assert.match(
     popstate,
-    /const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberCallGraphWork\(state\);\s*invalidateGraphMemberNavigation\(\);\s*if \(dismissedAnnotatedSourceModal\) render\(\);\s*if \(isPackageQueryPath/);
+    /const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberCallGraphWork\(state\);\s*invalidateGraphMemberNavigation\(\);\s*if \(dismissedAnnotatedSourceModal\) render\(\{ synchronizeUrl: false \}\);\s*if \(isPackageQueryPath/);
+  assert.match(
+    appSource,
+    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\)[\s\S]*if \(options\.synchronizeUrl !== false\) syncUrl\(\)/);
 });
 
 test("leaving package search clears its pending loading state", () => {
@@ -2247,7 +2250,9 @@ test("ready status shows versioned linked build provenance", () => {
 
 test("bare home paints before wasm engine download", () => {
   const renderDispatch =
-    appSource.match(/function render\(\) \{[\s\S]*?const pkg = state\.package;/)?.[0] ?? "";
+    appSource.match(
+      /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{[\s\S]*?const pkg = state\.package;/,
+    )?.[0] ?? "";
   const bootstrap =
     appSource.match(/async function bootstrap\(\) \{[\s\S]*?\n}\n\nfunction computeDiagnostics/)?.[0] ?? "";
   const homePaintWait =
@@ -2791,7 +2796,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
   assert.doesNotMatch(route, /packageQueryController\.run/);
   assert.match(
     appSource,
-    /function render\(\) \{\s*sourceInspection\.cancelHiddenRequest\(\);\s*document\.body\.classList\.remove\("package-query-route"\);[\s\S]*if \(state\.packageQueryOpen\s*&& state\.engineReady\s*&& !state\.loading\s*&& !state\.error\) \{\s*document\.body\.classList\.add\("package-query-route"\)/);
+    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{\s*sourceInspection\.cancelHiddenRequest\(\);\s*document\.body\.classList\.remove\("package-query-route"\);[\s\S]*if \(state\.packageQueryOpen\s*&& state\.engineReady\s*&& !state\.loading\s*&& !state\.error\) \{\s*document\.body\.classList\.add\("package-query-route"\)/);
   assert.match(
     stylesSource,
     /@media \(max-width: 860px\) \{\s*body\.package-query-route \{ min-width: 0; \}/);
@@ -3455,7 +3460,9 @@ test("source operations cancel when superseded or hidden", () => {
     /cancelSourceQuery: cancelSourceInspection/);
 
   const renderBody =
-    appSource.match(/function render\(\)[\s\S]*?\n}/)?.[0]
+    appSource.match(
+      /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\)[\s\S]*?\n}/,
+    )?.[0]
     ?? "";
   assert.match(renderBody, /sourceInspection\.cancelHiddenRequest\(\)/);
   assert.match(
