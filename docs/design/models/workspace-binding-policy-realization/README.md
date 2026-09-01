@@ -17,6 +17,8 @@ policy.
   than a placeholder or foreign capability?
 - Can a group or policy become visible without the other?
 - Can pre-publication policy drift reach current workspace state?
+- Can the workspace mutate the composed binding-policy version outside the
+  owner-issued lifecycle?
 - Does each rejected preparation retain its exact typed cause?
 - Does observed drift make the old generation unavailable before a replacement
   becomes current?
@@ -29,8 +31,9 @@ The model consumes rather than redefines three adjacent contracts:
 - the
   [binding selection/version contract](../../type-forwarding-resolution.md#atomic-selectionversion-snapshots)
   owns non-reusable policy versions, atomic selection snapshots, and
-  policy-local refresh; its
-  [models](../binding-selection-version/README.md) check those interactions;
+  policy-local refresh; this model instantiates its owner-issued
+  `AssemblyBindingPolicyVersionLifecycle` module and rechecks the projected
+  safety behavior;
 - the
   [binding composition-currency model](../binding-composition-currency/README.md)
   owns the complete identity-eligible handoff and its finalization; and
@@ -96,13 +99,13 @@ makes no progress claim under continuing policy churn.
 ## Drift and availability
 
 `AdvanceComposedPolicyVersion` represents the adjacent composite-policy owner
-replacing its outer non-reusable version. `RequestCurrentAccess` represents an
-access request arriving after that change; it has not entered the generation or
-observed policy state. `ObservePublishedDrift` represents the workspace gate
-that detects the mismatch and atomically retires current availability. The old
-immutable generation may remain current before an access request reaches that
-gate; its already committed answers remain valid under the binding-version
-contract.
+replacing its outer non-reusable version through the imported owner action.
+`RequestCurrentAccess` represents an access request arriving after that change;
+it has not entered the generation or observed policy state.
+`ObservePublishedDrift` represents the workspace gate that detects the mismatch
+and atomically retires current availability. The old immutable generation may
+remain current before an access request reaches that gate; its already
+committed answers remain valid under the binding-version contract.
 
 Once the workspace observes the mismatch, it atomically removes both the group
 and policy from current admission before starting the replacement. The model
@@ -131,6 +134,8 @@ not immediate resource disposal.
 | `ReplacementFollowsRetirement` | A replacement cannot publish before a previously published generation is retired. |
 | `ReplacementStartsAfterRetirement` | A replacement cannot enter preparation while the previous generation remains current. |
 | `PublicationObservedCurrentVersion` | Every publish step independently witnesses that its captured version was current. |
+| `BindingVersionAdvanceIsFresh` | The imported binding-owner invariant holds for the workspace's projected version state. |
+| `BindingVersionBehaviorRefinesOwner` | Every workspace step changes the projected version state through the owner action or stutters. |
 | `RetirementWasAtomic` | Every drift-retirement step independently witnesses atomic group/policy removal. |
 | `EveryStartedGenerationSettles` | Under weak fairness, each started generation reaches failure, publication, or retirement. |
 | `ObservedVersionDriftEventuallyRetires` | After a current-access gate requests drift observation, the foreign-version generation eventually retires. |
@@ -140,7 +145,7 @@ not immediate resource disposal.
 
 | Configuration | Purpose |
 | --- | --- |
-| `WorkspaceBindingPolicyRealizationSafety.cfg` | Checks all seventeen safety invariants over exact, mismatched, pre-publication-drift, published-drift, and replacement scenarios. |
+| `WorkspaceBindingPolicyRealizationSafety.cfg` | Checks all eighteen safety invariants and the imported owner-behavior refinement property over exact, mismatched, pre-publication-drift, published-drift, and replacement scenarios. |
 | `WorkspaceBindingPolicyRealizationLiveness.cfg` | Checks build settlement, requested-access drift retirement, and progress after stable replacement starts. |
 | `BrokenPreparationMatch.cfg` | Accepts a completion from another preparation; it must violate `AdoptedPolicyMatchesPreparation`. |
 | `BrokenParticipantMatch.cfg` | Accepts a foreign participant plan; it must violate `AdoptedPolicyMatchesParticipants`. |
@@ -151,11 +156,18 @@ not immediate resource disposal.
 | `BrokenPolicyBeforeGroup.cfg` | Constructs a group directly from an unadopted completion; it must violate `GroupConstructionRequiresPolicyAdoption`. |
 | `BrokenConstructedPolicyIdentity.cfg` | Constructs the participant plan with a foreign policy; it must violate `ConstructedParticipantsUseAdoptedPolicy`. |
 | `BrokenPublishVersion.cfg` | Publishes after pre-publication version drift; it must violate `PublicationObservedCurrentVersion`. |
+| `BrokenImportedBindingVersionLifecycle.cfg` | Mutates the outer token state without the imported owner action; it must violate `BindingVersionBehaviorRefinesOwner`. |
 | `BrokenAtomicPublication.cfg` | Publishes a group without its policy; it must violate `PublicationIsAtomic`. |
 | `BrokenAtomicRetirement.cfg` | Retires the group while leaving its policy current; it must independently violate `RetirementWasAtomic`. |
 | `BrokenReplacementStartBeforeRetirement.cfg` | Starts generation two while generation one remains current, while still forbidding early publication; it must violate `ReplacementStartsAfterRetirement`. |
 | `BrokenReplacementBeforeRetirement.cfg` | Publishes generation two over a still-current generation one; it must violate `ReplacementFollowsRetirement`. |
 | `ReachabilityReplacement.cfg` | Negates replacement publication and fails only after a complete retire-and-replace trace. |
+
+`eng/tla-expected-exit-codes.txt` makes both positive configurations
+exact-success gates and requires the imported-lifecycle bypass configuration to
+produce TLC's liveness-property violation exit. The other legacy mutations
+retain the coherent-verdict runner policy documented in the repository TLA+
+methodology.
 
 ## Running TLC
 
@@ -167,13 +179,16 @@ using `-cleanup` can remove one another's metadata.
 ```bash
 TLA_TOOLS_JAR=/path/to/tla2tools.jar
 cd docs/design/models/workspace-binding-policy-realization
+TLA_LIBRARY=../binding-selection-version
 
-java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+java -XX:+UseParallelGC "-DTLA-Library=$TLA_LIBRARY" \
+  -cp "$TLA_TOOLS_JAR" tlc2.TLC \
   -workers auto -cleanup -coverage 1 \
   -config WorkspaceBindingPolicyRealizationSafety.cfg \
   WorkspaceBindingPolicyRealization.tla
 
-java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+java -XX:+UseParallelGC "-DTLA-Library=$TLA_LIBRARY" \
+  -cp "$TLA_TOOLS_JAR" tlc2.TLC \
   -workers auto -cleanup -coverage 1 \
   -config WorkspaceBindingPolicyRealizationLiveness.cfg \
   WorkspaceBindingPolicyRealization.tla
@@ -193,13 +208,15 @@ for config in \
   BrokenPolicyBeforeGroup \
   BrokenConstructedPolicyIdentity \
   BrokenPublishVersion \
+  BrokenImportedBindingVersionLifecycle \
   BrokenAtomicPublication \
   BrokenAtomicRetirement \
   BrokenReplacementStartBeforeRetirement \
   BrokenReplacementBeforeRetirement \
   ReachabilityReplacement
 do
-  java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+  java -XX:+UseParallelGC "-DTLA-Library=$TLA_LIBRARY" \
+    -cp "$TLA_TOOLS_JAR" tlc2.TLC \
     -workers 1 -cleanup -noGenerateSpecTE \
     -config "$config.cfg" WorkspaceBindingPolicyRealization.tla
 done
@@ -211,7 +228,7 @@ The positive configurations completed with no errors:
 
 | Configuration | Generated states | Distinct states | Maximum depth | Result |
 | --- | ---: | ---: | ---: | --- |
-| Safety | 68 | 65 | 14 | All seventeen safety invariants passed. |
+| Safety | 68 | 65 | 14 | All eighteen safety invariants and the imported owner-behavior refinement property passed. |
 | Liveness | 68 | 65 | 14 | All three temporal properties passed. |
 
 The safety graph starts eleven initial scenarios. It executed 12 preparations,
@@ -220,7 +237,9 @@ three publications, three pre-publication invalidations, five composite-policy
 version advances, one current-access request, and one published-generation
 retirement.
 
-Every mutation exited with TLC status 12 on its intended invariant:
+The fourteen invariant and reachability mutations exited with TLC status 12.
+The imported-behavior mutation exited with status 13 on
+`BindingVersionBehaviorRefinesOwner`:
 
 | Configuration | Generated / distinct | Maximum depth | Counterexample |
 | --- | ---: | ---: | --- |
@@ -233,6 +252,7 @@ Every mutation exited with TLC status 12 on its intended invariant:
 | Broken policy-before-group | 35 / 35 | 4 | Private group construction bypassed policy adoption. |
 | Broken constructed-policy identity | 46 / 46 | 5 | The participant plan was constructed with a foreign policy capability. |
 | Broken publish version | 61 / 57 | 7 | A group/policy pair published after its captured version became foreign. |
+| Broken imported binding lifecycle | 24 / 24 | 3 | The workspace marked the version advanced without using the owner transition, violating the imported behavior. |
 | Broken atomic publication | 54 / 52 | 6 | The group became current without its policy. |
 | Broken atomic retirement | 63 / 60 | 9 | Retirement removed the group but left its policy current. |
 | Broken replacement start ordering | 62 / 59 | 8 | Generation two started while generation one remained current, with early publication still forbidden. |
@@ -240,8 +260,8 @@ Every mutation exited with TLC status 12 on its intended invariant:
 | Replacement reachability | 68 / 65 | 14 | Generation one retired after observed drift, then generation two published. |
 
 The runs used the repository-pinned TLA+ v1.8.0 tools, TLC build
-`2026.08.21.155922` revision `9787e65`. The checked `tla2tools.jar` SHA-256 was
-`eabd140a70f49eb9305a3bd3f3df944eddf87e5a90d329789085f8953a80533a`.
+`2026.09.01.002747` revision `95b800c`. The checked `tla2tools.jar` SHA-256 was
+`dbcc75552f21978a4846688b8e23be1a6b6c0b3fcee35d78fec2df167958ec94`.
 The available runtime was OpenJDK `21.0.12`; the runbook's preferred Java 25
 runtime was not installed on this shared host. Java 21 satisfies the tool's
 Java 11-or-later requirement, so the machine configuration was left unchanged

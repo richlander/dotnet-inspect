@@ -1127,6 +1127,20 @@ internal static class DetectionTestSuite
                 FormatValues(tlaOverrides));
         }
 
+        Dictionary<string, string> tlaExpectedExitCodes = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/tla-expected-exit-codes.txt",
+            outputs);
+        if (tlaExpectedExitCodes["tla"] != "true"
+            || tlaExpectedExitCodes["code"] != "false")
+        {
+            throw new InvalidOperationException(
+                "TLA+ expected exit codes canary did not select only tla: " +
+                FormatValues(tlaExpectedExitCodes));
+        }
+
         // eng/run-tla-checks.sh discovers .tla/.cfg files case-insensitively
         // (find -iname), so a file with an uppercase or mixed-case
         // extension must still route to the tla-plus job -- otherwise the

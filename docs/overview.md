@@ -160,6 +160,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   logical layers, project regions, currencies, and code-navigation map.
 - [CLI host architecture](cli-architecture.md): command-host responsibilities,
   request lifetime, selection, and presentation composition.
+- [CLI change classification and obsolete
+  inputs](design/cli-change-classification.md): published surfaces, change
+  disclosure, routing-collision analysis, invalid-input guards, and
+  reservations.
 - [Repository xUnit test host](design/xunit-test-host.md): semantic
   non-vacuity for explicit test selections after suite-owned argument
   expansion, while preserving xUnit-owned discovery, execution, reporting, and

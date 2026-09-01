@@ -17,9 +17,11 @@ carried forward.
 
 `InspectWeb.Engine` remains the executable Browser/Wasm host and the owner of
 all current exports and wire DTOs. `InspectWeb.Engine.Core` is its one-way,
-implementation-only dependency for shared operation lifetimes and browser host
-policy; it contains no `[JSExport]` method or generated serializer context.
-`EngineCoreProject_HasOneWayOwnerReference` and
+implementation-only dependency for shared package/platform workspaces,
+operation lifetimes, browser host policy, and typed internal results. Engine
+maps those results to its wire DTOs; Core contains no `[JSExport]` method or
+generated serializer context. `EngineCoreProject_HasOneWayOwnerReference`,
+`EngineCoreAssembly_OwnsSharedWorkspaceState`, and
 `EngineCoreAssembly_HasNoFacadeContracts` gate that boundary.
 
 The rule is enforced by the compiler, not by a convention.

@@ -1972,7 +1972,7 @@ public sealed class BrowserEngineBoundaryTests
                 [Coordinate(id, Package(image, $"lib/net11.0/{id}.dll", 25 * MiB))]);
         }
 
-        BrowserPackageCacheStats stats = BrowserPackageWorkspace.Stats();
+        BrowserPackageCacheSnapshot stats = BrowserPackageWorkspace.Stats();
         Assert.Equal(3, stats.Workspaces);
         Assert.Equal(3, stats.Resident);
         Assert.InRange(stats.ResidentBytes, 75L * MiB, 76L * MiB);
@@ -1981,7 +1981,7 @@ public sealed class BrowserEngineBoundaryTests
             "pending.package@1.0.0",
             80L * MiB))
         {
-            BrowserPackageCacheStats reserved = BrowserPackageWorkspace.Stats();
+            BrowserPackageCacheSnapshot reserved = BrowserPackageWorkspace.Stats();
             Assert.InRange(reserved.ResidentBytes, 80L * MiB, 128L * MiB);
             Assert.Equal(1, reserved.Workspaces);
         }
@@ -2694,12 +2694,48 @@ public sealed class BrowserEngineBoundaryTests
             PackageDocuments(maxEntries),
             fromCache: false);
 
-        IReadOnlyList<BrowserPackageDocument> documents = package.Documents();
+        IReadOnlyList<BrowserPackageDocumentEntry> documents = package.Documents();
 
         Assert.Equal(maxEntries, documents.Count);
         Assert.Same(
             package.Content.EnumerateEntriesWithLengths(),
             package.Content.EnumerateEntriesWithLengths());
+    }
+
+    [Fact]
+    public void PackageWireProjection_PreservesCoreValues()
+    {
+        var stats = new BrowserPackageCacheSnapshot(1, 2, 3, 4);
+        var entry = new BrowserPackageDocumentEntry(
+            "skill",
+            "Inspect",
+            "skills/inspect/SKILL.md",
+            5);
+        var payload = new BrowserPackageDocumentPayload(
+            entry.Kind,
+            entry.Name,
+            entry.Path,
+            "# Inspect");
+
+        Assert.Equal(
+            new BrowserPackageCacheStats(1, 2, 3, 4),
+            BrowserPackageWireProjection.Project(stats));
+        Assert.Equal(
+            [
+                new BrowserPackageDocument(
+                    entry.Kind,
+                    entry.Name,
+                    entry.Path,
+                    entry.Size),
+            ],
+            BrowserPackageWireProjection.Project([entry]));
+        Assert.Equal(
+            new BrowserPackageDocumentContent(
+                payload.Kind,
+                payload.Name,
+                payload.Path,
+                payload.Text),
+            BrowserPackageWireProjection.Project(payload));
     }
 
     [Fact]
@@ -4808,7 +4844,7 @@ public sealed class BrowserEngineBoundaryTests
         string packageId,
         string version)
     {
-        BrowserPackageCacheStats before = BrowserPackageWorkspace.Stats();
+        BrowserPackageCacheSnapshot before = BrowserPackageWorkspace.Stats();
 
         InvalidOperationException failure =
             await Assert.ThrowsAsync<InvalidOperationException>(
@@ -4818,7 +4854,7 @@ public sealed class BrowserEngineBoundaryTests
                     TestContext.Current.CancellationToken));
 
         Assert.Contains("package coordinate", failure.Message, StringComparison.OrdinalIgnoreCase);
-        BrowserPackageCacheStats after = BrowserPackageWorkspace.Stats();
+        BrowserPackageCacheSnapshot after = BrowserPackageWorkspace.Stats();
         Assert.Equal(before.Packages, after.Packages);
         Assert.Equal(before.Resident, after.Resident);
         Assert.Equal(before.ResidentBytes, after.ResidentBytes);
