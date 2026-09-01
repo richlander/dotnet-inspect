@@ -56,7 +56,10 @@ member, signature, selector, or version identity from source or display text.
 When exactly one loaded surface participant matches the target's assembly
 identity, the browser envelope also carries that participant's asset id. This
 coordinate-specific routing currency stays at the browser boundary rather than
-entering the portable call-graph identity.
+entering the portable call-graph identity. When browser history restores a
+portable target without that field, the retained loaded type supplies its
+surface asset id; the consumer does not derive an asset by stripping a dotted
+metadata assembly name.
 
 ## Exact join
 
@@ -108,7 +111,9 @@ falls back to the other destination. The modal dismisses when the action is
 accepted. A failed transition retains Annotated Source and its history entry,
 reports the error on that surface, and returns focus to **Explore**; it does not
 reopen the modal. A successful transition commits the requested destination,
-then the host owns history and focus there.
+then the host owns history and focus there. Replacing the Annotated Source
+identity, including a style reload, cancels every pending destination
+transition before requesting the new document.
 
 ## Evidence
 
@@ -125,7 +130,7 @@ The implementation is gated by compiled-product fixtures for:
 - exact surface-asset routing for dotted assembly names and collision-safe ids
   for graph-only type projection; and
 - failed browser transitions retaining Annotated Source, visible error state,
-  history, and focus.
+  history, and focus, including cancellation when source identity changes.
 
 The canonical demo selects
 `JsonReaderHelper.UnescapeAndCompareBothInputs(...)` inside

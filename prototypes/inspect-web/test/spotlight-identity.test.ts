@@ -47,6 +47,7 @@ import {
   graphTargetNavigationDisposition,
   graphMemberDeepLinkDisposition,
   graphMemberPendingMatchesView,
+  graphMemberSurfaceAssembly,
   graphMemberShareTarget,
   graphMemberSelection,
   graphMemberTargetWithSelectedBody,
@@ -2055,7 +2056,7 @@ test("annotated source Escape and history ownership track the mounted surface", 
     ?? "";
   assert.match(
     popstate,
-    /const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberCallGraphWork\(state\);\s*invalidateGraphMemberNavigation\(\);\s*if \(dismissedAnnotatedSourceModal\) render\(\{ synchronizeUrl: false \}\);\s*if \(isPackageQueryPath/);
+    /const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberDestinationWork\(state\);\s*if \(dismissedAnnotatedSourceModal\) render\(\{ synchronizeUrl: false \}\);\s*if \(isPackageQueryPath/);
   assert.match(
     appSource,
     /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\)[\s\S]*if \(options\.synchronizeUrl !== false\) syncUrl\(\)/);
@@ -2532,7 +2533,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /function commitWorkspaceShareBasis\([\s\S]*state\.workspaceShareBasis = basis;[\s\S]*sourceInspection\.clearGraphSource\(\)/);
   assert.match(
     history,
-    /invalidateMemberCallGraphWork\(state\)[\s\S]*captureCanonicalWorkspaceRestoreSnapshot/);
+    /invalidateMemberDestinationWork\(state\)[\s\S]*captureCanonicalWorkspaceRestoreSnapshot/);
   assert.match(
     appSource,
     /const \{ tabs, preservesBasis \} = capturedShareTabs\(\);[\s\S]*browserCreatedCallGraphTabIds\(tabs, activeIndex\)/);
@@ -4478,8 +4479,7 @@ test("home navigation invalidates pending graph work", () => {
 
   assert.match(home, /invalidateGraphMemberNavigation\(\)/);
   assert.match(home, /state\.memberCallGraphExpanding = false/);
-  assert.match(history, /invalidateGraphMemberNavigation\(\)/);
-  assert.match(history, /invalidateMemberCallGraphWork\(state\)/);
+  assert.match(history, /invalidateMemberDestinationWork\(state\)/);
 });
 
 test("graph navigation restores scope and supersedes local drills", () => {
@@ -5001,7 +5001,7 @@ test("surface asset currency makes repeated graph navigation reuse its type", ()
 test("graph-member projection carries exact surface currency and a collision-safe id", () => {
   assert.match(
     appSource,
-    /"surfaceAssemblyId" in target && target\.surfaceAssemblyId[\s\S]*inspectGraphMemberSurface\([\s\S]*surfaceAssembly/,
+    /inspectGraphMemberSurface\([\s\S]*graphMemberSurfaceAssembly\(target, type\)/,
   );
   assert.match(
     readFileSync(
@@ -5027,6 +5027,35 @@ test("graph-member projection carries exact surface currency and a collision-saf
   assert.equal(
     types.find(type => type.id === projected.id)?.assemblyId,
     projected.assemblyId);
+});
+
+test("restored graph members recover dotted routing from loaded type currency", () => {
+  const original = {
+    assembly: "System.Text.Json",
+    assemblyVersion: "10.0.0.0",
+    assemblyCulture: "",
+    assemblyPublicKeyToken: "cc7b13ffcd2ddd51",
+    typeDefinitionId: "System.Text.Json.JsonReaderHelper",
+    typeMetadataId: "System.Text.Json.JsonReaderHelper",
+    memberName: "UnescapeAndCompareBothInputs",
+    selectorKey: "method:UnescapeAndCompareBothInputs",
+    metadataToken: 0x06000123,
+    surfaceAssemblyId: "compile:ref/net10.0/System.Text.Json.dll",
+  };
+  const restored = graphMemberTargetFromShare(
+    graphMemberShareTarget(original));
+
+  assert.ok(restored);
+  assert.equal(restored.surfaceAssemblyId, undefined);
+  assert.equal(
+    graphMemberSurfaceAssembly(restored, {
+      assembly: "System.Text.Json.dll",
+      assemblyId: "compile:ref/net10.0/System.Text.Json.dll",
+    }),
+    "compile:ref/net10.0/System.Text.Json.dll");
+  assert.equal(
+    graphMemberSurfaceAssembly(restored),
+    "System.Text.Json.dll");
 });
 
 test("an exact resident runtime target wins over package identity skew", () => {

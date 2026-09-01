@@ -618,6 +618,7 @@ export interface CallGraphTarget {
   selectorKey?: string | null;
   metadataToken?: number | null;
   kind?: string | null;
+  surfaceAssemblyId?: string | null;
 }
 
 export function callGraphTargetTypeId(target: CallGraphTarget | null | undefined): string {
@@ -661,6 +662,23 @@ export interface GraphMemberShareIdentity extends CallGraphTarget {
   memberName: string;
   selectorKey: string;
   metadataToken: number | null;
+}
+
+export interface GraphMemberSurfaceType {
+  assembly?: string | null;
+  assemblyId?: string | null;
+}
+
+export function graphMemberSurfaceAssembly(
+  target: CallGraphTarget & { assembly: string },
+  type: GraphMemberSurfaceType | null = null,
+): string {
+  return type?.assemblyId
+    || target.surfaceAssemblyId
+    || type?.assembly
+    || (target.assembly.endsWith(".dll")
+      ? target.assembly
+      : `${target.assembly}.dll`);
 }
 
 export interface SelectedGraphMemberBody {

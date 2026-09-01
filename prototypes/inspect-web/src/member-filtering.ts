@@ -123,6 +123,39 @@ export function invalidateMemberCallGraphWork(state: MemberCallGraphWorkState): 
   if (incomplete) state.memberCallGraphKey = "";
 }
 
+export interface GraphMemberNavigationWorkState {
+  graphMemberNavigationSeq: number;
+  graphMemberNavigationTitle: string;
+  graphMemberNavigationError: string;
+  pendingGraphMemberDeepLink: unknown | null;
+}
+
+export function invalidateGraphMemberNavigationWork(
+  state: GraphMemberNavigationWorkState,
+): void {
+  state.graphMemberNavigationSeq++;
+  state.graphMemberNavigationTitle = "";
+  state.graphMemberNavigationError = "";
+  state.pendingGraphMemberDeepLink = null;
+}
+
+export function invalidateMemberDestinationWork(
+  state: MemberCallGraphWorkState & GraphMemberNavigationWorkState,
+): void {
+  invalidateMemberCallGraphWork(state);
+  invalidateGraphMemberNavigationWork(state);
+}
+
+export function invalidateSourceDestinationWork(
+  state: MemberCallGraphWorkState & GraphMemberNavigationWorkState,
+): void {
+  if (state.pendingGraphMemberDeepLink) {
+    invalidateMemberCallGraphWork(state);
+    return;
+  }
+  invalidateMemberDestinationWork(state);
+}
+
 export function captureLibraryScope(scope: Iterable<string> | null | undefined): string[] | null {
   return scope ? [...scope].sort() : null;
 }

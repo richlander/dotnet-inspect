@@ -788,11 +788,15 @@ test("Annotated Source destination actions use typed graph routes and exact sect
   );
   assert.match(
     appSource,
-    /function openAnnotatedSourceModal\(\) \{[\s\S]*invalidateMemberCallGraphWork\(state\);[\s\S]*invalidateGraphMemberNavigation\(\);/,
+    /function openAnnotatedSourceModal\(\) \{[\s\S]*invalidateMemberDestinationWork\(state\);/,
   );
   assert.match(
     appSource,
-    /case "destination-open":[\s\S]*invalidateMemberCallGraphWork\(state\);[\s\S]*invalidateGraphMemberNavigation\(\);[\s\S]*callGraphTargetBinding/,
+    /case "destination-open":[\s\S]*invalidateMemberDestinationWork\(state\);[\s\S]*callGraphTargetBinding/,
+  );
+  assert.match(
+    appSource,
+    /function invalidateSourceCaches\(\) \{\s*invalidateSourceDestinationWork\(state\);/,
   );
   assert.equal(
     appSource.match(

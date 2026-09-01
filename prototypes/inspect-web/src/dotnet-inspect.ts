@@ -17,6 +17,7 @@ import {
   graphTargetBlockedReason,
   graphMemberDeepLinkDisposition,
   graphMemberPendingMatchesView,
+  graphMemberSurfaceAssembly,
   graphMemberShareTarget,
   graphMemberSelection,
   graphMemberTargetWithSelectedBody,
@@ -73,7 +74,10 @@ import {
   bodyTargetMatchesOverload,
   captureLibraryScope,
   filterMemberGroups,
+  invalidateGraphMemberNavigationWork,
   invalidateMemberCallGraphWork,
+  invalidateMemberDestinationWork,
+  invalidateSourceDestinationWork,
   MEMBER_TRAITS,
   memberNavTargetIndex,
   memberScopeIsActive,
@@ -1164,10 +1168,7 @@ function ownsViewOperation(
 }
 
 function invalidateGraphMemberNavigation() {
-  state.graphMemberNavigationSeq++;
-  state.graphMemberNavigationTitle = "";
-  state.graphMemberNavigationError = "";
-  state.pendingGraphMemberDeepLink = null;
+  invalidateGraphMemberNavigationWork(state);
 }
 
 function normalizeCurrentNavEntry() {
@@ -1177,8 +1178,7 @@ function normalizeCurrentNavEntry() {
 function applyView(view: WorkspaceView) {
   const pkg = packageForView(state.packages, view);
   if (!pkg) return false;
-  invalidateMemberCallGraphWork(state);
-  invalidateGraphMemberNavigation();
+  invalidateMemberDestinationWork(state);
   activatePackage(pkg);
   state.libraryScope = restoreLibraryScope(
     view.libraryScope,
@@ -2246,8 +2246,7 @@ function currentSourceReloadKind() {
 }
 
 function clearMemberContentCache() {
-  invalidateMemberCallGraphWork(state);
-  invalidateGraphMemberNavigation();
+  invalidateMemberDestinationWork(state);
   state.memberSource = null;
   state.memberSourceError = "";
   state.memberCallGraph = null;
@@ -5042,8 +5041,7 @@ function renderAndFocusAnnotated(
 
 function openAnnotatedSourceModal() {
   if (!state.memberAnnotated) return;
-  invalidateMemberCallGraphWork(state);
-  invalidateGraphMemberNavigation();
+  invalidateMemberDestinationWork(state);
   state.annotatedDestinationError = "";
   const model = createAnnotatedSourceViewerModel(state.memberAnnotated);
   const embedded = state.memberAnnotatedEmbedded
@@ -5153,8 +5151,7 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
       const destination =
         model.invocationDestinations[action.destinationIndex];
       if (!destination) return;
-      invalidateMemberCallGraphWork(state);
-      invalidateGraphMemberNavigation();
+      invalidateMemberDestinationWork(state);
       state.annotatedDestinationError = "";
       const binding =
         callGraphTargetBinding(
@@ -8621,16 +8618,13 @@ function findGraphMemberSelection(
 async function loadGraphMemberSurface(
   pkg: AppPackage,
   target: BrowserCallGraphTarget | GraphMemberShareIdentity,
+  type: AppTypeSurface | null = null,
 ) {
-  const surfaceAssembly =
-    "surfaceAssemblyId" in target && target.surfaceAssemblyId
-      ? target.surfaceAssemblyId
-      : target.assembly.replace(/\.dll$/i, "");
   return inspectGraphMemberSurface(
     pkg.id,
     pkg.version,
     pkg.activeFramework,
-    surfaceAssembly,
+    graphMemberSurfaceAssembly(target, type),
     target.typeDefinitionId ?? "",
     target.memberName,
     target.selectorKey,
@@ -8782,7 +8776,8 @@ async function navigateToGraphMemberProjection(
   try {
     const projection = await loadGraphMemberSurface(
       pkg,
-      target);
+      target,
+      existingType);
     if (!navigationIsCurrent()) {
       if (seq === state.graphMemberNavigationSeq) {
         state.graphMemberNavigationTitle = "";
@@ -8896,7 +8891,8 @@ async function restorePendingGraphMember() {
     }
     const projection = await loadGraphMemberSurface(
       pkg,
-      pending.target);
+      pending.target,
+      type);
     if (!restorationIsCurrent()) {
       discardIfOwned();
       return;
@@ -9401,6 +9397,7 @@ function renderTastePopoverHtml() {
 }
 
 function invalidateSourceCaches() {
+  invalidateSourceDestinationWork(state);
   state.memberSource = null;
   state.memberSourceKey = "";
   state.memberSourceError = "";
@@ -11028,8 +11025,7 @@ window.addEventListener("popstate", () => {
   const navigationSeq = navigationSequence.begin();
   let leftPackageQueryForWorkspaceSuccessor = false;
   const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation();
-  invalidateMemberCallGraphWork(state);
-  invalidateGraphMemberNavigation();
+  invalidateMemberDestinationWork(state);
   if (dismissedAnnotatedSourceModal) render({ synchronizeUrl: false });
   if (isPackageQueryPath(location.pathname)) {
     clearNavigationError();
