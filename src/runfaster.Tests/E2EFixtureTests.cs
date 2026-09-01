@@ -1989,7 +1989,7 @@ public class E2EFixtureTests
                 AppContext.BaseDirectory,
                 "ILInspector.Analysis.dll"),
             "-S",
-            "Performance:*",
+            "Performance: Boxing",
             "--top",
             "1",
             "--jsonl",
