@@ -129,9 +129,11 @@ The inspected-subject line renders one product-owned canonical display identity
 without decomposing it into inert breadcrumbs. It may elide visually under
 pressure, but its complete identity remains in the accessible name and title.
 
-Trailing `Share` copies the canonical workspace link. `Copy name` copies the
-product-issued canonical current subject. Neither action reconstructs identity
-from display text.
+Trailing `Share` copies the canonical workspace link. `Copy name` appears only
+when the active subject has a product-issued canonical name and copies that
+name. Workspace is presentation-owned retained-coordinate management, so it
+does not invent a name-copy action. Neither action reconstructs identity from
+display text.
 
 Browser Back and Forward own navigation history. Existing in-surface history
 buttons may remain during incremental adoption, but they are not part of the
@@ -153,6 +155,11 @@ Activating or closing an entry submits its opaque identity and renders the
 returned workspace outcome. The UI does not choose a subject, lens, successor,
 or fallback for the product. Separate coordinates remain separate even when
 their display package IDs match.
+
+Closing an inactive coordinate preserves the active coordinate's inspection
+state and keeps Workspace selected. Closing the active coordinate selects the
+returned successor while remaining in Workspace. Share and refresh preserve
+the Workspace subject and its retained coordinates.
 
 Workspace renders stable focus targets for its heading and every coordinate
 entry, including the returned active entry. Post-result focus and failure

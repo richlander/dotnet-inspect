@@ -1446,7 +1446,7 @@ test("typed type panel owns its rendered control bindings", () => {
     /onMemberBack: drillOut[\s\S]*onMemberOverloadOpen: openOverload/);
   assert.match(
     binding,
-    /onCopyName: \(\) => \{[\s\S]*const fullName = member \? `\$\{typeName\}\.\$\{member\.name\}` : typeName;[\s\S]*void copyText\(fullName, "name copied"\)/);
+    /onCopyName: \(\) => \{\s*const subjectName = currentInspectedSubjectName\(\);\s*if \(subjectName\) void copyText\(subjectName, "name copied"\)/);
   assert.match(
     binding,
     /onCopySignature: \(\) => \{[\s\S]*void copyText\(overload\.signature, "signature copied"\)/);
@@ -2686,7 +2686,20 @@ test("last package close recovers a route before releasing the workspace", () =>
 
   assert.match(
     close,
-    /const removal = removeWorkspacePackage\([\s\S]*if \(!removal\.closed\) return;\s*if \(!removal\.active && !clearWorkspaceRouteFailure\(\)\) \{\s*render\(\);\s*return;\s*\}\s*state\.packages = removal\.packages;\s*releasePackageModelCaches\(removal\.closed\);[\s\S]*state\.package = null;\s*goHome\(\);/);
+    /const removal = removeWorkspacePackage\([\s\S]*if \(!removal\.closed\) return;[\s\S]*if \(!removal\.active && !clearWorkspaceRouteFailure\(\)\) \{\s*render\(\);\s*return;\s*\}[\s\S]*state\.packages = removal\.packages;\s*releasePackageModelCaches\(removal\.closed\);[\s\S]*state\.package = null;\s*goHome\(\);/);
+});
+
+test("Workspace close preserves the subject unless the active coordinate changes", () => {
+  const close =
+    appSource.match(/function closeWorkspacePackage\([\s\S]*?\n}\n\nfunction activatePackage/)?.[0]
+    ?? "";
+
+  assert.match(
+    close,
+    /const activeChanged =\s*!packageIdentityEquals\(removal\.active, state\.package\)/);
+  assert.match(
+    close,
+    /if \(removal\.active\) \{\s*if \(activeChanged\) \{\s*selectWorkspacePackage\(removal\.active, \{ stayInWorkspace: true \}\);\s*\} else \{\s*render\(\);/);
 });
 
 test("loaded-package Spotlight selection resets type-specific member filters", () => {
@@ -2721,7 +2734,7 @@ test("home demos restore the complete parsed location", () => {
     /applyLocationView\(loc\);[\s\S]*await applyPlatformLibraryScope\([\s\S]*applyLocationView\(loc\);[\s\S]*applyDeepLink\(deep\)/);
   assert.match(
     appSource,
-    /function applyLocationView\(loc: ParsedLocation\) \{\s*state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*state\.packageLens = loc\.packageLens \|\| "overview";/);
+    /function applyLocationView\(loc: ParsedLocation\) \{\s*state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*state\.workspaceSubjectOpen =\s*loc\.workspaceSubjectOpen && state\.atPackageRoot;\s*state\.packageLens = loc\.packageLens \|\| "overview";/);
   const callGraphDemo =
     appSource.match(/async function runCallGraphDemo\(demoId: ProductHomeDemoId\) \{[\s\S]*?\n}\n\n\/\/ Loads the full/)?.[0]
     ?? "";

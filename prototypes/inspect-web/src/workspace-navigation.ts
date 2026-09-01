@@ -29,6 +29,7 @@ import type {
 export interface WorkspaceView {
   package: string;
   packageKey: string;
+  workspaceSubjectOpen: boolean;
   lens: TypeLens;
   selectedTypeId: string;
   selectedMemberKey: string;
@@ -49,6 +50,7 @@ export function workspaceViewSignature(view: WorkspaceView): string {
   const graphTarget = graphMemberShareTarget(view.bodyTarget);
   return JSON.stringify({
     p: view.packageKey,
+    ws: view.workspaceSubjectOpen,
     l: view.lens,
     t: view.selectedTypeId,
     m: view.selectedMemberKey,
@@ -289,6 +291,7 @@ export interface WorkspaceDeepLink {
 
 export interface WorkspaceUrlState {
   package: string;
+  subject: "workspace" | null;
   tabs: readonly BrowserWorkspaceShareTab[];
   contexts: readonly BrowserWorkspaceShareContext[];
   activeTabId: string;
@@ -698,13 +701,17 @@ function decodeWorkspaceShareState(
 
 function resolveView(token: string): {
   lens: TypeLens | null;
+  workspaceSubjectOpen: boolean;
   atPackageRoot: boolean;
   packageLens: PackageLens | null;
 } {
-  const atPackageRoot = token === "pkg" || token.startsWith("pkg:");
+  const workspaceSubjectOpen = token === "workspace";
+  const atPackageRoot =
+    workspaceSubjectOpen || token === "pkg" || token.startsWith("pkg:");
   const packageLensToken = atPackageRoot ? token.split(":")[1] : undefined;
   return {
     lens: isTypeLens(token) ? token : null,
+    workspaceSubjectOpen,
     atPackageRoot,
     packageLens: atPackageRoot
       ? (isPackageLens(packageLensToken)
@@ -793,7 +800,8 @@ function resolveWorkspaceLocation(
     ? sectionToken
     : null;
   let bodyTarget: BodyTarget | null = null;
-  let viewToken = location.hash.slice(1);
+  const presentationToken = location.hash.slice(1);
+  let viewToken = presentationToken;
   let tabs: WorkspaceCoordinate[] = [];
   let active = 0;
   let contexts: readonly BrowserWorkspaceShareContext[] = [];
@@ -821,7 +829,9 @@ function resolveWorkspaceLocation(
       version = target.version;
       framework = target.framework;
     }
-    viewToken = share.view;
+    viewToken = presentationToken === "workspace"
+      ? presentationToken
+      : share.view;
     type = share.type;
     member = null;
     memberAnchor = share.memberAnchor;
@@ -860,6 +870,7 @@ function resolveWorkspaceLocation(
     section,
     bodyTarget,
     lens: view.lens,
+    workspaceSubjectOpen: view.workspaceSubjectOpen,
     atPackageRoot: view.atPackageRoot,
     packageLens: view.packageLens,
     tabs,
@@ -933,7 +944,7 @@ export function buildWorkspaceStateUrl(
   const shareState = encodeWorkspaceShareState(state, encode);
   params.set("w", shareState);
   url.search = params.toString();
-  url.hash = "";
+  url.hash = state.subject === "workspace" ? "workspace" : "";
   return url;
 }
 

@@ -305,6 +305,9 @@ body {
   border-right: 1px solid var(--line);
   background: var(--panel);
 }
+.type-browser.workspace-nav {
+  grid-template-rows: 40px minmax(0, 1fr);
+}
 .browser-head { display: flex; align-items: center; justify-content: space-between; padding: 0 10px 0 14px; border-bottom: 1px solid var(--line); background: var(--chrome); }
 .pane-label { color: var(--muted); font: 10px var(--mono); letter-spacing: .12em; }
 .result-count { color: var(--dim); font: 10px var(--mono); margin-left: 9px; }
@@ -503,7 +506,6 @@ kbd {
 .breadcrumbs strong { color: var(--text); font-weight: 500; }
 .detail-actions { display: flex; flex: none; gap: 5px; }
 .detail-actions button:first-child { padding: 0 8px; }
-.detail-actions button:last-child { width: 27px; }
 .detail-scroll { overflow: auto; padding: clamp(24px, 4vw, 52px) clamp(26px, 5vw, 72px) 70px; }
 .detail-actions.annotated-page-actions button { width: auto; padding: 0 10px; }
 .detail-actions.annotated-page-actions .primary-action { border-color: var(--accent); color: var(--text); }

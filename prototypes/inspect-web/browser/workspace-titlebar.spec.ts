@@ -72,3 +72,20 @@ test("narrow layout preserves the two-line hierarchy and primary actions", async
   expect(inspectedSubjectLine.x + inspectedSubjectLine.width).toBeLessThanOrEqual(760);
   expect(namespacePicker.y + namespacePicker.height).toBeLessThanOrEqual(typeList.y);
 });
+
+test("Workspace gives retained coordinates the pane and keeps Share readable", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?workspace=1");
+
+  const list = await box(page, ".workspace-coordinate-list");
+  const lastCoordinate = await box(page, ".workspace-coordinate:last-child");
+  const share = await box(page, "#share");
+
+  expect(list.height).toBeGreaterThan(200);
+  expect(lastCoordinate.y + lastCoordinate.height)
+    .toBeLessThanOrEqual(list.y + list.height);
+  expect(share.width).toBeGreaterThan(40);
+  await expect(page.locator("#copy-name")).toHaveCount(0);
+});

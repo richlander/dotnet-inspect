@@ -1121,6 +1121,7 @@ function captureView(): WorkspaceView | null {
   return {
     package: state.package.id,
     packageKey: packageIdentityKey(state.package),
+    workspaceSubjectOpen: state.workspaceSubjectOpen,
     lens: state.lens,
     selectedTypeId: state.selectedTypeId,
     selectedMemberKey: state.selectedMemberKey,
@@ -1213,6 +1214,8 @@ function applyView(view: WorkspaceView) {
   state.selectedOverloadIndex = memberHistory.selectedOverloadIndex;
   state.memberSection = memberHistory.memberSection;
   state.atPackageRoot = view.atPackageRoot ?? false;
+  state.workspaceSubjectOpen =
+    view.workspaceSubjectOpen && state.atPackageRoot;
   state.packageLens = view.packageLens ?? "overview";
   state.memberSource = null;
   state.memberSourceError = "";
@@ -1849,7 +1852,10 @@ function resetLocationFilters() {
   resetMemberFilters();
 }
 
-function selectWorkspacePackage(pkg: PackageControlPackage | null) {
+function selectWorkspacePackage(
+  pkg: PackageControlPackage | null,
+  { stayInWorkspace = false }: { stayInWorkspace?: boolean } = {},
+) {
   const packageModel = pkg
     ? state.packages.find(item => packageIdentityKey(item) === packageIdentityKey(pkg))
     : null;
@@ -1868,12 +1874,15 @@ function selectWorkspacePackage(pkg: PackageControlPackage | null) {
   state.selectedOverloadIndex = null;
   resetMemberFilters();
   resetMemberSectionState();
+  state.workspaceSubjectOpen = stayInWorkspace;
   render();
 }
 
 function closeWorkspacePackage(packageKey: string) {
   const removal = removeWorkspacePackage(state.packages, state.package, packageKey);
   if (!removal.closed) return;
+  const activeChanged =
+    !packageIdentityEquals(removal.active, state.package);
   if (!removal.active && !clearWorkspaceRouteFailure()) {
     render();
     return;
@@ -1882,7 +1891,11 @@ function closeWorkspacePackage(packageKey: string) {
   state.packages = removal.packages;
   releasePackageModelCaches(removal.closed);
   if (removal.active) {
-    selectWorkspacePackage(removal.active);
+    if (activeChanged) {
+      selectWorkspacePackage(removal.active, { stayInWorkspace: true });
+    } else {
+      render();
+    }
     return;
   }
 
@@ -2649,7 +2662,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     annotatedPageContext && state.memberAnnotatedEmbedded !== null;
   const annotatedActionsEnabled =
     annotatedWorkingSurface;
-  const subjectName = inspectedSubjectName(pkg, current);
+  const subjectName = currentInspectedSubjectName();
 
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal ? " inert" : ""}>
@@ -2824,6 +2837,12 @@ function inspectedSubjectName(
     : typeDisplayName(current);
   const member = scope() === "member" ? selectedMember(current) : null;
   return member ? `${typeName}.${member.name}` : typeName;
+}
+
+function currentInspectedSubjectName(): string {
+  return state.package
+    ? inspectedSubjectName(state.package, selectedType())
+    : "";
 }
 
 function renderWorkspaceNavPane() {
@@ -4810,12 +4829,8 @@ function bindTypePanelEvents() {
         void copyText(state.memberSource.text, "source copied");
     },
     onCopyName: () => {
-      const type = selectedType();
-      if (!type) return;
-      const typeName = `${type.namespace ? `${type.namespace}.` : ""}${type.name}`;
-      const member = selectedMember(type);
-      const fullName = member ? `${typeName}.${member.name}` : typeName;
-      void copyText(fullName, "name copied");
+      const subjectName = currentInspectedSubjectName();
+      if (subjectName) void copyText(subjectName, "name copied");
     },
     onCopySignature: () => {
       const type = selectedType();
@@ -6492,11 +6507,12 @@ function selectedCallGraphWorkspacePackages(): AppPackage[] {
 
 function captureWorkspaceUrlState(): WorkspaceUrlState | null {
   if (!state.package) return null;
-  if (state.atPackageRoot) {
+  const workspaceSubjectOpen = scope() === "workspace";
+  if (state.atPackageRoot && !workspaceSubjectOpen) {
     throw new Error(
       "Package views do not yet have product-owned share facet identities.");
   }
-  if (state.pendingGraphMemberDeepLink) {
+  if (!workspaceSubjectOpen && state.pendingGraphMemberDeepLink) {
     throw new Error(
       "The pending graph member must resolve before this workspace can be shared.");
   }
@@ -6513,10 +6529,10 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     activeIndex,
     basis,
     captured.preservesBasis,
-    state.memberSection === "call-graph");
+    !workspaceSubjectOpen && state.memberSection === "call-graph");
 
-  const type = selectedType();
-  const member = selectedMember(type);
+  const type = workspaceSubjectOpen ? null : selectedType();
+  const member = workspaceSubjectOpen ? null : selectedMember(type);
   let memberAnchor: string | null = null;
   let memberSignature: string | null = null;
   if (member) {
@@ -6558,13 +6574,14 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     : [];
   return {
     package: state.package.id,
+    subject: workspaceSubjectOpen ? "workspace" : null,
     tabs,
     contexts,
     activeTabId: activeTab.id,
     selectedContextId,
     view: {
-      lens: state.lens,
-      type: state.selectedTypeId || null,
+      lens: workspaceSubjectOpen ? null : state.lens,
+      type: workspaceSubjectOpen ? null : state.selectedTypeId || null,
       memberAnchor,
       memberSignature,
       section: member && state.memberSection !== "overview"
@@ -6576,6 +6593,12 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
 }
 
 function buildStateUrl(base = location.href) {
+  if (scope() === "workspace") {
+    const snapshot = captureWorkspaceUrlState();
+    return snapshot
+      ? workspaceLocation.build(snapshot, base)
+      : new URL(base);
+  }
   if (state.atPackageRoot && state.package) {
     return buildPackageRootStateUrl(base, {
       package: state.package.id,
@@ -9921,7 +9944,6 @@ async function restoreWorkspaceFromLocation(
         }
         return;
       }
-      applyLocationView(loc);
     } else {
       const libraryFailure = applyLoadedPackageLibraryScope(
         targetModel,
@@ -9935,6 +9957,7 @@ async function restoreWorkspaceFromLocation(
         return;
       }
     }
+    applyLocationView(loc);
     const viewFailure = loc.shareState
       ? canonicalViewRestorationFailure(targetModel, deep, loc.lens)
       : null;
@@ -10058,6 +10081,8 @@ function failCanonicalWorkspaceRestore(
 function applyLocationView(loc: ParsedLocation) {
   state.lens = loc.lens || "api";
   state.atPackageRoot = loc.atPackageRoot || false;
+  state.workspaceSubjectOpen =
+    loc.workspaceSubjectOpen && state.atPackageRoot;
   state.packageLens = loc.packageLens || "overview";
 }
 
