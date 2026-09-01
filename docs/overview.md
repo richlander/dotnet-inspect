@@ -105,10 +105,10 @@ substrates, and inspection producers that will extend that space.
   `ILInspector.CSharp`, `ILInspector.Decompiler`, and `ILInspector.ILDiff`
   retain ownership of producing that evidence.
 - [Repository xUnit test host](design/xunit-test-host.md) owns explicit test
-  selection non-vacuity before repository test executables delegate unchanged
-  arguments to xUnit's generated runner entry point. xUnit retains command-line
-  parsing, discovery, filtering, execution, reporting, and Microsoft Testing
-  Platform protocol behavior.
+  selection non-vacuity for the argument vector handed to xUnit after any
+  suite-owned expansion. xUnit retains command-line parsing, discovery,
+  filtering, execution, reporting, and Microsoft Testing Platform protocol
+  behavior.
 - [`docs/design/ts-jsexport.md`](design/ts-jsexport.md) owns the `ts-jsexport`
   TypeScript facade projected at build time from an
   `ILInspector.JsExportSurface`. The host-side tool consumes that evidence
@@ -155,8 +155,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [CLI host architecture](cli-architecture.md): command-host responsibilities,
   request lifetime, selection, and presentation composition.
 - [Repository xUnit test host](design/xunit-test-host.md): semantic
-  non-vacuity for explicit test selections while preserving xUnit-owned
-  discovery, execution, reporting, and server dispatch.
+  non-vacuity for explicit test selections after suite-owned argument
+  expansion, while preserving xUnit-owned discovery, execution, reporting, and
+  server dispatch.
 - [Find type-search service](design/find-search-service.md): CLI-scoped
   candidate collection, classification precedence, source ordering, limits,
   failure visibility, and typed result boundary for `find`.
