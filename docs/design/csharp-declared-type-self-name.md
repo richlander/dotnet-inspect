@@ -2,15 +2,14 @@
 
 ## Status
 
-Proposed design for issue #5182. The component and first adoption do not exist,
-so the admission, shared-use, and refusal properties below are **unverified**
-until their named gates land.
+Implemented for issue #5367. The admission, shared-use, and atomic-refusal
+properties are enforced by the named Release gates below.
 
 This is the focused successor to superseded PR #5110. It does not inherit that
 PR's proposed declaration-result, receipt, composition, or retention protocol.
 Compiler-accurate type-declaration identifier admission is supplied by
 `CSharpIdentifier.AdmitTypeDeclaration`, whose compiler and emitted-TypeDef
-oracle is owned by issue #5215.
+oracle landed with issue #5215.
 
 ## Responsibility
 
@@ -54,6 +53,28 @@ to serve both exact identity display and admitted declaration syntax.
 Compiler-authored neighbors establish the positive side: `class` is a legal
 metadata name represented by the C# identifier `@class`, and Unicode identifier
 `Ω` is legal without substitution.
+
+## Conventional baseline and deliberate divergence
+
+The ILSpy family favors best-effort inspectability at its current
+[`1522aee`](https://github.com/icsharpcode/ILSpy/commit/1522aee3022482ce9cb30d918770f356bd9dded8)
+pin. Its AST identifier accepts arbitrary non-null text, while whole-project
+export opts into an
+[`EscapeInvalidIdentifiers`](https://github.com/icsharpcode/ILSpy/blob/1522aee3022482ce9cb30d918770f356bd9dded8/ICSharpCode.Decompiler/CSharp/Transforms/EscapeInvalidIdentifiers.cs#L31-L87)
+transform that can rename invalid identifiers. Constructor and destructor
+tokens are synchronized with the parent type
+[during output](https://github.com/icsharpcode/ILSpy/blob/1522aee3022482ce9cb30d918770f356bd9dded8/ICSharpCode.Decompiler/CSharp/OutputVisitor/CSharpOutputVisitor.cs#L2340-L2395),
+rather than issued from one earlier admitted value. Its error recovery also
+preserves useful partial output.
+
+This design adopts the conventional identity-preserving `@` keyword escape but
+deliberately rejects identity-changing substitution. `CSharpTypePrinter`
+produces compile-back source with one selected replacement range, so a source
+unit containing a renamed declared type or only a partial requested batch
+would be success-shaped but would not represent the requested exact artifact.
+The stricter exact-name admission, shared prepared value, and source-less
+batch refusal make that difference explicit. No implementation code is copied
+from the surveyed decompilers.
 
 ## Immediate boundary
 
@@ -219,16 +240,19 @@ and makes no exact identity claim.
 
 ## Required implementation gates
 
-These properties remain unverified until the Release suite contains:
+These properties are enforced by:
 
 - `DeclaredTypeSelfNameAdmissionTests.OrdinaryExactNamesConsumeCSharpTextAdmission`,
   covering ordinary, BMP and supplementary Unicode, Unicode format characters,
   ordinary and newly reserved words such as `extension`, nested, generic,
-  noncanonical-backtick, arity-mismatch, literal-punctuation, and hostile
-  metadata neighbors; the gate requires #5215's real-compiler and emitted
+  noncanonical-backtick, arity-mismatch, and literal-punctuation neighbors; the
+  gate relies on #5215's real-compiler and emitted
   TypeDef-identity evidence rather than restating its tables, and rejects
   top-level and nested ordinary requests with fewer or more leaf generic
   parameters than the exact introduced count;
+- `TypeShellProducerTests.HostileMetadataSelfNameIsNotRendered`, proving a
+  legal SRM-read TypeDef whose literal leaf is `A+B` retains that exact identity
+  through shell production and reaches the typed CSharp refusal boundary;
 - `CSharpTypePrinterTests.SelfNameIsSharedByItsDeclarationPositions`, proving
   a positive-arity exact non-delegate named `extension` uses one prepared
   admitted identifier in its type header, instance and static constructors,
@@ -238,7 +262,7 @@ These properties remain unverified until the Release suite contains:
   delegate proves the separate delegate header path consumes that same kind of
   prepared identifier and composes its declared generic parameters; and
 - `CSharpTypePrinterTests.SelfNameFailureMakesBatchNotRendered`, using the
-  hostile metadata fixture for top-level, nested, same-namespace,
+  hostile exact identity for top-level, nested, same-namespace,
   multi-namespace, and selected-replacement failures while proving the typed
   outcome exposes no partial source surface. Singleton `Print`, `PrintBatch`,
   generated-name legacy routing with valid, truncated, overlong, and

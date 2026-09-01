@@ -1,11 +1,13 @@
 using System.Collections.Immutable;
+using CSharpText;
 using ILInspector.Metadata;
 
 namespace ILInspector.CSharp.Tests;
 
 public sealed class CSharpTypePrinterTests
 {
-    readonly CSharpTypePrinter _printer = new();
+    readonly CSharpTypePrinter _outcomePrinter = new();
+    readonly SuccessfulCSharpTypePrinter _printer = new();
 
     [Fact]
     public void SkeletonPrintsApiProposalStyleSource()
@@ -168,6 +170,230 @@ public sealed class CSharpTypePrinterTests
             "public class ___A_00000040_<T1, T2, T3>",
             Assert.Single(result.Units).Source,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SelfNameIsSharedByItsDeclarationPositions()
+    {
+        var instanceConstructor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            Accessibility = "public",
+            SignatureModel = new ApiSignature()
+        };
+        var staticConstructor = new ApiMember
+        {
+            Name = ".cctor",
+            Kind = "constructor",
+            IsStatic = true,
+            SignatureModel = new ApiSignature()
+        };
+        var finalizer = new ApiMember
+        {
+            Name = "Finalize",
+            Kind = "finalizer",
+            Signature = "void Finalize()",
+            IsFinalizer = true
+        };
+        var type = CreateExactType(
+            "Samples",
+            ["extension`1"],
+            [1],
+            ["T"]);
+        type.Members = [instanceConstructor, staticConstructor, finalizer];
+
+        CSharpTypePrintResult printed = AssertPrinted(
+            _outcomePrinter.Print(new CSharpTypePrintRequest(type)));
+
+        Assert.Contains("public class @extension<T>", printed.Source, StringComparison.Ordinal);
+        Assert.Contains("public @extension();", printed.Source, StringComparison.Ordinal);
+        Assert.Contains("static @extension();", printed.Source, StringComparison.Ordinal);
+        Assert.Contains("~@extension();", printed.Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("@extension<T>()", printed.Source, StringComparison.Ordinal);
+
+        var suppressedType = CreateExactType(
+            "Samples",
+            ["extension`1"],
+            [1],
+            ["T"]);
+        var suppressedFinalizer = new ApiMember
+        {
+            Name = "Finalize",
+            Kind = "finalizer",
+            Signature = "void Finalize()",
+            IsFinalizer = true
+        };
+        suppressedType.Members = [suppressedFinalizer];
+        CSharpTypePrintResult suppressed = AssertPrinted(
+            _outcomePrinter.Print(
+                new CSharpTypePrintRequest(
+                    suppressedType,
+                    CSharpBodyPolicy.Full,
+                    memberPolicyOverrides:
+                    [
+                        new CSharpMemberPolicy(
+                            suppressedFinalizer,
+                            CSharpBodyPolicy.Full,
+                            new CSharpBlockBody("return;")
+                            {
+                                SuppressDestructorSyntax = true
+                            })
+                    ])));
+
+        Assert.Contains("void Finalize()", suppressed.Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("~@extension", suppressed.Source, StringComparison.Ordinal);
+
+        var delegateType = CreateExactType(
+            "Samples",
+            ["extension`1"],
+            [1],
+            ["T"],
+            kind: "delegate");
+        delegateType.Members =
+        [
+            new ApiMember
+            {
+                Name = "Invoke",
+                Kind = "method",
+                SignatureModel = new ApiSignature
+                {
+                    ReturnType = "void",
+                    MemberName = "Invoke"
+                }
+            }
+        ];
+
+        CSharpTypePrintResult delegateResult = AssertPrinted(
+            _outcomePrinter.Print(new CSharpTypePrintRequest(delegateType)));
+
+        Assert.Contains(
+            "public delegate void @extension<T>();",
+            delegateResult.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SelfNameFailureMakesBatchNotRendered()
+    {
+        ApiType literalPlus = CreateExactType("N", ["A+B"], [0], []);
+        CSharpTypePrintOutcome.NotRendered singleton = AssertNotRendered(
+            _outcomePrinter.Print(new CSharpTypePrintRequest(literalPlus)));
+        AssertIdentifierFailure(
+            Assert.Single(singleton.SelfNameFailures),
+            ["A+B"],
+            CSharpTypeDeclarationIdentifierRefusalReason.InvalidIdentifier);
+
+        var outer = CreateExactType("N", ["Outer"], [0], []);
+        var nestedLiteral = CreateExactType(
+            "N",
+            ["Outer", "A+B"],
+            [0, 0],
+            []);
+        CSharpTypePrintOutcome.NotRendered nested = AssertNotRendered(
+            _outcomePrinter.Print(
+                new CSharpTypePrintRequest(
+                    outer,
+                    nestedTypes:
+                    [
+                        new CSharpTypePrintRequest(nestedLiteral)
+                    ])));
+        Assert.Equal(["Outer", "A+B"], Assert.Single(nested.SelfNameFailures).Identity.Segments);
+
+        CSharpTypePrintOutcome.NotRendered multiNamespace = AssertNotRendered(
+            _outcomePrinter.PrintBatch(
+            [
+                new CSharpTypePrintRequest(CreateExactType("N", ["Good"], [0], [])),
+                new CSharpTypePrintRequest(literalPlus),
+                new CSharpTypePrintRequest(CreateExactType("Other", ["Peer"], [0], []))
+            ]));
+        Assert.Single(multiNamespace.SelfNameFailures);
+
+        var replacementType = CreateExactType("N", ["Good"], [0], []);
+        var replacementMethod = CreateMethod("Run");
+        replacementType.Members = [replacementMethod];
+        CSharpTypePrintOutcome.NotRendered replacement = AssertNotRendered(
+            _outcomePrinter.PrintBatch(
+            [
+                new CSharpTypePrintRequest(
+                    replacementType,
+                    CSharpBodyPolicy.Full,
+                    memberPolicyOverrides:
+                    [
+                        new CSharpMemberPolicy(
+                            replacementMethod,
+                            CSharpBodyPolicy.Full,
+                            new CSharpBlockBody("return;")
+                            {
+                                IsReplacementTarget = true
+                            })
+                    ]),
+                new CSharpTypePrintRequest(literalPlus)
+            ]));
+        Assert.Single(replacement.SelfNameFailures);
+
+        AssertArityNotRendered(CreateExactType("N", ["Widget"], [0, 0], []));
+        AssertArityNotRendered(CreateExactType("N", ["Widget`2"], [1], ["T"]));
+        AssertArityNotRendered(CreateExactType("N", ["Widget`1"], [1], []));
+        AssertArityNotRendered(CreateExactType("N", ["Widget`1"], [1], ["T", "U"]));
+
+        var legacyMissingIdentity = CreateEmptyType("N", "Widget");
+        Assert.IsType<CSharpTypePrintOutcome.Printed>(
+            _outcomePrinter.Print(new CSharpTypePrintRequest(legacyMissingIdentity)));
+        var legacyNullCounts = CreateExactType("N", ["A+B"], [0], []);
+        legacyNullCounts.IntroducedTypeParameterCounts = null;
+        Assert.IsType<CSharpTypePrintOutcome.Printed>(
+            _outcomePrinter.Print(new CSharpTypePrintRequest(legacyNullCounts)));
+        var legacyEmptyCounts = CreateExactType("N", ["A+B"], [0], []);
+        legacyEmptyCounts.IntroducedTypeParameterCounts = [];
+        Assert.IsType<CSharpTypePrintOutcome.Printed>(
+            _outcomePrinter.Print(new CSharpTypePrintRequest(legacyEmptyCounts)));
+
+        foreach ((int[] Counts, string[] Parameters) generatedShape in new[]
+        {
+            (new[] { 2 }, new[] { "T", "U" }),
+            (new[] { 1 }, new[] { "T", "U" }),
+            (Array.Empty<int>(), new[] { "T", "U" }),
+            (new[] { 0, 2 }, new[] { "T", "U" }),
+            (new[] { 2 }, Array.Empty<string>()),
+            (new[] { 2 }, new[] { "T", "U", "V" }),
+        })
+        {
+            ApiType generated = CreateExactType(
+                "N",
+                ["<State>d__1`2"],
+                generatedShape.Counts,
+                generatedShape.Parameters);
+            CSharpTypePrintResult generatedResult = AssertPrinted(
+                _outcomePrinter.Print(new CSharpTypePrintRequest(generated)));
+            Assert.Contains("_State_d__1", generatedResult.Source, StringComparison.Ordinal);
+        }
+
+        CSharpTypePrintResult mixed = AssertPrinted(
+            _outcomePrinter.PrintBatch(
+            [
+                new CSharpTypePrintRequest(legacyMissingIdentity),
+                new CSharpTypePrintRequest(CreateExactType("Other", ["class"], [0], []))
+            ]));
+        Assert.Contains("class @class", mixed.Source, StringComparison.Ordinal);
+
+        var duplicate = CreateEmptyType("N", "Duplicate");
+        CSharpTypePrintRequest[] refusalThenDuplicate =
+        [
+            new CSharpTypePrintRequest(literalPlus),
+            new CSharpTypePrintRequest(duplicate),
+            new CSharpTypePrintRequest(duplicate)
+        ];
+        AssertNotRendered(_outcomePrinter.PrintBatch(refusalThenDuplicate));
+        AssertNotRendered(_outcomePrinter.PrintBatch(refusalThenDuplicate.Reverse()));
+
+        Assert.Equal(
+            [nameof(CSharpTypePrintOutcome.NotRendered.SelfNameFailures)],
+            typeof(CSharpTypePrintOutcome.NotRendered)
+                .GetProperties()
+                .Where(property =>
+                    property.DeclaringType == typeof(CSharpTypePrintOutcome.NotRendered))
+                .Select(property => property.Name));
     }
 
     [Fact]
@@ -4036,7 +4262,7 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
-    public void GenericTypeWithoutMetadataArityUsesTrustedOwnership()
+    public void ExactGenericTypeWithoutMetadataArityIsNotRendered()
     {
         var type = CreateEmptyType("Samples", "Widget");
         type.DefinitionName =
@@ -4048,13 +4274,11 @@ public sealed class CSharpTypePrinterTests
         type.IntroducedTypeParameterCounts = [1];
         type.TypeParameters = [new TypeParameter { Name = "T" }];
 
-        var result = _printer.Print(
-            new CSharpTypePrintRequest(type));
+        var outcome = Assert.IsType<CSharpTypePrintOutcome.NotRendered>(
+            _outcomePrinter.Print(new CSharpTypePrintRequest(type)));
 
-        Assert.Contains(
-            "class Widget<T>",
-            result.Source,
-            StringComparison.Ordinal);
+        Assert.IsType<CSharpDeclaredTypeSelfNameFailureReason.ArityMismatch>(
+            Assert.Single(outcome.SelfNameFailures).Reason);
     }
 
     [Theory]
@@ -4563,6 +4787,58 @@ public sealed class CSharpTypePrinterTests
             Kind = "class"
         };
 
+    static ApiType CreateExactType(
+        string? @namespace,
+        string[] segments,
+        int[] introducedCounts,
+        string[] typeParameterNames,
+        string kind = "class")
+    {
+        string leaf = segments[^1];
+        return new ApiType
+        {
+            Namespace = @namespace,
+            Name = leaf,
+            MetadataName = leaf,
+            DefinitionName =
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        @namespace ?? "",
+                        [.. segments])).Name,
+            IntroducedTypeParameterCounts = [.. introducedCounts],
+            TypeParameters =
+                [.. typeParameterNames.Select(name => new TypeParameter { Name = name })],
+            Kind = kind
+        };
+    }
+
+    static CSharpTypePrintResult AssertPrinted(CSharpTypePrintOutcome outcome)
+        => Assert.IsType<CSharpTypePrintOutcome.Printed>(outcome).Result;
+
+    static CSharpTypePrintOutcome.NotRendered AssertNotRendered(
+        CSharpTypePrintOutcome outcome)
+        => Assert.IsType<CSharpTypePrintOutcome.NotRendered>(outcome);
+
+    static void AssertArityNotRendered(ApiType type)
+    {
+        CSharpTypePrintOutcome.NotRendered notRendered = AssertNotRendered(
+            new CSharpTypePrinter().Print(new CSharpTypePrintRequest(type)));
+        Assert.IsType<CSharpDeclaredTypeSelfNameFailureReason.ArityMismatch>(
+            Assert.Single(notRendered.SelfNameFailures).Reason);
+    }
+
+    static void AssertIdentifierFailure(
+        CSharpDeclaredTypeSelfNameFailure failure,
+        string[] expectedSegments,
+        CSharpTypeDeclarationIdentifierRefusalReason expectedReason)
+    {
+        Assert.Equal(expectedSegments, failure.Identity.Segments);
+        var reason =
+            Assert.IsType<CSharpDeclaredTypeSelfNameFailureReason.IdentifierNotAdmitted>(
+                failure.Reason);
+        Assert.Equal(expectedReason, reason.Reason);
+    }
+
     static ApiMember CreateMethod(string name)
         => new()
         {
@@ -4574,6 +4850,23 @@ public sealed class CSharpTypePrinterTests
                 MemberName = name
             }
         };
+
+    sealed class SuccessfulCSharpTypePrinter
+    {
+        readonly CSharpTypePrinter _printer = new();
+
+        public CSharpTypePrintResult Print(
+            CSharpTypePrintRequest request,
+            CSharpTypePrintOptions? options = null)
+            => Assert.IsType<CSharpTypePrintOutcome.Printed>(
+                _printer.Print(request, options)).Result;
+
+        public CSharpTypePrintResult PrintBatch(
+            IEnumerable<CSharpTypePrintRequest> requests,
+            CSharpTypePrintOptions? options = null)
+            => Assert.IsType<CSharpTypePrintOutcome.Printed>(
+                _printer.PrintBatch(requests, options)).Result;
+    }
 
     sealed class DifferentEachEnumerationList<T>(T first, T later) : IReadOnlyList<T>
     {
