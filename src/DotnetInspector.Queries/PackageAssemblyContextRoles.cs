@@ -84,7 +84,12 @@ public sealed class PackageAssemblyContextRoles : IDisposable
         IEnumerable<PackageAssemblyRoleCorrespondence> correspondences,
         bool shareImplementationGroup,
         AssemblyContextGroupOptions? surfaceOptions,
-        AssemblyContextGroupOptions? implementationOptions)
+        AssemblyContextGroupOptions? implementationOptions,
+        Func<
+            int,
+            IEnumerable<AssemblyContextParticipant>,
+            AssemblyContextGroupOptions?,
+            AssemblyContextGroup>? createRole = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(surfaceAssemblies);
@@ -116,7 +121,12 @@ public sealed class PackageAssemblyContextRoles : IDisposable
         AssemblyContextGroup? implementationGroup = null;
         try
         {
-            surfaceGroup = CreateRole(workspace, surfaces, surfaceOptions);
+            surfaceGroup = CreateRole(
+                workspace,
+                surfaces,
+                surfaceOptions,
+                createRole,
+                roleIndex: 0);
             implementationGroup = implementations.Length == 0
                 ? null
                 : shareImplementationGroup
@@ -124,7 +134,9 @@ public sealed class PackageAssemblyContextRoles : IDisposable
                     : CreateRole(
                         workspace,
                         implementations,
-                        implementationOptions);
+                        implementationOptions,
+                        createRole,
+                        roleIndex: 1);
 
             SurfaceGroup = surfaceGroup;
             ImplementationGroup = implementationGroup;
@@ -326,15 +338,28 @@ public sealed class PackageAssemblyContextRoles : IDisposable
     static AssemblyContextGroup CreateRole(
         InspectionWorkspace workspace,
         ImmutableArray<ResolvedAssemblyReference> assemblies,
-        AssemblyContextGroupOptions? options)
+        AssemblyContextGroupOptions? options,
+        Func<
+            int,
+            IEnumerable<AssemblyContextParticipant>,
+            AssemblyContextGroupOptions?,
+            AssemblyContextGroup>? createRole,
+        int roleIndex)
     {
         var policy = new RoleBindingPolicy(assemblies);
-        return workspace.CreateAssemblyContextGroup(
+        IEnumerable<AssemblyContextParticipant> participants =
             assemblies.Select(
                 assembly => new AssemblyContextParticipant(
                     assembly,
-                    policy)),
-            options);
+                    policy));
+        return createRole is null
+            ? workspace.CreateAssemblyContextGroup(
+                participants,
+                options)
+            : createRole(
+                roleIndex,
+                participants,
+                options);
     }
 
     static void ValidateSharedRole(
