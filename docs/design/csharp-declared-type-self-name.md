@@ -251,9 +251,9 @@ These properties are enforced by:
   top-level and nested ordinary requests with fewer or more leaf generic
   parameters than the exact introduced count;
 - `TypeShellProducerTests.HostileMetadataSelfNameIsNotRendered`, proving a
-  legal SRM-read TypeDef whose literal leaf is `A+B` or `A<B` retains that exact
-  identity through shell production and reaches the typed CSharp refusal
-  boundary;
+  legal SRM-read TypeDef whose literal leaf is `A+B`, `A<B`, or whitespace-only
+  retains that exact identity through shell production and reaches the typed
+  CSharp refusal boundary;
 - `CSharpTypePrinterTests.SelfNameIsSharedByItsDeclarationPositions`, proving
   a positive-arity exact non-delegate named `extension` uses one prepared
   admitted identifier in its type header, instance and static constructors,

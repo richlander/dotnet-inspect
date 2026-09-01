@@ -1031,7 +1031,7 @@ public sealed class CSharpTypePrinter
         bool validateMetadataArity,
         bool validateTypeNameSpelling)
     {
-        if (string.IsNullOrWhiteSpace(type.Name))
+        if (validateTypeNameSpelling && string.IsNullOrWhiteSpace(type.Name))
             throw new ArgumentException("Type print requests require a non-empty type name.");
         if (type.TypeParameters is null)
             throw new ArgumentException($"Type '{type.FullName}' has a null type-parameter collection.");

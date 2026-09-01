@@ -163,6 +163,7 @@ public sealed class TypeShellProducerTests
     [Theory]
     [InlineData("A+B")]
     [InlineData("A<B")]
+    [InlineData(" ")]
     public void HostileMetadataSelfNameIsNotRendered(string metadataName)
     {
         byte[] image = BuildHostileMetadataFixture(metadataName);
