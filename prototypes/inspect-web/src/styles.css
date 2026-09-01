@@ -2231,39 +2231,125 @@ kbd {
 :root[data-theme="light"] .signature-language button:hover,
 :root[data-theme="light"] .source-provenance button:hover { color: #20231f; border-color: var(--dim); }
 
-/* Annotated source: the portable AnnotatedSourceDocument rendered as canonical lines plus the
-   facts observed about the member. Selection is a fact -> target -> node -> span walk, so the
-   only visual states are "this span is targeted" and "this fact is selected". */
-.annotated-controls { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--line); border-bottom: 0; background: var(--panel); }
-.annotated-controls-label { color: var(--dim); font: 12px var(--mono); }
-.annotated-controls button { padding: 3px 9px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel-raised); color: var(--muted); font: 12px var(--mono); cursor: pointer; }
-.annotated-controls button:hover { color: var(--text); border-color: var(--line-strong); }
-.annotated-controls button:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
-.annotated-medium.on { background: var(--panel-active); color: var(--green); border-color: var(--line-strong); }
-.annotated-hidden { margin-left: auto; color: var(--dim); font: 12px var(--mono); }
-.annotated-limitation { margin: 0 0 10px; padding: 8px 10px; border-left: 3px solid var(--warn, #d08000); background: rgba(208, 128, 0, 0.08); color: var(--dim); font: 12px/1.5 var(--mono); }
-.annotated-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 30%); gap: 0; }
-.annotated-text { max-width: 100%; margin: 0; padding: 14px 0; overflow: auto; border: 1px solid var(--line); background: var(--code-bg); }
-.annotated-text code { display: block; color: var(--code-text); font: 13px/1.6 var(--mono); }
-.annotated-line { display: flex; gap: 12px; padding: 0 14px; white-space: pre; }
-.annotated-line.medium-il .annotated-line-text { color: var(--dim); }
-.annotated-line-number { flex: none; width: 3ch; color: var(--code-line); text-align: right; user-select: none; }
-.annotated-line-text { flex: 1; min-width: 0; }
-.annotated-span { cursor: pointer; }
-.annotated-span.selected { background: var(--accent-soft); box-shadow: inset 0 -1px 0 var(--accent); color: var(--text); }
-.annotated-facts { display: flex; flex-direction: column; gap: 0; margin: 0; padding: 0; overflow: auto; border: 1px solid var(--line); border-left: 0; background: var(--panel); list-style: none; }
-.annotated-facts li { display: block; }
-.annotated-fact { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; padding: 8px 12px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--muted); font: 12px var(--mono); text-align: left; cursor: pointer; }
-.annotated-fact:hover { background: var(--panel-raised); color: var(--text); }
-.annotated-fact.selected { background: var(--panel-active); color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
-.annotated-fact:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
-.annotated-fact.empty { color: var(--dim); cursor: default; padding: 10px 12px; }
-.annotated-fact-descriptor { color: var(--green); }
-.annotated-fact-category { color: var(--blue); }
-.annotated-fact-detail { flex-basis: 100%; color: var(--text); }
-.annotated-fact-conditionality { color: var(--dim); }
-.annotated-fact-anchor { margin-left: auto; color: var(--dim); }
-.annotated-fact.unanchored .annotated-fact-anchor { color: var(--yellow); }
+/* Annotated Source keeps the portable text selectable while Findings and source-node
+   selection use explicit controls and non-underline treatments. */
+.annotated-reader { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); }
+.annotated-reader-head,
+.annotated-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.annotated-reader-head h3,
+.annotated-modal-head h2,
+.annotated-inspector-section h3,
+.annotated-detail h3,
+.annotated-detail h4 { margin: 0; }
+.annotated-reader-head p:not(.section-eyebrow) { margin: 3px 0 0; color: var(--dim); font: 11px var(--mono); }
+.annotated-reader-actions,
+.annotated-modal-head-actions,
+.annotated-control-row { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.annotated-reader button,
+.annotated-modal button { border: 1px solid var(--line-strong); background: var(--panel-raised); color: var(--muted); cursor: pointer; }
+.annotated-reader button:hover,
+.annotated-modal button:hover { border-color: var(--accent); color: var(--text); }
+.annotated-reader button:focus-visible,
+.annotated-modal button:focus-visible,
+.annotated-source-segment:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.annotated-reader .primary-action { border-color: var(--accent); color: var(--text); }
+.annotated-context { margin: 0; padding: 8px 12px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--yellow) 8%, transparent); color: var(--dim); font: 12px/1.5 var(--mono); }
 
-:root[data-theme="light"] .annotated-line-number { color: var(--dim); }
-:root[data-theme="light"] .annotated-span.selected { background: #f6e2d8; box-shadow: inset 0 -1px 0 var(--accent); }
+.annotated-source-code { min-width: max-content; padding: 10px 0 18px; overflow: auto; background: var(--code-bg); color: var(--code-text); font: 13px/1.65 var(--mono); }
+.annotated-source-line { display: grid; align-items: baseline; min-height: 22px; padding: 0 14px; white-space: pre; }
+.annotated-source-code[data-annotated-surface="embedded"] .annotated-source-line { grid-template-columns: 4ch minmax(max-content, 1fr) auto; gap: 12px; }
+.annotated-source-code[data-annotated-surface="modal"] .annotated-source-line { grid-template-columns: 4ch 4ch minmax(max-content, 1fr) auto; gap: 10px; }
+.annotated-source-line:hover { background: color-mix(in srgb, var(--text) 3%, transparent); }
+.annotated-source-line.medium-il code { color: var(--dim); }
+.annotated-line-number { color: var(--code-line); text-align: right; user-select: none; }
+.annotated-medium-label { color: var(--blue); font-size: 10px; user-select: none; }
+.medium-il .annotated-medium-label { color: var(--purple); }
+.annotated-source-line code { white-space: pre; }
+.annotated-source-segment { border-radius: 2px; user-select: text; }
+.annotated-source-segment.addressable { cursor: pointer; }
+.annotated-source-segment.addressable:hover,
+.annotated-source-segment.addressable:focus-visible { background: color-mix(in srgb, var(--blue) 17%, transparent); }
+.annotated-source-segment.invocation:hover,
+.annotated-source-segment.invocation:focus-visible { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.annotated-source-segment.selected { background: color-mix(in srgb, var(--accent) 24%, transparent); color: var(--text); font-weight: 650; }
+.annotated-source-segment.medium-hidden { visibility: hidden; pointer-events: none; }
+.annotated-line-coordinate { padding-left: 20px; color: var(--dim); font-size: 10px; user-select: none; }
+
+.annotated-rows { display: block; }
+.annotated-row { display: grid; align-items: start; padding: 0 14px; }
+.annotated-source-code[data-annotated-surface="embedded"] .annotated-row { grid-template-columns: 4ch minmax(max-content, 1fr); gap: 12px; }
+.annotated-source-code[data-annotated-surface="modal"] .annotated-row { grid-template-columns: 4ch 4ch minmax(max-content, 1fr); gap: 10px; }
+.annotated-row-content { display: flex; align-items: stretch; min-width: max-content; }
+.annotated-row-prefix { flex: 0 0 auto; visibility: hidden; white-space: pre; user-select: none; }
+.annotated-row-items { display: flex; align-items: stretch; flex-wrap: wrap; gap: 6px; margin: 2px 0 1px; }
+.annotated-row:first-child .annotated-row-items { margin-top: 5px; }
+.annotated-finding-chip,
+.annotated-finding-toggle { display: inline-flex; align-items: center; gap: 8px; border-left: 3px solid var(--accent) !important; border-radius: 3px; font: 11px var(--mono); text-align: left; }
+.annotated-finding-chip { padding: 4px 7px; }
+.annotated-finding-chip small { color: var(--dim); }
+.annotated-structure-mark { display: inline-flex; align-items: center; padding: 4px 7px; border-left: 3px solid var(--blue); border-radius: 3px; background: color-mix(in srgb, var(--blue) 10%, transparent); color: var(--muted); font: 11px var(--mono); }
+.annotated-finding-toggle[aria-pressed="true"] { background: var(--panel-active); color: var(--text); }
+.category-allocation { border-left-color: var(--accent) !important; }
+.category-cost { border-left-color: var(--yellow) !important; }
+.category-unsafety { border-left-color: var(--red, #d97070) !important; }
+.category-semantics { border-left-color: var(--blue) !important; }
+.category-lifetime { border-left-color: var(--purple) !important; }
+
+.annotated-modal-backdrop { position: fixed; inset: 0; z-index: 70; display: grid; background: rgba(0, 0, 0, 0.72); }
+.annotated-modal { position: relative; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr); margin: 10px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--bg); }
+.annotated-modal-head { background: var(--panel); }
+.annotated-modal-controls { display: flex; align-items: stretch; gap: 10px; padding: 8px 12px; overflow-x: auto; border-bottom: 1px solid var(--line); background: var(--panel); }
+.annotated-control-group { min-width: max-content; margin: 0; padding: 5px 8px 8px; border: 1px solid var(--line); border-radius: 3px; }
+.annotated-control-group legend { padding: 0 4px; color: var(--dim); font: 10px var(--mono); text-transform: uppercase; }
+.annotated-control-group legend span { color: var(--text); }
+.annotated-control-group button { padding: 4px 8px; border-radius: 3px; font: 11px var(--mono); }
+.annotated-set-control[aria-pressed="true"],
+.annotated-medium-toggle[aria-pressed="true"],
+.annotated-coordinate-toggle[aria-pressed="true"] { background: var(--panel-active); color: var(--green); }
+.annotated-modal-workspace { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(290px, 360px); overflow: hidden; }
+.annotated-modal-source { min-width: 0; min-height: 0; overflow: auto; border-right: 1px solid var(--line); }
+.annotated-modal-source .annotated-source-code { min-height: 100%; }
+.annotated-modal-inspector { min-height: 0; overflow: auto; background: var(--panel); }
+.annotated-modal-failure { grid-row: 2 / 4; padding: 24px; overflow: auto; }
+.annotated-modal-failure p { color: var(--muted); }
+.annotated-inspector-section { padding: 14px; border-bottom: 1px solid var(--line); }
+.annotated-selection-empty { display: grid; gap: 5px; margin-top: 10px; padding: 8px; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--panel-raised); }
+.annotated-selection-empty strong { color: var(--text); }
+.annotated-selection-empty span { color: var(--dim); font: 12px/1.5 var(--mono); }
+.annotated-empty,
+.annotated-unavailable { color: var(--dim); font: 12px/1.5 var(--mono); }
+.annotated-node-list,
+.annotated-inspector-list { display: grid; gap: 7px; margin-top: 10px; }
+.annotated-node-action,
+.annotated-inspector-action { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px; border-radius: 3px; text-align: left; }
+.annotated-node-action { flex-wrap: wrap; }
+.annotated-node-action strong,
+.annotated-inspector-action strong { color: var(--text); }
+.annotated-node-action span,
+.annotated-node-action small,
+.annotated-inspector-action small,
+.annotated-finding-status { color: var(--dim); font: 10px var(--mono); }
+.annotated-inspector-action > span:first-child { display: grid; gap: 3px; }
+.annotated-inspector-action { border-left: 3px solid var(--accent) !important; }
+
+.annotated-detail { z-index: 2; padding: 14px; overflow: auto; border-top: 1px solid var(--line); background: var(--panel-raised); box-shadow: 0 -12px 36px rgba(0, 0, 0, 0.28); }
+.annotated-modal > .annotated-detail { position: absolute; top: 58px; right: 0; bottom: 0; width: min(480px, 100%); border-top: 0; border-left: 1px solid var(--line-strong); box-shadow: -16px 0 40px rgba(0, 0, 0, 0.38); }
+.annotated-detail > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.annotated-detail dl { display: grid; gap: 7px; margin: 12px 0; }
+.annotated-detail dl div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; }
+.annotated-detail dt { color: var(--dim); font: 10px var(--mono); text-transform: uppercase; }
+.annotated-detail dd { margin: 0; color: var(--text); font: 12px/1.5 var(--mono); }
+.annotated-detail section { margin-top: 14px; }
+.annotated-detail ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font: 11px/1.6 var(--mono); }
+.annotated-detail-capabilities { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.annotated-detail-capabilities > div { padding: 9px; border: 1px solid var(--line); border-radius: 3px; }
+.annotated-detail-capabilities p { margin: 5px 0 0; color: var(--dim); font: 11px/1.5 var(--mono); }
+
+@media (max-width: 820px) {
+  .annotated-reader-head { align-items: flex-start; flex-direction: column; }
+  .annotated-modal-workspace { grid-template-columns: 1fr; }
+  .annotated-modal-inspector { border-top: 1px solid var(--line); }
+  .annotated-modal-source { border-right: 0; }
+}
+
+:root[data-theme="light"] .annotated-source-segment.selected { background: #f6e2d8; }
