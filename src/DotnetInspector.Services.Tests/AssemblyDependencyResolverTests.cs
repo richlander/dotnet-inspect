@@ -215,7 +215,7 @@ public class AssemblyDependencyResolverTests
     }
 
     [Fact]
-    public void Select_ReadableMismatchingSiblingShadowsInstalledPlatformFallback()
+    public void AssemblyDependencyResolver_PreservesOwnerIssuedNameDisposition()
     {
         string root = Directory.CreateTempSubdirectory(
             "dotnet-inspect-assembly-deps-").FullName;
@@ -251,17 +251,110 @@ public class AssemblyDependencyResolverTests
                     IncludeInstalledPlatformFallback = true,
                 });
 
-            Assert.IsType<AssemblyBindingSelection.Missing>(
+            var missing = Assert.IsType<AssemblyBindingSelection.Missing>(
                 resolver.Select(
                     new AssemblyBindingRequest(
                         AssemblyBindingTarget.Reference(platformIdentity),
                         AssemblyBindingOrigin.Global(),
                         AssemblyResolutionScope.Any)));
+
+            Assert.Equal(
+                AssemblyBindingMissDisposition.NameOwnedNoMatch,
+                missing.Disposition);
         }
         finally
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    [Fact]
+    public void InstalledPlatformFallback_DoesNotOwnAbsentPrefixedName()
+    {
+        string targetPath = typeof(AssemblyDependencyResolverTests)
+            .Assembly.Location;
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(targetPath)
+            {
+                PackageRoots = [],
+                IncludeTrustedPlatformAssemblies = false,
+                IncludeAspNetCoreSharedFramework = false,
+                IncludeSiblingAssemblies = false,
+                IncludeDepsJsonAssets = false,
+            });
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(
+                new AssemblyReferenceIdentity(
+                    "Microsoft.Absent.PlatformOwnershipProbe",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    "adb9793829ddae60")),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Platform);
+
+        var missing = Assert.IsType<AssemblyBindingSelection.Missing>(
+            resolver.Select(request));
+
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NoNameOwner,
+            missing.Disposition);
+    }
+
+    [Fact]
+    public void KnownInventoryBindingPolicy_DistinguishesNameAbsenceFromIdentityMiss()
+    {
+        string targetPath = typeof(AssemblyDependencyResolverTests)
+            .Assembly.Location;
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(targetPath)
+            {
+                PackageRoots = [],
+                IncludeTrustedPlatformAssemblies = false,
+                IncludeAspNetCoreSharedFramework = false,
+                IncludeSiblingAssemblies = true,
+                IncludeDepsJsonAssets = false,
+                IncludeInstalledPlatformFallback = false,
+            });
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(
+                new AssemblyReferenceIdentity(
+                    "Absent.Library",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null)),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Any);
+
+        var missing = Assert.IsType<AssemblyBindingSelection.Missing>(
+            resolver.Select(request));
+
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NoNameOwner,
+            missing.Disposition);
+
+        AssemblyName targetName =
+            typeof(AssemblyBindingSelection).Assembly.GetName();
+        var ownedRequest = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(
+                new AssemblyReferenceIdentity(
+                    targetName.Name!,
+                    new Version(
+                        targetName.Version!.Major + 1,
+                        0,
+                        0,
+                        0),
+                    targetName.CultureName,
+                    Convert.ToHexString(
+                            targetName.GetPublicKeyToken() ?? [])
+                        .ToLowerInvariant())),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Any);
+        var owned = Assert.IsType<AssemblyBindingSelection.Missing>(
+            resolver.Select(ownedRequest));
+
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NameOwnedNoMatch,
+            owned.Disposition);
     }
 
     [Fact]
@@ -497,6 +590,89 @@ public class AssemblyDependencyResolverTests
         Assert.Equal(1, secondPolicy.SelectionCount);
     }
 
+    [Theory]
+    [InlineData(AssemblyBindingMissDisposition.Undifferentiated)]
+    [InlineData(AssemblyBindingMissDisposition.NoNameOwner)]
+    [InlineData(AssemblyBindingMissDisposition.NameOwnedNoMatch)]
+    public void IntrinsicFacadeMiss_ContinuesToLaterFacadeSelection(
+        AssemblyBindingMissDisposition disposition)
+    {
+        byte[] image = BuildAssembly(
+            "IntrinsicMissOwner",
+            [1, 2, 3],
+            assemblyReferences:
+            [
+                "System.Private.CoreLib",
+                "mscorlib",
+            ]);
+        ResolvedAssemblyReference owner =
+            ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(
+                    "IntrinsicMissOwner",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                path: null,
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local(
+                    "intrinsic miss validation test"));
+        int selectionCount = 0;
+
+        var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
+            IntrinsicCoreLibraryBinding.Select(
+                owner,
+                _ => ++selectionCount == 1
+                    ? Missing(disposition)
+                    : AssemblyBindingSelection.Found(owner)));
+
+        Assert.Same(owner, selected.Assembly);
+        Assert.Equal(2, selectionCount);
+    }
+
+    [Theory]
+    [InlineData(AssemblyBindingMissDisposition.Undifferentiated)]
+    [InlineData(AssemblyBindingMissDisposition.NoNameOwner)]
+    [InlineData(AssemblyBindingMissDisposition.NameOwnedNoMatch)]
+    public void IntrinsicFacadeMisses_ExhaustAsUnsupportedScope(
+        AssemblyBindingMissDisposition disposition)
+    {
+        byte[] image = BuildAssembly(
+            "IntrinsicMissOwner",
+            [1, 2, 3],
+            assemblyReferences:
+            [
+                "System.Private.CoreLib",
+                "mscorlib",
+            ]);
+        ResolvedAssemblyReference owner =
+            ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(
+                    "IntrinsicMissOwner",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                path: null,
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local(
+                    "intrinsic miss exhaustion test"));
+        int selectionCount = 0;
+
+        var unavailable =
+            Assert.IsType<AssemblyBindingSelection.Unavailable>(
+                IntrinsicCoreLibraryBinding.Select(
+                    owner,
+                    _ =>
+                    {
+                        selectionCount++;
+                        return Missing(disposition);
+                    }));
+
+        Assert.Equal(
+            AssemblyBindingFailureKind.UnsupportedScope,
+            unavailable.Failure.Kind);
+        Assert.Equal(2, selectionCount);
+    }
+
     [Fact]
     public void AssemblyGroup_VersionSkewedRootRequiresIdentityPolicy()
     {
@@ -532,6 +708,48 @@ public class AssemblyDependencyResolverTests
         Assert.Equal(
             AssemblyBindingFailureKind.IdentityPolicyRequired,
             unavailable.Failure.Kind);
+    }
+
+    [Fact]
+    public void AssemblyGroup_AbsentPlatformPrefixedNamePreservesAmbiguity()
+    {
+        string path = typeof(AssemblyDependencyResolverTests)
+            .Assembly.Location;
+        var requested = new AssemblyReferenceIdentity(
+            "Microsoft.Absent.PlatformOwnershipProbe",
+            new Version(1, 0, 0, 0),
+            null,
+            "adb9793829ddae60");
+        ResolvedAssemblyReference first = ResolvedAssemblyReference.Create(
+            requested with { Version = new Version(2, 0, 0, 0) },
+            path,
+            () => File.OpenRead(path),
+            AssemblyResolutionProvenance.Local(
+                "first absent platform-prefixed root"));
+        ResolvedAssemblyReference second = ResolvedAssemblyReference.Create(
+            requested with { Version = new Version(3, 0, 0, 0) },
+            path,
+            () => File.OpenRead(path),
+            AssemblyResolutionProvenance.Local(
+                "second absent platform-prefixed root"));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (first, (IAssemblyBindingPolicy)
+                    new AssemblyDependencyResolver(
+                        new AssemblyDependencyResolutionOptions(path))),
+                (second, (IAssemblyBindingPolicy)
+                    new AssemblyDependencyResolver(
+                        new AssemblyDependencyResolutionOptions(path))),
+            ]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(requested),
+            AssemblyBindingOrigin.FromAssembly(first),
+            AssemblyResolutionScope.Platform);
+
+        var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
+            group.Select(request));
+
+        Assert.Equal([first, second], ambiguous.Assemblies);
     }
 
     [Fact]
@@ -691,6 +909,154 @@ public class AssemblyDependencyResolverTests
 
         Assert.Same(designated, selected.Assembly);
         Assert.Same(platform, Assert.Single(selected.ShadowedAssemblies));
+    }
+
+    [Theory]
+    [InlineData(AssemblyBindingMissDisposition.Undifferentiated)]
+    [InlineData(AssemblyBindingMissDisposition.NameOwnedNoMatch)]
+    public void SourceRelativeAssemblyGroupBindingPolicy_ContinuesOnlyAfterNoNameOwner(
+        AssemblyBindingMissDisposition disposition)
+    {
+        var requested = new AssemblyReferenceIdentity(
+            "Platform.Library",
+            new Version(1, 0, 0, 0),
+            null,
+            "001122aabbccddee");
+        ResolvedAssemblyReference owner = Descriptor(
+            new AssemblyReferenceIdentity(
+                "Owner",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("owner"));
+        ResolvedAssemblyReference designated = Descriptor(
+            requested with { Version = new Version(2, 0, 0, 0) },
+            AssemblyResolutionProvenance.Designated(
+                "terminal miss test"));
+        var policy = new FixedSelectionPolicy(
+            Missing(disposition));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (owner, (IAssemblyBindingPolicy)policy),
+                (designated, (IAssemblyBindingPolicy)policy),
+            ]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(requested),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+
+        var missing = Assert.IsType<AssemblyBindingSelection.Missing>(
+            group.Select(request));
+
+        Assert.Equal(disposition, missing.Disposition);
+        Assert.Equal(1, policy.SelectionCount);
+    }
+
+    [Fact]
+    public void AssemblyBindingMissDisposition_UndifferentiatedLegacyMissFailsClosed()
+    {
+        var requested = new AssemblyReferenceIdentity(
+            "Platform.Library",
+            new Version(1, 0, 0, 0),
+            null,
+            "001122aabbccddee");
+        ResolvedAssemblyReference owner = Descriptor(
+            new AssemblyReferenceIdentity(
+                "Owner",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("owner"));
+        ResolvedAssemblyReference designated = Descriptor(
+            requested with { Version = new Version(2, 0, 0, 0) },
+            AssemblyResolutionProvenance.Designated(
+                "legacy terminal miss test"));
+        var policy = new FixedSelectionPolicy(
+            AssemblyBindingSelection.NotFound());
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (owner, (IAssemblyBindingPolicy)policy),
+                (designated, (IAssemblyBindingPolicy)policy),
+            ]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(requested),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+
+        var missing = Assert.IsType<AssemblyBindingSelection.Missing>(
+            group.Select(request));
+        Assert.Equal(
+            AssemblyBindingMissDisposition.Undifferentiated,
+            missing.Disposition);
+        Assert.Equal(1, policy.SelectionCount);
+    }
+
+    [Fact]
+    public void AssemblyBindingMissDisposition_CompleteExhaustionRequired()
+    {
+        var requested = new AssemblyReferenceIdentity(
+            "Platform.Library",
+            new Version(1, 0, 0, 0),
+            null,
+            "001122aabbccddee");
+        ResolvedAssemblyReference owner = Descriptor(
+            new AssemblyReferenceIdentity(
+                "Owner",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("owner"));
+        ResolvedAssemblyReference designated = Descriptor(
+            requested with { Version = new Version(2, 0, 0, 0) },
+            AssemblyResolutionProvenance.Designated(
+                "complete chain test"));
+        var policy = new FixedSelectionPolicy(
+            AssemblyBindingSelection.NameNotOwned());
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (owner, (IAssemblyBindingPolicy)policy),
+                (designated, (IAssemblyBindingPolicy)policy),
+            ]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(requested),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+
+        var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
+            group.Select(request));
+
+        Assert.Same(designated, selected.Assembly);
+        Assert.Equal(1, policy.SelectionCount);
+    }
+
+    [Fact]
+    public void AssemblyBindingMissDisposition_AllNoOwnerRemainsNoOwner()
+    {
+        ResolvedAssemblyReference owner = Descriptor(
+            new AssemblyReferenceIdentity(
+                "Owner",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("owner"));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [(owner, (IAssemblyBindingPolicy)MissingPolicy.Instance)]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(
+                new AssemblyReferenceIdentity(
+                    "Absent",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null)),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+
+        var missing = Assert.IsType<AssemblyBindingSelection.Missing>(
+            group.Select(request));
+
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NoNameOwner,
+            missing.Disposition);
     }
 
     [Fact]
@@ -1770,8 +2136,21 @@ public class AssemblyDependencyResolverTests
 
         public AssemblyBindingSelection Select(
             AssemblyBindingRequest request) =>
-            AssemblyBindingSelection.NotFound();
+            AssemblyBindingSelection.NameNotOwned();
     }
+
+    static AssemblyBindingSelection Missing(
+        AssemblyBindingMissDisposition disposition) =>
+        disposition switch
+        {
+            AssemblyBindingMissDisposition.Undifferentiated =>
+                AssemblyBindingSelection.NotFound(),
+            AssemblyBindingMissDisposition.NoNameOwner =>
+                AssemblyBindingSelection.NameNotOwned(),
+            AssemblyBindingMissDisposition.NameOwnedNoMatch =>
+                AssemblyBindingSelection.NameOwnedButNoMatch(),
+            _ => throw new ArgumentOutOfRangeException(nameof(disposition)),
+        };
 
     sealed class FixedSelectionPolicy(
         AssemblyBindingSelection selection) : IAssemblyBindingPolicy
@@ -2133,7 +2512,8 @@ public class AssemblyDependencyResolverTests
         string assemblyName,
         byte[] publicKey,
         Version? version = null,
-        string? culture = null)
+        string? culture = null,
+        IReadOnlyList<string>? assemblyReferences = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -2158,6 +2538,16 @@ public class AssemblyDependencyResolverTests
             baseType: default,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
+        foreach (string reference in assemblyReferences ?? [])
+        {
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(reference),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+        }
 
         var builder = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),

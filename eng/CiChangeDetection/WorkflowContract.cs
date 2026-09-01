@@ -82,6 +82,7 @@ internal static partial class WorkflowContract
             "shipped",
             "web",
             "skills",
+            "tla",
         ];
         if (!declaredOutputs.ToHashSet(StringComparer.Ordinal)
             .SetEquals(requiredOutputs))

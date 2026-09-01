@@ -42,5 +42,7 @@
   <ItemGroup>
     <EmbeddedResource Include="..\..\eng\package-manifest-corpus.json"
                       LogicalName="DotnetInspector.Queries.Tests.PackageManifestCorpus.json" />
+    <EmbeddedResource Include="..\..\eng\view-facet-compatibility.json"
+                      LogicalName="DotnetInspector.Queries.Tests.ViewFacetCompatibility.json" />
   </ItemGroup>
 </Project>
