@@ -1815,6 +1815,60 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void ToDisplayRows_DoesNotDescribeAttributeArgumentContainingBracketAsDeclaredName()
+    {
+        // Round-4 review (reviewers A and B): before the guard on quotes
+        // inside SkipLeadingAttributeLists, an attribute argument string
+        // containing '[' (e.g. an attribute describing something as
+        // "[deprecated]") made the bracket-balance count in
+        // SkipLeadingAttributeLists appear unbalanced, so the attribute list
+        // was never skipped and the attribute's own argument identifier
+        // (`A`) was mistaken for the declared name -- exactly the round-3
+        // false positive this was meant to have already fixed. The unrelated
+        // call here is renamed to that attribute-argument identifier (`A`),
+        // which must not trigger the caption.
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return A(value);\n[A(\"[deprecated]\")] static void Other() { }",
+            new NodeSpec("InvocationExpression", "A(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "[A(\"[deprecated]\")] static void Other() { }", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> A(value)", changed.Detail);
+    }
+
+    [Fact]
+    public void ToDisplayRows_DescribesCallTargetRenamedToAttributedTupleReturningLocalFunction()
+    {
+        // Round-4 review (reviewer A): before bounding the trailing-
+        // whitespace scan by `start` (rather than 0), an attributed, unmodified
+        // tuple-return declaration lost its own caption -- a false negative,
+        // since the whitespace between the attribute list and the tuple
+        // return type's own opening paren was wrongly treated as a
+        // non-empty gap, causing the scan to bail instead of taking the
+        // tuple-return continuation.
+        var before = TrustedDocument(
+            "return Synthesized(value);",
+            new NodeSpec("InvocationExpression", "Synthesized(value)", [0x10]));
+        var after = TrustedDocument(
+            "return F(value);\n[My] (int, string) F(int value) => (value, \"\");",
+            new NodeSpec("InvocationExpression", "F(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "[My] (int, string) F(int value) => (value, \"\");", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        Assert.Contains(display, row =>
+            row.Change == "Changed"
+            && row.Detail == "call target: Synthesized -> local function `F`");
+    }
+
+    [Fact]
     public void IssueCorrespondence_DoesNotInferDeclarationWithoutMatchedCallSiteRewrite()
     {
         // Close negative: a new local-function declaration with no IL origin

@@ -589,6 +589,9 @@ public static class CSharpStructuralDiffPrinter
     {
         name = "";
         int start = SkipLeadingAttributeLists(text);
+        if (start < 0)
+            return false;
+
         int depth = 0;
         int groupStart = -1;
         for (int index = start; index < text.Length; index++)
@@ -606,7 +609,14 @@ public static class CSharpStructuralDiffPrinter
                 if (depth == 0 && groupStart >= 0)
                 {
                     int tokenEnd = groupStart;
-                    while (tokenEnd > 0 && char.IsWhiteSpace(text[tokenEnd - 1]))
+                    // Bounded by `start`, not 0, so a leading attribute
+                    // list's own trailing whitespace never leaks into the
+                    // token search -- otherwise an attributed unmodified
+                    // tuple return type (`[My] (int, string) F(x)`) would
+                    // wrongly see a non-empty gap here and bail instead of
+                    // taking the tuple-return continuation below (round-4
+                    // review, reviewer A).
+                    while (tokenEnd > start && char.IsWhiteSpace(text[tokenEnd - 1]))
                         tokenEnd--;
                     int tokenStart = tokenEnd;
                     while (tokenStart > start && IsIdentifierChar(text[tokenStart - 1]))
@@ -665,9 +675,15 @@ public static class CSharpStructuralDiffPrinter
     /// further leading whitespace), so <see cref="TryGetLocalFunctionDeclaredName"/>
     /// never mistakes an attribute's own argument list -- e.g. the <c>(1)</c>
     /// in <c>[My(1)] static void Other() { }</c> -- for the declaration's
-    /// parameter list. Leaves the index unchanged (returns 0) if the
-    /// remaining text is empty, has no leading <c>[</c>, or the brackets
-    /// never balance.
+    /// parameter list. Returns the unchanged index (0-based scan position) if
+    /// the remaining text is empty or has no leading <c>[</c>. Returns -1 --
+    /// signaling the caller to bail entirely rather than trust this scan --
+    /// if the brackets never balance, or if a quote/apostrophe appears
+    /// anywhere inside the attribute list: an attribute argument string can
+    /// itself contain <c>[</c>/<c>]</c> characters (e.g.
+    /// <c>[Description("[deprecated]")]</c>), which would silently corrupt
+    /// this bracket count and let it under- or over-run the real attribute
+    /// boundary (round-4 review, reviewers A and B).
     /// </summary>
     static int SkipLeadingAttributeLists(string text)
     {
@@ -684,9 +700,13 @@ public static class CSharpStructuralDiffPrinter
             int scan = index;
             for (; scan < text.Length; scan++)
             {
-                if (text[scan] == '[')
+                char current = text[scan];
+                if (current is '"' or '\'')
+                    return -1;
+
+                if (current == '[')
                     depth++;
-                else if (text[scan] == ']')
+                else if (current == ']')
                 {
                     depth--;
                     if (depth == 0)
