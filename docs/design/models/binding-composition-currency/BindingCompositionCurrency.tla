@@ -37,7 +37,8 @@ ASSUME
     /\ DecisionMode \in
         {"Policy", "AcceptInjection", "DropInactive",
          "PromoteSelectedShadow", "PromoteAmbiguousShadow",
-         "ReverseProjection", "SubstituteContender"}
+         "ReverseProjection", "SubstituteContender",
+         "CanonicalizeTerminal"}
     /\ BoundaryMode \in {"Policy", "LeakUnfinalized"}
     /\ VersionMode \in {"Policy", "InterpretForeignSnapshot"}
 
@@ -95,23 +96,19 @@ IssuedOrder(enumeration, candidateSet) ==
             THEN Append(CanonicalFor(issued), FirstCanonical(issued))
             ELSE CanonicalFor(issued)
 
-InputActive(sourceKind, candidateSet) ==
+CanonicalTerminalActive(sourceKind, candidateSet) ==
     CASE sourceKind = "Selected" ->
             {FirstCanonical(candidateSet)}
       [] sourceKind = "Ambiguous" ->
             {FirstCanonical(candidateSet), SecondCanonical(candidateSet)}
       [] OTHER -> {}
 
-InputInactive(sourceKind, candidateSet) ==
-    IF sourceKind \in {"Selected", "Ambiguous"}
-    THEN candidateSet \ InputActive(sourceKind, candidateSet)
-    ELSE {}
-
 VARIABLES
     phase,
     sourceKind,
     enumeration,
     identityEligible,
+    sourceActive,
     attemptedContenders,
     consumerPresent,
     capturedVersion,
@@ -125,22 +122,28 @@ VARIABLES
     resultInactiveOrder
 
 vars ==
-    <<phase, sourceKind, enumeration, identityEligible, attemptedContenders,
-      consumerPresent, capturedVersion, snapshotVersion, domain, domainOrder,
-      resultKind, resultActive, resultInactive, resultActiveOrder,
-      resultInactiveOrder>>
+    <<phase, sourceKind, enumeration, identityEligible, sourceActive,
+      attemptedContenders, consumerPresent, capturedVersion, snapshotVersion,
+      domain, domainOrder, resultKind, resultActive, resultInactive,
+      resultActiveOrder, resultInactiveOrder>>
 
 Init ==
     /\ phase = "Ready"
     /\ sourceKind \in SourceKinds
     /\ enumeration \in CandidateEnumerations
     /\ identityEligible \in SUBSET Candidates
+    /\ sourceActive \in SUBSET Candidates
     /\ attemptedContenders \in SUBSET Candidates
     /\ consumerPresent \in BOOLEAN
     /\ (sourceKind = CompositionRequired => identityEligible # {})
-    /\ (sourceKind = "Selected" => identityEligible # {})
+    /\ (sourceKind = "Selected" =>
+        /\ sourceActive \subseteq identityEligible
+        /\ Cardinality(sourceActive) = 1)
     /\ (sourceKind = "Ambiguous" =>
-        Cardinality(identityEligible) >= 2)
+        /\ sourceActive \subseteq identityEligible
+        /\ Cardinality(sourceActive) >= 2)
+    /\ (sourceKind \notin {"Selected", "Ambiguous"} =>
+        sourceActive = {})
     /\ (sourceKind \in
             {"Unavailable", "Rejected", "NoNameOwner",
              "NameOwnedNoMatch", "Undifferentiated"} =>
@@ -157,7 +160,7 @@ Init ==
         sourceKind = CompositionRequired)
     /\ (DomainMode = "ReopenTerminal" =>
         /\ sourceKind \in {"Selected", "Ambiguous"}
-        /\ InputInactive(sourceKind, identityEligible) # {})
+        /\ identityEligible \ sourceActive # {})
     /\ (DecisionMode = "AcceptInjection" =>
         /\ sourceKind = CompositionRequired
         /\ attemptedContenders # {}
@@ -173,14 +176,14 @@ Init ==
         /\ DomainMode = "ReopenTerminal"
         /\ sourceKind = "Selected"
         /\ attemptedContenders \subseteq
-            InputInactive(sourceKind, identityEligible)
+            identityEligible \ sourceActive
         /\ Cardinality(attemptedContenders) = 1
         /\ consumerPresent)
     /\ (DecisionMode = "PromoteAmbiguousShadow" =>
         /\ DomainMode = "ReopenTerminal"
         /\ sourceKind = "Ambiguous"
         /\ attemptedContenders \subseteq
-            InputInactive(sourceKind, identityEligible)
+            identityEligible \ sourceActive
         /\ Cardinality(attemptedContenders) = 1
         /\ consumerPresent)
     /\ (DecisionMode = "ReverseProjection" =>
@@ -194,6 +197,12 @@ Init ==
         /\ attemptedContenders \subseteq identityEligible
         /\ identityEligible \ attemptedContenders # {}
         /\ consumerPresent)
+    /\ (DecisionMode = "CanonicalizeTerminal" =>
+        /\ DomainMode = "Policy"
+        /\ sourceKind \in {"Selected", "Ambiguous"}
+        /\ sourceActive # CanonicalTerminalActive(
+            sourceKind,
+            identityEligible))
     /\ (BoundaryMode = "LeakUnfinalized" =>
         /\ sourceKind = CompositionRequired
         /\ ~consumerPresent)
@@ -234,8 +243,9 @@ IssueComposition ==
             /\ resultActiveOrder' = <<>>
             /\ resultInactiveOrder' = <<>>
     /\ UNCHANGED
-        <<sourceKind, enumeration, identityEligible, attemptedContenders,
-          consumerPresent, capturedVersion, snapshotVersion>>
+        <<sourceKind, enumeration, identityEligible, sourceActive,
+          attemptedContenders, consumerPresent, capturedVersion,
+          snapshotVersion>>
 
 IssueNonDomain ==
     /\ phase = "Ready"
@@ -265,18 +275,22 @@ IssueNonDomain ==
                 /\ domainOrder' = <<>>
                 /\ resultKind' = sourceKind
                 /\ resultActive' =
-                    InputActive(sourceKind, identityEligible)
+                    IF DecisionMode = "CanonicalizeTerminal"
+                    THEN
+                        CanonicalTerminalActive(
+                            sourceKind,
+                            identityEligible)
+                    ELSE sourceActive
                 /\ resultInactive' =
-                    InputInactive(sourceKind, identityEligible)
+                    identityEligible \ resultActive'
                 /\ resultActiveOrder' =
-                    CanonicalFor(
-                        InputActive(sourceKind, identityEligible))
+                    CanonicalFor(resultActive')
                 /\ resultInactiveOrder' =
-                    CanonicalFor(
-                        InputInactive(sourceKind, identityEligible))
+                    CanonicalFor(resultInactive')
     /\ UNCHANGED
-        <<sourceKind, enumeration, identityEligible, attemptedContenders,
-          consumerPresent, capturedVersion, snapshotVersion>>
+        <<sourceKind, enumeration, identityEligible, sourceActive,
+          attemptedContenders, consumerPresent, capturedVersion,
+          snapshotVersion>>
 
 ValidDecision ==
     /\ attemptedContenders # {}
@@ -342,9 +356,9 @@ Finalize ==
                 /\ resultActiveOrder' = <<>>
                 /\ resultInactiveOrder' = <<>>
     /\ UNCHANGED
-        <<sourceKind, enumeration, identityEligible, attemptedContenders,
-          consumerPresent, capturedVersion, snapshotVersion, domain,
-          domainOrder>>
+        <<sourceKind, enumeration, identityEligible, sourceActive,
+          attemptedContenders, consumerPresent, capturedVersion,
+          snapshotVersion, domain, domainOrder>>
 
 RejectUnfinalized ==
     /\ phase = "Issued"
@@ -359,9 +373,9 @@ RejectUnfinalized ==
     /\ resultActiveOrder' = <<>>
     /\ resultInactiveOrder' = <<>>
     /\ UNCHANGED
-        <<sourceKind, enumeration, identityEligible, attemptedContenders,
-          consumerPresent, capturedVersion, snapshotVersion, domain,
-          domainOrder>>
+        <<sourceKind, enumeration, identityEligible, sourceActive,
+          attemptedContenders, consumerPresent, capturedVersion,
+          snapshotVersion, domain, domainOrder>>
 
 Next ==
     IssueComposition
@@ -382,6 +396,7 @@ TypeOK ==
     /\ sourceKind \in SourceKinds
     /\ enumeration \in CandidateEnumerations
     /\ identityEligible \in SUBSET Candidates
+    /\ sourceActive \in SUBSET Candidates
     /\ attemptedContenders \in SUBSET Candidates
     /\ consumerPresent \in BOOLEAN
     /\ capturedVersion \in Versions
@@ -431,18 +446,18 @@ NonDomainResultsArePreserved ==
     /\ snapshotVersion = capturedVersion
     =>
         /\ resultKind = sourceKind
-        /\ resultActive = InputActive(sourceKind, identityEligible)
-        /\ resultInactive = InputInactive(sourceKind, identityEligible)
+        /\ resultActive = sourceActive
+        /\ resultInactive = identityEligible \ sourceActive
         /\ resultActiveOrder =
-            CanonicalFor(InputActive(sourceKind, identityEligible))
+            CanonicalFor(sourceActive)
         /\ resultInactiveOrder =
-            CanonicalFor(InputInactive(sourceKind, identityEligible))
+            CanonicalFor(identityEligible \ sourceActive)
 
 InactiveEvidenceNeverPromoted ==
     /\ sourceKind \in {"Selected", "Ambiguous"}
     /\ phase = "Completed"
     =>
-        resultActive \cap InputInactive(sourceKind, identityEligible) = {}
+        resultActive \cap (identityEligible \ sourceActive) = {}
 
 FinalCandidatesComeFromDomain ==
     /\ sourceKind = CompositionRequired

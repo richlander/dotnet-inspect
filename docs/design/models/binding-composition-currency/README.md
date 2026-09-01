@@ -17,6 +17,8 @@ The model answers these focused questions:
 - Does an empty or foreign decision become a visible rejection?
 - Can a terminal selection or ambiguity be reopened to promote an inactive
   shadow?
+- Can a terminal selection or ambiguity be preserved when its active
+  candidates are not first in canonical order?
 - Can an unconsumed handoff reach Metadata as a frozen result?
 - Can a snapshot from outside the captured policy version be interpreted?
 - Does every issued handoff reach a terminal decision or supersession?
@@ -30,6 +32,12 @@ complete eligible set. Existing selected, ambiguous, unavailable, rejected,
 and missing-disposition results issue no domain. `NoNameOwner` is preserved
 unchanged here; its separately modeled policy-tier advancement is outside this
 model.
+
+Selected and ambiguous source results range over every legal active subset of
+their complete active/inactive evidence. This includes singleton winners and
+multi-candidate ties that do not begin with the first canonical candidate.
+Preservation checks compare the result with that independently chosen incoming
+partition rather than reconstructing a decision from evidence order.
 
 The adjacent policy proposes only the highest-precedence contender set. A
 one-member set becomes `Selected`; a larger set becomes `Ambiguous`; and the
@@ -55,7 +63,11 @@ For canonical domain `<<candidateOne, candidateTwo, candidateThree>>`, a
 consumer may propose `{candidateTwo}`. Finalization returns `Selected` with
 active projection `<<candidateTwo>>` and inactive projection
 `<<candidateOne, candidateThree>>`; no candidate is lost and the domain order
-is preserved in each projection.
+is preserved in each projection. If that terminal result passes through
+another composite, the independently modeled incoming partition keeps
+`candidateTwo` active. The terminal-canonicalization mutation instead
+reconstructs `candidateOne` as the winner from evidence order and violates
+`NonDomainResultsArePreserved`.
 
 For a separate singleton domain `<<candidateOne>>`, `candidateTwo` is foreign
 because it is outside that issued domain. The handoff returns
@@ -66,16 +78,17 @@ produces a three-state counterexample to `FinalCandidatesComeFromDomain`.
 ## Assumptions and non-claims
 
 The three-candidate bound covers empty, singleton, selected, ambiguous, proper
-subset, full-set, and foreign-candidate decisions. Candidate symbols represent
-distinct `AssemblyAcquisitionRegistration` identities whose exact descriptors
-are preserved abstractly. The canonical model order represents the issuing
-owner's stable order for an equal request and version; it does not prescribe a
-product sort key. Candidate decisions are sets in the model, so duplicate
-array entries and descriptor substitution under one registration cannot be
-expressed; those target-contract checks remain unverified pending product
-gates. Empty and foreign decisions are model-checked. The issued domain remains
-an ordered sequence, so a separate mutation checks duplicate registration
-issuance.
+subset, full-set, and foreign-candidate decisions. It also covers every legal
+selected or ambiguous terminal partition, including noncanonical active
+candidates. Candidate symbols represent distinct
+`AssemblyAcquisitionRegistration` identities whose exact descriptors are
+preserved abstractly. The canonical model order represents the issuing owner's
+stable order for an equal request and version; it does not prescribe a product
+sort key. Candidate decisions are sets in the model, so duplicate array entries
+and descriptor substitution under one registration cannot be expressed; those
+target-contract checks remain unverified pending product gates. Empty and
+foreign decisions are model-checked. The issued domain remains an ordered
+sequence, so a separate mutation checks duplicate registration issuance.
 
 Identity matching and nonempty domain construction are model inputs. The
 product factory is the proposed nonempty-domain gate; the model cannot reach an
@@ -102,12 +115,13 @@ implementation. Formal model-to-product correspondence is unverified.
 | `BindingCompositionCurrencyBrokenSelectedShadowPromotion.cfg` | Reopens a terminal selected result and selects one of its inactive shadows. It must violate `InactiveEvidenceNeverPromoted`. |
 | `BindingCompositionCurrencyBrokenShadowPromotion.cfg` | Reopens a terminal ambiguity and selects one of its inactive shadows. It must violate `InactiveEvidenceNeverPromoted`. |
 | `BindingCompositionCurrencyBrokenProjectionOrder.cfg` | Reverses the final active projection relative to the issued order. It must violate `FinalProjectionOrderIsPreserved`. |
+| `BindingCompositionCurrencyBrokenTerminalCanonicalization.cfg` | Reconstructs a terminal winner from canonical evidence order instead of preserving the incoming partition. It must violate `NonDomainResultsArePreserved`. |
 | `BindingCompositionCurrencyBrokenUnfinalized.cfg` | Lets an unconsumed handoff reach Metadata as `CompositionRequired`. It must violate `UnfinalizedHandoffIsRejected`. |
 | `BindingCompositionCurrencyBrokenStaleVersion.cfg` | Interprets a snapshot whose returned token differs from the captured delegate token. It must violate `ForeignSnapshotIsNotInterpreted`. |
 
 `TypeOK`, `NonDomainResultsNeverIssueDomain`,
 `NonDomainResultsArePreserved`, and `SupersededPublishesNoDecision` are
-whole-state structural checks. The twelve
+whole-state structural checks. The thirteen
 broken configurations are independent negative controls for the interaction
 claims most likely to regress.
 
@@ -151,6 +165,7 @@ for config in \
   BindingCompositionCurrencyBrokenSelectedShadowPromotion \
   BindingCompositionCurrencyBrokenShadowPromotion \
   BindingCompositionCurrencyBrokenProjectionOrder \
+  BindingCompositionCurrencyBrokenTerminalCanonicalization \
   BindingCompositionCurrencyBrokenUnfinalized \
   BindingCompositionCurrencyBrokenStaleVersion
 do
@@ -166,12 +181,12 @@ The positive configurations completed with no errors:
 
 | Configuration | Generated states | Distinct states | Maximum depth | Result |
 | --- | ---: | ---: | ---: | --- |
-| Safety | 9,504 | 9,504 | 3 | All 16 invariants passed. |
-| Liveness | 9,504 | 9,504 | 3 | `CompositionConverges` passed. |
+| Safety | 12,576 | 12,576 | 3 | All 16 invariants passed. |
+| Liveness | 12,576 | 12,576 | 3 | `CompositionConverges` passed. |
 
-The safety graph starts 4,416 initial states and covers both consumer-presence
+The safety graph starts 5,952 initial states and covers both consumer-presence
 states and both returned snapshot versions. It executed 1,344
-`IssueComposition`, 3,072 `IssueNonDomain`, 336 `Finalize`, and 336
+`IssueComposition`, 4,608 `IssueNonDomain`, 336 `Finalize`, and 336
 `RejectUnfinalized` transitions. Foreign snapshots complete through their issue
 action without exposing a domain.
 
@@ -186,9 +201,10 @@ Each mutation exited with TLC status 12 on its intended invariant:
 | Broken injection | 721 / 721 | 3 | A foreign contender became selected while the real domain member became inactive, violating `FinalCandidatesComeFromDomain`. |
 | Broken decision substitution | 217 / 217 | 3 | Another in-domain candidate replaced the proposed contender, violating `ValidDecisionIsHonored`. |
 | Broken drop | 289 / 289 | 3 | Finalization selected one of two domain members and discarded the other instead of retaining it as inactive, violating `FinalPartitionPreservesDomain`. |
-| Broken selected-shadow promotion | 121 / 121 | 3 | A terminal selected result was reopened and its inactive candidate became selected, violating `InactiveEvidenceNeverPromoted`. |
-| Broken ambiguous-shadow promotion | 25 / 25 | 3 | A terminal two-way tie with one inactive candidate was reopened and that inactive candidate became selected, violating `InactiveEvidenceNeverPromoted`. |
+| Broken selected-shadow promotion | 289 / 289 | 3 | A terminal selected result was reopened and its inactive candidate became selected, violating `InactiveEvidenceNeverPromoted`. |
+| Broken ambiguous-shadow promotion | 73 / 73 | 3 | A terminal two-way tie with one inactive candidate was reopened and that inactive candidate became selected, violating `InactiveEvidenceNeverPromoted`. |
 | Broken projection order | 169 / 169 | 3 | A two-member active projection reversed the issued order, violating `FinalProjectionOrderIsPreserved`. |
+| Broken terminal canonicalization | 1,537 / 1,537 | 2 | A noncanonical terminal winner was replaced with the first canonical candidate, violating `NonDomainResultsArePreserved`. |
 | Broken unfinalized handoff | 1,345 / 1,345 | 3 | An absent arbitration consumer let `CompositionRequired` reach Metadata unchanged, violating `UnfinalizedHandoffIsRejected`. |
 | Broken foreign snapshot | 673 / 673 | 3 | A `versionTwo` snapshot was interpreted against captured `versionOne` and became a rejected decision, violating `ForeignSnapshotIsNotInterpreted`. |
 
