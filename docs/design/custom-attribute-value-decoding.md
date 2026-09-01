@@ -301,12 +301,12 @@ Two consequences follow, and both are load-bearing:
    Widening the rule past that distinction would convert a deliberate refusal
    into approval.
 
-#### Width agreement is a resource property, not only a fidelity one
+#### Type agreement is a resource property, not only a fidelity one
 
-This is the documented root cause of `dotnet/runtime#57531`, filed against SRM
-in August 2021 by a NuGet engineer scanning packages on nuget.org — the same
-tool category as this one. A shipping package on the feed drove the reporter's
-scanner to a 28.5 GB allocation:
+`dotnet/runtime#57531` is the worked example, filed against SRM in August 2021
+by a NuGet engineer scanning packages on nuget.org — the same tool category as
+this one. A shipping package on the feed drove the reporter's scanner to a
+28,517 MiB allocation:
 
 ```text
 Reading attribute 'RegisterPageBuilderLocalizationResourceAttribute'... found bad image format!
@@ -325,12 +325,23 @@ makes the decoder consume the wrong number of bytes, the cursor drifts, and a
 later field is then read as an array count. The pre-allocation itself was never
 changed, and the current source still has no length check.
 
-Two things follow. A width disagreement does not merely produce a wrong value —
-it relocates every subsequent read, so it can convert a valid blob into a
-multi-gigabyte allocation request. And the published position of the decoder's
-owner is that width agreement is a **caller obligation**. I1 is therefore
-load-bearing for I2, and the asymmetry recorded as Gap 5 is a bound defect
-rather than a fidelity nicety.
+That closing account names the right code path but not the trigger. As the I1
+statement above records, the offending argument is a `System.Type`, and SRM
+consults `GetUnderlyingEnumType` only because `IsSystemType` returned `false`
+first. The hardcoded `Int32` is what the drift *costs* once the classification
+is already wrong; it is not what makes the argument enter the enum path. A
+provider that classified `System.Type` correctly would never reach the width
+decision for this argument, whatever it returned. Read the two together:
+classification selects the reading rule, and width then determines how far the
+cursor moves.
+
+Two things follow. A disagreement about either — which rule applies, or how many
+bytes it consumes — does not merely produce a wrong value; it relocates every
+subsequent read, so it can convert a valid blob into a multi-gigabyte
+allocation request. And the published position of the decoder's owner is that
+this agreement is a **caller obligation**. I1 is therefore load-bearing for I2,
+and the asymmetry recorded as Gap 5 is a bound defect rather than a fidelity
+nicety.
 
 Roslyn, which maintains its own decoder rather than calling SRM, resolves the
 same two width paths — the value-side serialized name and the signature-side
