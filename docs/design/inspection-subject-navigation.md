@@ -20,10 +20,15 @@ retained evaluation bases, and pure lens recommendation are implemented by
 `NavigationLensRecommendation` and gated at their claims below. Pure initial
 subject ranking over already trustworthy Type candidates and already available
 Library candidates is implemented by `NavigationInitialSubjectRecommendation`
-and gated at its claim below. Candidate availability and failure
-classification, activation, reconciliation, revision behavior, retained
-sessions, synchronization, and restoration remain unverified until their
-implementation gates in [Verification](#verification) land.
+and gated at its claim below. Pure standalone exact-lens activation is
+implemented by `NavigationLensActivation` and gated by
+`StandaloneLensActivation_RejectsDifferentExactSubjectBeforeRegistryResolution`,
+`ExplicitLensResolution_MapsEveryRegistryOutcomeWithoutFallback`, and
+`ExplicitLensResolution_RetainsExactRegistryEvidence`. Candidate availability
+and failure classification, subject activation, snapshot installation,
+reconciliation, revision behavior, retained sessions, synchronization, and
+restoration remain unverified until their implementation gates in
+[Verification](#verification) land.
 
 The concurrency claims are specified separately as executable TLA+ models under
 [`models/inspection-subject-navigation/`](models/inspection-subject-navigation/).
@@ -464,6 +469,14 @@ Every outcome retains the exact registry result and request identity, including
 the absent descriptor in `Unknown`. A Navigation-owned preparation failure
 after an available registry result remains distinguishable from a
 Registry-owned failed result. Neither failure is rewritten as unavailable.
+
+The pure exact-request boundary is gated by
+`StandaloneLensActivation_RejectsDifferentExactSubjectBeforeRegistryResolution`,
+`ExplicitLensResolution_MapsEveryRegistryOutcomeWithoutFallback`, and
+`ExplicitLensResolution_RetainsExactRegistryEvidence`. Snapshot replacement,
+revision advancement, and installation of an exact-request basis remain
+unverified until their separately named gates land.
+
 A valid exact request that completes as Registry `Unavailable` or `Failed`
 installs its exact-request basis and evidence whenever that replacement differs
 from the prior snapshot and its bound subject remains active. It does not

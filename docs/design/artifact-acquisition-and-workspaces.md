@@ -1870,6 +1870,11 @@ Here, a compile asset is a package assembly selected as a compile-time
 reference; a focused description of
 [NuGet package structure and asset roles](https://github.com/richlander/dotnet-inspect/issues/5294)
 is tracked separately.
+When no real reference group supplies the selected framework, compile fallback
+uses that framework's neutral `lib` assets. RID-specific
+`runtimes/<rid>/lib/<tfm>` replacement applies only to the independently
+selected implementation role, so one neutral library compile asset may
+correspond to a different RID-specific implementation asset.
 
 The related identity concepts have distinct jobs:
 
@@ -1958,6 +1963,11 @@ folders, and resolved framework/RID correspondence are gated by
 `PackageRootBinding_UnrepresentableSelectionTargetUsesFrameworkNeutralCoordinate`,
 `PackageRootBinding_ResolvedCoordinatePreservesAcquisitionTargetAndRuntime`,
 and `PackageRootBinding_SourceRuntimeRequiresFramework`.
+Neutral-library compile fallback and RID-specific implementation
+correspondence are gated by
+`RidSpecificImplementation_DoesNotReplaceLibraryCompileFallback` and
+`RidSpecificImplementation_UsesSeparateNeutralCompileRole`; Browser adoption
+is gated by `RidSpecificPackage_SeparatesCompileAndImplementationAssets`.
 
 Compile-library availability is a capability of that Root, not a precondition
 for the Root to exist. The host workspace retains every requested Root.
