@@ -25,6 +25,7 @@ import type {
   AnnotatedSourceResult,
 } from "../src/annotated-source-session.ts";
 import {
+  csharpHighlightingInput,
   csharpHighlightingText,
   validateAnnotatedSourceDocument,
 } from "../src/annotated-source-view.ts";
@@ -278,6 +279,36 @@ test("C# highlighting crosses product segments without changing source text", ()
   );
 });
 
+test("C# highlighting leaves excluded IL ranges unstyled inside one Prism token", () => {
+  const source = 'var s = @"start\nIL_0000: nop\nend";';
+  const ilStart = source.indexOf("IL_0000");
+  const ilLength = "IL_0000: nop".length;
+  const tokenizationSource =
+    source.slice(0, ilStart)
+    + " ".repeat(ilLength)
+    + source.slice(ilStart + ilLength);
+  const highlighter = createCSharpRangeHighlighter(
+    source,
+    {
+      languages: { csharp: {} },
+      tokenize: value => [{ type: "string", content: value }],
+    },
+    escapeHtml,
+    tokenizationSource,
+    [{ start: ilStart, length: ilLength }],
+  );
+  const html = highlighter.render(0, source.length);
+
+  assert.match(html, /class="token string">var s = @&quot;start\n<\/span>IL_0000: nop/);
+  assert.doesNotMatch(html, /class="token string">IL_0000: nop/);
+  assert.equal(
+    html
+      .replaceAll(/<[^>]+>/g, "")
+      .replaceAll("&quot;", '"'),
+    source,
+  );
+});
+
 test("annotated source renderer keeps syntax tokens inside structural spans", () => {
   const html = renderAnnotatedSource({
     result,
@@ -334,10 +365,18 @@ test("C# tokenization masks IL while preserving document UTF-16 offsets", () => 
     facts: [],
     targets: [],
   };
+  const highlightingInput = csharpHighlightingInput(document);
   const tokenizationSource = csharpHighlightingText(document);
 
   assert.equal(tokenizationSource, "cs\n  \na ");
   assert.equal(tokenizationSource.length, document.text.length);
+  assert.deepEqual(highlightingInput, {
+    text: tokenizationSource,
+    excludedRanges: [
+      { start: 3, length: 2 },
+      { start: 7, length: 1 },
+    ],
+  });
 });
 
 test("C# highlighting falls back to escaped source when token text diverges", () => {
@@ -616,4 +655,24 @@ test("persistent source affordances use no underline treatment", () => {
     /\.annotated-row-items\s*\{([^}]*)\}/.exec(styles)?.[1] ?? "";
   assert.ok(annotationRows.length > 0);
   assert.doesNotMatch(annotationRows, /border-left|padding-left/);
+});
+
+test("Annotated Source composition requires a concrete overload and validated session", () => {
+  const appSource = readFileSync(
+    new URL("../src/dotnet-inspect.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    appSource,
+    /const annotatedPageContext =\s*scope\(\) === "member"\s*&& state\.memberSection === "annotated"\s*&& memberSourceHasConcreteOverload\(\);/);
+  assert.match(
+    appSource,
+    /const annotatedWorkingSurface =\s*annotatedPageContext && state\.memberAnnotatedEmbedded !== null;/);
+  assert.match(
+    appSource,
+    /detail-actions\$\{annotatedPageContext \? " annotated-page-actions" : ""\}/);
+  assert.match(
+    appSource,
+    /detail-scroll\$\{annotatedWorkingSurface \? " annotated-working-surface" : ""\}/);
 });

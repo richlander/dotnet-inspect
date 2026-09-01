@@ -1,6 +1,6 @@
 import {
   buildAnnotatedView,
-  csharpHighlightingText,
+  csharpHighlightingInput,
   MEDIUM_LABELS,
 } from "./annotated-source-view.ts";
 import {
@@ -27,6 +27,7 @@ import type {
   SourceMedium,
 } from "./document-model.ts";
 import type {
+  CSharpHighlightExclusion,
   CSharpRangeHighlighter,
 } from "./csharp-highlighting.ts";
 
@@ -39,6 +40,7 @@ export interface AnnotatedSourceRenderOptions {
   highlightCSharp?: (
     source: string,
     tokenizationSource: string,
+    excludedRanges: readonly CSharpHighlightExclusion[],
   ) => CSharpRangeHighlighter;
 }
 
@@ -265,13 +267,15 @@ function renderContext(
 ): SourceRenderContext {
   const model = createAnnotatedSourceViewerModel(options.result);
   const source = model.document.text;
+  const highlightingInput = csharpHighlightingInput(model.document);
   return {
     model,
     session: options.session,
     escapeHtml: options.escapeHtml,
     highlighting: options.highlightCSharp?.(
       source,
-      csharpHighlightingText(model.document),
+      highlightingInput.text,
+      highlightingInput.excludedRanges,
     ) ?? {
       render(start, length) {
         return options.escapeHtml(source.slice(start, start + length));

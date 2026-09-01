@@ -32,10 +32,20 @@ export interface CSharpRangeHighlighter {
   render(start: number, length: number): string;
 }
 
+export interface CSharpHighlightExclusion {
+  start: number;
+  length: number;
+}
+
 interface HighlightRun {
   start: number;
   end: number;
   classes: readonly string[];
+}
+
+interface NormalizedExclusion {
+  start: number;
+  end: number;
 }
 
 export function createCSharpRangeHighlighter(
@@ -43,10 +53,13 @@ export function createCSharpRangeHighlighter(
   prism: PrismCSharpTokenizer | undefined,
   escapeHtml: EscapeHtml,
   tokenizationSource: string = source,
+  excludedRanges: readonly CSharpHighlightExclusion[] = [],
 ): CSharpRangeHighlighter {
   if (tokenizationSource.length !== source.length) {
     return plainHighlighter(source, escapeHtml);
   }
+  const exclusions = normalizeExclusions(source, excludedRanges);
+  if (!exclusions) return plainHighlighter(source, escapeHtml);
   const grammar = prism?.languages.csharp;
   if (!prism || !grammar) return plainHighlighter(source, escapeHtml);
 
@@ -98,15 +111,89 @@ export function createCSharpRangeHighlighter(
         if (run.start >= end) break;
         const sliceStart = Math.max(start, run.start);
         const sliceEnd = Math.min(end, run.end);
-        const text = escapeHtml(source.slice(sliceStart, sliceEnd));
         const classes = uniqueCssClasses(run.classes);
-        html += classes.length > 0
-          ? `<span class="token ${classes.join(" ")}">${text}</span>`
-          : text;
+        html += renderRun(
+          source,
+          sliceStart,
+          sliceEnd,
+          classes,
+          exclusions,
+          escapeHtml);
       }
       return html;
     },
   };
+}
+
+function renderRun(
+  source: string,
+  start: number,
+  end: number,
+  classes: readonly string[],
+  exclusions: readonly NormalizedExclusion[],
+  escapeHtml: EscapeHtml,
+): string {
+  let html = "";
+  let cursor = start;
+  for (const exclusion of exclusions) {
+    if (exclusion.end <= cursor) continue;
+    if (exclusion.start >= end) break;
+    const exclusionStart = Math.max(cursor, exclusion.start);
+    if (cursor < exclusionStart) {
+      html += renderStyledText(
+        source.slice(cursor, exclusionStart),
+        classes,
+        escapeHtml);
+    }
+    const exclusionEnd = Math.min(end, exclusion.end);
+    html += escapeHtml(source.slice(exclusionStart, exclusionEnd));
+    cursor = exclusionEnd;
+    if (cursor >= end) return html;
+  }
+  return html + renderStyledText(source.slice(cursor, end), classes, escapeHtml);
+}
+
+function renderStyledText(
+  source: string,
+  classes: readonly string[],
+  escapeHtml: EscapeHtml,
+): string {
+  const text = escapeHtml(source);
+  return classes.length > 0
+    ? `<span class="token ${classes.join(" ")}">${text}</span>`
+    : text;
+}
+
+function normalizeExclusions(
+  source: string,
+  ranges: readonly CSharpHighlightExclusion[],
+): readonly NormalizedExclusion[] | null {
+  const sorted: NormalizedExclusion[] = [];
+  for (const range of ranges) {
+    if (!Number.isInteger(range.start)
+      || !Number.isInteger(range.length)
+      || range.start < 0
+      || range.length <= 0
+      || range.start + range.length > source.length) {
+      return null;
+    }
+    sorted.push({
+      start: range.start,
+      end: range.start + range.length,
+    });
+  }
+  sorted.sort((left, right) => left.start - right.start || left.end - right.end);
+
+  const normalized: NormalizedExclusion[] = [];
+  for (const range of sorted) {
+    const previous = normalized.at(-1);
+    if (previous && range.start <= previous.end) {
+      previous.end = Math.max(previous.end, range.end);
+    } else {
+      normalized.push({ ...range });
+    }
+  }
+  return normalized;
 }
 
 function plainHighlighter(

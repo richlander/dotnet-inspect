@@ -118,12 +118,13 @@ function renderAndFocus(
           result,
           session: embedded,
           escapeHtml,
-          highlightCSharp: (source, tokenizationSource) =>
+          highlightCSharp: (source, tokenizationSource, excludedRanges) =>
             createCSharpRangeHighlighter(
               source,
               window.Prism,
               escapeHtml,
               tokenizationSource,
+              excludedRanges,
             ),
         })}
       </article>
@@ -133,12 +134,13 @@ function renderAndFocus(
           result,
           session: modal,
           escapeHtml,
-          highlightCSharp: (source, tokenizationSource) =>
+          highlightCSharp: (source, tokenizationSource, excludedRanges) =>
             createCSharpRangeHighlighter(
               source,
               window.Prism,
               escapeHtml,
               tokenizationSource,
+              excludedRanges,
             ),
         })
       : ""}`;

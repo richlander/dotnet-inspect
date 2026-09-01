@@ -2256,7 +2256,7 @@ kbd {
 .annotated-context { color: var(--yellow); }
 
 .annotated-source-code { min-width: max-content; min-height: 0; padding: 10px 0 18px; overflow: auto; background: var(--code-bg); color: var(--code-text); font: 13px/1.65 var(--mono); }
-.annotated-reader > .annotated-source-code { height: 100%; }
+.annotated-reader > .annotated-source-code { width: 100%; min-width: 0; height: 100%; }
 .annotated-source-line { display: grid; align-items: baseline; min-height: 22px; padding: 0 14px; white-space: pre; }
 .annotated-source-code[data-annotated-surface="embedded"] .annotated-source-line { grid-template-columns: 4ch minmax(max-content, 1fr) auto; gap: 12px; }
 .annotated-source-code[data-annotated-surface="modal"] .annotated-source-line { grid-template-columns: 4ch 4ch minmax(max-content, 1fr) auto; gap: 10px; }

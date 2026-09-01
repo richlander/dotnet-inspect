@@ -193,6 +193,9 @@ import {
 import {
   createCSharpRangeHighlighter,
 } from "./csharp-highlighting.ts";
+import type {
+  CSharpHighlightExclusion,
+} from "./csharp-highlighting.ts";
 import {
   clearAnnotations,
   closeFindingDetail,
@@ -2627,10 +2630,14 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     state.lens = "api";
   }
   state.typeCursor = Math.min(state.typeCursor, Math.max(visible.length - 1, 0));
+  const annotatedPageContext =
+    scope() === "member"
+    && state.memberSection === "annotated"
+    && memberSourceHasConcreteOverload();
   const annotatedWorkingSurface =
-    scope() === "member" && state.memberSection === "annotated";
+    annotatedPageContext && state.memberAnnotatedEmbedded !== null;
   const annotatedActionsEnabled =
-    annotatedWorkingSurface && state.memberAnnotatedEmbedded !== null;
+    annotatedWorkingSurface;
 
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal ? " inert" : ""}>
@@ -2706,8 +2713,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
                 : `<span>${escapeHtml(packageDisplayName(pkg))}</span><b>/</b><span>${escapeHtml(current?.namespace ?? "")}</span><b>/</b><strong>${escapeHtml(typeDisplayName(current))}</strong>
               ${state.selectedMemberKey ? `<b>/</b><strong>${escapeHtml(selectedMember(current)?.name ?? "")}</strong>` : ""}`}
             </div>
-            <div class="detail-actions${annotatedWorkingSurface ? " annotated-page-actions" : ""}">
-              ${annotatedWorkingSurface
+            <div class="detail-actions${annotatedPageContext ? " annotated-page-actions" : ""}">
+              ${annotatedPageContext
                 ? renderAnnotatedSourcePageActions(annotatedActionsEnabled)
                 : `<button id="copy-name" type="button">copy name</button><button id="taste-btn" class="${state.taste.length ? "active" : ""}" title="Decompiler style (taste)">taste${state.taste.length ? ` · ${state.taste.length}` : ""}</button>`}
             </div>
@@ -4498,12 +4505,14 @@ function highlightCSharp(value: string) {
 function annotatedSourceHighlighter(
   source: string,
   tokenizationSource: string,
+  excludedRanges: readonly CSharpHighlightExclusion[],
 ) {
   return createCSharpRangeHighlighter(
     source,
     window.Prism,
     escapeHtml,
     tokenizationSource,
+    excludedRanges,
   );
 }
 
