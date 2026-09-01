@@ -12,6 +12,10 @@ internal static class CSharpKeywords
     public static bool RequiresDeclarationEscape(string identifier)
         => s_reserved.Contains(identifier) || s_declarationContextual.Contains(identifier);
 
+    /// <summary>Whether an identifier should be escaped as a declared type name.</summary>
+    public static bool RequiresTypeDeclarationEscape(string identifier)
+        => RequiresDeclarationEscape(identifier) || identifier == "extension";
+
     /// <summary>Whether an identifier should be escaped in a method-body or expression position.</summary>
     public static bool RequiresBodyEscape(string identifier)
         => s_reserved.Contains(identifier) || identifier == "await";
@@ -26,7 +30,7 @@ internal static class CSharpKeywords
         "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed", "short",
         "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true",
         "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual",
-        "void", "volatile", "while",
+        "void", "volatile", "while", "__arglist", "__makeref", "__reftype", "__refvalue",
     };
 
     private static readonly HashSet<string> s_declarationContextual = new(StringComparer.Ordinal)
