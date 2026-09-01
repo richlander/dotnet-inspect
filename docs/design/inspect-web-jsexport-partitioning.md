@@ -489,24 +489,36 @@ contracts that issue #4497 does not need.
 
 ## Implementation sequence
 
-The implementation should land as a stack because later slices consume the
-project and artifact boundaries established by earlier slices:
+The binding cutover is atomic. The current generated module acquires only
+`InspectWeb.Engine`, validates all 45 managed paths during initialization, and
+supplies the application's declarations and runtime calls. Moving an export
+before replacing that module leaves a stale path; regenerating the monolith
+after the move removes the operation before its consumer has migrated.
 
-1. **Managed partition.** Introduce `InspectWeb.Engine.Core` and the seven export
-   assemblies, move all 45 operations and their DTO closures, and gate exact
-   assignment and the acyclic project graph.
-2. **Generated artifacts.** Generate, compile, verify, lint, and drift-check
-   each facade while retaining the monolithic application import as a temporary
-   migration boundary.
-3. **Consumer migration.** Add the single-flight coordinator, migrate runtime
-   calls and DTO imports to their owners, and remove the monolithic facade.
-4. **Deployment certification.** Expand Browser/Wasm execution and paired async
-   deployment receipts to the exact production facade set, then remove
-   temporary compatibility gates.
+One cutover PR therefore:
 
-Every slice has one independently demonstrable claim. The monolithic generated
-facade is deleted only in the slice that migrates every consumer and proves
-there is no runtime or declaration import left.
+1. introduces the six capability export assemblies and moves all 45 exports and
+   their DTO closures to their final assemblies;
+2. generates, compiles, verifies, lints, and drift-checks all seven facades;
+3. adds the single-flight coordinator and migrates every runtime call and DTO
+   import;
+4. expands Browser/Wasm composition and paired async deployment receipts to the
+   exact production facade set; and
+5. deletes the monolithic source, declaration, JavaScript module, and every
+   compatibility import in the same change.
+
+Preparatory PRs may precede the cutover only when the current monolithic facade
+and deployment evidence remain complete. Extracting
+`InspectWeb.Engine.Core`, adding reusable generation-loop infrastructure under
+the current one-module configuration, or adding cutover-ready outcome tests are
+valid examples. Moving a `[JSExport]`, changing its DTO assembly, publishing a
+partial module set, or weakening a current gate is not preparation and belongs
+in the atomic cutover.
+
+Each preparatory PR and the cutover must remain independently buildable,
+deployable, and demonstrable. There is no temporary aggregate adapter,
+handwritten binding, partially initialized application, or compatibility
+exception to the exact-one-owner rule.
 
 ## Acceptance
 
