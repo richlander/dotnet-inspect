@@ -461,19 +461,17 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
-    public void CompareStructure_NarrowsUsingStatementSpanToHeaderAndStopsAnnotatingUnchangedBody()
+    public void CompareStructure_NarrowsUsingStatementDeclarationDroppedToTypeIdentifierEquals()
     {
-        // Reproduces the #4113 shape recorded in #4952 (issue #5022, items 2
-        // and 7): a disposed-only `using` resource is raised to the
-        // variable-less form. Only the header line's variable declaration
-        // changes; the body (`{`, `n = 1;`, `}`) is untouched. Previously the
-        // matched UsingStatement row's spans covered the whole construct, so
-        // RenderAnnotatedBody repeated a "construct; text changed"
-        // annotation on all four lines. Narrowing the row's spans to the
-        // printer's own recorded Header sub-region (a) confines the caret to
-        // the header line (item 2) and (b) stops annotating the unchanged
-        // body lines as a side effect, with no separate propagation step to
-        // suppress (item 7).
+        // Reproduces the #4113 shape recorded in #4952 (issue #5022, items 2,
+        // 7, and 10): a disposed-only `using` resource is raised to the
+        // variable-less form. The body (`{`, `n = 1;`, `}`) is untouched and
+        // never reads `iDisposable`, so item 10 narrows the row's spans
+        // further than items 2/7's header-only narrowing: to exactly
+        // `IDisposable iDisposable =` on the declaring side, and to the bare
+        // resource expression on the variable-less side -- matching #4952's
+        // "agreed-better mockup" for #4113 exactly, including its side-local
+        // "never read" captions.
         const string beforeText = """
             int n = 0;
             using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))
@@ -507,17 +505,16 @@ public class CSharpStructuralComparisonTests
         var beforeSpan = Assert.Single(row.BeforeSpans);
         var afterSpan = Assert.Single(row.AfterSpans);
         Assert.Equal(
-            "using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))",
+            "IDisposable iDisposable =",
             before.Text.Substring(beforeSpan.Start, beforeSpan.Length));
         Assert.Equal(
-            "using (DisposableFromObjectSpan([a, b]))",
+            "DisposableFromObjectSpan([a, b])",
             after.Text.Substring(afterSpan.Start, afterSpan.Length));
 
-        // Round-2 review: the row's reported region role must reflect the
-        // narrowed spans it actually renders (Header), not the full
-        // statement's Construct region the node used to span before
-        // narrowing -- otherwise the caret narrows but the label still says
-        // "construct", contradicting itself.
+        // The narrowed span is still contained within the printer's own
+        // Header region, so the row's reported region role stays Header --
+        // matching items 2/7's own invariant that the reported region must
+        // reflect what the caret actually covers.
         Assert.Equal(PrintedRegionRole.Header, row.BeforeRegion);
         Assert.Equal(PrintedRegionRole.Header, row.AfterRegion);
 
@@ -530,12 +527,18 @@ public class CSharpStructuralComparisonTests
 
         AssertCaret(
             beforeBody,
-            "using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))",
-            "raise: UsingStatement header;");
+            "IDisposable iDisposable =",
+            "raise: UsingStatement header; declares variable `iDisposable` (never read)");
         AssertCaret(
             afterBody,
-            "using (DisposableFromObjectSpan([a, b]))",
-            "raise: UsingStatement header;");
+            "DisposableFromObjectSpan([a, b])",
+            "raise: UsingStatement header; variable-less resource (declaration dropped; never read)");
+
+        var display = Assert.Single(CSharpStructuralDiffPrinter.ToDisplayRows(comparison));
+        Assert.Equal(
+            "header: variable declaration dropped (`iDisposable` never read)",
+            display.Detail);
+
         Assert.DoesNotContain("raise: UsingStatement construct", beforeBody, StringComparison.Ordinal);
         Assert.DoesNotContain("raise: UsingStatement construct", afterBody, StringComparison.Ordinal);
         foreach (string unchangedLine in new[] { "{", "n = 1;", "}" })
@@ -543,6 +546,126 @@ public class CSharpStructuralComparisonTests
             Assert.DoesNotContain($"raise: {unchangedLine}", beforeBody, StringComparison.Ordinal);
             Assert.DoesNotContain($"raise: {unchangedLine}", afterBody, StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public void CompareStructure_DoesNotNarrowUsingDeclarationWhenVariableIsRead()
+    {
+        // Close negative for item 10: same declaration-dropped header shape
+        // as the previous test, but the body now reads `iDisposable` (via
+        // `iDisposable.Dispose()`), so item 10's liveness check must refuse
+        // to narrow further or caption "never read" -- that claim would be
+        // false, and dropping a variable that is actually read is not an
+        // equivalent rewrite in the first place. The row falls back to
+        // items 2/7's header-only narrowing and generic caption.
+        const string beforeText = """
+            int n = 0;
+            using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))
+            {
+                iDisposable.Dispose();
+            }
+            return n;
+            """;
+        const string afterText = """
+            int n = 0;
+            using (DisposableFromObjectSpan([a, b]))
+            {
+                iDisposable.Dispose();
+            }
+            return n;
+            """;
+
+        var before = UsingStatementDocument(beforeText);
+        var after = UsingStatementDocument(afterText);
+
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        var row = Assert.Single(comparison.Rows);
+        var beforeSpan = Assert.Single(row.BeforeSpans);
+        var afterSpan = Assert.Single(row.AfterSpans);
+        Assert.Equal(
+            "using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))",
+            before.Text.Substring(beforeSpan.Start, beforeSpan.Length));
+        Assert.Equal(
+            "using (DisposableFromObjectSpan([a, b]))",
+            after.Text.Substring(afterSpan.Start, afterSpan.Length));
+
+        var display = Assert.Single(CSharpStructuralDiffPrinter.ToDisplayRows(comparison));
+        Assert.DoesNotContain("never read", display.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompareStructure_NarrowsUsingStatementDeclarationAddedToTypeIdentifierEquals()
+    {
+        // Mirror direction of item 10: a variable-less resource gains a
+        // declaration (before has none, after declares `iDisposable`, never
+        // read in the untouched body). The row narrows symmetrically: the
+        // bare expression on the before side, `Type identifier =` on the
+        // after side, with captions swapped to match.
+        const string beforeText = """
+            int n = 0;
+            using (DisposableFromObjectSpan([a, b]))
+            {
+                n = 1;
+            }
+            return n;
+            """;
+        const string afterText = """
+            int n = 0;
+            using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))
+            {
+                n = 1;
+            }
+            return n;
+            """;
+
+        var before = UsingStatementDocument(beforeText);
+        var after = UsingStatementDocument(afterText);
+
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        var row = Assert.Single(comparison.Rows);
+        var beforeSpan = Assert.Single(row.BeforeSpans);
+        var afterSpan = Assert.Single(row.AfterSpans);
+        Assert.Equal(
+            "DisposableFromObjectSpan([a, b])",
+            before.Text.Substring(beforeSpan.Start, beforeSpan.Length));
+        Assert.Equal(
+            "IDisposable iDisposable =",
+            after.Text.Substring(afterSpan.Start, afterSpan.Length));
+
+        string beforeBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.Before);
+        string afterBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.After);
+
+        AssertCaret(
+            beforeBody,
+            "DisposableFromObjectSpan([a, b])",
+            "raise: UsingStatement header; variable-less resource (declaration added; never read)");
+        AssertCaret(
+            afterBody,
+            "IDisposable iDisposable =",
+            "raise: UsingStatement header; declares variable `iDisposable` (never read)");
+
+        var display = Assert.Single(CSharpStructuralDiffPrinter.ToDisplayRows(comparison));
+        Assert.Equal(
+            "header: variable declaration added (`iDisposable` never read)",
+            display.Detail);
     }
 
     [Fact]
@@ -640,17 +763,21 @@ public class CSharpStructuralComparisonTests
 
         // Item 1 (ancestor collapsing) recognizes the nested UsingStatement's
         // narrowed header row as the sole explanation for the TryStatement's
-        // text change and suppresses the redundant ancestor row.
+        // text change and suppresses the redundant ancestor row, using the
+        // items-2/7 header-level span (before item 10's further declaration
+        // narrowing runs -- see RefineUsingResourceDeclarationRows). The
+        // surviving row is then refined by item 10 same as any other, since
+        // `iDisposable` is never read in the nested using's own body.
         var row = Assert.Single(comparison.Rows);
         Assert.Equal(1, row.BeforeNodeId);
         Assert.Equal(1, row.AfterNodeId);
         var beforeSpan = Assert.Single(row.BeforeSpans);
         var afterSpan = Assert.Single(row.AfterSpans);
         Assert.Equal(
-            "using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))",
+            "IDisposable iDisposable =",
             before.Text.Substring(beforeSpan.Start, beforeSpan.Length));
         Assert.Equal(
-            "using (DisposableFromObjectSpan([a, b]))",
+            "DisposableFromObjectSpan([a, b])",
             after.Text.Substring(afterSpan.Start, afterSpan.Length));
     }
 
