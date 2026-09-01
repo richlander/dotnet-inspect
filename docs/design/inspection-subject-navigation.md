@@ -9,9 +9,15 @@ rules.
 ## Status
 
 This is the target architecture for issue #4794. Issue #5013 completes its
-focused lens-recommendation semantics. Product implementation remains
-unverified until the implementation gates in [Verification](#verification)
-land.
+focused lens-recommendation semantics. The structural kind and exact subject
+identity foundation is implemented by
+`StructuralSubjectIdentity` and gated by
+`StructuralSubjectIdentityTests.KindVocabulary_IsClosedAndStructurallyOrdered`,
+`Identities_BindExactOwnerIssuedComponents`,
+`MemberIdentity_BindsExactDeclaringTypeAndAnchor`, and
+`Construction_RejectsAbsentOwnerIssuedComponents`. Product navigation
+behavior remains unverified until the remaining implementation gates in
+[Verification](#verification) land.
 
 The concurrency claims are specified separately as executable TLA+ models under
 [`models/inspection-subject-navigation/`](models/inspection-subject-navigation/).
@@ -164,7 +170,10 @@ The conceptual subject identity family is:
 | Member | Type identity plus product-owned member anchor |
 
 Identity equality never uses display text, filename, list position, metadata
-token alone, or backend arrival order.
+token alone, or backend arrival order. This is gated for the implemented
+identity foundation by
+`StructuralSubjectIdentityTests.Identities_BindExactOwnerIssuedComponents`
+and `MemberIdentity_BindsExactDeclaringTypeAndAnchor`.
 
 A navigation lens identity combines one exact structural subject identity with
 one view-facet registry identity:
@@ -633,6 +642,10 @@ as model-checked behavior.
 
 The eventual subject-navigation implementation must include named gates for:
 
+- `KindVocabulary_IsClosedAndStructurallyOrdered`
+- `Identities_BindExactOwnerIssuedComponents`
+- `MemberIdentity_BindsExactDeclaringTypeAndAnchor`
+- `Construction_RejectsAbsentOwnerIssuedComponents`
 - `InitialRecommendation_PrefersTypeThenLibraryThenRoot`
 - `TypeRecommendation_UsesPrimaryLibraryAccessibilityAndProducerOrder`
 - `InitialRecommendation_NeverChoosesMember`

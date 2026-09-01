@@ -10,11 +10,13 @@ Tracking: [#3629](https://github.com/richlander/dotnet-inspect/issues/3629).
 
 ## Status
 
-This is target design. `AnalysisUniverseDescription` and
-`AnalysisRequestPlan` implement the descriptive and pre-execution side, while
-Workspace owns retained assembly-context groups and query access. No production
-contract currently joins those sides without exposing owner internals or
-reconstructing their semantics.
+This contract is implemented for generic Workspace-backed issuance.
+`InspectionWorkspace.CreateAnalysisUniverseOffer` mints the exact description
+and authenticated offer; `AnalysisUniverseRealization` retains immutable
+description-scoped registrations; and `AnalysisUniverseExecutionAccess`
+provides exact typed requirement bindings backed by owner-issued leases.
+Issuance remains synchronous and sequential, reacquires authorization for each
+plan, and publishes no partial access.
 
 The first intended adopter is Workspace-backed analysis. Integration Census is
 a prospective consumer after its separate #5319 incidence adoption, not part
@@ -356,15 +358,16 @@ implementation.
 
 ## Adoption sequence
 
-1. Lock this reusable realization contract.
+1. Lock this reusable realization contract. Complete.
 2. Adopt it in Workspace with one focused implementation effort that issues
-   executable bindings without exposing mutable workspace internals.
+   executable bindings without exposing mutable workspace internals. Complete.
 3. Adopt it in the Integration Census executor under the Integration owner,
    including the context-incidence change tracked by #5319.
 4. Let later analysis owners adopt the same pattern independently.
 
-The pattern PR does not implement the first adopter under the bounded
-first-adopter exception. Workspace adoption remains the next separate slice.
+The generic Workspace adoption does not implement an Integration capability,
+context-incidence policy, or producer. Those remain separate owner-specific
+adoptions.
 
 ## Non-claims
 
@@ -386,8 +389,8 @@ first-adopter exception. Workspace adoption remains the next separate slice.
 
 ## Verification
 
-The design remains unverified until a Workspace adoption lands these named
-gates:
+`AnalysisUniverseRealizationTests` verifies the generic Workspace adoption
+through these named gates:
 
 - `AnalysisUniverseRealization_RequiresExactDescription`
 - `AnalysisUniverseRealization_RejectsForeignProviderOffer`
