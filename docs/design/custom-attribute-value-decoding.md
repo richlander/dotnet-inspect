@@ -155,6 +155,15 @@ first parameter's declared type; neither materializes the amplified array,
 because the charge is asserted through `beforeMaterialize` and `DecodeValue` is
 never called on the misclassified image.
 
+Read the refusal gate for what it proves. `DeclaredSlotCharge` saturates at
+`int.MaxValue` for any count above 134,217,727, and all four plausible misread
+widths land on four bytes of this type name that exceed it, so the charge
+assertion cannot distinguish the offset named above from a different misread.
+It gates amplification-and-refusal; the offset itself is pinned separately, as
+an assertion over the captured bytes. Discriminating the width by outcome needs
+a fixture built for that purpose, which is the differential oracle's job
+(#5065), not this captured blob's.
+
 | Invariant | Holds today? | Basis |
 | --- | --- | --- |
 | **I1 — Alignment** | Believed to hold on the resolver-supplied path; unverified | Pinned by example only. One example is now a captured real-world artifact: see the classification pair above. The resolver-less overload is explicitly out of scope; see [Known gaps](#known-gaps). |
@@ -286,12 +295,15 @@ by construction rather than assumed.
 
 Two consequences follow, and both are load-bearing:
 
-1. **Share the decision, do not re-implement it.** Wherever a width decision
-   depends on resolving a name or a handle, the two walkers must reach it
+1. **Share the decision, do not re-implement it.** Wherever the reading rule
+   depends on resolving a name or a handle — the `System.Type` classification
+   as much as the width that follows it — the two walkers must reach it
    through the same handle and the same resolution function, or through the
    same provider instance — never through two implementations believed to be
    equivalent. The next section states which mechanism applies where, because
-   they are not the same on both paths.
+   they are not the same on both paths. The guard satisfies this for width,
+   which it accepts from the caller, and violates it for classification, which
+   it re-implements; that is gap 8.
 2. **Fail open to SRM only where we genuinely cannot judge.** Where the guard
    *runs out of bytes*, or a parser exception reaches the public boundary, it
    hands the blob to SRM rather than inventing a judgment, because SRM's own
@@ -355,7 +367,7 @@ consequence 1 above, reached independently by the other production decoder.
 Each row is a **verified** divergence between the contract above and the
 component's current behavior. They are listed rather than omitted, because a
 design document describing only intended behavior would misrepresent a
-component with seven open violations.
+component with eight open violations.
 
 | # | Gap | Invariant | Issue |
 | --- | --- | --- | --- |
@@ -366,6 +378,7 @@ component with seven open violations.
 | 5 | The resolver-less `IsSafeToDecode` overload resolves widths through a different order, so its `true` does not carry I1 for a caller decoding with a resolver-backed provider. | I1 scope | #5120 |
 | 6 | Every memo in the guard is a **single slot keyed on the previous input**, so alternating two values defeats all four — including a guard-side `Θ(P × G)` that mirrors gap 1. | I3 | #5130 |
 | 7 | `A` attribute rows sharing one `B`-byte blob are guarded and decoded independently, costing `Θ(A × B)` in work and retained values from `Θ(A + B)` of metadata. Absent a shared `MaterializationContext`, each `TryDecode` also builds a fresh provider and rebuilds the type-definition index, adding `Θ(A × T)`. | I3 | #5132 |
+| 8 | The guard re-implements the `System.Type` classification test (`name == "System.Type"`) rather than accepting it from the caller, though it accepts enum width through `enumUnderlyingType`. A caller whose provider classifies differently receives `true` for a blob that then drifts. | I1 | #5393 |
 
 Gaps 1, 2, 3, and 6 share a root cause worth naming: **the guard and SRM
 memoize different things.** Where the guard caches work SRM repeats, the guard is fast
@@ -374,13 +387,22 @@ cache, the guard is quadratic and the decode is fine (gaps 2 and 3). Neither
 side's profile reveals the other's cost, which is why all four were found by
 reading rather than by measurement. Evaluate any fix against **both** walkers.
 
-Gap 5 is an **API-shape hazard rather than a live defect**: `AttributeDecoder`
-is the only production caller and always supplies the resolver. It is recorded
-because the surface permits the unsafe composition and nothing prevents it. I1
-is therefore scoped to the resolver-supplied overload throughout this document;
-see [Resolution order](#resolution-order-and-what-int32-actually-means).
+Gaps 5 and 8 are **API-shape hazards rather than live defects**:
+`AttributeDecoder` is the only production caller, it always supplies the
+resolver, and its `ArgTypeProvider.IsSystemType` agrees with the guard's
+internal test. They are recorded because the surface permits the unsafe
+composition and nothing prevents it. I1 is therefore scoped to the
+resolver-supplied overload throughout this document, and additionally assumes a
+caller whose classification matches the guard's; see
+[Resolution order](#resolution-order-and-what-int32-actually-means).
 
-Gaps 1, 2, 4, 5, 6, and 7 were all found while writing or reviewing this document,
+Gap 8 is the sharper of the two, because it is the rule stated above turned on
+its own component: width is accepted from the caller, classification is
+re-implemented. Classification selects the reading rule before width decides
+how far the cursor moves, so the re-implemented decision is the one that opens
+the larger hole.
+
+Gaps 1, 2, 4, 5, 6, 7, and 8 were all found while writing or reviewing this document,
 against a component that had already been through eight rounds of
 defect-driven review. That is the argument for the oracle below: reading finds
 these one at a time, and only after somebody thinks to look.

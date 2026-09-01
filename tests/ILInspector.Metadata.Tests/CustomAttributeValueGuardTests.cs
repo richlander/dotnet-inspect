@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Collections.Immutable;
 using System.Reflection;
@@ -335,6 +336,17 @@ public sealed class CustomAttributeValueGuardTests
         // the real 1. That is 1,868,786,036 declared slots -- 28,515 MiB at
         // DeclaredSlotCharge, matching the 28,517 MiB the issue reported.
         //
+        // Pin that offset arithmetic against the fixture, because the charge
+        // assertion below cannot: DeclaredSlotCharge saturates at int.MaxValue
+        // for any count above 134,217,727, and all four plausible misread
+        // widths (1, 2, 4, and 8 bytes) land on four bytes of this type name
+        // that exceed it. The charge therefore gates amplification-and-refusal,
+        // not the specific offset the narrative above names.
+        Assert.Equal(
+            1_868_786_036,
+            BinaryPrimitives.ReadInt32LittleEndian(
+                ShippedSystemTypeBlob.Slice(6)));
+
         // The guard must refuse before anything is materialized. This test
         // never calls DecodeValue, so the amplified allocation is asserted
         // through the declared charge and never attempted.
