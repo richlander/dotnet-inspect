@@ -16,6 +16,10 @@ documentation.
 
 ### How work runs on this repo
 
+These practices serve one purpose: build robust, capable features that provide
+foundational capabilities or compelling user experiences. The result should be
+recognizable as conventionally sound, delightfully new or unique, or both.
+
 [`docs/development-practices.md`](docs/development-practices.md) owns the full
 development model and rationale. The binding summary:
 
