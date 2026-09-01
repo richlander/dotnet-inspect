@@ -8,8 +8,9 @@ until their named gates land.
 
 This is the focused successor to superseded PR #5110. It does not inherit that
 PR's proposed declaration-result, receipt, composition, or retention protocol.
-Compiler-accurate type-declaration identifier admission remains an explicit
-CSharpText prerequisite in issue #5215.
+Compiler-accurate type-declaration identifier admission is supplied by
+`CSharpIdentifier.AdmitTypeDeclaration`, whose compiler and emitted-TypeDef
+oracle is owned by issue #5215.
 
 ## Responsibility
 
@@ -61,7 +62,7 @@ The admission input is:
 - one exact `MetadataTypeDefinitionName`;
 - the complete authoritative per-segment introduced generic-parameter count;
 - the declared type's leaf generic-parameter list; and
-- access to CSharpText's type-declaration identifier admission from #5215.
+- access to `CSharpIdentifier.AdmitTypeDeclaration`.
 
 An arbitrary `ApiType.Name`, formatted type name, compatibility string, or
 inert display value is not admission evidence. CSharpText continues to own the
@@ -95,8 +96,8 @@ Admission is one ordered decision, not independent predicates:
    canonical metadata arity against its introduced count and require the leaf
    generic-parameter list to have that same count. A malformed nonempty vector
    does not become legacy merely because its length is wrong.
-4. Invoke CSharpText #5215 directly on the arity-free leaf in
-   type-declaration position.
+4. Invoke `CSharpIdentifier.AdmitTypeDeclaration` directly on the arity-free
+   leaf in type-declaration position.
 5. Map that owner-issued spelling into `Admitted`, or return the one
    `Unrepresentable` reason selected by the first unsuccessful applicable step.
 
@@ -111,9 +112,10 @@ authoritative introduced count: a positive count requires its matching suffix,
 and a zero count requires no suffix. It removes that suffix only after the
 equality is proven. The declared type must carry exactly that many leaf generic
 parameters; fewer or more cannot recreate the exact TypeDef identity. CSharpText
-issue #5215 must then issue a legal source spelling whose compiler-emitted
-TypeDef name equals the remaining leaf. A reserved type-declaration word may
-therefore use the ordinary `@` prefix without changing identity.
+`CSharpIdentifier.AdmitTypeDeclaration` must then issue a legal source spelling
+whose compiler-emitted TypeDef name equals the remaining leaf. A reserved
+type-declaration word may therefore use the ordinary `@` prefix without
+changing identity.
 
 `@` escaping changes source spelling without changing the declared identifier,
 so the result remains identity-preserving. Punctuation encoding, character
