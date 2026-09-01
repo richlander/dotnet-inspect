@@ -19,7 +19,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
-    "@types/node": "^24.13.3",
+    "@types/node": "^26.4.0",
     "html-validate": "^11.10.0",
     "knip": "^6.33.0",
     "oxc-parser": "^0.147.0",
@@ -31,7 +31,7 @@
   },
   "dependencies": {
     "dompurify": "3.4.14",
-    "marked": "15.0.7",
+    "marked": "18.0.11",
     "mermaid": "11.17.2"
   }
 }
