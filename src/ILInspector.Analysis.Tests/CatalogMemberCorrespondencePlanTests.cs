@@ -927,11 +927,18 @@ public class CatalogMemberCorrespondencePlanTests
             candidate => candidate.MetadataToken == token);
         byte[] image = File.ReadAllBytes(assemblyPath);
         ResolvedAssemblyReference source = Descriptor(image);
+        ResolvedAssemblyReference coreLibrary =
+            ResolvedAssemblyReference.CreateFromPath(
+                typeof(object).Assembly.Location,
+                AssemblyResolutionProvenance.Platform(
+                    "runtime",
+                    frameworkVersion: null,
+                    "compiler-produced vararg fixture"));
         CatalogMemberCorrespondencePlan plan =
             CatalogMemberCorrespondencePlan.Create(source, member);
         using var catalog = new TypeResolutionCatalog();
         using TypeResolutionContext context = catalog.CreateContext(
-            MissingPolicy.Instance,
+            new CoreLibraryPolicy(coreLibrary),
             [source],
             plan.Requests);
 
@@ -1776,6 +1783,18 @@ public class CatalogMemberCorrespondencePlanTests
         public AssemblyBindingSelection Select(
             AssemblyBindingRequest request) =>
             AssemblyBindingSelection.NotFound();
+    }
+
+    sealed class CoreLibraryPolicy(
+        ResolvedAssemblyReference coreLibrary) : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request) =>
+            request.Target is AssemblyBindingTarget.IntrinsicCoreLibrary
+                ? AssemblyBindingSelection.Found(coreLibrary)
+                : AssemblyBindingSelection.NameNotOwned();
     }
 
     sealed class UnavailablePolicy : IAssemblyBindingPolicy
