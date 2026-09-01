@@ -104,6 +104,11 @@ substrates, and inspection producers that will extend that space.
   owner-issued artifact, fragment, and correspondence evidence;
   `ILInspector.CSharp`, `ILInspector.Decompiler`, and `ILInspector.ILDiff`
   retain ownership of producing that evidence.
+- [Repository xUnit test host](design/xunit-test-host.md) owns explicit test
+  selection non-vacuity for the argument vector handed to xUnit after any
+  suite-owned expansion. xUnit retains command-line parsing, discovery,
+  filtering, execution, reporting, and Microsoft Testing Platform protocol
+  behavior.
 - [`docs/design/ts-jsexport.md`](design/ts-jsexport.md) owns the `ts-jsexport`
   TypeScript facade projected at build time from an
   `ILInspector.JsExportSurface`. The host-side tool consumes that evidence
@@ -122,6 +127,10 @@ substrates, and inspection producers that will extend that space.
   first-reason fidelity, operation-scoped progress callback release, typed
   terminal envelopes, shared-waiter detachment, and epoch-work lease identity
   at the inspect-web worker-to-managed boundary.
+- [`docs/design/inspect-web-worker-runtime.md`](design/inspect-web-worker-runtime.md)
+  owns the long-lived inspect-web Web Worker epoch, bootstrap readiness, held
+  starts, closed protocol, replay validation, liveness accounting, draining,
+  hard termination, and worker-realm release.
 - [`docs/design/custom-attribute-value-decoding.md`](design/custom-attribute-value-decoding.md)
   owns the safety contract for decoding custom-attribute values
   from untrusted metadata: the alignment, bounding, and guard-work invariants
@@ -149,6 +158,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   logical layers, project regions, currencies, and code-navigation map.
 - [CLI host architecture](cli-architecture.md): command-host responsibilities,
   request lifetime, selection, and presentation composition.
+- [Repository xUnit test host](design/xunit-test-host.md): semantic
+  non-vacuity for explicit test selections after suite-owned argument
+  expansion, while preserving xUnit-owned discovery, execution, reporting, and
+  server dispatch.
 - [Find type-search service](design/find-search-service.md): CLI-scoped
   candidate collection, classification precedence, source ordering, limits,
   failure visibility, and typed result boundary for `find`.
@@ -197,6 +210,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   dynamic active-operation admission, keyed cancellation-token signaling,
   progress callback release, typed managed outcomes, shared-waiter detachment,
   and epoch-work lease handoff.
+- [Inspect-web worker runtime](design/inspect-web-worker-runtime.md):
+  worker epochs, bootstrap readiness, held operation dispatch, closed protocol
+  validation, liveness and replay accounting, draining, restart, and hard
+  worker-realm release.
 - [Bounded metadata traversal](design/bounded-metadata-traversal.md): cycle, depth, count, text-budget, failure, and verification rules for artifact-derived metadata graphs.
 - [Rendering model](design/rendering-model.md): output mode and verbosity design.
 - [Progressive disclosure](design/progressive-disclosure.md): base/domain scope,
