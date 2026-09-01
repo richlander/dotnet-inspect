@@ -110,6 +110,13 @@ substrates, and inspection producers that will extend that space.
   without entering the inspected application's browser dependency closure,
   emits one opinionated TypeScript module, and leaves compilation and
   publication to the consumer.
+- [`docs/design/inspect-web-jsexport-partitioning.md`](design/inspect-web-jsexport-partitioning.md)
+  owns the inspect-web production facade partition: exact assignment of
+  browser-host exports to generated capability modules, one-runtime
+  initialization and entry-point composition, module-local wire DTO ownership,
+  generated-artifact coverage, and complete multi-module deployment evidence.
+  Product-layer documents retain ownership of the operations and facts those
+  L3 adapters expose.
 - [`docs/design/inspect-web-managed-operation-bridge.md`](design/inspect-web-managed-operation-bridge.md)
   owns dynamic managed-operation admission, keyed cooperative cancellation,
   first-reason fidelity, operation-scoped progress callback release, typed
