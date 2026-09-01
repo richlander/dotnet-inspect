@@ -7,7 +7,7 @@ areas: [output, limiting, count, agents]
 
 # Line, Result, and Row Counting
 
-> Control how much output is returned. `-n N` keeps the first N declared items; add `--tail` for the last N. `--rows N..M`, `N+K`, and `N..` select stable absolute row addresses. Add `--lines` to make `-n` limit rendered lines instead, or use `--tail-lines` for the rendered suffix. `--top N` applies only to ranked sections. `--value`, `--urls`, and `--paths` project selected rows to scalar/URL/path payloads; `--json-array` makes projected rows one JSON document; `--row N` chooses one projected or printable row. `--versions N` limits version lists. `--count` reduces the full selected/filter cohort to a count and rejects item, range, ranked, exact-row, direction, and line gestures. These are essential for agents that need compact, predictable output.
+> Control how much output is returned. `-n N` keeps the first N declared items; add `--tail` for the last N. `--rows N..M`, `N+K`, and `N..` select stable absolute row addresses. Add `--lines` to make `-n` limit rendered lines instead, or use `--tail-lines` for the rendered suffix. `--top N` applies only to ranked sections. `--value`, `--urls`, and `--paths` project selected rows to scalar/URL/path payloads; `--json-array` makes projected rows one JSON document; `--row N` chooses one projected or printable row. `-n N` also limits version-list rows. `--count` reduces the full selected/filter cohort to a count and rejects item, range, ranked, exact-row, direction, and line gestures. These are essential for agents that need compact, predictable output.
 
 ## Preconditions
 
@@ -233,10 +233,10 @@ Tips:
 
 > Goal: Return only the first N versions.
 
-### 8a. Using `--versions N`
+### 8a. Using `--versions` with `-n N`
 
 ```bash
-dotnet-inspect System.CommandLine --versions 3
+dotnet-inspect System.CommandLine --versions -n 3
 ```
 
 ```expect-not

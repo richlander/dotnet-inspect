@@ -187,8 +187,7 @@ Prefer built-in limits to shell pipes:
   CLI rejects item-mode `-n` plus `--rows`; ordered row-stage composition is a
   separate pending adoption.
 - `-n N --lines` limits rendered lines instead of items. `--tail-lines` is
-  sugar for `--lines --tail`; for multi-item `--print`, the line window applies
-  independently to each payload.
+  sugar for `--lines --tail`.
 - `--row` is not a window. With `--print`, `--value`, `--urls`, or `--paths`,
   it selects one displayed row, not a compacted projection position.
   `first`/`last` mean rendered endpoints; missing payloads fail instead of
@@ -199,5 +198,5 @@ Prefer built-in limits to shell pipes:
 - `--count` counts the full selected/filter cohort before CLI windows and
   rejects `-n`, `--rows`, `--top`, `--row`, direction, and line gestures.
 
-Use `-n N` for result caps. `-t`/`--type` and `-m`/`--member` are filters;
-`--versions N` remains the package version-list cap.
+Use `-n N` for result caps, including package version lists.
+`-t`/`--type` and `-m`/`--member` are filters.

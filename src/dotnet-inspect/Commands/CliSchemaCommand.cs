@@ -98,7 +98,7 @@ public class CliSchemaCommand
         var name = string.Join(", ", allNames);
 
         // Add value placeholder for non-boolean options
-        if (option.ValueType != typeof(bool))
+        if (option.ValueType != typeof(bool) && option.HelpName != string.Empty)
         {
             var helpName = option.HelpName ?? option.Name.TrimStart('-');
             name += $" <{helpName}>";

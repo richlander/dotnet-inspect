@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.Text.RegularExpressions;
 using DotnetInspector.CommandLine;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
@@ -10,6 +11,36 @@ namespace DotnetInspector.Tests;
 [Collection("Console")]
 public class CommandLineLimitSlice4677Tests
 {
+    [Fact]
+    public void ShippedGuidanceDoesNotTeachCompatibilityOnlyNumericSelectors()
+    {
+        string root = CommandErrorOwnershipTests.RepositoryRoot();
+        string[] files =
+        [
+            Path.Combine(root, "README.md"),
+            .. Directory.EnumerateFiles(
+                Path.Combine(root, "skills"),
+                "*.md",
+                SearchOption.AllDirectories),
+            .. Directory.EnumerateFiles(
+                Path.Combine(root, "docs", "workflows"),
+                "*.md",
+                SearchOption.AllDirectories),
+        ];
+        var obsolete = new Regex(
+            @"--(?:versions(?:-with-feed)?|take)(?:=|\s+)(?:N|\d+)",
+            RegexOptions.CultureInvariant);
+
+        var findings = files
+            .SelectMany(path => File.ReadLines(path)
+                .Select((line, index) => (Path: path, Line: line, Number: index + 1)))
+            .Where(item => obsolete.IsMatch(item.Line))
+            .Select(item => $"{Path.GetRelativePath(root, item.Path)}:{item.Number}: {item.Line}")
+            .ToArray();
+
+        Assert.Empty(findings);
+    }
+
     [Fact]
     public void UniversalLimitShorthandIsArityAware()
     {

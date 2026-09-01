@@ -23,8 +23,11 @@ focused efforts. The L2 row-query adoption is tracked by
 standing layer-boundary adoption is tracked by
 [#5163](https://github.com/richlander/dotnet-inspect/issues/5163).
 
-The current CLI remains unchanged. This document defines no product syntax or
-behavior. Its only normative section is [Composition](#composition).
+The current CLI grammar is owned by
+[Output shapes](output-shapes.md#stable-flag-vocabulary) and may advance in
+independently complete slices that visibly reject composition not yet
+available. This document defines no product syntax or behavior. Its only
+normative section is [Composition](#composition).
 
 ## Participant index
 
@@ -114,8 +117,8 @@ does not choose which logical rows or values survive.
    rendered-line behavior.
 7. Apply the locked design one subsystem at a time, with each owner changing
    its own design, implementation, and gates.
-8. Update shipped skills, help, examples, and completion only after the
-   user-visible grammar and behavior are complete.
+8. Update shipped skills, help, examples, and completion with each independently
+   complete user-visible grammar slice; do not advertise pending composition.
 
 Focused designs may land independently. User-visible behavior must not expose a
 partial grammar whose meaning depends on a later subsystem.

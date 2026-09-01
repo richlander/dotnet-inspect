@@ -127,7 +127,9 @@ public static class HelpWriter
         var name = string.Join(", ", names);
 
         // Add value placeholder for options that take a value
-        if (option.ValueType != typeof(bool) && option.ValueType != typeof(void))
+        if (option.ValueType != typeof(bool)
+            && option.ValueType != typeof(void)
+            && option.HelpName != string.Empty)
         {
             var helpName = option.HelpName ?? option.Name.TrimStart('-');
             name += $" <{helpName}>";

@@ -206,7 +206,7 @@ public readonly record struct RowSpec
 
         if (count < 1)
         {
-            error = $"a row count must be 1 or greater (got {count}).";
+            error = $"'{token}' is not a row selection. Use an inclusive range (2..10), a start plus count (2+10), or an open range (10..).";
             return false;
         }
 

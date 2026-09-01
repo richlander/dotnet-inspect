@@ -48,9 +48,19 @@ public static class PackageCommandDefinitions
         {
             Description = "Inspect all compatible libraries from this package"
         };
-        var versionsOption = new Option<int?>("--versions") { Description = "List available versions (optionally limit count)", Arity = ArgumentArity.ZeroOrOne };
+        var versionsOption = new Option<int?>("--versions")
+        {
+            Description = "List available versions; use -n N to limit result rows",
+            Arity = ArgumentArity.ZeroOrOne,
+            HelpName = string.Empty
+        };
         versionsOption.DefaultValueFactory = _ => null;
-        var versionsWithFeedOption = new Option<int?>("--versions-with-feed") { Description = "List available versions with the feed each came from (optionally limit version count)", Arity = ArgumentArity.ZeroOrOne };
+        var versionsWithFeedOption = new Option<int?>("--versions-with-feed")
+        {
+            Description = "List available versions with their feeds; use -n N to limit result rows",
+            Arity = ArgumentArity.ZeroOrOne,
+            HelpName = string.Empty
+        };
         versionsWithFeedOption.DefaultValueFactory = _ => null;
         var prereleaseOption = new Option<bool>("--preview") { Description = "Include prerelease versions for --versions and latest resolution" };
         prereleaseOption.Aliases.Add("--prerelease");
@@ -198,7 +208,8 @@ public static class PackageCommandDefinitions
         var takeOption = new Option<int>("--take")
         {
             Description = "Maximum number of results (default: 20)",
-            DefaultValueFactory = _ => 20
+            DefaultValueFactory = _ => 20,
+            Hidden = true
         };
         var prereleaseOption = new Option<bool>("--preview") { Description = "Include prerelease versions" };
         prereleaseOption.Aliases.Add("--prerelease");
@@ -332,7 +343,7 @@ public static class PackageCommandDefinitions
                 CommandError.WriteBlankLine();
                 CommandError.WriteLine("Examples:");
                 CommandError.WriteLine("  package search Azure.AI");
-                CommandError.WriteLine("  package search AWSSDK --take 50");
+                CommandError.WriteLine("  package search AWSSDK -n 50");
                 CommandError.WriteLine("  package search \"json serializer\" --json");
                 CommandError.WriteLine("  package search Contoso --source https://pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json");
                 return 0;

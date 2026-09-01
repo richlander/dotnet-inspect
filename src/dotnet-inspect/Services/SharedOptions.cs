@@ -363,14 +363,19 @@ public class SharedOptions
         // the scanner misses.
         //
         // This reads the raw token rather than calling GetValue, because GetValue on a
-        // required-argument option with no value throws out of the validator itself --
-        // which surfaced as a stack trace *and* exit code 0, hiding the failure from any
-        // caller checking the exit code. Leaving a valueless --rows alone lets
-        // System.CommandLine report the missing argument the way it reports every other.
+        // required-argument option with no value throws out of the validator itself.
+        // The raw result lets this validator add range-only guidance while
+        // System.CommandLine still reports the structurally missing argument.
         command.Validators.Add(result =>
         {
-            if (result.GetResult(Rows) is not { } rowsResult || rowsResult.Tokens.Count == 0)
+            if (result.GetResult(Rows) is not { } rowsResult)
                 return;
+
+            if (rowsResult.Tokens.Count == 0)
+            {
+                result.AddError("--rows a row selection is required, such as 2..10, 2+10, or 10..");
+                return;
+            }
 
             var token = rowsResult.Tokens[^1].Value;
 

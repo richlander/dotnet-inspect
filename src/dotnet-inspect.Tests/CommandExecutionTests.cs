@@ -6576,19 +6576,20 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Rows_AtTheEndOfTheCommandLine_ReportsTheMissingValue()
+    public async Task Rows_AtTheEndOfTheCommandLine_ReportsRangeGuidance()
     {
-        // Nothing follows --rows here, so System.CommandLine has no token to bind and
-        // reports the missing argument itself. The validator must not read the value
-        // in this state: doing so throws out of the validator, which surfaced as a
-        // stack trace *and* exit code 0 -- a failure invisible to any caller checking
-        // the exit code.
+        // Nothing follows --rows here, so the validator must use the raw empty result
+        // rather than reading its value. Reading the value throws out of the validator;
+        // the explicit diagnostic also keeps the remedy inside the range-only grammar.
         var (exit, output, error) = await RunAppAsync(
             "type", "System.String", "-S", "Member Index", "--rows");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("Required argument missing for option: '--rows'", error, StringComparison.Ordinal);
+        Assert.Contains(
+            "--rows a row selection is required, such as 2..10, 2+10, or 10..",
+            error,
+            StringComparison.Ordinal);
         Assert.DoesNotContain("Unhandled exception", error, StringComparison.Ordinal);
     }
 
@@ -12146,18 +12147,45 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("source did not answer", error);
     }
 
-    [Fact]
-    public async Task RowsWhitespaceDiagnosticSuggestsOnlyRanges()
+    [Theory]
+    [InlineData("--rows")]
+    [InlineData("--rows=")]
+    [InlineData("--rows", " ")]
+    [InlineData("--rows", "0")]
+    public async Task RowsMissingAndZeroDiagnosticsSuggestOnlyRanges(
+        params string[] rowArguments)
     {
         var (exit, output, error) = await RunAppAsync(
-            "demo", "list", "--rows", " ");
+            ["demo", "list", .. rowArguments]);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains(
-            "--rows a row selection is required, such as 2..10, 2+10, or 10..",
-            error);
+        Assert.Contains("2..10", error);
+        Assert.Contains("2+10", error);
+        Assert.Contains("10..", error);
         Assert.DoesNotContain("such as 6", error);
+        Assert.DoesNotContain("row count", error);
+        Assert.DoesNotContain("Use -n", error);
+    }
+
+    [Fact]
+    public async Task PackageHelpHidesCompatibilityOnlyNumericSelectors()
+    {
+        var packageHelp = await RunAppAsync("package", "--help");
+        var searchHelp = await RunAppAsync("package", "search", "--help");
+        var searchUsage = await RunAppAsync("package", "search");
+
+        Assert.Equal(0, packageHelp.Exit);
+        Assert.Contains("--versions", packageHelp.Output);
+        Assert.DoesNotContain("--versions <", packageHelp.Output);
+        Assert.Contains("use -n N to limit result rows", packageHelp.Output);
+
+        Assert.Equal(0, searchHelp.Exit);
+        Assert.DoesNotContain("--take", searchHelp.Output);
+
+        Assert.Equal(0, searchUsage.Exit);
+        Assert.Contains("package search AWSSDK -n 50", searchUsage.Error);
+        Assert.DoesNotContain("--take", searchUsage.Error);
     }
 
     [Theory]

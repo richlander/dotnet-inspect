@@ -441,9 +441,10 @@ Rendered-line `-n --lines` remains independent and may combine with
 In `package --all-libraries`, singular sections retain one table per library
 for windowing even when a row format flattens them with provenance; aggregate
 sections window the rolled-up table once. The paired
-`PackageCommand_AllLibraries_RowFormats_WindowPerLibraryLikeMarkdownCount` and
+`PackageCommand_AllLibraries_RowFormats_WindowPerLibrary` and
 `PackageCommand_AllLibraries_AggregateRowFormats_WindowAcrossRolledUpSection`
-tests gate both scopes and their count/row-format parity.
+tests gate both windowing scopes across row formats. Count combined with a
+window is rejected rather than used as an independent parity oracle.
 `PackageCommand_AllLibraries_RowFormats_TailWindowMatchesMarkdownRows`,
 `PackageCommand_AllLibraries_AggregateRowFormats_WindowSameRowsAsMarkdown`,
 and `PackageCommand_AllLibraries_OpportunityRowFormat_WindowSameRowAsMarkdown`
