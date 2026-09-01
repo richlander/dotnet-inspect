@@ -301,7 +301,6 @@ Two consequences follow, and both are load-bearing:
    through the same handle and the same resolution function, or through the
    same provider instance — never through two implementations believed to be
    equivalent. The next section states which mechanism applies where, because
-   equivalent. The next section states which mechanism applies where, because
    no two of them are the same: a resolved handle shares the handle and the
    resolution functions, a serialized name shares the provider instance, and
    classification shares its rendering while duplicating the final
@@ -778,11 +777,15 @@ the two spellings equal. That narrow duplication is the whole of gap 8, filed
 as #5393 — which means the repair is to share the predicate, not to build a
 second classification path or add a classifier parameter.
 
-Narrow is not the same as harmless. Classification runs first and selects which
-reading rule applies, so a width disagreement misreads one argument while a
-classification disagreement re-frames every byte after it.
-`dotnet/runtime#57531` is that difference measured: 28,515 MiB from one
-misclassified argument.
+Narrow is not the same as harmless. Both walkers advance one shared value
+cursor, so *either* disagreement re-frames every byte that follows: the two
+sides leave that cursor at different offsets and read the remainder of the blob
+against different boundaries. Classification and width differ only in what they
+select — classification picks which reading rule applies to an argument, width
+picks how many bytes that rule consumes. Neither is confined to the argument
+where the disagreement occurs, which is why I1 demands agreement on both.
+`dotnet/runtime#57531` is that consequence measured: 28,515 MiB, because a
+misclassified first argument moved the cursor 62 bytes short of the array count.
 
 ### Frozen cross-assembly enum-width adapter
 
