@@ -153,7 +153,7 @@ unrelated members such as `review`. In the table, **status members** means
 | --- | --- |
 | PR is merged | Leave the status wait, relinquish ownership, and end. |
 | PR is closed or draft | Leave the status wait, publish the human action or stopped state, and end. |
-| Head changed | Leave the status wait; route the returned head through candidate formation without inheriting fixed-head evidence. |
+| Head changed | Leave the status wait; disable auto-merge first, handle an already-merged result as terminal, then route the returned head through candidate formation without inheriting fixed-head evidence. |
 | REST `mergeable: false` or GraphQL `mergeable: CONFLICTING` | Leave the status wait; apply conflict recovery before considering CI. |
 | `ci-required` completed without `success` while required for the current round or goal | Leave the status wait; classify the result and apply the applicable recovery transition. |
 | `ci-required` completed without `success` while not required for the current round or goal | Record the final-readiness failure and continue the current review path. |
@@ -487,9 +487,9 @@ the path applies.
      the waiver procedure below before dispatching replacement reviewers.
    - *Significant interaction, no conflict:* if the PR remains open, disable
      auto-merge first and handle an already-merged result as terminal. Then
-     remove `review-clean`, integrate the tip, re-run the claimed validation
-     and current-head CI, and re-dispatch the required reviewers at the new head
-     as a normal round.
+     remove `review-clean`, integrate the tip, re-run the claimed validation,
+     push, obtain current-head CI, and re-dispatch the required reviewers at
+     the new head as a normal round.
    - *Conflict requiring semantic resolution:* disable auto-merge first and
      handle an already-merged result as terminal. Then remove `review-clean`
      and resolve it as an author change under

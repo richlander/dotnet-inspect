@@ -58,4 +58,7 @@ gh api -X PUT "repos/{owner}/{repo}/pulls/$pr_number/merge-async" \
 
 When using GraphQL directly, set `expectedHeadOid` on
 `EnablePullRequestAutoMergeInput` or `MergePullRequestInput`; never omit it.
-Treat a mismatch as head movement and return to candidate formation.
+Treat a mismatch as head movement and return to candidate formation. The
+precondition protects this mutation only; a later write-access push can leave
+auto-merge armed, so the status-discovery head-mismatch transition must disable
+it before handling the replacement head.
