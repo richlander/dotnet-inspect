@@ -383,8 +383,10 @@ gates;
 `ResearchTargetCancellation_RetryPreservesAdmissionAndMintsFreshTargets` gate
 the remaining properties below. The correspondence-key, absence-proof, and
 census obligations this section mentions belong to
-[Complete census and correspondence](#complete-census-and-correspondence) and
-remain unimplemented; nothing in this slice constructs or consumes them.
+[Complete census and correspondence](#complete-census-and-correspondence).
+They are implemented downstream of terminal side-local attempts and exposed
+through the complete `ResearchTargetResolution`; the named gates in that
+section verify their construction and independent final validation.
 
 Planning input is caller-authored and Research-owned. One
 `ResearchTargetPlanningRequest` carries the admitted population, an explicit
@@ -691,15 +693,17 @@ unverified; each native producer migration supplies its own gates.
 
 ### Resolution result and failure boundary
 
-**Status:** the scope, domain, request, and attempt half is implemented by
-`ResearchTargetResolver.Resolve` and its construction boundary,
-`ResearchTargetResolutionValidator`.
+**Status:** implemented by `ResearchTargetResolver.Resolve`,
+`ResearchTargetCorrespondenceBuilder`, and the construction boundary,
+`ResearchTargetResolutionValidator`. The resolver publishes the complete
+scope, domain, request, attempt, census, correspondence-key, absence-proof,
+taint, and outcome result described in
+[Complete census and correspondence](#complete-census-and-correspondence).
 `ResearchTargetResolution_RetainsNoBorrowedResourcesOrPresentation`,
 `ResearchTargetCancellation_ExposesNoPartialPopulationOrResult`, and
 `ResearchTargetCancellation_RetryPreservesAdmissionAndMintsFreshTargets` are
-the named gates. The correspondence-outcome half of this section is
-unimplemented; `ResearchTargetResolution` exposes no correspondence outcome,
-key, or absence proof today.
+the result-lifetime gates; the complete-census section names the correspondence
+construction and validation gates.
 
 One `ResearchTargetResolution` accounts for the complete admitted operation. It
 contains immutable operation, question, scope, domain, input, request, and

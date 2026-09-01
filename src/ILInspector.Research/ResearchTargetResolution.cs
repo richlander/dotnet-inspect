@@ -291,8 +291,13 @@ public abstract class ResearchTargetOutcome
         public ImmutableArray<MemberTargetCandidate> Candidates { get; }
 
         /// <summary>
-        /// The Analysis-issued structured physical body identity. Null exactly
-        /// when <see cref="Role"/> is <see cref="ResearchTargetRelationshipRole.None"/>.
+        /// The Research-owned projection of the Analysis-issued structured
+        /// physical body identity. Null when <see cref="Role"/> is
+        /// <see cref="ResearchTargetRelationshipRole.None"/> or when the
+        /// admitted Analysis index cannot supply a complete projectable
+        /// identity. The latter remains a successful Metadata selection and
+        /// produces <see cref="ResearchTargetTaintKind.BodyIdentityUnavailable"/>
+        /// correspondence taint.
         /// </summary>
         public ResearchTargetBodyIdentity? BodyIdentity { get; }
     }
