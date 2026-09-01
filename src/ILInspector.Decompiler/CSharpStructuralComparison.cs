@@ -1177,7 +1177,18 @@ public static partial class CSharpBodyDiff
                 || !string.Equals(row.BeforeKind, "UsingStatement", StringComparison.Ordinal)
                 || !string.Equals(row.AfterKind, "UsingStatement", StringComparison.Ordinal)
                 || row.BeforeSpans.Length != 1
-                || row.AfterSpans.Length != 1)
+                || row.AfterSpans.Length != 1
+                // Only refine a row whose span is actually the printer's
+                // Header region (items 2/7's successful narrowing). When
+                // that narrowing instead fell back to the full node span --
+                // e.g. because the body also changed -- the span still
+                // starts with `using (`, but its closing paren is not the
+                // header's; scanning for one via `UsingHeaderInnerSpan`
+                // would then reach into the body and narrow to a bogus,
+                // mid-token substring. Requiring Header here keeps this pass
+                // strictly a refinement of items 2/7's own result.
+                || row.BeforeRegion != PrintedRegionRole.Header
+                || row.AfterRegion != PrintedRegionRole.Header)
             {
                 yield return row;
                 continue;

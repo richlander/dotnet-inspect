@@ -601,6 +601,70 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void CompareStructure_DoesNotRefineUsingDeclarationWhenBodyAlsoChanged()
+    {
+        // Close negative for item 10: the declaration is dropped (as in the
+        // narrowing test above), but the body also gains a statement, so
+        // items 2/7's own header-narrowing (`NarrowToChangedHeader`) falls
+        // back to the full node span instead of the Header region -- the
+        // text outside a naive header span would then differ between before
+        // and after. Item 10 must refuse to refine that fallback span: its
+        // `using (` prefix would otherwise fool `UsingHeaderInnerSpan` into
+        // scanning for a closing paren across the whole (differing) body,
+        // narrowing to a bogus, mid-token substring instead of an honest
+        // full-construct span.
+        const string beforeText = """
+            int n = 0;
+            using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))
+            {
+                Bar();
+            }
+            return n;
+            """;
+        const string afterText = """
+            int n = 0;
+            using (DisposableFromObjectSpan([a, b]))
+            {
+                Bar();
+                n = 1;
+            }
+            return n;
+            """;
+
+        var before = UsingStatementDocument(beforeText);
+        var after = UsingStatementDocument(afterText);
+
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        var row = Assert.Single(comparison.Rows);
+        var beforeSpan = Assert.Single(row.BeforeSpans);
+        var afterSpan = Assert.Single(row.AfterSpans);
+
+        // Not narrowed to `IDisposable iDisposable =` / the bare resource
+        // expression -- since the body also changed, items 2/7's own
+        // header-narrowing already fell back to the full node span, and
+        // item 10 must leave that fallback alone rather than reaching past
+        // its own side's matching closing paren into the (differing) body.
+        Assert.NotEqual(
+            "IDisposable iDisposable =",
+            before.Text.Substring(beforeSpan.Start, beforeSpan.Length));
+        Assert.NotEqual(
+            "DisposableFromObjectSpan([a, b])",
+            after.Text.Substring(afterSpan.Start, afterSpan.Length));
+        Assert.NotEqual(PrintedRegionRole.Header, row.BeforeRegion);
+        Assert.NotEqual(PrintedRegionRole.Header, row.AfterRegion);
+
+        var display = Assert.Single(CSharpStructuralDiffPrinter.ToDisplayRows(comparison));
+        Assert.DoesNotContain("never read", display.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CompareStructure_NarrowsUsingStatementDeclarationAddedToTypeIdentifierEquals()
     {
         // Mirror direction of item 10: a variable-less resource gains a
