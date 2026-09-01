@@ -496,6 +496,40 @@ public sealed class MemorySafetyMetadataIndexTests
             result.Evidence.AssociatedMemberToken);
     }
 
+    [Fact]
+    public void CrossTypeAccessorSemanticsDoesNotCarryAnAssociatedCarrier()
+    {
+        using OpenedMetadata opened = Open(
+            BuildSyntheticImage([2], crossTypeAccessorSemantics: true));
+        MemorySafetyMetadataIndex index =
+            MemorySafetyMetadataIndex.Create(opened.Reader);
+        var property = (PropertyDefinitionHandle)FindPropertyOrEvent(
+            opened.Reader,
+            "Samples.Target",
+            "AssociatedProperty");
+        MethodDefinitionHandle foreignAccessor = opened.Reader
+            .GetPropertyDefinition(property).GetAccessors().Getter;
+
+        // The row names a method declared by the marker attribute type, so it
+        // must not inherit the property's carrier from another type.
+        Assert.NotEqual(
+            MetadataTokens.GetToken(
+                opened.Reader
+                    .GetPropertyDefinition(property).GetDeclaringType()),
+            MetadataTokens.GetToken(
+                opened.Reader
+                    .GetMethodDefinition(foreignAccessor).GetDeclaringType()));
+
+        var result =
+            Assert.IsType<MemorySafetyMemberContractResult.None>(
+                index.GetMemberContract(foreignAccessor));
+        Assert.False(result.Evidence.AssociatedAttribute.HasValidRow);
+        Assert.Null(result.Evidence.AssociatedMemberToken);
+        Assert.Equal(
+            MemorySafetyMetadataFailureKind.Malformed,
+            index.AssociationFailure?.Kind);
+    }
+
     [Theory]
     [InlineData(1)]
     [InlineData(3)]
@@ -917,6 +951,7 @@ public sealed class MemorySafetyMetadataIndexTests
         bool nestedRulesTypeReference = false,
         bool nestedRequiresUnsafeTypeReference = false,
         bool localRulesMemberRefConstructor = false,
+        bool crossTypeAccessorSemantics = false,
         bool duplicatePropertySemantics = false)
     {
         var metadata = new MetadataBuilder();
@@ -1200,7 +1235,9 @@ public sealed class MemorySafetyMetadataIndexTests
         metadata.AddMethodSemantics(
             property,
             MethodSemanticsAttributes.Getter,
-            propertyGetter);
+            crossTypeAccessorSemantics
+                ? rulesConstructor
+                : propertyGetter);
         if (duplicatePropertySemantics)
         {
             // PropertyAccessors keeps one Getter slot, so this second row is

@@ -1083,6 +1083,13 @@ typed unavailable result rather than absence or an exception.
   PropertyDef or EventDef contract through MethodSemantics. PropertyDef and
   EventDef queries do not infer a contract in the reverse direction from
   attributed accessors.
+- An inherited contract requires the accessor and its associated PropertyDef or
+  EventDef to be declared by the same TypeDef, as ECMA-335 II.22.28 requires.
+  SRM projects a `MethodSemantics` row without that check, so a crafted
+  cross-type row would otherwise carry one type's declaration onto an unrelated
+  method. Such a row is rejected like any other invalid row: the association is
+  dropped and the malformed-row failure is recorded, while the rest of the map
+  survives.
 - Under Conflicting module rules, every otherwise supported member query is
   `Unavailable`; raw marker and member evidence remain available for diagnosis.
 
@@ -1127,7 +1134,8 @@ row that contributes accessor relationships.
 `FixedBufferExemptionRequiresPlatformElementTypeIdentity`,
 `FixedBufferExemptionRequiresACoreContractCarrier`,
 `LocalRulesCarrierAuthenticatesThroughEitherConstructorSpelling`,
-`NestedLocalRulesCarrierStaysRejectedThroughAMemberReference`, and
+`NestedLocalRulesCarrierStaysRejectedThroughAMemberReference`,
+`CrossTypeAccessorSemanticsDoesNotCarryAnAssociatedCarrier`, and
 `MemorySafetyMetadataIndex_InvalidHandlesAreUnavailable` gate the shared
 contract.
 

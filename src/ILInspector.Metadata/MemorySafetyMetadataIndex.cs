@@ -1045,19 +1045,25 @@ public sealed class MemorySafetyMetadataIndex
         foreach (PropertyDefinitionHandle propertyHandle
             in reader.PropertyDefinitions)
         {
-            PropertyAccessors accessors =
-                reader.GetPropertyDefinition(propertyHandle).GetAccessors();
+            PropertyDefinition property =
+                reader.GetPropertyDefinition(propertyHandle);
+            TypeDefinitionHandle propertyOwner = property.GetDeclaringType();
+            PropertyAccessors accessors = property.GetAccessors();
             AddAssociation(
+                reader,
                 accessors.Getter,
                 propertyHandle,
+                propertyOwner,
                 methodRowCount,
                 associations,
                 ambiguous,
                 ref hasMalformedRows,
                 ref projectedRows);
             AddAssociation(
+                reader,
                 accessors.Setter,
                 propertyHandle,
+                propertyOwner,
                 methodRowCount,
                 associations,
                 ambiguous,
@@ -1066,8 +1072,10 @@ public sealed class MemorySafetyMetadataIndex
             foreach (MethodDefinitionHandle other in accessors.Others)
             {
                 AddAssociation(
+                    reader,
                     other,
                     propertyHandle,
+                    propertyOwner,
                     methodRowCount,
                     associations,
                     ambiguous,
@@ -1079,27 +1087,36 @@ public sealed class MemorySafetyMetadataIndex
         foreach (EventDefinitionHandle eventHandle
             in reader.EventDefinitions)
         {
-            EventAccessors accessors =
-                reader.GetEventDefinition(eventHandle).GetAccessors();
+            EventDefinition eventDefinition =
+                reader.GetEventDefinition(eventHandle);
+            TypeDefinitionHandle eventOwner =
+                eventDefinition.GetDeclaringType();
+            EventAccessors accessors = eventDefinition.GetAccessors();
             AddAssociation(
+                reader,
                 accessors.Adder,
                 eventHandle,
+                eventOwner,
                 methodRowCount,
                 associations,
                 ambiguous,
                 ref hasMalformedRows,
                 ref projectedRows);
             AddAssociation(
+                reader,
                 accessors.Remover,
                 eventHandle,
+                eventOwner,
                 methodRowCount,
                 associations,
                 ambiguous,
                 ref hasMalformedRows,
                 ref projectedRows);
             AddAssociation(
+                reader,
                 accessors.Raiser,
                 eventHandle,
+                eventOwner,
                 methodRowCount,
                 associations,
                 ambiguous,
@@ -1108,8 +1125,10 @@ public sealed class MemorySafetyMetadataIndex
             foreach (MethodDefinitionHandle other in accessors.Others)
             {
                 AddAssociation(
+                    reader,
                     other,
                     eventHandle,
+                    eventOwner,
                     methodRowCount,
                     associations,
                     ambiguous,
@@ -1128,8 +1147,10 @@ public sealed class MemorySafetyMetadataIndex
     }
 
     static void AddAssociation(
+        MetadataReader reader,
         MethodDefinitionHandle method,
         EntityHandle associated,
+        TypeDefinitionHandle owner,
         int methodRowCount,
         Dictionary<int, EntityHandle> associations,
         HashSet<int> ambiguous,
@@ -1142,6 +1163,18 @@ public sealed class MemorySafetyMetadataIndex
         projectedRows++;
         int row = MetadataTokens.GetRowNumber(method);
         if (row <= 0 || row > methodRowCount)
+        {
+            hasMalformedRows = true;
+            return;
+        }
+
+        // ECMA-335 II.22.28 requires an accessor and its associated property
+        // or event to be declared by the same type, but SRM projects the row
+        // without checking that. Carrying an attribute across types would let
+        // an unrelated method inherit another type's declaration, so a row
+        // that crosses types is rejected like any other invalid row.
+        if (owner.IsNil
+            || reader.GetMethodDefinition(method).GetDeclaringType() != owner)
         {
             hasMalformedRows = true;
             return;
