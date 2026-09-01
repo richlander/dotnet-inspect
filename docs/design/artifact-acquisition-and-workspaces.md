@@ -2320,7 +2320,9 @@ or bytes across artifacts or generations.
 `LocalArtifactSourceTests` enforce pre-registration local snapshots, typed
 path-admission outcomes, expected kinds, link handling, pre-open rejection of
 stable non-regular entries, once-opened generation identity, mutation and
-deletion resistance, and cancellation remaining cancellation. The executable
+deletion resistance, bounded deterministic top-level directory selection,
+atomic empty and failed directory batches, directory provenance, immutable
+directory snapshots, and cancellation remaining cancellation. The executable
 NativeAOT and Browser/Wasm probes enforce the normalized `Stat`/`FStat` imports
 and the platform-specific missing, not-directory, and link-loop outcome
 mappings. Deep Inspect's Windows `platform-test` execution of
@@ -2329,18 +2331,17 @@ mappings. Deep Inspect's Windows `platform-test` execution of
 `LocalPathAdmission_WindowsAncestorLinkLoopIsRejected` enforces
 extended-coordinate admission through a parent-relative symbolic-link target,
 absolute-target syntax preservation, and rejected ancestor link cycles.
-The three named `LocalDirectoryAcquisition_*` gates remain unverified. Together
-they require bounded deterministic top-level selection, source-neutral
-exclusions, atomic empty and failure outcomes, directory provenance, immutable
-batch snapshots, and cancellation preservation. Shared local-path admission
-remains with the
+The three named `LocalDirectoryAcquisition_*` gates enforce bounded
+deterministic top-level selection, source-neutral exclusions, atomic empty and
+failure outcomes, directory provenance, immutable batch snapshots, and
+cancellation preservation. Shared local-path admission remains with the
 [local adapter](#shared-local-path-admission) rather than these directory
 gates.
-The eleven named `SupplementalAcquisition_*` gates remain unverified. Together
-they require the one-way required checkpoint, reuse of checkpointed snapshots,
-finite pre-adapter capacity, empty-batch lease ownership, exact visible
-failure, atomic scoped nonempty admission, validation-failure cleanup,
-termination cleanup, late-diagnostic projection, and cancellation preservation.
+The eleven named `SupplementalAcquisition_*` gates enforce the one-way required
+checkpoint, reuse of checkpointed snapshots, finite pre-adapter capacity,
+empty-batch lease ownership, exact visible failure, atomic scoped nonempty
+admission, validation-failure cleanup, termination cleanup, late-diagnostic
+projection, and cancellation preservation.
 `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`
 deletes its temporary source after publication, then passes an
 `ArtifactContentReference`'s guarded published snapshot opener to Metadata, so
@@ -2352,8 +2353,7 @@ compile assets. `BrowserEngineBoundaryTests` enforce the tools-v2 pointer and
 explicit-empty-group cases, including typed compile-library absence, package
 documents, manifest dependencies, and no fabricated default assembly.
 
-Supplemental acquisition, workspace-wide admission budgets,
-single-flight/reentrancy, directory acquisition, content digests,
+Workspace-wide admission budgets, single-flight/reentrancy, content digests,
 dependent-group quiescence, and Metadata consumption of workspace roles remain
 unverified.
 
