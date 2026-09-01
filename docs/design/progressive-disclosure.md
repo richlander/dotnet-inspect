@@ -254,7 +254,9 @@ dotnet-inspect library System.Private.CoreLib -S "Async*" --rows 11..20
   caps to N.
 - `--tail` takes items from the end.
 - `--rows` selects absolute stable row ranges such as `11..20`, `11+10`, or
-  `11..`; it carries no count-only form.
+  `11..`; it carries no count-only form. For bounded package search, a closed
+  range raises acquisition through its requested end. An open range is rejected
+  because the provider cap cannot establish the last row truthfully.
 - `-n N --lines` explicitly limits rendered lines. For multi-item `--print`,
   the line window applies to each selected payload.
 

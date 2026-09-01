@@ -67,6 +67,12 @@ public static class RouterCommandDefinition
                 return 1;
             }
 
+            if (GetRouteIndependentLimitError(tokens) is { } limitError)
+            {
+                CommandError.Write(limitError);
+                return 1;
+            }
+
             var sourceOptions = opts.ParseNuGetSourceOptions(sourceParseResult);
 
             if (TryGetCommandTypoSuggestion(tokens[0]) is { } suggestion)
@@ -208,6 +214,96 @@ public static class RouterCommandDefinition
 
     private static bool ContainsHelpOption(IEnumerable<string> tokens)
         => tokens.Any(token => token is "--help" or "-h" or "-?");
+
+    internal static string? GetRouteIndependentLimitError(string[] tokens)
+    {
+        var end = Array.IndexOf(tokens, "--");
+        if (end < 0)
+            end = tokens.Length;
+
+        bool count = GetBooleanOptionValue(tokens, end, "--count");
+        bool hasLimit = ContainsValueOption(tokens, end, "-n");
+        bool hasTop = ContainsValueOption(tokens, end, "--top");
+        bool hasRows = ContainsValueOption(tokens, end, "--rows");
+        bool hasRow = ContainsValueOption(tokens, end, "--row");
+        bool hasHead = GetBooleanOptionValue(tokens, end, "--head");
+        bool hasTail = GetBooleanOptionValue(tokens, end, "--tail");
+        bool hasLines = GetBooleanOptionValue(tokens, end, "--lines");
+        bool hasTailLines = GetBooleanOptionValue(tokens, end, "--tail-lines");
+
+        if (hasTop
+            && (ContainsValueOption(tokens, end, "-D")
+                || ContainsValueOption(tokens, end, "--discover")))
+        {
+            return SharedOptions.DiscoveryTopConflictError;
+        }
+
+        return count
+            && (hasLimit
+                || hasTop
+                || hasRows
+                || hasRow
+                || hasHead
+                || hasTail
+                || hasLines
+                || hasTailLines)
+            ? SharedOptions.CountWindowConflictError
+            : null;
+    }
+
+    private static bool ContainsValueOption(
+        string[] tokens,
+        int end,
+        string option)
+    {
+        for (var i = 0; i < end; i++)
+        {
+            string token = tokens[i];
+            if (token.Equals(option, StringComparison.Ordinal)
+                || token.StartsWith(option + "=", StringComparison.Ordinal)
+                || token.StartsWith(option + ":", StringComparison.Ordinal)
+                || option == "-n"
+                    && token.StartsWith("-n", StringComparison.Ordinal)
+                    && token.Length > 2
+                    && int.TryParse(token.AsSpan(2), out _))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool GetBooleanOptionValue(
+        string[] tokens,
+        int end,
+        string option)
+    {
+        bool enabled = false;
+        for (var i = 0; i < end; i++)
+        {
+            string token = tokens[i];
+            if (token.Equals(option, StringComparison.Ordinal))
+            {
+                enabled = true;
+                if (i + 1 < end && bool.TryParse(tokens[i + 1], out bool separated))
+                {
+                    enabled = separated;
+                    i++;
+                }
+                continue;
+            }
+
+            if ((token.StartsWith(option + "=", StringComparison.Ordinal)
+                    || token.StartsWith(option + ":", StringComparison.Ordinal))
+                && bool.TryParse(token.AsSpan(option.Length + 1), out bool attached))
+            {
+                enabled = attached;
+            }
+        }
+
+        return enabled;
+    }
 
     private static class RouterTokenRewriter
     {

@@ -42,6 +42,29 @@ public class CommandLineLimitSlice4677Tests
     }
 
     [Fact]
+    public void RouterPreflightRecognizesOnlyRouteIndependentLimitConflicts()
+    {
+        Assert.Equal(
+            SharedOptions.CountWindowConflictError,
+            RouterCommandDefinition.GetRouteIndependentLimitError(
+                ["Target", "--count", "-n", "1"]));
+        Assert.Equal(
+            SharedOptions.DiscoveryTopConflictError,
+            RouterCommandDefinition.GetRouteIndependentLimitError(
+                ["Target", "-D", "--top=1"]));
+
+        Assert.Null(
+            RouterCommandDefinition.GetRouteIndependentLimitError(
+                ["Target", "--count=false", "-n", "1"]));
+        Assert.Null(
+            RouterCommandDefinition.GetRouteIndependentLimitError(
+                ["Target", "--count", "--", "-n", "1"]));
+        Assert.Null(
+            RouterCommandDefinition.GetRouteIndependentLimitError(
+                ["Target", "--library", "-2", "--count"]));
+    }
+
+    [Fact]
     public void UniversalLimitShorthandIsArityAware()
     {
         Assert.Empty(CommandLineBuilder.CreateRootCommand()

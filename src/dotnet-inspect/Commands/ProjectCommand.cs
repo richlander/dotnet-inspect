@@ -261,9 +261,11 @@ public class ProjectCommand
 
     private static int WriteAgentsIndex(IReadOnlyList<ProjectPackageReference> dependencies, ProjectOptions options)
     {
-        var rows = dependencies
-            .Select(CreateAgentsIndexRow)
-            .ToList();
+        var rows = RowWindow.Apply(
+            options.Rows,
+            dependencies
+                .Select(CreateAgentsIndexRow)
+                .ToList());
 
         var output = options.JsonOutput
             ? JsonSerializer.Serialize(rows.ToArray(), ProjectCommandJsonContext.Default.ProjectAgentsIndexRowArray)

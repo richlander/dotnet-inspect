@@ -454,14 +454,17 @@ A count and a range are different kinds, not two spellings of one: a count
 anchors to an end and a range does not. Bare `--rows 2..10 --tail` is rejected.
 The target executor can represent `-n 20 --tail --rows 90..95`, but the current
 CLI rejects that ordered item/range composition.
-`--rows 2..10 --print -n 20 --lines --tail` is valid now because `--tail`
-belongs to the independent line window.
+`--rows 2..10 -n 20 --lines --tail` is valid now for an ordinary report because
+`--tail` belongs to the independent line window. The current CLI still rejects
+`--rows` with `--print`.
 
 `--lines` changes the unit carried by `-n` from items to rendered lines. For an
-ordinary report it windows the report; for multi-item `--print` it windows each
-payload independently, excluding separators. `--tail-lines` is sugar for
-`--lines --tail`. A single `-n` cannot carry both an item count and a line
-count; use `--rows 1..M --print -n N --lines` when both dimensions are needed.
+ordinary report it windows the report. The target multi-item `--print` contract
+windows each payload independently, excluding separators; the current CLI has
+not adopted that composition. `--tail-lines` is sugar for `--lines --tail`. A
+single `-n` cannot carry both an item count and a line count; the target
+executor uses `--rows 1..M --print -n N --lines` when both dimensions are
+needed.
 
 Printability is a row capability, not a property implied by Table or Vector
 shape. Multi-item `--print` may not:

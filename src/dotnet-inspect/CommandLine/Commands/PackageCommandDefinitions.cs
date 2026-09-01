@@ -272,6 +272,19 @@ public static class PackageCommandDefinitions
                     + "or --rows for data rows.");
             }
 
+            if (result.GetResult(opts.Rows) is { Tokens.Count: > 0 } rowsResult
+                && RowSpec.TryParse(
+                    rowsResult.Tokens[^1].Value,
+                    out var rowSpec,
+                    out _)
+                && rowSpec.IsOpenEnded)
+            {
+                result.AddError(
+                    "package search cannot satisfy an open-ended --rows range "
+                    + "because providers return bounded results. Use a closed "
+                    + "range such as 10..20.");
+            }
+
             if (resultLimit is null)
                 return;
 
@@ -351,13 +364,21 @@ public static class PackageCommandDefinitions
 
             var projection = ProjectionAudit.Requested(parseResult, opts);
             bool lineMode = opts.IsLinesRequested(parseResult);
+            int take = lineMode
+                ? parseResult.GetValue(takeOption)
+                : parseResult.GetValue(opts.Limit)
+                    ?? parseResult.GetValue(takeOption);
+            if (parseResult.GetValue(opts.Rows) is { } rowsText
+                && RowSpec.TryParse(rowsText, out var rowSpec, out _)
+                && rowSpec.IsRange
+                && rowSpec.End is int rangeEnd)
+            {
+                take = Math.Max(take, rangeEnd);
+            }
             var options = new PackageSearchOptions
             {
                 Query = query,
-                Take = lineMode
-                    ? parseResult.GetValue(takeOption)
-                    : parseResult.GetValue(opts.Limit)
-                        ?? parseResult.GetValue(takeOption),
+                Take = take,
                 Prerelease =
                     parseResult.GetValue(inheritedPrereleaseOption)
                     || parseResult.GetValue(prereleaseOption),

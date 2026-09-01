@@ -11851,6 +11851,42 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchClosedRangeRaisesAcquisitionBound()
+    {
+        var (exit, output, error) = await RunPackageSearchFixtureAsync(
+            "package", "search", "Fixture",
+            "--take", "2",
+            "--rows", "3..4",
+            "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(
+            2,
+            output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries).Length);
+        Assert.Contains("Fixture.Three", output, StringComparison.Ordinal);
+        Assert.Contains("Fixture.Four", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchOpenRangeFailsBeforeNetwork()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "search", "ThisQueryMustNotReachTheNetwork",
+            "--rows", "21..",
+            "--source", "http://127.0.0.1:9/index.json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "package search cannot satisfy an open-ended --rows range",
+            error);
+        Assert.DoesNotContain("NuGet source", error);
+    }
+
+    [Fact]
     public async Task ProjectedJsonRoutingAudit_PackageSearchOutputPathFailsBeforeNetwork()
     {
         var outputPath = Path.Combine(
@@ -12145,6 +12181,49 @@ public partial class CommandExecutionTests
             "--top cannot be combined with -D/--discover",
             error);
         Assert.DoesNotContain("source did not answer", error);
+    }
+
+    [Fact]
+    public async Task ImplicitRouterRejectsLimitConflictBeforeAcquisition()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var observedRequest = ObserveHttpRequestAsync(listener);
+
+        var (exit, output, error) = await RunAppAsync(
+            "Microsoft.Does.Not.Exist.5144",
+            "--count",
+            "-n",
+            "1",
+            "--source",
+            $"http://127.0.0.1:{port}/index.json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(SharedOptions.CountWindowConflictError, error);
+        Assert.False(await observedRequest);
+
+        static async Task<bool> ObserveHttpRequestAsync(TcpListener listener)
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+            try
+            {
+                using var client = await listener.AcceptTcpClientAsync(timeout.Token);
+                await using var stream = client.GetStream();
+                byte[] buffer = new byte[1024];
+                _ = await stream.ReadAsync(buffer, timeout.Token);
+                await stream.WriteAsync(
+                    "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"u8
+                        .ToArray(),
+                    timeout.Token);
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+        }
     }
 
     [Theory]
@@ -31498,6 +31577,51 @@ public partial class CommandExecutionTests
             using var emptyDocument = JsonDocument.Parse(lines.Single(line => line.Contains("Test.Project.NoAgents")));
             Assert.Equal("", emptyDocument.RootElement.GetProperty("name").GetString());
             Assert.Equal("", emptyDocument.RootElement.GetProperty("description").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_AgentsIndex_AppliesEachRowWindowKind()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.First",
+                "1.0.0",
+                "README.md",
+                "first"),
+            new ProjectDocPackage(
+                "Test.Project.Second",
+                "2.0.0",
+                "README.md",
+                "second"));
+
+        try
+        {
+            var head = await RunProjectFixtureAsync(
+                projectPath, "--agents-index", "-n", "1", "--jsonl");
+            var tail = await RunProjectFixtureAsync(
+                projectPath, "--agents-index", "-n", "1", "--tail", "--jsonl");
+            var range = await RunProjectFixtureAsync(
+                projectPath, "--agents-index", "--rows", "2..2", "--jsonl");
+
+            Assert.Equal(0, head.Exit);
+            Assert.Empty(head.Error);
+            Assert.Contains("Test.Project.First", head.Output);
+            Assert.DoesNotContain("Test.Project.Second", head.Output);
+
+            Assert.Equal(0, tail.Exit);
+            Assert.Empty(tail.Error);
+            Assert.DoesNotContain("Test.Project.First", tail.Output);
+            Assert.Contains("Test.Project.Second", tail.Output);
+
+            Assert.Equal(0, range.Exit);
+            Assert.Empty(range.Error);
+            Assert.DoesNotContain("Test.Project.First", range.Output);
+            Assert.Contains("Test.Project.Second", range.Output);
         }
         finally
         {

@@ -14,6 +14,14 @@ namespace DotnetInspector.Services;
 /// </summary>
 public class SharedOptions
 {
+    internal const string CountWindowConflictError =
+        "--count cannot be combined with -n, --top, --rows, --row, "
+        + "--head, --tail, --lines, or --tail-lines.";
+    internal const string DiscoveryTopConflictError =
+        "--top cannot be combined with -D/--discover because "
+        + "discovery rows have no ranking default. Use -n N for "
+        + "a positional discovery limit.";
+
     // Output format options
     public Option<bool> Json { get; } = new("--json") { Description = "Output as JSON" };
     public Option<bool> Markdown { get; } = new("--markdown") { Description = "Output as markdown" };
@@ -310,10 +318,7 @@ public class SharedOptions
                 && command.Options.Contains(Discover)
                 && result.GetResult(Discover) is { Implicit: false })
             {
-                result.AddError(
-                    "--top cannot be combined with -D/--discover because "
-                    + "discovery rows have no ranking default. Use -n N for "
-                    + "a positional discovery limit.");
+                result.AddError(DiscoveryTopConflictError);
             }
 
             if (topSpecified
@@ -337,9 +342,7 @@ public class SharedOptions
                     || tailRequested
                     || linesRequested))
             {
-                result.AddError(
-                    "--count cannot be combined with -n, --top, --rows, --row, "
-                    + "--head, --tail, --lines, or --tail-lines.");
+                result.AddError(CountWindowConflictError);
             }
         });
 
