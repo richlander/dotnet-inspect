@@ -93,6 +93,10 @@ whatever a public feed serves.
 `BlobReader.RemainingBytes` is public and would answer the question, but no
 decode path consults it before sizing an allocation. So the pre-walk in this
 component is not redundant with an upstream check; there is no upstream check.
+That absence is a closed decision rather than an oversight: dotnet/runtime#57531
+asked for exactly such a check — "a way to detect this problem prior to
+allocating the array" — and was closed without one, on the position that the
+consumer's `ICustomAttributeTypeProvider` should have prevented the misread.
 
 ## The containment invariants
 
@@ -145,6 +149,23 @@ length byte and the first three characters of the type name, so the following
 `CustomAttributeValueGuard.DeclaredSlotCharge` that is 28,515 MiB, which is the
 28,517 MiB the reporter observed. The blob is entirely legal; only the
 classification is wrong.
+
+The upstream issue was closed without adding a bound. The reporter was scanning
+nuget.org with `System.Reflection.Metadata` 5.0.0 and counted the problem in
+"over 3000 packages on NuGet.org (and 8000 contained assemblies)", a list that
+includes Microsoft's own `Microsoft.ML.*` assemblies. The closing comment
+attributed the failure to the consumer's provider and named a mechanism: a
+stated suspicion that the affected attributes carried "enums that have an
+underlying type that is not `Int32`".
+
+That mechanism does not fit this assembly. In
+`Kentico.Xperience.AspNet.Mvc5.Libraries` 13.0.18 the constructor is
+`RegisterPageBuilderLocalizationResourceAttribute(System.Type markedType,
+params string[] cultureCodes)`, which declares no enum parameter, so no enum
+underlying type can desynchronize it. The classification decision above is what
+remains: `IsSystemType` answering `false` for a genuine `System.Type`, after
+which SRM consults `GetUnderlyingEnumType` and reads four bytes. That is the
+evidence for stating I1's surface as classification and not width alone.
 
 `CustomAttributeValueGuardTests`'s
 `SystemTypeArgumentReadAsEnum_ChargesTheAmplifiedCount_AndIsUnsafe` is the gate
