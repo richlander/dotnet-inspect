@@ -5,20 +5,20 @@
 // module, so it never appears in any map's `sources` -- and under Vite's inline limit it
 // is base64'd straight into a chunk, emitting no asset file and no manifest entry either.
 //
-// Rollup already keeps the answer. `getWatchFiles` is the set of files the build read,
-// which is what "what did the bundler take from this repository" actually means: modules,
-// entry HTML, assets whether emitted or inlined, and anything a plugin read. It is
-// derived from the build rather than reconstructed from its output, so it does not care
-// how a file was referenced or what it is called.
+// Vite 8's Rolldown context exposes the module graph but no longer exposes Rollup's
+// `getWatchFiles`. The graph covers modules, entry HTML and CSS, while a second build
+// with asset inlining disabled makes every asset source visible through output
+// provenance. Both answers come from Vite builds using the project's real config and
+// plugins rather than from parsing source or enumerating extensions.
 //
 // The project's own `vite.config.ts` is used rather than a restatement of it, so the
 // audit reads what the real build reads. Only the output is suppressed: `write: false`
 // keeps this off disk, because the audit needs the module graph rather than an artifact,
 // and the shipped build keeps its own shape and gains no source maps.
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
-import { build } from "vite";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
+import { build, type Rolldown } from "vite";
 
 export interface AuditedBuild {
   readonly readFiles: string[];
@@ -45,48 +45,63 @@ function withoutAuditPlugin(names: string[]): string[] {
   return remaining.sort();
 }
 
-// Round 12 (Gemini 3.1 Pro) reached Rollup without going through Vite's plugin list at
-// all. `build.rollupOptions.plugins` is handed straight to Rollup, so it never appears in
-// the `config.plugins` that `configResolved` reports, and because it transforms in both
-// builds identically the equivalence gate below sees nothing to disagree about. The
-// payload shipped with all four commands green.
-//
-// Asking Vite was the wrong end of the pipe. Rollup is what actually runs the plugins, so
-// its `options` and `outputOptions` hooks are asked instead: every plugin Rollup has must
-// be one Vite resolved, and there must be no output plugins at all. Neither list is
-// enumerated here -- Rollup reports both, and the comparison is against Vite's own account
-// of what it installed. The difference is taken as a multiset so a plugin cannot hide by
-// borrowing the name of one that is legitimately present.
-function pluginNamesOf(plugins: unknown): string[] {
-  if (!Array.isArray(plugins)) {
+// Round 12 (Gemini 3.1 Pro) reached the bundler without going through Vite's plugin list.
+// `build.rollupOptions.plugins` is handed directly to the bundler, so the resolved config
+// must account for the input and output plugin slots separately. Vite 8 rewrites many of
+// its own plugins into differently named native Rolldown plugins, so comparing names from
+// the two layers is no longer meaningful. Direct plugin configuration remains forbidden,
+// and any Vite plugin capable of mutating the options later is already caught by the
+// resolved-plugin baseline.
+function isUnknownArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
+}
+
+function configuredPluginNames(plugins: unknown): string[] {
+  if (plugins === undefined || plugins === null || plugins === false) {
     return [];
   }
-  return plugins.flatMap((plugin: unknown) => {
-    if (typeof plugin !== "object" || plugin === null || !("name" in plugin)) {
-      return [];
+  if (isUnknownArray(plugins)) {
+    return plugins.flatMap(configuredPluginNames);
+  }
+  if (typeof plugins === "object" && "name" in plugins) {
+    const { name } = plugins;
+    if (typeof name === "string") {
+      return [name];
     }
-    const { name } = plugin;
-    return typeof name === "string" ? [name] : [];
+  }
+  return ["<configured-plugin>"];
+}
+
+function hasPlugins(value: object): value is { plugins: unknown } {
+  return "plugins" in value;
+}
+
+function configuredOutputPluginNames(output: unknown): string[] {
+  const outputs = isUnknownArray(output) ? output : [output];
+  return outputs.flatMap(options => {
+    if (typeof options === "object" && options !== null && hasPlugins(options)) {
+      return configuredPluginNames(options.plugins);
+    }
+    return [];
   });
 }
 
-function multisetDifference(actual: string[], accounted: string[]): string[] {
-  const remaining = [...accounted];
-  return actual.flatMap(name => {
-    const found = remaining.indexOf(name);
-    if (found === -1) {
-      return [name];
-    }
-    remaining.splice(found, 1);
-    return [];
-  });
+function outputsOf(
+  result: Awaited<ReturnType<typeof build>>,
+): Rolldown.RolldownOutput[] {
+  if (Array.isArray(result)) {
+    return result;
+  }
+  if ("output" in result) {
+    return [result];
+  }
+  throw new Error("the audited build unexpectedly returned a watcher");
 }
 
 export async function auditedBuild(root: string): Promise<AuditedBuild> {
   const read = new Set<string>();
   let observed: { mode: string; publicDir: string; pluginNames: string[]; workerPluginCount: number }
     | undefined;
-  let configNames: string[] = [];
   let rollupInputNames: string[] = [];
   let rollupOutputNames: string[] = [];
   const result = await build({
@@ -97,7 +112,8 @@ export async function auditedBuild(root: string): Promise<AuditedBuild> {
       name: auditPluginName,
       configResolved(config) {
         const worker: unknown = config.worker.plugins;
-        configNames = config.plugins.map(plugin => plugin.name);
+        rollupInputNames = configuredPluginNames(config.build.rolldownOptions.plugins);
+        rollupOutputNames = configuredOutputPluginNames(config.build.rolldownOptions.output);
         observed = {
           mode: config.mode,
           publicDir: config.publicDir,
@@ -105,26 +121,36 @@ export async function auditedBuild(root: string): Promise<AuditedBuild> {
           workerPluginCount: Array.isArray(worker) ? worker.length : 0,
         };
       },
-      options(options) {
-        rollupInputNames = pluginNamesOf(options.plugins);
-        return null;
-      },
-      outputOptions(options) {
-        rollupOutputNames = pluginNamesOf(options.plugins);
-        return null;
-      },
-      buildEnd() {
-        for (const file of this.getWatchFiles()) {
-          read.add(file);
+      buildEnd(this: Rolldown.PluginContext) {
+        for (const id of this.getModuleIds()) {
+          if (existsSync(id)) {
+            read.add(id);
+          }
         }
       },
     }],
   });
-  const results = Array.isArray(result) ? result : [result];
+  const results = outputsOf(result);
   const chunks = results
-    .flatMap(one => "output" in one ? one.output : [])
+    .flatMap(one => one.output)
     .flatMap(one => one.type === "chunk" ? [one.code] : [])
     .sort();
+  const assetResults = outputsOf(await build({
+    root,
+    logLevel: "error",
+    build: { write: false, sourcemap: false, assetsInlineLimit: 0 },
+  }));
+  for (const asset of assetResults.flatMap(one => one.output)) {
+    if (asset.type !== "asset") {
+      continue;
+    }
+    for (const source of asset.originalFileNames) {
+      const file = isAbsolute(source) ? source : resolve(root, source);
+      if (existsSync(file)) {
+        read.add(file);
+      }
+    }
+  }
   if (observed === undefined) {
     throw new Error("the audited build never resolved a config");
   }
@@ -132,7 +158,7 @@ export async function auditedBuild(root: string): Promise<AuditedBuild> {
     readFiles: [...read],
     chunks,
     ...observed,
-    unaccountedRollupPlugins: multisetDifference(rollupInputNames, configNames),
+    unaccountedRollupPlugins: rollupInputNames,
     rollupOutputPlugins: rollupOutputNames,
   };
 }
@@ -173,7 +199,7 @@ export function shippedChunks(root: string): string[] {
 // Vite resolves the config it is going to use, so it can be asked instead. Resolving the
 // project's real config and resolving with `configFile: false` gives the plugins the
 // project added on top of the ones Vite always installs, without this file ever having
-// to know what Vite's own set is -- 34 plugins here, none of them named in this repo.
+// to know what Vite's own set is, with none of them named in this repo.
 // However the config is spelled, composed, imported or computed, the difference shows up
 // after resolution.
 export async function builtinPluginNames(root: string, mode: string): Promise<string[]> {
