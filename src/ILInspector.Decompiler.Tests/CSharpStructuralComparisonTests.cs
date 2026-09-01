@@ -1625,8 +1625,7 @@ public class CSharpStructuralComparisonTests
         var after = TrustedDocument(
             "return Own(value);\nstatic int Own(int input) => input + 1;",
             new NodeSpec("InvocationExpression", "Own(value)", [0x10]),
-            new NodeSpec("LocalFunctionStatement", "static int Own(int input) => input + 1;", null),
-            new NodeSpec("Block", "return Own(value);\nstatic int Own(int input) => input + 1;", null));
+            new NodeSpec("LocalFunctionStatement", "static int Own(int input) => input + 1;", null));
 
         var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
         var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
@@ -1645,8 +1644,7 @@ public class CSharpStructuralComparisonTests
         var before = TrustedDocument(
             "F();\nstatic void F()\n{\n}",
             new NodeSpec("InvocationExpression", "F()", [0x10]),
-            new NodeSpec("LocalFunctionStatement", "static void F()\n{\n}", null),
-            new NodeSpec("Block", "F();\nstatic void F()\n{\n}", null));
+            new NodeSpec("LocalFunctionStatement", "static void F()\n{\n}", null));
         var after = TrustedDocument(
             "__CallsEmpty_g__F_0_0();",
             new NodeSpec("InvocationExpression", "__CallsEmpty_g__F_0_0()", [0x10]));
@@ -1723,8 +1721,7 @@ public class CSharpStructuralComparisonTests
         var after = TrustedDocument(
             "return @return(value);\nstatic int @return(int value) => value;",
             new NodeSpec("InvocationExpression", "@return(value)", [0x10]),
-            new NodeSpec("LocalFunctionStatement", "static int @return(int value) => value;", null),
-            new NodeSpec("Block", "return @return(value);\nstatic int @return(int value) => value;", null));
+            new NodeSpec("LocalFunctionStatement", "static int @return(int value) => value;", null));
 
         var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
         var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
@@ -1861,8 +1858,7 @@ public class CSharpStructuralComparisonTests
         var after = TrustedDocument(
             "return F(value);\n[My] (int, string) F(int value) => (value, \"\");",
             new NodeSpec("InvocationExpression", "F(value)", [0x10]),
-            new NodeSpec("LocalFunctionStatement", "[My] (int, string) F(int value) => (value, \"\");", null),
-            new NodeSpec("Block", "return F(value);\n[My] (int, string) F(int value) => (value, \"\");", null));
+            new NodeSpec("LocalFunctionStatement", "[My] (int, string) F(int value) => (value, \"\");", null));
 
         var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
         var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
@@ -1938,8 +1934,7 @@ public class CSharpStructuralComparisonTests
         var after = TrustedDocument(
             "return New(value);\nstatic /* New() */ void Other() { }",
             new NodeSpec("InvocationExpression", "New(value)", [0x10]),
-            new NodeSpec("LocalFunctionStatement", "static /* New() */ void Other() { }", null),
-            new NodeSpec("Block", "return New(value);\nstatic /* New() */ void Other() { }", null));
+            new NodeSpec("LocalFunctionStatement", "static /* New() */ void Other() { }", null));
 
         var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
         var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
@@ -1963,8 +1958,7 @@ public class CSharpStructuralComparisonTests
         var after = TrustedDocument(
             "return F(value);\nref (int, int) F(int value) => throw new Exception();",
             new NodeSpec("InvocationExpression", "F(value)", [0x10]),
-            new NodeSpec("LocalFunctionStatement", "ref (int, int) F(int value) => throw new Exception();", null),
-            new NodeSpec("Block", "return F(value);\nref (int, int) F(int value) => throw new Exception();", null));
+            new NodeSpec("LocalFunctionStatement", "ref (int, int) F(int value) => throw new Exception();", null));
 
         var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
         var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
@@ -1990,8 +1984,7 @@ public class CSharpStructuralComparisonTests
         var after = TrustedDocument(
             "return \U00010400F(value);\nstatic int \U00010400F(int value) => value;",
             new NodeSpec("InvocationExpression", "\U00010400F(value)", [0x10]),
-            new NodeSpec("LocalFunctionStatement", "static int \U00010400F(int value) => value;", null),
-            new NodeSpec("Block", "return \U00010400F(value);\nstatic int \U00010400F(int value) => value;", null));
+            new NodeSpec("LocalFunctionStatement", "static int \U00010400F(int value) => value;", null));
 
         var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
         var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
@@ -2001,37 +1994,32 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
-    public void ToDisplayRows_DoesNotDescribeCallOutsideNarrowerLocalFunctionScopeAsRenamed()
+    public void ToDisplayRows_DescribesCallTargetRenamedToGenericTupleReturningLocalFunction()
     {
-        // Round-6 review (reviewers A and B): DeclaresLocalFunctionNamed
-        // matched any Added/Removed LocalFunctionStatement row by spelling
-        // alone, with no check that the declaration's own block lexically
-        // contains the invocation. A same-named local function declared in
-        // a narrower nested block (here, inside the `if`) cannot be what an
-        // outer call resolves to under C#'s own local-function scoping rule
-        // -- that outer call must mean an ordinary member -- so it must not
-        // receive this caption. The invocation and the `if` block share the
-        // same enclosing method-body Block, but only the `if` block's own
-        // (narrower) Block actually contains the local function.
+        // Round-7 review (reviewer A): a generic return type wrapping a
+        // tuple (`Task<(int, int)> F()`) opens the tuple's own group while
+        // still nested inside the return type's unclosed `<...>`, so
+        // paren-only depth tracking mistook that nested group for the
+        // top-level parameter list; its preceding `<` is not an identifier,
+        // and the scan bailed before ever reaching the real parameter list
+        // and its own preceding name (`F`). Tracking angle-bracket depth
+        // alongside paren depth (while at paren depth zero) fixes this
+        // without touching the already-correct rejection of a generic
+        // *local function itself* (`Other<T>()`, covered above).
         var before = TrustedDocument(
-            "Old();\nif (condition)\n{\n}",
-            new NodeSpec("InvocationExpression", "Old()", [0x10]),
-            new NodeSpec("Block", "Old();\nif (condition)\n{\n}", null));
+            "return Synthesized(value);",
+            new NodeSpec("InvocationExpression", "Synthesized(value)", [0x10]));
         var after = TrustedDocument(
-            "New();\nif (condition)\n{\n    static void New() { }\n}",
-            new NodeSpec("InvocationExpression", "New()", [0x10]),
-            new NodeSpec("LocalFunctionStatement", "static void New() { }", null),
-            new NodeSpec("Block", "New();\nif (condition)\n{\n    static void New() { }\n}", null),
-            new NodeSpec(
-                "Block",
-                "{\n    static void New() { }\n}",
-                null));
+            "return F(value);\nTask<(int Value, int Error)> F(int value) => default;",
+            new NodeSpec("InvocationExpression", "F(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "Task<(int Value, int Error)> F(int value) => default;", null));
 
         var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
         var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
 
-        var changed = Assert.Single(display, row => row.Change == "Changed");
-        Assert.Equal("Old() -> New()", changed.Detail);
+        Assert.Contains(display, row =>
+            row.Change == "Changed"
+            && row.Detail == "call target: Synthesized -> local function `F`");
     }
 
     [Fact]

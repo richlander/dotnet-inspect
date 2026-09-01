@@ -236,7 +236,7 @@ public static class CSharpStructuralDiffPrinter
         {
             if (TryDescribeQualifierArgumentRoleTransition(beforeText, afterText, out var qualifierTransition))
                 return qualifierTransition.DetailSummary;
-            if (TryDescribeCalleeRenamedRoleTransition(comparison, row, beforeText, afterText, out var calleeTransition))
+            if (TryDescribeCalleeRenamedRoleTransition(comparison, beforeText, afterText, out var calleeTransition))
                 return calleeTransition.DetailSummary;
         }
 
@@ -297,7 +297,6 @@ public static class CSharpStructuralDiffPrinter
 
             if (TryDescribeCalleeRenamedRoleTransition(
                     comparison,
-                    row,
                     Contain(beforeText)!,
                     Contain(afterText)!,
                     out var calleeTransition))
@@ -471,7 +470,6 @@ public static class CSharpStructuralDiffPrinter
 
     static bool TryDescribeCalleeRenamedRoleTransition(
         CSharpStructuralComparison comparison,
-        CSharpStructuralDiffRow row,
         string beforeText,
         string afterText,
         out CalleeRenamedRoleTransition transition)
@@ -492,8 +490,7 @@ public static class CSharpStructuralDiffPrinter
             return false;
         }
 
-        if (row.AfterSpans.Length == 1
-            && DeclaresLocalFunctionNamed(comparison, CSharpStructuralChangeKind.Added, afterCallee, row.AfterSpans[0]))
+        if (DeclaresLocalFunctionNamed(comparison, CSharpStructuralChangeKind.Added, afterCallee))
         {
             transition = new CalleeRenamedRoleTransition(
                 $"call target: {beforeCallee}",
@@ -502,8 +499,7 @@ public static class CSharpStructuralDiffPrinter
             return true;
         }
 
-        if (row.BeforeSpans.Length == 1
-            && DeclaresLocalFunctionNamed(comparison, CSharpStructuralChangeKind.Removed, beforeCallee, row.BeforeSpans[0]))
+        if (DeclaresLocalFunctionNamed(comparison, CSharpStructuralChangeKind.Removed, beforeCallee))
         {
             transition = new CalleeRenamedRoleTransition(
                 $"call target: local function `{beforeCallee}`",
@@ -520,27 +516,43 @@ public static class CSharpStructuralDiffPrinter
     /// or <see cref="CSharpStructuralChangeKind.Removed"/> <c>LocalFunctionStatement</c>
     /// row whose own <em>declared name</em> -- not merely any identifier
     /// occurring anywhere in its full statement text -- equals
-    /// <paramref name="name"/>, and whose declaring block lexically contains
-    /// <paramref name="invocationSpan"/>. The row's display label is only a
-    /// generic per-kind caption ("Local function"), never the declaration's
-    /// own text, so this re-selects the row's actual spans instead. Scanning
-    /// the declaration's full span text for any occurrence of the identifier
+    /// <paramref name="name"/>. The row's display label is only a generic
+    /// per-kind caption ("Local function"), never the declaration's own
+    /// text, so this re-selects the row's actual spans instead. Scanning the
+    /// declaration's full span text for any occurrence of the identifier
     /// (round-1 review, reviewers A and B) would falsely match a parameter,
     /// body reference, comment, or string literal that merely shares the
     /// callee's spelling -- e.g. a local function <c>Other(int New)</c> must
     /// not license the caption for an unrelated call renamed to <c>New</c>.
-    /// Requiring the invocation to lie within the declaring block (round-6
-    /// review, reviewers A and B) keeps a same-named local function declared
-    /// in a narrower nested block -- e.g. inside an <c>if</c> -- from
-    /// licensing this caption for an unrelated call outside that block,
-    /// which C#'s own local-function scoping rule (visible only within its
-    /// immediately declaring block) would never allow to resolve there.
     /// </summary>
+    /// <remarks>
+    /// Round 6 review (reviewers A and B) additionally found that a
+    /// same-named local function declared in a narrower nested block (e.g.
+    /// inside an <c>if</c>) could license this caption for an unrelated call
+    /// outside that block -- C#'s own local-function scoping rule would
+    /// never let that call resolve there. Round 7 review (reviewers A and
+    /// B) found the fix attempted for that (a lexical-scope check keyed off
+    /// a <c>Block</c>-kind <see cref="AnnotatedSourceNode"/>) was worse than
+    /// the bug: this printer never records a range for a <c>Block</c> or
+    /// <c>BlockContainer</c> node (see <c>PrintedRangeMap</c>'s own remark,
+    /// "a <c>Block</c> records no range of its own", and
+    /// <c>CSharpPrinter.AppendContainer</c>, which recurses into a block's
+    /// statements without ever recording the block itself), so every real
+    /// document lacks the node the check needed and it silently suppressed
+    /// this caption for the ordinary, common case too -- not just the
+    /// narrow nested-scope shape it targeted. The scope check has been
+    /// reverted for that reason. The narrow nested-scope false positive it
+    /// was meant to prevent remains a known, accepted limitation: this
+    /// comparison has no reliable lexical-scope data to check against
+    /// today, and inventing one via further text scanning would repeat the
+    /// same brittleness this heuristic has spent six rounds hardening
+    /// against. Fixing it properly needs the decompiler pipeline to publish
+    /// real block/scope spans, which is out of this PR's scope.
+    /// </remarks>
     static bool DeclaresLocalFunctionNamed(
         CSharpStructuralComparison comparison,
         CSharpStructuralChangeKind change,
-        string name,
-        AnnotatedSourceSpan invocationSpan)
+        string name)
     {
         var document = change == CSharpStructuralChangeKind.Added ? comparison.After : comparison.Before;
         foreach (var candidate in comparison.Rows)
@@ -556,8 +568,7 @@ public static class CSharpStructuralDiffPrinter
             foreach (var span in spans)
             {
                 if (TryGetLocalFunctionDeclaredName(SelectText(document, span), out string declaredName)
-                    && string.Equals(declaredName, name, StringComparison.Ordinal)
-                    && IsWithinDeclaringBlock(document, span, invocationSpan))
+                    && string.Equals(declaredName, name, StringComparison.Ordinal))
                 {
                     return true;
                 }
@@ -565,47 +576,6 @@ public static class CSharpStructuralDiffPrinter
         }
 
         return false;
-    }
-
-    /// <summary>
-    /// Whether <paramref name="invocationSpan"/> lies inside the smallest
-    /// <c>Block</c>-kind node of <paramref name="document"/> that fully
-    /// contains <paramref name="declarationSpan"/> -- i.e. the block that
-    /// directly declares the local function, the one block C# grants it
-    /// scope throughout (before or after its own declaration position
-    /// within that block, but nowhere outside it). Conservatively
-    /// <see langword="false"/> if no containing block is found, since that
-    /// shape is not recognized rather than assumed safe.
-    /// </summary>
-    static bool IsWithinDeclaringBlock(
-        AnnotatedSourceDocument document,
-        AnnotatedSourceSpan declarationSpan,
-        AnnotatedSourceSpan invocationSpan)
-    {
-        AnnotatedSourceSpan? declaringBlock = null;
-        foreach (var node in document.Nodes)
-        {
-            if (!string.Equals(node.Kind, "Block", StringComparison.Ordinal))
-                continue;
-
-            foreach (var blockSpan in node.Spans)
-            {
-                if (blockSpan.Start > declarationSpan.Start
-                    || blockSpan.Start + blockSpan.Length < declarationSpan.Start + declarationSpan.Length)
-                {
-                    continue;
-                }
-
-                if (declaringBlock is not { } current || blockSpan.Length < current.Length)
-                    declaringBlock = blockSpan;
-            }
-        }
-
-        if (declaringBlock is not { } block)
-            return false;
-
-        return invocationSpan.Start >= block.Start
-            && invocationSpan.Start + invocationSpan.Length <= block.Start + block.Length;
     }
 
     /// <summary>
@@ -648,7 +618,20 @@ public static class CSharpStructuralDiffPrinter
     /// -- a comment anywhere later in the header (e.g.
     /// <c>static /* New() */ void Other() { }</c>) could otherwise supply a
     /// parenthesized group whose preceding token is misread as the declared
-    /// name (round-6 review, reviewers A and B).
+    /// name (round-6 review, reviewers A and B). Tracks a separate
+    /// <c>angleDepth</c> alongside the paren <c>depth</c>, active only while
+    /// <c>depth == 0</c>: a return type's own generic argument list can
+    /// nest a tuple type (<c>Task&lt;(int, int)&gt; F()</c>), and without
+    /// this, that tuple's parenthesized group -- opened while still nested
+    /// inside the unclosed <c>&lt;...&gt;</c> -- was wrongly read as the
+    /// first top-level group, whose preceding <c>&lt;</c> is not an
+    /// identifier and made this bail before ever reaching the real
+    /// parameter list and its own preceding name (round-7 review, reviewer
+    /// A). Gating the angle tracking to <c>depth == 0</c> keeps it from
+    /// touching an ordinary comparison operator that might appear inside a
+    /// default parameter value once the real parameter list is already
+    /// open (paren depth alone still finds that group's own close
+    /// correctly, as it always has).
     /// </summary>
     static bool TryGetLocalFunctionDeclaredName(string text, out string name)
     {
@@ -658,6 +641,7 @@ public static class CSharpStructuralDiffPrinter
             return false;
 
         int depth = 0;
+        int angleDepth = 0;
         int groupStart = -1;
         for (int index = start; index < text.Length; index++)
         {
@@ -665,9 +649,24 @@ public static class CSharpStructuralDiffPrinter
             if (current == '/')
                 return false;
 
+            if (depth == 0)
+            {
+                if (current == '<')
+                {
+                    angleDepth++;
+                    continue;
+                }
+
+                if (current == '>' && angleDepth > 0)
+                {
+                    angleDepth--;
+                    continue;
+                }
+            }
+
             if (current == '(')
             {
-                if (depth == 0)
+                if (depth == 0 && angleDepth == 0)
                     groupStart = index;
                 depth++;
             }
