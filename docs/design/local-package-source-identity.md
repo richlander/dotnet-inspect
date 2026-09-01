@@ -40,11 +40,17 @@ supplies the process working directory; source-resolution paths canonicalize
 relative declarations before construction.
 
 The configuration adapter expands NuGet's `%NAME%` environment-variable syntax
-before calling this owner. Command-line sources are not given a second
-environment expansion after shell processing.
+but retains each expanded value with its declaring base until hierarchy merge
+has applied alias replacement, `<clear/>`, and disabled-source policy. It calls
+this owner only for aliases included in the requested effective view.
+Command-line sources are not given a second environment expansion after shell
+processing.
 
 `SourceResolverTests.ResolveSources_ConfigRelativePathsUseEachDeclaringDirectory`,
 `SourceResolverTests.ResolveSources_ConfigExpandsPercentEnvironmentVariables`,
+`SourceResolverTests.MergeConfigFiles_OverrideSkipsUnusableInheritedSource`,
+`SourceResolverTests.ResolveSources_ClearInNearestConfig_ClearsParentSources`,
+`SourceResolverTests.ResolveSources_DisabledSource_IsExcluded`,
 and
 `SourceResolverTests.ResolveSources_CommandRelativePathUsesWorkingDirectory`
 are the Release gates for this handoff.

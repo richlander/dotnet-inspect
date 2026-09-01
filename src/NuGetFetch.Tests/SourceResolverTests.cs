@@ -141,6 +141,38 @@ public class SourceResolverTests : IDisposable
     }
 
     [Fact]
+    public void MergeConfigFiles_OverrideSkipsUnusableInheritedSource()
+    {
+        string parentDirectory = Path.Combine(_tempDir, "override-parent");
+        string childDirectory = Path.Combine(parentDirectory, "child");
+        Directory.CreateDirectory(childDirectory);
+        string parentConfig = WriteConfigAt(parentDirectory, """
+            <configuration>
+              <packageSources>
+                <add key="feed" value="file:relative" />
+              </packageSources>
+            </configuration>
+            """);
+        string childConfig = WriteConfigAt(childDirectory, """
+            <configuration>
+              <packageSources>
+                <add key="FEED" value="current-feed" />
+              </packageSources>
+            </configuration>
+            """);
+
+        PackageSource source = Assert.Single(
+            SourceResolver.MergeConfigFiles(
+                [childConfig, parentConfig],
+                PackageSources.Empty));
+
+        Assert.Equal("FEED", source.Name);
+        Assert.Equal(
+            Path.Combine(childDirectory, "current-feed"),
+            source.Url);
+    }
+
+    [Fact]
     public void MergeConfigFiles_CaseVariantCredentialName_MatchesSource()
     {
         var configPath = WriteConfig("""
@@ -278,7 +310,7 @@ public class SourceResolverTests : IDisposable
             <configuration>
               <packageSources>
                 <add key="EnabledFeed" value="https://enabled.example.com/v3/index.json" />
-                <add key="DisabledFeed" value="https://disabled.example.com/v3/index.json" />
+                <add key="DisabledFeed" value="file:relative" />
               </packageSources>
               <disabledPackageSources>
                 <add key="DisabledFeed" value="true" />
@@ -290,6 +322,9 @@ public class SourceResolverTests : IDisposable
 
         Assert.Single(sources);
         Assert.Equal("EnabledFeed", sources[0].Name);
+        Assert.Throws<UnsupportedSourceException>(
+            () => SourceResolver.ResolveConfiguredSourceAliases(
+                configPath));
     }
 
     [Fact]
@@ -592,7 +627,7 @@ public class SourceResolverTests : IDisposable
             <?xml version="1.0" encoding="utf-8"?>
             <configuration>
               <packageSources>
-                <add key="ParentFeed" value="https://parent.example.com/v3/index.json" />
+                <add key="ParentFeed" value="file:relative" />
               </packageSources>
             </configuration>
             """);

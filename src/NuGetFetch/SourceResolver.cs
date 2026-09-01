@@ -310,7 +310,9 @@ public static class SourceResolver
         ArgumentNullException.ThrowIfNull(configFiles);
         ArgumentNullException.ThrowIfNull(initialSources);
 
-        var mergedSources = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var mergedSources =
+            new Dictionary<string, SourceDeclaration>(
+                StringComparer.OrdinalIgnoreCase);
         List<string> sourceOrder = [];
         var inheritedSourceNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var disabled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -319,7 +321,11 @@ public static class SourceResolver
 
         foreach (PackageSource source in initialSources)
         {
-            SetSource(mergedSources, sourceOrder, source.Name, source.Url);
+            SetSource(
+                mergedSources,
+                sourceOrder,
+                source.Name,
+                new SourceDeclaration(source.Url, BaseDirectory: null));
             inheritedSourceNames.Add(source.Name);
 
             if (source.Credential is not null)
@@ -356,7 +362,14 @@ public static class SourceResolver
             }
 
             credentials.TryGetValue(name, out PackageSourceCredential? credential);
-            sources.Add(new PackageSource(name, mergedSources[name], credential));
+            SourceDeclaration declaration = mergedSources[name];
+            sources.Add(
+                new PackageSource(
+                    name,
+                    ResolveSourceValue(
+                        declaration.Value,
+                        declaration.BaseDirectory),
+                    credential));
         }
 
         return sources.Count == 0 ? PackageSources.Empty : sources;
@@ -508,7 +521,7 @@ public static class SourceResolver
     /// </summary>
     private static void MergeConfigFile(
         string configPath,
-        Dictionary<string, string> sources,
+        Dictionary<string, SourceDeclaration> sources,
         List<string> sourceOrder,
         HashSet<string> inheritedSourceNames,
         HashSet<string> disabled,
@@ -556,7 +569,7 @@ public static class SourceResolver
                                 sources,
                                 sourceOrder,
                                 key,
-                                ResolveSourceValue(
+                                new SourceDeclaration(
                                     Environment.ExpandEnvironmentVariables(
                                         value),
                                     Path.GetDirectoryName(
@@ -642,10 +655,10 @@ public static class SourceResolver
     }
 
     private static void SetSource(
-        Dictionary<string, string> sources,
+        Dictionary<string, SourceDeclaration> sources,
         List<string> sourceOrder,
         string name,
-        string url)
+        SourceDeclaration declaration)
     {
         int existingIndex = sourceOrder.FindIndex(
             existing => string.Equals(existing, name, StringComparison.OrdinalIgnoreCase));
@@ -655,9 +668,13 @@ public static class SourceResolver
         }
 
         sources.Remove(name);
-        sources[name] = url;
+        sources[name] = declaration;
         sourceOrder.Add(name);
     }
+
+    private readonly record struct SourceDeclaration(
+        string Value,
+        string? BaseDirectory);
 
     internal static string ResolveSourceValue(
         string source,
