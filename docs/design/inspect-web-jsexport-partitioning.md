@@ -414,14 +414,17 @@ The compiler-async and runtime-async deployment jobs each record:
 - the exact seven generated TypeScript contract digests;
 - the exact seven shipped WebCIL assembly names and content digests;
 - per-assembly and total `[JSExport]`, compiler-async, and runtime-async counts;
-- the verified repository-project graph count; and
+- the sorted repository-relative project identities, their canonical SHA-256
+  digest, and their count; and
 - successful Browser/Wasm initialization of every facade plus the host canary
   result.
 
 Both jobs must report the same assembly names, generated-contract digests,
-total export count, and repository-project graph. Their lowering counts remain
-the expected all-or-nothing inverse. A receipt for only `InspectWeb.Engine.dll`
-is incomplete after partitioning even if its local counts are correct.
+total export count, sorted project identities, and project-graph digest. The
+count remains a useful summary but does not establish graph equality. Their
+lowering counts remain the expected all-or-nothing inverse. A receipt for only
+`InspectWeb.Engine.dll` is incomplete after partitioning even if its local
+counts are correct.
 
 The deployment smoke initializes every module, which acquires its exact
 assembly export root and validates every expected runtime path, then invokes
@@ -437,8 +440,8 @@ certification into a network integration test.
 
 `InspectWebAsyncDeployment_ReceiptsCoverExactFacadeSet` gates module-set
 completeness. `InspectWebAsyncDeployment_LoweringsPreserveFacadeContracts`
-gates equal TypeScript contracts and inverse lowering counts across the paired
-deployments.
+gates equal TypeScript contracts, exact project identity and digest equality,
+and inverse lowering counts across the paired deployments.
 
 ## Failure semantics
 
