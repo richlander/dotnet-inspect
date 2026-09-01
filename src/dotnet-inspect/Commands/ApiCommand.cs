@@ -1338,6 +1338,42 @@ public class ApiCommand
         VerboseLogger logger,
         HttpClient httpClient,
         CancellationToken cancellationToken = default)
+        => await TryAcquirePdbPathCoreAsync(
+            dllPath,
+            sourceAssembly: null,
+            options,
+            logger,
+            httpClient,
+            cancellationToken).ConfigureAwait(false);
+
+    internal static async Task<string?> TryAcquirePdbPathAsync(
+        string dllPath,
+        ResolvedAssemblyReference sourceAssembly,
+        ApiOptions options,
+        VerboseLogger logger,
+        HttpClient httpClient,
+        CancellationToken cancellationToken = default,
+        string? fallbackPackageName = null,
+        string? fallbackPackageVersion = null)
+        => await TryAcquirePdbPathCoreAsync(
+            dllPath,
+            sourceAssembly,
+            options,
+            logger,
+            httpClient,
+            cancellationToken,
+            fallbackPackageName,
+            fallbackPackageVersion).ConfigureAwait(false);
+
+    static async Task<string?> TryAcquirePdbPathCoreAsync(
+        string dllPath,
+        ResolvedAssemblyReference? sourceAssembly,
+        ApiOptions options,
+        VerboseLogger logger,
+        HttpClient httpClient,
+        CancellationToken cancellationToken,
+        string? fallbackPackageName = null,
+        string? fallbackPackageVersion = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         try
@@ -1349,10 +1385,34 @@ public class ApiCommand
                 var (pkgName, pkgVersion) = !string.IsNullOrEmpty(options.PackagePath)
                     ? PackageExtractor.ParsePackageReference(options.PackagePath)
                     : (null, null);
-                await SourceEnricher.AcquirePdbAsync(context, httpClient, pkgName, pkgVersion,
-                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log,
-                    sourceOptions: options.SourceOptions,
-                    cancellationToken: cancellationToken);
+                pkgName = fallbackPackageName ?? pkgName;
+                pkgVersion = fallbackPackageVersion ?? pkgVersion;
+                if (sourceAssembly is null)
+                {
+                    await SourceEnricher.AcquirePdbAsync(
+                        context,
+                        httpClient,
+                        pkgName,
+                        pkgVersion,
+                        isPlatformAssembly:
+                            !string.IsNullOrEmpty(
+                                options.PlatformAssembly),
+                        logger.Log,
+                        sourceOptions: options.SourceOptions,
+                        cancellationToken: cancellationToken);
+                }
+                else
+                {
+                    await SourceEnricher.AcquirePdbAsync(
+                        context,
+                        sourceAssembly,
+                        httpClient,
+                        logger.Log,
+                        sourceOptions: options.SourceOptions,
+                        cancellationToken: cancellationToken,
+                        fallbackPackageName: pkgName,
+                        fallbackPackageVersion: pkgVersion);
+                }
             }
             return context.PortablePdbPath;
         }
@@ -1906,7 +1966,10 @@ public class ApiCommand
         string dllPath, string typeName, string methodName, int overloadIndex,
         ApiOptions options, HttpClient httpClient, VerboseLogger logger, bool fetchSource = true,
         bool publicOnly = true, int sourceMetadataToken = 0,
-        string? memberMetadataAssemblyPath = null, int memberMetadataToken = 0)
+        string? memberMetadataAssemblyPath = null, int memberMetadataToken = 0,
+        ResolvedAssemblyReference? sourceAssembly = null,
+        string? fallbackPackageName = null,
+        string? fallbackPackageVersion = null)
     {
         try
         {
@@ -1943,11 +2006,33 @@ public class ApiCommand
                 var (pkgName, pkgVersion) = !string.IsNullOrEmpty(options.PackagePath)
                     ? PackageExtractor.ParsePackageReference(options.PackagePath)
                     : (null, null);
+                pkgName = fallbackPackageName ?? pkgName;
+                pkgVersion = fallbackPackageVersion ?? pkgVersion;
 
-                await SourceEnricher.AcquirePdbAsync(context, httpClient,
-                    pkgName, pkgVersion,
-                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log,
-                    sourceOptions: options.SourceOptions);
+                if (sourceAssembly is null)
+                {
+                    await SourceEnricher.AcquirePdbAsync(
+                        context,
+                        httpClient,
+                        pkgName,
+                        pkgVersion,
+                        isPlatformAssembly:
+                            !string.IsNullOrEmpty(
+                                options.PlatformAssembly),
+                        logger.Log,
+                        sourceOptions: options.SourceOptions);
+                }
+                else
+                {
+                    await SourceEnricher.AcquirePdbAsync(
+                        context,
+                        sourceAssembly,
+                        httpClient,
+                        logger.Log,
+                        sourceOptions: options.SourceOptions,
+                        fallbackPackageName: pkgName,
+                        fallbackPackageVersion: pkgVersion);
+                }
             }
 
             // Capture the acquired portable PDB path now so the decompiler can reuse it for local

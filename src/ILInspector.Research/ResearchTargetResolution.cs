@@ -251,7 +251,8 @@ public abstract class ResearchTargetOutcome
             MetadataMethodAddress? address,
             ResearchTargetRelationshipRole role,
             LibraryBodyModuleIdentity module,
-            ImmutableArray<MemberTargetCandidate> candidates)
+            ImmutableArray<MemberTargetCandidate> candidates,
+            ResearchTargetBodyIdentity? bodyIdentity = null)
             : base(ResearchTargetOutcomeKind.Resolved)
         {
             Target = target;
@@ -259,6 +260,7 @@ public abstract class ResearchTargetOutcome
             Role = role;
             Module = module;
             Candidates = candidates;
+            BodyIdentity = bodyIdentity;
         }
 
         /// <summary>The exact Metadata-issued resolved target.</summary>
@@ -287,6 +289,17 @@ public abstract class ResearchTargetOutcome
 
         /// <summary>The exact Metadata-issued candidate set.</summary>
         public ImmutableArray<MemberTargetCandidate> Candidates { get; }
+
+        /// <summary>
+        /// The Research-owned projection of the Analysis-issued structured
+        /// physical body identity. Null when <see cref="Role"/> is
+        /// <see cref="ResearchTargetRelationshipRole.None"/> or when the
+        /// admitted Analysis index cannot supply a complete projectable
+        /// identity. The latter remains a successful Metadata selection and
+        /// produces <see cref="ResearchTargetTaintKind.BodyIdentityUnavailable"/>
+        /// correspondence taint.
+        /// </summary>
+        public ResearchTargetBodyIdentity? BodyIdentity { get; }
     }
 
     /// <summary>
@@ -675,9 +688,35 @@ public sealed class ResearchTargetResolution
     internal ResearchTargetResolution(
         ResearchComparisonOperationId operation,
         ImmutableArray<ResearchTargetScope> scopes)
+        : this(
+            operation,
+            scopes,
+            ResearchTargetCorrespondenceBuilder.Build(scopes))
+    {
+    }
+
+    ResearchTargetResolution(
+        ResearchComparisonOperationId operation,
+        ImmutableArray<ResearchTargetScope> scopes,
+        ResearchTargetCorrespondenceProjection correspondence)
+        : this(
+            operation,
+            scopes,
+            correspondence.Censuses,
+            correspondence.Outcomes)
+    {
+    }
+
+    internal ResearchTargetResolution(
+        ResearchComparisonOperationId operation,
+        ImmutableArray<ResearchTargetScope> scopes,
+        ImmutableArray<ResearchTargetDomainSideCensus> censuses,
+        ImmutableArray<ResearchTargetCorrespondenceOutcome> correspondences)
     {
         Operation = operation;
         Scopes = scopes;
+        Censuses = censuses;
+        Correspondences = correspondences;
         Domains = [.. scopes.SelectMany(static scope => scope.Domains)];
         Requests = [.. Domains.SelectMany(static domain => domain.Requests)];
         Attempts = [.. Domains.SelectMany(static domain => domain.Attempts)];
@@ -702,6 +741,15 @@ public sealed class ResearchTargetResolution
 
     /// <summary>Every terminal attempt across every domain.</summary>
     public ImmutableArray<ResearchTargetAttempt> Attempts { get; }
+
+    /// <summary>Every complete domain-side census.</summary>
+    public ImmutableArray<ResearchTargetDomainSideCensus> Censuses { get; }
+
+    /// <summary>Every closed domain-local correspondence outcome.</summary>
+    public ImmutableArray<ResearchTargetCorrespondenceOutcome> Correspondences
+    {
+        get;
+    }
 
     /// <summary>
     /// The attempt made for one exact request. Association is by request

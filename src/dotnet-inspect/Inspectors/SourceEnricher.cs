@@ -48,7 +48,9 @@ internal static class SourceEnricher
         Action<string>? log,
         bool cacheOnly = false,
         NuGetSourceOptions? sourceOptions = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? fallbackPackageName = null,
+        string? fallbackPackageVersion = null)
         => PdbAcquisitionService.AcquireAsync(
             context,
             assembly,
@@ -56,7 +58,9 @@ internal static class SourceEnricher
             log,
             cacheOnly,
             sourceOptions,
-            cancellationToken);
+            cancellationToken,
+            fallbackPackageName,
+            fallbackPackageVersion);
 
     // ===== Verbosity-Aware Enrichment Gateways =====
 
@@ -105,7 +109,16 @@ internal static class SourceEnricher
 
     // ===== Single-Type Enrichment =====
 
-    internal static async Task EnrichTypeWithSourceInfoAsync(ApiType apiType, string typeName, string dllPath, ApiOptions options, VerboseLogger logger, HttpClient httpClient)
+    internal static async Task EnrichTypeWithSourceInfoAsync(
+        ApiType apiType,
+        string typeName,
+        string dllPath,
+        ApiOptions options,
+        VerboseLogger logger,
+        HttpClient httpClient,
+        ResolvedAssemblyReference? sourceAssembly = null,
+        string? fallbackPackageName = null,
+        string? fallbackPackageVersion = null)
     {
         if (!string.IsNullOrEmpty(options.PlatformAssembly) && (options.UseLocalDocs || options.ShowDocs))
         {
@@ -125,10 +138,33 @@ internal static class SourceEnricher
             }
 
             var (packageName, packageVersion) = ResolvePackageInfo(options, dllPath);
+            packageName = fallbackPackageName ?? packageName;
+            packageVersion = fallbackPackageVersion ?? packageVersion;
 
-            await AcquirePdbAsync(context, httpClient, packageName, packageVersion,
-                isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log,
-                sourceOptions: options.SourceOptions);
+            if (sourceAssembly is null)
+            {
+                await AcquirePdbAsync(
+                    context,
+                    httpClient,
+                    packageName,
+                    packageVersion,
+                    isPlatformAssembly:
+                        !string.IsNullOrEmpty(
+                            options.PlatformAssembly),
+                    logger.Log,
+                    sourceOptions: options.SourceOptions);
+            }
+            else
+            {
+                await AcquirePdbAsync(
+                    context,
+                    sourceAssembly,
+                    httpClient,
+                    logger.Log,
+                    sourceOptions: options.SourceOptions,
+                    fallbackPackageName: packageName,
+                    fallbackPackageVersion: packageVersion);
+            }
 
             if (!context.HasPdb)
             {

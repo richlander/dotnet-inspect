@@ -15,6 +15,13 @@ package acquisition, target-framework ranking, symbol acquisition, and member
 identity for itself, and opened assemblies wherever it needed one. It was not
 carried forward.
 
+`InspectWeb.Engine` remains the executable Browser/Wasm host and the owner of
+all current exports and wire DTOs. `InspectWeb.Engine.Core` is its one-way,
+implementation-only dependency for shared operation lifetimes and browser host
+policy; it contains no `[JSExport]` method or generated serializer context.
+`EngineCoreProject_HasOneWayOwnerReference` and
+`EngineCoreAssembly_HasNoFacadeContracts` gate that boundary.
+
 The rule is enforced by the compiler, not by a convention.
 `engine/BannedSymbols.txt` bans `AssemblyInspectionSession`, `MetadataSource`,
 `LibraryBodyIndex`, `AssemblyImageSnapshot`, raw metadata readers, descriptor
@@ -605,8 +612,10 @@ feeds it a real document.
 [Annotated Source viewer interaction](../../docs/design/annotated-source-viewer-interaction.md)
 owns disclosure, actions, selection, annotations, media, Escape, and focus
 inside the embedded reader and modal viewer. The shared
-[Inspect Web UI](../../docs/design/inspect-web-ui.md) design continues to own
-modal composition, browser-history behavior, and destination focus.
+[Inspect Web Shell Interaction](../../docs/design/inspect-web-shell-interaction.md)
+design continues to own modal composition, while
+[Inspect Web Navigation Consumer](../../docs/design/inspect-web-navigation-consumer.md)
+owns browser-history behavior and destination focus.
 
 The viewer reuses the owner's module rather than copying it.
 `prototypes/annotated-source-viewer/src/document-model.js` owns validation,

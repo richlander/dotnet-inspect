@@ -978,6 +978,529 @@ public sealed class LocalArtifactSourceTests
         }
     }
 
+    [Fact]
+    public async Task
+        LocalDirectoryAcquisition_BoundedDeterministicSelection()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        string root = TempDirectory();
+        string nestedDirectory = Path.Combine(root, "nested.dll");
+        string linkedDirectory = Path.Combine(root, "linked-directory.dll");
+        string linkedFile = Path.Combine(root, "linked-file.dll");
+        string linkTarget = Path.Combine(root, "link-target.bin");
+        string hardLink = Path.Combine(root, "hard-link.dll");
+        bool linkedDirectoryCreated = false;
+        bool linkedFileCreated = false;
+        bool hardLinkCreated = false;
+        try
+        {
+            Directory.CreateDirectory(nestedDirectory);
+            await File.WriteAllBytesAsync(
+                Path.Combine(nestedDirectory, "child.dll"),
+                [9],
+                cancellationToken);
+            await File.WriteAllBytesAsync(
+                Path.Combine(root, "B.dll"),
+                [2],
+                cancellationToken);
+            await File.WriteAllBytesAsync(
+                Path.Combine(root, "a.DLL"),
+                [1],
+                cancellationToken);
+            await File.WriteAllBytesAsync(
+                Path.Combine(root, "excluded.dll"),
+                [3],
+                cancellationToken);
+            await File.WriteAllBytesAsync(
+                Path.Combine(root, "ignored.txt"),
+                [4],
+                cancellationToken);
+            await File.WriteAllBytesAsync(
+                linkTarget,
+                [5],
+                cancellationToken);
+            hardLinkCreated = TryCreateHardLink(
+                hardLink,
+                Path.Combine(root, "B.dll"));
+            try
+            {
+                Directory.CreateSymbolicLink(
+                    linkedDirectory,
+                    nestedDirectory);
+                linkedDirectoryCreated = true;
+                File.CreateSymbolicLink(linkedFile, linkTarget);
+                linkedFileCreated = true;
+            }
+            catch (Exception ex) when (OperatingSystem.IsWindows()
+                && ex is IOException or UnauthorizedAccessException)
+            {
+            }
+
+            var acquired =
+                Assert.IsType<ArtifactAcquisitionOutcome.Acquired>(
+                    await AcquireDirectoryAsync(
+                        root,
+                        new LocalDirectoryArtifactAcquisitionOptions
+                        {
+                            ExcludedFileNames = ["EXCLUDED.DLL"],
+                            IncludedFileExtensions = [".DLL"],
+                        },
+                        cancellationToken));
+            string[] expectedNames =
+            [
+                "B.dll",
+                "a.DLL",
+                .. hardLinkCreated
+                    ? new[] { "hard-link.dll" }
+                    : Array.Empty<string>(),
+                .. linkedFileCreated
+                    ? new[] { "linked-file.dll" }
+                    : Array.Empty<string>(),
+            ];
+            Assert.Equal(
+                expectedNames.Order(StringComparer.Ordinal),
+                acquired.Artifacts.Select(
+                    artifact =>
+                        Assert.IsType<LocalDirectoryArtifactProvenance>(
+                            artifact.Registration.Provenance)
+                        .RelativeName));
+            Assert.All(
+                acquired.Artifacts,
+                artifact =>
+                {
+                    Assert.Equal(
+                        "local-directory-entry",
+                        artifact.Descriptor.Kind);
+                    Assert.Null(artifact.Descriptor.MediaType);
+                });
+            if (linkedDirectoryCreated)
+            {
+                Assert.DoesNotContain(
+                    acquired.Artifacts,
+                    artifact =>
+                        Assert.IsType<LocalDirectoryArtifactProvenance>(
+                            artifact.Registration.Provenance)
+                        .RelativeName == "linked-directory.dll");
+            }
+
+            var observedLimit =
+                Assert.IsType<ArtifactAcquisitionOutcome.Rejected>(
+                    await AcquireDirectoryAsync(
+                        root,
+                        new LocalDirectoryArtifactAcquisitionOptions
+                        {
+                            MaxObservedEntries = 1,
+                        },
+                        cancellationToken));
+            Assert.Equal(
+                "local.directory.entry-limit",
+                observedLimit.Diagnostic.Code);
+
+            var selectedLimit =
+                Assert.IsType<ArtifactAcquisitionOutcome.Rejected>(
+                    await AcquireDirectoryAsync(
+                        root,
+                        new LocalDirectoryArtifactAcquisitionOptions
+                        {
+                            ExcludedFileNames =
+                                linkedFileCreated
+                                    ? ["linked-file.dll"]
+                                    : Array.Empty<string>(),
+                            MaxSelectedFiles = 1,
+                        },
+                        cancellationToken));
+            Assert.Equal(
+                "local.directory.selected-file-limit",
+                selectedLimit.Diagnostic.Code);
+
+            await Assert.ThrowsAsync<ArgumentException>(
+                async () => await AcquireDirectoryAsync(
+                    Path.Combine(root, "missing"),
+                    new LocalDirectoryArtifactAcquisitionOptions
+                    {
+                        IncludedFileExtensions = ["*.dll"],
+                    },
+                    cancellationToken));
+            await Assert.ThrowsAsync<ArgumentException>(
+                async () => await AcquireDirectoryAsync(
+                    Path.Combine(root, "missing"),
+                    new LocalDirectoryArtifactAcquisitionOptions
+                    {
+                        ExcludedFileNames = ["..", "input.dll"],
+                    },
+                    cancellationToken));
+            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+                async () => await AcquireDirectoryAsync(
+                    Path.Combine(root, "missing"),
+                    new LocalDirectoryArtifactAcquisitionOptions
+                    {
+                        MaxTotalBytes = (long)int.MaxValue + 1,
+                    },
+                    cancellationToken));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        LocalDirectoryAcquisition_EmptyOrFailedBatchPublishesNothing()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        string emptyRoot = TempDirectory();
+        string fileLimitRoot = TempDirectory();
+        string totalLimitRoot = TempDirectory();
+        string missingEntryRoot = TempDirectory();
+        string enumerationFailureRoot = TempDirectory();
+        string unsupportedEntryRoot = TempDirectory();
+        string admissionFailureRoot = TempDirectory();
+        string readFailureRoot = TempDirectory();
+        try
+        {
+            await File.WriteAllBytesAsync(
+                Path.Combine(emptyRoot, "ignored.txt"),
+                [1],
+                cancellationToken);
+            var empty =
+                Assert.IsType<ArtifactAcquisitionOutcome.Acquired>(
+                    await AcquireDirectoryAndCompleteEmptyGenerationAsync(
+                        emptyRoot,
+                        options: null,
+                        cancellationToken));
+            Assert.Empty(empty.Artifacts);
+            Assert.Same(
+                ArtifactAcquisitionLeases.None,
+                empty.Lease);
+
+            ArtifactAcquisitionOutcome missingRoot =
+                await AcquireDirectoryAndCompleteEmptyGenerationAsync(
+                    Path.Combine(emptyRoot, "missing"),
+                    options: null,
+                    cancellationToken);
+            Assert.Equal(
+                "local.directory.root-missing",
+                Assert.IsType<ArtifactAcquisitionOutcome.Unavailable>(
+                    missingRoot).Diagnostic.Code);
+
+            ArtifactAcquisitionOutcome invalidRoot =
+                await AcquireDirectoryAndCompleteEmptyGenerationAsync(
+                    "invalid\0path",
+                    options: null,
+                    cancellationToken);
+            Assert.Equal(
+                "local.directory.root-invalid-path",
+                Assert.IsType<ArtifactAcquisitionOutcome.Rejected>(
+                    invalidRoot).Diagnostic.Code);
+
+            string fileAsRoot = Path.Combine(emptyRoot, "root.dll");
+            await File.WriteAllBytesAsync(
+                fileAsRoot,
+                [1],
+                cancellationToken);
+            ArtifactAcquisitionOutcome unsupportedRoot =
+                await AcquireDirectoryAndCompleteEmptyGenerationAsync(
+                    fileAsRoot,
+                    options: null,
+                    cancellationToken);
+            Assert.Equal(
+                "local.directory.root-unsupported",
+                Assert.IsType<ArtifactAcquisitionOutcome.Rejected>(
+                    unsupportedRoot).Diagnostic.Code);
+            ArtifactAcquisitionOutcome rootAdmissionFailure =
+                LocalArtifactSource.ProjectDirectoryRootOutcome(
+                    LocalPathClassification.Failed(
+                        LocalPathReason.AdmissionFailed,
+                        emptyRoot,
+                        Path.GetFullPath(emptyRoot)));
+            Assert.Equal(
+                "local.directory.root-admission-failed",
+                Assert.IsType<ArtifactAcquisitionOutcome.Failed>(
+                    rootAdmissionFailure).Diagnostic.Code);
+
+            await File.WriteAllBytesAsync(
+                Path.Combine(fileLimitRoot, "a.dll"),
+                [1],
+                cancellationToken);
+            await File.WriteAllBytesAsync(
+                Path.Combine(fileLimitRoot, "z.dll"),
+                [2, 3],
+                cancellationToken);
+            ArtifactAcquisitionOutcome fileLimit =
+                await AcquireDirectoryAndCompleteEmptyGenerationAsync(
+                    fileLimitRoot,
+                    new LocalDirectoryArtifactAcquisitionOptions
+                    {
+                        MaxFileBytes = 1,
+                        MaxTotalBytes = 2,
+                    },
+                    cancellationToken);
+            Assert.Equal(
+                "local.directory.file-size-limit",
+                Assert.IsType<ArtifactAcquisitionOutcome.Rejected>(
+                    fileLimit).Diagnostic.Code);
+
+            await File.WriteAllBytesAsync(
+                Path.Combine(totalLimitRoot, "a.dll"),
+                [1, 2],
+                cancellationToken);
+            await File.WriteAllBytesAsync(
+                Path.Combine(totalLimitRoot, "b.dll"),
+                [3, 4],
+                cancellationToken);
+            ArtifactAcquisitionOutcome totalLimit =
+                await AcquireDirectoryAndCompleteEmptyGenerationAsync(
+                    totalLimitRoot,
+                    new LocalDirectoryArtifactAcquisitionOptions
+                    {
+                        MaxFileBytes = 2,
+                        MaxTotalBytes = 3,
+                    },
+                    cancellationToken);
+            Assert.Equal(
+                "local.directory.total-size-limit",
+                Assert.IsType<ArtifactAcquisitionOutcome.Rejected>(
+                    totalLimit).Diagnostic.Code);
+
+            await File.WriteAllBytesAsync(
+                Path.Combine(missingEntryRoot, "a.dll"),
+                [1],
+                cancellationToken);
+            string danglingEntry =
+                Path.Combine(missingEntryRoot, "z.dll");
+            if (TryCreateFileLink(
+                danglingEntry,
+                Path.Combine(missingEntryRoot, "missing.dll")))
+            {
+                ArtifactAcquisitionOutcome missingEntry =
+                    await AcquireDirectoryAndCompleteEmptyGenerationAsync(
+                        missingEntryRoot,
+                        options: null,
+                        cancellationToken);
+                Assert.Equal(
+                    "local.directory.entry-missing",
+                    Assert.IsType<ArtifactAcquisitionOutcome.Unavailable>(
+                        missingEntry).Diagnostic.Code);
+            }
+
+            if (!OperatingSystem.IsWindows())
+            {
+                string fifo =
+                    Path.Combine(unsupportedEntryRoot, "input.dll");
+                await CreateFifoAsync(fifo, cancellationToken);
+                ArtifactAcquisitionOutcome unsupportedEntry =
+                    await AcquireDirectoryAndCompleteEmptyGenerationAsync(
+                        unsupportedEntryRoot,
+                        options: null,
+                        cancellationToken);
+                Assert.Equal(
+                    "local.directory.entry-unsupported",
+                    Assert.IsType<ArtifactAcquisitionOutcome.Rejected>(
+                        unsupportedEntry).Diagnostic.Code);
+
+                string inaccessibleFile =
+                    Path.Combine(admissionFailureRoot, "input.dll");
+                await File.WriteAllBytesAsync(
+                    inaccessibleFile,
+                    [1],
+                    cancellationToken);
+                UnixFileMode originalFileMode =
+                    File.GetUnixFileMode(inaccessibleFile);
+                try
+                {
+                    File.SetUnixFileMode(
+                        inaccessibleFile,
+                        UnixFileMode.None);
+                    ArtifactAcquisitionOutcome admissionFailure =
+                        await AcquireDirectoryAndCompleteEmptyGenerationAsync(
+                            admissionFailureRoot,
+                            options: null,
+                            cancellationToken);
+                    Assert.Equal(
+                        "local.directory.entry-admission-failed",
+                        Assert.IsType<ArtifactAcquisitionOutcome.Failed>(
+                            admissionFailure).Diagnostic.Code);
+                }
+                finally
+                {
+                    File.SetUnixFileMode(
+                        inaccessibleFile,
+                        originalFileMode);
+                }
+
+                if (OperatingSystem.IsLinux()
+                    && File.Exists("/proc/self/mem"))
+                {
+                    File.CreateSymbolicLink(
+                        Path.Combine(readFailureRoot, "input.dll"),
+                        "/proc/self/mem");
+                    ArtifactAcquisitionOutcome readFailure =
+                        await AcquireDirectoryAndCompleteEmptyGenerationAsync(
+                            readFailureRoot,
+                            options: null,
+                            cancellationToken);
+                    Assert.Equal(
+                        "local.directory.read-failed",
+                        Assert.IsType<ArtifactAcquisitionOutcome.Failed>(
+                            readFailure).Diagnostic.Code);
+                }
+
+                await File.WriteAllBytesAsync(
+                    Path.Combine(enumerationFailureRoot, "input.dll"),
+                    [1],
+                    cancellationToken);
+                UnixFileMode originalMode =
+                    File.GetUnixFileMode(enumerationFailureRoot);
+                try
+                {
+                    File.SetUnixFileMode(
+                        enumerationFailureRoot,
+                        UnixFileMode.None);
+                    ArtifactAcquisitionOutcome enumerationFailure =
+                        await AcquireDirectoryAndCompleteEmptyGenerationAsync(
+                            enumerationFailureRoot,
+                            options: null,
+                            cancellationToken);
+                    Assert.Equal(
+                        "local.directory.enumeration-failed",
+                        Assert.IsType<ArtifactAcquisitionOutcome.Failed>(
+                            enumerationFailure).Diagnostic.Code);
+                }
+                finally
+                {
+                    File.SetUnixFileMode(
+                        enumerationFailureRoot,
+                        originalMode);
+                }
+            }
+
+            var owner = new ArtifactGenerationAuthority();
+            ArtifactAdmissionAuthorization authorization =
+                owner.CreateAdmissionAuthorization();
+            ArtifactContributionScope disposedScope =
+                owner.BeginContribution(authorization);
+            disposedScope.Dispose();
+            await Assert.ThrowsAsync<ObjectDisposedException>(
+                async () => await LocalArtifactSource.AcquireDirectoryAsync(
+                    disposedScope,
+                    fileLimitRoot,
+                    cancellationToken: cancellationToken));
+            owner.CompleteAdmission(authorization);
+        }
+        finally
+        {
+            Directory.Delete(emptyRoot, recursive: true);
+            Directory.Delete(fileLimitRoot, recursive: true);
+            Directory.Delete(totalLimitRoot, recursive: true);
+            Directory.Delete(missingEntryRoot, recursive: true);
+            Directory.Delete(enumerationFailureRoot, recursive: true);
+            Directory.Delete(unsupportedEntryRoot, recursive: true);
+            Directory.Delete(admissionFailureRoot, recursive: true);
+            Directory.Delete(readFailureRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        LocalDirectoryAcquisition_ProvenanceSnapshotAndCancellationArePreserved()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        string root = TempDirectory();
+        string firstPath = Path.Combine(root, "first.dll");
+        string secondPath = Path.Combine(root, "second.DLL");
+        DateTime writeTimeSample = DateTime.UtcNow.AddMinutes(-5);
+        DateTime firstWriteTime = new(
+            writeTimeSample.Ticks
+                - (writeTimeSample.Ticks % TimeSpan.TicksPerSecond),
+            DateTimeKind.Utc);
+        try
+        {
+            await File.WriteAllBytesAsync(
+                firstPath,
+                [1, 2, 3],
+                cancellationToken);
+            await File.WriteAllBytesAsync(
+                secondPath,
+                [4, 5],
+                cancellationToken);
+            File.SetLastWriteTimeUtc(firstPath, firstWriteTime);
+
+            List<string> includedExtensions = [".dll"];
+            List<string> excludedFileNames = [];
+            var options = new LocalDirectoryArtifactAcquisitionOptions
+            {
+                IncludedFileExtensions =
+                    new SingleEnumerationCollection(
+                        includedExtensions),
+                ExcludedFileNames =
+                    new SingleEnumerationCollection(
+                        excludedFileNames),
+            };
+            var owner = new ArtifactGenerationAuthority();
+            ArtifactAdmissionAuthorization authorization =
+                owner.CreateAdmissionAuthorization();
+            using ArtifactContributionScope scope =
+                owner.BeginContribution(authorization);
+            ValueTask<ArtifactAcquisitionOutcome> pending =
+                LocalArtifactSource.AcquireDirectoryAsync(
+                    scope,
+                    root,
+                    options,
+                    cancellationToken);
+            includedExtensions.Clear();
+            excludedFileNames.Add("first.dll");
+            var acquired =
+                Assert.IsType<ArtifactAcquisitionOutcome.Acquired>(
+                    await pending);
+
+            await File.WriteAllBytesAsync(
+                firstPath,
+                [9],
+                cancellationToken);
+            File.Delete(secondPath);
+
+            using ArtifactAdmissionLease lease =
+                owner.IssueLease(authorization);
+            Assert.Equal(
+                ["first.dll", "second.DLL"],
+                acquired.Artifacts.Select(
+                    artifact =>
+                        Assert.IsType<LocalDirectoryArtifactProvenance>(
+                            artifact.Registration.Provenance)
+                        .RelativeName));
+            Assert.Equal(
+                [1, 2, 3],
+                ReadAll(acquired.Artifacts[0].OpenRead(lease)));
+            Assert.Equal(
+                [4, 5],
+                ReadAll(acquired.Artifacts[1].OpenRead(lease)));
+
+            var provenance =
+                Assert.IsType<LocalDirectoryArtifactProvenance>(
+                    acquired.Artifacts[0].Registration.Provenance);
+            Assert.Equal(Path.GetFullPath(root), provenance.CanonicalRoot);
+            Assert.Equal(firstPath, provenance.FullPath);
+            Assert.Equal(3, provenance.ContentLength);
+            Assert.Equal(firstWriteTime, provenance.ObservedLastWriteTimeUtc);
+
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+            await Assert.ThrowsAsync<OperationCanceledException>(
+                async () => await AcquireDirectoryAsync(
+                    root,
+                    options: null,
+                    cancellation.Token));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static string TempPath() =>
         Path.Combine(
             Path.GetTempPath(),
@@ -1030,6 +1553,48 @@ public sealed class LocalArtifactSourceTests
             scope,
             path,
             cancellationToken: cancellationToken);
+    }
+
+    private static async ValueTask<ArtifactAcquisitionOutcome>
+        AcquireDirectoryAsync(
+            string path,
+            LocalDirectoryArtifactAcquisitionOptions? options,
+            CancellationToken cancellationToken)
+    {
+        var owner = new ArtifactGenerationAuthority();
+        ArtifactAdmissionAuthorization authorization =
+            owner.CreateAdmissionAuthorization();
+        using ArtifactContributionScope scope =
+            owner.BeginContribution(authorization);
+        return await LocalArtifactSource.AcquireDirectoryAsync(
+            scope,
+            path,
+            options,
+            cancellationToken);
+    }
+
+    private static async ValueTask<ArtifactAcquisitionOutcome>
+        AcquireDirectoryAndCompleteEmptyGenerationAsync(
+            string path,
+            LocalDirectoryArtifactAcquisitionOptions? options,
+            CancellationToken cancellationToken)
+    {
+        var owner = new ArtifactGenerationAuthority();
+        ArtifactAdmissionAuthorization authorization =
+            owner.CreateAdmissionAuthorization();
+        ArtifactAcquisitionOutcome outcome;
+        using (ArtifactContributionScope scope =
+            owner.BeginContribution(authorization))
+        {
+            outcome = await LocalArtifactSource.AcquireDirectoryAsync(
+                scope,
+                path,
+                options,
+                cancellationToken);
+        }
+
+        owner.CompleteAdmission(authorization);
+        return outcome;
     }
 
     private static async Task AssertRejectedWithoutBlockingAsync(
@@ -1146,5 +1711,26 @@ public sealed class LocalArtifactSourceTests
         using var destination = new MemoryStream();
         stream.CopyTo(destination);
         return destination.ToArray();
+    }
+
+    private sealed class SingleEnumerationCollection(
+        IReadOnlyCollection<string> values) :
+        IReadOnlyCollection<string>
+    {
+        private int _enumerated;
+
+        public int Count => values.Count;
+
+        public IEnumerator<string> GetEnumerator()
+        {
+            Assert.Equal(
+                1,
+                Interlocked.Increment(ref _enumerated));
+            return values.GetEnumerator();
+        }
+
+        System.Collections.IEnumerator
+            System.Collections.IEnumerable.GetEnumerator() =>
+            GetEnumerator();
     }
 }
