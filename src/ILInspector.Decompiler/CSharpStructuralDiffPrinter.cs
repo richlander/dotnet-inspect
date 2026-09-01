@@ -678,12 +678,17 @@ public static class CSharpStructuralDiffPrinter
     /// parameter list. Returns the unchanged index (0-based scan position) if
     /// the remaining text is empty or has no leading <c>[</c>. Returns -1 --
     /// signaling the caller to bail entirely rather than trust this scan --
-    /// if the brackets never balance, or if a quote/apostrophe appears
-    /// anywhere inside the attribute list: an attribute argument string can
-    /// itself contain <c>[</c>/<c>]</c> characters (e.g.
-    /// <c>[Description("[deprecated]")]</c>), which would silently corrupt
-    /// this bracket count and let it under- or over-run the real attribute
-    /// boundary (round-4 review, reviewers A and B).
+    /// if the brackets never balance, if a quote/apostrophe appears anywhere
+    /// inside the attribute list (an attribute argument string can itself
+    /// contain <c>[</c>/<c>]</c> characters, e.g.
+    /// <c>[Description("[deprecated]")]</c>, which would silently corrupt
+    /// this bracket count -- round-4 review, reviewers A and B), or if a
+    /// <c>/</c> is encountered anywhere this scan looks, including between
+    /// attribute sections and immediately after the last one (a comment --
+    /// this codebase's own printer never emits one in a declaration header,
+    /// so this is defense in depth, not a reachable product scenario -- could
+    /// likewise hide a stray bracket or an identifier that looks like the
+    /// real declaration; round-5 review, reviewers A and B).
     /// </summary>
     static int SkipLeadingAttributeLists(string text)
     {
@@ -693,6 +698,9 @@ public static class CSharpStructuralDiffPrinter
             while (index < text.Length && char.IsWhiteSpace(text[index]))
                 index++;
 
+            if (index < text.Length && text[index] == '/')
+                return -1;
+
             if (index >= text.Length || text[index] != '[')
                 return index;
 
@@ -701,7 +709,7 @@ public static class CSharpStructuralDiffPrinter
             for (; scan < text.Length; scan++)
             {
                 char current = text[scan];
-                if (current is '"' or '\'')
+                if (current is '"' or '\'' or '/')
                     return -1;
 
                 if (current == '[')
@@ -718,7 +726,7 @@ public static class CSharpStructuralDiffPrinter
             }
 
             if (depth != 0)
-                return index;
+                return -1;
 
             index = scan;
         }

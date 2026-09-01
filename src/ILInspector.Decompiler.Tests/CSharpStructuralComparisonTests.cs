@@ -1869,6 +1869,56 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void ToDisplayRows_DoesNotDescribeAttributeCommentBracketAsDeclaredName()
+    {
+        // Round-5 review (reviewers A and B): a comment inside an attribute's
+        // own argument list can contain a bracket character invisible to
+        // SkipLeadingAttributeLists's naive counting, corrupting it exactly
+        // like the round-4 string-literal case. This codebase's own printer
+        // never emits comments in a declaration header, so this is defense
+        // in depth rather than a reachable product scenario -- but the
+        // heuristic must still not produce a wrong caption if fed this text.
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return A(value);\n[A(/* [ */ 1)] static void Other() { }",
+            new NodeSpec("InvocationExpression", "A(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "[A(/* [ */ 1)] static void Other() { }", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> A(value)", changed.Detail);
+    }
+
+    [Fact]
+    public void ToDisplayRows_DoesNotDescribeCommentBetweenAttributeAndDeclarationAsDeclaredName()
+    {
+        // Round-5 review (reviewers A and B): a comment between a leading
+        // attribute and the declaration itself is invisible to the
+        // whitespace-only skip that follows an attribute list, so scanning
+        // resumed inside it and could return an identifier found there (one
+        // that merely precedes a parenthesized group in the comment text) as
+        // the declared name. As above, the decompiler's own printer never
+        // emits comments here; this guards the heuristic's contract anyway.
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return New(value);\n[A] /* New() */ static void Other() { }",
+            new NodeSpec("InvocationExpression", "New(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "[A] /* New() */ static void Other() { }", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> New(value)", changed.Detail);
+    }
+
+    [Fact]
     public void IssueCorrespondence_DoesNotInferDeclarationWithoutMatchedCallSiteRewrite()
     {
         // Close negative: a new local-function declaration with no IL origin
