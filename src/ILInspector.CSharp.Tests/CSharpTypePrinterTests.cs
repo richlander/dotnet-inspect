@@ -459,17 +459,24 @@ public sealed class CSharpTypePrinterTests
     [Fact]
     public void GeneratedLegacyNamesUseRenderedSpellingForDuplicateValidation()
     {
-        var first = CreateExactType("N", ["<A>d_1"], [0], []);
-        var second = CreateExactType("N", ["<A>d.1"], [0], []);
+        AssertDuplicate(
+            CreateExactType("N", ["<A>d_1"], [0], []),
+            CreateExactType("N", ["<A>d.1"], [0], []));
+        AssertDuplicate(
+            CreateExactType("N", ["<A>d-1`2"], [1], ["T"]),
+            CreateExactType("N", ["<A>d_1`2"], [1], ["T"]));
 
-        var exception = Assert.Throws<ArgumentException>(
-            () => _outcomePrinter.PrintBatch(
-            [
-                new CSharpTypePrintRequest(first),
-                new CSharpTypePrintRequest(second)
-            ]));
+        void AssertDuplicate(ApiType first, ApiType second)
+        {
+            var exception = Assert.Throws<ArgumentException>(
+                () => _outcomePrinter.PrintBatch(
+                [
+                    new CSharpTypePrintRequest(first),
+                    new CSharpTypePrintRequest(second)
+                ]));
 
-        Assert.Contains("duplicate C# type", exception.Message, StringComparison.Ordinal);
+            Assert.Contains("duplicate C# type", exception.Message, StringComparison.Ordinal);
+        }
     }
 
     [Fact]

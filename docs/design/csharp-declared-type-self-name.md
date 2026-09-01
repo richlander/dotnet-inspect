@@ -276,8 +276,8 @@ These properties are enforced by:
   `GeneratedLegacyNamesUseRenderedSpellingForDuplicateValidation`, and
   `GeneratedLegacyNameUsesExactLeafInsteadOfDottedDisplayName`, proving the
   one normalized generated legacy leaf remains shared by declaration,
-  type-name context, and output duplicate validation without replacing its raw
-  canonical metadata identity.
+  type-name context, and output duplicate validation even when exact-side arity
+  evidence disagrees, without replacing its raw canonical metadata identity.
 
 The implementation remains in the existing SRM-only, Roslyn-free product
 closure and introduces no platform-specific API. Compiler use belongs only to

@@ -483,7 +483,11 @@ public sealed class CSharpTypePrinter
             string? outputParent)
         {
             ApiType type = prepared.Type;
-            string outputName = CSharpFormatter.FormatTypeName(type);
+            string outputName = prepared.LegacyDeclaredTypeIdentifier is { } legacyIdentifier
+                ? type.TypeParameters.Count == 0
+                    ? legacyIdentifier
+                    : $"{legacyIdentifier}`{type.TypeParameters.Count}"
+                : CSharpFormatter.FormatTypeName(type);
             string canonicalPath = canonicalParent is null
                 ? prepared.CanonicalMetadataName
                 : $"{canonicalParent}+{prepared.CanonicalMetadataName}";
