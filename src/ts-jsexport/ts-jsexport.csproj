@@ -40,6 +40,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../ILInspector.TypeScriptGeneration/ILInspector.TypeScriptGeneration.csproj" />
+    <ProjectReference Include="../TsJsExport.Contracts/TsJsExport.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>
