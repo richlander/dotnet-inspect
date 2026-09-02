@@ -210,6 +210,9 @@ public class SymbolPackageDownloaderTests : IDisposable
                 maxSymbolPackageBytes: 64,
                 maxPortablePdbBytes: 32,
                 maxSymbolPackageEntries: 8));
+        using var failureScope =
+            FeedFailureTelemetry.Scope(mergeIntoParent: false);
+        FeedFailureCollector failures = FeedFailureTelemetry.Current!;
 
         PortablePdbAcquisitionResult result =
             await downloader.AcquirePdbAsync(
@@ -224,6 +227,9 @@ public class SymbolPackageDownloaderTests : IDisposable
                     TestContext.Current.CancellationToken);
 
         Assert.IsType<PortablePdbAcquisitionResult.Unavailable>(result);
+        Assert.Contains(
+            failures.Failures,
+            failure => failure.Status == HttpStatusCode.OK);
     }
 
     [Theory]
@@ -257,6 +263,9 @@ public class SymbolPackageDownloaderTests : IDisposable
                 maxSymbolPackageBytes: 64,
                 maxPortablePdbBytes: 64,
                 maxSymbolPackageEntries: 8));
+        using var failureScope =
+            FeedFailureTelemetry.Scope(mergeIntoParent: false);
+        FeedFailureCollector failures = FeedFailureTelemetry.Current!;
 
         PortablePdbAcquisitionResult result =
             await downloader.AcquirePdbAsync(
@@ -271,6 +280,97 @@ public class SymbolPackageDownloaderTests : IDisposable
                     TestContext.Current.CancellationToken);
 
         Assert.IsType<PortablePdbAcquisitionResult.Unavailable>(result);
+        Assert.Contains(
+            failures.Failures,
+            failure => failure.Status == HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task AcquirePdbAsync_MismatchedSymbolPackageIdentityRecordsFailure()
+    {
+        var expectedGuid = Guid.NewGuid();
+        var (pdbBytes, _) =
+            SnupkgPdbReaderTests.BuildPortablePdb(Guid.NewGuid());
+        byte[] snupkg =
+            SnupkgPdbReaderTests.MakeSnupkg(
+                ("lib/net10.0/Example.pdb", pdbBytes));
+        var handler = new CountingHandler(request =>
+            request.RequestUri?.AbsolutePath.EndsWith(
+                ".snupkg",
+                StringComparison.OrdinalIgnoreCase) == true
+                ? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(snupkg),
+                }
+                : new HttpResponseMessage(HttpStatusCode.NotFound));
+        using var client = new HttpClient(handler);
+        var downloader =
+            new SymbolPackageDownloader(
+                client,
+                new InMemoryPdbStore());
+        using var failureScope =
+            FeedFailureTelemetry.Scope(mergeIntoParent: false);
+        FeedFailureCollector failures = FeedFailureTelemetry.Current!;
+
+        PortablePdbAcquisitionResult result =
+            await downloader.AcquirePdbAsync(
+                expectedGuid,
+                pdbAge: 1,
+                pdbFileName: "Example.pdb",
+                isPortable: true,
+                assemblyName: "Example",
+                packageName: "Example.Package",
+                packageVersion: "1.0.0",
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.IsType<PortablePdbAcquisitionResult.Unavailable>(result);
+        Assert.Contains(
+            failures.Failures,
+            failure => failure.Status == HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task AcquirePdbAsync_SymbolPackageWithoutCandidateRemainsAbsence()
+    {
+        var expectedGuid = Guid.NewGuid();
+        var (pdbBytes, _) =
+            SnupkgPdbReaderTests.BuildPortablePdb(expectedGuid);
+        byte[] snupkg =
+            SnupkgPdbReaderTests.MakeSnupkg(
+                ("lib/net10.0/Other.pdb", pdbBytes));
+        var handler = new CountingHandler(request =>
+            request.RequestUri?.AbsolutePath.EndsWith(
+                ".snupkg",
+                StringComparison.OrdinalIgnoreCase) == true
+                ? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(snupkg),
+                }
+                : new HttpResponseMessage(HttpStatusCode.NotFound));
+        using var client = new HttpClient(handler);
+        var downloader =
+            new SymbolPackageDownloader(
+                client,
+                new InMemoryPdbStore());
+        using var failureScope =
+            FeedFailureTelemetry.Scope(mergeIntoParent: false);
+        FeedFailureCollector failures = FeedFailureTelemetry.Current!;
+
+        PortablePdbAcquisitionResult result =
+            await downloader.AcquirePdbAsync(
+                expectedGuid,
+                pdbAge: 1,
+                pdbFileName: "Example.pdb",
+                isPortable: true,
+                assemblyName: "Example",
+                packageName: "Example.Package",
+                packageVersion: "1.0.0",
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.IsType<PortablePdbAcquisitionResult.Unavailable>(result);
+        Assert.Empty(failures.Failures);
     }
 
     [Fact]

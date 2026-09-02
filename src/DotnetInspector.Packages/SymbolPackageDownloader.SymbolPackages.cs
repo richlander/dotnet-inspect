@@ -134,6 +134,9 @@ public partial class SymbolPackageDownloader
                 if (httpResult.Status
                     == HttpRetryHelper.HttpBodyFetchStatus.TooLarge)
                 {
+                    FeedFailureTelemetry.Record(
+                        snupkgUrl,
+                        HttpStatusCode.OK);
                     log?.Invoke(
                         "Symbol package exceeds the configured download limit.");
                 }
@@ -180,6 +183,12 @@ public partial class SymbolPackageDownloader
 
             if (extracted.PdbBytes == null)
             {
+                if (extracted.InvalidOrMismatchedPdbDetected)
+                {
+                    FeedFailureTelemetry.Record(
+                        snupkgUrl,
+                        HttpStatusCode.OK);
+                }
                 log?.Invoke(
                     "No matching Portable PDB identity found in symbol package");
                 return new PdbProbeResult(

@@ -808,6 +808,13 @@ that a definitive PDB miss remains absent while an operational source failure
 fails acquisition, and
 `SourceAcquisitionFailure_FailsOnlyTheLiveCensusLane` proves that acquisition
 failure and RTS-invalid correspondence remain independent exit decisions.
+`SourceCorrespondencePdbAcquisition_OversizedResponseIsFailure` and
+`SourceCorrespondencePdbAcquisition_StorePermissionFailureIsTyped` cover the
+download-limit and cache-permission boundaries, while
+`AcquirePdbAsync_MismatchedSymbolPackageIdentityRecordsFailure` distinguishes a
+rejected same-name PDB from a symbol package that genuinely contains no
+candidate. `AuthoredRebuildFidelity_PdbFailureProducesSourceFailedResult` keeps
+the existing authored-rebuild command on the same typed failure contract.
 
 The census projects source-probe rows into Finding-style evidence keyed by
 member stable selector when available, but it does not change the RTS status.

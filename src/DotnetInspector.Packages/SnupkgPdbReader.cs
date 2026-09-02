@@ -14,7 +14,14 @@ namespace DotnetInspector.Packages;
 /// True when a Windows (non-portable) PDB for the assembly was seen. Windows
 /// PDBs are not supported; this signals the caller so it can report accurately.
 /// </param>
-public readonly record struct SnupkgPdbResult(byte[]? PdbBytes, bool WindowsPdbDetected);
+/// <param name="InvalidOrMismatchedPdbDetected">
+/// True when a same-name PDB entry was neither a supported Windows PDB nor a
+/// Portable PDB with the expected content identity.
+/// </param>
+public readonly record struct SnupkgPdbResult(
+    byte[]? PdbBytes,
+    bool WindowsPdbDetected,
+    bool InvalidOrMismatchedPdbDetected);
 
 /// <summary>
 /// Host-neutral extraction of a Portable PDB from a symbol package (.snupkg)
@@ -75,6 +82,7 @@ public static class SnupkgPdbReader
 
         var pdbFileName = $"{assemblyName}.pdb";
         bool windowsPdbDetected = false;
+        bool invalidOrMismatchedPdbDetected = false;
         long expandedPdbBytes = 0;
 
         if (limits is not null)
@@ -151,7 +159,10 @@ public static class SnupkgPdbReader
             }
 
             if (header != PdbHeaderKind.Portable)
+            {
+                invalidOrMismatchedPdbDetected = true;
                 continue;
+            }
 
             using var pdbStream =
                 new MemoryStream(bytes, writable: false);
@@ -161,11 +172,19 @@ public static class SnupkgPdbReader
                     expectedStamp,
                     log))
             {
-                return new SnupkgPdbResult(bytes, windowsPdbDetected);
+                return new SnupkgPdbResult(
+                    bytes,
+                    windowsPdbDetected,
+                    invalidOrMismatchedPdbDetected);
             }
+
+            invalidOrMismatchedPdbDetected = true;
         }
 
-        return new SnupkgPdbResult(null, windowsPdbDetected);
+        return new SnupkgPdbResult(
+            null,
+            windowsPdbDetected,
+            invalidOrMismatchedPdbDetected);
     }
 
     /// <summary>

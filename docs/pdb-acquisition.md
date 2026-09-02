@@ -327,6 +327,17 @@ Typed SourceLink queries preserve these states as absent or failed outcomes.
 Package aggregation retains the package-relative library path beside each
 unavailable or failed outcome.
 
+An HTTP 200 symbol response rejected for its size, format, or PDB identity is a
+failed provider response rather than definitive absence. A symbol package that
+contains no same-name PDB remains absent, and a supported later provider may
+still complete acquisition. PDB-store publication failures, including cache
+permission failures, remain visible failures. The Release gates
+`AcquirePdbAsync_LimitedHostRejectsOversizedSymbolPackage`,
+`AcquirePdbAsync_LimitedHostRejectsOversizedMsdlBeforeStore`,
+`AcquirePdbAsync_MismatchedSymbolPackageIdentityRecordsFailure`, and
+`SourceCorrespondencePdbAcquisition_StorePermissionFailureIsTyped` enforce
+these distinctions.
+
 ## Related resources
 
 - [SourceLink Exposure](sourcelink-exposure.md)

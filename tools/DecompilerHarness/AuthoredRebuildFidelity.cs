@@ -63,6 +63,35 @@ static class AuthoredRebuildFidelity
         HttpClientFactory.Initialize(new HttpClientFactoryOptions());
         using var httpClient = HttpClientFactory.CreateClient();
         var fetcher = new SourceFetcher(HttpClientFactory.SharedUntrustedFetch);
+        IReadOnlyList<AuthoredRebuildFidelityResult> results =
+            await EvaluateAssembliesAsync(
+                assemblies,
+                cap,
+                httpClient,
+                fetcher);
+
+        WriteReport(results, maxExamples);
+        return results.Any(result =>
+            result.Outcome is AuthoredRebuildOutcome.RecompileFailed
+                or AuthoredRebuildOutcome.ContextFailed
+                or AuthoredRebuildOutcome.SourceFailed)
+            ? 1
+            : 0;
+    }
+
+    internal static async Task<IReadOnlyList<AuthoredRebuildFidelityResult>>
+        EvaluateAssembliesAsync(
+            IReadOnlyList<string> assemblies,
+            int cap,
+            HttpClient httpClient,
+            SourceFetcher fetcher,
+            IPdbStore? pdbStore = null)
+    {
+        ArgumentNullException.ThrowIfNull(assemblies);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(cap);
+        ArgumentNullException.ThrowIfNull(httpClient);
+        ArgumentNullException.ThrowIfNull(fetcher);
+
         List<AuthoredRebuildFidelityResult> results = [];
 
         foreach (string assemblyPath in assemblies)
@@ -89,7 +118,18 @@ static class AuthoredRebuildFidelity
             }
 
             using var source = SourceLinkService.Open(assemblyPath);
-            await AcquirePdbAsync(source, httpClient);
+            Exception? pdbAcquisitionFailure = null;
+            try
+            {
+                await AcquirePdbAsync(
+                    source,
+                    httpClient,
+                    pdbStore: pdbStore);
+            }
+            catch (Exception ex) when (IsPdbAcquisitionFailure(ex))
+            {
+                pdbAcquisitionFailure = ex;
+            }
             IReadOnlyList<MetadataReference> compilationReferences =
                 decompilerResults.FirstOrDefault()?.FinalRequest?
                     .CompilationClosure?.References
@@ -111,11 +151,20 @@ static class AuthoredRebuildFidelity
                     break;
 
                 AuthoredRebuildFidelityResult evaluated =
-                    await EvaluateAsync(
-                    source,
-                    fetcher,
-                    decompilerResult,
-                    buildContext);
+                    pdbAcquisitionFailure is null
+                        ? await EvaluateAsync(
+                            source,
+                            fetcher,
+                            decompilerResult,
+                            buildContext)
+                        : new AuthoredRebuildFidelityResult(
+                            decompilerResult,
+                            AuthoredRebuildOutcome.SourceFailed,
+                            ChecksumVerification: null,
+                            buildContext,
+                            "Portable PDB acquisition failed: "
+                                + pdbAcquisitionFailure.Message,
+                            ImplementationDiff: null);
                 results.Add(
                     evaluated with
                     {
@@ -128,13 +177,7 @@ static class AuthoredRebuildFidelity
             }
         }
 
-        WriteReport(results, maxExamples);
-        return results.Any(result =>
-            result.Outcome is AuthoredRebuildOutcome.RecompileFailed
-                or AuthoredRebuildOutcome.ContextFailed
-                or AuthoredRebuildOutcome.SourceFailed)
-            ? 1
-            : 0;
+        return results;
     }
 
     internal static async Task<AuthoredRebuildFidelityResult> EvaluateAsync(
@@ -1000,7 +1043,8 @@ static class AuthoredRebuildFidelity
         SourceLinkService source,
         HttpClient httpClient,
         string? packageName = null,
-        string? packageVersion = null)
+        string? packageVersion = null,
+        IPdbStore? pdbStore = null)
     {
         if (!source.Context.NeedsPdb || source.Context.PdbId is not { } pdb)
             return;
@@ -1008,7 +1052,10 @@ static class AuthoredRebuildFidelity
         using var failureScope =
             FeedFailureTelemetry.Scope(mergeIntoParent: false);
         FeedFailureCollector failures = FeedFailureTelemetry.Current!;
-        var result = await new SymbolPackageDownloader(httpClient).DownloadPdbAsync(
+        var downloader = pdbStore is null
+            ? new SymbolPackageDownloader(httpClient)
+            : new SymbolPackageDownloader(httpClient, pdbStore);
+        var result = await downloader.DownloadPdbAsync(
             pdb.Guid,
             pdb.Age,
             pdb.PdbFileName,
@@ -1035,6 +1082,13 @@ static class AuthoredRebuildFidelity
                             : $"{failure.StatusText} while {failure.PhaseText}")));
         }
     }
+
+    internal static bool IsPdbAcquisitionFailure(Exception exception)
+        => exception is IOException
+            or UnauthorizedAccessException
+            or InvalidOperationException
+            or HttpRequestException
+            or TaskCanceledException;
 
     static void WriteReport(
         IReadOnlyList<AuthoredRebuildFidelityResult> results,

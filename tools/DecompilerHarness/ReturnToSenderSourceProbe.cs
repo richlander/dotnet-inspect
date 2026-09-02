@@ -374,7 +374,8 @@ static partial class ReturnToSenderSourceProbe
             HttpClient httpClient,
             SourceFetcher fetcher,
             IReadOnlyList<string>? repositoryPaths = null,
-            IReadOnlyDictionary<string, NuGetPackageCoordinate>? packageCoordinates = null)
+            IReadOnlyDictionary<string, NuGetPackageCoordinate>? packageCoordinates = null,
+            IPdbStore? pdbStore = null)
     {
         ArgumentNullException.ThrowIfNull(assemblies);
         ArgumentNullException.ThrowIfNull(httpClient);
@@ -405,12 +406,11 @@ static partial class ReturnToSenderSourceProbe
                     source,
                     httpClient,
                     package?.Id,
-                    package?.Version);
+                    package?.Version,
+                    pdbStore);
             }
-            catch (Exception ex) when (ex is IOException
-                or InvalidOperationException
-                or HttpRequestException
-                or TaskCanceledException)
+            catch (Exception ex) when (
+                AuthoredRebuildFidelity.IsPdbAcquisitionFailure(ex))
             {
                 assemblyAcquisition = new SourceAcquisitionAttempt(
                     SourceAcquisitionOutcome.Failed,

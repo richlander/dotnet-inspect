@@ -77,6 +77,9 @@ public partial class SymbolPackageDownloader
                 if (httpResult.Status
                     == HttpRetryHelper.HttpBodyFetchStatus.TooLarge)
                 {
+                    FeedFailureTelemetry.Record(
+                        url,
+                        HttpStatusCode.OK);
                     log?.Invoke(
                         "MSDL PDB response exceeds the configured download limit.");
                 }
@@ -216,6 +219,9 @@ public partial class SymbolPackageDownloader
                     if (httpResult.Status
                         == HttpRetryHelper.HttpBodyFetchStatus.TooLarge)
                     {
+                        FeedFailureTelemetry.Record(
+                            url,
+                            HttpStatusCode.OK);
                         log?.Invoke(
                             "PDB response exceeds the configured download limit.");
                     }

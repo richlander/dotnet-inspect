@@ -556,6 +556,106 @@ public sealed class AuthoredRebuildFidelityTests
     }
 
     [Fact]
+    public async Task SourceCorrespondencePdbAcquisition_OversizedResponseIsFailure()
+    {
+        NuGetCache.Initialize("dotnet-inspect");
+        var fixture = CompilePortablePdbFixture();
+        try
+        {
+            using var httpClient =
+                new HttpClient(new OversizedContentHandler());
+            var results =
+                await ReturnToSenderSourceProbe.EvaluateSourceCorrespondenceAsync(
+                    [fixture.AssemblyPath],
+                    cap: 1,
+                    httpClient,
+                    new SourceFetcher(httpClient));
+
+            ReturnToSenderSourceProbeResult result = Assert.Single(results);
+            Assert.Equal(
+                SourceAcquisitionOutcome.Failed,
+                result.SourceAcquisition);
+            Assert.Contains(
+                "invalid or mismatched",
+                result.SourceAcquisitionDetail,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SourceCorrespondencePdbAcquisition_StorePermissionFailureIsTyped()
+    {
+        NuGetCache.Initialize("dotnet-inspect");
+        var fixture = CompilePortablePdbFixture(deletePdb: false);
+        try
+        {
+            string pdbPath =
+                Path.ChangeExtension(fixture.AssemblyPath, ".pdb");
+            byte[] pdbBytes = File.ReadAllBytes(pdbPath);
+            File.Delete(pdbPath);
+            using var httpClient =
+                new HttpClient(new ByteContentHandler(pdbBytes));
+            var results =
+                await ReturnToSenderSourceProbe.EvaluateSourceCorrespondenceAsync(
+                    [fixture.AssemblyPath],
+                    cap: 1,
+                    httpClient,
+                    new SourceFetcher(httpClient),
+                    pdbStore: new PermissionDeniedPdbStore());
+
+            ReturnToSenderSourceProbeResult result = Assert.Single(results);
+            Assert.Equal(
+                SourceAcquisitionOutcome.Failed,
+                result.SourceAcquisition);
+            Assert.Contains(
+                "not writable",
+                result.SourceAcquisitionDetail,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AuthoredRebuildFidelity_PdbFailureProducesSourceFailedResult()
+    {
+        NuGetCache.Initialize("dotnet-inspect");
+        var fixture = CompilePortablePdbFixture();
+        try
+        {
+            using var httpClient =
+                new HttpClient(
+                    new StaticStatusHandler(
+                        HttpStatusCode.InternalServerError));
+            IReadOnlyList<AuthoredRebuildFidelityResult> results =
+                await AuthoredRebuildFidelity.EvaluateAssembliesAsync(
+                    [fixture.AssemblyPath],
+                    cap: 1,
+                    httpClient,
+                    new SourceFetcher(httpClient));
+
+            AuthoredRebuildFidelityResult result = Assert.Single(results);
+            Assert.Equal(
+                AuthoredRebuildOutcome.SourceFailed,
+                result.Outcome);
+            Assert.Contains(
+                "Portable PDB acquisition failed",
+                result.Detail,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task SourceCorrespondencePdbAcquisition_AdaptsCustomExpressionBodiedIndexer()
     {
         var fixture = CompilePortablePdbFixture(
@@ -734,5 +834,53 @@ public sealed class AuthoredRebuildFidelityTests
                 RequestMessage = request,
             });
         }
+    }
+
+    sealed class OversizedContentHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var content = new ByteArrayContent([]);
+            content.Headers.ContentLength = 500_000_001;
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = content,
+                    RequestMessage = request,
+                });
+        }
+    }
+
+    sealed class ByteContentHandler(byte[] content) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+            => Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(content),
+                    RequestMessage = request,
+                });
+    }
+
+    sealed class PermissionDeniedPdbStore : IPdbStore
+    {
+        public ValueTask<Stream?> TryOpenAsync(
+            string key,
+            CancellationToken cancellationToken = default)
+            => ValueTask.FromResult<Stream?>(null);
+
+        public ValueTask PutAsync(
+            string key,
+            Stream content,
+            CancellationToken cancellationToken = default)
+            => ValueTask.FromException(
+                new UnauthorizedAccessException(
+                    "The PDB cache is not writable."));
+
+        public string? TryGetLocalPath(string key) => null;
     }
 }
