@@ -515,11 +515,16 @@ Browser/Wasm execution target.
 models this workspace-level interaction. It covers direct and coordinated
 release ownership, close racing construction, lease-draining authorization,
 group quiescence, complete failure reporting, and eventual asynchronous close.
-It treats package admission and `AssemblyContextGroup` release as adjacent
-abstract completions; their internal contracts remain owned by
-`docs/design/inspection-layers.md` and
-[`AssemblyContextGroupLifecycle.tla`](models/assembly-context-group-lifecycle/AssemblyContextGroupLifecycle.tla).
-The model checks the target design, not current implementation conformance.
+It treats package admission and coordinated release as adjacent abstract
+completions whose contracts remain owned by
+`docs/design/inspection-layers.md`. Its direct-group path instantiates the
+exact-group request,
+terminal receipt, and result lifecycle in
+[`AssemblyContextGroupReleaseLifecycle.tla`](models/assembly-context-group-lifecycle/AssemblyContextGroupReleaseLifecycle.tla);
+callback and resource internals remain in that detailed model. The model checks
+the interaction contract. The Release gates below enforce the shipped close
+mechanics; exact direct-receipt attribution remains unverified by a
+fault-injection implementation gate.
 
 The direct and coordinated workspace-close paths are implemented. The
 parameterless constructor retains synchronous compatibility.
