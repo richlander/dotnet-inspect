@@ -484,6 +484,11 @@ retains that selected producer set, not the wider source set that participated
 in discovery, while preserving the original config path for matching
 credentials and aliases
 (`Similar_SelectedVersionProducer_ReplayReopensTheSamePayload`).
+The exact package coordinate, library selector, and TFM must also survive the
+output channel's required rendering containment without changing spelling.
+Discovery refuses the transition when containment would rewrite any of those
+selectors rather than emitting a command that names another asset
+(`Similar_PackageAssetThatCannotBeDisclosedLosslessly_IsRefused`).
 Package-coordinate replay and forwarded dependency discovery use package
 acquisition's same source-authorized, admitted cache selection. Product-owned
 app-cache payloads precede ordered global-package roots, inadmissible payloads

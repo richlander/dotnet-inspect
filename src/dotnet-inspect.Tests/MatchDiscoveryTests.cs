@@ -1812,6 +1812,53 @@ public sealed class MatchDiscoveryTests
     }
 
     [Fact]
+    public async Task Similar_PackageAssetThatCannotBeDisclosedLosslessly_IsRefused()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"match-replay-containment-{Guid.NewGuid():N}");
+        const string packageName = "Match.Replay.Containment";
+        const string version = "1.0.0";
+        const string asset = "lib/net10.0/Target\u202E.dll";
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            string package = CreatePackageArchive(
+                root,
+                "package",
+                packageName,
+                version,
+                asset,
+                File.ReadAllBytes(TestAssembly));
+            var options = new MatchOptions
+            {
+                LeftSelector = SampleSeed,
+                PackagePath = package,
+                AssemblyPath = asset,
+                IncludeAll = true,
+                Similar = true,
+                JsonOutput = true,
+            };
+
+            var (exit, output, error) = await RunAsync(options);
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("library selector", error);
+            Assert.Contains("cannot be emitted losslessly", error);
+            Assert.Equal(
+                -1,
+                error.IndexOf("\u202E", StringComparison.Ordinal));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Similar_UnavailableForwardedSeed_ReportsTheTypedFailureAndTarget()
     {
         string directory = Path.Combine(

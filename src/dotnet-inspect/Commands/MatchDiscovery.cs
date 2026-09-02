@@ -1,3 +1,4 @@
+using CSharpText;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -195,6 +196,15 @@ internal static class MatchDiscovery
                     resolvedSeed.OriginProvenance);
             bool disclosePackageReplay =
                 !tokensIndexCallerImage || seed.ReplayPackage is not null;
+            if (disclosePackageReplay
+                && !TryValidateReplayAddress(
+                    candidateAddress,
+                    out string? replayAddressError))
+            {
+                CommandError.Write(replayAddressError!);
+                return 1;
+            }
+
             MatchDiscoveryReplaySources? replaySources = null;
             bool selectedVersionSourceRestriction =
                 seed.ReplayPackage is not null
@@ -519,6 +529,34 @@ internal static class MatchDiscovery
             Sources = [.. reportingSourceUrls],
             ConfigFile = original?.ConfigFile,
         };
+    }
+
+    internal static bool TryValidateReplayAddress(
+        ReplayableCandidateAddress address,
+        out string? error)
+    {
+        foreach ((string field, string? value) in new[]
+        {
+            ("package coordinate", address.Package),
+            ("library selector", address.Library),
+            ("target framework", address.Tfm),
+        })
+        {
+            if (value is not null
+                && !string.Equals(
+                    CSharpIdentifier.ContainRenderedText(value),
+                    value,
+                    StringComparison.Ordinal))
+            {
+                error =
+                    "match --similar cannot disclose a replayable pairwise command because "
+                        + $"the exact {field} contains text that cannot be emitted losslessly.";
+                return false;
+            }
+        }
+
+        error = null;
+        return true;
     }
 
     static bool CanDiscloseSource(string value)
