@@ -69,6 +69,29 @@ public abstract record InspectionGraphMemberIdentity
         public MemberAnchor Member { get; }
         public override bool IsPortable => false;
     }
+
+    /// <summary>
+    /// One Integration candidate member interpreted within its Census
+    /// participant.
+    /// </summary>
+    public sealed record CensusMember : InspectionGraphMemberIdentity
+    {
+        public CensusMember(IntegrationCandidateSourceIdentity source)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            if (source.Element is not IntegrationCandidateSourceElement.Member)
+            {
+                throw new ArgumentException(
+                    "An Integration member subject requires a member source element.",
+                    nameof(source));
+            }
+
+            Source = source;
+        }
+
+        public IntegrationCandidateSourceIdentity Source { get; }
+        public override bool IsPortable => false;
+    }
 }
 
 /// <summary>Owner-issued identity for one type subject.</summary>
@@ -109,6 +132,21 @@ public abstract record InspectionGraphTypeIdentity
 
         public AssemblyAcquisitionRegistration Registration { get; }
         public MetadataTypeDefinitionName Type { get; }
+        public override bool IsPortable => false;
+    }
+
+    /// <summary>
+    /// One Integration Census Type interpreted within its exact participant.
+    /// </summary>
+    public sealed record CensusType : InspectionGraphTypeIdentity
+    {
+        public CensusType(IntegrationTypeIdentity identity)
+        {
+            ArgumentNullException.ThrowIfNull(identity);
+            Identity = identity;
+        }
+
+        public IntegrationTypeIdentity Identity { get; }
         public override bool IsPortable => false;
     }
 }
@@ -156,6 +194,23 @@ public abstract record InspectionGraphAssemblyIdentity
 
         public AssemblyReferenceIdentity Assembly { get; }
         public override bool IsPortable => true;
+    }
+
+    /// <summary>
+    /// One assembly participant addressed by an Integration Census.
+    /// </summary>
+    public sealed record CensusParticipant :
+        InspectionGraphAssemblyIdentity
+    {
+        public CensusParticipant(
+            IntegrationSourceParticipantIdentity participant)
+        {
+            ArgumentNullException.ThrowIfNull(participant);
+            Participant = participant;
+        }
+
+        public IntegrationSourceParticipantIdentity Participant { get; }
+        public override bool IsPortable => false;
     }
 }
 
@@ -215,6 +270,10 @@ public abstract record InspectionGraphSubject
                 declaringType,
                 member));
 
+    public static InspectionGraphSubject ForIntegrationMember(
+        IntegrationCandidateSourceIdentity source) =>
+        ForMember(new InspectionGraphMemberIdentity.CensusMember(source));
+
     public static InspectionGraphSubject ForType(
         InspectionGraphTypeIdentity identity) =>
         new TypeSubject(identity);
@@ -230,6 +289,10 @@ public abstract record InspectionGraphSubject
                 registration,
                 type));
 
+    public static InspectionGraphSubject ForIntegrationType(
+        IntegrationTypeIdentity identity) =>
+        ForType(new InspectionGraphTypeIdentity.CensusType(identity));
+
     public static InspectionGraphSubject ForAssembly(
         InspectionGraphAssemblyIdentity identity) =>
         new AssemblySubject(identity);
@@ -242,6 +305,12 @@ public abstract record InspectionGraphSubject
         AssemblyReferenceIdentity assembly) =>
         ForAssembly(
             new InspectionGraphAssemblyIdentity.Metadata(assembly));
+
+    public static InspectionGraphSubject ForIntegrationAssembly(
+        IntegrationSourceParticipantIdentity participant) =>
+        ForAssembly(
+            new InspectionGraphAssemblyIdentity.CensusParticipant(
+                participant));
 
     public static InspectionGraphSubject ForPackage(
         InspectionGraphPackageIdentity identity) =>
