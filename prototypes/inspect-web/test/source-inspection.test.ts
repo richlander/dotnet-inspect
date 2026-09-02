@@ -386,6 +386,92 @@ test("type source replacement suppresses stale publication without cancelling th
   assert.equal(state.typeSourceLoading, false);
 });
 
+test("synchronous type source failure cannot cancel a reentrant replacement", async () => {
+  const replacementQuery = deferred<BrowserSource>();
+  let cancellations = 0;
+  let replacementLoad: Promise<void> | undefined;
+  const state = inspectionState({
+    lens: "source",
+    selectedMemberKey: "",
+    memberSection: "overview",
+  });
+  let coordinator!: ReturnType<typeof createSourceInspectionCoordinator>;
+  coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryTypeSource: request => {
+        if (request.type === "Example.First") {
+          replacementLoad = coordinator.loadTypeSource({
+            signature: "second",
+            packageId: "Example.Package",
+            version: "1.2.3",
+            framework: "net10.0",
+            assembly: "Example.Package",
+            type: "Example.Second",
+            taste: "[]",
+            isVisible: () => true,
+          });
+          throw new Error("first activation failed");
+        }
+        return replacementQuery.promise;
+      },
+      cancelEngineSourceRequest: () => cancellations++,
+    }));
+
+  await coordinator.loadTypeSource({
+    signature: "first",
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.First",
+    taste: "[]",
+    isVisible: () => true,
+  });
+
+  assert.equal(cancellations, 0);
+  assert.equal(state.typeSourceKey, "second");
+  assert.equal(state.typeSourceLoading, true);
+  replacementQuery.resolve(source("replacement"));
+  assert.ok(replacementLoad);
+  await replacementLoad;
+  assert.equal(sourceText(state.typeSource), "replacement");
+  assert.equal(state.typeSourceLoading, false);
+});
+
+test("synchronous type source failure does not repeat reentrant cancellation", async () => {
+  let cancellations = 0;
+  const state = inspectionState({
+    lens: "source",
+    selectedMemberKey: "",
+    memberSection: "overview",
+  });
+  let coordinator!: ReturnType<typeof createSourceInspectionCoordinator>;
+  coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryTypeSource: () => {
+        assert.equal(coordinator.cancelCurrentRequest(), true);
+        throw new Error("activation failed after cancellation");
+      },
+      cancelEngineSourceRequest: () => cancellations++,
+    }));
+
+  await coordinator.loadTypeSource({
+    signature: "first",
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.First",
+    taste: "[]",
+    isVisible: () => true,
+  });
+
+  assert.equal(cancellations, 1);
+  assert.equal(state.typeSourceKey, "");
+  assert.equal(state.typeSourceLoading, false);
+  assert.equal(state.typeSourceError, "");
+});
+
 test("legacy member source takeover cancels the authoritative type operation first", async () => {
   const typeQuery = deferred<BrowserSource>();
   let cancellations = 0;

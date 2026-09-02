@@ -965,6 +965,36 @@ test("nested producer publication preserves the outer feature guard", async () =
   assert.equal(await promiseSettled(handle.outcome), false);
 });
 
+test("nested observer failure abandons the prepared binding before activation", async () => {
+  const activeProducer = producer();
+  let harness: SessionHarness;
+  harness = sessionHarness(undefined, event => {
+    if (event.kind === "started")
+      activeProducer.attempts[0]?.sink.reportProgress(1);
+    if (event.kind === "progress")
+      throw new Error("nested observer failed");
+    return undefined;
+  });
+
+  const handle = started(
+    harness.session.start("first", activeProducer.adapter),
+  );
+
+  assert.equal(activeProducer.attempts[0]?.activated, false);
+  assert.equal(activeProducer.attempts[0]?.abandoned, true);
+  assert.deepEqual(await handle.outcome, {
+    kind: "canceled",
+    reason: "feature-observer-failed",
+  });
+  await handle.quiesced;
+  assert.deepEqual(
+    harness.events.map(event => event.kind),
+    ["started", "progress"],
+  );
+  assert.equal(harness.diagnostics.length, 1);
+  assert.equal(harness.diagnostics[0]?.kind, "feature-observer");
+});
+
 interface ThrowingFeatureResult {
   readonly handle: TestHandle | null;
   readonly priorHandle: TestHandle | null;
@@ -1245,12 +1275,20 @@ test("terminal, cancellation, and release races preserve their first authorities
     kind: "succeeded",
     value: "done",
   });
+  terminalProducer.attempts[0]?.sink.reportTerminal({
+    kind: "failed",
+    error: "late",
+  });
   assert.deepEqual(terminalHandle.cancel(), { kind: "no-op" });
   terminalProducer.attempts[0]?.sink.reportQuiesced();
   assert.deepEqual(await terminalHandle.outcome, {
     kind: "succeeded",
     value: "done",
   });
+  assert.deepEqual(
+    terminalFirst.events.map(event => event.kind),
+    ["started", "terminal"],
+  );
   await terminalHandle.quiesced;
 
   const cancelFirst = sessionHarness();

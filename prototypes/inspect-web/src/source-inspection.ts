@@ -203,6 +203,16 @@ export function createSourceInspectionCoordinator(
         request,
         preservedFocus: null,
       });
+      let engineCancellationRequested = false;
+      const cancelEngineIfOwned = (): undefined => {
+        if (engineCancellationRequested
+          || activeEngineTypeOperation !== identity.id) {
+          return undefined;
+        }
+        engineCancellationRequested = true;
+        dependencies.cancelEngineSourceRequest();
+        return undefined;
+      };
       const finish = (
         outcome:
           | { readonly kind: "succeeded"; readonly value: BrowserSource }
@@ -219,9 +229,7 @@ export function createSourceInspectionCoordinator(
         kind: "prepared",
         binding: {
           requestCancellation: () => {
-            if (activeEngineTypeOperation === identity.id)
-              dependencies.cancelEngineSourceRequest();
-            return undefined;
+            return cancelEngineIfOwned();
           },
           activate: () => {
             activeEngineTypeOperation = identity.id;
@@ -230,7 +238,7 @@ export function createSourceInspectionCoordinator(
               query = dependencies.queryTypeSource(request);
             } catch (error: unknown) {
               try {
-                dependencies.cancelEngineSourceRequest();
+                cancelEngineIfOwned();
               } catch (cancellationError: unknown) {
                 sink.reportUnexpectedFailure(cancellationError);
               }

@@ -734,7 +734,7 @@ function createPage(
                   reason: "superseded",
                 };
           const published = publishFeature(session, event);
-          if (published) {
+          if (published && standardPublicationAuthority(session, candidate)) {
             candidate.activated = true;
             candidate.binding.activate();
           } else {
