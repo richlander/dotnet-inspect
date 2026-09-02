@@ -70,6 +70,33 @@ and maps matches plus `NoCounterpart` nodes into the existing selected-node
 comparison. The explicit-input overload is an internal construction seam for
 focused presentation tests; it is not a portable input contract.
 
+`CSharpBodyDiff.CompareMemberEndpoints` is the total endpoint-topology entry
+point for rendered-line and semantic body comparison. Its caller supplies a
+`CSharpMemberDiffEndpoint.Present` with an exact method definition or an
+explicit `CSharpMemberDiffEndpoint.SubjectAbsent`; the adapter performs no
+selector resolution or cross-version correspondence. Each present endpoint
+becomes a `Complete`, `NoApplicableInput`, or `Failed` Finding inspection. The
+resulting `CSharpMemberEndpointComparison` always retains both Finding subjects
+and the exact `FindingComparison<CSharpCanonicalLine>`. It contains a
+`CSharpBodyDiffResult` only for `Complete`/`Complete`, which is the only
+topology that invokes the pair-dependent semantic body differ.
+
+This path does not infer absence from a null source, handle, or body. RVA-zero
+methods are present but `NoApplicableInput`; only the explicit endpoint arm is
+`SubjectAbsent`. The producer gates are
+`CompareMemberEndpoints_BodyfulPair_RetainsFindingAndNativeResults`,
+`CompareMemberEndpoints_BodylessAndBodyful_UsesNoApplicableInputWithoutBodyDiff`,
+`CompareMemberEndpoints_BodyfulAndSubjectAbsent_RetainsExplicitAbsenceWithoutBodyDiff`,
+`CompareMemberEndpoints_BothSubjectAbsent_IsExactWithoutBodyDiff`,
+`CompareMemberEndpoints_FailedInspection_RetainsFailureWithoutBodyDiff`, and
+`PresentEndpoint_RejectsNullAndNilEvidence` in
+`CSharpMemberEndpointComparisonTests`.
+
+The older assembly-wide and `CompareMembers` paths retain their current
+missing-body compatibility behavior while existing consumers migrate. That
+behavior is not emitted by `CompareMemberEndpoints`, where endpoint topology
+owns the state.
+
 The result is one `CSharpStructuralComparison` with explicit `Added`, `Removed`,
 `Changed`, and `Moved` outcomes. Movement is orthogonal, so a node may be both
 changed and moved. After provenance establishes identity, the issuer classifies
@@ -870,11 +897,13 @@ type implements this contract, and every named gate below is **unverified**.
 The ILDiff owner now supplies its focused typed-inspection adapter through
 `IlAssemblyDiff.CompareMemberEndpoints`, gated by the owner-specific tests named
 in [IL diff canonicalization boundary](il-diff-canonicalization.md). The C#
-owner must still supply its focused adapter under
+owner now supplies `CSharpBodyDiff.CompareMemberEndpoints`, gated by the
+owner-specific tests named in
+[Structural body comparison](#structural-body-comparison). Their shared
+adoption contract remains
 [Finding producer guidance](finding-producers.md#admit-body-topology-before-native-comparison).
-The remaining prerequisite is
-[#5443](https://github.com/richlander/dotnet-inspect/issues/5443); the delivered
-ILDiff prerequisite was tracked by
+The delivered prerequisites were tracked by
+[#5443](https://github.com/richlander/dotnet-inspect/issues/5443) and
 [#5444](https://github.com/richlander/dotnet-inspect/issues/5444).
 
 This boundary is owned by `ILInspector.Research`. It turns one complete target
@@ -1140,10 +1169,9 @@ is required for this design.
 
 Implementation proceeds in focused owner order:
 
-1. ILDiff has adopted the shared Findings endpoint topology and exposed its
-   typed adapter and native result under
-   [#5444](https://github.com/richlander/dotnet-inspect/issues/5444). C# must
-   adopt the same owner-specific obligations under
+1. ILDiff and C# have adopted the shared Findings endpoint topology and exposed
+   their typed adapters and native results under
+   [#5444](https://github.com/richlander/dotnet-inspect/issues/5444) and
    [#5443](https://github.com/richlander/dotnet-inspect/issues/5443).
 2. Research implements its catalog, exact work derivation, sequential session,
    input access, cleanup, and completion validator.
