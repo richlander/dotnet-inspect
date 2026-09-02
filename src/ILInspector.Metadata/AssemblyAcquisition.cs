@@ -471,14 +471,15 @@ public sealed class ResolvedAssemblyReference
 
     /// <summary>
     /// Projects one authorized artifact registration into an assembly
-    /// descriptor, retaining a fallback identity when the selected image
-    /// cannot provide valid assembly identity and MVID evidence.
+    /// descriptor, retaining decoded assembly identity and a non-empty MVID
+    /// when available, or a fallback identity when identity cannot be decoded.
     /// </summary>
     /// <remarks>
-    /// The fallback keeps a selected malformed, native, module, or empty-MVID
-    /// image visible as a rejection carrier while preserving exact artifact
-    /// correspondence. It is not evidence that the image is a managed
-    /// assembly; artifact-backed opens still validate the image and reject it.
+    /// The fallback keeps a selected malformed, native, or module image visible
+    /// as a rejection carrier while preserving exact artifact correspondence.
+    /// An empty-MVID assembly keeps its decoded identity with no bound MVID.
+    /// Neither case is successful assembly evidence; artifact-backed opens
+    /// still validate and reject the image.
     /// </remarks>
     public static ResolvedAssemblyReference CreateFromArtifactWithFallbackIdentity(
         ArtifactAcquisitionRegistration artifactRegistration,
