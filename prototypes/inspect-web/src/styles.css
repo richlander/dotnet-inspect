@@ -251,8 +251,8 @@ body {
   top: 50%;
   width: 0;
   height: 0;
-  border-top: 9px solid transparent;
-  border-bottom: 9px solid transparent;
+  border-top: 14px solid transparent;
+  border-bottom: 14px solid transparent;
   transform: translateY(-50%);
   pointer-events: none;
 }

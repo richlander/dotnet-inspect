@@ -531,7 +531,7 @@ test("edge indicators do not replace an item hit target", async ({ page }) => {
     });
   expect(triangles.before).toBe("4px");
   expect(triangles.after).toBe("4px");
-  expect(triangles.height).toBe(18);
+  expect(triangles.height).toBe(28);
 });
 
 test("a mounted empty SlideStrip applies its empty state", async ({ page }) => {
