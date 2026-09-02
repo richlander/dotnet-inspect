@@ -226,6 +226,28 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
                 }
                 #endif
                 """);
+            File.WriteAllText(
+                Path.Combine(
+                    sourceRoot,
+                    "ConditionalDescriptorConsumer.cs"),
+                $$"""
+                #if CONDITIONAL_DESCRIPTOR_ALIAS
+                using DescriptorAlias =
+                    NuGetFetch.{{DescriptorTypeName}};
+                #else
+                using DescriptorAlias = Probe.OtherDescriptor;
+                #endif
+                namespace Probe;
+                sealed class OtherDescriptor
+                {
+                    public object {{IdentityPropertyName}} => new();
+                }
+                sealed class ConditionalDescriptorConsumer
+                {
+                    object Read(DescriptorAlias descriptor) =>
+                        descriptor.{{IdentityPropertyName}};
+                }
+                """);
 
             Dictionary<string, MigrationEntry> readers =
                 DiscoverReferences(new DirectoryInfo(root))
@@ -248,9 +270,17 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
             Assert.Equal(
                 1,
                 readers["tests/InactiveConsumer.cs"].ImplicitReferences);
+            Assert.Equal(
+                1,
+                readers[
+                    "tests/ConditionalDescriptorConsumer.cs"]
+                    .ImplicitReferences);
             Assert.All(
                 readers.Values.Where(entry =>
-                    entry.Path != "tests/InactiveConsumer.cs"),
+                    entry.Path is not
+                        "tests/InactiveConsumer.cs"
+                        and not
+                        "tests/ConditionalDescriptorConsumer.cs"),
                 entry => Assert.Equal(0, entry.ImplicitReferences));
             Assert.Contains(
                 "unlisted",
@@ -373,12 +403,75 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
                 legacyAliases);
         }
 
-        foreach (SyntaxTree tree in baseline)
+        HashSet<string> analyzedAliasConfigurations =
+            new(StringComparer.Ordinal)
+            {
+                AliasConfigurationFingerprint(
+                    baseline.Where(tree =>
+                        conditionalPaths.Contains(tree.FilePath))),
+            };
+        for (int mask = 0; mask < configurationCount; mask++)
         {
-            references[tree.FilePath].Explicit.UnionWith(
-                ConservativeAliasReferenceLocations(
-                    tree.GetRoot(),
-                    legacyAliases));
+            string[] definedSymbols =
+            [
+                .. conditionalSymbols.Where(
+                    (_, index) => (mask & (1 << index)) != 0),
+            ];
+            SyntaxTree[] trees = ParseConditionalSources(
+                sources,
+                definedSymbols,
+                baselineByPath,
+                conditionalPaths);
+            string aliasConfiguration =
+                AliasConfigurationFingerprint(
+                    trees.Where(tree =>
+                        conditionalPaths.Contains(tree.FilePath)));
+            if (!analyzedAliasConfigurations.Add(aliasConfiguration))
+                continue;
+
+            CSharpCompilation configuredCompilation =
+                CreateCompilation(trees);
+            INamedTypeSymbol? configuredLegacyType =
+                configuredCompilation.GetTypeByMetadataName(
+                    $"NuGetFetch.{LegacyTypeName}");
+            IPropertySymbol? configuredDescriptorIdentity =
+                configuredCompilation
+                    .GetTypeByMetadataName(
+                        $"NuGetFetch.{DescriptorTypeName}")
+                    ?.GetMembers(IdentityPropertyName)
+                    .OfType<IPropertySymbol>()
+                    .SingleOrDefault();
+            HashSet<string> configuredLegacyAliases =
+                DiscoverLegacyAliases(
+                    trees,
+                    configuredCompilation,
+                    configuredLegacyType);
+
+            foreach (SyntaxTree tree in trees)
+            {
+                SyntaxNode syntax = tree.GetRoot();
+                if (!HasPotentialReferences(
+                        syntax,
+                        configuredLegacyAliases))
+                {
+                    continue;
+                }
+
+                SemanticModel semantics =
+                    configuredCompilation.GetSemanticModel(tree);
+                ReferenceLocations locations = references[tree.FilePath];
+                locations.Explicit.UnionWith(
+                    ExplicitReferenceLocations(
+                        syntax,
+                        semantics,
+                        configuredLegacyType,
+                        configuredLegacyAliases));
+                locations.Implicit.UnionWith(
+                    ImplicitReferenceLocations(
+                        syntax,
+                        semantics,
+                        configuredDescriptorIdentity));
+            }
         }
 
         for (int mask = 0; mask < configurationCount; mask++)
@@ -458,16 +551,21 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
         }
     }
 
-    static IEnumerable<int> ConservativeAliasReferenceLocations(
-        SyntaxNode syntax,
-        IReadOnlySet<string> legacyAliases) =>
-        syntax.DescendantNodes()
-            .OfType<SimpleNameSyntax>()
-            .Where(name =>
-                name.Parent is not NameEqualsSyntax
-                && name.Identifier.ValueText != LegacyTypeName
-                && legacyAliases.Contains(name.Identifier.ValueText))
-            .Select(name => name.SpanStart);
+    static string AliasConfigurationFingerprint(
+        IEnumerable<SyntaxTree> trees) =>
+        string.Join(
+            '\n',
+            trees.SelectMany(tree =>
+                    tree.GetRoot()
+                        .DescendantNodes()
+                        .OfType<UsingDirectiveSyntax>()
+                        .Where(directive => directive.Alias is not null)
+                        .Select(directive =>
+                            directive.Alias is { } alias
+                                ? $"{tree.FilePath}:{directive.SpanStart}:"
+                                    + $"{alias.Name}={directive.Name}"
+                                : throw new InvalidOperationException()))
+                .Order(StringComparer.Ordinal));
 
     static HashSet<int> ActiveSyntaxLocations(SyntaxNode syntax) =>
         [

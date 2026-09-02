@@ -923,11 +923,11 @@ Implementation is not complete until Release gates establish:
   inventory observes descriptor identity consumers that do not spell the
   legacy type at their use site;
 - `LegacyReferenceDiscoveryIncludesAliasesAndInactiveBranches` proves the
-  inventory semantically attributes aliases active in its baseline and, after
-  discovering local and global aliases across every bounded
-  conditional-compilation symbol configuration, conservatively unions all
-  executable legacy-type, alias, and descriptor identity name spans, including
-  unconditional consumers and normally inactive branches;
+  inventory semantically attributes local and global legacy type aliases and
+  descriptor identity readers across every distinct alias configuration in the
+  bounded conditional-compilation space, then conservatively unions executable
+  legacy-type, alias, and descriptor identity name spans from normally inactive
+  branches;
 - `LegacyPackageSourceIdentityBehaviorRemainsStable` pins exact vectors for
   legacy factories, `NuGetOrg`, `Value`, endpoint-shaped formatting, equality,
   and equal-value hash consistency, plus Gallery and NuGetV3
