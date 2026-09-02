@@ -473,6 +473,56 @@ test("allocation controls move between adjacent stable result pairs", async ({
   ).toHaveText(["Overview", "Call graph", "Facts"]);
 });
 
+test("allocation preserves a manually slid inspector window", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 760, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  const help = page.locator("#help");
+  await help.focus();
+  await slideAfter(page, ".slide-strip-inspector");
+  await expect(help).toBeFocused();
+  expect(await page.locator(
+      ".slide-strip-inspector [data-inspector-tab]:not([hidden])",
+    ).evaluateAll(items => items.map(item => item.dataset.slideStripId)),
+  ).toEqual(["facts", "source", "annotated"]);
+
+  await page.locator("[data-more-subjects]").click();
+  await expect(
+    page.locator(
+      ".slide-strip-inspector [data-inspector-tab]:not([hidden])",
+    ).first(),
+  ).toHaveAttribute("data-slide-strip-id", "facts");
+});
+
+test("focus navigation refreshes allocation action candidates", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 760, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  const moreSubjects = page.locator("[data-more-subjects]");
+  await moreSubjects.click();
+  await page.locator('[data-member-section="overview"]').focus();
+  await page.keyboard.press("ArrowLeft");
+
+  await expect(page.locator('[data-member-section="annotated"]')).toBeFocused();
+  expect(await page.locator(
+      ".slide-strip-inspector [data-inspector-tab]:not([hidden])",
+    ).evaluateAll(items => items.map(item => item.dataset.slideStripId)),
+  ).toEqual(["source", "annotated"]);
+  await expect(moreSubjects).toHaveAttribute("aria-disabled", "false");
+  const priorSubjectCount = await page.locator(
+    ".slide-strip-subject [data-subject-tab]:not([hidden])",
+  ).count();
+  await moreSubjects.click();
+  await expect.poll(() => page.locator(
+    ".slide-strip-subject [data-subject-tab]:not([hidden])",
+  ).count()).toBeGreaterThan(priorSubjectCount);
+  await expect(page.locator('[data-member-section="annotated"]')).toBeVisible();
+});
+
 test("every allocation level strictly trades subject for inspector richness", async ({
   page,
 }) => {

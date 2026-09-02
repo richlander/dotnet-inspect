@@ -611,7 +611,8 @@ class ScopeBarController implements ScopeBarBinding {
     const controller = targetStrip(target) === "subject"
       ? this.subject
       : this.inspector;
-    controller?.revealForFocus(targetIdentity(target));
+    this.synchronizeAfterStripTransition(
+      controller?.revealForFocus(targetIdentity(target)) ?? false);
   }
 
   reveal(target: HTMLButtonElement): void {
@@ -620,7 +621,8 @@ class ScopeBarController implements ScopeBarBinding {
     const controller = target.closest('[data-slide-strip="subject"]')
       ? this.subject
       : this.inspector;
-    controller?.revealForFocus(id);
+    this.synchronizeAfterStripTransition(
+      controller?.revealForFocus(id) ?? false);
   }
 
   private bind(): void {
@@ -632,7 +634,9 @@ class ScopeBarController implements ScopeBarBinding {
         if (delta === 0) return;
         const moved = this.controllerFor(strip)?.slide(
           delta < 0 ? "before" : "after") ?? false;
-        if (moved) event.preventDefault();
+        if (!moved) return;
+        this.synchronizeAfterStripTransition(true);
+        event.preventDefault();
       }, { passive: false }));
     this.moreSubjects?.addEventListener("click", () => {
       if (this.moreSubjects?.getAttribute("aria-disabled") === "true") return;
@@ -677,6 +681,36 @@ class ScopeBarController implements ScopeBarBinding {
       : strip?.dataset.slideStrip === "inspector"
         ? this.inspector
         : null;
+  }
+
+  private synchronizeAfterStripTransition(changed: boolean): void {
+    if (!changed
+      || !this.inspector
+      || this.navigation.dataset.pressure !== "ladder") {
+      return;
+    }
+    const stripWidth = Math.max(
+      0,
+      this.observedWidth - this.overhead(true));
+    const subjectMinimum = this.subject.minimumOuterWidth;
+    const inspectorMinimum = this.inspector.minimumOuterWidth;
+    if (stripWidth < subjectMinimum + inspectorMinimum) {
+      this.layout(this.observedWidth);
+      return;
+    }
+    this.ladder = this.buildLadder(
+      stripWidth,
+      subjectMinimum,
+      inspectorMinimum);
+    if (this.ladder.length === 0) {
+      this.layout(this.observedWidth);
+      return;
+    }
+    this.state.allocationOrdinal = clampAllocationOrdinal(
+      this.state.allocationOrdinal,
+      this.ladder.length);
+    this.renderedAllocationOrdinal = this.state.allocationOrdinal;
+    this.updateAllocationButtons();
   }
 
   private availableWidth(): number {
