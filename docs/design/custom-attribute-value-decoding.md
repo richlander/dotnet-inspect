@@ -11,7 +11,7 @@ This document owns the contract that makes that safe.
 
 **Status: descriptive, with known gaps.** The invariants below are the contract
 this component is held to, not a description of what it currently guarantees.
-Eight verified divergences are open against it, listed under [Known
+Seven verified divergences are open against it, listed under [Known
 gaps](#known-gaps). Treat any statement that an invariant *holds* as unverified
 until the differential oracle of issue #5065 exists.
 
@@ -813,15 +813,17 @@ one is not enough. A census parses the metadata assemblies' source and fails if
 the literal is spelled anywhere but its single definition. That alone would
 only forbid one way of writing a second rule — a site could compare against a
 name it built some other way and the census would never see it — so a second
-check names the sites that classify and fails if any of them stops reaching the
-shared rule. A third test keeps the census from passing vacuously if the
-definition itself disappears.
+check names the sites that classify and fails if any stops using the shared
+rule. For the three that decide safety it requires more than a call: every
+value they return must be the shared rule's own result, because reaching the
+rule on one path while answering by another rule elsewhere is the same
+divergence wearing the shape of compliance. A third test keeps the census from
+passing vacuously if the definition itself disappears.
 
-Stated exactly, the pair guarantees that no other file spells the rule and that
-every known classification site calls the one definition. It does not prove
-that such a site cannot add a further condition beside that call, nor that a
-wholly new site cannot classify without either spelling the literal or joining
-the list.
+Stated exactly, the pair guarantees that no other file spells the rule, that
+the three safety sites answer exactly what the shared rule answers, and that
+the rendering site calls it. It does not prove that a wholly new site cannot
+classify without either spelling the literal or joining the list.
 
 ### Frozen cross-assembly enum-width adapter
 
