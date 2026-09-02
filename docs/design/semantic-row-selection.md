@@ -7,11 +7,12 @@ Focused component design proposal for
 It defines the intended replacement for the semantic-selection portion of the
 existing umbrella design. The
 [composition map](item-and-line-limits.md#composition) adopts this component
-and retires the umbrella assignment. The current product does not implement
-this contract.
+and retires the umbrella assignment. The product implementation lives in
+`src/DotnetInspector.RowSelection`.
 
-All asserted behavior is unverified until the Release gates in
-[Required gates](#required-gates) land.
+The executable Release gates in
+`src/DotnetInspector.RowSelection.Tests` and the non-friend consumer in
+`tests/DotnetInspector.RowSelection.Consumer` verify the implemented contract.
 
 Related designs:
 
@@ -28,20 +29,26 @@ Related designs:
   [#5162](https://github.com/richlander/dotnet-inspect/issues/5162).
 - [Output shapes](output-shapes.md) owns declared row units and the
   Document-to-Scalar shape ladder.
-- [Source delegation](source-delegation.md) owns delegation planning and
-  completion-evidence binding for any permitted optimized execution.
+- [Source delegation](source-delegation.md) owns one specialized optional
+  protocol for source-executed prefixes and completion-evidence binding. It is
+  not required to consume the typed language or its reference evaluator.
 - [Semantic row-selection interaction model](../models/semantic-row-selection/SemanticRowSelection.tla)
   checks bounded stage, failure, publication, and resolver interactions.
 
 ## Authority and scope
 
-The proposed dependency-free `DotnetInspector.RowSelection` library, through
-`RowSelectionPlan` and `RowSelectionExecutor`, is the authority that evaluates
-ordered row-selection stages over complete logical sequences.
+The `DotnetInspector.RowSelection` library is the authority for two distinct
+capabilities:
+
+- the typed declaration language expressed by `RowSelectionStage` and
+  `RowSelectionPlan`; and
+- the generic complete-sequence reference evaluator expressed by
+  `RowSelectionExecutor`.
 
 This design owns:
 
-- the normalized, renderer-independent row-selection stages;
+- construction, validation, and runtime inspection of the normalized,
+  renderer-independent row-selection language;
 - sequential stage evaluation;
 - lenient and strict stage behavior;
 - stage-local positions and reindexing;
@@ -62,7 +69,75 @@ This design does not own:
 Those excluded concerns consume this contract or provide its inputs; they do
 not redefine its semantics.
 
-## Immediate boundary contract
+## Three-part architecture and adoption
+
+The broader row-selection system has three separately adoptable parts:
+
+| Part | Contract | Dependency |
+| --- | --- | --- |
+| Typed selection language | An immutable, runtime-inspectable declaration of ordered `Head`, `Tail`, `Window`, and `Top` stages with validated operands and an opaque resolved-order identity. | No row values, evaluator, source protocol, Sections, CLI, or presentation concepts are required to construct or inspect it. |
+| Generic reference evaluator | The canonical implementation of that language over complete finite `IReadOnlyList<T>` sequences, including named inputs, ordering callbacks, snapshots, and structured strict-window failures. | Depends on the typed language but not on source execution, Sections, CLI, or presentation. |
+| Optional delegated interpretation | A separately owned component may accept the typed declaration and perform an equivalent interpretation, or decline so its caller can use another strategy such as the reference evaluator. | Depends on the language's meaning. It need not invoke the reference evaluator in production, but its supported interpretations require equivalence evidence against that oracle. |
+
+These are capability boundaries, not three required assemblies. The initial
+implementation places the language and reference evaluator in the same
+library. A language-only consumer can construct, retain, inspect, and transport
+a plan without supplying row values or invoking
+`RowSelectionExecutor`; this design does not claim that the language ships as a
+separate package or assembly.
+
+The declaration carries meaning, not an execution strategy. A component that
+receives it may:
+
+1. provide a complete logical sequence to the reference evaluator; or
+2. use a separately designed interpreter that preserves the reference
+   evaluator's observable semantics for every stage it accepts.
+
+This design owns the equivalence target but not a universal delegation API.
+Each delegation protocol owns its own capability negotiation, acceptance,
+decline, commitment, result transport, and failure boundary. The
+[source-delegation](source-delegation.md) design is one narrower protocol for
+source-owned execution and completion evidence; it must not become a
+dependency of applications that only need the language or evaluator, and it
+must not be mistaken for permission to reinterpret unsupported stages.
+
+## Purpose and review boundary
+
+This component gives dotnet-inspect and other applications one reusable,
+presentation-independent language and reference implementation of ordered row
+selection. Its supported caller is cooperating in-process code. A
+language-only caller supplies stage operands and resolved `Top` order
+identities. An evaluator caller additionally supplies complete logical
+sequences and deterministic comparers for those resolved orders. The variable
+inputs are the sequence values, stage order and operands, named-sequence keys,
+and comparer results. The observable evaluator contract is the selected values
+in order or one structured strict-window failure.
+
+The caller, its row objects, its resolved order identities, and its comparer
+implementation are trusted. This is not a security boundary and does not defend
+against reflection or private access, deliberate internal-state corruption,
+concurrent mutation during a synchronous call, or malicious cooperating code.
+Ordinary invalid arguments that the public API can represent still fail as
+documented so they cannot produce plausible selection results.
+
+Repository-wide platform policy applies to this code as it does to other simple
+product libraries; this design defines no component-specific platform behavior
+or evidence.
+
+## Typed declaration boundary
+
+`RowSelectionPlan<TOrder>` is an inert ordered declaration. It contains stage
+kinds, validated operands, and opaque caller-resolved `TOrder` values; it
+contains no row values, comparer, callback, source, result, or execution state.
+A consumer can inspect every stage and choose an execution component at
+runtime without parsing CLI tokens, rendered text, or field names.
+
+Constructing or inspecting a plan does not invoke selection behavior. The plan
+does not choose the reference evaluator, advertise a source capability, or
+assert that an alternative interpreter supports its stages. Those decisions
+belong to the adopting component and any separately owned delegation protocol.
+
+## Reference evaluator boundary
 
 The generic executor receives:
 
@@ -87,22 +162,14 @@ available current count. When several sequences would fail, input sequence
 order and then stage order determine the one returned. The failure contains no
 presentation text.
 
-The reference executor evaluates a complete logical input sequence. A source
-optimizer may avoid acquiring that complete sequence only when it can prove the
-same selected values, order, and strict-window outcome. The
-[source delegation](source-delegation.md) design owns how that
-proof is represented, bound, and accepted. Each adopting source owns how it
-obtains and constructs the proof.
+The reference executor evaluates a complete logical input sequence. An
+alternative interpreter may avoid using that complete sequence only under its
+own protocol and only when its accepted interpretation preserves the
+observable equivalence contract in
+[Reference evaluator and alternative interpretation](#reference-evaluator-and-alternative-interpretation).
 
-The evaluated Release compile/runtime closure contains only framework
-references and this component. The project has no product `PackageReference`,
-direct assembly asset, native asset, or `ProjectReference`; repository-wide
-build-only analyzers and targets remain allowed only when they contribute no
-compile/runtime asset. A static product-closure gate prohibits console,
-filesystem, network, process, dedicated-thread, parallel-loop, and native
-interop APIs. With deterministic caller callbacks, its public execution
-surface is synchronous and deterministic, making it usable by NativeAOT and
-single-threaded Browser/Wasm consumers.
+With deterministic caller callbacks, the public execution surface is
+synchronous and deterministic.
 
 ## Normalized plan
 
@@ -170,9 +237,7 @@ resolver at entry even when no sequence would reach that stage.
 
 ## Public surface and immutability
 
-This is the complete allowed product signature manifest; method bodies are
-omitted. No other public type, constructor, property, method, event, or field is
-part of the component:
+The supported typed-language surface is:
 
 ```csharp
 namespace DotnetInspector.RowSelection;
@@ -210,6 +275,12 @@ public sealed class RowSelectionPlan<TOrder>
         IReadOnlyList<RowSelectionStage<TOrder>> stages);
     public RowSelectionPlan<TOrder> Append(RowSelectionStage<TOrder> stage);
 }
+```
+
+The supported reference-evaluator surface is:
+
+```csharp
+namespace DotnetInspector.RowSelection;
 
 public sealed class RowSequenceKey : IEquatable<RowSequenceKey>
 {
@@ -274,12 +345,6 @@ public static class RowSelectionExecutor
 }
 ```
 
-The API manifest includes type kind, visibility, generic arity and constraints,
-member name, static/instance shape, parameter name, order, type, nullability,
-optionality, default value, return type, and enum values. Inherited `object`
-members and compiler-generated metadata that does not add callable surface are
-outside the manifest.
-
 `Count` is valid for `Head`, `Tail`, and `Top`; `Start` and `End` are valid for
 `Window`; `Order` is valid for `Top`. A wrong-kind accessor throws
 `InvalidOperationException`. All required reference arguments reject null with
@@ -299,9 +364,9 @@ the prior value. Stage values copy their opaque `TOrder`; callers must supply an
 immutable order value whose equality and meaning do not change after plan
 construction.
 
-`RowSequenceKey.Create` rejects a negative value. Keys compare solely by
-`Value`, and `GetHashCode` returns the same value, so separate key instances
-with the same value are duplicates under every implementation.
+`RowSequenceKey.Create` accepts any `int`. Keys compare solely by `Value`, and
+`GetHashCode` returns the same value, so separate key instances with the same
+value are duplicates under every implementation.
 `NamedRowSequence.Create` retains the immutable key and snapshots value
 membership and order. Duplicate key values reject before any sequence is
 evaluated.
@@ -320,10 +385,46 @@ order. Keys are component-owned immutable tokens and cannot change after
 named-input creation. Callers must not mutate a source collection concurrently
 with the synchronous boundary call.
 
-A fixture project outside the component compiles against every signature above
-and executes every entry point. The same manifest gate rejects extra public
-constructors, mutators, asynchronous protocols, or host-shaped overloads, so an
-empty or exclusion-only API cannot satisfy the design.
+A fixture project outside the component compiles against the supported surface
+above. One language-only scenario constructs and inspects every declaration
+entry point without row values or executor use. A second scenario executes
+every reference-evaluator entry point. Together they prove that an ordinary
+non-friend consumer can use either capability without importing Sections,
+source execution, CLI, or presentation concepts.
+
+## Mock component demo
+
+The first implementation demonstrates both logical surfaces of the public leaf
+directly. A component can construct and inspect the declaration before it has
+row values or chooses an execution strategy:
+
+```csharp
+var plan = RowSelectionPlan<string>.Create(
+[
+    RowSelectionStage<string>.Window(3, 6),
+    RowSelectionStage<string>.Tail(2)
+]);
+
+// plan.Stages reports [Window, Tail]
+```
+
+The same component may then choose the generic reference evaluator:
+
+```csharp
+var result = RowSelectionExecutor.Apply(
+    new[] { 1, 2, 3, 4, 5, 6, 7, 8 },
+    plan);
+
+// result.Values is [5, 6]
+```
+
+What to notice: the second stage consumes and reindexes the first stage's
+output. An alternative interpreter receives the same typed plan rather than a
+different source-specific spelling and must produce the same observation for
+every stage it accepts. The neighboring pathological plan `Head(2)` then
+`Window(2,3)` returns a structured stage-2 failure requiring position 3 from an
+input of 2; it does not intersect both stages against the original sequence and
+return row 2.
 
 ## Stage semantics
 
@@ -351,7 +452,7 @@ failure is not an empty result and must not be reported as source exhaustion or
 successful truncation. A boundless identity window has no required endpoint and
 cannot fail.
 
-### Relationship to Unix, C#, and Kusto
+### Convention and deliberate divergence
 
 Selection positions count only declared data rows. They are the positions a
 plain-text pipeline would see after removing a rendered table header:
@@ -439,6 +540,11 @@ Conceptual examples make the evaluation order explicit:
 => [5, 4]
 ```
 
+The pathological case is `Head(2)` followed by `Window(2,3)`. Ordered
+stage-local evaluation fails because row 3 does not exist after `Head`;
+intersecting both requests against original ordinals would incorrectly return
+row 2 and hide the unsatisfied window.
+
 Reindexing changes only the temporary positions consumed by the next stage.
 It does not rewrite producer-owned package coordinates, metadata identities,
 Finding identities, source provenance, or any stable row address carried as
@@ -504,11 +610,12 @@ Invalid plan construction and a missing resolved comparer are caller misuse,
 not `RowWindowFailure` outcomes. They reject before a selected result is
 returned.
 
-## Reference semantics and optimized execution
+## Reference evaluator and alternative interpretation
 
-The stage definitions over a complete sequence are the semantic oracle.
-Implementations may stream, buffer, sort, or push work into a provider, but
-those choices are observationally equivalent only when they preserve:
+The reference evaluator's stage definitions over a complete sequence are the
+semantic oracle. An alternative interpreter may stream, buffer, sort, or push
+work into a provider, but it is conforming only for the stages it accepts and
+only when it preserves:
 
 - the same surviving caller-owned values;
 - the same output order;
@@ -520,8 +627,10 @@ those choices are observationally equivalent only when they preserve:
 - the same semantic-failure, resolver-failure, and comparer-failure precedence.
 
 Comparer call count and pair order are not equivalence dimensions for a valid
-deterministic comparer. The
-[source delegation](source-delegation.md) contract applies its
+deterministic comparer. A delegation protocol may decline a plan or supported
+subset according to its own contract; decline is not a semantic result and
+does not change this language. The
+[source delegation](source-delegation.md) protocol applies its
 [source-closed boundary](source-delegation.md#source-closed-operations);
 operations this design does not declare source-closed remain in the reference
 or row-handoff residual path. A later observation-transport extension must
@@ -626,39 +735,23 @@ the C# implementation; the named Release gates below remain required.
 
 ## Required gates
 
-The implementation must add these named Release gates:
+The implementation provides these proportional outcome-level Release gates:
 
 | Gate | Contract |
 | --- | --- |
-| `SelectionStagesComposeInDeclaredOrder` | Reversing `Head`, `Tail`, `Window`, or `Top` stages changes results exactly as the reference examples require; every stage reads positions beginning at 1 from the preceding output. |
-| `SelectionCountsAreLenientAndWindowsAreStrict` | Oversized `Head` and `Tail` return the complete current input in current order; oversized `Top` returns every current row in ranked order; closed, prefix, and suffix windows fail unless their required endpoint exists at that stage. |
-| `RowSelectionPlanRejectsInvalidStages` | Every public construction path rejects nonpositive counts, nonpositive present window coordinates, and a closed end before its start rather than creating an empty or unlimited stage. A boundless window is identity. |
-| `EmptyRowSelectionPlanIsIdentity` | An empty plan returns an immutable snapshot containing every original value in order and never invokes the comparer resolver. |
-| `TopRequiresResolvedComparer` | Both executor entry points reject a missing resolver at entry, naming the first `Top` in plan order even for empty unkeyed input or no named sequences. A reached resolver returning no comparer names that reached `Top`; both paths throw `InvalidOperationException` with the one-based stage before returning any selected result. |
-| `SelectionCallbacksFollowStageOrder` | Both executor entry points validate resolver presence without eager invocation, resolve each reached `Top` stage exactly once, cache that stage's comparer across named sequences, and stop before later callbacks after an earlier strict failure or callback exception. Fixtures cover `Window` before and after `Top`, multiple named sequences, repeated equal order values, unkeyed and named empty value sequences, and a named call with no sequences. |
-| `SelectionCallbackExceptionsPropagateUnchanged` | Both executor entry points propagate the exact sentinel exception instance thrown by a reached comparer resolver or by an always-throwing comparer over at least two rows; no sorting path wraps, substitutes, or suppresses it. |
-| `RowSelectionRejectsNullBoundaryInputs` | Every required reference argument rejects null; a null resolver is accepted only without `Top`; nullable row values remain ordinary selected values. |
-| `StageAccessorsRejectWrongKind` | Each kind exposes only its documented values; every wrong-kind `Count`, `Start`, `End`, or `Order` access throws rather than returning a plausible default. |
-| `StrictWindowsValidateNamedSequencesAtomically` | A strict-window miss in any one of several keyed sequences identifies the key and stage and returns no selected sequence collection. |
-| `SelectionFailuresAreDeterministic` | Multiple failing named sequences return the first failure by input sequence order and stage order; duplicate `RowSequenceKey.Value` values reject before execution. |
-| `RowSequenceKeyHasStableValueSemantics` | Negative values reject; separately created equal values compare equal and produce equal hash codes; distinct values compare unequal; L2's typed row-set identity never enters the component. |
-| `RowWindowFailureShapeIsExact` | Unkeyed failures contain exactly stage number, required position, and available count; named failures add only the opaque key. Closed and prefix windows report their end; suffix windows report their start against the post-predecessor count. |
-| `TopAlwaysRanksCurrentInput` | Every `Top` over at least two rows, including an oversized one, resolves and applies its comparer; `Top(oversized)` followed by a positional stage observes ranked rather than baseline order. |
-| `TopRetainsCurrentOrderForEqualRanks` | Equal comparer results preserve current sequence order, including after an earlier stage changed the current sequence. |
-| `SelectionReturnsOriginalValuesInOrder` | The executor preserves each original caller-owned `T` value or reference without cloning, relabeling, or deriving identity from stage positions. |
-| `SelectionResultsSnapshotMembership` | Source-list mutation after named-input creation or execution cannot change result membership or order; exposed collections cannot mutate the snapshot. Fixtures cover empty, oversized Head/Tail/Top, Window, mixed stages, and named success/failure paths. |
-| `RowSelectionPlanIsImmutableSnapshot` | Mutating a caller-owned stage collection after `Create` cannot change the plan; `Stages` exposes no mutable collection; `Append` leaves the prior plan unchanged; every stage remains immutable. |
-| `RowSelectionPublicSurfaceIsExact` | A generated expected set derived from the signature manifest in [Public surface and immutability](#public-surface-and-immutability) rejects any missing or extra type, constructor, member, mutator, host-shaped overload, asynchronous protocol, generic constraint, enum value, parameter name/order/type/nullability/optionality, or default value. |
-| `RowSelectionExternalConsumerExercisesSurface` | A non-friend fixture project constructs every stage, plan, and named input through the declared factories; invokes both executor methods with omitted and named optional arguments; and observes every accessor and success/failure branch. Removing any intended public wiring fails the gate. |
-| `RowSelectionHasOnlyFrameworkRuntimeDependencies` | Evaluated Release references and resolved compile/runtime/native assets contain only framework references and this component; build-only tooling is allowed only when it contributes no product asset. |
-| `RowSelectionForbidsHostApis` | A static product-closure gate rejects console, filesystem, network, process, dedicated-thread, parallel-loop, and native-interop APIs even though those APIs are in the BCL. |
-| `RowSelectionRunsOnNativeAotAndBrowser` | The reference stage matrix executes in Release under NativeAOT and single-threaded Browser/Wasm hosts. |
+| `SelectionStagesComposeInDeclaredOrder` | The reference examples and pathological `Head(2)` then `Window(2,3)` case prove stage order, stage-local reindexing, original-value preservation, empty-plan identity, stable equal-rank ordering, and ranked oversized `Top`. |
+| `SelectionCountsAreLenientAndWindowsAreStrict` | Head, Tail, and Top retain their lenient behavior; closed, prefix, and suffix windows require their current-stage endpoint; boundless Window is identity; failures report the documented stage, required position, and current count. |
+| `RowSelectionConstructionRejectsInvalidInputs` | Factories and executors reject representable invalid stage operands, null required arguments, null stage or sequence entries, wrong-kind accessors, missing reached comparers, and closed-window reversal without inventing successful output. Nullable row values and every `int` key remain ordinary inputs. |
+| `SelectionCallbacksFollowStageOrder` | Resolver presence is validated at entry without eager invocation; each reached Top resolves once per stage and is cached across named sequences; earlier strict failures stop later callbacks; resolver and comparer exceptions propagate unchanged. |
+| `NamedSelectionIsAtomicAndDeterministic` | Named success preserves input order; a strict miss returns no selected sequence collection; the first failure follows sequence then stage order; equal key values reject before execution and keys use stable value equality. |
+| `RowSelectionSnapshotsAreImmutable` | Plans, named inputs, and returned collections snapshot membership and order; Append leaves the prior plan unchanged; exposed collections cannot mutate snapshots; selected row objects remain the caller's original values. |
+| `RowSelectionLanguageConsumerExercisesDeclaration` | A non-friend fixture constructs and inspects every stage and plan entry point without row values or executor invocation, using only the public declaration API. |
+| `RowSelectionReferenceEvaluatorExercisesSurface` | A non-friend fixture consumes the typed plan, constructs named input through the supported factories, invokes both executor methods with omitted and named optional arguments, and observes accessor, success, and failure behavior using only the public evaluator API. |
 
-The
-[source delegation](source-delegation.md) contract owns the
-required equivalence gate comparing every optimized delegation it supports
-with this complete-sequence reference executor. Delegation follows that
-owner's
+Every optional interpreter must name an equivalence gate for the stages it
+accepts, using this complete-sequence reference evaluator as the oracle. The
+[source delegation](source-delegation.md) contract owns that gate for its
+specialized source protocol. Its delegation follows that owner's
 [source-closed boundary](source-delegation.md#source-closed-operations):
 operations this design does not declare source-closed remain in the reference
 or row-handoff residual path. Any later extension that transports those

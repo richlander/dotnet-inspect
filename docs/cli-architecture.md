@@ -8,6 +8,9 @@ metadata, Analysis, source, decompilation, or comparison facts it presents.
 See:
 
 - [Architecture](architecture.md) for the whole-product map;
+- [CLI change classification and obsolete
+  inputs](design/cli-change-classification.md) for published surfaces, change
+  disclosure, invalid-input guards, and routing reservations;
 - [Command transitions](design/command-transition-model.md) for command versus
   option boundaries;
 - [Progressive disclosure](design/progressive-disclosure.md) for verbosity,
@@ -136,9 +139,14 @@ result.
 
 The CLI keeps typed product data separate from host presentation:
 
+Successful result payloads go to stdout or the explicit output destination.
+Diagnostics and tips go to stderr and must not be mixed into machine payloads.
+A focused command or output contract may render a typed failure payload while
+returning non-zero; that payload remains output rather than diagnostic prose.
+
 | Area | Role |
 | ---- | ---- |
-| `Models/` | CLI compatibility and document data without Markout presentation attributes. |
+| `Models/` | CLI data and document models without Markout presentation attributes. |
 | `Views/` | Markout-facing projections, sections, field builders, and display-only computed values. |
 | `Output/` | Output-format adapters, serializers, table/TSV/JSONL writers, and command-specific formatters. |
 | `JsonContext.cs` | System.Text.Json source-generated metadata for structured output. |
@@ -181,5 +189,6 @@ This document does not:
 - define producer algorithms or typed-result semantics;
 - make the CLI the owner of the inspection space;
 - require other hosts to copy command syntax or presentation models; or
-- replace the command, progressive-disclosure, output-shape, or focused
+- replace the change-classification, command-transition,
+  progressive-disclosure, output-shape, or focused
   producer designs.

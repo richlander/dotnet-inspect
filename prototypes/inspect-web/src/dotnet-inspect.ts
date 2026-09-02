@@ -4,7 +4,9 @@ import {
   assemblyDescriptorForType,
   assertNever,
   pdbSourceLimitationHtml,
+  callGraphAssemblyIdentityMatches,
   callGraphDiagnosticsMessage,
+  callGraphTargetMatchesType,
   callGraphTargetTypeId,
   combinedGraphTargetNavigationDisposition,
   createDependencyGraphPendingState,
@@ -15,6 +17,7 @@ import {
   graphTargetBlockedReason,
   graphMemberDeepLinkDisposition,
   graphMemberPendingMatchesView,
+  graphMemberSurfaceAssembly,
   graphMemberShareTarget,
   graphMemberSelection,
   graphMemberTargetWithSelectedBody,
@@ -56,7 +59,7 @@ import {
   type GraphMemberShareIdentity,
   type PackageIdentity,
   type PlatformPack,
-  type WorkspaceTab,
+  type WorkspaceCoordinate,
   uniqueTypeByQueryId,
   workspaceCoordinatesMatch
 } from "./data.ts";
@@ -71,7 +74,10 @@ import {
   bodyTargetMatchesOverload,
   captureLibraryScope,
   filterMemberGroups,
+  invalidateGraphMemberNavigationWork,
   invalidateMemberCallGraphWork,
+  invalidateMemberDestinationWork,
+  invalidateSourceDestinationWork,
   MEMBER_TRAITS,
   memberNavTargetIndex,
   memberScopeIsActive,
@@ -111,6 +117,7 @@ import {
 import {
   createNuGetPackageModel,
   createAppMemberSurface,
+  createAppTypeSurface,
   createPackageAcquisition,
   graphOnlyImplementationBody,
   retainGraphOnlyImplementationBody,
@@ -140,9 +147,11 @@ import {
   bindHomeShell,
   bindLoadErrorShell,
   bindWorkbenchShell,
+  focusWorkbenchSearch,
   type HomeShellBindingActions,
   type LoadErrorShellBindingActions,
   type WorkbenchShellBindingActions,
+  workbenchShellHtml,
 } from "./shell-controls.ts";
 import {
   homeDemoRowHtml,
@@ -154,6 +163,7 @@ import {
   createSourceInspectionCoordinator,
   type GraphSourceRequest,
 } from "./source-inspection.ts";
+import { createOperationAuthorityPage } from "./operation-authority.ts";
 import {
   createMetadataInspectionCoordinator,
   type AppExplorerState,
@@ -191,6 +201,12 @@ import {
   validateAnnotatedSourceDocument,
 } from "./annotated-source-view.ts";
 import {
+  createCSharpRangeHighlighter,
+} from "./csharp-highlighting.ts";
+import type {
+  CSharpHighlightExclusion,
+} from "./csharp-highlighting.ts";
+import {
   clearAnnotations,
   closeFindingDetail,
   createAnnotatedSourceViewerModel,
@@ -212,8 +228,17 @@ import {
 } from "./annotated-source-session.ts";
 import {
   bindScopeBar,
+  captureScopeBarFocus,
+  createScopeBarState,
   renderScopeBar as renderScopeBarPure,
+  restoreScopeBarFocus,
+  scopeBarShortLabel,
+  type ScopeBarBinding,
 } from "./scope-bar.ts";
+import {
+  bindWorkspaceSubject,
+  renderWorkspaceSubject,
+} from "./workspace-subject.ts";
 import {
   bindDocViewer,
   renderDocViewer as renderDocViewerPure,
@@ -226,6 +251,7 @@ import {
 } from "./graph-source.ts";
 import {
   annotatedFocusSelector,
+  renderAnnotatedSourcePageActions,
   bindAnnotatedSource,
   renderAnnotatedSource as renderAnnotatedSourcePure,
   renderAnnotatedSourceModal as renderAnnotatedSourceModalPure,
@@ -249,11 +275,11 @@ import {
   typeSourceSignature,
 } from "./type-panel.ts";
 import {
-  createPackageBar,
-  findPackageTabForQuery,
-  type PackageBarPackage,
+  createPackageControls,
+  findOpenPackageForQuery,
+  type PackageControlPackage,
   type ParsedPackageQuery,
-} from "./package-bar.ts";
+} from "./package-controls.ts";
 import {
   bindMetadataExplorer,
   cssEscape,
@@ -270,10 +296,10 @@ import {
 import {
   bindSettingsPanel,
   renderSettingsView,
-  renderTastePopover,
   type StyleOption,
   type StyleTier,
 } from "./settings-panel.ts";
+import { renderBrand } from "./brand.ts";
 import { loadPlatformIndex, type PlatformIndex } from "./platform-index.ts";
 import {
   createSpotlight,
@@ -451,10 +477,6 @@ async function loadEngineModule() {
 
 declare global {
   interface Window {
-    Prism?: {
-      languages: { csharp?: unknown };
-      highlight: (value: string, grammar: unknown, language: string) => string;
-    };
     __platformIndex?: Promise<PlatformIndex | null>;
   }
 }
@@ -651,6 +673,7 @@ const initialState = {
   memberAnnotated: null,
   memberAnnotatedLoading: false,
   memberAnnotatedError: "",
+  annotatedDestinationError: "",
   memberAnnotatedKey: "",
   memberAnnotatedEmbedded: null,
   memberAnnotatedModal: null,
@@ -712,6 +735,7 @@ const initialState = {
   memberDocumentationKey: "",
   lens: "api" as const,
   packageLens: "overview" as const,
+  workspaceSubjectOpen: false,
   atPackageRoot: false,
   typeFilter: "",
   namespaceFilter: "",
@@ -752,7 +776,6 @@ const initialState = {
   styleOptions: null,
   styleCatalogError: "",
   taste: loadStoredTaste(),
-  tasteOpen: false,
   settings: false,
   settingsReturn: "home",
   typeCursor: 0,
@@ -833,6 +856,8 @@ interface StateOverrides {
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
 
 const state: AppState = initialState;
+const scopeBarState = createScopeBarState();
+let scopeBarBinding: ScopeBarBinding | null = null;
 type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
   | { kind: "canonical" }
   | {
@@ -910,8 +935,10 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
 }
 
 const keybindings = createWorkbenchKeybindings();
+const operationAuthority = createOperationAuthorityPage();
 const sourceInspection = createSourceInspectionCoordinator({
   state,
+  operationAuthority,
   queryMemberSource: request => inspectMemberSource(
     request.packageId,
     request.version,
@@ -941,6 +968,10 @@ const sourceInspection = createSourceInspectionCoordinator({
     taste),
   memberSourceHasConcreteOverload,
   cancelEngineSourceRequest: () => cancelSourceInspection?.(),
+  reportOperationDiagnostic: diagnostic => {
+    console.error("Source operation authority failure.", diagnostic);
+    return undefined;
+  },
   describeError: errorMessage,
   render,
   renderPreservingMemberFocus,
@@ -1111,6 +1142,7 @@ function captureView(): WorkspaceView | null {
   return {
     package: state.package.id,
     packageKey: packageIdentityKey(state.package),
+    workspaceSubjectOpen: state.workspaceSubjectOpen,
     lens: state.lens,
     selectedTypeId: state.selectedTypeId,
     selectedMemberKey: state.selectedMemberKey,
@@ -1157,10 +1189,7 @@ function ownsViewOperation(
 }
 
 function invalidateGraphMemberNavigation() {
-  state.graphMemberNavigationSeq++;
-  state.graphMemberNavigationTitle = "";
-  state.graphMemberNavigationError = "";
-  state.pendingGraphMemberDeepLink = null;
+  invalidateGraphMemberNavigationWork(state);
 }
 
 function normalizeCurrentNavEntry() {
@@ -1170,8 +1199,7 @@ function normalizeCurrentNavEntry() {
 function applyView(view: WorkspaceView) {
   const pkg = packageForView(state.packages, view);
   if (!pkg) return false;
-  invalidateMemberCallGraphWork(state);
-  invalidateGraphMemberNavigation();
+  invalidateMemberDestinationWork(state);
   activatePackage(pkg);
   state.libraryScope = restoreLibraryScope(
     view.libraryScope,
@@ -1203,6 +1231,8 @@ function applyView(view: WorkspaceView) {
   state.selectedOverloadIndex = memberHistory.selectedOverloadIndex;
   state.memberSection = memberHistory.memberSection;
   state.atPackageRoot = view.atPackageRoot ?? false;
+  state.workspaceSubjectOpen =
+    view.workspaceSubjectOpen && state.atPackageRoot;
   state.packageLens = view.packageLens ?? "overview";
   state.memberSource = null;
   state.memberSourceError = "";
@@ -1213,6 +1243,7 @@ function applyView(view: WorkspaceView) {
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.annotatedDestinationError = "";
   state.selectedBodyTarget = memberHistory.selectedBodyTarget;
   if (!state.atPackageRoot) revealTypeInFilters(type);
   const requestedOverloadIndex = view.selectedOverloadIndex;
@@ -1423,6 +1454,23 @@ function escapeHtml(value: unknown) {
     .replaceAll('"', "&quot;");
 }
 
+const NUGET_DEFAULT_PACKAGE_ICON =
+  "https://nuget.org/Content/gallery/img/default-package-icon-256x256.png";
+
+function renderInspectedSubjectIcon(pkg: AppPackage): string {
+  if (scope() === "workspace")
+    return '<span class="subject-icon" aria-hidden="true">W</span>';
+  if (pkg.isRuntimePack)
+    return '<span class="subject-icon" aria-hidden="true">◎</span>';
+
+  const source = pkg.icon
+    ? `data:${pkg.icon.mediaType};base64,${pkg.icon.base64}`
+    : NUGET_DEFAULT_PACKAGE_ICON;
+  return `<span class="subject-icon" aria-hidden="true">
+    <img src="${escapeHtml(source)}" alt="" data-package-icon>
+  </span>`;
+}
+
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (isRecord(error) && typeof error.message === "string") return error.message;
@@ -1541,7 +1589,6 @@ function focusTypeList(generation = spotlightFocusGeneration) {
 
 function openSpotlight(seed = "", spotlightScope: SpotlightScope = "all") {
   if (state.loading || state.error) return;
-  state.tasteOpen = false;
   beginSpotlightNavigation();
   spotlight.open(seed, spotlightScope);
 }
@@ -1550,17 +1597,7 @@ function closeSpotlight() {
   spotlight.close();
 }
 
-const packageBar = createPackageBar({
-  keybindings,
-  state,
-  escapeHtml,
-  packageIdentityKey,
-  runtimePackPackage,
-  selectPackageTab,
-  closePackageTab,
-  openRuntimePack: () =>
-    observeAsync(openRuntimePackFromHome(), "Opening the .NET Platform"),
-  openPackage: openPackageQuery,
+const packageControls = createPackageControls({
   selectFramework: framework =>
     observeAsync(
       switchPackageFramework(framework),
@@ -1575,7 +1612,6 @@ const packageBar = createPackageBar({
         switchPackageVersion(version),
         "Switching the package version");
   },
-  showToast,
 });
 
 function selectedType() {
@@ -1850,7 +1886,10 @@ function resetLocationFilters() {
   resetMemberFilters();
 }
 
-function selectPackageTab(pkg: PackageBarPackage | null) {
+function selectWorkspacePackage(
+  pkg: PackageControlPackage | null,
+  { stayInWorkspace = false }: { stayInWorkspace?: boolean } = {},
+) {
   const packageModel = pkg
     ? state.packages.find(item => packageIdentityKey(item) === packageIdentityKey(pkg))
     : null;
@@ -1869,12 +1908,15 @@ function selectPackageTab(pkg: PackageBarPackage | null) {
   state.selectedOverloadIndex = null;
   resetMemberFilters();
   resetMemberSectionState();
+  state.workspaceSubjectOpen = stayInWorkspace;
   render();
 }
 
-function closePackageTab(packageKey: string) {
+function closeWorkspacePackage(packageKey: string) {
   const removal = removeWorkspacePackage(state.packages, state.package, packageKey);
   if (!removal.closed) return;
+  const activeChanged =
+    !packageIdentityEquals(removal.active, state.package);
   if (!removal.active && !clearWorkspaceRouteFailure()) {
     render();
     return;
@@ -1883,7 +1925,11 @@ function closePackageTab(packageKey: string) {
   state.packages = removal.packages;
   releasePackageModelCaches(removal.closed);
   if (removal.active) {
-    selectPackageTab(removal.active);
+    if (activeChanged) {
+      selectWorkspacePackage(removal.active, { stayInWorkspace: true });
+    } else {
+      render();
+    }
     return;
   }
 
@@ -1896,6 +1942,7 @@ function activatePackage(
   { resetAccessibility = false }: { resetAccessibility?: boolean } = {},
 ) {
   const changed = !packageIdentityEquals(state.package, pkg);
+  state.workspaceSubjectOpen = false;
   state.package = pkg;
   if (changed)
     state.dependenciesGroupIndex = null;
@@ -2159,16 +2206,18 @@ function selectedMember(type: AppTypeSurface | null | undefined) {
   return memberGroups(type).find(group => group.key === state.selectedMemberKey);
 }
 
-// Selection sits on a scope ladder: package (a whole NuGet package / its assemblies),
-// type (one public type), or member (a member + its overloads under the API lens). The
-// lens strip, detail pane, and arrow keys all react to the active scope.
+// Selection sits on a scope ladder: workspace, package, type, or member. Library joins
+// this ladder when its product-issued navigation descriptors are available.
 function scope(): WorkspaceScope {
+  if (state.workspaceSubjectOpen && state.atPackageRoot) return "workspace";
   if (state.atPackageRoot) return "package";
   return memberScopeIsActive(state, selectedType()?.id) ? "member" : "type";
 }
 
 function selectScopeLensByIndex(index: number, workspaceScope: WorkspaceScope): void {
-  if (workspaceScope === "package") {
+  if (workspaceScope === "workspace") {
+    return;
+  } else if (workspaceScope === "package") {
     const selected = packageLensesFor(state.package)[index];
     if (selected) {
       state.packageLens = selected[0];
@@ -2238,8 +2287,7 @@ function currentSourceReloadKind() {
 }
 
 function clearMemberContentCache() {
-  invalidateMemberCallGraphWork(state);
-  invalidateGraphMemberNavigation();
+  invalidateMemberDestinationWork(state);
   state.memberSource = null;
   state.memberSourceError = "";
   state.memberCallGraph = null;
@@ -2249,6 +2297,7 @@ function clearMemberContentCache() {
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.annotatedDestinationError = "";
   state.selectedBodyTarget = null;
 }
 
@@ -2457,6 +2506,7 @@ function stepNav(delta: number) {
 // ←/→ act on the horizontal tab strip at your depth: sections when a concrete
 // overload is open, otherwise the lens strip.
 function stepHorizontal(delta: number) {
+  if (scope() === "workspace") return;
   if (state.atPackageRoot) {
     const strip = packageLensesFor(state.package);
     const index = strip.findIndex(([id]) => id === state.packageLens);
@@ -2490,6 +2540,12 @@ function stepHorizontal(delta: number) {
 
 // Enter drills one level deeper; Escape/Backspace pops back out.
 function drillIn() {
+  if (scope() === "workspace") {
+    state.workspaceSubjectOpen = false;
+    state.atPackageRoot = true;
+    render();
+    return;
+  }
   if (state.atPackageRoot) {
     state.atPackageRoot = false;
     render();
@@ -2526,6 +2582,11 @@ function drillOut() {
     render();
     return true;
   }
+  if (!state.workspaceSubjectOpen) {
+    state.workspaceSubjectOpen = true;
+    render();
+    return true;
+  }
   return false;
 }
 
@@ -2550,6 +2611,15 @@ function typeDisplayName(
 function render(options: { synchronizeUrl?: boolean } = {}) {
   sourceInspection.cancelHiddenRequest();
   document.body.classList.remove("package-query-route");
+  const focusedElement = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
+  const scopeBarOwnsFocus = focusedElement
+    ?.closest("[data-scope-bar]") != null;
+  const scopeBarFocus = focusedElement
+    ? captureScopeBarFocus(focusedElement)
+    : null;
+  scopeBarBinding?.disconnect();
 
   // The Settings page is a modal-style full view layered over whatever the user came from
   // (home or a package). It owns no URL — it's a preferences panel, not shareable content —
@@ -2627,84 +2697,86 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     state.lens = "api";
   }
   state.typeCursor = Math.min(state.typeCursor, Math.max(visible.length - 1, 0));
+  const annotatedPageContext =
+    scope() === "member"
+    && state.memberSection === "annotated"
+    && memberSourceHasConcreteOverload();
+  const annotatedWorkingSurface =
+    annotatedPageContext && state.memberAnnotatedEmbedded !== null;
+  const annotatedActionsEnabled =
+    annotatedWorkingSurface;
+  const subjectPath = currentInspectedSubjectPath();
+  const subjectPathLabel = subjectPath.map(segment => segment.label).join(" > ");
+  const inspectorPanelSemantics = hasEffectiveInspector()
+    ? ' role="tabpanel" aria-labelledby="active-inspector-tab"'
+    : "";
 
+  if (scopeBarOwnsFocus) {
+    app.tabIndex = -1;
+    app.focus({ preventScroll: true });
+  }
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal ? " inert" : ""}>
-      <header class="titlebar">
-        <a class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
-        ${packageBar.html()}
-        <div class="title-actions">
-          <button id="go-home" title="Back to the home page">home</button>
-          <button id="theme-toggle" aria-label="Switch to light theme">${state.theme === "dark" ? "light" : "dark"}</button>
-          <button id="open-settings" title="Settings" aria-label="Open settings">⚙</button>
-          <button id="share">share</button>
-          <button id="help" aria-label="Keyboard help">?</button>
-        </div>
+      ${workbenchShellHtml({
+        inspectedTargetHtml: `
+          <div class="inspected-target" aria-label="Inspected target">
+            ${renderInspectedSubjectIcon(pkg)}
+            <div class="subject-path" aria-label="${escapeHtml(subjectPathLabel)}" title="${escapeHtml(subjectPathLabel)}">
+              ${renderInspectedSubjectPath(subjectPath)}
+            </div>
+          </div>`,
+        titleNavigationHtml: `
+          <nav class="title-navigation" aria-label="Search and history">
+            <div class="nav-history">
+              <button id="nav-back" ${navigationHistory.canBack() ? "" : "disabled"} title="Back (Alt+← or Shift+←)" aria-label="Back">←</button>
+              <button id="nav-forward" ${navigationHistory.canForward() ? "" : "disabled"} title="Forward (Alt+→ or Shift+→)" aria-label="Forward">→</button>
+            </div>
+            <button id="open-search" class="title-search" type="button" aria-haspopup="dialog" title="Search (Ctrl/Command+P)">
+              <span class="title-search-glyph" aria-hidden="true">⌕</span>
+              <span class="title-search-label title-search-label-full">Search types, members, packages</span>
+              <span class="title-search-label title-search-label-compact">Search</span>
+              <kbd>Ctrl P</kbd>
+            </button>
+          </nav>`,
+      })}
+
+      <header class="subject-zone" aria-label="Subjects and inspectors">
+        ${renderScopeBar()}
+        <nav class="shell-actions${annotatedPageContext ? " annotated-page-actions" : ""}" aria-label="Application">
+          <button id="share" type="button">Share</button>
+          ${annotatedPageContext
+            ? renderAnnotatedSourcePageActions(annotatedActionsEnabled)
+            : ""}
+          <button id="open-settings" type="button">Settings</button>
+          <button id="help" type="button" aria-label="Keyboard help">?</button>
+        </nav>
       </header>
 
-      ${visibleQueryNotice()
-        ? `<div class="query-notice" role="alert">
-            <span class="query-notice-glyph">⚠</span>
-            <span class="query-notice-text">${escapeHtml(visibleQueryNotice())}</span>
-            ${state.queryNotice && state.queryNoticeRetryAction
-              ? '<button id="retry-notice" type="button">retry</button>'
-              : ""}
-            <button id="dismiss-notice" type="button" aria-label="Dismiss">×</button>
-          </div>`
-        : ""}
-      ${pkg.inspectionError
-        ? `<div class="query-notice" role="alert">
-            <span class="query-notice-glyph">⚠</span>
-            <span class="query-notice-text">${escapeHtml(`${pkg.id}@${pkg.version}: ${pkg.inspectionError}`)}</span>
-            <button id="dismiss-package-notice" type="button" aria-label="Dismiss">×</button>
-          </div>`
-        : ""}
+      <div class="notice-stack">
+        ${visibleQueryNotice()
+          ? `<div class="query-notice" role="alert">
+              <span class="query-notice-glyph">⚠</span>
+              <span class="query-notice-text">${escapeHtml(visibleQueryNotice())}</span>
+              ${state.queryNotice && state.queryNoticeRetryAction
+                ? '<button id="retry-notice" type="button">retry</button>'
+                : ""}
+              <button id="dismiss-notice" type="button" aria-label="Dismiss">×</button>
+            </div>`
+          : ""}
+        ${pkg.inspectionError
+          ? `<div class="query-notice" role="alert">
+              <span class="query-notice-glyph">⚠</span>
+              <span class="query-notice-text">${escapeHtml(`${pkg.id}@${pkg.version}: ${pkg.inspectionError}`)}</span>
+              <button id="dismiss-package-notice" type="button" aria-label="Dismiss">×</button>
+            </div>`
+          : ""}
+      </div>
 
-      <section class="scopebar">
-        <div class="package-title">
-          <span class="scope-kicker">${pkg.isRuntimePack ? "platform" : "package"}</span>
-          <strong>${escapeHtml(packageDisplayName(pkg))}</strong>
-          <span>${escapeHtml(pkg.version)}</span>
-        </div>
-        <label class="version-select">
-          <span>version</span>
-          <select id="package-version">
-            ${versionOptionsHtml(pkg)}
-          </select>
-        </label>
-        <label class="framework-select">
-          <span>framework</span>
-          <select id="framework"${pkg.frameworks.length <= 1 ? " disabled" : ""}>
-            ${pkg.frameworks.map(item => `<option ${item === pkg.activeFramework ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
-          </select>
-        </label>
-        <div class="asset-path">${escapeHtml(pkg.assemblyAsset)}</div>
-        <div class="scope-stats">
-          <span><strong>${pkg.totalTypes}</strong> types</span>
-          <span><strong>${pkg.totalMembers.toLocaleString()}</strong> members</span>
-        </div>
-      </section>
-
-      ${renderScopeBar()}
-
-      <main class="workspace">
+      <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="active-subject-tab">
         ${renderNavPane(current, visible)}
 
         <section class="detail-pane">
-          <header class="detail-head">
-            <div class="nav-history">
-              <button id="nav-back" ${navigationHistory.canBack() ? "" : "disabled"} title="Back (Alt+← or Shift+←)" aria-label="Back">‹</button>
-              <button id="nav-forward" ${navigationHistory.canForward() ? "" : "disabled"} title="Forward (Alt+→ or Shift+→)" aria-label="Forward">›</button>
-            </div>
-            <div class="breadcrumbs">
-              ${state.atPackageRoot
-                ? `<strong>${escapeHtml(packageDisplayName(pkg))}</strong><b>/</b><span>${escapeHtml(packageLenses.find(([id]) => id === state.packageLens)?.[1] || "Overview")}</span>`
-                : `<span>${escapeHtml(packageDisplayName(pkg))}</span><b>/</b><span>${escapeHtml(current?.namespace ?? "")}</span><b>/</b><strong>${escapeHtml(typeDisplayName(current))}</strong>
-              ${state.selectedMemberKey ? `<b>/</b><strong>${escapeHtml(selectedMember(current)?.name ?? "")}</strong>` : ""}`}
-            </div>
-            <div class="detail-actions"><button id="copy-name" type="button">copy name</button><button id="taste-btn" class="${state.taste.length ? "active" : ""}" title="Decompiler style (taste)">taste${state.taste.length ? ` · ${state.taste.length}` : ""}</button></div>
-          </header>
-          <article class="detail-scroll">
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -2722,11 +2794,30 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
       ${state.spotlightOpen ? spotlight.modalHtml() : ""}
       ${state.graphSourceOpen ? renderGraphSource() : ""}
       ${state.docViewerOpen ? renderDocViewer() : ""}
-      ${state.tasteOpen ? renderTastePopoverHtml() : ""}
     </div>
     ${renderAnnotatedSourceModal()}`;
 
+  const packageIcon =
+    document.querySelector<HTMLImageElement>("[data-package-icon]");
+  if (packageIcon) {
+    packageIcon.onerror = () => {
+      if (packageIcon.getAttribute("src") === NUGET_DEFAULT_PACKAGE_ICON) return;
+      packageIcon.src = NUGET_DEFAULT_PACKAGE_ICON;
+    };
+  }
   bindEvents();
+  if (scopeBarOwnsFocus) {
+    let restored = false;
+    if (scopeBarFocus) {
+      scopeBarBinding?.revealFocusTarget(scopeBarFocus);
+      restored = restoreScopeBarFocus(document, scopeBarFocus);
+    }
+    if (!restored) {
+      document.querySelector<HTMLElement>(".brand")
+        ?.focus({ preventScroll: true });
+    }
+    app.removeAttribute("tabindex");
+  }
   restorePackageQueryReturnFocus();
   restorePackageQueryWorkspaceFocus();
   recordNav();
@@ -2810,9 +2901,81 @@ function renderNavPane(
   current: AppTypeSurface | null | undefined,
   visible: readonly AppTypeSurface[],
 ) {
+  if (scope() === "workspace") return renderWorkspaceNavPane();
   return navMode() === "member" && current
     ? renderMemberNavPane(current)
     : renderTypeNavPane(current, visible);
+}
+
+type SubjectPathKind = "workspace" | "package" | "type" | "member";
+
+interface SubjectPathSegment {
+  kind: SubjectPathKind;
+  label: string;
+  copyable: boolean;
+}
+
+function inspectedSubjectPath(
+  pkg: AppPackage,
+  current: AppTypeSurface | null | undefined,
+): readonly SubjectPathSegment[] {
+  if (scope() === "workspace") {
+    return [{ kind: "workspace", label: "Workspace", copyable: false }];
+  }
+  const path: SubjectPathSegment[] = [{
+    kind: "package",
+    label: packageDisplayName(pkg),
+    copyable: true,
+  }];
+  if (state.atPackageRoot || !current) return path;
+  path.push({
+    kind: "type",
+    label: current.namespace
+      ? `${current.namespace}.${typeDisplayName(current)}`
+      : typeDisplayName(current),
+    copyable: true,
+  });
+  const member = scope() === "member" ? selectedMember(current) : null;
+  if (member) {
+    path.push({
+      kind: "member",
+      label: member.name,
+      copyable: true,
+    });
+  }
+  return path;
+}
+
+function currentInspectedSubjectPath(): readonly SubjectPathSegment[] {
+  return state.package
+    ? inspectedSubjectPath(state.package, selectedType())
+    : [];
+}
+
+function renderInspectedSubjectPath(
+  path: readonly SubjectPathSegment[],
+): string {
+  return path.map((segment, index) => {
+    const root = index === 0 ? " root" : "";
+    const current = index === path.length - 1 ? " current" : "";
+    const separator = index === 0
+      ? ""
+      : '<span class="subject-path-separator" aria-hidden="true">&gt;</span>';
+    const label = escapeHtml(segment.label);
+    const content = segment.copyable
+      ? `<button type="button" class="subject-path-segment${root}${current}" data-subject-copy="${index}" title="Copy ${label}" aria-label="Copy ${escapeHtml(segment.kind)} name ${label}">${label}</button>`
+      : `<span class="subject-path-segment${root}${current}">${label}</span>`;
+    return `${separator}${content}`;
+  }).join("");
+}
+
+function renderWorkspaceNavPane() {
+  return renderWorkspaceSubject({
+    packages: state.packages,
+    activePackage: state.package,
+    escapeHtml,
+    packageIdentityKey,
+  });
 }
 
 function renderTypeNavPane(
@@ -2862,17 +3025,94 @@ function renderMemberNavPane(type: AppTypeSurface) {
 //   package → package lenses   type → type lenses   member → member sections
 // Keeping all three families of buttons on one strip means the member modes (Overview,
 // Call graph, …) live here too instead of inside the detail pane.
+function hasEffectiveInspector(): boolean {
+  const sc = scope();
+  if (sc === "workspace") return false;
+  if (sc === "package") {
+    return packageLensesFor(state.package)
+      .some(([id]) => id === state.packageLens);
+  }
+  if (sc === "member") {
+    const selected = selectedType();
+    const member = selected && selectedMember(selected);
+    return Boolean(member && memberSectionsFor(member)
+      .some(([id]) => id === state.memberSection));
+  }
+  return typeLensesFor(state.package).some(([id]) => id === state.lens);
+}
+
+function packageLensPresentation(
+  id: PackageLens,
+): string {
+  switch (id) {
+    case "overview": return "◫";
+    case "dependencies": return "⇄";
+    case "integrations": return "⌁";
+    case "opportunities": return "◇";
+    case "analysis": return "∿";
+    case "metadata": return "≡";
+    default: return assertNever(id, "package lens presentation");
+  }
+}
+
+function typeLensPresentation(
+  id: TypeLens,
+): string {
+  switch (id) {
+    case "api": return "⌘";
+    case "metadata": return "≡";
+    case "source": return "⌑";
+    default: return assertNever(id, "type lens presentation");
+  }
+}
+
+function memberSectionPresentation(
+  id: MemberSection,
+): string {
+  switch (id) {
+    case "overview": return "◫";
+    case "call-graph": return "⑂";
+    case "facts": return "·";
+    case "source": return "⌑";
+    case "annotated": return "✎";
+    default: return assertNever(id, "member section presentation");
+  }
+}
+
+function scopeBarInspectorDefinitions<TId extends string>(
+  definitions: readonly (readonly [TId, string])[],
+  presentation: (id: TId) => string,
+): readonly (readonly [TId, string, string, string])[] {
+  return definitions.map(([id, label]) => {
+    return [id, label, scopeBarShortLabel(label), presentation(id)];
+  });
+}
+
 function renderScopeBar() {
   const sc = scope();
   const selected = selectedType();
   const showMemberScope =
     !state.atPackageRoot && Boolean(selected && memberGroups(selected).length);
+  if (sc === "workspace") {
+    return renderScopeBarPure({
+      scope: sc,
+      strip: [],
+      activeStripId: null,
+      stripAttribute: "data-workspace-lens",
+      panelId: "inspector-panel",
+      showMemberScope,
+      escapeHtml,
+    });
+  }
   if (sc === "package") {
     return renderScopeBarPure({
       scope: sc,
-      strip: packageLensesFor(state.package),
+      strip: scopeBarInspectorDefinitions(
+        packageLensesFor(state.package),
+        packageLensPresentation),
       activeStripId: state.packageLens,
       stripAttribute: "data-package-lens",
+      panelId: "inspector-panel",
       showMemberScope,
       escapeHtml,
     });
@@ -2881,9 +3121,12 @@ function renderScopeBar() {
     const member = selectedMember(selected);
     return renderScopeBarPure({
       scope: sc,
-      strip: member ? memberSectionsFor(member) : [],
+      strip: scopeBarInspectorDefinitions(
+        member ? memberSectionsFor(member) : [],
+        memberSectionPresentation),
       activeStripId: state.memberSection,
       stripAttribute: "data-member-section",
+      panelId: "inspector-panel",
       showMemberScope,
       emptyStripLabel: "Filtered member list",
       escapeHtml,
@@ -2894,9 +3137,12 @@ function renderScopeBar() {
       scope: sc,
       // `typeLensesFor` rather than the raw catalog: a runtime pack offers only the API
       // lens, and reading the catalog directly here would skip that restriction.
-      strip: typeLensesFor(state.package),
+      strip: scopeBarInspectorDefinitions(
+        typeLensesFor(state.package),
+        typeLensPresentation),
       activeStripId: state.lens,
       stripAttribute: "data-lens",
+      panelId: "inspector-panel",
       showMemberScope,
       escapeHtml,
     });
@@ -2915,16 +3161,59 @@ function packageHeading() {
       <code class="type-signature">${pkg.isRuntimePack ? `${escapeHtml(packageDisplayName(pkg))} · ${escapeHtml(pkg.version)}` : `${escapeHtml(pkg.id)}@${escapeHtml(pkg.version)}`}</code>
     </div>
     <div class="type-metrics"><span><strong>${pkg.totalTypes}</strong> types</span><span><strong>${pkg.totalMembers.toLocaleString()}</strong> members</span></div>
-    <dl class="definition-list">
-      <div><dt>Active TFM:</dt><dd>${escapeHtml(pkg.activeFramework)}</dd></div>
-      <div><dt>Frameworks:</dt><dd>${pkg.frameworks.length}</dd></div>
-    </dl>
   </header>`;
+}
+
+function packageCoordinateControls() {
+  const pkg = currentPackage();
+  return `<section class="document-section package-coordinate-editor" aria-labelledby="package-coordinate-heading">
+    <div class="section-title">
+      <h2 id="package-coordinate-heading">Package coordinate</h2>
+      <span>${pkg.frameworks.length} target framework${pkg.frameworks.length === 1 ? "" : "s"}</span>
+    </div>
+    <div class="package-coordinate-fields">
+      <label class="version-select">
+        <span>Version</span>
+        <select id="package-version">
+          ${versionOptionsHtml(pkg)}
+        </select>
+      </label>
+      <label class="framework-select">
+        <span>Framework</span>
+        <select id="framework"${pkg.frameworks.length <= 1 ? " disabled" : ""}>
+          ${pkg.frameworks.map(item => `<option ${item === pkg.activeFramework ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
+        </select>
+      </label>
+    </div>
+  </section>`;
 }
 
 function renderPackageView() {
   const body = packageLensBody();
-  return `${packageHeading()}${body}`;
+  return `${packageHeading()}${packageCoordinateControls()}${body}`;
+}
+
+function renderWorkspaceView() {
+  const packages = state.packages.filter(item => !item.isRuntimePack);
+  const current = state.package && !state.package.isRuntimePack
+    ? state.package
+    : packages[0] ?? null;
+  const platform = runtimePackPackage();
+  return `<header class="type-heading workspace-heading">
+    <div class="type-badge">W</div>
+    <div>
+      <div class="type-namespace">Inspection workspace</div>
+      <h1>Workspace</h1>
+      <code class="type-signature">${packages.length} coordinate${packages.length === 1 ? "" : "s"} · platform ${platform ? "available" : "not loaded"}</code>
+    </div>
+  </header>
+  <section class="workspace-overview">
+    <h2>Current coordinate</h2>
+    ${current
+      ? `<p><strong>${escapeHtml(current.id)}</strong> ${escapeHtml(current.version)} · ${escapeHtml(current.activeFramework)}</p>`
+      : "<p>No package coordinate is open.</p>"}
+    <p>Use Search to open another package. Platform libraries are included when the workspace requires them.</p>
+  </section>`;
 }
 
 function packageLensBody() {
@@ -3824,10 +4113,6 @@ function drillToPerfMember(
 function renderPackageOverview() {
   const pkg = currentPackage();
 
-  const frameworks = pkg.frameworks
-    .map(framework => `<button class="type-chip ${framework === pkg.activeFramework ? "active" : ""}" data-framework-chip="${escapeHtml(framework)}">${escapeHtml(framework)}</button>`)
-    .join("");
-
   const kindPlural: Record<TypeKind, string> = {
     class: "classes",
     struct: "structs",
@@ -3922,10 +4207,6 @@ function renderPackageOverview() {
 
   return `
     <section class="document-section">
-      <div class="section-title"><h2>Target frameworks</h2><span>${pkg.frameworks.length} · active highlighted</span></div>
-      <div class="type-chip-list">${frameworks}</div>
-    </section>
-    <section class="document-section">
       <div class="section-title"><h2>Libraries</h2><span>${librariesSubtitle}</span></div>
       ${pkg.isRuntimePack ? `<div class="library-picker platform-library-picker overview-library-picker">${platformLibrarySelectHtml()}</div>` : ""}
       <div class="library-list">${libraryRows}</div>
@@ -3984,6 +4265,7 @@ function renderTypeSourceHtml(item: AppTypeSurface) {
 }
 
 function renderLens(item: AppTypeSurface | null | undefined) {
+  if (scope() === "workspace") return renderWorkspaceView();
   if (state.atPackageRoot) return renderPackageView();
   if (!item) return "";
   switch (state.lens) {
@@ -4237,11 +4519,14 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   } else if (state.memberSection === "facts") {
     content = renderMemberFacts(type, member, overload, overloadIndex);
   } else if (state.memberSection === "annotated") {
-    content = state.memberAnnotatedLoading
+    const destinationError = state.annotatedDestinationError
+      ? `<div id="annotated-destination-error" class="graph-drill-error" role="alert">${escapeHtml(state.annotatedDestinationError)}</div>`
+      : "";
+    content = destinationError + (state.memberAnnotatedLoading
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Annotating member…</h2><p>Raising the selected overload to C#, interleaving its IL, and collecting the facts observed about it.</p></section>`
       : state.memberAnnotated
         ? renderAnnotatedSource(state.memberAnnotated)
-        : `<section class="document-section empty-member-section"><h2>Annotated source query failed</h2><p>${escapeHtml(state.memberAnnotatedError || "No annotated source result was returned.")}</p></section>`;
+        : `<section class="document-section empty-member-section"><h2>Annotated source query failed</h2><p>${escapeHtml(state.memberAnnotatedError || "No annotated source result was returned.")}</p></section>`);
   } else if (state.memberSection === "source") {
     content = state.memberSourceLoading
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`
@@ -4270,6 +4555,7 @@ function renderAnnotatedSource(result: AnnotatedSourceResult) {
       result,
       session,
       escapeHtml,
+      highlightCSharp: annotatedSourceHighlighter,
     });
   } catch (error) {
     if (!(error instanceof TypeError)) throw error;
@@ -4284,6 +4570,7 @@ function renderAnnotatedSourceModal() {
       result: state.memberAnnotated,
       session: state.memberAnnotatedModal,
       escapeHtml,
+      highlightCSharp: annotatedSourceHighlighter,
     });
   } catch (error) {
     if (!(error instanceof TypeError)) throw error;
@@ -4483,6 +4770,20 @@ function highlightCSharp(value: string) {
       "csharp");
   }
   return escapeHtml(source);
+}
+
+function annotatedSourceHighlighter(
+  source: string,
+  tokenizationSource: string,
+  excludedRanges: readonly CSharpHighlightExclusion[],
+) {
+  return createCSharpRangeHighlighter(
+    source,
+    window.Prism,
+    escapeHtml,
+    tokenizationSource,
+    excludedRanges,
+  );
 }
 
 const packageViewActions: PackageViewBindingActions = {
@@ -4722,14 +5023,6 @@ function bindTypePanelEvents() {
       if (state.memberSource)
         void copyText(state.memberSource.text, "source copied");
     },
-    onCopyName: () => {
-      const type = selectedType();
-      if (!type) return;
-      const typeName = `${type.namespace ? `${type.namespace}.` : ""}${type.name}`;
-      const member = selectedMember(type);
-      const fullName = member ? `${typeName}.${member.name}` : typeName;
-      void copyText(fullName, "name copied");
-    },
     onCopySignature: () => {
       const type = selectedType();
       const member = selectedMember(type);
@@ -4872,7 +5165,7 @@ function bindTypePanelEvents() {
 }
 
 function bindScopeBarEvents() {
-  bindScopeBar(document, {
+  scopeBarBinding = bindScopeBar(document, {
     onMemberSectionSelect: section => {
       applyMemberSection(section);
     },
@@ -4881,9 +5174,17 @@ function bindScopeBarEvents() {
       render();
     },
     onScopeSelect: target => {
-      if (target === "package") {
+      if (target === "workspace") {
+        state.workspaceSubjectOpen = true;
+        state.atPackageRoot = true;
+        state.selectedMemberKey = "";
+        state.memberBrowseTypeId = "";
+        state.selectedOverloadIndex = null;
+      } else if (target === "package") {
+        state.workspaceSubjectOpen = false;
         state.atPackageRoot = true;
       } else if (target === "type") {
+        state.workspaceSubjectOpen = false;
         // Pop out to the type level: leave the package root and drop any open member so the
         // type lenses (API / Metadata / Source) take the strip. Ensure a type is selected.
         state.atPackageRoot = false;
@@ -4895,6 +5196,7 @@ function bindScopeBarEvents() {
         state.memberBrowseTypeId = "";
         state.selectedOverloadIndex = null;
       } else if (target === "member") {
+        state.workspaceSubjectOpen = false;
         enterMemberScope();
       } else {
         // A new scope used to be accepted here and then do nothing at all.
@@ -4908,7 +5210,7 @@ function bindScopeBarEvents() {
       state.memberBrowseTypeId = "";
       render();
     },
-  });
+  }, scopeBarState);
 }
 
 function bindSettingsPanelEvents() {
@@ -4916,10 +5218,6 @@ function bindSettingsPanelEvents() {
     onClose: closeSettings,
     onOpen: openSettings,
     onTasteClear: clearTaste,
-    onTasteOpenToggle: () => {
-      state.tasteOpen = !state.tasteOpen;
-      render();
-    },
     onTasteToggle: toggleTaste,
     onThemeSelect: setTheme,
   });
@@ -5002,13 +5300,14 @@ function renderAndFocusAnnotated(
 
 function openAnnotatedSourceModal() {
   if (!state.memberAnnotated) return;
+  invalidateMemberDestinationWork(state);
+  state.annotatedDestinationError = "";
   const model = createAnnotatedSourceViewerModel(state.memberAnnotated);
   const embedded = state.memberAnnotatedEmbedded
     ?? createEmbeddedSession(model);
   const opened = openModalSession(model, embedded);
   state.memberAnnotatedEmbedded = opened.embedded;
   state.memberAnnotatedModal = opened.modal;
-  state.tasteOpen = false;
   spotlight.reset();
   sourceInspection.clearGraphSource();
   documentInspection.clear();
@@ -5106,6 +5405,25 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
       renderAndFocusAnnotated(transition.focus);
       return;
     }
+    case "destination-open": {
+      const destination =
+        model.invocationDestinations[action.destinationIndex];
+      if (!destination) return;
+      invalidateMemberDestinationWork(state);
+      state.annotatedDestinationError = "";
+      const binding =
+        callGraphTargetBinding(
+          destination.target,
+          action.destination,
+          "annotated")
+        ?? blockedCallGraphNodeBinding(
+          destination.target,
+          "the exact target is unavailable in the current workspace",
+          "annotated");
+      dismissAnnotatedSourceModal(false);
+      binding.onSelect();
+      return;
+    }
     case "node-select":
       setSession(selectAnnotatedNode(session, action.nodeId));
       renderAndFocusAnnotated({ kind: "node", nodeId: action.nodeId });
@@ -5128,6 +5446,11 @@ function bindAnnotatedSourceEvents() {
 }
 
 const workbenchShellActions: WorkbenchShellBindingActions = {
+  onCopySubjectSegment: index => {
+    const segment = currentInspectedSubjectPath()[index];
+    if (segment?.copyable)
+      void copyText(segment.label, `${segment.kind} name copied`);
+  },
   onDismissNotice: dismissQueryNotice,
   onDismissPackageNotice: () => {
     const pkg = currentPackage();
@@ -5135,7 +5458,6 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
     pkg.inspectionError = "";
     render();
   },
-  onGoHome: goHome,
   onHelp: () => showToast(
     "⌘K command · ⌘P / type to find a type · ⌘F filter · "
     + "1—5 lenses · ↑↓ types · Alt+←/→ or Shift+←/→ back/forward · "
@@ -5146,17 +5468,29 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
     const retryAction = state.queryNoticeRetryAction;
     if (retryAction) observeAction(retryAction, "Retrying the inspection");
   },
+  onSearch: () => openSpotlight(),
   onShare: () => void share(),
-  onToggleTheme: toggleTheme,
 };
 
 const graphBackActions: GraphBackBindingActions = {
   onBack: popPlatformDrill,
 };
 
+function bindWorkspaceSubjectEvents() {
+  bindWorkspaceSubject(document, {
+    onActivate: key => {
+      const packageModel = state.packages.find(
+        item => packageIdentityKey(item) === key);
+      if (packageModel) selectWorkspacePackage(packageModel);
+    },
+    onClose: closeWorkspacePackage,
+  });
+}
+
 function bindEvents() {
   bindStatusBarEvents();
-  packageBar.bind(document);
+  packageControls.bind(document);
+  bindWorkspaceSubjectEvents();
   bindTypePanelEvents();
   bindScopeBarEvents();
   bindSettingsPanelEvents();
@@ -5587,20 +5921,6 @@ function persistRecentPackages() {
   } catch {
     // Persistence is best-effort; the in-memory list still works this session.
   }
-}
-
-// The most-recently-opened library that is actually available in the active
-// platform framework's roster, or null. Lets the Platform land on the library you
-// were last looking at instead of the aggregate overview.
-function mostRecentAvailableLibrary() {
-  const roster = platformLibraryRoster("");
-  if (!roster.length) return null;
-  const byAssembly = new Map(roster.map(lib => [lib.assembly, lib]));
-  for (const entry of state.platformRecent || []) {
-    const hit = byAssembly.get(entry.assembly);
-    if (hit) return { assembly: hit.assembly, pack: hit.pack };
-  }
-  return null;
 }
 
 // Blends the four targets into one ordered result list, honouring the active scope chip.
@@ -6215,6 +6535,7 @@ async function pickSpotlight(
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.annotatedDestinationError = "";
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
@@ -6316,8 +6637,7 @@ function renderPreservingMemberFocus(
 }
 
 function workbenchOverlayOwnsFocus() {
-  return workbenchModalOwnsFocus()
-    || state.tasteOpen;
+  return workbenchModalOwnsFocus();
 }
 
 function workbenchModalOwnsFocus() {
@@ -6398,11 +6718,12 @@ function selectedCallGraphWorkspacePackages(): AppPackage[] {
 
 function captureWorkspaceUrlState(): WorkspaceUrlState | null {
   if (!state.package) return null;
-  if (state.atPackageRoot) {
+  const workspaceSubjectOpen = scope() === "workspace";
+  if (state.atPackageRoot && !workspaceSubjectOpen) {
     throw new Error(
       "Package views do not yet have product-owned share facet identities.");
   }
-  if (state.pendingGraphMemberDeepLink) {
+  if (!workspaceSubjectOpen && state.pendingGraphMemberDeepLink) {
     throw new Error(
       "The pending graph member must resolve before this workspace can be shared.");
   }
@@ -6419,10 +6740,10 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     activeIndex,
     basis,
     captured.preservesBasis,
-    state.memberSection === "call-graph");
+    !workspaceSubjectOpen && state.memberSection === "call-graph");
 
-  const type = selectedType();
-  const member = selectedMember(type);
+  const type = workspaceSubjectOpen ? null : selectedType();
+  const member = workspaceSubjectOpen ? null : selectedMember(type);
   let memberAnchor: string | null = null;
   let memberSignature: string | null = null;
   if (member) {
@@ -6464,13 +6785,14 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     : [];
   return {
     package: state.package.id,
+    subject: workspaceSubjectOpen ? "workspace" : null,
     tabs,
     contexts,
     activeTabId: activeTab.id,
     selectedContextId,
     view: {
-      lens: state.lens,
-      type: state.selectedTypeId || null,
+      lens: workspaceSubjectOpen ? null : state.lens,
+      type: workspaceSubjectOpen ? null : state.selectedTypeId || null,
       memberAnchor,
       memberSignature,
       section: member && state.memberSection !== "overview"
@@ -6482,6 +6804,12 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
 }
 
 function buildStateUrl(base = location.href) {
+  if (scope() === "workspace") {
+    const snapshot = captureWorkspaceUrlState();
+    return snapshot
+      ? workspaceLocation.build(snapshot, base)
+      : new URL(base);
+  }
   if (state.atPackageRoot && state.package) {
     return buildPackageRootStateUrl(base, {
       package: state.package.id,
@@ -6633,6 +6961,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   state.memberSourceKey = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.annotatedDestinationError = "";
   state.memberAnnotatedKey = "";
   state.memberFacts = null;
   state.memberFactsError = "";
@@ -7008,7 +7337,7 @@ function renderHomeView() {
   app.innerHTML = `
     <div class="home">
       <header class="home-bar">
-        <a class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
+        ${renderBrand()}
         <div class="home-bar-actions">
           <a class="home-link" href="https://github.com/richlander/dotnet-inspect" target="_blank" rel="noreferrer">GitHub</a>
           <button id="home-settings" aria-label="Open settings" title="Settings">⚙</button>
@@ -7198,10 +7527,7 @@ function restorePackageQueryReturnFocus() {
   if (!state.packageQueryReturnFocusPending
     || state.packageQueryReturnFocus !== "package-search") return;
   afterCurrentNavigationFrame(() => {
-    const input =
-      document.querySelector<HTMLInputElement>("#package-query-input");
-    if (input) {
-      input.focus();
+    if (focusWorkbenchSearch(document)) {
       state.packageQueryReturnFocus = null;
       state.packageQueryReturnFocusPending = false;
     } else if (focusLevelOneHeading()) {
@@ -7470,55 +7796,6 @@ function renderPackageQueryPage() {
   packageQueryLiveAnnouncer.enqueue(announcement);
 }
 
-// Loads the resident runtime pack and lands on its package Overview (the runtime pack has no
-// nupkg, so this goes through loadRuntimePack rather than loadPackage).
-async function openRuntimePackFromHome() {
-  const navigationSeq = navigationSequence.begin();
-  state.home = false;
-  state.loading = true;
-  state.error = "";
-  state.retryAction = null;
-  state.loadingMessage = "Loading the .NET Platform…";
-  state.loadingSubtitle = ".NET Platform · net10.0";
-  render();
-  const { packageModel: pack } = await loadRuntimePack(
-    "net10.0",
-    () => navigationSequence.isCurrent(navigationSeq));
-  if (!navigationSequence.isCurrent(navigationSeq)) return;
-  if (!pack) {
-    state.loading = false;
-    state.error = "Couldn’t load the .NET runtime pack. Retry, or open a different package.";
-    state.errorTitle = "Runtime pack failed";
-    state.retryAction = openRuntimePackFromHome;
-    render();
-    return;
-  }
-  activatePackage(pack, { resetAccessibility: true });
-  state.home = false;
-  state.loading = false;
-  // Start on the library you were last looking at, not the aggregate overview,
-  // when one is available in this framework's roster.
-  const recent = mostRecentAvailableLibrary();
-  if (recent) {
-    await openPlatformLibrary(recent.assembly, recent.pack, { navigationSeq });
-    return;
-  }
-  state.atPackageRoot = true;
-  state.packageLens = "overview";
-  state.typeFilter = "";
-  state.namespaceFilter = "";
-  state.kindFilter = "";
-  state.libraryScope = null;
-  resetMemberFilters();
-  state.selectedTypeId = defaultVisibleTypeId(pack);
-  reconcileAccessibilityFilter(pack.types.find(item => item.id === state.selectedTypeId));
-  state.selectedMemberKey = "";
-  state.memberBrowseTypeId = "";
-  state.selectedOverloadIndex = null;
-  render();
-  observeAsync(loadSelectionData(), "Loading selection data");
-}
-
 // The inspector-bot mascot series shown on interstitial (loading) screens. Each entry is a
 // color variant of the same dotnet-bot-inspector character living in /assets/bots/. To grow
 // the series, drop a new PNG in that folder and add its basename here — nothing else needed.
@@ -7544,14 +7821,14 @@ function interstitialBotSrc(): string {
 }
 
 function openPackageQuery(query: ParsedPackageQuery) {
-  const packageTab = findPackageTabForQuery(state, query);
-  if (packageTab) {
+  const openPackage = findOpenPackageForQuery(state, query);
+  if (openPackage) {
     state.loading = false;
     state.error = "";
     state.errorTitle = "";
     state.errorDetail = "";
     state.retryAction = null;
-    selectPackageTab(packageTab);
+    selectWorkspacePackage(openPackage);
     return;
   }
 
@@ -8245,6 +8522,17 @@ function callGraphNodeBinding(
   const target =
     callGraph.targets?.find(candidate => candidate.id === nodeId) ?? null;
   if (!target) return null;
+  return callGraphTargetBinding(target);
+}
+
+type CallGraphTargetDestination = "default" | "member" | "source";
+type GraphNavigationFailureSurface = "call-graph" | "annotated";
+
+function callGraphTargetBinding(
+  target: BrowserCallGraphTarget,
+  destination: CallGraphTargetDestination = "default",
+  failureSurface: GraphNavigationFailureSurface = "call-graph",
+): CallGraphNodeBinding | null {
   const typeId = callGraphTargetTypeId(target);
 
   // Inside a platform descent the whole graph lives in the runtime pack, not
@@ -8272,9 +8560,19 @@ function callGraphNodeBinding(
     if (disposition === "blocked") {
       return blockedCallGraphNodeBinding(
         target,
-        graphTargetBlockedReason(candidate, "runtime"));
+        graphTargetBlockedReason(candidate, "runtime"),
+        failureSurface);
     }
     if (disposition === "none") return null;
+    if (destination === "source") {
+      return blockedCallGraphNodeBinding(
+        target,
+        "Source navigation is unavailable for platform targets",
+        failureSurface);
+    }
+    const runtimeSection = destination === "member"
+      ? "overview"
+      : "call-graph";
     return {
       label: `Open ${target.typeFullName}.${target.memberName}`,
       platform: disposition === "lookup",
@@ -8285,11 +8583,22 @@ function callGraphNodeBinding(
             resident.type,
             resident.group,
             resident.overloadIndex,
-            target);
+            target,
+            runtimeSection);
         } else if (disposition === "lookup") {
           observeAsync(
-            navigateOrDrillPlatform(target),
+            navigateOrDrillPlatform(
+              target,
+              runtimeSection,
+              failureSurface),
             "Opening a platform call-graph target");
+        } else if (destination === "member") {
+          observeAsync(
+            navigateOrDrillPlatform(
+              target,
+              runtimeSection,
+              failureSurface),
+            "Opening a resident platform member");
         } else {
           observeAsync(
             startPlatformDrill(target),
@@ -8307,6 +8616,29 @@ function callGraphNodeBinding(
     resolveLoadedGraphTargetCandidate<AppPackage, AppTypeSurface>(
       packages,
       target);
+  if (candidate.status === "resident" && destination !== "default") {
+    const residentPackage = loadedGraphTargetPackage(packages, target);
+    if (!residentPackage) {
+      return blockedCallGraphNodeBinding(
+        target,
+        "the exact target assembly is not unique in the loaded package workspace",
+        failureSurface);
+    }
+    const section = destination === "source" ? "source" : "overview";
+    return {
+      label: `Open ${target.typeFullName}.${target.memberName}`,
+      platform: false,
+      onSelect: () => {
+        observeAsync(
+          navigateToUnprojectedGraphMember(
+            residentPackage,
+            target,
+            section,
+            failureSurface),
+          "Opening a package graph member");
+      },
+    };
+  }
   const pack = runtimePackForFramework(
     runtimePackPackage(),
     state.package?.activeFramework || "");
@@ -8330,20 +8662,47 @@ function callGraphNodeBinding(
         || runtimeCandidate?.status === "skew"
       ? graphTargetBlockedReason(runtimeCandidate, "runtime")
       : graphTargetBlockedReason(candidate, "package");
-    return blockedCallGraphNodeBinding(target, reason);
+    return blockedCallGraphNodeBinding(
+      target,
+      reason,
+      failureSurface);
   }
   if (disposition === "none") return null;
   const loaded = disposition === "loaded" && candidate.status === "unique"
     ? resolveLoadedGraphTarget(target, candidate)
     : null;
+  if (destination === "source" && !loaded) {
+    return blockedCallGraphNodeBinding(
+      target,
+      "Source navigation requires a target in a loaded package workspace",
+      failureSurface);
+  }
+  if (destination === "source"
+    && loaded
+    && "group" in loaded
+    && !memberSectionIdsFor(
+      loaded.group,
+      loaded.pkg.isRuntimePack,
+      true).includes("source")) {
+    return blockedCallGraphNodeBinding(
+      target,
+      "Source navigation is unavailable for this member",
+      failureSurface);
+  }
   const platform = disposition === "platform";
+  const loadedSection = destination === "source" ? "source" : "overview";
+  const runtimeSection = destination === "member" ? "overview" : "call-graph";
   return {
     label: `Open ${target.typeFullName}.${target.memberName}`,
     platform,
     onSelect: () => {
       if (loaded) {
         observeAsync(
-          navigateToGraphMember(loaded, target),
+          navigateToGraphMember(
+            loaded,
+            target,
+            loadedSection,
+            failureSurface),
           "Opening a graph member");
       } else if (disposition === "resident") {
         if (pack && resident) {
@@ -8352,15 +8711,24 @@ function callGraphNodeBinding(
             resident.type,
             resident.group,
             resident.overloadIndex,
-            target);
+            target,
+            runtimeSection);
         } else {
           observeAsync(
-            startPlatformDrill(target),
+            destination === "member"
+              ? navigateOrDrillPlatform(
+                target,
+                runtimeSection,
+                failureSurface)
+              : startPlatformDrill(target),
             "Opening a resident platform call-graph target");
         }
       } else if (platform) {
         observeAsync(
-          navigateOrDrillPlatform(target),
+          navigateOrDrillPlatform(
+            target,
+            runtimeSection,
+            failureSurface),
           "Opening a platform call-graph target");
       }
     },
@@ -8370,20 +8738,38 @@ function callGraphNodeBinding(
 function blockedCallGraphNodeBinding(
   target: BrowserCallGraphTarget,
   reason: string,
+  failureSurface: GraphNavigationFailureSurface = "call-graph",
 ): CallGraphNodeBinding {
   return {
     label: `Cannot open ${target.typeFullName}.${target.memberName}: ${reason}`,
     blocked: true,
     onSelect: () => {
+      if (failureSurface === "annotated") {
+        state.annotatedDestinationError =
+          `Could not open ${target.typeFullName}.${target.memberName}: ${reason}.`;
+        renderAndFocusAnnotated({ kind: "explore" }, "embedded");
+        return;
+      }
       invalidateGraphMemberNavigation();
       state.memberCallGraphSeq++;
       state.memberCallGraphExpanding = false;
       state.platformDrillLoading = false;
-      observeAsync(
-        showPlatformTargetError(target, reason),
-        "Reporting a blocked platform call-graph target");
+      state.memberSection = "call-graph";
+      state.graphMemberNavigationError =
+        `Could not open ${target.typeFullName}.${target.memberName}: ${reason}.`;
+      render();
     },
   };
+}
+
+function loadedGraphTargetPackage(
+  packages: readonly AppPackage[],
+  target: BrowserCallGraphTarget,
+): AppPackage | null {
+  const matches = packages.filter(pkg =>
+    pkg.assemblies.some(assembly =>
+      callGraphAssemblyIdentityMatches(target, assembly)));
+  return matches.length === 1 ? matches[0] ?? null : null;
 }
 
 function currentCallGraph() {
@@ -8446,18 +8832,29 @@ function findGraphMemberSelection(
 
 async function loadGraphMemberSurface(
   pkg: AppPackage,
-  type: AppTypeSurface,
   target: BrowserCallGraphTarget | GraphMemberShareIdentity,
+  type: AppTypeSurface | null = null,
 ) {
   return inspectGraphMemberSurface(
     pkg.id,
     pkg.version,
     pkg.activeFramework,
-    type.assembly,
+    graphMemberSurfaceAssembly(target, type),
     target.typeDefinitionId ?? "",
     target.memberName,
     target.selectorKey,
     target.metadataToken ?? 0);
+}
+
+function singleProjectedGraphMember(
+  type: BrowserTypeSurface,
+): BrowserMemberSurface {
+  const member = type.api[0];
+  if (!member || type.api.length !== 1) {
+    throw new Error(
+      "The projected graph type did not retain exactly one selected member.");
+  }
+  return member;
 }
 
 function stageGraphMemberSelection(
@@ -8525,6 +8922,8 @@ function commitGraphMemberSelection(
 async function navigateToGraphMember(
   loaded: ReturnType<typeof resolveLoadedGraphTarget>,
   target: BrowserCallGraphTarget,
+  section: "overview" | "source" = "overview",
+  failureSurface: GraphNavigationFailureSurface = "call-graph",
 ) {
   state.memberCallGraphSeq++;
   state.memberCallGraphExpanding = false;
@@ -8540,24 +8939,60 @@ async function navigateToGraphMember(
       loaded.type,
       loaded.group,
       loaded.overloadIndex,
-      selectedBodyTarget);
+      selectedBodyTarget,
+      section);
     return;
   }
 
+  await navigateToGraphMemberProjection(
+    loaded.pkg,
+    loaded.type,
+    target,
+    section,
+    failureSurface);
+}
+
+async function navigateToUnprojectedGraphMember(
+  pkg: AppPackage,
+  target: BrowserCallGraphTarget,
+  section: "overview" | "source",
+  failureSurface: GraphNavigationFailureSurface = "call-graph",
+) {
+  state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
+  state.platformDrillLoading = false;
+  state.platformDrillError = "";
+  await navigateToGraphMemberProjection(
+    pkg,
+    null,
+    target,
+    section,
+    failureSurface);
+}
+
+async function navigateToGraphMemberProjection(
+  pkg: AppPackage,
+  existingType: AppTypeSurface | null,
+  target: BrowserCallGraphTarget,
+  section: "overview" | "source",
+  failureSurface: GraphNavigationFailureSurface = "call-graph",
+) {
   const seq = ++state.graphMemberNavigationSeq;
   const owner = captureViewOperation(seq);
-  const packageKey = packageIdentityKey(loaded.pkg);
+  const packageKey = packageIdentityKey(pkg);
   const navigationIsCurrent = () =>
     ownsViewOperation(owner, state.graphMemberNavigationSeq)
-    && state.packages.some(pkg => packageIdentityKey(pkg) === packageKey);
-  state.graphMemberNavigationTitle = loaded.title;
+    && state.packages.some(candidate =>
+      packageIdentityKey(candidate) === packageKey);
+  state.graphMemberNavigationTitle =
+    `${stripArity(target.typeFullName.split(".").pop() ?? "")}.${target.memberName}`;
   state.graphMemberNavigationError = "";
   render();
   try {
     const projection = await loadGraphMemberSurface(
-      loaded.pkg,
-      loaded.type,
-      target);
+      pkg,
+      target,
+      existingType);
     if (!navigationIsCurrent()) {
       if (seq === state.graphMemberNavigationSeq) {
         state.graphMemberNavigationTitle = "";
@@ -8568,14 +9003,37 @@ async function navigateToGraphMember(
     const selectedTarget = graphMemberTargetWithSelectedBody(
       target,
       projection.selectedBody);
+    const projectedMember = singleProjectedGraphMember(projection.type);
+    const projectedType = createAppTypeSurface(projection.type);
+    if (!callGraphTargetMatchesType(target, projectedType)) {
+      throw new Error(
+        "The projected graph member did not retain the exact target type and member.");
+    }
+    const type = existingType ?? {
+      ...projectedType,
+      api: [],
+      graphOnly: true,
+    };
     const staged = stageGraphMemberSelection(
-      loaded.pkg,
-      loaded.type,
+      pkg,
+      type,
       selectedTarget,
-      projection.member);
+      projectedMember);
+    if (section === "source"
+      && !memberSectionIdsFor(
+        staged.selection.group,
+        pkg.isRuntimePack,
+        true).includes("source")) {
+      showGraphMemberNavigationError(
+        target,
+        "Source navigation is unavailable for this member.",
+        failureSurface);
+      return;
+    }
+    if (!existingType) pkg.types.push(type);
     const selection = commitGraphMemberSelection(
-      loaded.pkg,
-      loaded.type,
+      pkg,
+      type,
       selectedTarget,
       staged);
     state.graphMemberNavigationTitle = "";
@@ -8584,7 +9042,8 @@ async function navigateToGraphMember(
       selection.type,
       selection.group,
       selection.overloadIndex,
-      selection.selectedBodyTarget);
+      selection.selectedBodyTarget,
+      section);
   } catch (error) {
     if (!navigationIsCurrent()) {
       if (seq === state.graphMemberNavigationSeq) {
@@ -8593,11 +9052,28 @@ async function navigateToGraphMember(
       }
       return;
     }
-    state.graphMemberNavigationTitle = "";
-    state.graphMemberNavigationError =
-      `Could not open ${loaded.title}: ${errorMessage(error)}`;
-    render();
+    showGraphMemberNavigationError(
+      target,
+      errorMessage(error),
+      failureSurface);
   }
+}
+
+function showGraphMemberNavigationError(
+  target: BrowserCallGraphTarget,
+  reason: string,
+  failureSurface: GraphNavigationFailureSurface,
+) {
+  state.graphMemberNavigationTitle = "";
+  const message =
+    `Could not open ${target.typeFullName}.${target.memberName}: ${reason}`;
+  if (failureSurface === "annotated") {
+    state.annotatedDestinationError = message;
+    renderAndFocusAnnotated({ kind: "explore" }, "embedded");
+    return;
+  }
+  state.graphMemberNavigationError = message;
+  render();
 }
 
 async function restorePendingGraphMember() {
@@ -8630,8 +9106,8 @@ async function restorePendingGraphMember() {
     }
     const projection = await loadGraphMemberSurface(
       pkg,
-      type,
-      pending.target);
+      pending.target,
+      type);
     if (!restorationIsCurrent()) {
       discardIfOwned();
       return;
@@ -8639,11 +9115,12 @@ async function restorePendingGraphMember() {
     const selectedTarget = graphMemberTargetWithSelectedBody(
       pending.target,
       projection.selectedBody);
+    const projectedMember = singleProjectedGraphMember(projection.type);
     const staged = stageGraphMemberSelection(
       pkg,
       type,
       selectedTarget,
-      projection.member);
+      projectedMember);
     if (staged.selection.group.key !== pending.member) {
       throw new Error("The shared member identity does not match the graph target.");
     }
@@ -8757,7 +9234,11 @@ function popPlatformDrill() {
 // the workspace package. A not-yet-resident sibling assembly is acquired first so its
 // surface can resolve the target; in-place descent preserves the target's full assembly
 // identity when that surface has no unique member match.
-async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
+async function navigateOrDrillPlatform(
+  node: BrowserCallGraphTarget,
+  section: "overview" | "call-graph" = "call-graph",
+  failureSurface: GraphNavigationFailureSurface = "call-graph",
+) {
   invalidateGraphMemberNavigation();
   const seq = ++state.memberCallGraphSeq;
   const owner = captureViewOperation(seq);
@@ -8782,7 +9263,8 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
   if (!node.assembly || !callGraphTargetTypeId(node)) {
     await showPlatformTargetError(
       node,
-      "the graph target does not carry an exact assembly and type identity");
+      "the graph target does not carry an exact assembly and type identity",
+      failureSurface);
     return;
   }
   const framework = state.package?.activeFramework || "";
@@ -8824,11 +9306,17 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
     }
     state.platformDrillLoading = false;
     if (!pack) {
-      state.platformDrillError = runtimeResult.failureMessage
+      const message = runtimeResult.failureMessage
         || state.runtimePackError
         || `Could not load platform assembly ${node.assembly}.`;
-      renderPreservingMemberFocus(preservedFocus);
-      await renderMermaidCallGraph();
+      if (failureSurface === "annotated") {
+        state.annotatedDestinationError = message;
+        renderAndFocusAnnotated({ kind: "explore" }, "embedded");
+      } else {
+        state.platformDrillError = message;
+        renderPreservingMemberFocus(preservedFocus);
+        await renderMermaidCallGraph();
+      }
       return;
     }
     recordPlatformRecent(node.assembly, targetPack);
@@ -8838,7 +9326,8 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
   if (candidate.status === "ambiguous" || candidate.status === "skew") {
     await showPlatformTargetError(
       node,
-      graphTargetBlockedReason(candidate, "runtime"));
+      graphTargetBlockedReason(candidate, "runtime"),
+      failureSurface);
     return;
   }
   let selection = findRuntimeMemberSelection(pack, node, candidate);
@@ -8871,11 +9360,17 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
     }
     state.platformDrillLoading = false;
     if (!pack) {
-      state.platformDrillError = runtimeResult.failureMessage
+      const message = runtimeResult.failureMessage
         || state.runtimePackError
         || `Could not load platform assembly ${node.assembly}.`;
-      renderPreservingMemberFocus(preservedFocus);
-      await renderMermaidCallGraph();
+      if (failureSurface === "annotated") {
+        state.annotatedDestinationError = message;
+        renderAndFocusAnnotated({ kind: "explore" }, "embedded");
+      } else {
+        state.platformDrillError = message;
+        renderPreservingMemberFocus(preservedFocus);
+        await renderMermaidCallGraph();
+      }
       return;
     }
     recordPlatformRecent(node.assembly, targetPack);
@@ -8884,51 +9379,81 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
     if (candidate.status === "ambiguous" || candidate.status === "skew") {
       await showPlatformTargetError(
         node,
-        graphTargetBlockedReason(candidate, "runtime"));
+        graphTargetBlockedReason(candidate, "runtime"),
+        failureSurface);
       return;
     }
     selection = findRuntimeMemberSelection(pack, node, candidate);
   }
   if (candidate.status === "resident"
       || (candidate.status === "missing" && assemblyResident)) {
+    if (section === "overview") {
+      await showPlatformTargetError(
+        node,
+        "the platform target does not expose a selectable member overview",
+        failureSurface);
+      return;
+    }
     await drillPlatformNode(node, navigationIsCurrent);
     return;
   }
   if (candidate.status !== "unique") {
     await showPlatformTargetError(
       node,
-      "the loaded platform assembly does not contain the exact target identity");
+      "the loaded platform assembly does not contain the exact target identity",
+      failureSurface);
     return;
   }
   if (!navigationIsCurrent()) return;
   if (!selection) {
+    if (section === "overview") {
+      await showPlatformTargetError(
+        node,
+        "the platform target does not expose a selectable member overview",
+        failureSurface);
+      return;
+    }
     await drillPlatformNode(node, navigationIsCurrent);
     return;
   }
-  navigateToRuntimeMember(pack, selection.type, selection.group, selection.overloadIndex, node);
+  navigateToRuntimeMember(
+    pack,
+    selection.type,
+    selection.group,
+    selection.overloadIndex,
+    node,
+    section);
 }
 
 async function showPlatformTargetError(
   node: BrowserCallGraphTarget,
   reason: string,
+  failureSurface: GraphNavigationFailureSurface = "call-graph",
 ) {
   state.platformDrillLoading = false;
-  state.platformDrillError =
+  const message =
     `Could not open ${node.typeFullName}.${node.memberName}: ${reason}.`;
+  if (failureSurface === "annotated") {
+    state.annotatedDestinationError = message;
+    renderAndFocusAnnotated({ kind: "explore" }, "embedded");
+    return;
+  }
+  state.platformDrillError = message;
   render();
   focusPlatformGraphError(document);
   await renderMermaidCallGraph();
 }
 
-// Enter the resident runtime pack focused on one member's call graph. Mirrors
-// navigateToMember but targets the call-graph section (the reason the user clicked a graph
-// node) and clears any active platform descent so the new member's graph loads fresh.
+// Enter the resident runtime pack focused on one member. This mirrors
+// navigateToMember while clearing any active platform descent so the selected section
+// loads from a fresh runtime-member location.
 function navigateToRuntimeMember(
   pack: AppPackage,
   type: AppTypeSurface,
   group: AppMemberGroup,
   overloadIndex: number,
   bodyTarget: BodyTarget | null = null,
+  section: "overview" | "call-graph" = "call-graph",
 ) {
   invalidateGraphMemberNavigation();
   activatePackage(pack);
@@ -8944,7 +9469,7 @@ function navigateToRuntimeMember(
   state.memberBrowseTypeId = type.id;
   state.selectedMemberKey = group.key;
   state.selectedOverloadIndex = overloadIndex ?? 0;
-  state.memberSection = "call-graph";
+  state.memberSection = section;
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
@@ -8961,9 +9486,14 @@ function navigateToRuntimeMember(
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.annotatedDestinationError = "";
   state.selectedBodyTarget = bodyTarget;
   state.typeCursor = Math.max(0, filteredTypes().findIndex(item => item.id === type.id));
-  observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
+  if (section === "overview") {
+    observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
+  } else {
+    observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
+  }
 }
 
 // Resolve a platform call-graph node's structured identity to a concrete type, member
@@ -9067,21 +9597,8 @@ function renderDocViewer() {
   });
 }
 
-// The decompiler style ("taste") catalog, grouped by tier, as checkbox rows. Shared by the
-// detail-view taste popover and the Settings page so both stay in lockstep with the engine's
-// StyleOptionCatalog (fetched once into state.styleTiers/state.styleOptions).
-function renderTastePopoverHtml() {
-  return renderTastePopover(
-    {
-      styleTiers: state.styleTiers,
-      styleOptions: state.styleOptions,
-      styleCatalogError: state.styleCatalogError,
-      taste: state.taste,
-    },
-    escapeHtml);
-}
-
 function invalidateSourceCaches() {
+  invalidateSourceDestinationWork(state);
   state.memberSource = null;
   state.memberSourceKey = "";
   state.memberSourceError = "";
@@ -9091,6 +9608,7 @@ function invalidateSourceCaches() {
   state.memberAnnotated = null;
   state.memberAnnotatedKey = "";
   state.memberAnnotatedError = "";
+  state.annotatedDestinationError = "";
   state.memberAnnotatedEmbedded = null;
   state.memberAnnotatedModal = null;
 }
@@ -9152,7 +9670,6 @@ function clearTaste() {
 function openSettings(from: "home" | "workbench") {
   state.settingsReturn = from === "workbench" ? "workbench" : "home";
   state.settings = true;
-  state.tasteOpen = false;
   render();
 }
 
@@ -9198,6 +9715,7 @@ function navigateToMember(
   group: AppMemberGroup,
   overloadIndex: number | null = null,
   bodyTarget: BodyTarget | null = null,
+  section: "overview" | "source" = "overview",
 ) {
   invalidateGraphMemberNavigation();
   let selectedBodyTarget = bodyTarget;
@@ -9224,7 +9742,7 @@ function navigateToMember(
   state.memberBrowseTypeId = type.id;
   state.selectedMemberKey = group.key;
   state.selectedOverloadIndex = overloadIndex;
-  state.memberSection = "overview";
+  state.memberSection = section;
   state.memberSource = null;
   state.memberSourceError = "";
   state.memberCallGraph = null;
@@ -9234,8 +9752,13 @@ function navigateToMember(
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.annotatedDestinationError = "";
   state.selectedBodyTarget = selectedBodyTarget;
-  observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
+  if (section === "source") {
+    observeAsync(loadSelectedMemberSource(), "Loading member source");
+  } else {
+    observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
+  }
 }
 
 async function loadSelectedMemberFacts() {
@@ -9761,7 +10284,7 @@ async function restoreWorkspaceFromLocation(
   resetLocationFilters();
   clearWorkspacePackages();
   render();
-  const target: WorkspaceTab = {
+  const target: WorkspaceCoordinate = {
     id: loc.package,
     version: loc.version || "latest",
     framework: loc.framework || ""
@@ -9848,8 +10371,8 @@ async function restoreWorkspaceFromLocation(
         || (failedTabCount > 0
           ? "The shared workspace could not be restored completely."
           : canonicalTabCountPreserved
-            ? "A shared workspace tab resolved to a different version or framework than the packet requested."
-            : "The shared workspace tabs did not remain distinct after resolution."),
+            ? "A shared workspace coordinate resolved to a different version or framework than the packet requested."
+            : "The shared workspace coordinates did not remain distinct after resolution."),
       canonicalSnapshot);
     return;
   }
@@ -9879,7 +10402,6 @@ async function restoreWorkspaceFromLocation(
         }
         return;
       }
-      applyLocationView(loc);
     } else {
       const libraryFailure = applyLoadedPackageLibraryScope(
         targetModel,
@@ -9893,6 +10415,7 @@ async function restoreWorkspaceFromLocation(
         return;
       }
     }
+    applyLocationView(loc);
     const viewFailure = loc.shareState
       ? canonicalViewRestorationFailure(targetModel, deep, loc.lens)
       : null;
@@ -10016,6 +10539,8 @@ function failCanonicalWorkspaceRestore(
 function applyLocationView(loc: ParsedLocation) {
   state.lens = loc.lens || "api";
   state.atPackageRoot = loc.atPackageRoot || false;
+  state.workspaceSubjectOpen =
+    loc.workspaceSubjectOpen && state.atPackageRoot;
   state.packageLens = loc.packageLens || "overview";
 }
 
@@ -10471,18 +10996,6 @@ keybindings.register({
 });
 
 keybindings.register({
-  id: "taste.dismiss",
-  key: "Escape",
-  allowExtraModifiers: true,
-  priority: WORKBENCH_KEYBINDING_PRIORITY.popover,
-  when: () => workspaceKeyboardContextIsActive() && state.tasteOpen,
-  run: () => {
-    state.tasteOpen = false;
-    render();
-    return true;
-  },
-});
-keybindings.register({
   id: "workspace.drill-out-escape",
   key: "Escape",
   allowExtraModifiers: true,
@@ -10666,15 +11179,6 @@ keybindings.register({
 
 keybindings.attach(document);
 
-document.addEventListener("mousedown", event => {
-  if (!state.tasteOpen) return;
-  if (event.target instanceof Element
-    && (event.target.closest("#taste-popover")
-      || event.target.closest("#taste-btn"))) return;
-  state.tasteOpen = false;
-  render();
-});
-
 // Re-apply state when the address bar changes underneath us (browser back/forward, or a
 // hand-edited URL). Within the loaded package we mutate selection directly; a different
 // package is (re)loaded with the URL selection queued as a deep link.
@@ -10690,7 +11194,6 @@ function dismissModalsForRoutedNavigation() {
   const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal(false);
   state.settings = false;
   state.explorer = null;
-  state.tasteOpen = false;
   spotlight.reset();
   sourceInspection.clearGraphSource();
   documentInspection.clear();
@@ -10702,8 +11205,7 @@ window.addEventListener("popstate", () => {
   const navigationSeq = navigationSequence.begin();
   let leftPackageQueryForWorkspaceSuccessor = false;
   const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation();
-  invalidateMemberCallGraphWork(state);
-  invalidateGraphMemberNavigation();
+  invalidateMemberDestinationWork(state);
   if (dismissedAnnotatedSourceModal) render({ synchronizeUrl: false });
   if (isPackageQueryPath(location.pathname)) {
     clearNavigationError();

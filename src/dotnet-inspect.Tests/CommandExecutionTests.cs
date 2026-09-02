@@ -15220,7 +15220,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_CallGraph_VersionSkewedCallerScopeWarns()
+    public async Task Member_CallGraph_VersionSkewedCallerScopeIsCompleteAndEmpty()
     {
         string directory = Directory.CreateTempSubdirectory(
             "dotnet-inspect-version-skew-").FullName;
@@ -15255,9 +15255,7 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Contains("## Call Graph", output);
             Assert.DoesNotContain("Shared.Entry.Run", output);
-            Assert.Contains(
-                "Warning: Call graph results are incomplete because one or more assembly bindings could not be completely reconciled within the selected graph scope.",
-                error);
+            Assert.Empty(error);
         }
         finally
         {

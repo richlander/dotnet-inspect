@@ -47,6 +47,7 @@ import {
   graphTargetNavigationDisposition,
   graphMemberDeepLinkDisposition,
   graphMemberPendingMatchesView,
+  graphMemberSurfaceAssembly,
   graphMemberShareTarget,
   graphMemberSelection,
   graphMemberTargetWithSelectedBody,
@@ -550,8 +551,11 @@ const scopeBarSource = readFileSync(
 const settingsPanelSource = readFileSync(
   new URL("../src/settings-panel.ts", import.meta.url),
   "utf8");
-const packageBarSource = readFileSync(
-  new URL("../src/package-bar.ts", import.meta.url),
+const packageControlsSource = readFileSync(
+  new URL("../src/package-controls.ts", import.meta.url),
+  "utf8");
+const workspaceSubjectSource = readFileSync(
+  new URL("../src/workspace-subject.ts", import.meta.url),
   "utf8");
 const metadataViewerSource = readFileSync(
   new URL("../src/metadata-viewer.ts", import.meta.url),
@@ -560,7 +564,7 @@ const packageOpportunitiesSource = readFileSync(
   new URL("../src/package-opportunities.ts", import.meta.url),
   "utf8");
 const applicationSources =
-  `${appSource}\n${graphSource}\n${packageBarSource}\n${metadataViewerSource}`;
+  `${appSource}\n${graphSource}\n${packageControlsSource}\n${workspaceSubjectSource}\n${metadataViewerSource}`;
 const stylesSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const indexSource = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const generatedEngineModuleUrl =
@@ -886,27 +890,30 @@ test("typed status bar owns its rendered toggle binding", () => {
     3);
 });
 
-test("typed package bar owns package framework and version selection bindings", () => {
-  const packageBarCreation =
-    appSource.match(/const packageBar = createPackageBar\(\{[\s\S]*?\n}\);/)?.[0]
+test("typed package controls own framework and version selection bindings", () => {
+  const packageControlsCreation =
+    appSource.match(/const packageControls = createPackageControls\(\{[\s\S]*?\n}\);/)?.[0]
     ?? "";
-  const packageBarBinding =
-    packageBarSource.match(/  function bind\(root: ParentNode\): void \{[\s\S]*?\n  }(?=\n\n  return)/)?.[0]
+  const packageControlsBinding =
+    packageControlsSource.match(/  function bind\(root: ParentNode\): void \{[\s\S]*?\n  }(?=\n\n  return)/)?.[0]
     ?? "";
   const workspaceBinding =
     appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
     ?? "";
   assert.match(
-    packageBarCreation,
+    packageControlsCreation,
     /selectFramework: framework =>\s*observeAsync\(\s*switchPackageFramework\(framework\),\s*"Switching the package framework"\),[\s\S]*selectVersion: version => \{[\s\S]*state\.package\?\.isRuntimePack[\s\S]*observeAsync\(\s*switchPlatformVersion\(version\),\s*"Switching the platform version"\);[\s\S]*else\s*observeAsync\(\s*switchPackageVersion\(version\),\s*"Switching the package version"\)/);
   assert.match(
-    packageBarSource,
-    /export function bindPackageSelections\([\s\S]*\[data-framework-chip\][\s\S]*#framework[\s\S]*#package-version/);
+    packageControlsSource,
+    /export function bindPackageSelections\([\s\S]*#framework[\s\S]*#package-version/);
   assert.match(
-    packageBarBinding,
+    appSource,
+    /function packageCoordinateControls\(\)[\s\S]*id="package-version"[\s\S]*id="framework"/);
+  assert.match(
+    packageControlsBinding,
     /bindPackageSelections\(root, \{\s*onFrameworkSelect: selectFramework,\s*onVersionSelect: selectVersion,\s*\}\)/);
   assert.equal(
-    workspaceBinding.match(/\bpackageBar\.bind\(document\)/g)?.length,
+    workspaceBinding.match(/\bpackageControls\.bind\(document\)/g)?.length,
     1);
   assert.doesNotMatch(
     workspaceBinding,
@@ -1173,7 +1180,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     ?? "";
   assert.match(
     shellControlsSource,
-    /export function bindWorkbenchShell\([\s\S]*#share[\s\S]*#dismiss-notice[\s\S]*#retry-notice[\s\S]*#dismiss-package-notice[\s\S]*#nav-back[\s\S]*#nav-forward[\s\S]*#go-home[\s\S]*#theme-toggle[\s\S]*#help/);
+    /export function bindWorkbenchShell\([\s\S]*\[data-subject-copy\][\s\S]*#share[\s\S]*#dismiss-notice[\s\S]*#retry-notice[\s\S]*#dismiss-package-notice[\s\S]*#nav-back[\s\S]*#nav-forward[\s\S]*#open-search[\s\S]*#help[\s\S]*export function focusWorkbenchSearch\([\s\S]*#open-search/);
   assert.match(
     shellControlsSource,
     /export function bindHomeShell\([\s\S]*#home-theme[\s\S]*#dismiss-notice[\s\S]*#home-credits[\s\S]*\[data-home-demo\]/);
@@ -1182,7 +1189,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /export function bindLoadErrorShell\([\s\S]*#retry-load[\s\S]*#error-package-query[\s\S]*#error-package-input[\s\S]*#toggle-error-detail[\s\S]*\.load-error-detail/);
   assert.match(
     shellControlsSource,
-    /import \{\s*parsePackageQuery,\s*type ParsedPackageQuery,\s*\} from "\.\/package-bar\.ts"/);
+    /import \{\s*parsePackageQuery,\s*type ParsedPackageQuery,\s*\} from "\.\/package-controls\.ts"/);
   assert.equal(
     workspaceBinding.match(/\bbindWorkbenchShell\(\b/g)?.length,
     1);
@@ -1197,13 +1204,13 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /app\.innerHTML = `[\s\S]*bindLoadErrorShell\(document, loadErrorShellActions\)/);
   assert.match(
     workbenchActions,
-    /onDismissNotice: dismissQueryNotice,\n  onDismissPackageNotice:/);
+    /onCopySubjectSegment: index => \{[\s\S]*currentInspectedSubjectPath\(\)\[index\][\s\S]*copyText\(segment\.label, `\$\{segment\.kind\} name copied`\)[\s\S]*onDismissNotice: dismissQueryNotice,\n  onDismissPackageNotice:/);
   assert.match(
     workbenchActions,
-    /onDismissPackageNotice: \(\) => \{[\s\S]*pkg\.inspectionErrors = \[\];[\s\S]*pkg\.inspectionError = "";[\s\S]*render\(\);\s*\},\n  onGoHome:/);
+    /onDismissPackageNotice: \(\) => \{[\s\S]*pkg\.inspectionErrors = \[\];[\s\S]*pkg\.inspectionError = "";[\s\S]*render\(\);\s*\},\n  onHelp:/);
   assert.match(
     workbenchActions,
-    /onGoHome: goHome,[\s\S]*onHelp: \(\) => showToast\([\s\S]*onNavigateBack: navBack,[\s\S]*onNavigateForward: navForward,[\s\S]*onRetryNotice: \(\) => \{[\s\S]*state\.queryNoticeRetryAction;[\s\S]*if \(retryAction\) observeAction\(retryAction, "Retrying the inspection"\);[\s\S]*onShare: \(\) => void share\(\),[\s\S]*onToggleTheme: toggleTheme/);
+    /onHelp: \(\) => showToast\([\s\S]*onNavigateBack: navBack,[\s\S]*onNavigateForward: navForward,[\s\S]*onRetryNotice: \(\) => \{[\s\S]*state\.queryNoticeRetryAction;[\s\S]*if \(retryAction\) observeAction\(retryAction, "Retrying the inspection"\);[\s\S]*onSearch: \(\) => openSpotlight\(\),[\s\S]*onShare: \(\) => void share\(\)/);
   assert.match(
     homeActions,
     /onDemo: runHomeDemo,\s*onDismissNotice: dismissQueryNotice,\s*onOpenCredits: openCredits,\s*onToggleTheme: toggleTheme/);
@@ -1212,14 +1219,49 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /onOpenPackage: openPackageQuery,\s*onRetry: \(\) => \{\s*if \(state\.retryAction === retryUnavailable\) return;\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\);\s*\}/);
   assert.doesNotMatch(
     appSource,
-    /\bquerySelector(?:All)?(?:<[^>]+>)?\("(?:#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|go-home|theme-toggle|help|home-theme|home-credits|retry-load|error-package-query|error-package-input|toggle-error-detail)|\[data-home-demo\]|\.load-error-detail)"\)/);
+    /\bquerySelector(?:All)?(?:<[^>]+>)?\("(?:#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|open-search|help|home-theme|home-credits|retry-load|error-package-query|error-package-input|toggle-error-detail)|\[data-subject-copy\]|\[data-home-demo\]|\.load-error-detail)"\)/);
   assert.doesNotMatch(
     workspaceBinding,
-    /#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|go-home|theme-toggle|help)/);
+    /#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|open-search|help)/);
   assert.doesNotMatch(homeBinding, /#(?:home-theme|dismiss-notice|home-credits)|\[data-home-demo\]/);
   assert.doesNotMatch(
     loadingBinding,
     /#(?:retry-load|error-package-query|error-package-input|toggle-error-detail)|"\.load-error-detail"/);
+});
+
+test("the title line advertises the typed target above the subject strip", () => {
+  const renderNode = functionDeclaration("render");
+  const subjectPathNode = functionDeclaration("inspectedSubjectPath");
+  const subjectPathRenderer = functionDeclaration("renderInspectedSubjectPath");
+  const subjectIconRenderer =
+    functionDeclaration("renderInspectedSubjectIcon");
+  const render = appSource.slice(renderNode.start, renderNode.end);
+  const subjectPath = appSource.slice(subjectPathNode.start, subjectPathNode.end);
+  const renderer =
+    appSource.slice(subjectPathRenderer.start, subjectPathRenderer.end);
+  const iconRenderer =
+    appSource.slice(subjectIconRenderer.start, subjectIconRenderer.end);
+
+  assert.match(
+    render,
+    /workbenchShellHtml\(\{[\s\S]*inspectedTargetHtml:[\s\S]*class="inspected-target"[\s\S]*renderInspectedSubjectIcon\(pkg\)[\s\S]*class="subject-path"[\s\S]*titleNavigationHtml:[\s\S]*class="title-navigation"[\s\S]*id="nav-back"[\s\S]*id="nav-forward"[\s\S]*id="open-search"[\s\S]*<header class="subject-zone"[\s\S]*renderScopeBar\(\)[\s\S]*class="shell-actions[\s\S]*id="share"[\s\S]*id="open-settings"[\s\S]*id="help"[\s\S]*<main id="subject-panel" class="workspace"/);
+  assert.doesNotMatch(render, /id="copy-name"|id="taste-btn"/);
+  assert.doesNotMatch(
+    render,
+    /<section class="detail-pane">\s*<header class="detail-head">/);
+  assert.match(
+    subjectPath,
+    /kind: "package"[\s\S]*label: packageDisplayName\(pkg\)[\s\S]*kind: "type"[\s\S]*current\.namespace[\s\S]*kind: "member"[\s\S]*label: member\.name/);
+  assert.match(
+    renderer,
+    /segment\.label[\s\S]*segment\.copyable[\s\S]*data-subject-copy="\$\{index\}"[\s\S]*segment\.kind/);
+  assert.match(
+    iconRenderer,
+    /pkg\.icon[\s\S]*data:\$\{pkg\.icon\.mediaType\};base64,\$\{pkg\.icon\.base64\}[\s\S]*NUGET_DEFAULT_PACKAGE_ICON/);
+  assert.doesNotMatch(iconRenderer, /⬡|iconUrl/);
+  assert.match(
+    appSource,
+    /NUGET_DEFAULT_PACKAGE_ICON[\s\S]*default-package-icon-256x256\.png[\s\S]*data-package-icon[\s\S]*packageIcon\.onerror =[\s\S]*packageIcon\.src = NUGET_DEFAULT_PACKAGE_ICON/);
 });
 
 test("typed graph interactions own graph controls and Mermaid node bindings", () => {
@@ -1282,7 +1324,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /callGraph\.targets\?\.find\(candidate => candidate\.id === nodeId\)[\s\S]*const drilled =\s*state\.platformStack\.length > 0 \|\| Boolean\(state\.package\?\.isRuntimePack\);[\s\S]*resolveRuntimeGraphTargetCandidate\(pack, target\)[\s\S]*runtimeGraphTargetNavigationDisposition\([\s\S]*blockedCallGraphNodeBinding/);
   assert.match(
     callGraphBinding,
-    /if \(disposition === "member" && pack && resident\) \{[\s\S]*navigateToRuntimeMember\([\s\S]*\} else if \(disposition === "lookup"\) \{[\s\S]*navigateOrDrillPlatform\(target\)[\s\S]*\} else \{[\s\S]*startPlatformDrill\(target\)/);
+    /if \(disposition === "member" && pack && resident\) \{[\s\S]*navigateToRuntimeMember\([\s\S]*\} else if \(disposition === "lookup"\) \{[\s\S]*navigateOrDrillPlatform\([\s\S]*target,[\s\S]*runtimeSection,[\s\S]*failureSurface\)[\s\S]*\} else if \(destination === "member"\)[\s\S]*startPlatformDrill\(target\)/);
   assert.match(
     callGraphBinding,
     /const loaded = disposition === "loaded" && candidate\.status === "unique"\s*\? resolveLoadedGraphTarget\(target, candidate\)\s*: null/);
@@ -1291,7 +1333,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /combinedGraphTargetNavigationDisposition\(\s*candidate,\s*runtimeCandidate,\s*target,\s*runtimeResident\)/);
   assert.match(
     callGraphBinding,
-    /if \(loaded\) \{[\s\S]*navigateToGraphMember\(loaded, target\)[\s\S]*\} else if \(disposition === "resident"\) \{[\s\S]*startPlatformDrill\(target\)[\s\S]*\} else if \(platform\) \{[\s\S]*navigateOrDrillPlatform\(target\)/);
+    /if \(loaded\) \{[\s\S]*navigateToGraphMember\([\s\S]*loaded,[\s\S]*target,[\s\S]*loadedSection,[\s\S]*failureSurface\)[\s\S]*\} else if \(disposition === "resident"\) \{[\s\S]*startPlatformDrill\(target\)[\s\S]*\} else if \(platform\) \{[\s\S]*navigateOrDrillPlatform\([\s\S]*target,[\s\S]*runtimeSection,[\s\S]*failureSurface\)/);
   assert.match(
     graphInteractionsSource,
     /resolveCallGraphNode[\s\S]*setAttribute\("tabindex", "0"\)[\s\S]*setAttribute\("role", "button"\)[\s\S]*setAttribute\("aria-label", binding\.label\)[\s\S]*addEventListener\("click"[\s\S]*id: "call-graph-node\.activate"[\s\S]*key: \["Enter", " "\]/);
@@ -1309,7 +1351,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.doesNotMatch(
     appSource,
     /document\.querySelector\("\[data-graph-back\]"\)/);
-  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 3);
+  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 2);
 });
 
 test("typed document inspection owns package document request coordination", () => {
@@ -1392,7 +1434,7 @@ test("typed type panel owns its rendered control bindings", () => {
     1);
   assert.match(
     appSource,
-    /function bindEvents\(\) \{\s*bindStatusBarEvents\(\);\s*packageBar\.bind\(document\);\s*bindTypePanelEvents\(\);/);
+    /function bindEvents\(\) \{\s*bindStatusBarEvents\(\);\s*packageControls\.bind\(document\);\s*bindWorkspaceSubjectEvents\(\);\s*bindTypePanelEvents\(\);/);
   assert.match(
     typePanelSource,
     /export function bindTypePanel\([\s\S]*\[data-type\][\s\S]*\[data-namespace\][\s\S]*\[data-kind-filter\][\s\S]*\[data-nav-member\][\s\S]*\[data-nav-overload\][\s\S]*#nav-to-types[\s\S]*#clear-filter[\s\S]*#namespace-jump[\s\S]*#type-list[\s\S]*#type-filter/);
@@ -1401,7 +1443,8 @@ test("typed type panel owns its rendered control bindings", () => {
     /\[data-member-kind-filter\][\s\S]*\[data-member-access-filter\][\s\S]*\[data-member-trait-filter\][\s\S]*#clear-member-filter[\s\S]*#member-filter/);
   assert.match(
     typePanelSource,
-    /\[data-member-jump-kind\][\s\S]*\[data-member-jump-access\][\s\S]*\[data-member-jump-trait\][\s\S]*\[data-member\][\s\S]*\[data-overload\][\s\S]*#member-back[\s\S]*#copy-name[\s\S]*#copy-signature[\s\S]*\[data-copy-anchor\][\s\S]*#copy-source[\s\S]*#copy-type-source/);
+    /\[data-member-jump-kind\][\s\S]*\[data-member-jump-access\][\s\S]*\[data-member-jump-trait\][\s\S]*\[data-member\][\s\S]*\[data-overload\][\s\S]*#member-back[\s\S]*#copy-signature[\s\S]*\[data-copy-anchor\][\s\S]*#copy-source[\s\S]*#copy-type-source/);
+  assert.doesNotMatch(typePanelSource, /#copy-name|onCopyName/);
   assert.doesNotMatch(
     appSource,
     /document\.querySelectorAll<HTMLElement>\("\[data-member-(?:kind|access|trait)-filter\]"\)/);
@@ -1413,7 +1456,7 @@ test("typed type panel owns its rendered control bindings", () => {
     /document\.querySelectorAll<HTMLElement>\("\[data-(?:member-jump-(?:kind|access|trait)|member|overload|copy-anchor)\]"\)/);
   assert.doesNotMatch(
     appSource,
-    /document\.querySelector\("#(?:member-back|copy-name|copy-signature|copy-source|copy-type-source)"\)/);
+    /document\.querySelector\("#(?:member-back|copy-signature|copy-source|copy-type-source)"\)/);
   assert.match(
     binding,
     /const enterMemberNavigation = \(action: \(\) => void\) => \{[\s\S]*beginSpotlightNavigation\(\);[\s\S]*action\(\);[\s\S]*focusTypeList\(focusGeneration\)/);
@@ -1441,9 +1484,9 @@ test("typed type panel owns its rendered control bindings", () => {
   assert.match(
     binding,
     /onMemberBack: drillOut[\s\S]*onMemberOverloadOpen: openOverload/);
-  assert.match(
+  assert.doesNotMatch(
     binding,
-    /onCopyName: \(\) => \{[\s\S]*const fullName = member \? `\$\{typeName\}\.\$\{member\.name\}` : typeName;[\s\S]*void copyText\(fullName, "name copied"\)/);
+    /onCopyName|currentInspectedSubjectName/);
   assert.match(
     binding,
     /onCopySignature: \(\) => \{[\s\S]*void copyText\(overload\.signature, "signature copied"\)/);
@@ -1496,16 +1539,18 @@ test("typed scope bar owns its rendered control bindings", () => {
   const rootScopeCall = onlyCallExpressionNamed(appSyntax, "bindScopeBarEvents");
   assert.equal(rootScopeCall.arguments.length, 0);
   const innerScopeCall = onlyCallExpressionNamed(appSyntax, "bindScopeBar");
-  assert.equal(innerScopeCall.arguments.length, 2);
+  assert.equal(innerScopeCall.arguments.length, 3);
   assertIdentifierArgument(innerScopeCall, 0, "document", "bindScopeBar");
+  assertIdentifierArgument(innerScopeCall, 2, "scopeBarState", "bindScopeBar");
   assert.equal(
     callExpressionsNamed(scopeEventBinder, "bindScopeBar").length,
     1);
   assert.equal(
-    directCallExpression(
-      onlySyntaxNode(scopeEventBinder.body.body, "bindScopeBarEvents body"),
-      "bindScopeBar"),
-    innerScopeCall);
+    scopeEventBinder.body.body.filter(statement =>
+      statement.type === "ExpressionStatement"
+      && statement.expression.type === "AssignmentExpression"
+      && statement.expression.right === innerScopeCall).length,
+    1);
   assert.equal(
     callExpressionsNamed(rootEventBinder, "bindScopeBarEvents").length,
     1);
@@ -1533,37 +1578,56 @@ test("typed scope bar owns its rendered control bindings", () => {
     statementSignatures(scope.body.body),
     [
       {
-        if: 'target === "package"',
-        whenTrue: ["assign:state.atPackageRoot = true"],
+        if: 'target === "workspace"',
+        whenTrue: [
+          "assign:state.workspaceSubjectOpen = true",
+          "assign:state.atPackageRoot = true",
+          'assign:state.selectedMemberKey = ""',
+          'assign:state.memberBrowseTypeId = ""',
+          "assign:state.selectedOverloadIndex = null",
+        ],
         whenFalse: [
           {
-            if: 'target === "type"',
+            if: 'target === "package"',
             whenTrue: [
-              "assign:state.atPackageRoot = false",
-              {
-                if: "!state.selectedTypeId",
-                whenTrue: [
-                  "declare:const first = filteredTypes()[0]",
-                  {
-                    if: "first",
-                    whenTrue: ["assign:state.selectedTypeId = first.id"],
-                    whenFalse: [],
-                  },
-                ],
-                whenFalse: [],
-              },
-              'assign:state.selectedMemberKey = ""',
-              'assign:state.memberBrowseTypeId = ""',
-              "assign:state.selectedOverloadIndex = null",
+              "assign:state.workspaceSubjectOpen = false",
+              "assign:state.atPackageRoot = true",
             ],
             whenFalse: [
               {
-                if: 'target === "member"',
-                whenTrue: ["call:enterMemberScope()"],
-                // A scope this dispatch does not handle is now a compile error rather
-                // than a silently ignored click.
-                whenFalse: ['call:assertNever(target, "workspace scope")'],
-              },
+                if: 'target === "type"',
+                whenTrue: [
+                  "assign:state.workspaceSubjectOpen = false",
+                  "assign:state.atPackageRoot = false",
+                  {
+                    if: "!state.selectedTypeId",
+                    whenTrue: [
+                      "declare:const first = filteredTypes()[0]",
+                      {
+                        if: "first",
+                        whenTrue: ["assign:state.selectedTypeId = first.id"],
+                        whenFalse: [],
+                      },
+                    ],
+                    whenFalse: [],
+                  },
+                  'assign:state.selectedMemberKey = ""',
+                  'assign:state.memberBrowseTypeId = ""',
+                  "assign:state.selectedOverloadIndex = null",
+                ],
+                whenFalse: [
+                  {
+                    if: 'target === "member"',
+                    whenTrue: [
+                      "assign:state.workspaceSubjectOpen = false",
+                      "call:enterMemberScope()",
+                    ],
+                    // A scope this dispatch does not handle is now a compile error rather
+                    // than a silently ignored click.
+                    whenFalse: ['call:assertNever(target, "workspace scope")'],
+                  },
+                ],
+              }
             ],
           },
         ],
@@ -1690,7 +1754,7 @@ test("typed settings panel owns its rendered control bindings", () => {
   assert.equal(innerSettingsCall.arguments.length, 2);
   assertIdentifierArgument(innerSettingsCall, 0, "document", "bindSettingsPanel");
   const actions = objectArgument(innerSettingsCall, 1, "bindSettingsPanel");
-  assert.equal(actions.properties.length, 6);
+  assert.equal(actions.properties.length, 5);
   const settingsActions: readonly (readonly [string, string])[] = [
     ["onClose", "closeSettings"],
     ["onOpen", "openSettings"],
@@ -1705,13 +1769,6 @@ test("typed settings panel owns its rendered control bindings", () => {
       `${name} settings action must be an identifier, found ${target.type}`);
     assert.equal(target.name, value);
   }
-  const tasteOpenToggle = callbackProperty(actions, "onTasteOpenToggle");
-  assert.deepEqual(
-    statementSignatures(tasteOpenToggle.body.body),
-    [
-      "assign:state.tasteOpen = !state.tasteOpen",
-      "call:render()",
-    ]);
   assert.match(
     appSource,
     /import \{(?=[^}]*\bbindSettingsPanel,)[^}]*} from "\.\/settings-panel\.ts";/);
@@ -1720,15 +1777,18 @@ test("typed settings panel owns its rendered control bindings", () => {
     /\bquerySelector(?:All)?\b|\baddEventListener\b/);
   assert.match(
     settingsPanelSource,
-    /export function bindSettingsPanel\([\s\S]*#settings-close[\s\S]*#home-settings[\s\S]*#open-settings[\s\S]*#taste-btn[\s\S]*stopPropagation\(\)[\s\S]*\.settings-seg\[data-theme\][\s\S]*\.settings-taste \[data-taste\][\s\S]*#settings-taste-clear[\s\S]*#taste-popover \[data-taste\][\s\S]*#taste-clear/);
+    /export function bindSettingsPanel\([\s\S]*#settings-close[\s\S]*#home-settings[\s\S]*#open-settings[\s\S]*\.settings-seg\[data-theme\][\s\S]*\.settings-taste \[data-taste\][\s\S]*#settings-taste-clear/);
+  assert.doesNotMatch(
+    settingsPanelSource,
+    /#taste-btn|#taste-popover|#taste-clear|renderTastePopover|onTasteOpenToggle/);
   const nonSettingsPanelSource = productionTypeScriptSources
     .filter(({ path }) => path.replaceAll("\\", "/") !== "settings-panel.ts")
     .map(({ source }) => source)
     .join("\n");
   const entrySelectorAccess =
-    /(?:querySelector(?:All)?\s*(?:<[^>\n]+>)?|getElementById)\s*\(\s*(["'`])#?(?:home-settings|open-settings|taste-btn)\1\s*\)/g;
+    /(?:querySelector(?:All)?\s*(?:<[^>\n]+>)?|getElementById)\s*\(\s*(["'`])#?(?:home-settings|open-settings)\1\s*\)/g;
   assert.equal(nonSettingsPanelSource.match(entrySelectorAccess)?.length ?? 0, 0);
-  assert.equal(settingsPanelSource.match(entrySelectorAccess)?.length, 3);
+  assert.equal(settingsPanelSource.match(entrySelectorAccess)?.length, 2);
   for (const selector of ["#home-settings", "#open-settings"]) {
     const selectorToken = new RegExp(`${selector}(?![-\\w])`, "g");
     assert.equal(
@@ -1740,23 +1800,14 @@ test("typed settings panel owns its rendered control bindings", () => {
       1,
       selector);
   }
-  assert.equal(
-    nonSettingsPanelSource.match(/#taste-btn(?![-\w])/g)?.length,
-    1);
-  assert.equal(
-    nonSettingsPanelSource.match(
-      /\.closest\(\s*(["'`])#taste-btn\1\s*\)/g)?.length,
-    1);
-  assert.equal(
-    settingsPanelSource.match(/#taste-btn(?![-\w])/g)?.length,
-    1);
+  assert.doesNotMatch(
+    productionTypeScriptSources.map(({ source }) => source).join("\n"),
+    /#taste-btn|#taste-popover|#taste-clear|tasteOpen/);
   for (const selector of [
     "#settings-close",
     ".settings-seg[data-theme]",
     ".settings-taste [data-taste]",
     "#settings-taste-clear",
-    "#taste-popover [data-taste]",
-    "#taste-clear",
   ]) {
     assert.equal(appSource.split(selector).length - 1, 0, selector);
   }
@@ -2055,7 +2106,7 @@ test("annotated source Escape and history ownership track the mounted surface", 
     ?? "";
   assert.match(
     popstate,
-    /const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberCallGraphWork\(state\);\s*invalidateGraphMemberNavigation\(\);\s*if \(dismissedAnnotatedSourceModal\) render\(\{ synchronizeUrl: false \}\);\s*if \(isPackageQueryPath/);
+    /const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberDestinationWork\(state\);\s*if \(dismissedAnnotatedSourceModal\) render\(\{ synchronizeUrl: false \}\);\s*if \(isPackageQueryPath/);
   assert.match(
     appSource,
     /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\)[\s\S]*if \(options\.synchronizeUrl !== false\) syncUrl\(\)/);
@@ -2119,12 +2170,12 @@ test("global workbench shortcuts respect the topmost modal", () => {
   assert.match(
     appSource,
     /id: "spotlight\.open-commands"[\s\S]*commandOrControl: true[\s\S]*openSpotlight\("", "commands"\)[\s\S]*id: "spotlight\.open-all"[\s\S]*openSpotlight\(\)[\s\S]*id: "spotlight\.contain-browser-find"/);
+  assert.doesNotMatch(
+    appSource,
+    /id: "taste\.dismiss"|state\.tasteOpen/);
   assert.match(
     appSource,
-    /id: "taste\.dismiss"[\s\S]*priority: WORKBENCH_KEYBINDING_PRIORITY\.popover[\s\S]*state\.tasteOpen = false/);
-  assert.match(
-    appSource,
-    /function openSpotlight\(seed = "", spotlightScope: SpotlightScope = "all"\) \{\s*if \(state\.loading \|\| state\.error\) return;\s*state\.tasteOpen = false;/);
+    /function openSpotlight\(seed = "", spotlightScope: SpotlightScope = "all"\) \{\s*if \(state\.loading \|\| state\.error\) return;\s*beginSpotlightNavigation\(\)/);
   assert.match(
     spotlightSource,
     /function bind\(root: ParentNode, mode: "modal" \| "inline"\)[\s\S]*if \(mode === "modal"\)[\s\S]*focus\(\);/);
@@ -2150,7 +2201,7 @@ test("global workbench shortcuts respect the topmost modal", () => {
     [
       appSource,
       graphInteractionsSource,
-      packageBarSource,
+      packageControlsSource,
       spotlightSource,
       typePanelSource,
     ].join("\n").match(/addEventListener\(\s*"keydown"/g)?.length ?? 0,
@@ -2298,7 +2349,7 @@ test("bare home paints before wasm engine download", () => {
     /state\.retryAction = \(\) => window\.location\.reload\(\)/);
   assert.match(
     errorPackageRecovery,
-    /findPackageTabForQuery\(state, query\)[\s\S]*selectPackageTab\(packageTab\);[\s\S]*return;[\s\S]*if \(!state\.engineReady\) \{[\s\S]*window\.location\.assign\(url\);[\s\S]*return;[\s\S]*\}\s*observeAsync\(\s*loadPackage\(query\.packageId, query\.version, ""\)/);
+    /findOpenPackageForQuery\(state, query\)[\s\S]*selectWorkspacePackage\(openPackage\);[\s\S]*return;[\s\S]*if \(!state\.engineReady\) \{[\s\S]*window\.location\.assign\(url\);[\s\S]*return;[\s\S]*\}\s*observeAsync\(\s*loadPackage\(query\.packageId, query\.version, ""\)/);
   assert.match(
     loadingView,
     /id="error-package-query"[\s\S]*bindLoadErrorShell\(document, loadErrorShellActions\)/);
@@ -2532,7 +2583,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /function commitWorkspaceShareBasis\([\s\S]*state\.workspaceShareBasis = basis;[\s\S]*sourceInspection\.clearGraphSource\(\)/);
   assert.match(
     history,
-    /invalidateMemberCallGraphWork\(state\)[\s\S]*captureCanonicalWorkspaceRestoreSnapshot/);
+    /invalidateMemberDestinationWork\(state\)[\s\S]*captureCanonicalWorkspaceRestoreSnapshot/);
   assert.match(
     appSource,
     /const \{ tabs, preservesBasis \} = capturedShareTabs\(\);[\s\S]*browserCreatedCallGraphTabIds\(tabs, activeIndex\)/);
@@ -2616,7 +2667,7 @@ test("malformed package routes use the contained restore failure path", () => {
     /function clearWorkspaceRouteFailure\(recoveryUrl\?: string\) \{\s*if \(failedWorkspaceUrlState\?\.kind !== "route"\) return true;\s*if \(!recoverWorkspaceRouteFailure\(\s*failedWorkspaceUrlState,\s*location,\s*url => workspaceLocation\.replace\(url, history\.state\),\s*recoveryUrl\)\) \{\s*return false;\s*\}\s*failedWorkspaceUrlState = null;\s*return true;\s*\}[\s\S]*function dismissQueryNotice\(\) \{\s*const routeFailureOnHome =\s*failedWorkspaceUrlState\?\.kind === "route" && state\.home;\s*state\.queryNotice = "";\s*state\.queryNoticeRetryAction = null;\s*if \(!clearWorkspaceRouteFailure\(routeFailureOnHome \? "\/" : undefined\)\) \{\s*render\(\);\s*return;\s*\}\s*failedWorkspaceUrlState = null;\s*render\(\);\s*\}/);
   assert.match(
     appSource,
-    /const workbenchShellActions: WorkbenchShellBindingActions = \{\s*onDismissNotice: dismissQueryNotice,/);
+    /const workbenchShellActions: WorkbenchShellBindingActions = \{\s*onCopySubjectSegment: index => \{[\s\S]*onDismissNotice: dismissQueryNotice,/);
   assert.match(
     appSource,
     /const homeShellActions: HomeShellBindingActions = \{\s*onDemo: runHomeDemo,\s*onDismissNotice: dismissQueryNotice,/);
@@ -2648,9 +2699,9 @@ test("member entry controls move focus into the resulting member navigation", ()
     /onMemberCompositionAccessibilitySelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*enterMemberScope\(\);[\s\S]*onMemberCompositionKindSelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*onMemberCompositionTraitSelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*onMemberGroupOpen: memberKey => \{[\s\S]*enterMemberNavigation\(\(\) => openMemberGroup/);
 });
 
-test("package tab selection resets type-specific member filters", () => {
+test("workspace package selection resets type-specific member filters", () => {
   const selection =
-    appSource.match(/function selectPackageTab\([\s\S]*?\n}\n\nfunction closePackageTab/)?.[0]
+    appSource.match(/function selectWorkspacePackage\([\s\S]*?\n}\n\nfunction closeWorkspacePackage/)?.[0]
     ?? "";
   assert.match(
     selection,
@@ -2659,12 +2710,25 @@ test("package tab selection resets type-specific member filters", () => {
 
 test("last package close recovers a route before releasing the workspace", () => {
   const close =
-    appSource.match(/function closePackageTab\([\s\S]*?\n}\n\nfunction activatePackage/)?.[0]
+    appSource.match(/function closeWorkspacePackage\([\s\S]*?\n}\n\nfunction activatePackage/)?.[0]
     ?? "";
 
   assert.match(
     close,
-    /const removal = removeWorkspacePackage\([\s\S]*if \(!removal\.closed\) return;\s*if \(!removal\.active && !clearWorkspaceRouteFailure\(\)\) \{\s*render\(\);\s*return;\s*\}\s*state\.packages = removal\.packages;\s*releasePackageModelCaches\(removal\.closed\);[\s\S]*state\.package = null;\s*goHome\(\);/);
+    /const removal = removeWorkspacePackage\([\s\S]*if \(!removal\.closed\) return;[\s\S]*if \(!removal\.active && !clearWorkspaceRouteFailure\(\)\) \{\s*render\(\);\s*return;\s*\}[\s\S]*state\.packages = removal\.packages;\s*releasePackageModelCaches\(removal\.closed\);[\s\S]*state\.package = null;\s*goHome\(\);/);
+});
+
+test("Workspace close preserves the subject unless the active coordinate changes", () => {
+  const close =
+    appSource.match(/function closeWorkspacePackage\([\s\S]*?\n}\n\nfunction activatePackage/)?.[0]
+    ?? "";
+
+  assert.match(
+    close,
+    /const activeChanged =\s*!packageIdentityEquals\(removal\.active, state\.package\)/);
+  assert.match(
+    close,
+    /if \(removal\.active\) \{\s*if \(activeChanged\) \{\s*selectWorkspacePackage\(removal\.active, \{ stayInWorkspace: true \}\);\s*\} else \{\s*render\(\);/);
 });
 
 test("loaded-package Spotlight selection resets type-specific member filters", () => {
@@ -2699,7 +2763,7 @@ test("home demos restore the complete parsed location", () => {
     /applyLocationView\(loc\);[\s\S]*await applyPlatformLibraryScope\([\s\S]*applyLocationView\(loc\);[\s\S]*applyDeepLink\(deep\)/);
   assert.match(
     appSource,
-    /function applyLocationView\(loc: ParsedLocation\) \{\s*state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*state\.packageLens = loc\.packageLens \|\| "overview";/);
+    /function applyLocationView\(loc: ParsedLocation\) \{\s*state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*state\.workspaceSubjectOpen =\s*loc\.workspaceSubjectOpen && state\.atPackageRoot;\s*state\.packageLens = loc\.packageLens \|\| "overview";/);
   const callGraphDemo =
     appSource.match(/async function runCallGraphDemo\(demoId: ProductHomeDemoId\) \{[\s\S]*?\n}\n\n\/\/ Loads the full/)?.[0]
     ?? "";
@@ -2720,15 +2784,6 @@ test("home demos restore the complete parsed location", () => {
   assert.match(
     runtimeHistory,
     /await applyPlatformLibraryScope\([\s\S]*applyLocationView\(loc\);\s*applyDeepLink\(deep\)/);
-});
-
-test("opening an already-resident Platform resets type-specific member filters", () => {
-  const openPlatform =
-    appSource.match(/async function openRuntimePackFromHome\([\s\S]*?\n}\n\n\/\/ The inspector-bot/)?.[0]
-    ?? "";
-  assert.match(
-    openPlatform,
-    /state\.atPackageRoot = true;\s*state\.packageLens = "overview";[\s\S]*resetMemberFilters\(\);\s*state\.selectedTypeId = defaultVisibleTypeId\(pack\);/);
 });
 
 test("lens-scoped Platform library changes reset type-specific member state", () => {
@@ -2828,7 +2883,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /const navigationSeq = navigationSequence\.begin\(\);\s*let leftPackageQueryForWorkspaceSuccessor = false;\s*const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\)/);
   assert.match(
     appSource,
-    /function dismissModalsForRoutedNavigation\(\) \{\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.explorer = null;\s*state\.tasteOpen = false;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
+    /function dismissModalsForRoutedNavigation\(\) \{\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
   assert.match(
     route,
     /dismissModalsForRoutedNavigation\(\);\s*navigationSequence\.begin\(\)/);
@@ -2910,7 +2965,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /function restorePackageQueryWorkspaceFocus\(\) \{\s*const navigationSeq = packageQueryWorkspaceFocusNavigationSeq;[\s\S]*navigationSequence\.isCurrent\(navigationSeq\)[\s\S]*afterCurrentNavigationFrame\(\(\) => \{\s*if \(!focusLevelOneHeading\(\)\) \{\s*document\.querySelector<HTMLElement>\("#type-list"\)\?\.focus\(\)/);
   assert.match(
     appSource,
-    /bindEvents\(\);\s*restorePackageQueryReturnFocus\(\);\s*restorePackageQueryWorkspaceFocus\(\)/);
+    /bindEvents\(\);\s*if \(scopeBarOwnsFocus\) \{\s*let restored = false;\s*if \(scopeBarFocus\) \{\s*scopeBarBinding\?\.revealFocusTarget\(scopeBarFocus\);\s*restored = restoreScopeBarFocus\(document, scopeBarFocus\);\s*\}\s*if \(!restored\) \{\s*document\.querySelector<HTMLElement>\("\.brand"\)\s*\?\.focus\(\{ preventScroll: true \}\);\s*\}\s*app\.removeAttribute\("tabindex"\);\s*\}\s*restorePackageQueryReturnFocus\(\);\s*restorePackageQueryWorkspaceFocus\(\)/);
   assert.match(
     popstate,
     /leftPackageQueryForWorkspaceSuccessor =\s*!state\.packageQueryReturnFocusPending;[\s\S]*if \(leftPackageQueryForWorkspaceSuccessor\) \{\s*packageQueryWorkspaceFocusNavigationSeq = navigationSeq/);
@@ -2946,9 +3001,18 @@ test("type projection completions render only while current and preserve navigat
   const typeSource =
     sourceInspectionSource.match(/async loadTypeSource\(request\)[\s\S]*?\n    },/)?.[0]
     ?? "";
+  const typeSourceAuthority =
+    sourceInspectionSource.match(
+      /const publishTypeSourceEvent = \(event: TypeSourceFeatureEvent\)[\s\S]*?const typeSourceSession:/,
+    )?.[0]
+    ?? "";
+  assert.match(
+    typeSourceAuthority,
+    /case "started":[\s\S]*case "replaced":[\s\S]*context\.preservedFocus =\s*dependencies\.renderPreservingMemberFocus\(\);[\s\S]*case "terminal":[\s\S]*state\.typeSourceLoading = false;[\s\S]*if \(context\.request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(\s*context\.preservedFocus,/);
   assert.match(
     typeSource,
-    /const preservedFocus = dependencies\.renderPreservingMemberFocus\(\);[\s\S]*const ownsRequest = \(\) =>[\s\S]*if \(ownsRequest\(\)\) \{\s*state\.typeSourceLoading = false;\s*if \(request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(preservedFocus\);/);
+    /typeSourceSession\.start\(request, typeSourceAdapter\)[\s\S]*await result\.handle\.quiesced/);
+  assert.doesNotMatch(typeSource, /sourceRequestGeneration|ownsRequest/);
   assert.doesNotMatch(typeSource, /finally \{[\s\S]*dependencies\.render\(\)/);
   const typeMetadata =
     appSource.match(/async function loadSelectedTypeMetadata\([\s\S]*?\n}\n\n\/\/ Projects/)?.[0]
@@ -3085,15 +3149,23 @@ test("Type Source completion settles behind workbench overlays", () => {
   const typeSource =
     sourceInspectionSource.match(/async loadTypeSource\(request\)[\s\S]*?\n    },/)?.[0]
     ?? "";
+  const typeSourceAuthority =
+    sourceInspectionSource.match(
+      /const publishTypeSourceEvent = \(event: TypeSourceFeatureEvent\)[\s\S]*?const typeSourceSession:/,
+    )?.[0]
+    ?? "";
   assert.match(
     appSource,
-    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\)\s*\|\| state\.tasteOpen;[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| state\.graphSourceOpen\s*\|\| state\.docViewerOpen\s*\|\| state\.memberAnnotatedModal !== null;/);
+    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| state\.graphSourceOpen\s*\|\| state\.docViewerOpen\s*\|\| state\.memberAnnotatedModal !== null;/);
   assert.match(
     appSource,
     /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*currentSourceOperationKind\(\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);
   assert.match(
+    typeSourceAuthority,
+    /case "terminal":[\s\S]*state\.typeSourceLoading = false;[\s\S]*if \(context\.request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(\s*context\.preservedFocus,/);
+  assert.match(
     typeSource,
-    /const ownsRequest = \(\) =>[\s\S]*if \(ownsRequest\(\)\) \{\s*state\.typeSourceLoading = false;\s*if \(request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(preservedFocus\)/);
+    /typeSourceSession\.start\(request, typeSourceAdapter\)[\s\S]*await result\.handle\.quiesced/);
   assert.match(
     appSource,
     /function isInteractiveElement\(element: Element \| null\)[\s\S]*"button, a\[href\], input, select, textarea, summary, "[\s\S]*\[role=button\][\s\S]*id: "workspace\.drill-in"[\s\S]*key: "Enter"[\s\S]*!isInteractiveElement\([\s\S]*event\.target instanceof Element \? event\.target : null\)/);
@@ -3425,7 +3497,7 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /function retainGraphOnlyImplementationBody[\s\S]*overload\.bodySelectors\.find\([\s\S]*overload\.implementationBody = selectedBody;[\s\S]*graphMemberTargetWithSelectedBody\(target, selectedBody\)/);
   assert.match(
     appSource,
-    /const selectedTarget = graphMemberTargetWithSelectedBody\(\s*target,\s*projection\.selectedBody\);[\s\S]*stageGraphMemberSelection\([\s\S]*selectedTarget,[\s\S]*projection\.member\);[\s\S]*commitGraphMemberSelection\([\s\S]*selectedTarget,[\s\S]*staged\)/);
+    /const selectedTarget = graphMemberTargetWithSelectedBody\(\s*target,\s*projection\.selectedBody\);[\s\S]*singleProjectedGraphMember\(projection\.type\)[\s\S]*stageGraphMemberSelection\([\s\S]*selectedTarget,[\s\S]*projectedMember\);[\s\S]*commitGraphMemberSelection\([\s\S]*selectedTarget,[\s\S]*staged\)/);
   assert.doesNotMatch(
     factsLoader,
     /state\.selectedBodyTarget\?\.metadataToken \?\? overload\.metadataToken/);
@@ -3458,6 +3530,9 @@ test("source operations cancel when superseded or hidden", () => {
   assert.match(
     appSource,
     /cancelSourceQuery: cancelSourceInspection/);
+  assert.match(
+    appSource,
+    /const operationAuthority = createOperationAuthorityPage\(\);[\s\S]*createSourceInspectionCoordinator\(\{[\s\S]*operationAuthority,/);
 
   const renderBody =
     appSource.match(
@@ -3471,6 +3546,9 @@ test("source operations cancel when superseded or hidden", () => {
   assert.match(
     sourceInspectionSource,
     /const cancelCurrentRequest = \(\) => \{[\s\S]*cancelSourceRequestState\(state\)[\s\S]*cancelHiddenRequest\(\)[\s\S]*sourceSurfaceIsVisible\(\s*state,\s*dependencies\.memberSourceHasConcreteOverload\(\)\)[\s\S]*cancelCurrentRequest\(\)/);
+  assert.match(
+    sourceInspectionSource,
+    /dependencies\.operationAuthority\.createSession\([\s\S]*typeSourceSession\.start\(request, typeSourceAdapter\)[\s\S]*await result\.handle\.quiesced/);
   assert.match(appSource, /sourceInspection\.loadMemberSource\(\{/);
   assert.match(appSource, /sourceInspection\.loadTypeSource\(\{/);
   assert.match(appSource, /sourceInspection\.openGraphSource\(request, title\)/);
@@ -4065,7 +4143,9 @@ test("graph-only members open through the typed member surface", () => {
   const openMember =
     appSource.match(/function openMemberGroup\([\s\S]*?\n}(?=\n\nfunction enterMemberScope)/)?.[0]
     ?? "";
-  assert.match(binding, /navigateToGraphMember\(loaded, target\)/);
+  assert.match(
+    binding,
+    /navigateToGraphMember\([\s\S]*loaded,[\s\S]*target,[\s\S]*loadedSection,[\s\S]*failureSurface\)/);
   assert.doesNotMatch(binding, /openGraphSource\(/);
   assert.match(
     openMember,
@@ -4166,7 +4246,7 @@ test("pending graph-member restoration is bound to its exact view", () => {
 
 test("stale graph-only navigation clears progress without surfacing its error", () => {
   const navigation =
-    appSource.match(/async function navigateToGraphMember[\s\S]*?\n\}/)?.[0]
+    appSource.match(/async function navigateToGraphMemberProjection[\s\S]*?\n\}/)?.[0]
     ?? "";
 
   assert.match(navigation, /const navigationIsCurrent = \(\) =>/);
@@ -4181,7 +4261,7 @@ test("stale graph-only navigation clears progress without surfacing its error", 
     /if \(seq === state\.graphMemberNavigationSeq\) \{\s*state\.graphMemberNavigationTitle = "";\s*render\(\);/);
   assert.match(
     navigation,
-    /state\.graphMemberNavigationError\s*=\s*`Could not open/);
+    /showGraphMemberNavigationError\([\s\S]*errorMessage\(error\),[\s\S]*failureSurface\)/);
   assert.match(
     appSource,
     /const callGraphError = callGraphErrorForView\(state\);/);
@@ -4207,7 +4287,7 @@ test("shared package graph navigation retains portable accessor identity", () =>
 
 test("stale graph member loads cannot mutate the visible member surface", () => {
   const navigation =
-    appSource.match(/async function navigateToGraphMember[\s\S]*?\n\}/)?.[0]
+    appSource.match(/async function navigateToGraphMemberProjection[\s\S]*?\n\}/)?.[0]
     ?? "";
   const restoration =
     appSource.match(/async function restorePendingGraphMember[\s\S]*?\n\}/)?.[0]
@@ -4332,7 +4412,7 @@ test("platform graph borders reflect actual resident lookup", () => {
     /else if \(disposition === "resident"\) \{\s*if \(pack && resident\) \{[\s\S]*?navigateToRuntimeMember\([\s\S]*?\} else \{[\s\S]*?startPlatformDrill\(target\)/);
   assert.match(
     appSource,
-    /if \(candidate\.status === "resident"\s*\|\| \(candidate\.status === "missing"\s*&& assemblyResident\)\) \{\s*await drillPlatformNode\(/);
+    /if \(candidate\.status === "resident"\s*\|\| \(candidate\.status === "missing"\s*&& assemblyResident\)\) \{[\s\S]*?await drillPlatformNode\(/);
 });
 
 test("runtime graph nodes separate member, drill, and lookup disposition", () => {
@@ -4476,8 +4556,7 @@ test("home navigation invalidates pending graph work", () => {
 
   assert.match(home, /invalidateGraphMemberNavigation\(\)/);
   assert.match(home, /state\.memberCallGraphExpanding = false/);
-  assert.match(history, /invalidateGraphMemberNavigation\(\)/);
-  assert.match(history, /invalidateMemberCallGraphWork\(state\)/);
+  assert.match(history, /invalidateMemberDestinationWork\(state\)/);
 });
 
 test("graph navigation restores scope and supersedes local drills", () => {
@@ -4646,7 +4725,7 @@ test("member navigation excludes graph-only projections from ordinary filters", 
 test("graph member projections stay transport- and package-bounded", () => {
   assert.match(
     browserEngineSource,
-    /QueryGraphMemberSurface[\s\S]*?BrowserSurfaceTextBudget\([\s\S]*?MaxRetainedTextCharacters[\s\S]*?BrowserSurfaceProjection\.Member\([\s\S]*?textBudget\)[\s\S]*?textBudget\.CommitParticipant\(\)/);
+    /QueryGraphMemberSurface[\s\S]*?BrowserSurfaceTextBudget\([\s\S]*?MaxRetainedTextCharacters[\s\S]*?BrowserSurfaceProjection\.Type\([\s\S]*?textBudget,[\s\S]*?selectedMembers: \[resolution\.Member\]\)[\s\S]*?textBudget\.CommitParticipant\(\)/);
 
   const publicMember = { name: "Public" };
   const selected = { name: "Selected", graphOnly: true };
@@ -4773,7 +4852,7 @@ test("ambiguous call graph targets expose a visible refusal", () => {
     /function blockedCallGraphNodeBinding\([\s\S]*label: `Cannot open \$\{target\.typeFullName\}\.\$\{target\.memberName\}: \$\{reason\}`[\s\S]*blocked: true/);
   assert.match(
     appSource,
-    /invalidateGraphMemberNavigation\(\);\s*state\.memberCallGraphSeq\+\+;[\s\S]*?showPlatformTargetError\(target, reason\)/);
+    /invalidateGraphMemberNavigation\(\);\s*state\.memberCallGraphSeq\+\+;[\s\S]*?state\.graphMemberNavigationError\s*=\s*`Could not open \$\{target\.typeFullName\}\.\$\{target\.memberName\}: \$\{reason\}\.`;[\s\S]*?render\(\)/);
   assert.match(
     graphInteractionsSource,
     /node\.setAttribute\("tabindex", "0"\);[\s\S]*node\.setAttribute\("role", "button"\)[\s\S]*node\.addEventListener\("click"[\s\S]*id: "call-graph-node\.activate"[\s\S]*key: \["Enter", " "\]/);
@@ -4786,7 +4865,7 @@ test("navigable call graph targets share mouse and keyboard activation", () => {
 
   assert.equal(
     binding.match(/`Open \$\{target\.typeFullName\}\.\$\{target\.memberName\}`/g)?.length,
-    2);
+    3);
   assert.match(
     graphInteractionsSource,
     /node\.setAttribute\("tabindex", "0"\);[\s\S]*node\.setAttribute\("role", "button"\);[\s\S]*node\.setAttribute\("aria-label", binding\.label\)/);
@@ -4948,6 +5027,112 @@ test("call graph navigation rejects assembly identity skew", () => {
   assert.equal(
     graphTargetBlockedReason(residentCandidate, "package"),
     "the exact target type is not projected from the loaded package assembly");
+});
+
+test("surface asset currency makes repeated graph navigation reuse its type", () => {
+  const target = {
+    assembly: "Example",
+    assemblyVersion: "1.0.0.0",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: null,
+    typeMetadataId: "Example.Internal",
+    kind: "external"
+  };
+  const pkg = {
+    ...packageAt("1.0.0", "net8.0"),
+    assemblies: [{
+      id: "compile:ref/net8.0/Example.dll",
+      name: "Example",
+      version: "1.0.0.0",
+      culture: null,
+      publicKeyToken: null
+    }],
+    types: [] as Array<{
+      assemblyId: string;
+      assemblyName: string;
+      metadataId: string;
+    }>
+  };
+
+  assert.deepEqual(
+    resolveLoadedGraphTargetCandidate([pkg], target),
+    { status: "resident" });
+
+  const projectedType = {
+    assemblyId: "compile:ref/net8.0/Example.dll",
+    assemblyName: "Example",
+    metadataId: "Example.Internal"
+  };
+  pkg.types.push(projectedType);
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    assert.deepEqual(resolveLoadedGraphTargetCandidate([pkg], target), {
+      status: "unique",
+      pkg,
+      type: projectedType
+    });
+  }
+  assert.equal(pkg.types.length, 1);
+});
+
+test("graph-member projection carries exact surface currency and a collision-safe id", () => {
+  assert.match(
+    appSource,
+    /inspectGraphMemberSurface\([\s\S]*graphMemberSurfaceAssembly\(target, type\)/,
+  );
+  assert.match(
+    readFileSync(
+      new URL("../engine/InspectionEngine.cs", import.meta.url),
+      "utf8"),
+    /BrowserSurfaceProjection\.Type\([\s\S]*qualifyId: true,[\s\S]*selectedMembers:/,
+  );
+
+  const projected = {
+    id: "Surface.A:Shared.Internal",
+    definitionId: "Shared.Internal",
+    assemblyId: "compile:ref/net11.0/Surface.A.dll",
+  };
+  const types = [
+    {
+      id: "Shared.Internal",
+      definitionId: "Shared.Internal",
+      assemblyId: "compile:ref/net11.0/Surface.B.dll",
+    },
+    projected,
+  ];
+
+  assert.equal(
+    types.find(type => type.id === projected.id)?.assemblyId,
+    projected.assemblyId);
+});
+
+test("restored graph members recover dotted routing from loaded type currency", () => {
+  const original = {
+    assembly: "System.Text.Json",
+    assemblyVersion: "10.0.0.0",
+    assemblyCulture: "",
+    assemblyPublicKeyToken: "cc7b13ffcd2ddd51",
+    typeDefinitionId: "System.Text.Json.JsonReaderHelper",
+    typeMetadataId: "System.Text.Json.JsonReaderHelper",
+    memberName: "UnescapeAndCompareBothInputs",
+    selectorKey: "method:UnescapeAndCompareBothInputs",
+    metadataToken: 0x06000123,
+    surfaceAssemblyId: "compile:ref/net10.0/System.Text.Json.dll",
+  };
+  const restored = graphMemberTargetFromShare(
+    graphMemberShareTarget(original));
+
+  assert.ok(restored);
+  assert.equal(restored.surfaceAssemblyId, undefined);
+  assert.equal(
+    graphMemberSurfaceAssembly(restored, {
+      assembly: "System.Text.Json.dll",
+      assemblyId: "compile:ref/net10.0/System.Text.Json.dll",
+    }),
+    "compile:ref/net10.0/System.Text.Json.dll");
+  assert.equal(
+    graphMemberSurfaceAssembly(restored),
+    "System.Text.Json.dll");
 });
 
 test("an exact resident runtime target wins over package identity skew", () => {
@@ -5444,7 +5629,7 @@ test("workspace package replacement reuses its slot at the package limit", () =>
   assert.deepEqual(retained.evicted, [active]);
 });
 
-test("closing a package removes its coordinate and selects the adjacent tab", () => {
+test("closing a package removes its coordinate and selects the adjacent coordinate", () => {
   const first = packageAt("1.0.0", "net8.0");
   const active = packageAt("2.0.0", "net9.0");
   const last = packageAt("3.0.0", "net10.0");
@@ -5476,8 +5661,8 @@ test("closing a package removes its coordinate and selects the adjacent tab", ()
 
 test("workspace UI routes replacements and restore notices through bounded paths", () => {
   assert.match(
-    packageBarSource,
-    /onFrameworkSelect\(button\.dataset\.frameworkChip \?\? ""\)/);
+    packageControlsSource,
+    /onFrameworkSelect\(framework\.value\)/);
   assert.match(
     appSource,
     /selectFramework: framework =>\s*observeAsync\(\s*switchPackageFramework\(framework\),\s*"Switching the package framework"\)/);
@@ -5517,9 +5702,6 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /onRetry: \(\) => \{\s*if \(state\.retryAction === retryUnavailable\) return;\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\);\s*\}/);
   assert.match(
     appSource,
-    /state\.retryAction = openRuntimePackFromHome/);
-  assert.match(
-    appSource,
     /state\.retryAction = options\.retryAction/);
   assert.match(
     appSource,
@@ -5528,11 +5710,11 @@ test("workspace UI routes replacements and restore notices through bounded paths
     appSource,
     /appendQueryNotice\(\s+friendly\.message,\s+options\.retryAction/);
   assert.match(
-    packageBarSource,
-    /data-package-close=/);
+    workspaceSubjectSource,
+    /data-workspace-close=/);
   assert.match(
-    packageBarSource,
-    /closePackageTab\(key\)/);
+    appSource,
+    /onClose: closeWorkspacePackage/);
   assert.match(
     appSource,
     /const key = assemblyId \|\| `legacy:\$\{asm\}`/);
@@ -5565,7 +5747,7 @@ test("dependency selection exposes a missing exact framework", () => {
 test("dependency group selection resets when package identity changes", () => {
   assert.match(
     appSource,
-    /const changed = !packageIdentityEquals\(state\.package, pkg\);\s+state\.package = pkg;\s+if \(changed\)\s+state\.dependenciesGroupIndex = null;/);
+    /const changed = !packageIdentityEquals\(state\.package, pkg\);\s+state\.workspaceSubjectOpen = false;\s+state\.package = pkg;\s+if \(changed\)\s+state\.dependenciesGroupIndex = null;/);
 });
 
 test("missing exact dependency groups never create graph edges", () => {

@@ -1340,6 +1340,18 @@ public class ApiMember
     public string? DeclaringTypeCanonicalName { get; set; }
 
     /// <summary>
+    /// Exact metadata lookup name of the declaring Type when this Member is
+    /// projected beneath another <see cref="ApiType"/>.
+    /// </summary>
+    /// <remarks>
+    /// Null for Members declared on their containing Type and for older
+    /// serialized surfaces. Consumers that require exact declaration identity
+    /// must not reconstruct this value from declaring-Type display text.
+    /// </remarks>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public MetadataTypeDefinitionName? DeclaringTypeDefinitionName { get; set; }
+
+    /// <summary>
     /// 1-based overload index in <see cref="DeclaringType"/> for projected members.
     /// </summary>
     public int? DeclaringOverloadIndex { get; set; }

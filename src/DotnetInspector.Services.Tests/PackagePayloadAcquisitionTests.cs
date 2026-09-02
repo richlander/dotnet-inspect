@@ -123,7 +123,9 @@ public sealed class PackagePayloadAcquisitionTests
             new MemoryStream(nupkg),
             TestContext.Current.CancellationToken);
         using IPackageSourceClient source =
-            PackageSourceClientFactory.CreateGallery(new FailingHandler());
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create(),
+                new FailingHandler());
         var options = new NuGetFetchOptions
         {
             RequestTimeout = TimeSpan.FromSeconds(1),
@@ -141,6 +143,7 @@ public sealed class PackagePayloadAcquisitionTests
             await Assert.ThrowsAsync<NuGetOperationTimeoutException>(
                 () => PackagePayloadAcquisition.AcquireAsync(
                     source,
+                    PackageSourceIdentity.NuGetOrg,
                     PackageSourceCoordinate.Create(PackageId, Version),
                     store,
                     cancellationToken:
@@ -2153,11 +2156,13 @@ public sealed class PackagePayloadAcquisitionTests
         var options = new NuGetFetchOptions
         {
             RequestTimeout = TimeSpan.FromMilliseconds(40),
-            OperationTimeout = TimeSpan.FromSeconds(1),
+            // If both bounds elapse, Operation correctly wins.
+            OperationTimeout = TimeSpan.FromSeconds(30),
         };
         var store = new InMemoryPackageStore();
         using IPackageSourceClient source =
             PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create(),
                 new GalleryPayloadHandler(
                     () => new StreamContent(
                         new StallingStream())),
@@ -2171,13 +2176,14 @@ public sealed class PackagePayloadAcquisitionTests
             await Assert.ThrowsAsync<PackageSourceStreamException>(
                 () => PackagePayloadAcquisition.AcquireAsync(
                     source,
+                    PackageSourceIdentity.NuGetOrg,
                     PackageSourceCoordinate.Create(PackageId, Version),
                     store,
                     cancellationToken:
                         TestContext.Current.CancellationToken,
                     operationContext: operation));
 
-        Assert.Equal(source.Identity, error.Producer);
+        Assert.Same(source.Source, error.ResultSource);
         Assert.Equal(PackageSourceFailureKind.Timeout, error.Kind);
         Assert.Equal(
             new PackageSourceTimeout(

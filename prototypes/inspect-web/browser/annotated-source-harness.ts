@@ -2,6 +2,7 @@ import {
   annotatedFocusSelector,
   bindAnnotatedSource,
   renderAnnotatedSource,
+  renderAnnotatedSourcePageActions,
   renderAnnotatedSourceModal,
 } from "../src/annotated-source.ts";
 import type {
@@ -33,6 +34,9 @@ import type {
   AnnotatedSourceDocument,
 } from "../src/document-model.ts";
 import {
+  createCSharpRangeHighlighter,
+} from "../src/csharp-highlighting.ts";
+import {
   validateDocument,
 } from "../src/document-model.ts";
 import { sampleDocument as sampleDocumentFixture } from "../../annotated-source-viewer/src/sample-document.js";
@@ -44,7 +48,10 @@ const objectStart = sampleDocument.text.indexOf("new object()");
 const documentWithTighterGeneric: AnnotatedSourceDocument = {
   ...sampleDocument,
   nodes: [
-    ...sampleDocument.nodes,
+    ...sampleDocument.nodes.map(node =>
+      node.id === 1
+        ? { ...node, kind: "InvocationExpression" }
+        : node),
     {
       id: 4,
       kind: "IdentifierName",
@@ -61,14 +68,36 @@ const result: AnnotatedSourceResult = {
   viewerCatalog: {
     defaultFindingIds: [0, 1],
     supportedMedia: ["CSharp", "Il"],
-    invocationLikeNodeKinds: ["ObjectCreationExpression"],
+    invocationLikeNodeKinds: ["InvocationExpression"],
+    invocationDestinations: [{
+      nodeId: 1,
+      target: {
+        id: "n1",
+        assembly: "System.Private.CoreLib",
+        assemblyVersion: "11.0.0.0",
+        assemblyCulture: null,
+        assemblyPublicKeyToken: "7cec85d7bea7798e",
+        typeFullName: "System.Object",
+        typeMetadataId: "System.Object",
+        typeDefinitionId: "System.Object",
+        memberName: ".ctor",
+        parameterTypes: [],
+        returnType: "System.Void",
+        genericArity: 0,
+        metadataToken: 0x06000001,
+        selectorKey: "method:.ctor",
+        kind: "definition",
+        platformPack: "Microsoft.NETCore.App.Ref",
+        surfaceAssemblyId: null,
+      },
+    }],
     findingEvidence: {
       available: false,
       unavailableReason: "NotProjected",
     },
     destinations: {
-      available: false,
-      unavailableReason: "NotProjected",
+      available: true,
+      unavailableReason: null,
     },
   },
   provenance: "browser-gate product fixture",
@@ -96,11 +125,49 @@ function renderAndFocus(
   surface: "embedded" | "modal" = modal ? "modal" : "embedded",
 ): void {
   app.innerHTML = `
-    <main id="harness-background"${modal ? " inert" : ""}>
-      ${renderAnnotatedSource({ result, session: embedded, escapeHtml })}
+    <main id="harness-background" class="detail-pane"
+      style="height: 100%"${modal ? " inert" : ""}>
+      <header class="detail-head">
+        <div class="breadcrumbs">
+          <span>System.Text.Json</span><b>/</b>
+          <span>System.Text.Json</span><b>/</b>
+          <strong>JsonSerializer</strong><b>/</b>
+          <strong>GetTypeInfo</strong>
+        </div>
+        <div class="detail-actions annotated-page-actions">
+          ${renderAnnotatedSourcePageActions(true)}
+        </div>
+      </header>
+      <article class="detail-scroll annotated-working-surface">
+        ${renderAnnotatedSource({
+          result,
+          session: embedded,
+          escapeHtml,
+          highlightCSharp: (source, tokenizationSource, excludedRanges) =>
+            createCSharpRangeHighlighter(
+              source,
+              window.Prism,
+              escapeHtml,
+              tokenizationSource,
+              excludedRanges,
+            ),
+        })}
+      </article>
     </main>
     ${modal
-      ? renderAnnotatedSourceModal({ result, session: modal, escapeHtml })
+      ? renderAnnotatedSourceModal({
+          result,
+          session: modal,
+          escapeHtml,
+          highlightCSharp: (source, tokenizationSource, excludedRanges) =>
+            createCSharpRangeHighlighter(
+              source,
+              window.Prism,
+              escapeHtml,
+              tokenizationSource,
+              excludedRanges,
+            ),
+        })
       : ""}`;
   bindAnnotatedSource(app, { onAction });
   if (!target) return;
@@ -188,6 +255,11 @@ function onAction(action: AnnotatedSourceAction): void {
       renderAndFocus(transition.focus);
       return;
     }
+    case "destination-open":
+      document.body.dataset.destination =
+        `${action.destination}:${action.destinationIndex}`;
+      closeModal();
+      return;
     case "node-select":
       updateSession(selectNode(session, action.nodeId));
       renderAndFocus({ kind: "node", nodeId: action.nodeId });

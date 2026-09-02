@@ -1,9 +1,10 @@
 # The package query experience
 
 This document defines the UX for a full-bleed inspect-web surface: a
-grep.app-style wide query over nuget.org, built on the nuspec-only streaming
-profile introduced by [#4551](https://github.com/richlander/dotnet-inspect/pull/4551)
-and the product-owned package-query contract introduced by
+grep.app-style wide query over nuget.org, built on the streaming package
+profile introduced by
+[#4551](https://github.com/richlander/dotnet-inspect/pull/4551) and the
+product-owned package-query contract introduced by
 [#5020](https://github.com/richlander/dotnet-inspect/pull/5020). It extends
 [browser-package-sources.md](browser-package-sources.md) (source clients) and
 [progressive-disclosure.md](progressive-disclosure.md) (explicit, capability-
@@ -14,22 +15,27 @@ counterpart — where the facet engine and its layering actually live — is
 browser front end for that one product surface.
 
 **What is enforced.** The production integration supplies the `/query` page,
-prefix form, product-issued nuspec facet catalog, streaming Browser engine
-source, cancellation, honest partial and bounded completion states, and typed
-Workspace handoff. The controller, adapter, route, renderer, and engine
-projection are enforced by the package-query frontend and Browser engine test
-suites. Visualization, persistence, sharing, outcome caching, and deeper
-artifact evaluation are future scope and are unverified.
+prefix form, product-issued facet catalog, streaming Browser engine source,
+explicitly bounded package-content acquisition, cancellation, honest partial
+and bounded completion states, and typed Workspace handoff. The controller,
+adapter, route, renderer, and engine projection are enforced by the
+package-query frontend and Browser engine test suites. Visualization,
+persistence, sharing, outcome caching, and assembly/IL evaluation are future
+scope and are unverified.
 
 ## Shell placement boundary
 
-Inspect Web UI owns shell placement, lifecycle, focus, responsive composition,
-and browser history. Its `/query` route, Search entry, and Workspace handoff are
-specified in [inspect-web-ui.md](inspect-web-ui.md#package-query). Its
-replacement of package tabs with Workspace supersedes this document's former
-`Query`-tab placement and package-tab handoff path. This document continues to
-own the query surface's internal request, state, evidence, and rendering
-contract.
+[Inspect Web Surface Composition](inspect-web-surface-composition.md) owns
+`/query` route placement, layout, and placement of the per-row
+`Open in workspace` action.
+[Inspect Web Shell Interaction](inspect-web-shell-interaction.md#search) owns
+the Search entry. This document owns the action's package-ID/version request
+semantics as part of the query surface contract.
+[Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md#package-query-entry-and-return)
+owns commitment of the returned result, including focus and browser history.
+Together these focused owners replace this document's former `Query`-tab
+placement and package-tab handoff path. This document continues to own the
+query surface's internal request, state, evidence, and rendering contract.
 
 ## Why this is not another workbench lens
 
@@ -58,8 +64,8 @@ QueryRequest       — scope + predicate + declared bound (top N / all-bounded)
 QueryOutcome       — streamed QueryResultRow[] + partial failures + completion state
     |
     v
-QueryResultRow     — one package's nuspec-derived projection + which predicate
-                      terms matched + why (the evidence, not just a checkmark)
+QueryResultRow     — one package's manifest/content-derived projection + which
+                      predicate terms matched + why
 ```
 
 This mirrors the existing `NuGetSearchOutcome` shape (`Results` + `Failures`,
@@ -68,16 +74,23 @@ convention. The runtime `QueryRequest` carries the package-ID prefix, selected
 opaque product facet descriptors, and independent candidate and match limits.
 Facet descriptors come from `PackageQuery.Facets`; the browser does not own an
 independent predicate table. It preserves the product-issued ID, label,
-summary, weight, tier, and optional exclusive-selection group.
+summary, weight, tier, optional exclusive-selection group, and optional
+display group.
 
-Every current row carries the `nuspec` tier tag because the query uses only
-search and manifest evidence. No promoted tier or archive/assembly evaluation
-is exposed by this contract.
+Rows carry the highest evidence tier used by the request: `nuspec` for search
+and manifest evidence, or `package-content` when a selected facet opens the
+package archive. Package-content requests are accepted only with at most 20
+candidates. The Browser supplies that capability through its existing
+admitted package store and shared operation deadline; acquisition or
+evaluation failures remain visible per-package failures.
 
 ## Layout
 
 The query content is a full-bleed working surface rather than a modal over one
-package. Its `/query` route and Search lifecycle are owned by Inspect Web UI:
+package. Its `/query` route and layout are owned by
+[Inspect Web Surface Composition](inspect-web-surface-composition.md#package-query);
+its Search entry is owned by
+[Inspect Web Shell Interaction](inspect-web-shell-interaction.md#search):
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -86,11 +99,12 @@ package. Its `/query` route and Search lifecycle are owned by Inspect Web UI:
 │ Facets         │  Microsoft.Extensions.Hosting           nuspec              │
 │                │    Verified source · Has dependencies                       │
 │ Verified source│    1,234,567 downloads · nuget.org                           │
-│ .NET tool      │                           [ Open in workspace ]               │
+│ [.NET Tool|v1|v2]                           [ Open in workspace ]              │
 │ Has dependencies                                                             │
 │ No dependencies│  … 99 more (bounded: first 100 matches)                     │
 │ 1M+ downloads  │                                                             │
 │ Embedded README│                                                             │
+│ embedded SKILL.md                                                            │
 └───────────────┴────────────────────────────────────────────────────────────--┘
 ```
 
@@ -101,13 +115,20 @@ package. Its `/query` route and Search lifecycle are owned by Inspect Web UI:
   vocabulary or open grammar. Selecting a facet restarts source work; it never
   client-side-filters stale rows. Product-issued selection groups make
   mutually exclusive facets, such as has-dependencies and no-dependencies,
-  replace one another.
+  replace one another. Product-issued display groups render `.NET Tool`, `v1`,
+  and `v2` as one segmented control while retaining three independently
+  focusable buttons and opaque facet IDs. `.NET Tool` matches any tool from
+  manifest evidence; `v1` and `v2` inspect `DotnetToolSettings.xml`.
+  `embedded SKILL.md` matches package entries at `skills/SKILL.md` or
+  `skills/**/SKILL.md`, case-insensitively. The rail persistently discloses
+  that content facets may download up to 20 candidate archives.
 - **Result stream**: rows append incrementally. Each row is a compact
-  nuspec-derived summary plus the product-authored evidence for *why* it
-  matched — never a bare name.
-- **Handoff, not duplication**: `Open in workspace` submits the result's
-  product-issued package coordinate through the standard typed Workspace
-  transition — the funnel never grows its own type/member browser.
+  package summary plus the product-authored evidence for *why* it matched —
+  never a bare name.
+- **Handoff, not duplication**: `Open in workspace` submits the row's
+  product-issued package ID and exact version once through the standard typed
+  Workspace transition, without inferring a framework, source, or fallback
+  from display text — the funnel never grows its own type/member browser.
 
 ## States
 
@@ -120,6 +141,11 @@ package. Its `/query` route and Search lifecycle are owned by Inspect Web UI:
 | Failed | The request itself never reached a completion (a rejected/thrown source, not just a per-page failure) | A distinct "query failed" state naming the error, never rendered as a confirmed empty or still-streaming result |
 | Cancelled with no rows yet | The user cancels before any page arrived | A distinct "cancelled before any matches" state, never rendered as a confirmed empty result |
 | Empty | Predicate matches nothing *and* the search actually finished with no failures | Empty-state card suggesting a broader facet, not a bare blank pane |
+
+Changing the prefix, toggling a facet, cancelling, leaving the route, or
+starting another run aborts or supersedes the active source operation. Rows
+already received remain visible after explicit cancellation, while events from
+an older generation cannot enter a replacement outcome.
 
 ## Sharing and URL shape
 
@@ -273,9 +299,49 @@ preset never needs to "contain" its own history.
   with two front ends, not two designs to keep in sync.
 - No client-side re-filtering of a fetched result set — every facet change is
   a new request, keeping displayed counts honest.
-- No archive, assembly, metadata, or IL evaluation. This surface is nuspec-only.
+- No unbounded archive evaluation. Package-content facets are an explicit
+  gesture and are product-gated to 20 candidates.
+- No assembly, metadata, or IL evaluation. A future promoted tier still
+  requires a separately owned product operation and UI change.
 - No persistence, sharing, or outcome cache in the current slice.
 - No chart or aggregation surface in the current slice.
+
+## Acceptance scenarios
+
+An implementation claiming this contract is complete must satisfy these
+outcomes. Route placement, page geometry, and responsive layout for these
+scenarios are proved by
+[Inspect Web Surface Composition](inspect-web-surface-composition.md#package-query-route),
+and browser-history and focus-return outcomes are proved by
+[Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md#package-query-entry-and-return).
+
+1. Load `/query` directly and on refresh and confirm that the route starts
+   without a persisted request, selected facets, or inferred package
+   coordinate.
+2. Toggle two product-issued facets and confirm that each change starts
+   a fresh engine request with opaque IDs, cancels the prior request, and
+   suppresses its late rows and failures.
+3. Confirm that product rows, evidence, partial failures, and exhausted,
+   bounded, failed, cancelled, and zero-row completion states remain distinct
+   per the [States](#states) table.
+4. Cancel after rows arrive and confirm that the rows remain visible, the state
+   reads as cancelled, and the Browser source operation stops.
+5. Change the prefix, leave the route, and start another run; confirm each
+   aborts or supersedes the active source operation and that events from an
+   older generation cannot enter a replacement outcome.
+6. Open a row in Workspace and confirm one typed package transition using its
+   exact product-issued ID and version, without inferring a framework, source,
+   or fallback from display text. Confirm that a typed failure retains
+   `/query`, the result set, and the request.
+7. Confirm that `.NET Tool`, `v1`, and `v2` form one segmented control with
+   independent focus and pressed state, and that selecting one replaces the
+   others.
+8. Select `v1`, `v2`, or `embedded SKILL.md`; confirm the request bound drops
+   to 20 candidates, archive acquisition uses the Browser package store and
+   deadline, and acquisition/evaluation failures remain visible. Remove the
+   final package-content facet and confirm the default returns to 200.
+9. Confirm that no assembly/IL promoted facet, selection checkbox, or `Deepen`
+   control is rendered.
 
 ## Landing sequence
 
@@ -284,13 +350,15 @@ preset never needs to "contain" its own history.
 2. **#5020** supplied the product-owned facet catalog, planning, rows,
    evidence, failures, cancellation, and completion.
 3. **Inspect Web integration** supplies the `/query` route, query bar, Browser
-   event adapter, product-issued nuspec facet rail, and typed Workspace handoff.
-4. Deeper artifact evaluation requires a separate product-owned query and UX
-   design; this nuspec contract does not reserve controls for it.
+   event adapter, product-issued facet rail, and typed Workspace handoff.
+4. **#5464** adds the bounded package-content tier, the embedded `SKILL.md`
+   facet, and the segmented .NET tool format control.
+5. Assembly/IL evaluation requires a separate product-owned query and UX
+   design; this contract does not reserve controls for it.
 
 The TypeScript state and renderer (`src/package-query.ts` and
 `src/package-query-view.ts`) retain their source-independent controller seam.
 The production Browser adapter satisfies it with product events; inline fake
 sources remain focused tests of race and rendering behavior. Visualization and
 the future features above remain additive work rather than implied behavior of
-the nuspec integration.
+the package query integration.

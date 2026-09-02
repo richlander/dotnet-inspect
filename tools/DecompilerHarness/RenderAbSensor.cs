@@ -17,6 +17,8 @@ namespace ILInspector.DecompilerHarness;
 
 internal static class RenderAbSensor
 {
+    const int BaselineVersion = 1;
+
     public static int Run(
         IReadOnlyList<string> assemblies,
         string? diffPath,
@@ -31,7 +33,9 @@ internal static class RenderAbSensor
         
         if (emitPath is not null)
         {
-            var json = JsonSerializer.Serialize(ToBodyDictionary(current), new JsonSerializerOptions { WriteIndented = true });
+            var json = JsonSerializer.Serialize(
+                CreateBaseline(current),
+                new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(emitPath, json);
             HarnessLog.Status($"Wrote baseline to {emitPath} ({current.Count} methods).");
             if (diffPath is null)
@@ -41,27 +45,54 @@ internal static class RenderAbSensor
         if (diffPath is not null)
         {
             var baseline = LoadBaseline(diffPath);
-            return Compare(baseline, current, maxExamples);
+            return baseline is null
+                ? 2
+                : Compare(baseline.Methods, current, maxExamples);
         }
         
         return 0;
     }
 
-    static Dictionary<string, string> LoadBaseline(string path)
+    internal static BaselineArtifact? LoadBaseline(string path)
     {
         if (!File.Exists(path))
-            return new Dictionary<string, string>(StringComparer.Ordinal);
+        {
+            Console.Error.WriteLine($"Render A/B baseline not found: {path}");
+            return null;
+        }
         
         try
         {
             var json = File.ReadAllText(path);
-            var parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
-            return parsed ?? new Dictionary<string, string>(StringComparer.Ordinal);
+            var parsed = JsonSerializer.Deserialize<BaselineArtifact>(
+                json,
+                new JsonSerializerOptions
+                {
+                    RespectRequiredConstructorParameters = true,
+                });
+            if (parsed is null)
+                throw new JsonException("baseline is empty");
+            if (parsed.Version != BaselineVersion)
+            {
+                throw new JsonException(
+                    $"unsupported baseline version {parsed.Version}; expected {BaselineVersion}");
+            }
+            if (parsed.Methods is null)
+                throw new JsonException("baseline methods are missing");
+
+            return parsed with
+            {
+                Methods = new Dictionary<string, BaselineMethod>(
+                    parsed.Methods,
+                    StringComparer.Ordinal),
+            };
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Warning: Failed to load baseline {path}: {ex.Message}");
-            return new Dictionary<string, string>(StringComparer.Ordinal);
+            Console.Error.WriteLine(
+                $"Failed to load Render A/B baseline {path}: {ex.Message}. "
+                + "Regenerate it with --emit-render-ab.");
+            return null;
         }
     }
 
@@ -95,7 +126,8 @@ internal static class RenderAbSensor
                     // sensor measured a second-run pipeline the product never
                     // ships (the double run folded goto-region diamonds the
                     // single run leaves raw — found via slice F1 scoping).
-                    var rendered = Render(source, function);
+                    var projection = RenderProjection(source, function);
+                    var rendered = projection.Output;
                     if (rendered is not null)
                     {
                         string signature = CorpusMethodIdentity.SignatureText(function.Signature);
@@ -107,6 +139,9 @@ internal static class RenderAbSensor
                             assemblyPath,
                             portablePath,
                             rendered.Trim(),
+                            ValidityCheck.MethodShellContext.Create(
+                                function,
+                                projection.RequiresUnsafeBodyModifier),
                             PrecomputedSemanticContext: null));
                     }
                 }
@@ -121,12 +156,28 @@ internal static class RenderAbSensor
     }
 
     internal static string? Render(MetadataSource source, IrFunction function)
-        => CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method)).Output;
+        => RenderProjection(source, function).Output;
 
-    static Dictionary<string, string> ToBodyDictionary(Dictionary<string, RenderedMethod> renders)
-        => renders.ToDictionary(kv => kv.Key, kv => kv.Value.Body, StringComparer.Ordinal);
+    static DecompilerResult RenderProjection(MetadataSource source, IrFunction function)
+        => CSharpPrinter.PrintRaised(
+            function,
+            method => IrImporter.Import(source, method));
 
-    internal static int Compare(Dictionary<string, string> baseline, Dictionary<string, RenderedMethod> current, int maxExamples)
+    internal static BaselineArtifact CreateBaseline(
+        Dictionary<string, RenderedMethod> renders)
+        => new(
+            BaselineVersion,
+            renders.ToDictionary(
+                kv => kv.Key,
+                kv => new BaselineMethod(
+                    kv.Value.Body,
+                    kv.Value.ShellContext),
+                StringComparer.Ordinal));
+
+    internal static int Compare(
+        Dictionary<string, BaselineMethod> baseline,
+        Dictionary<string, RenderedMethod> current,
+        int maxExamples)
     {
         int total = 0, changed = 0, added = 0, removed = 0;
         var byClass = new Dictionary<DiffClass, int> { [DiffClass.Structural] = 0, [DiffClass.ParenEquivalent] = 0, [DiffClass.Unparsed] = 0 };
@@ -152,24 +203,36 @@ internal static class RenderAbSensor
             {
                 added++;
             }
-            else if (before != sample.Body)
+            else if (before.Body != sample.Body)
             {
                 changed++;
-                var diffClass = Classify(before, sample.Body);
+                var diffClass = Classify(before.Body, sample.Body);
                 byClass[diffClass]++;
                 if (!semanticContexts.TryGetValue(kvp.Key, out var context))
                 {
                     context = sample.PrecomputedSemanticContext ?? BuildSemanticContext(sample);
                     semanticContexts[kvp.Key] = context;
                 }
-                var beforeValidity = CheckSemantic(context, before, references, parseOptions, compileOptions);
-                var afterValidity = CheckSemantic(context, sample.Body, references, parseOptions, compileOptions);
+                var beforeValidity = CheckSemantic(
+                    context,
+                    before.ShellContext,
+                    before.Body,
+                    references,
+                    parseOptions,
+                    compileOptions);
+                var afterValidity = CheckSemantic(
+                    context,
+                    sample.ShellContext,
+                    sample.Body,
+                    references,
+                    parseOptions,
+                    compileOptions);
                 var transition = SemanticTransitionOf(beforeValidity, afterValidity);
                 bySemantic[transition]++;
                 if (transition == SemanticTransition.ValidToInvalid)
-                    semanticRegressions.Add((kvp.Key, before, sample.Body, beforeValidity, afterValidity));
+                    semanticRegressions.Add((kvp.Key, before.Body, sample.Body, beforeValidity, afterValidity));
                 if (diffs.Count < maxExamples * 10) // Collect some for examples
-                    diffs.Add((kvp.Key, before, sample.Body, diffClass, transition));
+                    diffs.Add((kvp.Key, before.Body, sample.Body, diffClass, transition));
             }
         }
 
@@ -274,6 +337,7 @@ internal static class RenderAbSensor
 
     static ValidityCheck.RenderedBodyResult CheckSemantic(
         SemanticContext? context,
+        ValidityCheck.MethodShellContext shellContext,
         string body,
         ImmutableArray<MetadataReference> references,
         CSharpParseOptions parseOptions,
@@ -296,6 +360,7 @@ internal static class RenderAbSensor
             context.TypeName,
             context.MethodName,
             context.Constraints,
+            shellContext,
             context.ProductParameterList,
             references,
             parseOptions,
@@ -326,14 +391,20 @@ internal static class RenderAbSensor
 
             try
             {
-                _ = Render(source, function);
+                if (Render(source, function) is null)
+                    return null;
             }
             catch
             {
                 return null;
             }
 
-            return new SemanticContext(item.TypeName, item.MethodName, function, constraints, productParameterList);
+            return new SemanticContext(
+                item.TypeName,
+                item.MethodName,
+                function,
+                constraints,
+                productParameterList);
         }
 
         return null;
@@ -380,6 +451,7 @@ internal static class RenderAbSensor
         string AssemblyPath,
         string PortablePath,
         string Body,
+        ValidityCheck.MethodShellContext ShellContext,
         SemanticContext? PrecomputedSemanticContext = null)
     {
         public string Key => $"{PortablePath}!{TypeName}::{MethodName}{Signature}";
@@ -391,4 +463,12 @@ internal static class RenderAbSensor
         IrFunction Function,
         IReadOnlyDictionary<string, Dictionary<string, string>> Constraints,
         string? ProductParameterList);
+
+    internal sealed record BaselineArtifact(
+        int Version,
+        Dictionary<string, BaselineMethod> Methods);
+
+    internal sealed record BaselineMethod(
+        string Body,
+        ValidityCheck.MethodShellContext ShellContext);
 }

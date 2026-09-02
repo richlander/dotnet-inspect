@@ -444,7 +444,7 @@ sets, the Valid/Correct prerequisites, and Printer-exact opt-in.
 The enrolled third-party rows and manifest live on the
 `vendor/authored-source-corpus` orphan branch under `oracle/`, beside CIVIL and
 EVIL but independently gated. Restore that branch, prepare the pinned oracle
-assembly, and run the gate with:
+assemblies, and run the gate with:
 
 ```bash
 bash eng/restore-authored-source-corpus.sh
@@ -455,6 +455,12 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
   --source-oracle-manifest external/authored-source-corpus/oracle/manifest.json \
   "${oracle_assemblies[@]}"
 ```
+
+The preparation script restores version 10.0.10 of
+`System.Text.Encodings.Web`, `System.Runtime.Serialization.Formatters`,
+`System.Reflection.Context`, and `System.Reflection.Metadata`. It selects the
+exact enrolled package assets, verifies every assembly SHA-256, and emits all
+four paths for the benchmark.
 
 The periodic authored-corpus Deep Inspect lane runs this perfection gate before
 the separate EVIL regression ratchet. `DeepInspect_RunsTheWholeFileSourceOracleGate`
@@ -1234,18 +1240,22 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
 ```
 
 **Render A/B** (`--emit-render-ab` / `--render-ab`): the before/after text
-oracle for raise and printer changes. The first run writes a method-keyed JSON
-baseline of rendered bodies; the second run compares the current render against
-that baseline and reports changed, added, and removed methods. Changed methods
-are classified on two axes:
+oracle for raise and printer changes. The first run writes a versioned,
+method-keyed JSON baseline containing each rendered body and its typed async,
+unsafe, and await-syntax declaration context; the second run compares the
+current render against that baseline and reports changed, added, and removed
+methods. Body-only baselines predate the semantic-context contract and are
+rejected with a regeneration instruction rather than measured with current-head
+facts. Changed methods are classified on two axes:
 
 - spelling: `structural`, `paren-equivalent`, or `unparsed`;
 - semantic validity over the changed set only: `valid->valid`,
   `invalid->valid`, `valid->invalid`, or `invalid->invalid`.
 
-The semantic lane wraps each changed body in the same validity-check method shell
-and binds it with the validity diagnostic filters. It catches regressions that
-still parse, such as `1++`, without paying a corpus-wide compile cost. A
+The semantic lane wraps each changed body with its own recorded declaration
+context while sharing the matched method's signature and binding closure, then
+binds it with the validity diagnostic filters. It catches regressions that still
+parse, such as `1++`, without paying a corpus-wide compile cost. A
 `valid->invalid` transition is a semantic regression; expression-moving PRs
 should report the semantic line explicitly, e.g. `A/B: 55 changed (40
 paren-equivalent, 15 structural; semantic: 0 valid->invalid)`.
@@ -1424,26 +1434,30 @@ switches live in `Directory.Build.targets`.
 `<MemorySafetyRules>updated</MemorySafetyRules>` opts a fixture into
 `/features:updated-memory-safety-rules`.
 
-**On-demand, not a CI gate.** These overlays are a discovery and bring-down
-instrument, not a regression wall — build one and point `--library-report` at it.
-The first axis is `src/ILInspector.Decompiler.Fixtures.ClassicAsync` (the async
-fixtures at `runtime-async=off`):
+**Reports are on-demand, not a CI gate.** These overlays are a discovery and
+bring-down instrument, not a regression wall — build them and point
+`--library-report` at them. `AsyncLoweringFixtureMatrixTests` gates only the
+shared-source and physical-lowering contract. The first axis compiles the exact
+same `AsyncFixtures.cs` through
+`src/ILInspector.Decompiler.Fixtures.ClassicAsync` (`runtime-async=off`) and
+`src/ILInspector.Decompiler.Fixtures.RuntimeAsync` (`runtime-async=on`):
 
 ```bash
 dotnet build src/ILInspector.Decompiler.Fixtures.ClassicAsync -c Release
+dotnet build src/ILInspector.Decompiler.Fixtures.RuntimeAsync -c Release
 dotnet run --project tools/DecompilerHarness -c Release -- --library-report \
-  artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicAsync/release/ILInspector.Decompiler.Fixtures.ClassicAsync.dll
+  artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicAsync/release/ILInspector.Decompiler.Fixtures.ClassicAsync.dll \
+  artifacts/bin/ILInspector.Decompiler.Fixtures.RuntimeAsync/release/ILInspector.Decompiler.Fixtures.RuntimeAsync.dll
 ```
 
-Baseline (classic async unraised): 21 methods, 0 raised, with 0 pass bugs and 0
-`Full`-malformed — the state machines degrade honestly, never mis-raise. The
-7 `MoveNext`s bucket as `structuring: conditional-branch` (the goto state
-dispatch the structurer can't raise); the 14 kickoffs and state-machine helpers
-bucket as `fidelity: DEC0009` (`UnrepresentableMetadataName` — their residual
-`<>`-prefixed members, `<…>d__N`/`<>t__builder`/`<>1__state`, have no legal C#
-spelling until the shape is raised). A future raise's proof obligations are the
-queue's falsification list: kickoff/`MoveNext` correlation, state dispatch,
-builder identity, await ordering, and exception/finally paths.
+The report keeps the two assemblies separate. The classic artifact contains
+generated state-machine types and helpers; the runtime artifact keeps async
+control flow on the kickoff methods, so their method counts and unsupported
+pattern buckets differ even though `FixtureCatalog.SourcePaths` proves they
+share the same authored source. Report counts are deliberately not a CI
+ratchet. `AsyncLoweringFixtureMatrixTests` gates the durable premises instead:
+the exact source identity, classic relationship authentication, and the
+runtime-async implementation flag.
 
 The second axis is the old/new memory-safety pair:
 

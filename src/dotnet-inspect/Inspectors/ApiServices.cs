@@ -1,5 +1,6 @@
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
+using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Services;
@@ -19,7 +20,33 @@ internal static class ApiServices
         ApiSurface Api,
         string ApiDllPath,
         string PdbLookupPath,
-        bool IsSummary = false);
+        IReadOnlyDictionary<
+            ApiType,
+            ResolvedAssemblyReference> SourceAssemblies,
+        bool IsSummary = false)
+    {
+        internal ResolvedAssemblyReference GetSourceAssembly(
+            ApiType type)
+        {
+            ArgumentNullException.ThrowIfNull(type);
+            if (SourceAssemblies.TryGetValue(type, out var assembly))
+                return assembly;
+
+            throw new InvalidOperationException(
+                $"No acquisition descriptor was retained for selected type '{type.FullName}'.");
+        }
+
+        internal ResolvedAssemblyReference? TryGetSourceAssembly(
+            ApiType type)
+        {
+            ArgumentNullException.ThrowIfNull(type);
+            return SourceAssemblies.TryGetValue(
+                type,
+                out var assembly)
+                ? assembly
+                : null;
+        }
+    }
 
     internal static LoadedApiSurface? LoadFullApi(
         string searchPath,
@@ -36,13 +63,25 @@ internal static class ApiServices
         if (apiDllPath is null)
             return null;
 
-        using TypeDefinitionResolutionSession? resolution =
-            TryCreateResolutionSession(
+        ResolvedAssemblyReference? rootAssembly =
+            TryCreateRootAssembly(
                 apiDllPath,
-                isPlatformAssembly: runtimeAssemblyPath is not null,
-                options.ProjectAssetsPath,
-                options.Tfm ?? selectedTfm,
-                options.PlatformFramework);
+                CreateRootProvenance(
+                    apiSource,
+                    apiVersion,
+                    packageName,
+                    selectedTfm,
+                    options));
+        using TypeDefinitionResolutionSession? resolution =
+            rootAssembly is null
+                ? null
+                : TryCreateResolutionSession(
+                    rootAssembly,
+                    isPlatformAssembly:
+                        runtimeAssemblyPath is not null,
+                    options.ProjectAssetsPath,
+                    options.Tfm ?? selectedTfm,
+                    options.PlatformFramework);
         ApiSurface? api =
             resolution is not null
                 ? resolution.ExtractApiSurface(
@@ -53,6 +92,15 @@ internal static class ApiServices
         if (api is null)
             return null;
 
+        var sourceAssemblies =
+            new Dictionary<ApiType, ResolvedAssemblyReference>(
+                ReferenceEqualityComparer.Instance);
+        if (rootAssembly is not null)
+        {
+            foreach (ApiType type in api.Types)
+                sourceAssemblies.Add(type, rootAssembly);
+        }
+
         if (resolution is not null)
         {
             ResolveForwardedTypes(
@@ -62,7 +110,8 @@ internal static class ApiServices
                 options.IncludeAll,
                 isPlatformAssembly:
                     runtimeAssemblyPath is not null,
-                resolution: resolution);
+                resolution: resolution,
+                sourceAssemblies);
         }
 
         if (!string.IsNullOrEmpty(packagePath))
@@ -80,11 +129,15 @@ internal static class ApiServices
         api.Version = apiVersion;
         api.Library = Path.GetFileName(apiDllPath);
 
-        return new LoadedApiSurface(api, apiDllPath, runtimeAssemblyPath ?? apiDllPath);
+        return new LoadedApiSurface(
+            api,
+            apiDllPath,
+            runtimeAssemblyPath ?? apiDllPath,
+            sourceAssemblies);
     }
 
     static TypeDefinitionResolutionSession? TryCreateResolutionSession(
-        string assemblyPath,
+        ResolvedAssemblyReference rootAssembly,
         bool isPlatformAssembly,
         string? projectAssetsPath,
         string? targetFramework,
@@ -93,7 +146,7 @@ internal static class ApiServices
         try
         {
             return new TypeDefinitionResolutionSession(
-                assemblyPath,
+                rootAssembly,
                 isPlatformAssembly,
                 projectAssetsPath,
                 targetFramework,
@@ -107,6 +160,74 @@ internal static class ApiServices
         {
             return null;
         }
+    }
+
+    static ResolvedAssemblyReference? TryCreateRootAssembly(
+        string assemblyPath,
+        AssemblyResolutionProvenance provenance)
+    {
+        try
+        {
+            return ResolvedAssemblyReference.CreateFromPath(
+                assemblyPath,
+                provenance);
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or BadImageFormatException
+                or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    static AssemblyResolutionProvenance CreateRootProvenance(
+        string? apiSource,
+        string? apiVersion,
+        string? packageName,
+        string? selectedTfm,
+        ApiOptions options)
+    {
+        if (string.Equals(
+                apiSource,
+                SourceKind.Platform,
+                StringComparison.Ordinal))
+        {
+            return AssemblyResolutionProvenance.Platform(
+                options.PlatformFramework ?? "InstalledPlatform",
+                apiVersion,
+                "ApiServices");
+        }
+
+        if (string.Equals(
+                apiSource,
+                SourceKind.NuGet,
+                StringComparison.Ordinal)
+            && !string.IsNullOrWhiteSpace(packageName)
+            && !string.IsNullOrWhiteSpace(apiVersion))
+        {
+            return AssemblyResolutionProvenance.Package(
+                packageName,
+                apiVersion,
+                selectedTfm,
+                rid: null);
+        }
+
+        if (string.Equals(
+                apiSource,
+                SourceKind.Project,
+                StringComparison.Ordinal))
+        {
+            return AssemblyResolutionProvenance.Project(
+                options.ProjectPath
+                    ?? options.ProjectAssetsPath
+                    ?? "ApiServices",
+                options.Tfm ?? selectedTfm,
+                rid: null);
+        }
+
+        return AssemblyResolutionProvenance.Local("ApiServices");
     }
 
     internal static LoadedApiSurface? LoadPlatformApiSummary(
@@ -136,7 +257,27 @@ internal static class ApiServices
         api.Source = apiSource;
         api.Version = apiVersion;
         api.Library = Path.GetFileName(searchPath);
-        return new LoadedApiSurface(api, searchPath, runtimeAssemblyPath, IsSummary: true);
+        ResolvedAssemblyReference rootAssembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                searchPath,
+                AssemblyResolutionProvenance.Platform(
+                    "InstalledPlatform",
+                    apiVersion,
+                    "ApiServices"));
+        var sourceAssemblies =
+            new Dictionary<ApiType, ResolvedAssemblyReference>(
+                ReferenceEqualityComparer.Instance);
+        foreach (ApiType type in api.Types.Where(
+            static type => !type.IsForwarded))
+        {
+            sourceAssemblies.Add(type, rootAssembly);
+        }
+        return new LoadedApiSurface(
+            api,
+            searchPath,
+            runtimeAssemblyPath,
+            sourceAssemblies,
+            IsSummary: true);
     }
 
     // ===== Type Lookup =====
@@ -280,7 +421,9 @@ internal static class ApiServices
         VerboseLogger logger,
         bool includeAll,
         bool isPlatformAssembly,
-        TypeDefinitionResolutionSession resolution)
+        TypeDefinitionResolutionSession resolution,
+        IDictionary<ApiType, ResolvedAssemblyReference>?
+            sourceAssemblies = null)
     {
         Dictionary<
             AssemblyAcquisitionRegistration,
@@ -358,7 +501,8 @@ internal static class ApiServices
                     targetApi,
                     group.Types,
                     group.Assembly,
-                    group.TypeTokens);
+                    group.TypeTokens,
+                    sourceAssemblies);
             }
             catch (Exception ex) when (
                 ex is IOException
@@ -417,7 +561,9 @@ internal static class ApiServices
         ApiSurface targetApi,
         IReadOnlySet<MetadataTypeDefinitionName> forwardedTypes,
         ResolvedAssemblyReference targetAssembly,
-        IReadOnlyCollection<int>? forwardedTypeTokens = null)
+        IReadOnlyCollection<int>? forwardedTypeTokens = null,
+        IDictionary<ApiType, ResolvedAssemblyReference>?
+            sourceAssemblies = null)
     {
         List<ApiType> copiedTypes =
         [
@@ -473,6 +619,7 @@ internal static class ApiServices
         {
             type.IsForwarded = true;
             type.SourceAssemblyPath = targetAssembly.Path;
+            sourceAssemblies?.Add(type, targetAssembly);
             api.Types.Add(type);
             api.PublicMethodCount +=
                 type.Members.Count(

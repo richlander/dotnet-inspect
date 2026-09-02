@@ -20,6 +20,19 @@ a feature uniquely valuable; it does not excuse weak boundaries, evidence, or
 reliability. The strongest work combines dependable foundations with a
 capability or experience worth choosing.
 
+## Prefer the simplest sufficient design
+
+Bias toward the simplest design that satisfies the owning contract. Add
+states, layers, abstractions, protocols, or policy only when they are required
+for robust reliability or correctness, or when they enable a compelling
+user-observable experience. Name that requirement and the evidence that will
+show the added complexity earns its cost.
+
+Speculative generality, possible future reuse, and internal elegance alone do
+not justify complexity. Simplicity does not permit fragile behavior, hidden
+failure, or a diminished experience; it keeps the solution no more elaborate
+than the demonstrated need.
+
 ## Convention and best practice are the baseline
 
 Start from the applicable convention and best practice rather than inventing a
@@ -55,6 +68,57 @@ established oracle, a TLA+ model, a pathological fixture, or a specification
 developed closely with the user can reveal the actual boundary before code
 makes an accidental behavior expensive to undo. Much of the architecture is
 the act of bounding a contract and making its important properties invariant.
+
+## Start capabilities from consumers
+
+Every new capability or substrate must name a concrete consumer from the
+start. The consumer may land in a later slice, but the focused specification
+and implementation issue must identify it, and a single overall end-to-end
+tracking issue must link the substrate and consumer work.
+
+Shared product substrate defaults to planned benefit in both current product
+hosts: the CLI and browser/Wasm. The end-to-end tracker records the planned
+enablement slices for both hosts from the outset. A substrate intended for only
+one consumer or host requires explicit user approval before implementation;
+record the approved scope in its specification, implementation issue, and
+end-to-end tracker from the start.
+
+`InertString` illustrates the shared default: its containment contract must
+work for all consumers. `ts-jsexport` is an approved exception: its website-only
+consumer and single-host target were intentional from the beginning. The
+default and exception both keep substrate tied to observable value and make
+the shared-versus-host-specific boundary explicit before implementation.
+
+Keep each host as thin as reasonably possible. Hosts own gestures, policy,
+operation lifetime, composition, and presentation; reusable concepts and
+algorithms belong in host-neutral code. When multiple hosts duplicate logic,
+look for a coherent shared concept that would also benefit a future host rather
+than preserving parallel implementations or extracting an abstraction solely
+to remove repeated lines.
+
+## Choose rendering strategy deliberately
+
+`dotnet-inspect` uses Markout as its default host-neutral rendering substrate
+to centralize rendering and support multiple output formats. Preserve typed
+information until the rendering boundary so one domain model can lower into
+the structures each format can express.
+
+Call out every rendering path that bypasses Markout for a host-specific
+approach. Its owning specification must name the host, the reason the rendering
+is host-specific, the typed information model it consumes, and why a shared
+Markout lowering is not the chosen boundary.
+
+Broad information domains require a documented rendering-strategy decision
+before implementation. Call graphs and diffs are positive examples of
+expanding Markout around structured domain types and explicit lowering
+mechanics: the same information can become a Mermaid diagram, Markdown table,
+tabular stream, or another supported shape without making formatted text the
+domain model.
+
+Markout is the default, not an automatic answer. A broad domain may choose
+another approach when its design documents where structured typing lives, who
+owns each lowering, which paths are host-specific, and how additional hosts or
+formats consume the information without reconstructing its semantics.
 
 ## Demonstrate the pathological case
 

@@ -87,6 +87,7 @@ public static class FixtureIds
     public const string DecompilerClassicAsync = "decompiler.classic-async";
     public const string DecompilerClassicAsyncArtifacts =
         "decompiler.classic-async-artifacts";
+    public const string DecompilerRuntimeAsync = "decompiler.runtime-async";
     public const string DecompilerExpressionTreeSpoof = "decompiler.expression-tree-spoof";
     public const string DecompilerClassicStateMachines = "decompiler.classic-state-machines";
     public const string DecompilerLadderIterator = "decompiler.ladder.iterator";
@@ -109,6 +110,10 @@ public static class FixtureIds
     public const string SourceLinkNormalized = "sourcelink.normalized";
 
     public const string ResearchTargetSample = "research.target-sample";
+    public const string ResearchTargetCorrespondenceV1 =
+        "research.target-correspondence.v1";
+    public const string ResearchTargetCorrespondenceV2 =
+        "research.target-correspondence.v2";
 
     public const string RunFasterAllocation = "runfaster.allocation";
 }
@@ -177,6 +182,22 @@ public static class FixtureCatalog
         "ILInspector.Research.TargetFixtures.dll",
         Boundaries(FixtureBoundary.CompilerLowering),
         "research", "target", "accessor-role", "type-forwarder");
+
+    public static readonly FixtureDefinition ResearchTargetCorrespondenceV1 =
+        Fixture(
+            FixtureIds.ResearchTargetCorrespondenceV1,
+            "ResearchTargetCorrespondenceFixtures.V1",
+            "ResearchTargetCorrespondenceFixtures.dll",
+            Boundaries(FixtureBoundary.VersionPair),
+            "research", "target-correspondence", "version-pair");
+
+    public static readonly FixtureDefinition ResearchTargetCorrespondenceV2 =
+        Fixture(
+            FixtureIds.ResearchTargetCorrespondenceV2,
+            "ResearchTargetCorrespondenceFixtures.V2",
+            "ResearchTargetCorrespondenceFixtures.dll",
+            Boundaries(FixtureBoundary.VersionPair),
+            "research", "target-correspondence", "version-pair");
 
     public static readonly FixtureDefinition DiffAsmCaller = Fixture(
         FixtureIds.DiffAsmCaller,
@@ -401,6 +422,13 @@ public static class FixtureCatalog
             "artifact-matrix",
             "compiler-axis");
 
+    public static readonly FixtureDefinition DecompilerRuntimeAsync = Fixture(
+        FixtureIds.DecompilerRuntimeAsync,
+        "ILInspector.Decompiler.Fixtures.RuntimeAsync",
+        "ILInspector.Decompiler.Fixtures.RuntimeAsync.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "decompiler", "async", "runtime-async", "compiler-axis");
+
     public static readonly FixtureDefinition DecompilerExpressionTreeSpoof = Fixture(
         FixtureIds.DecompilerExpressionTreeSpoof,
         "ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof",
@@ -544,6 +572,7 @@ public static class FixtureCatalog
         DecompilerTypeIdentity,
         DecompilerClassicAsync,
         DecompilerClassicAsyncArtifacts,
+        DecompilerRuntimeAsync,
         DecompilerExpressionTreeSpoof,
         DecompilerClassicStateMachines,
         DecompilerLadderIterator,
@@ -561,6 +590,8 @@ public static class FixtureCatalog
         DecompilerVbFinalizer,
         RunFasterAllocation,
         ResearchTargetSample,
+        ResearchTargetCorrespondenceV1,
+        ResearchTargetCorrespondenceV2,
     ];
 
     public static readonly FixturePair DiffPair = new("diff", DiffV1, DiffV2);
@@ -601,6 +632,7 @@ public static class FixtureCatalog
             DecompilerCheckedArithmetic,
             DecompilerClassicAsync,
             DecompilerClassicAsyncArtifacts,
+            DecompilerRuntimeAsync,
             DecompilerClassicStateMachines,
             DecompilerLadderIterator,
             DecompilerLadderRung1,
@@ -628,6 +660,10 @@ public static class FixtureCatalog
             DecompilerLadderIterator,
         ]);
 
+    public static readonly FixtureGroup DecompilerAsyncLoweringFixtures = new(
+        "decompiler.async-lowering",
+        [DecompilerClassicAsync, DecompilerRuntimeAsync]);
+
     public static readonly FixtureGroup DecompilerUnsafeFixtures = new(
         "decompiler.unsafe",
         [
@@ -654,6 +690,7 @@ public static class FixtureCatalog
         DiffAssemblyFixtures,
         AnalysisFixtures,
         DecompilerFixtures,
+        DecompilerAsyncLoweringFixtures,
         DecompilerLadderFixtures,
         DecompilerUnsafeFixtures,
         RunFasterFixtures,
