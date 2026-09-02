@@ -39,6 +39,11 @@ development model and rationale. The binding summary:
 - **Keep hosts thin.** Put reusable concepts and algorithms in host-neutral
   code. Duplicated host logic triggers a review for a shared abstraction that
   would also benefit another future host.
+- **Choose rendering strategy deliberately.** Use Markout as the default
+  host-neutral substrate for centralized, multi-format rendering, and call out
+  host-specific rendering that bypasses it. Broad information domains such as
+  call graphs and diffs require a documented structured-typing and format-
+  lowering strategy, whether it uses Markout or another approach.
 - **Demonstrate the pathological case.** Build boundary and failure fixtures;
   run contract-defining cases in CI and preserve valuable non-CI probes as
   reproducible design evidence.
@@ -76,20 +81,10 @@ development model and rationale. The binding summary:
 ## Session resume
 
 The transcript survives a resumed session; repository and PR state may not.
-Before continuing:
-
-1. Confirm the worktree, branch, and head from git. Fetch the effective base and
-   re-check the PR per [Canonical round flow](#canonical-round-flow). Do not pull
-   or rebase a pushed branch to catch up.
-2. Rename the window and re-announce the PR as described below.
-3. State which case applies:
-
-- **Mid-stream:** continue, but handle conflicts, failed gates, or moved bases
-  first. Do not revisit decisions already settled in the transcript.
-- **Waiting on the user:** restate the full question and options, then wait.
-- **Task complete:** state what landed and what proves it, then propose the next
-  task without starting it.
-- **Unclear:** explain what the transcript claims and what git shows, then wait.
+Follow [Resume a session](docs/agent-session-state.md#resume-a-session) to
+confirm the worktree and PR, refresh the effective base, restore window
+identity, and classify the session. Handle conflicts, failed gates, or moved
+bases first, and do not revisit decisions already settled in the transcript.
 
 ## Making your work findable
 

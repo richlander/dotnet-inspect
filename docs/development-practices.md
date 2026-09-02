@@ -96,6 +96,30 @@ look for a coherent shared concept that would also benefit a future host rather
 than preserving parallel implementations or extracting an abstraction solely
 to remove repeated lines.
 
+## Choose rendering strategy deliberately
+
+`dotnet-inspect` uses Markout as its default host-neutral rendering substrate
+to centralize rendering and support multiple output formats. Preserve typed
+information until the rendering boundary so one domain model can lower into
+the structures each format can express.
+
+Call out every rendering path that bypasses Markout for a host-specific
+approach. Its owning specification must name the host, the reason the rendering
+is host-specific, the typed information model it consumes, and why a shared
+Markout lowering is not the chosen boundary.
+
+Broad information domains require a documented rendering-strategy decision
+before implementation. Call graphs and diffs are positive examples of
+expanding Markout around structured domain types and explicit lowering
+mechanics: the same information can become a Mermaid diagram, Markdown table,
+tabular stream, or another supported shape without making formatted text the
+domain model.
+
+Markout is the default, not an automatic answer. A broad domain may choose
+another approach when its design documents where structured typing lives, who
+owns each lowering, which paths are host-specific, and how additional hosts or
+formats consume the information without reconstructing its semantics.
+
 ## Demonstrate the pathological case
 
 Do not demonstrate only the expected or friendly case. Identify the case, or
