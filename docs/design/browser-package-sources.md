@@ -922,6 +922,11 @@ Implementation is not complete until Release gates establish:
 - `LegacyReferenceDiscoveryIncludesImplicitFormattingAndEquality` proves the
   inventory observes descriptor identity consumers that do not spell the
   legacy type at their use site;
+- `LegacyReferenceDiscoveryIncludesAliasesAndInactiveBranches` proves the
+  inventory semantically attributes active local and global legacy type aliases
+  and conservatively unions executable legacy-type, alias, and descriptor
+  identity name spans across every bounded conditional-compilation symbol
+  configuration, including normally inactive branches;
 - `LegacyPackageSourceIdentityBehaviorRemainsStable` pins exact vectors for
   legacy factories, `NuGetOrg`, `Value`, endpoint-shaped formatting, equality,
   and equal-value hash consistency, plus Gallery and NuGetV3
@@ -1792,6 +1797,9 @@ projection and nested immutable snapshotting remain inside the same operation
 deadline as the metadata request.
 `VersionResultSnapshotRemainsInsideOperationDeadline` gates the second
 immutable version-result snapshot and publication at that same deadline.
+`SuccessPublicationRemainsInsideOperationDeadline` gates that final
+search/version validation and success-outcome construction retain that
+deadline and classify expiration as a typed timeout rather than success.
 
 Source operations already return typed outcome shells, but current result
 shapes still carry the legacy `PackageSourceIdentity` and separate transport

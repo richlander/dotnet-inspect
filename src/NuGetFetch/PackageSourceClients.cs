@@ -1085,15 +1085,16 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
         int take = 20,
         bool prerelease = false,
         CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null) =>
-        await PackageSourceOperation.CaptureSearchAsync(
+        NuGetOperationContext? operationContext = null)
+    {
+        using NuGetOperationDeadline operation =
+            CreateOperation(
+                cancellationToken,
+                operationContext);
+        return await PackageSourceOperation.CaptureSearchAsync(
             _results,
             async () =>
             {
-                using NuGetOperationDeadline operation =
-                    CreateOperation(
-                        cancellationToken,
-                        operationContext);
                 IReadOnlyList<string> endpoints =
                     await NuGetV3SearchResourceDiscovery
                         .GetSearchEndpointsAsync(
@@ -1163,7 +1164,9 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                 };
             },
             cancellationToken,
-            operationContext: operationContext).ConfigureAwait(false);
+            operationContext: operationContext,
+            operationDeadline: operation).ConfigureAwait(false);
+    }
 
     public Task<PackageSourceOperationResult<PackageSearchResult>> SearchByPrefixAsync(
         string prefix,
@@ -1183,14 +1186,14 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
         PackageCoordinateValidation.ValidatePackageId(
             packageId,
             nameof(packageId));
+        using NuGetOperationDeadline operation =
+            CreateOperation(
+                cancellationToken,
+                operationContext);
         return await PackageSourceOperation.CaptureVersionsAsync(
             _results,
             async () =>
             {
-                using NuGetOperationDeadline operation =
-                    CreateOperation(
-                        cancellationToken,
-                        operationContext);
                 IReadOnlyList<string> versions =
                     await _packageResources.GetVersionsAsync(
                         packageId,
@@ -1209,7 +1212,8 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                     operation);
             },
             cancellationToken,
-            operationContext: operationContext).ConfigureAwait(false);
+            operationContext: operationContext,
+            operationDeadline: operation).ConfigureAwait(false);
     }
 
     public async Task<PackageSourceOperationResult<PackageSourcePayload>> GetPackageAsync(

@@ -57,14 +57,14 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         CancellationToken cancellationToken = default,
         NuGetOperationContext? operationContext = null)
     {
+        using NuGetOperationDeadline operation =
+            CreateOperation(
+                cancellationToken,
+                operationContext);
         return await PackageSourceOperation.CaptureSearchAsync(
             _results,
             async () =>
             {
-                using NuGetOperationDeadline operation =
-                    CreateOperation(
-                        cancellationToken,
-                        operationContext);
                 IReadOnlyList<SearchResult> results;
                 try
                 {
@@ -94,7 +94,8 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                         : PackageSearchTruncationReason.None);
             },
             cancellationToken,
-            operationContext: operationContext).ConfigureAwait(false);
+            operationContext: operationContext,
+            operationDeadline: operation).ConfigureAwait(false);
     }
 
     public async Task<PackageSourceOperationResult<PackageSearchResult>> SearchByPrefixAsync(
@@ -104,14 +105,14 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         CancellationToken cancellationToken = default,
         NuGetOperationContext? operationContext = null)
     {
+        using NuGetOperationDeadline operation =
+            CreateOperation(
+                cancellationToken,
+                operationContext);
         return await PackageSourceOperation.CaptureSearchAsync(
             _results,
             async () =>
             {
-                using NuGetOperationDeadline operation =
-                    CreateOperation(
-                        cancellationToken,
-                        operationContext);
                 PrefixSearchResult result;
                 try
                 {
@@ -152,7 +153,8 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                     });
             },
             cancellationToken,
-            operationContext: operationContext).ConfigureAwait(false);
+            operationContext: operationContext,
+            operationDeadline: operation).ConfigureAwait(false);
     }
 
     public async Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(
@@ -163,16 +165,16 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         cancellationToken = operationContext?.ResolveInvocationToken(
             cancellationToken) ?? cancellationToken;
         string normalizedId = NormalizePackageId(packageId);
+        using NuGetOperationDeadline operation =
+            CreateOperation(
+                cancellationToken,
+                operationContext);
         return await PackageSourceOperation.CaptureVersionsAsync(
             _results,
             async () =>
             {
                 string url =
                     $"{FlatContainer}{EscapeSegment(normalizedId)}/index.json";
-                using NuGetOperationDeadline operation =
-                    CreateOperation(
-                        cancellationToken,
-                        operationContext);
                 (bool found, VersionIndex? index) =
                     await NuGetHttpRetry.RunRequestAsync(
                         operation,
@@ -239,7 +241,8 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                     cancellationToken);
             },
             cancellationToken,
-            operationContext: operationContext).ConfigureAwait(false);
+            operationContext: operationContext,
+            operationDeadline: operation).ConfigureAwait(false);
     }
 
     private async Task<IReadOnlyDictionary<string, PackageListingState>?>

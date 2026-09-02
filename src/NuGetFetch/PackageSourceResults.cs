@@ -888,17 +888,56 @@ public sealed class PackageSourceResultFactory
     }
 
     public PackageSourceOperationResult<PackageSearchResult> SucceededSearch(
-        PackageSearchResult value)
+        PackageSearchResult value) =>
+        SucceededSearchCore(value, operation: null);
+
+    internal PackageSourceOperationResult<PackageSearchResult> SucceededSearch(
+        PackageSearchResult value,
+        NuGetOperationDeadline operation)
     {
-        ValidateSearch(value);
-        return Succeeded(value);
+        ArgumentNullException.ThrowIfNull(operation);
+        return SucceededSearchCore(value, operation);
+    }
+
+    private PackageSourceOperationResult<PackageSearchResult>
+        SucceededSearchCore(
+            PackageSearchResult value,
+            NuGetOperationDeadline? operation)
+    {
+        operation?.ThrowIfExpired();
+        ValidateSearch(value, operation);
+        operation?.ThrowIfExpired();
+        PackageSourceOperationResult<PackageSearchResult> result =
+            Succeeded(value);
+        operation?.ThrowIfExpired();
+        return result;
     }
 
     public PackageSourceOperationResult<PackageVersionResult> SucceededVersions(
-        PackageVersionResult value)
+        PackageVersionResult value) =>
+        SucceededVersionsCore(value, operation: null);
+
+    internal PackageSourceOperationResult<PackageVersionResult>
+        SucceededVersions(
+            PackageVersionResult value,
+            NuGetOperationDeadline operation)
     {
-        ValidateVersions(value);
-        return Succeeded(value);
+        ArgumentNullException.ThrowIfNull(operation);
+        return SucceededVersionsCore(value, operation);
+    }
+
+    private PackageSourceOperationResult<PackageVersionResult>
+        SucceededVersionsCore(
+            PackageVersionResult value,
+            NuGetOperationDeadline? operation)
+    {
+        operation?.ThrowIfExpired();
+        ValidateVersions(value, operation);
+        operation?.ThrowIfExpired();
+        PackageSourceOperationResult<PackageVersionResult> result =
+            Succeeded(value);
+        operation?.ThrowIfExpired();
+        return result;
     }
 
     public PackageSourceOperationResult<PackageSourceManifest>
@@ -987,7 +1026,7 @@ public sealed class PackageSourceResultFactory
     {
         ValidateOutcome(
             outcome,
-            ValidateSearch,
+            value => ValidateSearch(value, operation: null),
             PackageSourceCapabilities.Search,
             coordinate: null,
             payloadKind: null);
@@ -998,7 +1037,7 @@ public sealed class PackageSourceResultFactory
     {
         ValidateOutcome(
             outcome,
-            ValidateVersions,
+            value => ValidateVersions(value, operation: null),
             PackageSourceCapabilities.VersionEnumeration,
             coordinate: null,
             payloadKind: null);
@@ -1078,12 +1117,16 @@ public sealed class PackageSourceResultFactory
             failure);
     }
 
-    private void ValidateSearch(PackageSearchResult value)
+    private void ValidateSearch(
+        PackageSearchResult value,
+        NuGetOperationDeadline? operation)
     {
         ArgumentNullException.ThrowIfNull(value);
+        operation?.ThrowIfExpired();
         RequireSourceAndIssuer(value.Source, value.HasIssuer(_issuer));
         foreach (PackageSearchMatch match in value.Matches)
         {
+            operation?.ThrowIfExpired();
             if (match is null
                 || !match.HasIssuer(_issuer))
             {
@@ -1092,14 +1135,24 @@ public sealed class PackageSourceResultFactory
 
             ValidateCandidate(match.Candidate);
         }
+
+        operation?.ThrowIfExpired();
     }
 
-    private void ValidateVersions(PackageVersionResult value)
+    private void ValidateVersions(
+        PackageVersionResult value,
+        NuGetOperationDeadline? operation)
     {
         ArgumentNullException.ThrowIfNull(value);
+        operation?.ThrowIfExpired();
         RequireSourceAndIssuer(value.Source, value.HasIssuer(_issuer));
         foreach (PackageCandidateObservation candidate in value.Candidates)
+        {
+            operation?.ThrowIfExpired();
             ValidateCandidate(candidate);
+        }
+
+        operation?.ThrowIfExpired();
     }
 
     private void ValidateCandidate(PackageCandidateObservation value)
@@ -1322,10 +1375,13 @@ internal static class PackageSourceOperation
             PackageSourceResultFactory factory,
             Func<Task<PackageSearchResult>> operation,
             CancellationToken cancellationToken,
-            NuGetOperationContext? operationContext = null) =>
+            NuGetOperationContext? operationContext = null,
+            NuGetOperationDeadline? operationDeadline = null) =>
         CaptureAsync(
             operation,
-            factory.SucceededSearch,
+            value => operationDeadline is null
+                ? factory.SucceededSearch(value)
+                : factory.SucceededSearch(value, operationDeadline),
             factory.FailedSearch,
             allowNotFound: false,
             cancellationToken,
@@ -1336,10 +1392,13 @@ internal static class PackageSourceOperation
             PackageSourceResultFactory factory,
             Func<Task<PackageVersionResult>> operation,
             CancellationToken cancellationToken,
-            NuGetOperationContext? operationContext = null) =>
+            NuGetOperationContext? operationContext = null,
+            NuGetOperationDeadline? operationDeadline = null) =>
         CaptureAsync(
             operation,
-            factory.SucceededVersions,
+            value => operationDeadline is null
+                ? factory.SucceededVersions(value)
+                : factory.SucceededVersions(value, operationDeadline),
             factory.FailedVersions,
             allowNotFound: false,
             cancellationToken,

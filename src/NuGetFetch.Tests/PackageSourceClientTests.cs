@@ -4280,6 +4280,63 @@ public sealed class PackageSourceClientTests
                 operation));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SuccessPublicationRemainsInsideOperationDeadline(
+        bool versions)
+    {
+        PackageSourceResultFactory results = CreateResultFactory();
+        PackageSearchResult searchResult =
+            results.Search([new SearchResult("contoso", "1.0.0")]);
+        PackageCandidateObservation candidate = results.Candidate(
+            PackageSourceCoordinate.Create("contoso", "1.0.0"),
+            PackageDiscoveryContract.CompleteVersionEnumeration,
+            PackageListingState.Unknown);
+        PackageVersionResult versionResult = results.Versions(
+            [candidate],
+            hasAuthoritativeListingState: false);
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromSeconds(1),
+            OperationTimeout = TimeSpan.FromMilliseconds(20),
+        };
+        using var operation = new NuGetOperationDeadline(
+            options,
+            Timeout.InfiniteTimeSpan,
+            CancellationToken.None);
+        await Task.Delay(
+            TimeSpan.FromMilliseconds(100),
+            TestContext.Current.CancellationToken);
+
+        PackageSourceFailure failure;
+        if (versions)
+        {
+            failure = Failed(
+                await PackageSourceOperation.CaptureVersionsAsync(
+                    results,
+                    () => Task.FromResult(versionResult),
+                    TestContext.Current.CancellationToken,
+                    operationDeadline: operation));
+        }
+        else
+        {
+            failure = Failed(
+                await PackageSourceOperation.CaptureSearchAsync(
+                    results,
+                    () => Task.FromResult(searchResult),
+                    TestContext.Current.CancellationToken,
+                    operationDeadline: operation));
+        }
+
+        Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
+        Assert.Equal(
+            versions
+                ? PackageSourceCapabilities.VersionEnumeration
+                : PackageSourceCapabilities.Search,
+            failure.Capability);
+    }
+
     [Fact]
     public void GalleryOwnedTransportIsDisposedWithClient()
     {

@@ -158,6 +158,107 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
         }
     }
 
+    [Fact]
+    public void LegacyReferenceDiscoveryIncludesAliasesAndInactiveBranches()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"legacy-source-inventory-{Guid.NewGuid():N}");
+        string sourceRoot = Path.Combine(root, "tests");
+        Directory.CreateDirectory(sourceRoot);
+
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(sourceRoot, "LegacyDefinition.cs"),
+                $$"""
+                namespace NuGetFetch;
+                sealed class {{LegacyTypeName}}
+                {
+                }
+                sealed class {{DescriptorTypeName}}
+                {
+                    public object {{IdentityPropertyName}} => new();
+                }
+                """);
+            File.WriteAllText(
+                Path.Combine(sourceRoot, "GlobalAlias.cs"),
+                $$"""
+                global using LegacyIdentity =
+                    NuGetFetch.{{LegacyTypeName}};
+                """);
+            File.WriteAllText(
+                Path.Combine(sourceRoot, "GlobalAliasConsumer.cs"),
+                """
+                namespace Probe;
+                sealed class GlobalAliasConsumer
+                {
+                    LegacyIdentity? Read() => null;
+                }
+                """);
+            File.WriteAllText(
+                Path.Combine(sourceRoot, "LocalAliasConsumer.cs"),
+                $$"""
+                using LocalIdentity =
+                    NuGetFetch.{{LegacyTypeName}};
+                namespace Probe;
+                sealed class LocalAliasConsumer
+                {
+                    LocalIdentity? Read() => null;
+                }
+                """);
+            File.WriteAllText(
+                Path.Combine(sourceRoot, "InactiveConsumer.cs"),
+                $$"""
+                #if LEGACY_INACTIVE_BRANCH
+                namespace Probe;
+                sealed class InactiveConsumer
+                {
+                    NuGetFetch.{{LegacyTypeName}}? Read() => null;
+                    LegacyIdentity? ReadAlias() => null;
+                    object ReadDescriptor(
+                        NuGetFetch.{{DescriptorTypeName}} descriptor) =>
+                        descriptor.{{IdentityPropertyName}};
+                }
+                #endif
+                """);
+
+            Dictionary<string, MigrationEntry> readers =
+                DiscoverReferences(new DirectoryInfo(root))
+                    .ToDictionary(entry => entry.Path, StringComparer.Ordinal);
+            Assert.Equal(
+                1,
+                readers["tests/LegacyDefinition.cs"].ExplicitReferences);
+            Assert.Equal(
+                1,
+                readers["tests/GlobalAlias.cs"].ExplicitReferences);
+            Assert.Equal(
+                1,
+                readers["tests/GlobalAliasConsumer.cs"].ExplicitReferences);
+            Assert.Equal(
+                2,
+                readers["tests/LocalAliasConsumer.cs"].ExplicitReferences);
+            Assert.Equal(
+                2,
+                readers["tests/InactiveConsumer.cs"].ExplicitReferences);
+            Assert.Equal(
+                1,
+                readers["tests/InactiveConsumer.cs"].ImplicitReferences);
+            Assert.All(
+                readers.Values.Where(entry =>
+                    entry.Path != "tests/InactiveConsumer.cs"),
+                entry => Assert.Equal(0, entry.ImplicitReferences));
+            Assert.Contains(
+                "unlisted",
+                MigrationSetError([], [.. readers.Values]),
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     static MigrationEntry[] DiscoverReferences(DirectoryInfo root)
     {
         string[] paths =
@@ -177,31 +278,140 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
                 .Where(path => !IsBuildOutput(root.FullName, path))
                 .Order(StringComparer.Ordinal),
         ];
-        SyntaxTree[] trees =
+        SourceDocument[] sources =
         [
             .. paths.Select(path =>
-                CSharpSyntaxTree.ParseText(
-                    File.ReadAllText(path),
-                    CSharpParseOptions.Default
-                        .WithLanguageVersion(LanguageVersion.Preview),
-                    path)),
+                new SourceDocument(path, File.ReadAllText(path))),
         ];
-        CSharpCompilation compilation = CreateCompilation(trees);
+        SyntaxTree[] baseline = ParseSources(sources, []);
+        string[] conditionalSymbols = DiscoverConditionalSymbols(baseline);
+        Dictionary<string, SyntaxTree> baselineByPath =
+            baseline.ToDictionary(
+                tree => tree.FilePath,
+                StringComparer.Ordinal);
+        HashSet<string> conditionalPaths =
+        [
+            .. baseline
+                .Where(HasConditionalDirectives)
+                .Select(tree => tree.FilePath),
+        ];
+        Assert.True(
+            conditionalSymbols.Length <= 8,
+            "The exhaustive legacy migration inventory supports at most "
+            + "eight conditional-compilation symbols; observed "
+            + $"[{string.Join(", ", conditionalSymbols)}].");
+        Dictionary<string, ReferenceLocations> references =
+            sources.ToDictionary(
+                source => source.Path,
+                _ => new ReferenceLocations(),
+                StringComparer.Ordinal);
+        CSharpCompilation compilation = CreateCompilation(baseline);
+        INamedTypeSymbol? legacyType =
+            compilation.GetTypeByMetadataName(
+                $"NuGetFetch.{LegacyTypeName}");
+        IPropertySymbol? descriptorIdentity =
+            compilation
+                .GetTypeByMetadataName(
+                    $"NuGetFetch.{DescriptorTypeName}")
+                ?.GetMembers(IdentityPropertyName)
+                .OfType<IPropertySymbol>()
+                .SingleOrDefault();
+        HashSet<string> legacyAliases =
+            DiscoverLegacyAliases(
+                baseline,
+                compilation,
+                legacyType);
+        Dictionary<string, HashSet<int>> baselineSyntaxLocations =
+            baseline.ToDictionary(
+                tree => tree.FilePath,
+                tree => ActiveSyntaxLocations(tree.GetRoot()),
+                StringComparer.Ordinal);
+
+        foreach (SyntaxTree tree in baseline)
+        {
+            SyntaxNode syntax = tree.GetRoot();
+            if (!HasPotentialReferences(syntax, legacyAliases))
+                continue;
+
+            SemanticModel semantics = compilation.GetSemanticModel(tree);
+            ReferenceLocations locations = references[tree.FilePath];
+            locations.Explicit.UnionWith(
+                ExplicitReferenceLocations(
+                    syntax,
+                    semantics,
+                    legacyType,
+                    legacyAliases));
+            locations.Implicit.UnionWith(
+                ImplicitReferenceLocations(
+                    syntax,
+                    semantics,
+                    descriptorIdentity));
+        }
+
+        int configurationCount = 1 << conditionalSymbols.Length;
+        for (int mask = 0; mask < configurationCount; mask++)
+        {
+            string[] definedSymbols =
+            [
+                .. conditionalSymbols.Where(
+                    (_, index) => (mask & (1 << index)) != 0),
+            ];
+            SyntaxTree[] trees = ParseConditionalSources(
+                sources,
+                definedSymbols,
+                baselineByPath,
+                conditionalPaths);
+            AddSyntacticLegacyAliases(
+                [
+                    .. trees.Where(tree =>
+                        conditionalPaths.Contains(tree.FilePath)),
+                ],
+                legacyAliases);
+        }
+
+        for (int mask = 0; mask < configurationCount; mask++)
+        {
+            string[] definedSymbols =
+            [
+                .. conditionalSymbols.Where(
+                    (_, index) => (mask & (1 << index)) != 0),
+            ];
+            SyntaxTree[] trees = ParseConditionalSources(
+                sources,
+                definedSymbols,
+                baselineByPath,
+                conditionalPaths);
+            foreach (SyntaxTree tree in trees.Where(tree =>
+                         conditionalPaths.Contains(tree.FilePath)))
+            {
+                SyntaxNode syntax = tree.GetRoot();
+                ReferenceLocations locations = references[tree.FilePath];
+                IReadOnlySet<int> active =
+                    baselineSyntaxLocations[tree.FilePath];
+                locations.Explicit.UnionWith(
+                    InactiveExplicitReferenceLocations(
+                        syntax,
+                        active,
+                        legacyAliases));
+                locations.Implicit.UnionWith(
+                    InactiveImplicitReferenceLocations(
+                        syntax,
+                        active));
+            }
+        }
 
         return
         [
-            .. trees
-                .Select(tree =>
+            .. sources
+                .Select(source =>
                 {
-                    SyntaxNode syntax = tree.GetRoot();
-                    SemanticModel semantics =
-                        compilation.GetSemanticModel(tree);
+                    ReferenceLocations locations = references[source.Path];
                     return new MigrationEntry(
                         Issue: "",
-                        Path.GetRelativePath(root.FullName, tree.FilePath)
+                        Path.GetRelativePath(root.FullName, source.Path)
                             .Replace('\\', '/'),
-                        CountExplicitReferences(syntax),
-                        CountImplicitReferences(syntax, semantics));
+                        locations.Explicit.Count,
+                        locations.Implicit.Count);
                 })
                 .Where(entry =>
                     entry.ExplicitReferences != 0
@@ -210,28 +420,323 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
         ];
     }
 
-    static int CountExplicitReferences(SyntaxNode syntax) =>
-        syntax.DescendantTokens()
-            .Count(token =>
-                token.IsKind(SyntaxKind.IdentifierToken)
-                && token.ValueText == LegacyTypeName);
+    static void AddSyntacticLegacyAliases(
+        IReadOnlyList<SyntaxTree> trees,
+        HashSet<string> aliases)
+    {
+        foreach (UsingDirectiveSyntax directive in
+                 trees.SelectMany(tree =>
+                     tree.GetRoot()
+                         .DescendantNodes()
+                         .OfType<UsingDirectiveSyntax>()))
+        {
+            if (directive is
+                    {
+                        Alias: { } alias,
+                        Name: { } name,
+                    }
+                && name.DescendantNodesAndSelf()
+                    .OfType<SimpleNameSyntax>()
+                    .Any(candidate =>
+                        candidate.Identifier.ValueText
+                            == LegacyTypeName))
+            {
+                aliases.Add(alias.Name.Identifier.ValueText);
+            }
+        }
+    }
 
-    static int CountImplicitReferences(
+    static HashSet<int> ActiveSyntaxLocations(SyntaxNode syntax) =>
+        [
+            .. syntax.DescendantNodes()
+                .Where(node =>
+                    node is TypeDeclarationSyntax
+                        or ConstructorDeclarationSyntax
+                        or SimpleNameSyntax)
+                .Select(node => node.SpanStart),
+        ];
+
+    static IEnumerable<int> InactiveExplicitReferenceLocations(
         SyntaxNode syntax,
-        SemanticModel semantics) =>
+        IReadOnlySet<int> active,
+        IReadOnlySet<string> legacyAliases)
+    {
+        foreach (TypeDeclarationSyntax declaration in
+                 syntax.DescendantNodes()
+                     .OfType<TypeDeclarationSyntax>())
+        {
+            if (!active.Contains(declaration.SpanStart)
+                && declaration.Identifier.ValueText == LegacyTypeName)
+            {
+                yield return declaration.Identifier.SpanStart;
+            }
+        }
+
+        foreach (ConstructorDeclarationSyntax constructor in
+                 syntax.DescendantNodes()
+                     .OfType<ConstructorDeclarationSyntax>())
+        {
+            if (!active.Contains(constructor.SpanStart)
+                && constructor.Identifier.ValueText == LegacyTypeName)
+            {
+                yield return constructor.Identifier.SpanStart;
+            }
+        }
+
+        foreach (SimpleNameSyntax name in
+                 syntax.DescendantNodes()
+                     .OfType<SimpleNameSyntax>())
+        {
+            if (!active.Contains(name.SpanStart)
+                && name.Parent is not NameEqualsSyntax
+                && legacyAliases.Contains(name.Identifier.ValueText))
+            {
+                yield return name.SpanStart;
+            }
+        }
+    }
+
+    static IEnumerable<int> InactiveImplicitReferenceLocations(
+        SyntaxNode syntax,
+        IReadOnlySet<int> active) =>
         syntax.DescendantNodes()
             .OfType<SimpleNameSyntax>()
-            .Count(name =>
-                name.Identifier.ValueText
-                    == IdentityPropertyName
-                && semantics.GetSymbolInfo(name).Symbol
-                    is IPropertySymbol
-                    {
-                        ContainingType.Name: DescriptorTypeName,
-                        ContainingNamespace.Name: "NuGetFetch",
-                        ContainingNamespace.ContainingNamespace
-                            .IsGlobalNamespace: true,
-                    });
+            .Where(name =>
+                !active.Contains(name.SpanStart)
+                && name.Identifier.ValueText == IdentityPropertyName)
+            .Select(name => name.SpanStart);
+
+    static IEnumerable<int> ExplicitReferenceLocations(
+        SyntaxNode syntax,
+        SemanticModel semantics,
+        INamedTypeSymbol? legacyType,
+        IReadOnlySet<string> legacyAliases)
+    {
+        if (legacyType is null)
+            yield break;
+
+        foreach (TypeDeclarationSyntax declaration in
+                 syntax.DescendantNodes()
+                     .OfType<TypeDeclarationSyntax>())
+        {
+            if (SymbolEqualityComparer.Default.Equals(
+                    semantics.GetDeclaredSymbol(declaration),
+                    legacyType))
+            {
+                yield return declaration.Identifier.SpanStart;
+            }
+        }
+
+        foreach (ConstructorDeclarationSyntax constructor in
+                 syntax.DescendantNodes()
+                     .OfType<ConstructorDeclarationSyntax>())
+        {
+            if (semantics.GetDeclaredSymbol(constructor)
+                    is IMethodSymbol method
+                && SymbolEqualityComparer.Default.Equals(
+                    method.ContainingType,
+                    legacyType))
+            {
+                yield return constructor.Identifier.SpanStart;
+            }
+        }
+
+        foreach (SimpleNameSyntax name in
+                 syntax.DescendantNodes()
+                     .OfType<SimpleNameSyntax>())
+        {
+            if (name.Parent is NameEqualsSyntax
+                || !legacyAliases.Contains(name.Identifier.ValueText)
+                || !TargetsLegacyType(name, semantics, legacyType))
+            {
+                continue;
+            }
+
+            yield return name.SpanStart;
+        }
+    }
+
+    static IEnumerable<int> ImplicitReferenceLocations(
+        SyntaxNode syntax,
+        SemanticModel semantics,
+        IPropertySymbol? descriptorIdentity)
+    {
+        if (descriptorIdentity is null)
+            yield break;
+
+        foreach (SimpleNameSyntax name in
+                 syntax.DescendantNodes()
+            .OfType<SimpleNameSyntax>()
+                     .Where(name =>
+                         name.Identifier.ValueText
+                             == IdentityPropertyName))
+        {
+            if (SymbolEqualityComparer.Default.Equals(
+                    semantics.GetSymbolInfo(name).Symbol,
+                    descriptorIdentity))
+            {
+                yield return name.SpanStart;
+            }
+        }
+    }
+
+    static HashSet<string> DiscoverLegacyAliases(
+        IReadOnlyList<SyntaxTree> trees,
+        CSharpCompilation compilation,
+        INamedTypeSymbol? legacyType)
+    {
+        HashSet<string> aliases =
+            new(StringComparer.Ordinal)
+            {
+                LegacyTypeName,
+            };
+        if (legacyType is null)
+            return aliases;
+
+        foreach (SyntaxTree tree in trees)
+        {
+            UsingDirectiveSyntax[] aliasDirectives =
+            [
+                .. tree.GetRoot()
+                    .DescendantNodes()
+                    .OfType<UsingDirectiveSyntax>()
+                    .Where(directive => directive.Alias is not null),
+            ];
+            if (aliasDirectives.Length == 0)
+                continue;
+
+            SemanticModel semantics = compilation.GetSemanticModel(tree);
+            foreach (UsingDirectiveSyntax directive in aliasDirectives)
+            {
+                if (directive is
+                        {
+                            Alias: { } alias,
+                            Name: { } name,
+                        }
+                    && TargetsLegacyType(
+                        name,
+                        semantics,
+                        legacyType))
+                {
+                    aliases.Add(alias.Name.Identifier.ValueText);
+                }
+            }
+        }
+
+        return aliases;
+    }
+
+    static bool HasPotentialReferences(
+        SyntaxNode syntax,
+        IReadOnlySet<string> legacyAliases) =>
+        syntax.DescendantNodes()
+            .OfType<TypeDeclarationSyntax>()
+            .Any(declaration =>
+                declaration.Identifier.ValueText == LegacyTypeName)
+        || syntax.DescendantNodes()
+            .OfType<ConstructorDeclarationSyntax>()
+            .Any(constructor =>
+                constructor.Identifier.ValueText == LegacyTypeName)
+        || syntax.DescendantNodes()
+            .OfType<SimpleNameSyntax>()
+            .Any(name =>
+                name.Identifier.ValueText == IdentityPropertyName
+                || legacyAliases.Contains(name.Identifier.ValueText));
+
+    static bool TargetsLegacyType(
+        SyntaxNode syntax,
+        SemanticModel semantics,
+        INamedTypeSymbol legacyType)
+    {
+        ISymbol? symbol = semantics.GetSymbolInfo(syntax).Symbol;
+        if (symbol is IAliasSymbol alias)
+            symbol = alias.Target;
+
+        if (symbol is IMethodSymbol
+            {
+                MethodKind: MethodKind.Constructor,
+            } constructor)
+        {
+            symbol = constructor.ContainingType;
+        }
+
+        return SymbolEqualityComparer.Default.Equals(symbol, legacyType)
+            || SymbolEqualityComparer.Default.Equals(
+                semantics.GetTypeInfo(syntax).Type,
+                legacyType);
+    }
+
+    static SyntaxTree[] ParseSources(
+        IReadOnlyList<SourceDocument> sources,
+        IReadOnlyList<string> definedSymbols)
+    {
+        CSharpParseOptions options = CSharpParseOptions.Default
+            .WithLanguageVersion(LanguageVersion.Preview)
+            .WithPreprocessorSymbols(definedSymbols);
+        return
+        [
+            .. sources.Select(source =>
+                CSharpSyntaxTree.ParseText(
+                    source.Text,
+                    options,
+                    source.Path)),
+        ];
+    }
+
+    static SyntaxTree[] ParseConditionalSources(
+        IReadOnlyList<SourceDocument> sources,
+        IReadOnlyList<string> definedSymbols,
+        IReadOnlyDictionary<string, SyntaxTree> baselineByPath,
+        IReadOnlySet<string> conditionalPaths)
+    {
+        CSharpParseOptions options = CSharpParseOptions.Default
+            .WithLanguageVersion(LanguageVersion.Preview)
+            .WithPreprocessorSymbols(definedSymbols);
+        return
+        [
+            .. sources.Select(source =>
+                conditionalPaths.Contains(source.Path)
+                    ? CSharpSyntaxTree.ParseText(
+                        source.Text,
+                        options,
+                        source.Path)
+                    : baselineByPath[source.Path]),
+        ];
+    }
+
+    static bool HasConditionalDirectives(SyntaxTree tree) =>
+        tree.GetRoot()
+            .DescendantTrivia(descendIntoTrivia: true)
+            .Select(trivia => trivia.GetStructure())
+            .Any(structure =>
+                structure is IfDirectiveTriviaSyntax
+                    or ElifDirectiveTriviaSyntax);
+
+    static string[] DiscoverConditionalSymbols(
+        IReadOnlyList<SyntaxTree> trees) =>
+        [
+            .. trees
+                .SelectMany(tree =>
+                    tree.GetRoot()
+                        .DescendantTrivia(descendIntoTrivia: true))
+                .Select(trivia => trivia.GetStructure())
+                .SelectMany(structure => structure switch
+                {
+                    IfDirectiveTriviaSyntax directive =>
+                        ConditionalSymbols(directive.Condition),
+                    ElifDirectiveTriviaSyntax directive =>
+                        ConditionalSymbols(directive.Condition),
+                    _ => [],
+                })
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal),
+        ];
+
+    static IEnumerable<string> ConditionalSymbols(
+        ExpressionSyntax condition) =>
+        condition.DescendantNodesAndSelf()
+            .OfType<IdentifierNameSyntax>()
+            .Select(name => name.Identifier.ValueText);
 
     static bool IsExcludedSourceRoot(string path)
     {
@@ -342,4 +847,12 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
         string Path,
         int ExplicitReferences,
         int ImplicitReferences);
+
+    sealed record SourceDocument(string Path, string Text);
+
+    sealed class ReferenceLocations
+    {
+        public HashSet<int> Explicit { get; } = [];
+        public HashSet<int> Implicit { get; } = [];
+    }
 }
