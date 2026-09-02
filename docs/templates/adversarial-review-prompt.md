@@ -77,19 +77,21 @@ change.
 When a candidate adds or expands a capability, substrate, host path, or broad
 rendering domain, review only design properties visible in the exact head and
 facts supplied in the candidate frame. The frame must state the complexity
-basis, consumer and end-to-end plan, and rendering strategy, or explain why
-each does not apply.
+basis; named consumer, focused issue, overall end-to-end tracker, host
+enablement plan, and any applicable approval record and exact scope; and
+rendering strategy, or explain why each does not apply.
 
-Judge whether added complexity is required for robust reliability or
-correctness or enables a compelling user-observable experience. Verify that
-the visible design matches its named consumer and host plan, keeps reusable
-concepts host-neutral and hosts reasonably thin, and does not depend on
-unplanned later work for the current slice's correctness. Shared substrate
-must plan benefit and enablement through both the CLI and browser/Wasm hosts;
-for substrate intentionally limited to one consumer or host, the frame must
-supply the recorded approval and exact approved scope. Treat that record as a
-candidate-formation fact: verify that the design conforms to it, but do not
-infer, grant, or broaden approval.
+Verify that the stated complexity basis identifies a specific reliability or
+correctness requirement or user-observable experience, and that the visible
+design's added complexity serves that basis. Do not independently judge whether
+an experience is compelling. Verify that the design matches its named consumer
+and host plan, keeps reusable concepts host-neutral and hosts reasonably thin,
+and does not depend on unplanned later work for the current slice's
+correctness. Shared substrate must plan benefit and enablement through both the
+CLI and browser/Wasm hosts; for substrate intentionally limited to one consumer
+or host, the frame must supply the recorded approval and exact approved scope.
+Treat that record as a candidate-formation fact: verify that the design
+conforms to it, but do not infer, grant, or broaden approval.
 
 For rendering, verify that structured information survives to the rendering
 boundary. Markout is the default host-neutral, multi-format substrate. A
@@ -123,8 +125,9 @@ owning claim defines a concrete observable requirement.
 Do not begin review if the candidate context contains unresolved placeholders,
 names multiple normative owners, or cannot connect the supported input to the
 claimed consequence. For an applicable capability, substrate, host, or
-rendering change, also stop when the required complexity basis, consumer and
-end-to-end plan, applicable approval record, or rendering strategy is absent.
+rendering change, also stop when the required complexity basis; named consumer,
+focused issue, overall end-to-end tracker, or host enablement plan; applicable
+approval record or exact scope; or rendering strategy is incomplete or absent.
 Return the framing defect instead of inventing the missing plan, approval, or
 broader review property.
 
