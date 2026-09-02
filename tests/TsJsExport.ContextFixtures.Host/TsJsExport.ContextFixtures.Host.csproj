@@ -16,6 +16,12 @@
     <ProjectReference Include="../TsJsExport.ContextFixtures.Alpha/TsJsExport.ContextFixtures.Alpha.csproj" />
     <ProjectReference Include="../TsJsExport.ContextFixtures.Beta/TsJsExport.ContextFixtures.Beta.csproj" />
     <ProjectReference
+      Include="../TsJsExport.ContextFixtures.NormalizationComposed/TsJsExport.ContextFixtures.NormalizationComposed.csproj"
+      Private="false" />
+    <ProjectReference
+      Include="../TsJsExport.ContextFixtures.NormalizationDecomposed/TsJsExport.ContextFixtures.NormalizationDecomposed.csproj"
+      Private="false" />
+    <ProjectReference
       Include="../TsJsExport.ContextFixtures.WrongContract/TsJsExport.ContextFixtures.WrongContract.csproj"
       Aliases="WrongContractFixture" />
   </ItemGroup>

@@ -219,7 +219,8 @@ internal static class JsExportContextLoader
                 {
                     error.WriteLine(
                         $"{toolName}: context artifact name '{artifactName}' "
-                            + "is not unique under case-insensitive comparison.");
+                            + "is not unique after Unicode normalization and "
+                            + "case-insensitive comparison.");
                     return false;
                 }
 

@@ -4,6 +4,8 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using TsJsExport.ContextFixtures.Alpha;
 using TsJsExport.ContextFixtures.Beta;
+using TsJsExport.ContextFixtures.NormalizationComposed;
+using TsJsExport.ContextFixtures.NormalizationDecomposed;
 
 namespace TsJsExport.ContextFixtures.Host;
 
@@ -21,6 +23,10 @@ public sealed class MultiAssemblyContext;
 
 [JsExportRoot(typeof(AlphaExports))]
 public sealed class AlphaOnlyContext;
+
+[JsExportRoot(typeof(ComposedExports))]
+[JsExportRoot(typeof(DecomposedExports))]
+public sealed class NormalizationCollisionContext;
 
 [JsExportRoot(typeof(AlphaExports))]
 [JsExportRoot(typeof(AlphaSecondaryAnchor))]

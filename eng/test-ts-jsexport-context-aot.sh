@@ -41,4 +41,23 @@ for facade in "${expected[@]}"; do
 done
 test "$(find "$scratch/facades" -maxdepth 1 -type f | wc -l)" -eq 3
 
+normalization_error="$scratch/normalization-error.txt"
+if "$scratch/tool/$tool_name" \
+  "$context_assembly" \
+  --context TsJsExport.ContextFixtures.Host.NormalizationCollisionContext \
+  --assembly-search-path \
+    "$repo_root/tests/TsJsExport.ContextFixtures.NormalizationComposed/bin/Release/net11.0" \
+  --assembly-search-path \
+    "$repo_root/tests/TsJsExport.ContextFixtures.NormalizationDecomposed/bin/Release/net11.0" \
+  --runtime-module ./dotnet.js \
+  --output "$scratch/normalization-facades" \
+  2>"$normalization_error"; then
+  echo "ts-jsexport accepted canonically equivalent artifact names." >&2
+  exit 1
+fi
+grep -Fq \
+  "is not unique after Unicode normalization" \
+  "$normalization_error"
+test ! -e "$scratch/normalization-facades"
+
 echo "ts-jsexport context NativeAOT gate passed."

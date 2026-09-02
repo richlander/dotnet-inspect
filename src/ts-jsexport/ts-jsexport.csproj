@@ -27,7 +27,8 @@
 
   <PropertyGroup Condition="'$(PublishAot)' == 'true'">
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
-    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Artifact-name collision detection requires Unicode normalization. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
     <OptimizationPreference>Speed</OptimizationPreference>
   </PropertyGroup>
 

@@ -127,6 +127,8 @@
     <Project Path="tests/TsJsExport.ContextFixtures.Alpha/TsJsExport.ContextFixtures.Alpha.csproj" />
     <Project Path="tests/TsJsExport.ContextFixtures.Beta/TsJsExport.ContextFixtures.Beta.csproj" />
     <Project Path="tests/TsJsExport.ContextFixtures.Host/TsJsExport.ContextFixtures.Host.csproj" />
+    <Project Path="tests/TsJsExport.ContextFixtures.NormalizationComposed/TsJsExport.ContextFixtures.NormalizationComposed.csproj" />
+    <Project Path="tests/TsJsExport.ContextFixtures.NormalizationDecomposed/TsJsExport.ContextFixtures.NormalizationDecomposed.csproj" />
     <Project Path="tests/TsJsExport.ContextFixtures.WrongContract/TsJsExport.ContextFixtures.WrongContract.csproj" />
     <Project Path="tests/DotnetInspector.MetadataRendering.Tests/DotnetInspector.MetadataRendering.Tests.csproj" />
     <Project Path="tests/DotnetInspector.PackageManifestCorpus/DotnetInspector.PackageManifestCorpus.csproj" />
