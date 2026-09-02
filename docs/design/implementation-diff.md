@@ -794,13 +794,13 @@ Migration preserves owner and dependency direction:
    remains on its compatibility path until Queries prerequisite #4777 supplies
    exact Metadata target evidence; Research does not compensate for that
    missing input.
-5. After the Findings topology and focused native-producer migrations land,
-   rank 4 under
+5. The Findings topology and focused native-producer migrations have landed.
+   Rank 4 under
    [#5441](https://github.com/richlander/dotnet-inspect/issues/5441)
    consumes complete correspondence outcomes to create work items. Its target
-   design is specified below; implementation waits on the producer migrations.
-   Producer adapters classify endpoint topology and retain their native typed
-   results; Research adds no generic body disposition.
+   design is specified below, but its Research implementation remains
+   unimplemented. Producer adapters classify endpoint topology and retain their
+   native typed results; Research adds no generic body disposition.
 6. Rank 6 later migrates the implementation-comparison public path from string
    target identities and publishes the outer result. Body-signal migration
    follows #4777 independently.
