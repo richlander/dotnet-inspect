@@ -69,7 +69,7 @@ This document consumes, without redefining:
   facet-availability outcomes issued by the
   [View Facet Registry](view-facet-registry.md);
 - [Browser package sources](browser-package-sources.md#default-feed-decision)
-  for browser source selection and default-feed policy; and
+  for browser source selection and default-feed policy;
 - [Inspect Web SlideStrip](inspect-web-slide-strip.md) for ordered item
   representation modes, contiguous windows, capacity handling, edge
   disclosure, and focus preservation within each strip; and

@@ -112,7 +112,7 @@ The policy also supplies:
 
 - a deterministic initial window anchor;
 - the preferred owner-order direction for equal-ranked window placements;
-- a window-continuity key; and
+- a window-continuity key;
 - a positive fallback-visibility floor that exposes the complete focus
   indicator and a policy-chosen recognizable portion of an oversized item; and
 - the normal focused-item alignment when one item is wider than the viewport.
@@ -155,13 +155,15 @@ viable modes, allocation, retained window, and focus:
 6. If no mode qualifies, it selects the viable mode with the greatest visible
    count, breaking ties toward the more-preferred mode.
 7. If no normal-sized window fits, the control creates one fallback singleton
-   containing the pending navigation destination, otherwise the focused item,
-   otherwise the retained leading identity, otherwise the initial anchor. It
-   uses the mode selected by step 6; when every mode has zero fitting items,
-   the preference tie-break selects Label. The item remains normal-sized, may
-   be clipped by the viewport, and is aligned by the policy. Overlaid edge
-   indicators still disclose hidden inventory without reducing its visible
-   portion.
+   containing the pending navigation destination, otherwise the directional
+   window target, otherwise the focused item, otherwise the retained leading
+   identity, otherwise the initial anchor. The window target participates
+   independently of focus so an external-focus slide still reveals an
+   oversized adjacent item. The fallback uses the mode selected by step 6;
+   when every mode has zero fitting items, the preference tie-break selects
+   Label. The item remains normal-sized, may be clipped by the viewport, and is
+   aligned by the policy. Overlaid edge indicators still disclose hidden
+   inventory without reducing its visible portion.
 8. Within the selected mode, widening adds adjacent items one at a time until
    the complete inventory is visible; narrowing removes edge items one at a
    time without mixing modes.
@@ -201,9 +203,9 @@ uses the first hidden item before the current window and pins it to the new
 leading edge. The resolver removes as many items from the opposite edge as
 unequal widths require; it never skips the adjacent hidden target or reveals an
 item beyond that pinned edge. If no multi-item window fits, the pinned item
-becomes the singleton and the normal fallback rule applies when it is
-oversized. A request at an edge with no hidden item in that direction is a
-no-op.
+becomes the singleton and, when it is oversized, outranks retained placement
+in the normal fallback rule. A request at an edge with no hidden item in that
+direction is a no-op.
 
 Sliding does not select or activate an item. When the requested movement would
 hide the focused item, the window target becomes the pending focus destination
@@ -352,6 +354,7 @@ The implementation PR must add focused tests that prove:
 - focused one-item slide transactions in both directions;
 - unequal-width directional slides that pin the adjacent hidden item;
 - external-focus sliding without focus transfer;
+- external-focus sliding to an oversized adjacent fallback singleton;
 - atomic reveal-then-focus navigation to an out-of-window identity;
 - invalid policy and missing required-Label rejection;
 - installed initial-anchor validation;
@@ -409,8 +412,11 @@ normal Inspect Web frontend and production Browser/Wasm suites.
    Repeat with a multi-item overlap that can retain focus and confirm that the
    adjacent item is pinned as the window target while focus remains unchanged.
    Move focus outside the strip, repeat pointer and wheel slides, and confirm
-   that external focus remains unchanged. At each inventory edge, confirm that
-   a request with no hidden item in that direction is a no-op.
+   that external focus remains unchanged. Make the adjacent target wider than
+   the viewport and confirm that it becomes the clipped fallback singleton
+   rather than retaining the prior window, while external focus still remains
+   unchanged. At each inventory edge, confirm that a request with no hidden
+   item in that direction is a no-op.
 7. Replace the installed inventory while focus and selection differ. Confirm
    that retained identities preserve focus and adopter-owned navigation state
    and that removed identities use the adopter's external focus rule. Install
