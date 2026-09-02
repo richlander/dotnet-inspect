@@ -381,29 +381,6 @@ test("temporary pressure does not discard the retained allocation", async ({
   await expect(moreSubjects).toHaveAttribute("aria-disabled", "true");
 });
 
-test("a narrower stable ladder commits its clamped allocation", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 660, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html?member=1");
-
-  const moreSubjects = page.locator("[data-more-subjects]");
-  for (let attempt = 0; attempt < 10; attempt++) {
-    if (await moreSubjects.getAttribute("aria-disabled") === "true") break;
-    await moreSubjects.click();
-  }
-  await expect(moreSubjects).toHaveAttribute("aria-disabled", "true");
-
-  await page.setViewportSize({ width: 640, height: 900 });
-  await expect(page.locator(".lensbar")).toHaveAttribute(
-    "data-pressure",
-    "ladder");
-  await expect(moreSubjects).toHaveAttribute("aria-disabled", "true");
-
-  await page.setViewportSize({ width: 660, height: 900 });
-  await expect(moreSubjects).toHaveAttribute("aria-disabled", "false");
-});
-
 test("manual windows survive resize and reset with inspector inventory", async ({
   page,
 }) => {

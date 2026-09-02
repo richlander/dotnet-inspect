@@ -3,11 +3,18 @@ import test from "node:test";
 import {
   bindScopeBar,
   captureScopeBarFocus,
+  clampAllocationOrdinal,
   renderScopeBar,
   restoreScopeBarFocus,
   type ScopeBarBindingActions,
 } from "../src/scope-bar.ts";
 import { fakeDom } from "./fake-dom.ts";
+
+test("allocation ordinals clamp to the current stable ladder", () => {
+  assert.equal(clampAllocationOrdinal(3, 2), 1);
+  assert.equal(clampAllocationOrdinal(1, 4), 1);
+  assert.equal(clampAllocationOrdinal(-1, 4), 0);
+});
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;

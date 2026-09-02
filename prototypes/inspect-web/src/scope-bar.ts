@@ -87,6 +87,13 @@ export function createScopeBarState(): ScopeBarState {
   };
 }
 
+export function clampAllocationOrdinal(
+  requested: number,
+  levelCount: number,
+): number {
+  return Math.max(0, Math.min(requested, levelCount - 1));
+}
+
 export function captureScopeBarFocus(
   element: HTMLElement,
 ): ScopeBarFocusTarget | null {
@@ -725,9 +732,9 @@ class ScopeBarController implements ScopeBarBinding {
         subjectMinimum,
         inspectorMinimum);
       if (this.ladder.length > 0) {
-        this.state.allocationOrdinal = Math.max(
-          0,
-          Math.min(this.state.allocationOrdinal, this.ladder.length - 1));
+        this.state.allocationOrdinal = clampAllocationOrdinal(
+          this.state.allocationOrdinal,
+          this.ladder.length);
         this.renderedAllocationOrdinal = this.state.allocationOrdinal;
         const pair = this.ladder[this.renderedAllocationOrdinal];
         if (pair) {
