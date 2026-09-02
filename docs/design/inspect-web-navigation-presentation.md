@@ -132,13 +132,17 @@ inspector label fits. Under pressure it becomes **inspector-first**:
    compact: `[W]`, `[P]`, `[L]`, `[T]`, and `[M]`.
 2. The active inspector keeps its full owner-issued label whenever that label
    fits.
-3. Remaining label capacity expands inspectors outward from the active
+3. Remaining label capacity evaluates inspectors outward from the active
    inspector in owner order, preferring the following inspector and then the
-   preceding inspector at each distance. Other inspectors use their stable
-   boxed one-based order symbols.
+   preceding inspector at each distance. A candidate receives its full label
+   when it fits without displacing an already admitted label or any remaining
+   normal-sized symbol. A candidate that does not fit remains compact and
+   evaluation continues, so unequal label widths do not make later capacity
+   ambiguous. Other inspectors use their stable boxed one-based order symbols.
 4. When the container can fit compact subjects, the reveal controls, and two
    inspector labels at normal control sizing, at least the active inspector
-   and one adjacent inspector remain readable as text.
+   and one adjacent inspector remain readable as text in the default
+   inspector-first allocation.
 5. If even that boundary cannot fit, inspector labels compact to their order
    symbols and the composite scrolls horizontally rather than wrapping or
    shrinking controls below their normal interactive size.
@@ -150,25 +154,40 @@ The subject symbols are presentation vocabulary, not parsed identities.
 Inspector numbers express only stable owner order within the current subject;
 they are never submitted as action identity.
 
-Under pressure, two persistent reveal buttons at the subject/inspector seam
-move the allocation one discrete step toward **more subjects** or **more
-inspectors**. They do not reorder or hide tabs. A subject-forward step expands
-subject labels and compacts lower-priority inspector labels; an
-inspector-forward step restores inspector labels and compacts subjects. The
-inspector-first position is the default whenever a new subject installs a new
-inspector set. Both buttons remain mounted while pressure exists and use
-`aria-disabled="true"` at their respective allocation bounds so changing the
-allocation never destroys the focused invoker. The buttons have the accessible
-names `Show more subjects` and `Show more inspectors`; their arrows are only
-visual direction cues.
+Under pressure, the allocation state is a discrete **subject reveal level**.
+Subjects are prioritized from the active subject outward, preferring the
+following subject and then the preceding subject at each distance. The level
+is the number of full subject labels admitted as a prefix of that priority
+order:
+
+- level zero is the inspector-first bound: every subject uses its symbol and
+  the remaining capacity maximizes readable inspector labels by the rule
+  above;
+- the subject-forward bound is the greatest level at which the admitted
+  subject labels, remaining subject symbols, reveal controls, and every
+  inspector symbol all fit at normal control sizing; and
+- at every intermediate level, inspector labels are recomputed from their
+  priority order in the capacity left after the admitted subject labels.
+
+Two persistent reveal buttons at the subject/inspector seam move the level by
+exactly one. `Show more subjects` increments the level and
+`Show more inspectors` decrements it. A user-requested subject-forward level
+may compact more inspector labels than the default two-readable-label rule.
+The buttons do not reorder or hide tabs. Both remain mounted while pressure
+exists and use `aria-disabled="true"` at their respective bounds so allocation
+changes never destroy the focused invoker. Their arrows are only visual
+direction cues.
 
 Reveal bias is presentation-local state. It survives selection changes,
 asynchronous shell replacement, and resize while the current subject and
-inspector inventory remain installed. It is absent from workspace packets,
-Share URLs, browser history, and product navigation results. A new subject
-resets the default to inspector-first. A width at which all labels fit ignores
-the bias and omits the reveal controls; returning to pressure on the same
-subject restores the retained bias.
+inspector inventory identity remain installed. Inspector inventory identity is
+the ordered sequence of typed inspector identities, not their labels or
+availability states. It is absent from workspace packets, Share URLs, browser
+history, and product navigation results. A new subject or a changed inspector
+inventory identity resets the level to inspector-first. A width at which all
+labels fit ignores the bias and omits the reveal controls; returning to
+pressure with the same subject and inventory identity restores the retained
+level, clamped to the newly feasible subject-forward bound.
 
 The subject tablist uses one tab stop and manual activation. Left and Right
 Arrow move focus through rendered subjects, Home and End move to the first and
@@ -178,6 +197,13 @@ labelled by the active subject. The inspector tablist retains the equivalent
 lens semantics below. Reveal-button activation changes only allocation and
 focus remains on the button. Any sliding animation preserves the focused
 element and is omitted when reduced motion is requested.
+
+When widening makes every label fit while a reveal button owns focus, the
+presentation transfers focus before removing the buttons. `Show more subjects`
+moves focus and the subject tablist's sole roving tab stop to its active tab;
+`Show more inspectors` does the same for the active inspector tab. If the
+inspector tablist has no active tab, focus moves to the active subject tab.
+Removing unfocused reveal buttons does not move focus.
 
 `Slideable` names this discrete reveal allocation, not a draggable splitter or
 continuous user-sized layout. The initial contract does not add pointer drag,
@@ -493,8 +519,8 @@ The old full-width `PACKAGE` row remains removed. Package version and TFM
 controls render in the Package working surface:
 
 ```text
-dotnet-inspect  ⬡ System.Text.Json                         Search...  ← →
-Workspace Package Type Member  Overview Dependencies Metadata  Share Settings ?
+dotnet-inspect  ⬡ System.Text.Json                         ← →  Search
+Workspace Package Type Member | Overview Dependencies Metadata
 
 Package coordinate
 Version 10.0.0   Framework net10.0
@@ -651,23 +677,32 @@ are proved by the gates in
 3. Move the active inspector to the final owner-ordered entry and confirm that
    it and the nearest preceding inspector receive the readable-label priority
    without reordering either control.
-4. Activate `Show more subjects` and confirm that subject labels expand,
-   lower-priority inspector labels compact to their one-based symbols, and no
+4. Activate `Show more subjects` repeatedly and confirm that each activation
+   admits exactly one subject label in active-subject-outward priority order,
+   lower-priority inspector labels compact as capacity requires, and no
    subject, inspector, selection, or product navigation state changes.
-5. Activate `Show more inspectors` and confirm that inspector labels expand,
-   subjects return to their stable symbols, and focus remains on the reveal
+5. Activate `Show more inspectors` and confirm that each activation removes
+   exactly one admitted subject label, inspector labels are recomputed in
+   active-inspector-outward priority order, and focus remains on the reveal
    button. At each bound, confirm that the corresponding mounted button is
-   `aria-disabled="true"` and activation has no effect.
-6. Rove focus to an inactive subject and inspector, replace the shell
-   asynchronously, resize across the all-label boundary, and operate both
-   reveal buttons. Confirm that the focused typed tab remains the sole tab
-   stop, reveal bias survives while its inventory remains installed, and a new
-   subject resets to inspector-first.
-7. Narrow below the symbol-capacity boundary and confirm that the composite
+   `aria-disabled="true"` and activation has no effect. Confirm that unequal
+   label widths leave a non-fitting candidate compact while later fitting
+   candidates still expand.
+6. Rove focus to an inactive subject and inspector and replace the shell
+   asynchronously. Confirm that the focused typed tab remains the sole tab
+   stop in its tablist and reveal bias survives while the subject and ordered
+   inspector identity sequence remain installed. Change that sequence without
+   changing the subject and confirm that allocation resets to inspector-first.
+7. Focus each reveal button in turn, widen across the all-label boundary, and
+   confirm that focus and the sole roving tab stop transfer to the active tab
+   in the named region before the reveal controls unmount. Confirm that an
+   absent active inspector falls back to the active subject and that removing
+   unfocused reveal controls does not move focus.
+8. Narrow below the symbol-capacity boundary and confirm that the composite
    scrolls horizontally without wrapping, focused controls scroll into view,
    every compact control retains its full accessible name and title, and the
    page itself does not overflow.
-8. Repeat the allocation transitions with reduced motion enabled and confirm
+9. Repeat the allocation transitions with reduced motion enabled and confirm
    that labels and focus reach the same final states without sliding animation.
 
 ### Lens inventory and outcomes
