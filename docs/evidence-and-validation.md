@@ -1,10 +1,35 @@
 # Evidence and validation
 
 [`AGENTS.md`](../AGENTS.md#evidence-and-validation) states the binding rule:
-match evidence to the claim and use the smallest existing check that proves it.
-This document owns the detailed practices.
+use the smallest sufficient set of claims and gates, inherit existing contracts
+unless the change calls them into question, and add only evidence needed by the
+resulting claims. This document owns the detailed practices.
 
 ## Matching evidence to claims
+
+Begin with the stated user goal and the exact boundaries or contracts owned by
+the change. Claim only the properties needed to achieve that goal or support
+those boundaries. A stronger safety, portability, performance, or composition
+property is not a bonus: it creates another evidence obligation and should be
+omitted when the change does not need it.
+
+Inherit properties that already follow from repository contracts and supported
+dependencies. A feature implemented solely with `List<T>` needs no separate
+NativeAOT or Browser/Wasm claim or feature-specific gate; it works wherever
+that supported primitive and its containing product path work. Existing
+repository gates still run where required, but their existence does not require
+every feature to restate the properties they cover.
+
+Add a claim and matching evidence when the exact-head dependency, API, or design
+creates a reason to question an inherited property. For example, introducing
+`Assembly.Load()` into a product path conflicts with repository constraints and
+requires an explicitly approved exception, exact scope and rationale, visible
+supported behavior, and gates matched to those claims. Scope the response to
+the actual risk rather than adding unrelated universal claims.
+
+Before adding a claim or gate, identify the user goal or owned contract it
+supports and the concrete trigger that makes existing contracts or evidence
+insufficient. If there is no such trigger, omit the extra claim and gate.
 
 - Start with focused tests for the changed subsystem; expand only when the
   change crosses boundaries or focused results expose broader risk.
