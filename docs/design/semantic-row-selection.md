@@ -62,6 +62,27 @@ This design does not own:
 Those excluded concerns consume this contract or provide its inputs; they do
 not redefine its semantics.
 
+## Purpose and review boundary
+
+This component gives dotnet-inspect and other applications one reusable,
+presentation-independent implementation of ordered row selection. Its supported
+caller is cooperating in-process code that supplies complete logical sequences,
+an already validated plan, and deterministic comparers for resolved `Top`
+orders. The variable inputs are the sequence values, stage order and operands,
+named-sequence keys, and comparer results. The observable contract is the
+selected values in order or one structured strict-window failure.
+
+The caller, its row objects, its resolved order identities, and its comparer
+implementation are trusted. This is not a security boundary and does not defend
+against reflection or private access, deliberate internal-state corruption,
+concurrent mutation during a synchronous call, or malicious cooperating code.
+Ordinary invalid arguments that the public API can represent still fail as
+documented so they cannot produce plausible selection results.
+
+Repository-wide platform policy applies to this code as it does to other simple
+product libraries; this design defines no component-specific platform behavior
+or evidence.
+
 ## Immediate boundary contract
 
 The generic executor receives:
@@ -98,11 +119,8 @@ The evaluated Release compile/runtime closure contains only framework
 references and this component. The project has no product `PackageReference`,
 direct assembly asset, native asset, or `ProjectReference`; repository-wide
 build-only analyzers and targets remain allowed only when they contribute no
-compile/runtime asset. A static product-closure gate prohibits console,
-filesystem, network, process, dedicated-thread, parallel-loop, and native
-interop APIs. With deterministic caller callbacks, its public execution
-surface is synchronous and deterministic, making it usable by NativeAOT and
-single-threaded Browser/Wasm consumers.
+compile/runtime asset. With deterministic caller callbacks, its public
+execution surface is synchronous and deterministic.
 
 ## Normalized plan
 
@@ -170,9 +188,7 @@ resolver at entry even when no sequence would reach that stage.
 
 ## Public surface and immutability
 
-This is the complete allowed product signature manifest; method bodies are
-omitted. No other public type, constructor, property, method, event, or field is
-part of the component:
+The supported product surface is:
 
 ```csharp
 namespace DotnetInspector.RowSelection;
@@ -274,12 +290,6 @@ public static class RowSelectionExecutor
 }
 ```
 
-The API manifest includes type kind, visibility, generic arity and constraints,
-member name, static/instance shape, parameter name, order, type, nullability,
-optionality, default value, return type, and enum values. Inherited `object`
-members and compiler-generated metadata that does not add callable surface are
-outside the manifest.
-
 `Count` is valid for `Head`, `Tail`, and `Top`; `Start` and `End` are valid for
 `Window`; `Order` is valid for `Top`. A wrong-kind accessor throws
 `InvalidOperationException`. All required reference arguments reject null with
@@ -299,9 +309,9 @@ the prior value. Stage values copy their opaque `TOrder`; callers must supply an
 immutable order value whose equality and meaning do not change after plan
 construction.
 
-`RowSequenceKey.Create` rejects a negative value. Keys compare solely by
-`Value`, and `GetHashCode` returns the same value, so separate key instances
-with the same value are duplicates under every implementation.
+`RowSequenceKey.Create` accepts any `int`. Keys compare solely by `Value`, and
+`GetHashCode` returns the same value, so separate key instances with the same
+value are duplicates under every implementation.
 `NamedRowSequence.Create` retains the immutable key and snapshots value
 membership and order. Duplicate key values reject before any sequence is
 evaluated.
@@ -320,10 +330,33 @@ order. Keys are component-owned immutable tokens and cannot change after
 named-input creation. Callers must not mutate a source collection concurrently
 with the synchronous boundary call.
 
-A fixture project outside the component compiles against every signature above
-and executes every entry point. The same manifest gate rejects extra public
-constructors, mutators, asynchronous protocols, or host-shaped overloads, so an
-empty or exclusion-only API cannot satisfy the design.
+A fixture project outside the component compiles against the supported surface
+above and executes every entry point. This proves that an ordinary non-friend
+consumer can use the leaf without importing Sections, source execution, CLI, or
+presentation concepts.
+
+## Mock component demo
+
+The first implementation demonstrates the public leaf directly:
+
+```csharp
+var plan = RowSelectionPlan<string>.Create(
+[
+    RowSelectionStage<string>.Window(3, 6),
+    RowSelectionStage<string>.Tail(2)
+]);
+
+var result = RowSelectionExecutor.Apply(
+    new[] { 1, 2, 3, 4, 5, 6, 7, 8 },
+    plan);
+
+// result.Values is [5, 6]
+```
+
+What to notice: the second stage consumes and reindexes the first stage's
+output. The neighboring pathological plan `Head(2)` then `Window(2,3)` returns
+a structured stage-2 failure requiring position 3 from an input of 2; it does
+not intersect both stages against the original sequence and return row 2.
 
 ## Stage semantics
 
@@ -351,7 +384,7 @@ failure is not an empty result and must not be reported as source exhaustion or
 successful truncation. A boundless identity window has no required endpoint and
 cannot fail.
 
-### Relationship to Unix, C#, and Kusto
+### Convention and deliberate divergence
 
 Selection positions count only declared data rows. They are the positions a
 plain-text pipeline would see after removing a rendered table header:
@@ -438,6 +471,11 @@ Conceptual examples make the evaluation order explicit:
 => [2, 3, 4, 5].Top(2, descending)
 => [5, 4]
 ```
+
+The pathological case is `Head(2)` followed by `Window(2,3)`. Ordered
+stage-local evaluation fails because row 3 does not exist after `Head`;
+intersecting both requests against original ordinals would incorrectly return
+row 2 and hide the unsatisfied window.
 
 Reindexing changes only the temporary positions consumed by the next stage.
 It does not rewrite producer-owned package coordinates, metadata identities,
@@ -626,33 +664,18 @@ the C# implementation; the named Release gates below remain required.
 
 ## Required gates
 
-The implementation must add these named Release gates:
+The implementation must add these proportional outcome-level Release gates:
 
 | Gate | Contract |
 | --- | --- |
-| `SelectionStagesComposeInDeclaredOrder` | Reversing `Head`, `Tail`, `Window`, or `Top` stages changes results exactly as the reference examples require; every stage reads positions beginning at 1 from the preceding output. |
-| `SelectionCountsAreLenientAndWindowsAreStrict` | Oversized `Head` and `Tail` return the complete current input in current order; oversized `Top` returns every current row in ranked order; closed, prefix, and suffix windows fail unless their required endpoint exists at that stage. |
-| `RowSelectionPlanRejectsInvalidStages` | Every public construction path rejects nonpositive counts, nonpositive present window coordinates, and a closed end before its start rather than creating an empty or unlimited stage. A boundless window is identity. |
-| `EmptyRowSelectionPlanIsIdentity` | An empty plan returns an immutable snapshot containing every original value in order and never invokes the comparer resolver. |
-| `TopRequiresResolvedComparer` | Both executor entry points reject a missing resolver at entry, naming the first `Top` in plan order even for empty unkeyed input or no named sequences. A reached resolver returning no comparer names that reached `Top`; both paths throw `InvalidOperationException` with the one-based stage before returning any selected result. |
-| `SelectionCallbacksFollowStageOrder` | Both executor entry points validate resolver presence without eager invocation, resolve each reached `Top` stage exactly once, cache that stage's comparer across named sequences, and stop before later callbacks after an earlier strict failure or callback exception. Fixtures cover `Window` before and after `Top`, multiple named sequences, repeated equal order values, unkeyed and named empty value sequences, and a named call with no sequences. |
-| `SelectionCallbackExceptionsPropagateUnchanged` | Both executor entry points propagate the exact sentinel exception instance thrown by a reached comparer resolver or by an always-throwing comparer over at least two rows; no sorting path wraps, substitutes, or suppresses it. |
-| `RowSelectionRejectsNullBoundaryInputs` | Every required reference argument rejects null; a null resolver is accepted only without `Top`; nullable row values remain ordinary selected values. |
-| `StageAccessorsRejectWrongKind` | Each kind exposes only its documented values; every wrong-kind `Count`, `Start`, `End`, or `Order` access throws rather than returning a plausible default. |
-| `StrictWindowsValidateNamedSequencesAtomically` | A strict-window miss in any one of several keyed sequences identifies the key and stage and returns no selected sequence collection. |
-| `SelectionFailuresAreDeterministic` | Multiple failing named sequences return the first failure by input sequence order and stage order; duplicate `RowSequenceKey.Value` values reject before execution. |
-| `RowSequenceKeyHasStableValueSemantics` | Negative values reject; separately created equal values compare equal and produce equal hash codes; distinct values compare unequal; L2's typed row-set identity never enters the component. |
-| `RowWindowFailureShapeIsExact` | Unkeyed failures contain exactly stage number, required position, and available count; named failures add only the opaque key. Closed and prefix windows report their end; suffix windows report their start against the post-predecessor count. |
-| `TopAlwaysRanksCurrentInput` | Every `Top` over at least two rows, including an oversized one, resolves and applies its comparer; `Top(oversized)` followed by a positional stage observes ranked rather than baseline order. |
-| `TopRetainsCurrentOrderForEqualRanks` | Equal comparer results preserve current sequence order, including after an earlier stage changed the current sequence. |
-| `SelectionReturnsOriginalValuesInOrder` | The executor preserves each original caller-owned `T` value or reference without cloning, relabeling, or deriving identity from stage positions. |
-| `SelectionResultsSnapshotMembership` | Source-list mutation after named-input creation or execution cannot change result membership or order; exposed collections cannot mutate the snapshot. Fixtures cover empty, oversized Head/Tail/Top, Window, mixed stages, and named success/failure paths. |
-| `RowSelectionPlanIsImmutableSnapshot` | Mutating a caller-owned stage collection after `Create` cannot change the plan; `Stages` exposes no mutable collection; `Append` leaves the prior plan unchanged; every stage remains immutable. |
-| `RowSelectionPublicSurfaceIsExact` | A generated expected set derived from the signature manifest in [Public surface and immutability](#public-surface-and-immutability) rejects any missing or extra type, constructor, member, mutator, host-shaped overload, asynchronous protocol, generic constraint, enum value, parameter name/order/type/nullability/optionality, or default value. |
-| `RowSelectionExternalConsumerExercisesSurface` | A non-friend fixture project constructs every stage, plan, and named input through the declared factories; invokes both executor methods with omitted and named optional arguments; and observes every accessor and success/failure branch. Removing any intended public wiring fails the gate. |
+| `SelectionStagesComposeInDeclaredOrder` | The reference examples and pathological `Head(2)` then `Window(2,3)` case prove stage order, stage-local reindexing, original-value preservation, empty-plan identity, stable equal-rank ordering, and ranked oversized `Top`. |
+| `SelectionCountsAreLenientAndWindowsAreStrict` | Head, Tail, and Top retain their lenient behavior; closed, prefix, and suffix windows require their current-stage endpoint; boundless Window is identity; failures report the documented stage, required position, and current count. |
+| `RowSelectionConstructionRejectsInvalidInputs` | Factories and executors reject representable invalid stage operands, null required arguments, null stage or sequence entries, wrong-kind accessors, missing reached comparers, and closed-window reversal without inventing successful output. Nullable row values and every `int` key remain ordinary inputs. |
+| `SelectionCallbacksFollowStageOrder` | Resolver presence is validated at entry without eager invocation; each reached Top resolves once per stage and is cached across named sequences; earlier strict failures stop later callbacks; resolver and comparer exceptions propagate unchanged. |
+| `NamedSelectionIsAtomicAndDeterministic` | Named success preserves input order; a strict miss returns no selected sequence collection; the first failure follows sequence then stage order; equal key values reject before execution and keys use stable value equality. |
+| `RowSelectionSnapshotsAreImmutable` | Plans, named inputs, and returned collections snapshot membership and order; Append leaves the prior plan unchanged; exposed collections cannot mutate snapshots; selected row objects remain the caller's original values. |
+| `RowSelectionExternalConsumerExercisesSurface` | A non-friend fixture constructs every stage, plan, and named input through the supported factories, invokes both executor methods with omitted and named optional arguments, and observes accessor, success, and failure behavior using only the leaf reference. |
 | `RowSelectionHasOnlyFrameworkRuntimeDependencies` | Evaluated Release references and resolved compile/runtime/native assets contain only framework references and this component; build-only tooling is allowed only when it contributes no product asset. |
-| `RowSelectionForbidsHostApis` | A static product-closure gate rejects console, filesystem, network, process, dedicated-thread, parallel-loop, and native-interop APIs even though those APIs are in the BCL. |
-| `RowSelectionRunsOnNativeAotAndBrowser` | The reference stage matrix executes in Release under NativeAOT and single-threaded Browser/Wasm hosts. |
 
 The
 [source delegation](source-delegation.md) contract owns the
