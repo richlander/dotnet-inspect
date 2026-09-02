@@ -198,6 +198,39 @@ public class ComparisonDocumentJsonTests
     }
 
     [Fact]
+    public void Json_RoundTripsPayloadBeyondDefaultEnvelopeDepth()
+    {
+        ComparisonDocumentNestedPayload payload = new(70, null);
+        for (int depth = 69; depth >= 0; depth--)
+            payload = new(depth, payload);
+        var document = new ComparisonDocument<ComparisonDocumentNestedPayload>(
+            ComparisonDocument<ComparisonDocumentNestedPayload>.CurrentSchemaVersion,
+            SubjectCoordinateBasis.OuterContext,
+            "Root",
+            "Root",
+            new ComparisonSubjectChange.Diff(),
+            new ComparisonRootComparison<ComparisonDocumentNestedPayload>.NotApplicable(),
+            [
+                new(
+                    "Subject",
+                    "Subject",
+                    new ComparisonSubjectChange.Diff(),
+                    payload),
+            ],
+            []);
+
+        string json = ComparisonDocumentJson.Serialize(
+            document,
+            ComparisonDocumentTestJsonContext.Default.ComparisonDocumentNestedPayload);
+        ComparisonDocument<ComparisonDocumentNestedPayload> roundTrip =
+            ComparisonDocumentJson.Deserialize(
+                json,
+                ComparisonDocumentTestJsonContext.Default.ComparisonDocumentNestedPayload);
+
+        Assert.Equal(document, roundTrip);
+    }
+
+    [Fact]
     public void Json_EncodesEnvelopeOwnedUntrustedStringsAsData()
     {
         const string identifier = "Root\"\\\n";

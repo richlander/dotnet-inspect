@@ -11,6 +11,9 @@ namespace ILInspector.Findings;
 /// </summary>
 public static class ComparisonDocumentJson
 {
+    const int DefaultPayloadMaxDepth = 64;
+    const int EnvelopeDepthAllowance = 4;
+
     static readonly HashSet<string> DocumentPropertyNames =
     [
         "schema_version",
@@ -67,7 +70,11 @@ public static class ComparisonDocumentJson
         var buffer = new ArrayBufferWriter<byte>();
         using (var writer = new Utf8JsonWriter(
             buffer,
-            new JsonWriterOptions { Indented = indented }))
+            new JsonWriterOptions
+            {
+                Indented = indented,
+                MaxDepth = GetEnvelopeMaxDepth(payloadTypeInfo),
+            }))
         {
             WriteDocument(writer, document, payloadTypeInfo);
         }
@@ -92,6 +99,7 @@ public static class ComparisonDocumentJson
             {
                 AllowTrailingCommas = false,
                 CommentHandling = JsonCommentHandling.Disallow,
+                MaxDepth = GetEnvelopeMaxDepth(payloadTypeInfo),
             });
 
         try
@@ -550,5 +558,15 @@ public static class ComparisonDocumentJson
             throw new JsonException(
                 $"{path} must be {expected.ToString().ToLowerInvariant()}.");
         }
+    }
+
+    static int GetEnvelopeMaxDepth<T>(JsonTypeInfo<T> payloadTypeInfo)
+    {
+        int payloadMaxDepth = payloadTypeInfo.Options.MaxDepth is 0
+            ? DefaultPayloadMaxDepth
+            : payloadTypeInfo.Options.MaxDepth;
+        return payloadMaxDepth > int.MaxValue - EnvelopeDepthAllowance
+            ? int.MaxValue
+            : payloadMaxDepth + EnvelopeDepthAllowance;
     }
 }
