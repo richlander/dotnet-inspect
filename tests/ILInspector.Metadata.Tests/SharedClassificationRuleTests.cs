@@ -31,31 +31,38 @@ namespace ILInspector.Metadata.Tests;
 /// in <c>SystemTypeArgumentName</c> and every site calls it.
 /// </para>
 /// <para>
-/// This is the enforcing gate for that claim, and it took three rounds of
-/// review to learn that reading source can only ever forbid the shapes it was
-/// taught. The census fails if the literal is spelled anywhere but its single
-/// definition. The declared-site check names the sites that classify and
-/// requires each to use the shared rule — and for the three that decide
-/// safety, to *return* its result, applied to an argument passed through
-/// untouched. Those two are censuses: they notice a site that appears,
-/// disappears, or stops delegating.
+/// The load-bearing check is
+/// <see cref="ProviderClassifiesExactlyAsTheSharedRule"/>. It asks the
+/// provider what it actually answers for a corpus of rendered names and
+/// compares that to the rule, so it does not care how a divergence was
+/// written. Every escape found in review — an independent predicate, the
+/// shared call made on a path nobody takes, the shared call handed a rewritten
+/// name — fails it on the first input differing only by case.
 /// </para>
 /// <para>
-/// The load-bearing check is neither of them.
-/// <see cref="ProviderClassifiesExactlyAsTheSharedRule"/> asks the provider
-/// what it actually answers and compares it to the rule, so it does not care
-/// how a divergence was written. Every escape found in review — an independent
-/// predicate, the shared call made on a path nobody takes, the shared call
-/// handed a rewritten name — fails it on the first input differing only by
-/// case.
+/// Two source checks stand beside it, and both are censuses rather than
+/// proofs: the literal must not be spelled outside its definition, and every
+/// listed site must still reach the shared rule. They notice a site that
+/// appears, disappears, or stops delegating. An earlier version also analyzed
+/// what each site *returned*, to reject a shared call made in a branch nobody
+/// takes or handed a name rewritten first. That analysis is gone. It defended
+/// only against a contributor writing a fake delegation deliberately, it never
+/// caught a real defect in four rounds of review, and it once failed a correct
+/// site for putting a return inside a local function. Reading source can only
+/// forbid the shapes it was taught, and paying for more shapes stopped being
+/// worth it once the behavioral check existed.
 /// </para>
 /// <para>
 /// Stated exactly: the provider's classification is pinned to the shared rule
-/// behaviorally; the guard's site is pinned by source, since its entry point
-/// takes a handle rather than a name and has no name-level seam to compare
-/// against; and no other file spells the rule. What none of it proves is that
-/// a wholly new site cannot classify without either spelling the literal or
-/// joining the list below.
+/// behaviorally; the guard's site is pinned only by source, since its entry
+/// point takes a handle rather than a rendered name, and no captured blob can
+/// distinguish the two because a real compiler always emits the name correctly
+/// cased; and no other file spells the rule. A contributor who deliberately
+/// rewrites the guard's comparison alongside the shared call is not caught
+/// here, nor is a wholly new site that classifies without spelling the literal
+/// or joining the list below. Those are accepted limits rather than
+/// oversights; the comment on the guard's own method states the obligation at
+/// the point of edit.
 /// </para>
 /// </remarks>
 public class SharedClassificationRuleTests
@@ -72,37 +79,23 @@ public class SharedClassificationRuleTests
     // The single file permitted to spell the rule.
     const string DefiningFile = "SystemTypeArgumentName.cs";
 
-    // How strictly a site must be bound to the shared rule.
-    enum Binding
-    {
-        // Every value the method returns is the shared rule's own result. This
-        // is what the three safety sites owe: their answer *is* the shared
-        // answer, not merely informed by it.
-        Decides,
-
-        // The method reaches the shared rule inside a larger expression. The
-        // rendering site is a switch whose other arms answer other questions,
-        // so it cannot owe the stronger form.
-        Consults,
-    }
-
     // Every site that classifies a custom-attribute argument as System.Type,
-    // the member of the shared rule it must use, and how tightly. The first
-    // three decide safety: the guard and the provider must agree or the guard
-    // approves a blob the decoder then reads by a different rule. The fourth
-    // only renders, but it is listed so that "this rule exists once" is true
+    // and the member of the shared rule it must reach. The first three decide
+    // safety: the guard and the provider must agree or the guard approves a
+    // blob the decoder then reads by a different rule. The fourth only
+    // renders, but it is listed so that "this rule exists once" is true
     // without an exception. A site removed or renamed fails here rather than
     // silently leaving the list stale.
-    static readonly (string File, string Method, string Member, Binding Binding)[] ClassifyingSites =
+    static readonly (string File, string Method, string Member)[] ClassifyingSites =
     {
         (Path.Combine("src", "ILInspector.MetadataPrimitives", "AttributeDecoder.cs"),
-            "GetSystemType", nameof(SystemTypeArgumentName.Rendered), Binding.Decides),
+            "GetSystemType", nameof(SystemTypeArgumentName.Rendered)),
         (Path.Combine("src", "ILInspector.MetadataPrimitives", "AttributeDecoder.cs"),
-            "IsSystemType", nameof(SystemTypeArgumentName.Matches), Binding.Decides),
+            "IsSystemType", nameof(SystemTypeArgumentName.Matches)),
         (Path.Combine("src", "ILInspector.MetadataPrimitives", "CustomAttributeValueGuard.cs"),
-            "IsSrmSystemType", nameof(SystemTypeArgumentName.Matches), Binding.Decides),
+            "IsSrmSystemType", nameof(SystemTypeArgumentName.Matches)),
         (Path.Combine("src", "ILInspector.Metadata", "AttributeReader.Rendering.cs"),
-            "RenderArgument", nameof(SystemTypeArgumentName.Matches), Binding.Consults),
+            "RenderArgument", nameof(SystemTypeArgumentName.Matches)),
     };
 
     [Fact]
@@ -111,7 +104,7 @@ public class SharedClassificationRuleTests
         var root = FindRepoRoot();
         var failures = new List<string>();
 
-        foreach (var (file, method, member, binding) in ClassifyingSites)
+        foreach (var (file, method, member) in ClassifyingSites)
         {
             var path = Path.Combine(root, file);
             if (!File.Exists(path))
@@ -132,15 +125,12 @@ public class SharedClassificationRuleTests
             }
 
             foreach (var declaration in declarations.Where(
-                declaration => !SatisfiesBinding(declaration, member, binding)))
+                declaration => !UsesSharedRule(declaration, member)))
             {
                 var line = declaration.GetLocation().GetLineSpan()
                     .StartLinePosition.Line + 1;
-                var owed = binding == Binding.Decides
-                    ? "does not return"
-                    : "does not call";
                 failures.Add(
-                    $"{file}:{line}: {method} {owed} "
+                    $"{file}:{line}: {method} does not reach "
                     + $"{nameof(SystemTypeArgumentName)}.{member}");
             }
         }
@@ -148,10 +138,9 @@ public class SharedClassificationRuleTests
         Assert.True(
             failures.Count == 0,
             "Each site that classifies a custom-attribute argument as "
-            + "System.Type must use the one definition of that rule, and a "
-            + "site that decides safety must return its result rather than "
-            + "consult it beside a rule of its own. Anything else puts the "
-            + "guard and the decoder back on separate rules:\n  "
+            + "System.Type must reach the one definition of that rule. A site "
+            + "that stops delegating puts the guard and the decoder back on "
+            + "separate rules:\n  "
             + string.Join("\n  ", failures));
     }
 
@@ -242,65 +231,13 @@ public class SharedClassificationRuleTests
     public void MatchesClassifiesRenderedNames(string? rendered, bool expected)
         => Assert.Equal(expected, SystemTypeArgumentName.Matches(rendered));
 
-    static bool SatisfiesBinding(
-        MethodDeclarationSyntax method,
-        string member,
-        Binding binding)
-        => binding == Binding.Consults
-            ? ConsultsSharedRule(method, member)
-            : DecidesBySharedRule(method, member);
-
     // A member access naming the shared rule, anywhere inside the method.
-    static bool ConsultsSharedRule(MethodDeclarationSyntax method, string member)
+    // Deliberately shallow: see the remarks above on why this does not also
+    // analyze what the method returns.
+    static bool UsesSharedRule(MethodDeclarationSyntax method, string member)
         => method.DescendantNodes()
             .OfType<MemberAccessExpressionSyntax>()
             .Any(access => IsSharedRule(access, member));
-
-    // Every value the method returns is the shared rule's own result, applied
-    // to an argument passed through untouched. Reaching the rule on one path
-    // is not enough: a site could call it in a branch it rarely takes, or hand
-    // it a name it rewrote first, and answer the rest of the time by a rule of
-    // its own -- the divergence this gate exists to prevent, wearing the shape
-    // of compliance.
-    static bool DecidesBySharedRule(MethodDeclarationSyntax method, string member)
-    {
-        var returned = method.DescendantNodes()
-            .OfType<ReturnStatementSyntax>()
-            .Where(statement => OwnedBy(statement, method))
-            .Select(statement => statement.Expression)
-            .Concat(new[] { method.ExpressionBody?.Expression })
-            .OfType<ExpressionSyntax>()
-            .ToList();
-
-        return returned.Count > 0 && returned.All(IsSharedRuleResult);
-
-        bool IsSharedRuleResult(ExpressionSyntax expression)
-            => Strip(expression) switch
-            {
-                MemberAccessExpressionSyntax access => IsSharedRule(access, member),
-                InvocationExpressionSyntax invocation =>
-                    Strip(invocation.Expression) is MemberAccessExpressionSyntax callee
-                    && IsSharedRule(callee, member)
-                    && invocation.ArgumentList.Arguments.All(argument =>
-                        Strip(argument.Expression) is IdentifierNameSyntax),
-                _ => false,
-            };
-    }
-
-    // A return statement belongs to the listed method only when no lambda or
-    // local function stands between them. A helper closure answering its own
-    // question is not this method answering it.
-    static bool OwnedBy(SyntaxNode node, MethodDeclarationSyntax method)
-        => node.Ancestors()
-            .FirstOrDefault(ancestor => ancestor
-                is MethodDeclarationSyntax
-                or LocalFunctionStatementSyntax
-                or AnonymousFunctionExpressionSyntax) == method;
-
-    static ExpressionSyntax Strip(ExpressionSyntax expression)
-        => expression is ParenthesizedExpressionSyntax parenthesized
-            ? Strip(parenthesized.Expression)
-            : expression;
 
     static bool IsSharedRule(MemberAccessExpressionSyntax access, string member)
         => access.Name.Identifier.ValueText == member

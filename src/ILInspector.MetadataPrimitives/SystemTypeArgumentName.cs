@@ -37,10 +37,10 @@ namespace ILInspector.Metadata;
 /// it catches a divergence however it was written. The guard's site is pinned
 /// by source instead, because its entry point takes a handle rather than a
 /// rendered name and offers no seam to compare against. The source checks —
-/// <c>SystemTypeArgumentNameIsSpelledOnce</c> and the declared-site checks —
-/// notice a site that appears, disappears, or stops delegating; on their own
-/// they cannot see an independently written predicate, so do not read a clean
-/// census as evidence that the two sides agree.
+/// the literal census and the declared-site check — notice a site that
+/// appears, disappears, or stops delegating; on their own they cannot see an
+/// independently written predicate, so do not read a clean census as evidence
+/// that the two sides agree.
 /// </para>
 /// </remarks>
 internal static class SystemTypeArgumentName

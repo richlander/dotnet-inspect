@@ -1374,11 +1374,17 @@ public static class CustomAttributeValueGuard
 
     static bool IsSrmSystemType(MetadataReader reader, EntityHandle handle)
     {
-        // Classify through the one shared rule, so this side cannot drift from
-        // ArgTypeProvider.IsSystemType. Do not charge through the observer:
-        // ResolveEnum already charges when the product path supplies a name
-        // oracle, and this check must not double-count or shift declared-slot
-        // charges.
+        // Classify through the one shared rule. This side is not pinned
+        // behaviorally: the entry point takes a handle rather than a rendered
+        // name, and no captured blob can catch a divergence because a real
+        // compiler always emits the name correctly cased. Keep this a plain
+        // delegation. Comparing anything else here, beside the shared call or
+        // instead of it, silently puts the guard and ArgTypeProvider on
+        // different rules, and only review will notice.
+        //
+        // Do not charge through the observer: ResolveEnum already charges when
+        // the product path supplies a name oracle, and this check must not
+        // double-count or shift declared-slot charges.
         string? name = handle.Kind == HandleKind.TypeDefinition
             ? TypeResolver.GetTypeNameFromDefinition(
                 reader,

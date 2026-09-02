@@ -809,15 +809,13 @@ Narrow is not the same as harmless, which is why this was worth closing rather
 than documenting. What a classification disagreement costs when it happens is
 the `dotnet/runtime#57531` case described earlier in this document.
 
-`SharedClassificationRuleTests` is the gate, and three rounds of review on the
+`SharedClassificationRuleTests` is the gate, and four rounds of review on the
 PR that shared the rule taught it what reading source cannot do. A census
 parses the metadata assemblies' source and fails if the literal is spelled
 anywhere but its single definition. A declared-site check names the sites that
-classify and fails if any stops using the shared rule; for the three that
-decide safety it requires every returned value to be the shared rule's own
-result, applied to an argument passed through untouched. Both are censuses.
-They notice a site that appears, disappears, or stops delegating, and each
-round of review found one more way to satisfy them while classifying
+classify and fails if any stops reaching the shared rule. Both are censuses.
+They notice a site that appears, disappears, or stops delegating, and each of
+the first three rounds found one more way to satisfy them while classifying
 independently.
 
 The load-bearing check is behavioral: it asks the provider what it answers for
@@ -826,12 +824,25 @@ care how a divergence was written, so every escape found in review fails it on
 the first input differing only by case. A third test keeps the census from
 passing vacuously if the definition disappears.
 
+An earlier version of the declared-site check also analyzed what each site
+returned, so that a shared call made in a branch nobody takes, or handed a name
+rewritten first, was rejected. That analysis was removed once the behavioral
+check existed. It defended only against a contributor writing a fake
+delegation deliberately — an actor this repository's threat model excludes — it
+never caught a real defect, and it once failed a correct site for putting a
+return inside a local function. Reading source can only forbid the shapes it
+was taught; buying more shapes stopped being proportionate to a two-line
+predicate.
+
 Stated exactly: the provider's classification is pinned to the shared rule
-behaviorally, the guard's site is pinned by source — its entry point takes a
-handle rather than a rendered name, so there is no name-level seam to compare
-against — and no other file spells the rule. None of it proves that a wholly
-new site cannot classify without either spelling the literal or joining the
-declared list.
+behaviorally, the guard's site is pinned only by source — its entry point takes
+a handle rather than a rendered name, and no captured blob can distinguish the
+two because a real compiler always emits the name correctly cased — and no
+other file spells the rule. Two things are deliberately not proven: that a
+wholly new site cannot classify without either spelling the literal or joining
+the declared list, and that the guard's own comparison has not been rewritten
+alongside its shared call. The comment on that method states the obligation at
+the point of edit.
 
 ### Frozen cross-assembly enum-width adapter
 
