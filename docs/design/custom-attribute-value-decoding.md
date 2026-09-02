@@ -809,40 +809,46 @@ Narrow is not the same as harmless, which is why this was worth closing rather
 than documenting. What a classification disagreement costs when it happens is
 the `dotnet/runtime#57531` case described earlier in this document.
 
-`SharedClassificationRuleTests` is the gate, and four rounds of review on the
-PR that shared the rule taught it what reading source cannot do. A census
-parses the metadata assemblies' source and fails if the literal is spelled
-anywhere but its single definition. A declared-site check names the sites that
-classify and fails if any stops reaching the shared rule. Both are censuses.
-They notice a site that appears, disappears, or stops delegating, and each of
-the first three rounds found one more way to satisfy them while classifying
-independently.
+`SharedClassificationRuleTests` is the gate, together with
+`GuardClassifiesExactlyAsTheSharedRule` in `CustomAttributeValueGuardTests`,
+and five rounds of review on the PR that shared the rule taught it what reading
+source cannot do. A census parses every `.cs` file under `src` and fails if the
+literal is spelled anywhere but its single definition. A declared-site check
+names the sites that classify or consume the classification and fails if any
+stops reaching the shared rule. Both are censuses. They notice a site that
+appears, disappears, or stops delegating, and each of the first three rounds
+found one more way to satisfy them while classifying independently.
 
-The load-bearing check is behavioral: it asks the provider what it answers for
-a corpus of rendered names and compares that to the rule itself. It does not
-care how a divergence was written, so every escape found in review fails it on
-the first input differing only by case. A third test keeps the census from
-passing vacuously if the definition disappears.
+The load-bearing checks are behavioral. Both sides are asked what they actually
+answer: the provider directly, since its entry point takes a rendered name; the
+guard through `IsSafeToDecode` over built images, reading the classification
+back out of the charge, since a `System.Type` argument is a length-prefixed
+`SerString` and anything else is read at the enum default width, so only the
+first leaves the cursor on the following array count. Neither cares how a
+divergence was written. A third test keeps the census from passing vacuously if
+the definition disappears.
 
 An earlier version of the declared-site check also analyzed what each site
 returned, so that a shared call made in a branch nobody takes, or handed a name
-rewritten first, was rejected. That analysis was removed once the behavioral
-check existed. It defended only against a contributor writing a fake
-delegation deliberately — an actor this repository's threat model excludes — it
-never caught a real defect, and it once failed a correct site for putting a
-return inside a local function. Reading source can only forbid the shapes it
-was taught; buying more shapes stopped being proportionate to a two-line
-predicate.
+rewritten first, was rejected. That analysis was removed once behavioral checks
+existed. It defended only against a contributor writing a fake delegation
+deliberately, it never caught a real defect, and it once failed a correct site
+for putting a return inside a local function.
 
-Stated exactly: the provider's classification is pinned to the shared rule
-behaviorally, the guard's site is pinned only by source — its entry point takes
-a handle rather than a rendered name, and no captured blob can distinguish the
-two because a real compiler always emits the name correctly cased — and no
-other file spells the rule. Two things are deliberately not proven: that a
-wholly new site cannot classify without either spelling the literal or joining
-the declared list, and that the guard's own comparison has not been rewritten
-alongside its shared call. The comment on that method states the obligation at
-the point of edit.
+That removal was first justified on the grounds that the guard could not be
+pinned behaviorally at all — its entry point takes a handle rather than a
+rendered name, and a real compiler always spells `System.Type` correctly. Both
+halves were wrong. The guard accepts attacker-authored `TypeRef` rows outright,
+which is the whole reason it exists, and an enum declared `System.TYPE` is a
+legal custom-attribute parameter type that a real compiler emits without
+complaint. The pin was buildable the whole time, and building it closed the
+asymmetry rather than documenting it.
+
+Stated exactly: both classification sites are pinned to the shared rule
+behaviorally, no file under `src` spells the rule outside its definition, and
+the sites that merely consume a provider-produced name are listed. What none of
+it proves is that a wholly new site cannot classify without either spelling the
+literal or joining the declared list.
 
 ### Frozen cross-assembly enum-width adapter
 

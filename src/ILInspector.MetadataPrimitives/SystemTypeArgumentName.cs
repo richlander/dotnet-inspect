@@ -29,18 +29,13 @@ namespace ILInspector.Metadata;
 /// exactly once.
 /// </para>
 /// <para>
-/// <c>SharedClassificationRuleTests</c> is the enforcing gate, and what it
-/// enforces is not uniform across the two sides. The provider's
-/// classification is pinned behaviorally:
-/// <c>ProviderClassifiesExactlyAsTheSharedRule</c> asks the provider what it
-/// answers for a corpus of rendered names and compares that to this rule, so
-/// it catches a divergence however it was written. The guard's site is pinned
-/// by source instead, because its entry point takes a handle rather than a
-/// rendered name and offers no seam to compare against. The source checks —
-/// the literal census and the declared-site check — notice a site that
-/// appears, disappears, or stops delegating; on their own they cannot see an
-/// independently written predicate, so do not read a clean census as evidence
-/// that the two sides agree.
+/// <c>SharedClassificationRuleTests</c> is the enforcing gate, together with
+/// <c>GuardClassifiesExactlyAsTheSharedRule</c> in
+/// <c>CustomAttributeValueGuardTests</c>. Both classification sites are pinned
+/// behaviorally — each is asked what it actually answers, so a divergence is
+/// caught however it was written — and two source censuses beside them notice
+/// a site that appears, disappears, or stops delegating. A clean census on its
+/// own is not evidence that the two sides agree.
 /// </para>
 /// </remarks>
 internal static class SystemTypeArgumentName

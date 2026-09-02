@@ -1374,13 +1374,12 @@ public static class CustomAttributeValueGuard
 
     static bool IsSrmSystemType(MetadataReader reader, EntityHandle handle)
     {
-        // Classify through the one shared rule. This side is not pinned
-        // behaviorally: the entry point takes a handle rather than a rendered
-        // name, and no captured blob can catch a divergence because a real
-        // compiler always emits the name correctly cased. Keep this a plain
-        // delegation. Comparing anything else here, beside the shared call or
-        // instead of it, silently puts the guard and ArgTypeProvider on
-        // different rules, and only review will notice.
+        // Classify through the one shared rule, so this side cannot drift from
+        // ArgTypeProvider.IsSystemType. Both sides are pinned behaviorally:
+        // GuardClassifiesExactlyAsTheSharedRule drives IsSafeToDecode over
+        // built images whose parameter type is a case variant of System.Type
+        // -- shapes a real compiler emits and an attacker can author freely --
+        // and fails if this comparison stops agreeing with the shared rule.
         //
         // Do not charge through the observer: ResolveEnum already charges when
         // the product path supplies a name oracle, and this check must not

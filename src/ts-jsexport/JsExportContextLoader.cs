@@ -116,7 +116,8 @@ internal static class JsExportContextLoader
                             FixedArguments.Length: 1,
                             NamedArguments.Length: 0,
                         } decoded
-                    || decoded.FixedArguments[0].Type != "System.Type"
+                    || !SystemTypeArgumentName.Matches(
+                        decoded.FixedArguments[0].Type)
                     || decoded.FixedArguments[0].Value
                         is not string serializedType
                     || string.IsNullOrWhiteSpace(serializedType)

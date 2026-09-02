@@ -1757,6 +1757,99 @@ public sealed class CustomAttributeValueGuardTests
         return Serialize(metadata);
     }
 
+    /// <summary>
+    /// Behavioral pin for the guard's half of the shared <c>System.Type</c>
+    /// classification rule.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The provider's half is pinned directly, because
+    /// <c>ICustomAttributeTypeProvider.IsSystemType</c> takes a rendered name.
+    /// The guard's entry point takes a handle instead, so this drives the
+    /// public verdict and reads the classification back out of the charge.
+    /// </para>
+    /// <para>
+    /// A <c>System.Type</c> argument is a length-prefixed <c>SerString</c>;
+    /// anything else here is read at the enum default width of four bytes.
+    /// Only the first leaves the cursor on the following array count, so
+    /// seeing exactly that count charged is the observable that says which
+    /// rule the guard applied.
+    /// </para>
+    /// <para>
+    /// This exists because the classification rule is ordinal and the names
+    /// below are ones a real compiler emits: an enum declared as
+    /// <c>System.TYPE</c> is a legal custom-attribute parameter type, and the
+    /// guard also accepts attacker-authored <c>TypeRef</c> rows outright. A
+    /// guard that compared case-insensitively would classify these as
+    /// <c>System.Type</c> while the provider did not, and that disagreement is
+    /// the cursor drift the whole guard exists to prevent.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("System", "Type")]
+    [InlineData("System", "TYPE")]
+    [InlineData("system", "type")]
+    [InlineData("System", "type")]
+    [InlineData("SYSTEM", "TYPE")]
+    [InlineData("System", "Types")]
+    [InlineData("System", "RuntimeType")]
+    [InlineData("", "Type")]
+    public void GuardClassifiesExactlyAsTheSharedRule(string ns, string name)
+    {
+        const int ElementCount = 100_000_000;
+        string rendered = ns.Length == 0 ? name : ns + "." + name;
+
+        using var image = Open(
+            BuildClassificationProbeImage(ns, name, ElementCount));
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        int charged = 0;
+        CustomAttributeValueGuard.IsSafeToDecode(
+            image.Reader,
+            attribute,
+            count => charged = checked(charged + count));
+
+        bool readAsSystemType =
+            charged == ElementCount * CustomAttributeValueGuard.DeclaredSlotCharge;
+
+        Assert.Equal(SystemTypeArgumentName.Matches(rendered), readAsSystemType);
+    }
+
+    // The dotted/nested images above with the classified name parameterized,
+    // so one shape serves every case in GuardClassifiesExactlyAsTheSharedRule.
+    static byte[] BuildClassificationProbeImage(
+        string ns,
+        string name,
+        int elementCount)
+    {
+        var metadata = CreateMetadata("ClassificationProbe");
+        AssemblyReferenceHandle other = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle probe = metadata.AddTypeReference(
+            other,
+            ns.Length == 0 ? default : metadata.GetOrAddString(ns),
+            metadata.GetOrAddString(name));
+        MemberReferenceHandle constructor = AddConstructor(
+            metadata,
+            parameters =>
+            {
+                parameters.AddParameter().Type().Type(probe, isValueType: false);
+                parameters.AddParameter().Type().SZArray().Int32();
+            },
+            parameterCount: 2);
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteSerializedString(string.Empty);
+        value.WriteInt32(elementCount);
+        value.WriteUInt16(0);
+        AddAttributedType(metadata, constructor, value);
+        return Serialize(metadata);
+    }
+
     static byte[] BuildLegalSystemTypeImage()
     {
         var metadata = CreateMetadata("LegalType");

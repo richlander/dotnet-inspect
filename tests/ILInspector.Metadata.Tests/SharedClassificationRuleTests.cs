@@ -31,50 +31,55 @@ namespace ILInspector.Metadata.Tests;
 /// in <c>SystemTypeArgumentName</c> and every site calls it.
 /// </para>
 /// <para>
-/// The load-bearing check is
-/// <see cref="ProviderClassifiesExactlyAsTheSharedRule"/>. It asks the
-/// provider what it actually answers for a corpus of rendered names and
-/// compares that to the rule, so it does not care how a divergence was
-/// written. Every escape found in review — an independent predicate, the
-/// shared call made on a path nobody takes, the shared call handed a rewritten
-/// name — fails it on the first input differing only by case.
+/// The load-bearing checks are behavioral. Both sides are now pinned by
+/// asking them what they actually answer rather than how they are written:
+/// <see cref="ProviderClassifiesExactlyAsTheSharedRule"/> calls the provider
+/// with rendered names, and
+/// <c>CustomAttributeValueGuardTests.GuardClassifiesExactlyAsTheSharedRule</c>
+/// drives the guard's public verdict over built images and reads the
+/// classification back out of the charge. Every escape found in review — an
+/// independent predicate, the shared call made on a path nobody takes, the
+/// shared call handed a rewritten name, a comparison bolted on beside the
+/// shared call — fails one of them.
 /// </para>
 /// <para>
-/// Two source checks stand beside it, and both are censuses rather than
-/// proofs: the literal must not be spelled outside its definition, and every
-/// listed site must still reach the shared rule. They notice a site that
-/// appears, disappears, or stops delegating. An earlier version also analyzed
-/// what each site *returned*, to reject a shared call made in a branch nobody
-/// takes or handed a name rewritten first. That analysis is gone. It defended
-/// only against a contributor writing a fake delegation deliberately, it never
-/// caught a real defect in four rounds of review, and it once failed a correct
-/// site for putting a return inside a local function. Reading source can only
-/// forbid the shapes it was taught, and paying for more shapes stopped being
-/// worth it once the behavioral check existed.
+/// An earlier version of this gate said the guard could not be pinned that
+/// way, because its entry point takes a handle rather than a rendered name and
+/// a real compiler always spells <c>System.Type</c> correctly. Both halves
+/// were wrong, and round 5 found it from two directions: the guard accepts
+/// attacker-authored <c>TypeRef</c> rows outright, and an enum declared
+/// <c>System.TYPE</c> is a legal custom-attribute parameter type that a real
+/// compiler emits without complaint. The pin was buildable the whole time.
 /// </para>
 /// <para>
-/// Stated exactly: the provider's classification is pinned to the shared rule
-/// behaviorally; the guard's site is pinned only by source, since its entry
-/// point takes a handle rather than a rendered name, and no captured blob can
-/// distinguish the two because a real compiler always emits the name correctly
-/// cased; and no other file spells the rule. A contributor who deliberately
-/// rewrites the guard's comparison alongside the shared call is not caught
-/// here, nor is a wholly new site that classifies without spelling the literal
-/// or joining the list below. Those are accepted limits rather than
-/// oversights; the comment on the guard's own method states the obligation at
-/// the point of edit.
+/// Two source checks stand beside them, and both are censuses rather than
+/// proofs: the literal must not be spelled outside its definition anywhere
+/// under <c>src</c>, and every listed site must still reach the shared rule.
+/// They notice a site that appears, disappears, or stops delegating. An
+/// earlier version also analyzed what each site *returned*. That analysis is
+/// gone: it defended only against a contributor writing a fake delegation
+/// deliberately, it never caught a real defect, and it once failed a correct
+/// site for putting a return inside a local function. What it did catch, the
+/// behavioral pins catch better, because they do not have to be taught a
+/// shape first.
+/// </para>
+/// <para>
+/// Stated exactly: both classification sites are pinned behaviorally, no file
+/// under <c>src</c> spells the rule outside its definition, and the sites that
+/// consume a provider-produced name are listed. What none of it proves is that
+/// a wholly new site cannot classify without either spelling the literal or
+/// joining the list below.
 /// </para>
 /// </remarks>
 public class SharedClassificationRuleTests
 {
-    // The assemblies that participate in custom-attribute argument
-    // classification: the guard and provider that must agree for safety, and
-    // the rendering layer that consumes the same provider-produced name.
-    static readonly string[] AssemblyRoots =
-    {
-        Path.Combine("src", "ILInspector.MetadataPrimitives"),
-        Path.Combine("src", "ILInspector.Metadata"),
-    };
+    // Every assembly that may classify a custom-attribute argument. This is
+    // the whole product tree rather than the two decoding assemblies: round 5
+    // found a fifth spelling that arrived in src/ts-jsexport while this PR was
+    // in review, invisible because the census only looked where the rule was
+    // known to live. A census scoped to where you expect the defect is not a
+    // census.
+    static readonly string[] AssemblyRoots = { "src" };
 
     // The single file permitted to spell the rule.
     const string DefiningFile = "SystemTypeArgumentName.cs";
@@ -82,10 +87,12 @@ public class SharedClassificationRuleTests
     // Every site that classifies a custom-attribute argument as System.Type,
     // and the member of the shared rule it must reach. The first three decide
     // safety: the guard and the provider must agree or the guard approves a
-    // blob the decoder then reads by a different rule. The fourth only
-    // renders, but it is listed so that "this rule exists once" is true
-    // without an exception. A site removed or renamed fails here rather than
-    // silently leaving the list stale.
+    // blob the decoder then reads by a different rule. The last two only
+    // consume a provider-produced name -- rendering spells typeof(...) on a
+    // match, ts-jsexport accepts a root declaration -- but they are listed so
+    // that "this rule exists once" is true without an exception. A site
+    // removed or renamed fails here rather than silently leaving the list
+    // stale.
     static readonly (string File, string Method, string Member)[] ClassifyingSites =
     {
         (Path.Combine("src", "ILInspector.MetadataPrimitives", "AttributeDecoder.cs"),
@@ -96,6 +103,8 @@ public class SharedClassificationRuleTests
             "IsSrmSystemType", nameof(SystemTypeArgumentName.Matches)),
         (Path.Combine("src", "ILInspector.Metadata", "AttributeReader.Rendering.cs"),
             "RenderArgument", nameof(SystemTypeArgumentName.Matches)),
+        (Path.Combine("src", "ts-jsexport", "JsExportContextLoader.cs"),
+            "TryResolve", nameof(SystemTypeArgumentName.Matches)),
     };
 
     [Fact]
@@ -206,18 +215,37 @@ public class SharedClassificationRuleTests
         // were extended to catch -- an independent predicate, the shared call
         // made on a path nobody takes, the shared call handed a transformed
         // name -- diverges here on the first input that differs only by case.
+        Assert.Equal(
+            SystemTypeArgumentName.Matches(rendered),
+            CreateProvider().IsSystemType(rendered));
+    }
+
+    [Fact]
+    public void ProviderNamesSystemTypeAsTheSharedRuleSpellsIt()
+    {
+        // The name SRM records as a fixed argument's type when the signature
+        // declares ELEMENT_TYPE_TYPE. It is the same rule read in the other
+        // direction, and the consumers that compare against it -- attribute
+        // rendering, which spells typeof(...) only on a match -- diverge
+        // silently if it drifts. The check above cannot see this member.
+        Assert.Equal(
+            SystemTypeArgumentName.Rendered,
+            CreateProvider().GetSystemType());
+    }
+
+    // IsSystemType and GetSystemType never touch the reader, so any image
+    // satisfies the constructor. The test assembly's own is the one always
+    // present.
+    static AttributeDecoder.ArgTypeProvider CreateProvider()
+    {
         using var stream = File.OpenRead(
             typeof(SharedClassificationRuleTests).Assembly.Location);
         using var image = new PEReader(stream);
-        var provider = new AttributeDecoder.ArgTypeProvider(
+        return new AttributeDecoder.ArgTypeProvider(
             image.GetMetadataReader(),
             preserveSerializedTypeNames: false,
             beforeMaterialize: null,
             enumUnderlyingType: null);
-
-        Assert.Equal(
-            SystemTypeArgumentName.Matches(rendered),
-            provider.IsSystemType(rendered));
     }
 
     [Theory]
