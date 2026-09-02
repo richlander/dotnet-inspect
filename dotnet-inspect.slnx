@@ -104,6 +104,7 @@
     <Project Path="src/InertText/InertText.csproj" />
     <Project Path="src/mdi/mdi.csproj" />
     <Project Path="src/NuGetFetch.PluginFixture/NuGetFetch.PluginFixture.csproj" />
+    <Project Path="src/NuGetFetch.CustomClientFixture/NuGetFetch.CustomClientFixture.csproj" />
     <Project Path="src/NuGetFetch.Tests/NuGetFetch.Tests.csproj" />
     <Project Path="src/NuGetFetch/NuGetFetch.csproj" />
     <Project Path="src/runfaster.Tests/runfaster.Tests.csproj" />

@@ -2217,8 +2217,7 @@ public static class MemberBodyProducer
             printerOptions,
             failOnDiagnostic);
         requiresAsyncContext = function is not null
-            && (function.RequiresAsyncBodyModifier
-                || function.IsRuntimeAsync == Pipeline.MetadataFactState.Yes);
+            && function.RequiresAsyncMethodContext;
         return body;
     }
 
