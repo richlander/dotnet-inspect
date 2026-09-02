@@ -6,7 +6,7 @@
 
 import { dotnet, type RuntimeAPI } from "./_framework/dotnet.js";
 
-export type BrowserAnnotatedSourceCapabilityUnavailableReason = "NotProjected" | number;
+export type BrowserAnnotatedSourceCapabilityUnavailableReason = "NotProjected" | "ContextUnavailable" | number;
 
 export type BrowserAnnotatedSourceMedium = "CSharp" | "Il" | number;
 
@@ -58,10 +58,16 @@ export interface BrowserAnnotatedSourceCapabilityAvailability {
   readonly unavailableReason: BrowserAnnotatedSourceCapabilityUnavailableReason | null;
 }
 
+export interface BrowserAnnotatedSourceInvocationDestination {
+  readonly nodeId: number;
+  readonly target: BrowserCallGraphTarget;
+}
+
 export interface BrowserAnnotatedSourceViewerCatalog {
   readonly defaultFindingIds: ReadonlyArray<number>;
   readonly supportedMedia: ReadonlyArray<BrowserAnnotatedSourceMedium>;
   readonly invocationLikeNodeKinds: ReadonlyArray<string>;
+  readonly invocationDestinations: ReadonlyArray<BrowserAnnotatedSourceInvocationDestination>;
   readonly findingEvidence: BrowserAnnotatedSourceCapabilityAvailability;
   readonly destinations: BrowserAnnotatedSourceCapabilityAvailability;
 }
@@ -168,6 +174,7 @@ export interface BrowserCallGraphTarget {
   readonly selectorKey: string;
   readonly kind: string;
   readonly platformPack: string | null;
+  readonly surfaceAssemblyId: string | null;
 }
 
 export interface BrowserCompileLibraryAvailability {
@@ -204,7 +211,7 @@ export interface BrowserExceptionSurface {
 }
 
 export interface BrowserGraphMemberSurface {
-  readonly member: BrowserMemberSurface;
+  readonly type: BrowserTypeSurface;
   readonly selectedBody: BrowserMemberBodySelector;
 }
 
