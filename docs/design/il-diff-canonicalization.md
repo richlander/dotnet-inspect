@@ -26,6 +26,31 @@ resolved exact `MethodDefinitionHandle` values. It returns old/new
 so RTS, Research, and diagnostics can attach IL diff evidence to their own
 member identity without running an assembly-wide card.
 
+`CompareMemberEndpoints` is the total endpoint-topology entry point. Its caller
+supplies an `IlMemberDiffEndpoint.Present` with an exact method definition or an
+explicit `IlMemberDiffEndpoint.SubjectAbsent`; the adapter performs no selector
+resolution or cross-version correspondence. Each present endpoint becomes a
+`Complete`, `NoApplicableInput`, or `Failed` Finding inspection. The resulting
+`IlMemberEndpointComparison` always retains both endpoint subjects and the
+exact `FindingComparison<CanonicalIlOperation>`. It contains an
+`IlMemberDiffResult` only for `Complete`/`Complete`, which is the only topology
+that invokes `IlBodyDiff`.
+
+This path does not infer absence from a null reader, handle, or body. RVA-zero
+methods are present but `NoApplicableInput`; only the explicit endpoint arm is
+`SubjectAbsent`. The producer gates are
+`CompareMemberEndpoints_BodyfulPair_RetainsFindingAndNativeResults`,
+`CompareMemberEndpoints_BodyfulAndBodyless_UsesNoApplicableInputWithoutPairDiff`,
+`CompareMemberEndpoints_BodyfulAndSubjectAbsent_RetainsExplicitAbsenceWithoutPairDiff`,
+`CompareMemberEndpoints_BothSubjectAbsent_IsExactWithoutPairDiff`,
+`CompareMemberEndpoints_DecodeFailure_RetainsFailedInspectionWithoutPairDiff`,
+and `PresentEndpoint_RejectsNullAndNilEvidence`.
+
+The older assembly-wide and `CompareMembers` paths retain old/new-body-missing
+failure rows for source compatibility while their existing consumers migrate.
+Those compatibility failures are not emitted by `CompareMemberEndpoints`,
+where endpoint topology owns the state.
+
 `IlBodyDiffNormalization` exposes independent, domain-neutral normalization
 mechanics without defining a consumer's equality policy:
 
