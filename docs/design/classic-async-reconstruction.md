@@ -238,7 +238,7 @@ The resulting matrix separates artifact availability from reconstruction:
 | --- | --- | --- |
 | Implementation | Kickoff, `MoveNext`, and `SetStateMachine` retain compiler IL. | Authenticated request; the neighboring accepted recipe reconstructs. |
 | SDK reference | The same MethodDefs retain synthesized `ldnull; throw` bodies. | Authenticated request; `ClassicInverseBodyReplacingReferenceAssembliesDecline` remains the core gate. |
-| Ordinary trim, reachable method | Kickoff and `MoveNext` remain, but ILLink removes `SetStateMachine`. | Target contract: authenticated request with `SetStateMachine: AbsentFromArtifact`; the inverse proves or declines the retained bodies. Current Metadata still rejects pending #5307 implementation. |
+| Ordinary trim, reachable method | Kickoff and `MoveNext` remain, but ILLink removes `SetStateMachine`. | Metadata authenticates the relationship with `SetStateMachine: AbsentFromArtifact`; #5277 must form the request so the inverse can prove or decline the retained bodies. |
 | Ordinary trim, unused method | The kickoff and generated state machine are removed. | No core request forms. |
 | Role-preserved trim | All required MethodDefs retain post-trim IL. | Authenticated request; the accepted recipe reconstructs from the trimmed artifact. |
 | Default-interface implementation | The kickoff and execution MethodDefs carry managed IL. | Authenticated request without a declaring-type category exclusion. |
@@ -262,13 +262,12 @@ inverse-core decision gates below.
 Before #5277 supplies the authenticated request boundary, the legacy
 `ClassicAsyncReconstructionPass` still reports `Full` for both trimmed
 variants: it discovers the generated execution sibling directly and therefore
-bypasses Metadata's rejection in the ordinary-trim case. That measured
-pre-implementation behavior is not a valid core request. Under the target
-Metadata contract, #5277 must attach the resolved relationship and explicit
-support-role disposition rather than preserve that sibling inference. The
-eventual end-to-end demo must reconstruct both retained-body trim variants
-through authenticated requests, while the unused and body-replacing cases
-continue to decline:
+bypasses Metadata's certificate in the ordinary-trim case. That measured
+behavior is not yet a valid core request. #5277 must attach the resolved
+relationship and explicit support-role disposition rather than preserve that
+sibling inference. The eventual end-to-end demo must reconstruct both
+retained-body trim variants through authenticated requests, while the unused
+and body-replacing cases continue to decline:
 
 ```csharp
 int left = await first;

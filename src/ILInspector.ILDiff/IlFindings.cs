@@ -104,7 +104,7 @@ public static class IlFindings
         if (method.IsNil)
             throw new ArgumentException("Method handle must not be nil.", nameof(method));
 
-        return InspectMethod(pe, reader, method, subject, out _);
+        return InspectMethod(pe, reader, method, subject, out _, out _);
     }
 
     /// <summary>
@@ -151,13 +151,15 @@ public static class IlFindings
             oldReader,
             oldMethod,
             subject,
-            out var oldBody);
+            out var oldBody,
+            out _);
         var newInspection = InspectMethod(
             newPe,
             newReader,
             newMethod,
             subject,
-            out var newBody);
+            out var newBody,
+            out _);
         return CompareInspections(
             oldInspection,
             newInspection,
@@ -166,7 +168,7 @@ public static class IlFindings
             acceptanceThreshold);
     }
 
-    static FindingComparison<CanonicalIlOperation> CompareInspections(
+    internal static FindingComparison<CanonicalIlOperation> CompareInspections(
         FindingInspection<CanonicalIlOperation> oldInspection,
         FindingInspection<CanonicalIlOperation> newInspection,
         MethodInstructions? oldBody,
@@ -195,21 +197,24 @@ public static class IlFindings
             [.. complete.NewAtoms.Select(static atom => atom.Payload)]));
     }
 
-    static FindingInspection<CanonicalIlOperation> InspectMethod(
+    internal static FindingInspection<CanonicalIlOperation> InspectMethod(
         PEReader pe,
         MetadataReader reader,
         MethodDefinitionHandle methodHandle,
         FindingSubject subject,
-        out MethodInstructions? body)
+        out MethodInstructions? body,
+        out MethodBodyBlock? methodBody)
     {
         body = null;
+        methodBody = null;
         try
         {
             var method = reader.GetMethodDefinition(methodHandle);
             if (method.RelativeVirtualAddress == 0)
                 return Inspect(null, reader, subject);
 
-            body = MethodInstructions.Decode(pe.GetMethodBody(method.RelativeVirtualAddress));
+            methodBody = pe.GetMethodBody(method.RelativeVirtualAddress);
+            body = MethodInstructions.Decode(methodBody);
             return Inspect(body, reader, subject);
         }
         catch (Exception ex) when (ex is BadImageFormatException

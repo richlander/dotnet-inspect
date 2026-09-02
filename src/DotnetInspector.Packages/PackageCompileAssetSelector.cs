@@ -75,8 +75,9 @@ public sealed record PackageCompileAssetSelection(
     }
 
     /// <summary>
-    /// Finds the implementation counterpart of one selected compile asset. A library asset is
-    /// its own counterpart; a reference asset matches by framework and assembly name.
+    /// Finds the implementation counterpart of one selected compile asset. An exact retained
+    /// library asset is its own counterpart; otherwise correspondence uses the selector-owned
+    /// relative path so a neutral compile asset maps only to its RID-specific replacement.
     /// </summary>
     public PackageCompileAsset? FindImplementationAsset(PackageCompileAsset compileAsset)
     {
@@ -88,12 +89,43 @@ public sealed record PackageCompileAssetSelection(
                 nameof(compileAsset));
         }
 
-        return compileAsset.Kind == PackageCompileAssetKind.Library
-            ? compileAsset
+        PackageCompileAsset? exact =
+            ImplementationAssets.FirstOrDefault(asset =>
+                asset.Id.Equals(compileAsset.Id, StringComparison.Ordinal));
+        if (exact is not null)
+            return exact;
+
+        string? relativePath = TryGetRelativePath(compileAsset);
+        return relativePath is null
+            ? null
             : ImplementationAssets.FirstOrDefault(asset =>
-                asset.AssemblyName.Equals(
-                    compileAsset.AssemblyName,
-                    StringComparison.OrdinalIgnoreCase));
+                TryGetRelativePath(asset)?.Equals(
+                    relativePath,
+                    StringComparison.OrdinalIgnoreCase)
+                is true);
+    }
+
+    static string? TryGetRelativePath(PackageCompileAsset asset)
+    {
+        string[] segments = asset.Path.Split('/');
+        if (segments.Length >= 3
+            && (segments[0].Equals("ref", StringComparison.OrdinalIgnoreCase)
+                || segments[0].Equals("lib", StringComparison.OrdinalIgnoreCase))
+            && segments[1].Equals(
+                asset.TargetFramework,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Join('/', segments[2..]);
+        }
+
+        return segments.Length >= 5
+            && segments[0].Equals("runtimes", StringComparison.OrdinalIgnoreCase)
+            && segments[2].Equals("lib", StringComparison.OrdinalIgnoreCase)
+            && segments[3].Equals(
+                asset.TargetFramework,
+                StringComparison.OrdinalIgnoreCase)
+                ? string.Join('/', segments[4..])
+                : null;
     }
 }
 
@@ -248,12 +280,21 @@ public static class PackageCompileAssetSelector
 
         bool hasReferenceAssets = frameworkAssets.Any(
             asset => asset.Kind == PackageCompileAssetKind.Reference);
+        PackageCompileAsset[] libraryFallback =
+        [
+            .. frameworkAssets
+                .Where(asset => asset.Kind == PackageCompileAssetKind.Library)
+                .Select(asset =>
+                    implementationAssets.FirstOrDefault(candidate =>
+                        candidate.Id.Equals(asset.Id, StringComparison.Ordinal))
+                    ?? asset),
+        ];
         PackageCompileAsset[] selected =
         [
             .. (hasReferenceAssets
                     ? frameworkAssets.Where(
                         asset => asset.Kind == PackageCompileAssetKind.Reference)
-                    : implementationAssets)
+                    : libraryFallback)
                 .OrderBy(asset => asset.Path, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(asset => asset.Path, StringComparer.Ordinal),
         ];

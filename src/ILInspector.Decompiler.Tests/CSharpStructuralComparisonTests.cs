@@ -461,19 +461,17 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
-    public void CompareStructure_NarrowsUsingStatementSpanToHeaderAndStopsAnnotatingUnchangedBody()
+    public void CompareStructure_NarrowsUsingStatementDeclarationDroppedToTypeIdentifierEquals()
     {
-        // Reproduces the #4113 shape recorded in #4952 (issue #5022, items 2
-        // and 7): a disposed-only `using` resource is raised to the
-        // variable-less form. Only the header line's variable declaration
-        // changes; the body (`{`, `n = 1;`, `}`) is untouched. Previously the
-        // matched UsingStatement row's spans covered the whole construct, so
-        // RenderAnnotatedBody repeated a "construct; text changed"
-        // annotation on all four lines. Narrowing the row's spans to the
-        // printer's own recorded Header sub-region (a) confines the caret to
-        // the header line (item 2) and (b) stops annotating the unchanged
-        // body lines as a side effect, with no separate propagation step to
-        // suppress (item 7).
+        // Reproduces the #4113 shape recorded in #4952 (issue #5022, items 2,
+        // 7, and 10): a disposed-only `using` resource is raised to the
+        // variable-less form. The body (`{`, `n = 1;`, `}`) is untouched and
+        // never reads `iDisposable`, so item 10 narrows the row's spans
+        // further than items 2/7's header-only narrowing: to exactly
+        // `IDisposable iDisposable =` on the declaring side, and to the bare
+        // resource expression on the variable-less side -- matching #4952's
+        // "agreed-better mockup" for #4113 exactly, including its side-local
+        // "never read" captions.
         const string beforeText = """
             int n = 0;
             using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))
@@ -507,17 +505,16 @@ public class CSharpStructuralComparisonTests
         var beforeSpan = Assert.Single(row.BeforeSpans);
         var afterSpan = Assert.Single(row.AfterSpans);
         Assert.Equal(
-            "using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))",
+            "IDisposable iDisposable =",
             before.Text.Substring(beforeSpan.Start, beforeSpan.Length));
         Assert.Equal(
-            "using (DisposableFromObjectSpan([a, b]))",
+            "DisposableFromObjectSpan([a, b])",
             after.Text.Substring(afterSpan.Start, afterSpan.Length));
 
-        // Round-2 review: the row's reported region role must reflect the
-        // narrowed spans it actually renders (Header), not the full
-        // statement's Construct region the node used to span before
-        // narrowing -- otherwise the caret narrows but the label still says
-        // "construct", contradicting itself.
+        // The narrowed span is still contained within the printer's own
+        // Header region, so the row's reported region role stays Header --
+        // matching items 2/7's own invariant that the reported region must
+        // reflect what the caret actually covers.
         Assert.Equal(PrintedRegionRole.Header, row.BeforeRegion);
         Assert.Equal(PrintedRegionRole.Header, row.AfterRegion);
 
@@ -530,12 +527,18 @@ public class CSharpStructuralComparisonTests
 
         AssertCaret(
             beforeBody,
-            "using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))",
-            "raise: UsingStatement header;");
+            "IDisposable iDisposable =",
+            "raise: UsingStatement header; declares variable `iDisposable` (never read)");
         AssertCaret(
             afterBody,
-            "using (DisposableFromObjectSpan([a, b]))",
-            "raise: UsingStatement header;");
+            "DisposableFromObjectSpan([a, b])",
+            "raise: UsingStatement header; variable-less resource (declaration dropped; never read)");
+
+        var display = Assert.Single(CSharpStructuralDiffPrinter.ToDisplayRows(comparison));
+        Assert.Equal(
+            "header: variable declaration dropped (`iDisposable` never read)",
+            display.Detail);
+
         Assert.DoesNotContain("raise: UsingStatement construct", beforeBody, StringComparison.Ordinal);
         Assert.DoesNotContain("raise: UsingStatement construct", afterBody, StringComparison.Ordinal);
         foreach (string unchangedLine in new[] { "{", "n = 1;", "}" })
@@ -543,6 +546,187 @@ public class CSharpStructuralComparisonTests
             Assert.DoesNotContain($"raise: {unchangedLine}", beforeBody, StringComparison.Ordinal);
             Assert.DoesNotContain($"raise: {unchangedLine}", afterBody, StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public void CompareStructure_DoesNotNarrowUsingDeclarationWhenVariableIsRead()
+    {
+        // Close negative for item 10: same declaration-dropped header shape
+        // as the previous test, but the body now reads `iDisposable` (via
+        // `iDisposable.Dispose()`), so item 10's liveness check must refuse
+        // to narrow further or caption "never read" -- that claim would be
+        // false, and dropping a variable that is actually read is not an
+        // equivalent rewrite in the first place. The row falls back to
+        // items 2/7's header-only narrowing and generic caption.
+        const string beforeText = """
+            int n = 0;
+            using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))
+            {
+                iDisposable.Dispose();
+            }
+            return n;
+            """;
+        const string afterText = """
+            int n = 0;
+            using (DisposableFromObjectSpan([a, b]))
+            {
+                iDisposable.Dispose();
+            }
+            return n;
+            """;
+
+        var before = UsingStatementDocument(beforeText);
+        var after = UsingStatementDocument(afterText);
+
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        var row = Assert.Single(comparison.Rows);
+        var beforeSpan = Assert.Single(row.BeforeSpans);
+        var afterSpan = Assert.Single(row.AfterSpans);
+        Assert.Equal(
+            "using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))",
+            before.Text.Substring(beforeSpan.Start, beforeSpan.Length));
+        Assert.Equal(
+            "using (DisposableFromObjectSpan([a, b]))",
+            after.Text.Substring(afterSpan.Start, afterSpan.Length));
+
+        var display = Assert.Single(CSharpStructuralDiffPrinter.ToDisplayRows(comparison));
+        Assert.DoesNotContain("never read", display.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompareStructure_DoesNotRefineUsingDeclarationWhenBodyAlsoChanged()
+    {
+        // Close negative for item 10: the declaration is dropped (as in the
+        // narrowing test above), but the body also gains a statement, so
+        // items 2/7's own header-narrowing (`NarrowToChangedHeader`) falls
+        // back to the full node span instead of the Header region -- the
+        // text outside a naive header span would then differ between before
+        // and after. Item 10 must refuse to refine that fallback span: its
+        // `using (` prefix would otherwise fool `UsingHeaderInnerSpan` into
+        // scanning for a closing paren across the whole (differing) body,
+        // narrowing to a bogus, mid-token substring instead of an honest
+        // full-construct span.
+        const string beforeText = """
+            int n = 0;
+            using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))
+            {
+                Bar();
+            }
+            return n;
+            """;
+        const string afterText = """
+            int n = 0;
+            using (DisposableFromObjectSpan([a, b]))
+            {
+                Bar();
+                n = 1;
+            }
+            return n;
+            """;
+
+        var before = UsingStatementDocument(beforeText);
+        var after = UsingStatementDocument(afterText);
+
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        var row = Assert.Single(comparison.Rows);
+        var beforeSpan = Assert.Single(row.BeforeSpans);
+        var afterSpan = Assert.Single(row.AfterSpans);
+
+        // Falls all the way back to the full `UsingStatement` node spans --
+        // not narrowed to `IDisposable iDisposable =` / the bare resource
+        // expression, nor to any other erroneous substring reaching into
+        // the (differing) body. Since the body also changed, items 2/7's
+        // own header-narrowing already fell back to the full node span, and
+        // item 10 must leave that fallback exactly alone.
+        Assert.Equal(before.Nodes[0].Spans[0], beforeSpan);
+        Assert.Equal(after.Nodes[0].Spans[0], afterSpan);
+        Assert.NotEqual(PrintedRegionRole.Header, row.BeforeRegion);
+        Assert.NotEqual(PrintedRegionRole.Header, row.AfterRegion);
+
+        var display = Assert.Single(CSharpStructuralDiffPrinter.ToDisplayRows(comparison));
+        Assert.DoesNotContain("never read", display.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompareStructure_NarrowsUsingStatementDeclarationAddedToTypeIdentifierEquals()
+    {
+        // Mirror direction of item 10: a variable-less resource gains a
+        // declaration (before has none, after declares `iDisposable`, never
+        // read in the untouched body). The row narrows symmetrically: the
+        // bare expression on the before side, `Type identifier =` on the
+        // after side, with captions swapped to match.
+        const string beforeText = """
+            int n = 0;
+            using (DisposableFromObjectSpan([a, b]))
+            {
+                n = 1;
+            }
+            return n;
+            """;
+        const string afterText = """
+            int n = 0;
+            using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))
+            {
+                n = 1;
+            }
+            return n;
+            """;
+
+        var before = UsingStatementDocument(beforeText);
+        var after = UsingStatementDocument(afterText);
+
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        var row = Assert.Single(comparison.Rows);
+        var beforeSpan = Assert.Single(row.BeforeSpans);
+        var afterSpan = Assert.Single(row.AfterSpans);
+        Assert.Equal(
+            "DisposableFromObjectSpan([a, b])",
+            before.Text.Substring(beforeSpan.Start, beforeSpan.Length));
+        Assert.Equal(
+            "IDisposable iDisposable =",
+            after.Text.Substring(afterSpan.Start, afterSpan.Length));
+
+        string beforeBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.Before);
+        string afterBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.After);
+
+        AssertCaret(
+            beforeBody,
+            "DisposableFromObjectSpan([a, b])",
+            "raise: UsingStatement header; variable-less resource (declaration added; never read)");
+        AssertCaret(
+            afterBody,
+            "IDisposable iDisposable =",
+            "raise: UsingStatement header; declares variable `iDisposable` (never read)");
+
+        var display = Assert.Single(CSharpStructuralDiffPrinter.ToDisplayRows(comparison));
+        Assert.Equal(
+            "header: variable declaration added (`iDisposable` never read)",
+            display.Detail);
     }
 
     [Fact]
@@ -640,17 +824,21 @@ public class CSharpStructuralComparisonTests
 
         // Item 1 (ancestor collapsing) recognizes the nested UsingStatement's
         // narrowed header row as the sole explanation for the TryStatement's
-        // text change and suppresses the redundant ancestor row.
+        // text change and suppresses the redundant ancestor row, using the
+        // items-2/7 header-level span (before item 10's further declaration
+        // narrowing runs -- see RefineUsingResourceDeclarationRows). The
+        // surviving row is then refined by item 10 same as any other, since
+        // `iDisposable` is never read in the nested using's own body.
         var row = Assert.Single(comparison.Rows);
         Assert.Equal(1, row.BeforeNodeId);
         Assert.Equal(1, row.AfterNodeId);
         var beforeSpan = Assert.Single(row.BeforeSpans);
         var afterSpan = Assert.Single(row.AfterSpans);
         Assert.Equal(
-            "using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))",
+            "IDisposable iDisposable =",
             before.Text.Substring(beforeSpan.Start, beforeSpan.Length));
         Assert.Equal(
-            "using (DisposableFromObjectSpan([a, b]))",
+            "DisposableFromObjectSpan([a, b])",
             after.Text.Substring(afterSpan.Start, afterSpan.Length));
     }
 
@@ -1608,6 +1796,589 @@ public class CSharpStructuralComparisonTests
             + "^^^^^^^^^^^^^^^\n"
             + "raise: LocalFunctionStatement",
             renderedBefore);
+    }
+
+    [Fact]
+    public void ToDisplayRows_DescribesCallTargetRenamedToLocalFunction()
+    {
+        // Item 9 (issue #5022): the exact #4116 shape as item 5's own Added
+        // fixture above, but now checking the Changed InvocationExpression
+        // row's own Detail -- it should name the semantic role transition
+        // ("call target: ... -> local function `Own`"), not a literal
+        // before/after text dump, since the after-side callee is precisely
+        // the declaration this same comparison reports as Added.
+        var before = TrustedDocument(
+            "return __NoTypeParameter_g__Own_0_0(value);",
+            new NodeSpec("InvocationExpression", "__NoTypeParameter_g__Own_0_0(value)", [0x10]));
+        var after = TrustedDocument(
+            "return Own(value);\nstatic int Own(int input) => input + 1;",
+            new NodeSpec("InvocationExpression", "Own(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static int Own(int input) => input + 1;", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        Assert.Contains(display, row =>
+            row.Change == "Changed"
+            && row.Detail == "call target: __NoTypeParameter_g__Own_0_0 -> local function `Own`");
+    }
+
+    [Fact]
+    public void ToDisplayRows_DescribesCallTargetRenamedFromLocalFunction()
+    {
+        // Symmetric removal direction: the exact #4116-reverse shape as item
+        // 5's own Removed fixture above, checked for the same Detail
+        // captioning on the Changed invocation row.
+        var before = TrustedDocument(
+            "F();\nstatic void F()\n{\n}",
+            new NodeSpec("InvocationExpression", "F()", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void F()\n{\n}", null));
+        var after = TrustedDocument(
+            "__CallsEmpty_g__F_0_0();",
+            new NodeSpec("InvocationExpression", "__CallsEmpty_g__F_0_0()", [0x10]));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        Assert.Contains(display, row =>
+            row.Change == "Changed"
+            && row.Detail == "call target: local function `F` -> __CallsEmpty_g__F_0_0");
+    }
+
+    [Fact]
+    public void ToDisplayRows_DoesNotDescribeUnrelatedCalleeRenameAsLocalFunction()
+    {
+        // Close negative: the callee genuinely renamed (`Old` -> `New`), but
+        // no Added/Removed LocalFunctionStatement row names either identifier
+        // anywhere in this comparison -- an ordinary method rename, not the
+        // #3902/#4116 paired-declaration shape. The caption must not fire on
+        // callee identity alone; the row must fall back to the literal
+        // before/after text.
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return New(value);",
+            new NodeSpec("InvocationExpression", "New(value)", [0x10]));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> New(value)", changed.Detail);
+    }
+
+    [Fact]
+    public void ToDisplayRows_DoesNotDescribeCalleeRenameWhenNameOnlyMatchesADeclarationParameter()
+    {
+        // Round-1 review (reviewers A and B): the renamed callee's identity
+        // must match the local function's own *declared name*, not merely
+        // any identifier occurring anywhere in the declaration's full
+        // statement text. Here the sole Added LocalFunctionStatement is
+        // named `Other`, but its parameter happens to be named `New` --
+        // exactly the identifier the unrelated call was renamed to. This
+        // must not be read as "the callee now targets a local function";
+        // there is no such declaration.
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return New(value);\nstatic void Other(int New) { }",
+            new NodeSpec("InvocationExpression", "New(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void Other(int New) { }", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> New(value)", changed.Detail);
+    }
+
+    [Fact]
+    public void ToDisplayRows_DescribesCallTargetRenamedToEscapedKeywordLocalFunction()
+    {
+        // Round-2 review (reviewers A and B): a local function whose declared
+        // name is a C#-keyword must be @-escaped at both its declaration and
+        // its call site (#1465). The declared-name extraction must keep the
+        // leading '@' so it exactly matches the callee text (which likewise
+        // keeps the '@'), or the caption is silently lost for every escaped
+        // name.
+        var before = TrustedDocument(
+            "return Synthesized(value);",
+            new NodeSpec("InvocationExpression", "Synthesized(value)", [0x10]));
+        var after = TrustedDocument(
+            "return @return(value);\nstatic int @return(int value) => value;",
+            new NodeSpec("InvocationExpression", "@return(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static int @return(int value) => value;", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Contains("local function `@return`", changed.Detail);
+    }
+
+    [Fact]
+    public void ToDisplayRows_DoesNotDescribeUnrelatedCalleeRenameWhenDeclarationNameIsEscapedModifierKeyword()
+    {
+        // Round-2 review (reviewer A): before the '@'-inclusion fix, an
+        // escaped declaration literally named a modifier keyword (`@static`)
+        // was wrongly rejected as if it were the unescaped modifier itself,
+        // and the scan then continued past it into the declaration's body,
+        // where it could find and falsely match an unrelated call's renamed
+        // callee. Here the added `@static` declaration's body invokes `New`,
+        // matching this comparison's own unrelated call-site rename, but the
+        // declaration's own name is `@static`, not `New` -- the caption must
+        // not fire.
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return New(value);\nstatic void @static() { New(0); }",
+            new NodeSpec("InvocationExpression", "New(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void @static() { New(0); }", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> New(value)", changed.Detail);
+    }
+
+    [Fact]
+    public void ToDisplayRows_DoesNotDescribeUnrelatedCalleeRenameWhenDeclarationIsGeneric()
+    {
+        // Round-3 review (reviewers A and B): before the bail-instead-of-
+        // continue fix, a generic local function's type-parameter list
+        // (`<T>`) left no identifier immediately before the real parameter
+        // list, and the scan then fell through into the declaration's body,
+        // where it could pick up an unrelated call there and misattribute
+        // it as the declaration's own name. Here the added `Other<T>`
+        // declaration's body happens to invoke `New`, matching this
+        // comparison's own unrelated call-site rename, but the declaration's
+        // actual name is `Other`, not `New` -- the caption must not fire.
+        // (Generic declarations are not yet recognized by this heuristic, so
+        // no caption is expected here at all -- only that none is wrongly
+        // produced.)
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return New(value);\nstatic void Other<T>() { New(0); }",
+            new NodeSpec("InvocationExpression", "New(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void Other<T>() { New(0); }", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> New(value)", changed.Detail);
+    }
+
+    [Fact]
+    public void ToDisplayRows_DoesNotDescribeAttributeArgumentAsDeclaredName()
+    {
+        // Round-3 review (reviewers A and B): a local function's own
+        // attribute list is a top-level parenthesized group like any other,
+        // so before the leading-attribute-skip fix, an attribute with
+        // arguments (`[My(1)]`) was mistaken for the declaration's parameter
+        // list, and the identifier immediately preceding it (`My`) was
+        // returned as the declared name instead of the declaration's real
+        // name (`Other`). Here the unrelated call is renamed to exactly
+        // that attribute-argument identifier (`My`), which must not trigger
+        // the caption.
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return My(value);\n[My(1)] static void Other() { }",
+            new NodeSpec("InvocationExpression", "My(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "[My(1)] static void Other() { }", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> My(value)", changed.Detail);
+    }
+
+    [Fact]
+    public void ToDisplayRows_DoesNotDescribeAttributeArgumentContainingBracketAsDeclaredName()
+    {
+        // Round-4 review (reviewers A and B): before the guard on quotes
+        // inside SkipLeadingAttributeLists, an attribute argument string
+        // containing '[' (e.g. an attribute describing something as
+        // "[deprecated]") made the bracket-balance count in
+        // SkipLeadingAttributeLists appear unbalanced, so the attribute list
+        // was never skipped and the attribute's own argument identifier
+        // (`A`) was mistaken for the declared name -- exactly the round-3
+        // false positive this was meant to have already fixed. The unrelated
+        // call here is renamed to that attribute-argument identifier (`A`),
+        // which must not trigger the caption.
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return A(value);\n[A(\"[deprecated]\")] static void Other() { }",
+            new NodeSpec("InvocationExpression", "A(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "[A(\"[deprecated]\")] static void Other() { }", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> A(value)", changed.Detail);
+    }
+
+    [Fact]
+    public void ToDisplayRows_DescribesCallTargetRenamedToAttributedTupleReturningLocalFunction()
+    {
+        // Round-4 review (reviewer A): before bounding the trailing-
+        // whitespace scan by `start` (rather than 0), an attributed, unmodified
+        // tuple-return declaration lost its own caption -- a false negative,
+        // since the whitespace between the attribute list and the tuple
+        // return type's own opening paren was wrongly treated as a
+        // non-empty gap, causing the scan to bail instead of taking the
+        // tuple-return continuation.
+        var before = TrustedDocument(
+            "return Synthesized(value);",
+            new NodeSpec("InvocationExpression", "Synthesized(value)", [0x10]));
+        var after = TrustedDocument(
+            "return F(value);\n[My] (int, string) F(int value) => (value, \"\");",
+            new NodeSpec("InvocationExpression", "F(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "[My] (int, string) F(int value) => (value, \"\");", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        Assert.Contains(display, row =>
+            row.Change == "Changed"
+            && row.Detail == "call target: Synthesized -> local function `F`");
+    }
+
+    [Fact]
+    public void ToDisplayRows_DoesNotDescribeAttributeCommentBracketAsDeclaredName()
+    {
+        // Round-5 review (reviewers A and B): a comment inside an attribute's
+        // own argument list can contain a bracket character invisible to
+        // SkipLeadingAttributeLists's naive counting, corrupting it exactly
+        // like the round-4 string-literal case. This codebase's own printer
+        // never emits comments in a declaration header, so this is defense
+        // in depth rather than a reachable product scenario -- but the
+        // heuristic must still not produce a wrong caption if fed this text.
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return A(value);\n[A(/* [ */ 1)] static void Other() { }",
+            new NodeSpec("InvocationExpression", "A(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "[A(/* [ */ 1)] static void Other() { }", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> A(value)", changed.Detail);
+    }
+
+    [Fact]
+    public void ToDisplayRows_DoesNotDescribeCommentBetweenAttributeAndDeclarationAsDeclaredName()
+    {
+        // Round-5 review (reviewers A and B): a comment between a leading
+        // attribute and the declaration itself is invisible to the
+        // whitespace-only skip that follows an attribute list, so scanning
+        // resumed inside it and could return an identifier found there (one
+        // that merely precedes a parenthesized group in the comment text) as
+        // the declared name. As above, the decompiler's own printer never
+        // emits comments here; this guards the heuristic's contract anyway.
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return New(value);\n[A] /* New() */ static void Other() { }",
+            new NodeSpec("InvocationExpression", "New(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "[A] /* New() */ static void Other() { }", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> New(value)", changed.Detail);
+    }
+
+    [Fact]
+    public void ToDisplayRows_DoesNotDescribeDirectiveInMainScanAsDeclaredName()
+    {
+        // Round-10 review (reviewer A and reviewer B, independently):
+        // round-9 recognized `#` as a body-start marker, reasoning that a
+        // preprocessor directive could legally separate a parameter list
+        // from its body. But a directive can just as legally separate a
+        // *return type* from the *name* -- here, between the tuple return
+        // type's own group and `Other` -- where `#` proves nothing about a
+        // body starting. Recognizing it as proof there would wrongly stop
+        // the scan at the tuple-return-type's own preceding modifier
+        // (`static`) instead of continuing to the real name (`Other`). The
+        // decompiler's own printer never emits directives here either; `#`
+        // is now an unconditional bail in the main scan, mirroring the
+        // existing '/' comment bail, rather than a body-start marker.
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return New(value);\nstatic (int, int)\n#line 1\nOther() => (1, 2);",
+            new NodeSpec("InvocationExpression", "New(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static (int, int)\n#line 1\nOther() => (1, 2);", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> New(value)", changed.Detail);
+    }
+
+    [Fact]
+    public void ToDisplayRows_DoesNotDescribeCommentInMainScanAsDeclaredName()
+    {
+        // Round-6 review (reviewers A and B): the round-5 fix only bailed on
+        // '/' inside SkipLeadingAttributeLists, not in the main declaration
+        // scan that runs after it. A comment later in the header -- here,
+        // right after the `static` modifier -- still hides a parenthesized
+        // group whose preceding identifier could be misread as the declared
+        // name, attributing an unrelated call (`New`) to a same-named but
+        // wholly different actual local function (`Other`).
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return New(value);\nstatic /* New() */ void Other() { }",
+            new NodeSpec("InvocationExpression", "New(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static /* New() */ void Other() { }", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> New(value)", changed.Detail);
+    }
+
+    [Fact]
+    public void ToDisplayRows_DescribesCallTargetRenamedToRefTupleReturningLocalFunction()
+    {
+        // Round-6 review (reviewer A): `ref` and `ref readonly` are valid
+        // tokens preceding a tuple return type's own parenthesized group
+        // (`ref (int, int) F()`), just like the already-recognized
+        // modifiers. Before this fix, the scan mistook `ref` itself for the
+        // declared name instead of continuing on to find the real
+        // parameter list and its own preceding identifier `F`.
+        var before = TrustedDocument(
+            "return Synthesized(value);",
+            new NodeSpec("InvocationExpression", "Synthesized(value)", [0x10]));
+        var after = TrustedDocument(
+            "return F(value);\nref (int, int) F(int value) => throw new Exception();",
+            new NodeSpec("InvocationExpression", "F(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "ref (int, int) F(int value) => throw new Exception();", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        Assert.Contains(display, row =>
+            row.Change == "Changed"
+            && row.Detail == "call target: Synthesized -> local function `F`");
+    }
+
+    [Fact]
+    public void ToDisplayRows_DescribesCallTargetRenamedToSupplementaryPlaneLocalFunction()
+    {
+        // Round-6 review (reviewer B): char-based identifier classification
+        // examines each half of a supplementary-plane surrogate pair (e.g.
+        // U+10400, DESERET CAPITAL LETTER LONG I) independently, and neither
+        // half is itself an identifier-part category, so the whole
+        // character was silently excluded from the declared name -- a false
+        // negative that permanently lost the caption for a name spelled with
+        // one.
+        var before = TrustedDocument(
+            "return Synthesized(value);",
+            new NodeSpec("InvocationExpression", "Synthesized(value)", [0x10]));
+        var after = TrustedDocument(
+            "return \U00010400F(value);\nstatic int \U00010400F(int value) => value;",
+            new NodeSpec("InvocationExpression", "\U00010400F(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static int \U00010400F(int value) => value;", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Contains("local function `\U00010400F`", changed.Detail);
+    }
+
+    [Fact]
+    public void ToDisplayRows_DescribesCallTargetRenamedToGenericTupleReturningLocalFunction()
+    {
+        // Round-7 review (reviewer A): a generic return type wrapping a
+        // tuple (`Task<(int, int)> F()`) opens the tuple's own group while
+        // still nested inside the return type's unclosed `<...>`, so
+        // paren-only depth tracking mistook that nested group for the
+        // top-level parameter list; its preceding `<` is not an identifier,
+        // and the scan bailed before ever reaching the real parameter list
+        // and its own preceding name (`F`). Tracking angle-bracket depth
+        // alongside paren depth (while at paren depth zero) fixes this
+        // without touching the already-correct rejection of a generic
+        // *local function itself* (`Other<T>()`, covered above).
+        var before = TrustedDocument(
+            "return Synthesized(value);",
+            new NodeSpec("InvocationExpression", "Synthesized(value)", [0x10]));
+        var after = TrustedDocument(
+            "return F(value);\nTask<(int Value, int Error)> F(int value) => default;",
+            new NodeSpec("InvocationExpression", "F(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "Task<(int Value, int Error)> F(int value) => default;", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        Assert.Contains(display, row =>
+            row.Change == "Changed"
+            && row.Detail == "call target: Synthesized -> local function `F`");
+    }
+
+    [Fact]
+    public void ToDisplayRows_DoesNotDescribeUnrelatedCalleeRenameWhenDeclarationNameIsModifierKeyword()
+    {
+        // Round-8 review (reviewer A): `async` is a contextual keyword,
+        // legal unescaped as an ordinary local-function name
+        // (`void async() { }`). Before this fix, the scanner mistook that
+        // name for the `async` modifier it also recognizes as legitimately
+        // prefixing a tuple return type, and continued scanning past what
+        // was actually the declaration's own (empty) parameter list and
+        // into its body, where it could pick up an unrelated call there
+        // (`New`) and misattribute it as this declaration's own name. Here
+        // the added `async` declaration's body happens to invoke `New`,
+        // matching this comparison's own unrelated call-site rename, but
+        // the declaration's actual name is `async`, not `New` -- the
+        // caption must not fire.
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return New(value);\nvoid async() { New(0); }",
+            new NodeSpec("InvocationExpression", "New(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "void async() { New(0); }", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> New(value)", changed.Detail);
+    }
+
+    [Fact]
+    public void ToDisplayRows_DoesNotDescribeUnrelatedCalleeRenameWhenExpressionBodiedDeclarationNameIsModifierKeyword()
+    {
+        // Same shape as above, but expression-bodied (`=>`) rather than
+        // block-bodied (`{ }`) -- the body-start probe after a
+        // modifier-keyword match must recognize both, not only `{`.
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return New(value);\nint async() => New(0);",
+            new NodeSpec("InvocationExpression", "New(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "int async() => New(0);", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> New(value)", changed.Detail);
+    }
+
+    [Fact]
+    public void ToDisplayRows_DescribesCallTargetRenamedToLocalFunctionNamedModifierKeyword()
+    {
+        // Round-9 review (reviewer B): the round-8 fix bailed whenever a
+        // modifier-spelled token was immediately followed by a body,
+        // throwing away a legitimate caption for any local function
+        // actually named after a modifier keyword (`async`, a contextual
+        // keyword, is a perfectly legal unescaped identifier). But a body
+        // starting right there proves, rather than guesses, that this
+        // token is the declaration's own name: no valid declaration puts a
+        // real modifier or tuple-return-type prefix immediately before a
+        // body -- it still needs a name and that name's own parameter list
+        // first. So this shape must receive the caption, not fall back to
+        // the literal text.
+        var before = TrustedDocument(
+            "return Synthesized(value);",
+            new NodeSpec("InvocationExpression", "Synthesized(value)", [0x10]));
+        var after = TrustedDocument(
+            "return async(value);\nstatic int async(int value) => value;",
+            new NodeSpec("InvocationExpression", "async(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static int async(int value) => value;", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        Assert.Contains(display, row =>
+            row.Change == "Changed"
+            && row.Detail == "call target: Synthesized -> local function `async`");
+    }
+
+    [Fact]
+    public void ToDisplayRows_DescribesCallTargetRenamedToLocalFunctionNamedModifierKeywordAcrossPreprocessorDirective()
+    {
+        // Round-9 review (reviewer B) added `#` as a third body-start
+        // marker, reasoning that a preprocessor directive (e.g. `#line`)
+        // between the parameter list and the body -- legal trivia inside a
+        // LocalFunctionStatement's own text -- could otherwise defeat the
+        // probe and let the scan misattribute a body call as the
+        // declaration's own name. Round-10 review (reviewer A and reviewer
+        // B, independently) showed that same `#` marker is unsound: a
+        // directive can just as legally separate a *return type* from the
+        // *name*, where `#` proves nothing about a body starting. Since
+        // the printer never emits directives in either position, `#` is
+        // now an unconditional bail instead of a body-start marker -- this
+        // shape isn't recognized at all, so no caption is produced, but
+        // for the safer reason (bail) rather than the unsound one (proof).
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return New(value);\nvoid async()\n#line 1\n{\n    New(0);\n}",
+            new NodeSpec("InvocationExpression", "New(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "void async()\n#line 1\n{\n    New(0);\n}", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> New(value)", changed.Detail);
+    }
+
+
+    [Fact]
+    public void ToDisplayRows_DoesNotDescribeUnrelatedCalleeRenameWhenDeclarationHasUnspellableName()
+    {
+        // Round-9 review (reviewer A): the decompiler deliberately
+        // preserves some local-function names that are not spellable C#
+        // identifiers (e.g. `bad-name`, from an original IL name with no
+        // valid C# rendering). The backward identifier scan stops at the
+        // first non-identifier character, so scanning back from
+        // `bad-name(`'s own parameter list only captures the valid-looking
+        // suffix `name` -- not the declaration's real (unspellable) name.
+        // Returning that suffix could coincidentally match an unrelated
+        // call renamed to exactly that suffix, which must not receive the
+        // caption: there is no local function actually named `name` here.
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return name(value);\nstatic void bad-name(int value) { }",
+            new NodeSpec("InvocationExpression", "name(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void bad-name(int value) { }", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> name(value)", changed.Detail);
     }
 
     [Fact]

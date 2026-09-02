@@ -43,10 +43,13 @@ internal static class PromotionWorkflowContract
         index="$site/index.html"
         receipt=artifacts/inspect-web-publish/async-lowering.json
         test -f "$index"
-        jq -e '.schema == 3 and .method == "InspectionEngine.AsyncLoweringCanary" and .lowering == "compiler" and .result == "inspect-web-async-lowering-ok" and .async_method_count > 0 and .compiler_async_method_count == .async_method_count and .runtime_async_method_count == 0 and .repository_project_count > 0 and (.publish_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.published_webcil_file | test("^InspectWeb\\.Engine\\.[A-Za-z0-9]+\\.wasm$")) and (.published_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.contract_sha256 | test("^[0-9a-f]{64}$"))' "$receipt" >/dev/null
+        jq -e '.schema == 4 and .method == "InspectionEngine.AsyncLoweringCanary" and .lowering == "compiler" and .result == "inspect-web-async-lowering-ok" and .assembly_count == 2 and .async_method_count > 0 and .compiler_async_method_count == .async_method_count and .runtime_async_method_count == 0 and .repository_project_count > 0 and (.publish_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.publish_core_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.published_webcil_file | test("^InspectWeb\\.Engine\\.[A-Za-z0-9]+\\.wasm$")) and (.published_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.published_core_webcil_file | test("^InspectWeb\\.Engine\\.Core\\.[A-Za-z0-9]+\\.wasm$")) and (.published_core_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.contract_sha256 | test("^[0-9a-f]{64}$"))' "$receipt" >/dev/null
         webcil=$(jq -r '.published_webcil_file' "$receipt")
-        test "$(find "$site/_framework" -maxdepth 1 -type f -name 'InspectWeb.Engine.*.wasm' | wc -l)" -eq 1
+        core_webcil=$(jq -r '.published_core_webcil_file' "$receipt")
+        test "$(find "$site/_framework" -maxdepth 1 -type f -name 'InspectWeb.Engine.*.wasm' ! -name 'InspectWeb.Engine.Core.*.wasm' | wc -l)" -eq 1
+        test "$(find "$site/_framework" -maxdepth 1 -type f -name 'InspectWeb.Engine.Core.*.wasm' | wc -l)" -eq 1
         test "$(sha256sum "$site/_framework/$webcil" | awk '{print $1}')" = "$(jq -r '.published_webcil_sha256' "$receipt")"
+        test "$(sha256sum "$site/_framework/$core_webcil" | awk '{print $1}')" = "$(jq -r '.published_core_webcil_sha256' "$receipt")"
         test -f "$site/staticwebapp.config.json"
         test -f "$api/host.json"
         test -f "$api/functions.metadata"
@@ -82,10 +85,13 @@ internal static class PromotionWorkflowContract
         index="$site/index.html"
         receipt=artifacts/inspect-web-coreclr-publish/async-lowering.json
         test -f "$index"
-        jq -e '.schema == 3 and .method == "InspectionEngine.AsyncLoweringCanary" and .lowering == "runtime" and .result == "inspect-web-async-lowering-ok" and .async_method_count > 0 and .runtime_async_method_count == .async_method_count and .compiler_async_method_count == 0 and .repository_project_count > 0 and (.publish_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.published_webcil_file | test("^InspectWeb\\.Engine\\.[A-Za-z0-9]+\\.wasm$")) and (.published_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.contract_sha256 | test("^[0-9a-f]{64}$"))' "$receipt" >/dev/null
+        jq -e '.schema == 4 and .method == "InspectionEngine.AsyncLoweringCanary" and .lowering == "runtime" and .result == "inspect-web-async-lowering-ok" and .assembly_count == 2 and .async_method_count > 0 and .runtime_async_method_count == .async_method_count and .compiler_async_method_count == 0 and .repository_project_count > 0 and (.publish_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.publish_core_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.published_webcil_file | test("^InspectWeb\\.Engine\\.[A-Za-z0-9]+\\.wasm$")) and (.published_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.published_core_webcil_file | test("^InspectWeb\\.Engine\\.Core\\.[A-Za-z0-9]+\\.wasm$")) and (.published_core_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.contract_sha256 | test("^[0-9a-f]{64}$"))' "$receipt" >/dev/null
         webcil=$(jq -r '.published_webcil_file' "$receipt")
-        test "$(find "$site/_framework" -maxdepth 1 -type f -name 'InspectWeb.Engine.*.wasm' | wc -l)" -eq 1
+        core_webcil=$(jq -r '.published_core_webcil_file' "$receipt")
+        test "$(find "$site/_framework" -maxdepth 1 -type f -name 'InspectWeb.Engine.*.wasm' ! -name 'InspectWeb.Engine.Core.*.wasm' | wc -l)" -eq 1
+        test "$(find "$site/_framework" -maxdepth 1 -type f -name 'InspectWeb.Engine.Core.*.wasm' | wc -l)" -eq 1
         test "$(sha256sum "$site/_framework/$webcil" | awk '{print $1}')" = "$(jq -r '.published_webcil_sha256' "$receipt")"
+        test "$(sha256sum "$site/_framework/$core_webcil" | awk '{print $1}')" = "$(jq -r '.published_core_webcil_sha256' "$receipt")"
         test -f "$site/staticwebapp.config.json"
         test -f "$api/host.json"
         test -f "$api/functions.metadata"
@@ -1428,8 +1434,10 @@ internal static class PromotionWorkflowContract
             "\"$repo_root/prototypes/inspect-web/scripts/verify-published-engine-facade.ts\" \\\n  \"$site\"",
             "\"$repo_root/prototypes/inspect-web/scripts/verify-async-project-graph.ts\"",
             "async_method_count: census.async_method_count",
+            "assembly_count: census.assembly_count",
             "repository_project_count: graphResult.repository_project_count",
             "published_webcil_file: webcil[0]",
+            "published_core_webcil_file: coreWebcil[0]",
         ];
         string[] missing = required
             .Where(value =>

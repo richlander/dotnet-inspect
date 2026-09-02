@@ -17,10 +17,18 @@ identity foundation is implemented by
 `MemberIdentity_BindsExactDeclaringTypeAndAnchor`, and
 `Construction_RejectsAbsentOwnerIssuedComponents`. Exact lens identity,
 retained evaluation bases, and pure lens recommendation are implemented by
-`NavigationLensRecommendation` and gated at their claims below. Initial
-subject selection, activation, reconciliation, revision behavior, retained
-sessions, synchronization, and restoration remain unverified until their
-implementation gates in [Verification](#verification) land.
+`NavigationLensRecommendation` and gated at their claims below. Pure initial
+subject ranking over already trustworthy Type candidates and already available
+Library candidates is implemented by `NavigationInitialSubjectRecommendation`
+and gated at its claim below. Pure standalone exact-lens activation is
+implemented by `NavigationLensActivation` and gated by
+`StandaloneLensActivation_RejectsDifferentExactSubjectBeforeRegistryResolution`,
+`ExplicitLensResolution_MapsEveryRegistryOutcomeWithoutFallback`, and
+`ExplicitLensResolution_RetainsExactRegistryEvidence`. Candidate availability
+and failure classification, subject activation, snapshot installation,
+reconciliation, revision behavior, retained sessions, synchronization, and
+restoration remain unverified until their implementation gates in
+[Verification](#verification) land.
 
 The concurrency claims are specified separately as executable TLA+ models under
 [`models/inspection-subject-navigation/`](models/inspection-subject-navigation/).
@@ -123,9 +131,14 @@ by [#4880](https://github.com/richlander/dotnet-inspect/issues/4880), owns
 runtime lens membership, labels, order, structural applicability, and
 facet-availability outcomes.
 
-[Inspect Web UI](inspect-web-ui.md) owns rendering, accessibility, focus, and
-interaction. Issue #4787 owns portable projection and complete restoration
-composition.
+[Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md)
+owns descriptor rendering, accessibility, and widget interaction; [Inspect Web
+Navigation Consumer](inspect-web-navigation-consumer.md) owns post-result
+effect-authority validation, snapshot/history commitment, and
+result-authorized focus/announcement ordering.
+[Workspace Definitions](workspace-definitions.md) owns portable projection and
+complete restoration composition, tracked by
+[#4787](https://github.com/richlander/dotnet-inspect/issues/4787).
 
 ### Non-claims
 
@@ -312,6 +325,15 @@ subject is selected.
 When no Library is available, Root is selected. This allows root-only package
 coordinates, including the tools-v2 pointer-package case tracked by #4829.
 
+The pure ranking over already trustworthy Type candidates and already
+available Library candidates is gated by
+`NavigationInitialSubjectRecommendationTests.InitialRecommendation_PrefersTypeThenLibraryThenRoot`,
+`TypeRecommendation_UsesPrimaryLibraryAccessibilityAndProducerOrder`, and
+`InitialRecommendation_NeverChoosesMember`. Candidate coordinate, Library,
+Type, primary-role, and accessibility consistency is gated by
+`CandidateConstruction_RejectsInconsistentOwnerIssuedEvidence`. Producer
+trust, availability, and failure classification remain unverified.
+
 ### Lens recommendation
 
 Lens recommendation is a pure policy over one exact structural subject and the
@@ -381,6 +403,37 @@ Type navigation has an explicit Library context:
 If no context can be established, the context is unavailable or failed. The
 context does not activate Library or promote Root.
 
+### Aggregate and single-library capability
+
+`All libraries` is a real aggregate inspection mode, not a client-side
+concatenation of independently rendered library pages. Aggregate evaluation
+returns one owner-provided result that defines ordering, identity,
+deduplication, and partial-failure behavior across the admitted library set.
+
+Each Library-scoped lens declares explicit aggregate and single-library
+capability, together with a visible rejection reason when the current subject
+arity is unsupported. This is symmetric: an aggregate-only lens does not
+report one-library data, and a single-library-only lens does not report an
+aggregate. A lens exposes only the arities it can genuinely support; capability
+is never inferred from source family or transport method.
+
+The active Library subject controls every Library-scoped lens:
+
+- `All libraries` requests a coordinate-wide result over the complete admitted
+  Library set.
+- An individual Library requests the same lens for only that Library.
+- The selected Library subject persists when switching among returned Library
+  lenses.
+- A package-version or TFM change supplies the realized coordinate result to
+  reconciliation, which decides whether that exact Library subject survives.
+
+Because standalone lens activation requires the request's exact subject to
+equal the snapshot's active subject (see
+[Explicit activation](#explicit-activation)), switching lenses never silently
+changes the Library subject to obtain a supported arity. An unsupported arity
+is reported as `Unavailable` for that lens while the current Library subject
+remains active and selectable for a supported lens.
+
 ## Activation and reconciliation
 
 ### Explicit activation
@@ -416,6 +469,14 @@ Every outcome retains the exact registry result and request identity, including
 the absent descriptor in `Unknown`. A Navigation-owned preparation failure
 after an available registry result remains distinguishable from a
 Registry-owned failed result. Neither failure is rewritten as unavailable.
+
+The pure exact-request boundary is gated by
+`StandaloneLensActivation_RejectsDifferentExactSubjectBeforeRegistryResolution`,
+`ExplicitLensResolution_MapsEveryRegistryOutcomeWithoutFallback`, and
+`ExplicitLensResolution_RetainsExactRegistryEvidence`. Snapshot replacement,
+revision advancement, and installation of an exact-request basis remain
+unverified until their separately named gates land.
+
 A valid exact request that completes as Registry `Unavailable` or `Failed`
 installs its exact-request basis and evidence whenever that replacement differs
 from the prior snapshot and its bound subject remains active. It does not
@@ -613,8 +674,9 @@ participant state machine is
 
 This owner does not install the prepared snapshot or coordinate other
 restoration participants. Complete restoration composition and atomic commit
-belong to issue #4787. Section, body, source-target, and other portable state
-remain outside this owner.
+belong to [Workspace Definitions](workspace-definitions.md), tracked by
+[#4787](https://github.com/richlander/dotnet-inspect/issues/4787). Section,
+body, source-target, and other portable state remain outside this owner.
 
 ## Consumer contract
 
@@ -629,8 +691,12 @@ the complete result snapshot before acknowledging `Synchronization required`,
 may request fresh synchronization authority while its receipt lags, and
 abandons authority it can no longer consume so queued maintenance can proceed.
 
-Inspect Web presentation, accessibility, focus, acknowledgement timing, and
-surface-destruction behavior belong to the UI owner and issue #4917.
+Inspect Web presentation and accessibility belong to
+[Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md).
+Focus, acknowledgement timing, and surface-destruction behavior belong to
+[Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md), with
+the migration historically tracked by
+[#4917](https://github.com/richlander/dotnet-inspect/issues/4917).
 
 ### Canonical state
 
