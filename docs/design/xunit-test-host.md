@@ -36,7 +36,8 @@ building another test host.
 The repository host consumes:
 
 - one xUnit test executable configured to use MTP;
-- the MTP argument vector, after any suite-owned expansion; and
+- an MTP argument vector in the repository evidence profile, after any
+  suite-owned expansion; and
 - the MTP integration supplied by the repository's pinned `xunit.v3` package.
 
 It produces MTP's execution or non-execution result without a repository
@@ -60,13 +61,21 @@ execution through `dotnet run`. For a test-execution invocation:
 5. Parse, discovery, filter, execution, and reporting failures remain visible
    through MTP's exit result.
 
+The repository evidence profile excludes an explicit MTP opt-out that ignores
+exit code `8` or lowers the minimum expected test count below one. Such an
+invocation deliberately declines the non-vacuity contract and is not supported
+as repository evidence. The host does not add an argument parser to police
+trusted callers; reviewed call sites and suite-owned expansion are responsible
+for selecting the evidence profile.
+
 The minimum applies to every test execution, including unfiltered and
 exclusion-filtered runs. This is MTP's conventional behavior and is useful for
 repository test executables: a supported test suite that executes nothing is
 not successful evidence.
 
 Help, test listing, runner information, and server operation are non-execution
-modes and do not acquire a test-count requirement.
+modes. MTP owns their result as well; the repository does not weaken a nonzero
+result when an empty filtered listing is rejected by the packaged MTP version.
 
 ## Aggregate and per-selection evidence
 
@@ -89,10 +98,12 @@ repository host does not reproduce xUnit filtering to infer contribution.
 Existing result checks may remain where they prove per-selection execution,
 not merely that the overall run was nonzero.
 
-The decompiler pre-merge gate is such a scenario: its preset names independent
+The decompiler pre-merge gate is such a scenario. Its preset names independent
 correctness classes, and its report checker requires execution evidence for
-every expected class. The decompiler suite owns that inventory, preset
-expansion, and receipt check.
+every expected class. It also compares an independent pre-enumerated discovery
+reference with execution identities so every discovered case executes exactly
+once. The decompiler suite owns that inventory, preset expansion, and complete
+discovery-to-execution receipt.
 
 ## Convention and dependencies
 
@@ -121,14 +132,27 @@ The implementation gate must cover:
 - an unfiltered suite reaching normal xUnit execution;
 - an exclusion filter that leaves tests reaching normal execution;
 - suite-owned argument expansion producing valid MTP filters;
+- the decompiler's custom entry point dispatching ordinary execution to MTP;
 - report production needed by domain-level per-selection receipts;
 - removal of the decompiler's repository-owned semantic preflight;
-- preservation of the decompiler's per-class execution receipt; and
+- preservation of the decompiler's per-class and per-case completeness
+  receipts, including exactly-once execution; and
 - migration of supported repository invocations and examples to MTP syntax.
 
 The same probe must show that one valid and one stale filter value can still
 produce a successful aggregate run. This negative control pins the boundary:
 MTP enforces the aggregate minimum, not per-selection contribution.
+
+Another boundary probe must show that explicitly ignoring exit code `8` can
+turn zero execution into success. This pins why that opt-out is outside the
+repository evidence profile rather than motivating a second command-line
+parser.
+
+If the selected MTP version cannot produce the independent discovery and
+execution identities required by the decompiler completeness receipt, that
+suite remains on its transitional host until its owner has an equally strong
+MTP-backed receipt. Aggregate MTP adoption elsewhere does not authorize
+weakening or removing that gate.
 
 Until a repository adoption names and runs these outcome-level gates, the MTP
 host contract is **unverified**.
@@ -144,6 +168,7 @@ The host does not:
 - infer which tests a workflow ought to select;
 - own or define suite-specific argument expansion or execution receipts;
 - promise that every value in a multi-value filter contributes a test;
+- police trusted callers that deliberately opt out of MTP's zero-test result;
 - parse workflow files, source text, prose, console output, or result XML;
 - replace MTP or xUnit discovery, filtering, execution, or reporting;
 - require `dotnet test` as the repository's supported correctness command; or

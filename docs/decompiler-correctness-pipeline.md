@@ -157,16 +157,20 @@ entry gate invalidates every later result, so run it first and report it.
    [The repository xUnit test host](design/xunit-test-host.md) selects
    Microsoft Testing Platform (MTP) as the owner of aggregate non-vacuity.
    The decompiler host owns `--gate` preset expansion and the stronger
-   per-class execution receipt for `--gate pre-merge`: the preset names
-   independent correctness claims, so the CI checker requires report evidence
-   for every expected class rather than relying only on MTP's aggregate
-   minimum.
+   `--gate pre-merge` receipt: the preset names independent correctness claims,
+   so the CI checker requires report evidence for every expected class and
+   compares independent pre-enumerated discovery identities with execution
+   identities to prove every selected case executes exactly once. MTP's
+   aggregate minimum cannot replace either property.
 
    Until the MTP adoption tracked by #5379, the decompiler executable retains
    its transitional `ExplicitFilterGuard` preflight. That preflight is not the
    repository contract and is removed by adoption rather than generalized.
    The MTP migration must preserve `--gate` expansion and the per-class receipt
-   while replacing native xUnit selector syntax with MTP filters.
+   and discovery-to-execution completeness receipt while replacing native
+   xUnit selector syntax with MTP filters. If the selected MTP version cannot
+   expose the required independent identities, this suite remains on its
+   transitional host until an equally strong MTP-backed receipt exists.
 
 3. **IR invariant checks.** Every pass must leave a structurally valid tree.
    `IrPasses.Run` calls `function.CheckInvariant()` after each pass — armed by
