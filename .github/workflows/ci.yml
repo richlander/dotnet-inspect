@@ -437,16 +437,7 @@ jobs:
 
       - name: Run embedded skill tests
         shell: bash
-        run: |
-          set -euo pipefail
-          results="$RUNNER_TEMP/skill-tests.xml"
-          dotnet run --project src/dotnet-inspect.Tests -c Release -- \
-            -class "DotnetInspector.Tests.SkillCommandTests" \
-            -xml "$results"
-          if ! grep -Eq 'total="[1-9][0-9]*"' "$results"; then
-            echo "::error::Skill test filter selected no tests." >&2
-            exit 1
-          fi
+        run: dotnet run --project src/dotnet-inspect.Tests -c Release -- --filter-class "DotnetInspector.Tests.SkillCommandTests"
 
   # Build and run the PR test matrix on Ubuntu 24.04. Windows, macOS, and Ubuntu
   # 26.04 compatibility suites run daily in Deep Inspect, where
@@ -561,7 +552,7 @@ jobs:
         run: eng/restore-iltools.sh --rid ${{ matrix.rid }} --mdv >> "$GITHUB_PATH"
 
       - name: Run CLI tests (fast)
-        run: dotnet run --project src/dotnet-inspect.Tests -c Release -- -trait- "Speed=Slow"
+        run: dotnet run --project src/dotnet-inspect.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       - name: Run GitHub Packages fixture test
         id: package_fixture
@@ -572,14 +563,14 @@ jobs:
           DOTNET_INSPECT_PACKAGE_FIXTURE_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          results="$RUNNER_TEMP/package-fixture-tests.xml"
+          results_dir="$RUNNER_TEMP"
+          results_name="package-fixture-tests.xml"
+          results="$results_dir/$results_name"
           dotnet run --project src/dotnet-inspect.Tests -c Release --no-build -- \
-            -method '*Package_Manifest_RendersToolManifestRows*' \
-            -xml "$results"
-          if ! grep -Eq 'total="[1-9][0-9]*"' "$results"; then
-            echo "::error::Package fixture test filter selected no tests." >&2
-            exit 1
-          fi
+            --filter-method '*Package_Manifest_RendersToolManifestRows*' \
+            --report-xunit \
+            --report-xunit-filename "$results_name" \
+            --results-directory "$results_dir"
           if ! grep -Eq '<assembly[^>]+skipped="0"' "$results"; then
             echo "::error::Package fixture test skipped authenticated execution." >&2
             exit 1

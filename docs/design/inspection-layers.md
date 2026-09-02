@@ -269,7 +269,7 @@ subsequent reads, and exactly 25 projected rows. Run it with:
 
 ```bash
 dotnet run --project src/dotnet-inspect.Tests -c Release -- \
-  -method '*PackageProfileDefaultScale*'
+  --filter-method '*PackageProfileDefaultScale*'
 ```
 
 L1 does not reference Markout.
