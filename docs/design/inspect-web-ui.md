@@ -49,8 +49,12 @@ and acceptance scenarios. This document does not repeat those contracts.
 This document composes four adjacent owner contracts without defining them:
 
 - [Inspection Subject Navigation](inspection-subject-navigation.md) owns
-  inspection-subject descriptors, availability, initial recommendation, and
-  reconciliation, plus retained-session intent and effect authority.
+  Workspace-bound Package or non-package Root, Library, Type, and Member
+  descriptors, availability, initial recommendation, and reconciliation, plus
+  retained-session intent and effect authority. Workspace is the inventory
+  container for retained coordinate occurrences; the website does not recreate package
+  tabs or a second coordinate-selection identity. The shared capability and
+  its CLI and Browser/Wasm adoption sequence are tracked end to end by #5512.
   [#5013](https://github.com/richlander/dotnet-inspect/issues/5013) strengthens
   that same owner's lens recommendation with non-vacuous role-first selection,
   a direct-Member rule, deterministic fallback, and all-non-success precedence.

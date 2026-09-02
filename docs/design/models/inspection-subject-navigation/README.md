@@ -30,6 +30,13 @@ read that way:
 - **Identity ranking.** Initial subject recommendation, Type candidate tiers,
   Library declaration order, and lens preference are not modelled. Subjects
   and lenses appear only as opaque values.
+- **Workspace isolation and structural ancestry.** Workspace identity,
+  retained-coordinate occurrence identity, the
+  `Workspace -> (Package | Root) -> Library -> Type -> Member` grammar, and
+  complete descendant binding are not modelled. Each retained-session instance
+  assumes one exact Workspace boundary; implementation gates must reject
+  foreign-Workspace subject actions and restoration payloads and prevent
+  foreign evidence from entering a snapshot.
 - **Availability classification.** Descriptor classification and the
   reconciliation tables are not modelled. `NavigationSession.tla` does model
   the narrower rule that a completed `Unavailable` or `Failed` result advances
@@ -37,6 +44,12 @@ read that way:
   distinguishes Navigation preparation failure, which has no installable
   replacement snapshot, from a failed Registry or policy evaluation. It does
   not distinguish Registry failure from policy failure.
+- **External membership effects.** The protected admission barrier around
+  Workspace-owner admission, removal, replacement, Close, and invalidation is
+  not modelled. The model's opaque `coordinate` intent represents
+  Navigation-local coordinate activation and variation, not an external effect
+  that must consume its correlated result before another explicit command can
+  be admitted. Named implementation gates enforce that barrier.
 - **UI accessibility.** Focus, roving `tabindex`, menu and tablist semantics,
   and rendering belong to [Inspect Web Navigation
   Presentation](../../inspect-web-navigation-presentation.md); focus movement
@@ -80,8 +93,8 @@ back. The three models therefore carry three correlation currencies:
 One retained navigation session holding zero or one installed snapshot,
 consumer-installed state, and the complete snapshot revision last acknowledged
 by its retained consumer. The product issues monotonic explicit intent tokens
-for subject, lens, coordinate, and canonical-restoration work. The owner issues
-maintenance request numbers for standalone inventory refresh and
+for subject, lens, Navigation-local coordinate, and canonical-restoration work.
+The owner issues maintenance request numbers for standalone inventory refresh and
 reconciliation and retains the exact identities admitted. The bounded
 environment issues exact synchronization request numbers. Every admitted
 result returns four-part effect authority: session identity, snapshot state
@@ -258,6 +271,13 @@ remaining differences are deliberate abstractions rather than disagreements:
 - **Superseded maintenance results.** A newer explicit intent invalidates
   already gathered maintenance facts. The queued request remains, rebuilds
   from the replacement snapshot, and re-gathers before admission.
+- **Coordinate intent scope.** The model's coordinate kind covers
+  Navigation-local activation and variation with ordinary latest-admitted
+  supersession. It does not abstract Workspace-owner admission, removal,
+  replacement, Close, or invalidation because those external effects require a
+  protected admission barrier and mandatory correlated-result consumption.
+  Implementation gates check that barrier, exact occurrence, owner-result
+  correlation, and Workspace containment.
 - **Optional restoration inputs.** Canonical restoration's subject and lens are
   optional in the packet. The model always receives both resolved values
   because the claim under test begins at the navigation participant boundary:
