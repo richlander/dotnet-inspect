@@ -311,9 +311,11 @@ required real-run evidence. The appended material may narrow the review but
 must not weaken or broaden the prompt's trust model and finding-admission rules.
 It also records the user purpose, convention or best-practice baseline,
 intentional divergence, analogous implementation evidence, pathological or
-boundary case and gate, current slice and residual work, and the demo with a
-neighboring case. Use `Not applicable — <reason>` for a field that genuinely
-does not apply.
+boundary case and gate, complexity basis, consumer and host plan, rendering
+strategy, current slice and residual work, and the demo with a neighboring
+case. Use `Not applicable — <reason>` only when the reason names the relevant
+change classification and exact-head evidence; cite the owning design's exact
+section when it defines the boundary.
 Agents that prefer a structured composition aid may instead fill the optional
 [`docs/templates/adversarial-review-prompt.md`](templates/adversarial-review-prompt.md),
 which includes the same fixed prompt followed by candidate placeholders.
@@ -324,10 +326,19 @@ or variable input, the boundary through which it reaches the claim, trusted
 parties and excluded scenarios, the user purpose, baseline and any divergence,
 relevant analogous evidence, pathological case and gate, current slice,
 residual work, demo and neighboring case, the observable consequence, and the
-evidence that would falsify the claim. For a correctness review without an
-untrusted actor, name the ordinary supported caller and input instead. If those
-fields cannot be filled or explained as not applicable, return to design or
-scope clarification before spending a review round.
+evidence that would falsify the claim. For an applicable capability, substrate,
+host, or broad rendering change, candidate formation must also supply the
+complexity basis, named consumer, focused issue, overall end-to-end tracker,
+host-enablement plan, any recorded single-consumer or single-host approval and
+its exact scope, and the rendering strategy. Reviewers judge the visible
+design's consistency with those supplied facts; they do not grant approvals or
+invent roadmap decisions. State the facts directly in the self-contained
+prompt; links may support them but do not replace them. For a correctness
+review without an untrusted actor, name the ordinary supported caller and input
+instead. Candidate formation must make every non-applicability explanation
+judgeable from the normative owner, changed surfaces, and exact-head diff. If
+required fields cannot be filled or non-applicability cannot be established,
+return to design or scope clarification before spending a review round.
 
 Give every seat the same completed prompt except for its worktree path. State
 candidate facts rather than rewarding findings; the canonical prompt already
