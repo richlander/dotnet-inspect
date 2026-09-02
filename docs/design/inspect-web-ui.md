@@ -34,7 +34,7 @@ boundary. It does not own:
 | Document | Owns |
 | -------- | ---- |
 | [Inspect Web Presentation Language](inspect-web-presentation-language.md) | Reusable visual and accessibility language: selector-control states, progressive filter disclosure, shared subject-heading rules, and compact source-provenance presentation. |
-| [Inspect Web SlideStrip](inspect-web-slide-strip.md) | Reusable one-region ordered-item presentation: label, short-label, and icon policies; finite representation states; internal sliding; and focus preservation. |
+| [Inspect Web SlideStrip](inspect-web-slide-strip.md) | Reusable one-region ordered-item presentation: Label, optional Short Label and Icon, derived Index, whole-strip modes, contiguous sliding windows, edge disclosure, and focus preservation. |
 | [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md) | Rendering and interacting with product-issued coordinate, workspace, subject, hierarchy, Library, lens, and activation descriptors, including the first composition of two SlideStrip controls as the Slideable Subject Strip. |
 | [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) | The browser-side navigation-result consumer model: canonical location and refresh, browser history, product transition lifecycle, effect authority, synchronization debt, and renderer/destination lifetimes. |
 | [Inspect Web Shell Interaction](inspect-web-shell-interaction.md) | The persistent shell and shared transient/routed surface interaction: shell actions, shared menu/modal semantics, Spotlight Search, Open, Settings entry, the command palette, and routed-versus-modal classification. |
@@ -95,10 +95,10 @@ Together, these decisions make the web shell read like the CLI without
 rendering a command string. The title line progresses from `dotnet-inspect` to
 the icon-backed ordered target path, then a responsive Search/history cluster.
 The full-width zone below adopts the Slideable Subject Strip for subject and
-inspector navigation. Its two reusable strips select full or compact
-representations independently inside the width the composite assigns them.
-Inspector-first allocation preserves readable inspector context when capacity
-permits, while explicit controls move the boundary to semantic representation
+inspector navigation. Each reusable strip selects one uniform representation
+mode and a contiguous window inside the width the composite assigns it.
+Inspector-first allocation preserves multiple inspector controls when capacity
+permits, while explicit controls move the boundary to semantic window and mode
 thresholds. Segment-level copy remains on the typed title-line target. Package
 coordinate editing, target inventories, and other navigation remain inside the
 working surface rather than consuming persistent chrome.
@@ -106,7 +106,7 @@ working surface rather than consuming persistent chrome.
 This focused update establishes one new owner,
 [Inspect Web SlideStrip](inspect-web-slide-strip.md), and pairs it with exactly
 one first adoption in Navigation Presentation. SlideStrip owns reusable
-single-region representation and overflow behavior. Navigation Presentation
+single-region representation and window behavior. Navigation Presentation
 owns the SSS composition's two tablists, different styling and navigation,
 inspector-first width allocation, boundary controls, and subject-driven
 inspector replacement.
@@ -128,9 +128,9 @@ The six focused owners compose in one direction, from product data to
 rendered pixels, with the effect-authority handoff running the other way on
 every user action:
 
-1. [Inspect Web SlideStrip](inspect-web-slide-strip.md) selects ordered visual
-   representations and internal scrolling for one adopter-supplied inventory
-   without owning that inventory's semantic roles or navigation.
+1. [Inspect Web SlideStrip](inspect-web-slide-strip.md) selects one
+   whole-strip visual mode and a contiguous window for one adopter-supplied
+   inventory without owning that inventory's semantic roles or navigation.
 2. [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md)
    renders the subject, hierarchy, Library, and lens descriptors issued by
    Inspection Subject Navigation and the View Facet Registry, using the
@@ -196,12 +196,13 @@ architecture.
 No single established application or component model matches SlideStrip or
 the complete Slideable Subject Strip composition. Their conventional parts
 form a deliberate hybrid: tmux contributes elastic natural-width allocation,
-Priority+ navigation contributes deterministic representation priority,
-scrollable tab bars contribute last-resort movement without removing
-identities, and split views contribute user-directed allocation between
-adjacent regions. SlideStrip diverges from ordinary Priority+ controls by
-compacting in place instead of moving entries into an overflow menu. The SSS
-diverges from ordinary split views by moving between semantic representation
+Priority+ navigation contributes deterministic whole-strip mode preference,
+carousel and scrollable-tab models contribute a disclosed contiguous window
+without removing identities, and split views contribute user-directed
+allocation between adjacent regions. SlideStrip diverges from ordinary
+Priority+ controls by sliding one consistently represented window instead of
+mixing compact and full items or moving entries into an overflow menu. The SSS
+diverges from ordinary split views by moving between semantic window and mode
 thresholds instead of a draggable pixel-sized divider.
 
 [npmx.dev](https://npmx.dev/) contributes fast package exploration, density,

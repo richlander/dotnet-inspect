@@ -2,9 +2,9 @@
 
 This document owns `SlideStrip`, a reusable Inspect Web control for presenting
 one finite ordered inventory in a single horizontal region. A strip selects
-among full labels, short labels, and icons as its viewport changes, preserves
-item identity and focus across those representation changes, and scrolls
-internally when the inventory's minimum representations cannot fit.
+one whole-strip representation mode, exposes a contiguous window of consistently
+represented items, and slides that window as capacity or navigation changes.
+It preserves item identity and focus across representation and window changes.
 
 `SlideStrip` is the first focused reusable control in the Inspect Web UI. New
 surfaces should adopt shared controls when their behavior matches an existing
@@ -18,12 +18,11 @@ controls.
 This owner defines:
 
 - the ordered item-presentation contract;
-- the full-label, short-label, and icon representation slots;
-- policy-controlled fallback and promotion between those representations;
-- deterministic presentation states over any finite item inventory;
-- capacity handling, internal horizontal scrolling, and focused-item reveal;
-- focus and accessible-name preservation while one item changes visual
-  representation; and
+- the Label, Short Label, Icon, and Index representation slots;
+- policy-controlled whole-strip fallback between viable modes;
+- deterministic contiguous windows over any finite item inventory;
+- capacity handling, edge-availability disclosure, and focused-item reveal;
+- focus and accessible-name preservation across mode and window changes; and
 - styling slots that allow adopters to distinguish compatible uses without
   forking allocation behavior.
 
@@ -54,151 +53,169 @@ Every item supplies:
 - one opaque stable identity;
 - one required complete label, which remains the item's accessible name;
 - an optional short label;
-- an optional icon with decorative or labelled treatment chosen by the
+- an optional Unicode icon with decorative or labelled treatment chosen by the
   adopter's semantic control; and
 - styling tokens or slots that do not change identity or representation
   order.
 
+Logically, the control asks an adopter-supplied representation resolver for
+Label, Short Label, Icon, or Index content for each item. The concrete
+implementation may use fields or a callback, but it preserves that result
+contract. Label must return the complete label. Short Label and Icon may return
+no value. For Index, `SlideStrip` supplies the item's one-based owner-order
+ordinal and the adopter styles it, for example as `[2]`. Index is presentation
+derived from the current installed order; it is never stable identity.
+
 The complete label is available to accessibility APIs and as focused or hover
-disclosure regardless of the visible representation. A short label or icon is
-presentation only. It is never submitted as action identity, parsed back into
-one, or used to distinguish otherwise identical items.
+disclosure regardless of the visible mode. Short Label, Icon, and Index are
+presentation only. They are never submitted as action identity, parsed back
+into one, or used to distinguish otherwise identical items.
 
 An item without a short label or icon simply omits that representation. The
-policy skips unavailable representations; it does not synthesize initials,
-numbers, abbreviations, or icons.
+control does not synthesize initials, abbreviations, or icons. Label and Index
+remain available without those optional values.
 
 ## Representation policy
 
-An adopter supplies one strip-level representation policy. The policy defines:
+An adopter supplies one finite preferred-to-minimum list of presentation modes.
+Each mode contains:
 
-- the preferred-to-minimum representation order, beginning with the required
-  full label exactly once and followed by any available subset of short label
-  and icon;
-- a deterministic promotion order over each item's available
-  representation-to-representation transitions;
-- the desired presentation state: minimum, maximum, or one retained finite
-  reveal level;
-- a presentation-continuity key and initial desired state; and
-- the normal interactive sizing that every representation must retain.
+- one representation kind: Label, Short Label, Icon, or Index;
+- a positive minimum visible-item count; and
+- the normal interactive sizing and between-item decoration for that mode.
 
-A common policy is `label -> short label -> icon`, but the control does not
-require every compact representation. A text-only strip may use
-`label -> short label`; an icon-free item may retain its short label as its
-minimum representation. Because every valid policy begins with the required
-full label, filtering unavailable optional representations and removing
-less-preferred dominated forms always leaves at least one representation for
-every item.
+Each representation kind occurs at most once. Label must occur exactly once
+and is always viable. Index is viable whenever the adopter includes it. A
+Short Label or Icon mode is viable only when every installed item supplies
+that value. If even one item omits it, the control skips the whole mode instead
+of mixing representations within one window. A mode's requested count is
+clamped to the installed inventory count.
 
-Before constructing states, the control removes a dominated representation:
-one that is less preferred but no narrower than an available more-preferred
-representation under the installed styling. The remaining representation
-chain grows monotonically in normal inline size toward the preferred form.
-This keeps a localized short label or unusually wide icon from creating a
-non-monotonic collapse sequence.
+The control rejects policy construction when Label is absent or duplicated, a
+kind is duplicated, a requested count is not positive, or an item fails to
+return its required Label. It does not silently invent a usable policy.
 
-The item-priority order may use adopter-owned state such as an active identity.
-It must be a complete deterministic order over the installed inventory. When
-an adopter has no active item, it supplies another explicit origin or complete
-order rather than asking `SlideStrip` to infer selection from focus.
+The minimum visible-item count expresses the adopter's density preference. A
+subject policy can require only one Label item, preserving a complete label as
+capacity falls. An inspector policy can require two Label items and then prefer
+a Short Label, Icon, or Index mode that keeps multiple inspectors visible.
+
+The most-preferred viable mode remains installed while it meets its requested
+visible count. Its visible count becomes the comparison baseline when it fails.
+The first less-preferred viable mode that meets its own requested count and
+admits more items than that baseline replaces it. This prevents an early
+compact-mode transition while the preferred window remains useful and prevents
+a wide short label or icon from causing a mode change with no density benefit.
+
+The policy also supplies:
+
+- a deterministic initial window anchor;
+- the preferred owner-order direction for equal-ranked window placements;
+- a window-continuity key; and
+- the normal focused-item alignment when one item is wider than the viewport.
+
+The anchor may use adopter-owned state such as an active identity. When the
+adopter has no active item, it supplies another explicit owner-order origin
+rather than asking `SlideStrip` to infer selection from focus.
 
 ## Presentation states
 
-`SlideStrip` constructs a finite promotion plan:
+`SlideStrip` computes one deterministic state from the installed inventory,
+viable modes, allocation, retained window, and focus:
 
 1. An empty inventory has one empty state, measures zero item-content width,
-   has no adjacent thresholds, does not scroll, and contains no focus target.
-2. For a non-empty inventory, state zero renders every item at its minimum
-   available representation.
-3. Each subsequent state promotes exactly one item to its next preferred
-   available representation.
-4. At each state, the control selects the highest-priority currently eligible
-   transition from the adopter-supplied complete order over item and
-   representation-transition pairs. A transition is eligible only after that
-   item's preceding transition has occurred. The policy therefore decides
-   whether one item reaches its preferred representation before another item
-   promotes or whether equivalent promotion rounds alternate among items.
-5. The final state renders every item at its preferred available
-   representation.
+   has no edge indicators or focus target, and ignores slide requests.
+2. For each viable mode, the control enumerates contiguous owner-order windows
+   whose item and decoration widths fit at normal interactive size. Edge
+   indicators overlay the corresponding viewport boundary and consume no
+   additional allocation.
+3. During an adopter navigation transaction, candidate windows must contain
+   its pending destination identity. Otherwise, if an item owns focus, they
+   must contain it. On initial or reset placement with neither input, they must
+   contain the policy's initial anchor.
+4. Within each mode, the control first maximizes visible item count, then
+   minimizes movement from the retained leading identity, then uses the
+   policy's preferred direction as the final tie-break.
+5. If the most-preferred viable mode meets its requested count, it is selected.
+   Otherwise, the control selects the first less-preferred viable mode whose
+   window meets its requested count and exposes more items than the failed
+   preferred mode's visible-count baseline.
+6. If no mode qualifies, it selects the viable mode with the greatest visible
+   count, breaking ties toward the more-preferred mode.
+7. If no normal-sized window fits, the control creates one fallback singleton
+   containing the pending navigation destination, otherwise the focused item,
+   otherwise the retained leading identity, otherwise the initial anchor. The
+   item remains normal-sized, may be clipped by the viewport, and is aligned by
+   the policy. Overlaid edge indicators still disclose hidden inventory
+   without reducing its visible portion.
+8. Within the selected mode, widening adds adjacent items one at a time until
+   the complete inventory is visible; narrowing removes edge items one at a
+   time without mixing modes.
 
-The plan contains no demotion between consecutive states and no state changes
-item identity, order, semantics, or normal interactive size.
+Every non-empty state therefore has one representation mode and one non-empty
+contiguous owner-order window. A state never reorders items, combines Label
+with Index or another mode, changes item semantics, or shrinks normal
+interactive size.
 
-When state zero fits, the strip is in **fitting mode**. It computes the greatest
-feasible state whose items fit without wrapping or shrinking below normal
-sizing. The rendered state is the lesser of that feasible state and the
-adopter's desired state.
-
-When state zero does not fit, the strip is in **overflow-minimum mode**. It
-renders state zero inside its scrolling viewport; no fitting state exists and
-the rendered-state equation is not evaluated. The next richer allocation
-threshold is the width required to leave overflow-minimum mode with state zero
-fully fitting.
-
-The desired state may survive a temporary fitting-mode capacity clamp or
-overflow-minimum mode so widening restores the requested fidelity.
-
-The presentation-continuity key decides whether a desired ordinal survives a
-new promotion plan. When the key is unchanged, the strip retains the desired
-ordinal and clamps it to the new plan length; the ordinal intentionally applies
-to the new plan prefix rather than naming specific promoted items. When the key
-changes, the strip resets to the adopter-supplied initial desired state.
-Inventory identity, representation availability, policy version, or other
-adopter-owned facts may participate in that key. Width and measured thresholds
-alone do not require a new key.
-
-An adopter that wants maximum readable content supplies the maximum desired
-state. An adopter that exposes user-controlled disclosure retains an explicit
-desired reveal level. `SlideStrip` owns the state calculation, but it does not
-persist desired state in URLs, history, workspace packets, or application
-storage.
+The window-continuity key decides whether a retained leading identity survives
+a new inventory or measurement plan. When the key is unchanged and that
+identity remains installed, the control uses it in the ranking above. A
+successful slide request updates it to the resulting window's leading
+identity. If the identity is removed or the key changes, the control discards
+it and places a new window around the adopter's current initial anchor. Width
+alone does not reset the retained identity.
 
 ## Capacity and sliding
 
 The strip remains one non-wrapping horizontal region.
 
-When state zero fits, the strip does not scroll. Items progressively promote or
-collapse through the finite states as capacity changes. A non-fitting
-promotion remains unapplied; later states cannot bypass it because the
-promotion plan is an ordered prefix.
+The visible window initially contains the policy anchor. Adopter navigation to
+a hidden item supplies a transient pending destination and commits one atomic
+transaction: compute and install its window or fallback singleton, transfer the
+sole roving tab stop and focus, then allow the previous focused item to become
+hidden. During that transaction the pending destination outranks current-focus
+containment; outside it, the window never hides its focused item. The browser
+never observes focus on an unmounted target, an intermediate second tab stop,
+or document-body fallback. Focused-item visibility otherwise outranks the
+retained leading identity and any active anchor. When the focused item is wider
+than the viewport, the strip aligns the nearest edge needed to maximize its
+visible portion rather than shrinking it.
 
-When state zero does not fit, the strip:
+A slide-before or slide-after request moves the contiguous window by one
+owner-order position when hidden inventory exists in that direction. Sliding
+does not select or activate an item and never hides an item that currently owns
+focus. The adopter owns keyboard meaning and may issue those requests after
+its existing arrow-key navigation moves focus; pointer, touch, trackpad, or
+wheel handling may call the same operation when focus remains visible.
 
-- renders state zero;
-- preserves every item in owner order;
-- keeps every representation at normal interactive size;
-- enables internal horizontal scrolling rather than wrapping or clipping
-  items from the inventory; and
-- maximizes visibility of the focused item, fully revealing it whenever the
-  viewport can contain its normal size.
+The strip exposes leading and trailing edge-availability states. Their
+overlaid visual treatment may be a vertical highlight or fade, but the
+indicators are not inventory items, identities, selections, or independent tab
+stops. A leading indicator is present exactly when an earlier item is hidden; a
+trailing indicator is present exactly when a later item is hidden. Both appear
+for an interior window.
 
-Focused-item visibility has priority over an adopter-requested active anchor.
-The strip reveals the active anchor only when no item in the strip owns focus
-or both items can remain visible. When an item is wider than the viewport, the
-strip aligns the nearest edge needed to maximize its visible portion rather
-than shrinking it.
-
-`Slideable` refers to this internal movement across an inventory larger than
-the region and to discrete movement through semantic representation states. It
-does not imply pointer dragging, inertial pane resizing, or persisted pixel
-width.
+`Slideable` refers to discrete movement of that contiguous window and to
+whole-strip mode changes at semantic capacity boundaries. It does not imply
+pointer dragging, inertial pane resizing, a freely mixed representation row,
+or persisted pixel width.
 
 ## Focus and replacement
 
-Changing an item's visible representation does not replace its semantic
-control. If an implementation must replace DOM, it restores the same opaque
-item identity before the browser can fall back to the document body.
+Changing the whole-strip representation or moving the visible window does not
+replace an item's semantic control. If an implementation must replace DOM, it
+restores the same opaque item identity before the browser can fall back to the
+document body.
 
 The strip preserves:
 
 - the focused item;
 - the adopter-owned selected or current state;
 - the adopter-owned roving tab stop or equivalent navigation state; and
-- the scroll position needed to keep the restored focus visible.
+- the window position needed to keep the restored focus visible.
 
-Selection and focus remain distinct. A focused item is not promoted in
-semantic priority, selected, or activated unless the adopter's supplied policy
-explicitly says so.
+Selection and focus remain distinct. Sliding to reveal a focused item does not
+select or activate it.
 
 The adopter owns focus transfer when the entire strip is removed or replaced
 by a different semantic control. `SlideStrip` owns focus only while the same
@@ -212,9 +229,10 @@ omitted when reduced motion is requested.
 
 The control exposes styling hooks for:
 
-- the strip region and scrolling viewport;
+- the strip region and window viewport;
 - each semantic item;
-- the full-label, short-label, and icon representations;
+- the Label, Short Label, Icon, and Index representations;
+- the leading and trailing edge indicators;
 - current, selected, focused, unavailable, and disabled states supplied by the
   adopter; and
 - leading, trailing, or between-item decoration that does not participate as
@@ -228,27 +246,32 @@ below the policy's normal interactive sizing to manufacture capacity.
 
 Multiple strips may be composed by an owner that allocates width between them.
 The composer owns that negotiation and any cross-strip controls. Each
-`SlideStrip` independently owns representation selection and internal
-scrolling within the width it receives.
+`SlideStrip` independently owns mode selection and its contiguous window within
+the width it receives.
 
-For discrete composition, a strip exposes the normal inline size required by
-its minimum state, preferred state, current rendered state, and adjacent
-allocation thresholds. In overflow-minimum mode, the next richer threshold
-first fits the complete minimum state; subsequent richer thresholds each
-admit one promotion. These are presentation measurements, not persisted pixel
-identity. A composer may move an allocation boundary to one of those
-thresholds; it may not select representations independently of the strip's
-policy.
+For discrete composition, a strip exposes the normal inline size required by:
+
+- the complete preferred-mode inventory;
+- each viable mode's minimum visible-item count at the current origin;
+- the current mode and window;
+- the adjacent width that adds or removes one item; and
+- the adjacent width at which policy changes the whole-strip mode.
+
+These are presentation measurements, not persisted pixel identity. A composer
+may move an allocation boundary to one of those thresholds; it may not select a
+mode or window independently of the strip's policy.
 
 ## First adoption
 
 [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md#slideable-subject-strip)
 is the first adopter. Its Slideable Subject Strip composes:
 
-- one subject `SlideStrip` with full subject labels and stable boxed short
-  labels; and
-- one inspector `SlideStrip` with full inspector labels and stable boxed
-  one-based short labels.
+- one subject `SlideStrip` supplying only Label mode and preserving one
+  complete Label at minimum;
+  and
+- one inspector `SlideStrip` with full labels, optional supplied short labels
+  or icons, and boxed derived one-based owner-order Index values, using a
+  policy that prefers multiple compact inspectors over one full label.
 
 Navigation Presentation retains the two tablists, their different styling and
 navigation, inspector-first width allocation, cross-strip reveal controls, and
@@ -281,18 +304,24 @@ requires a later focused design based on a second proven adopter.
 The implementation PR must add focused tests that prove:
 
 - zero, one, and many finite items;
-- every available representation combination;
-- dominated short-label or icon representations under installed styling;
-- deterministic promotion order and finite bounds;
-- empty-inventory and overflow-minimum modes;
-- preferred, clamped, and restored desired states;
-- retained and reset continuity keys across promotion-plan changes;
-- state-zero fit versus internal-scroll boundaries;
+- every viable and unavailable whole-strip representation mode;
+- mode skipping when any item omits Short Label or Icon;
+- the density-benefit rule under installed styling;
+- non-monotonic requested counts across successive modes;
+- deterministic mode and contiguous-window selection;
+- empty inventory and the one-item capacity floor;
+- retained and reset window-continuity keys;
+- visible counts from complete inventory through one item;
 - unequal item widths;
-- focused-item and active-anchor reveal;
+- focused-item, retained-leading-identity, and active-anchor precedence;
 - viewports narrower than the focused item's normal size;
 - focus, accessible name, and adopter-owned navigation state across
-  representation replacement;
+  mode and window changes;
+- exact leading, trailing, and dual edge-indicator states;
+- overlaid indicators that do not alter capacity or item hit targets;
+- slide-before and slide-after bounds;
+- atomic reveal-then-focus navigation to an out-of-window identity;
+- invalid policy and missing required-Label rejection;
 - dynamic inventory replacement with retained and removed identities;
 - reduced-motion equivalence; and
 - two differently styled first-adopter strips without duplicated allocation
@@ -303,32 +332,45 @@ normal Inspect Web frontend and production Browser/Wasm suites.
 
 ## Acceptance scenarios
 
-1. Render an inventory whose items provide label, short-label, and icon
-   representations. Narrow through every promotion threshold and confirm that
-   exactly one deterministic representation state renders at each width.
-2. Omit different optional representations and confirm that the policy skips
-   them without inventing content or changing identity. Make a less-preferred
-   representation no narrower than a more-preferred one and confirm that the
-   dominated representation does not enter the promotion plan. Reject a policy
-   that omits or duplicates the required full label.
-3. Retain a preferred desired state, narrow until it is clamped, and widen
-   again. Confirm that the requested state returns unless the adopter changed
-   it while clamped. Replace the promotion plan under the same continuity key
-   and confirm that the ordinal is retained and clamped; replace the key and
-   confirm reset to the adopter's initial state.
-4. Narrow below the complete state-zero width and confirm that the strip
-   enters overflow-minimum mode, scrolls internally, and preserves every item
-   in order. Separate focus from the requested active anchor and confirm that
-   focused-item visibility wins; use an item wider than the viewport and
-   confirm that the nearest edge maximizes its visible portion.
-5. Change visible representations and replace the installed inventory while
-   focus and selection differ. Confirm that retained identities preserve
-   focus and adopter-owned navigation state and that removed identities use
-   the adopter's external focus rule. Install an empty inventory and confirm
-   the empty state has zero item-content width, no thresholds, scrolling, or
-   focus target.
-6. Render two adopters with different representation policies, styles, and
-   semantic roles. Confirm that both use the same state and overflow contract
+1. Render four Label items and narrow from four visible items through three,
+   two, and one. Confirm that every state is one contiguous owner-order window
+   using Label for every visible item. Slide right from `Overview | Call graph`
+   to `Call graph | Facts`; confirm trailing-only, dual-edge, and leading-only
+   indicators at the corresponding bounds.
+2. Supply Short Label, Icon, and Index modes. Confirm that each installed state
+   uses exactly one kind for the whole visible window. Omit Short Label or Icon
+   from one item and confirm that the whole mode is skipped without inventing
+   content or mixing fallback forms. Confirm that Label remains the accessible
+   name in every mode and Index changes with owner order without changing
+   opaque identity. Reject absent or duplicate Label modes, duplicate kinds,
+   non-positive requested counts, and an item whose resolver omits Label.
+3. Configure one policy with Label minimum count one and another with Label
+   minimum count two followed by Short Label and Index minimum counts two.
+   Narrow both. Confirm that the first reaches one full label while the second
+   selects the first viable compact mode that exposes multiple items. Make the
+   compact mode admit no additional item and confirm that the preferred mode
+   remains installed. Then make Short Label show three items while failing its
+   requested count four, and Index show two while meeting its requested count
+   two; confirm that Index is selected against the failed Label baseline.
+4. Retain an interior leading identity, narrow and widen, and confirm that it
+   survives while installed. Replace measurements or optional values under the
+   same continuity key and confirm deterministic ranking and clamping. Remove
+   the identity or replace the key and confirm reset around the adopter's
+   current initial anchor.
+5. Separate focus from the retained leading identity and active anchor. Move
+   focus to an installed item outside the window and confirm that the new
+   window is installed before the sole roving tab stop and focus move, using
+   the smallest slide needed to reveal it. Use an item wider than the viewport
+   and confirm that the fallback singleton preserves normal size, the
+   configured edge maximizes its visible portion, and overlaid indicators do
+   not consume capacity or obscure its hit target.
+6. Replace the installed inventory while focus and selection differ. Confirm
+   that retained identities preserve focus and adopter-owned navigation state
+   and that removed identities use the adopter's external focus rule. Install
+   an empty inventory and confirm zero item-content width, no edge indicators,
+   ignored slide requests, and no focus target.
+7. Render two adopters with different mode policies, styles, minimum visible
+   counts, and semantic roles. Confirm that both use the same window contract
    without inheriting one another's navigation behavior.
-7. Repeat every transition with reduced motion and confirm identical final
-   representation, focus, and scrolling states.
+8. Repeat every transition with reduced motion and confirm identical final
+   mode, window, focus, and edge-indicator states.
