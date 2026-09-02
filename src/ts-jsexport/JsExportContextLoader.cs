@@ -31,11 +31,6 @@ internal static class JsExportContextLoader
         new UTF8Encoding(
             encoderShouldEmitUTF8Identifier: false,
             throwOnInvalidBytes: true);
-    static readonly StringComparer s_pathComparer =
-        OperatingSystem.IsWindows()
-            ? StringComparer.OrdinalIgnoreCase
-            : StringComparer.Ordinal;
-
     public static bool TryResolve(
         string contextAssemblyPath,
         string contextTypeName,
@@ -330,7 +325,7 @@ internal static class JsExportContextLoader
         TextWriter error,
         out ImmutableArray<AssemblyCandidate> candidates)
     {
-        var paths = new HashSet<string>(s_pathComparer)
+        var paths = new HashSet<string>(StringComparer.Ordinal)
         {
             Path.GetFullPath(contextAssemblyPath),
         };

@@ -356,9 +356,6 @@ public sealed class JsExportContextLoaderTests
     [Fact]
     public void ContextRejectsCaseDistinctCandidatePathsOnCaseSensitiveHost()
     {
-        if (OperatingSystem.IsWindows())
-            return;
-
         using var directory = new TemporaryDirectory();
         string upperDirectory = directory.CreateSubdirectory("A");
         string lowerDirectory = System.IO.Path.Combine(directory.Path, "a");

@@ -667,6 +667,19 @@ internal static class DetectionTestSuite
                 "ts-jsexport TypeScript gate did not select only web: "
                 + FormatValues(tsJsExportGate));
         }
+        Dictionary<string, string> tsJsExportContextAotGate = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/test-ts-jsexport-context-aot.sh",
+            outputs);
+        if (tsJsExportContextAotGate["code"] != "true"
+            || tsJsExportContextAotGate["web"] != "false")
+        {
+            throw new InvalidOperationException(
+                "ts-jsexport context NativeAOT gate did not select only code: "
+                + FormatValues(tsJsExportContextAotGate));
+        }
         foreach (string tsJsExportInput in new[]
         {
             "tests/ILInspector.JsExportSurface.TypeScriptFixtures/TypeScriptFixtureExports.cs",
