@@ -411,18 +411,12 @@ worked example that document points at.
   `StringPreview_NeverExceedsCharBudgetEvenWhenEscaped`, because
   `StringBudget_…` asserts only that the full length is reported and the
   preview is non-empty.
-- **Parse, never load — the tool is execution incapable.** Reading is SRM-only,
-  and the shipped tool is Native AOT: there is no JIT, so `Assembly.Load` and
-  friends cannot bring new IL to life. Nothing the tool downloads can be
-  executed, whatever the metadata says. That is a structural property, not a
-  convention. The gate is the AOT build itself — `PublishAot` is `true` by
-  default for `src/dotnet-inspect`, and `release.yml` builds every shipped
-  RID-specific package that way, so a change that needed runtime code
-  generation would fail to build rather than fail a test. The one caveat worth
-  naming: the RID-neutral `any` fallback package is deliberately non-AOT
-  (`-p:PublishAot=false`), so on that package the property rests on the code
-  being SRM-only rather than on the runtime being unable to comply. A malformed
-  coded index resolves to a visible failure marker, not a fabricated target.
+- **Parse, never load.** Metadata-table projection uses SRM readers and must not
+  load or execute inspected assemblies. The composition absence claim that
+  this path contains no runtime-loading or execution mechanism has
+  user-selected no gate coverage and is `unverified`. NativeAOT publication is
+  not claimed as an absence gate. A malformed coded index resolves to a visible
+  failure marker, not a fabricated target.
 - **Heaps are explicit-only.** The string/blob/user-string/guid heaps are the largest
   amplification surface, so nothing that merely asks for *more output* may turn
   one on — only naming a heap section does. Verbosity is the axis that would
