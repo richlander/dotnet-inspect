@@ -4676,7 +4676,9 @@ public class RaisingPassTests
         Assert.DoesNotContain("goto", output);
         Assert.DoesNotContain(function.Descendants.OfType<ConditionalBranch>(), _ => true);
         Assert.Contains("if (node is Call c)", output);
-        Assert.Contains("return c.Callee.RequiresUnsafe || SignatureRequiresUnsafe(c.Callee);", output);
+        Assert.Contains(
+            "return c.Callee.RequiresUnsafe || SignatureRequiresUnsafe(c.Callee) || CallRendersPointerReceiver(c);",
+            output);
     }
 
     [Fact]

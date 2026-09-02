@@ -3004,14 +3004,15 @@ public sealed partial class CSharpPrinter
     /// <summary>
     /// A single IR operation that requires an unsafe context under the updated
     /// rules: a function-pointer invocation (<c>calli</c>), a read/write through
-    /// an unmanaged pointer, a call to a <em>requires-unsafe</em> member (one
-    /// stamped with <c>RequiresUnsafeAttribute</c> — declared <c>unsafe</c>/
-    /// <c>extern</c> — or, by the compat heuristic, one with a pointer in its
-    /// signature), or a <c>stackalloc</c> converted to a <c>Span</c> with no
-    /// initializer in a <c>[SkipLocalsInit]</c> body. Dereferencing a managed
-    /// reference (<c>ByRef</c>) is safe and excluded. Converting an unbox
-    /// reference to a native integer is included because its faithful spelling
-    /// uses <c>Unsafe.AsPointer</c>. Creating pointers, the
+    /// an unmanaged pointer, pointer member access, a call to a
+    /// <em>requires-unsafe</em> member (one stamped with
+    /// <c>RequiresUnsafeAttribute</c> — declared <c>unsafe</c>/<c>extern</c> —
+    /// or, by the compat heuristic, one with a pointer in its signature), or a
+    /// <c>stackalloc</c> converted to a <c>Span</c> with no initializer in a
+    /// <c>[SkipLocalsInit]</c> body. Dereferencing a managed reference
+    /// (<c>ByRef</c>) is safe and excluded. Converting an unbox reference to a
+    /// native integer is included because its faithful spelling uses
+    /// <c>Unsafe.AsPointer</c>. Creating pointers, the
     /// String-pin fixed statements raised through a synthesized stack-slot
     /// pointer need an unsafe context for their header. Creating pointers,
     /// ordinary <c>fixed</c> statements, and <c>sizeof</c> are safe under the new
@@ -3026,11 +3027,20 @@ public sealed partial class CSharpPrinter
         // StackAllocSpanPass) is governed by the stackalloc rule — unsafe only
         // under [SkipLocalsInit], where the stack space is uninitialized.
         StackAllocArray sa => _skipLocalsInit || sa.ResultType?.Kind == TypeRefKind.Pointer,
-        Call c => c.Callee.RequiresUnsafe || SignatureRequiresUnsafe(c.Callee),
+        Call c => c.Callee.RequiresUnsafe
+            || SignatureRequiresUnsafe(c.Callee)
+            || CallRendersPointerReceiver(c),
         NewObject n => n.Constructor.RequiresUnsafe || SignatureRequiresUnsafe(n.Constructor),
         Binary b => IsPointerArithmetic(b),
         Comparison c => IsPointerComparison(c),
+        IncrementDecrement i => i.Target.ResultType is { Kind: TypeRefKind.Pointer },
         Convert c => IsUnboxPointerConversion(c),
+        LoadField f => IsPointerReceiver(f.Instance),
+        StoreField f => IsPointerReceiver(f.Instance),
+        LoadFieldAddress f => IsPointerReceiver(f.Instance),
+        LoadProperty p => AccessorRequiresUnsafe(p.Accessor, p.Instance),
+        StoreProperty p => AccessorRequiresUnsafe(p.Accessor, p.Instance),
+        EventSubscription e => AccessorRequiresUnsafe(e.Accessor, e.Instance),
         FixedBufferElementAddress => true,
         LoadIndirect { Address: FixedBufferElementAddress } => true,
         StoreIndirect { Address: FixedBufferElementAddress } => true,
@@ -3039,6 +3049,28 @@ public sealed partial class CSharpPrinter
         InitObject o => RendersAsPointerDeref(o.Address),
         _ => false,
     };
+
+    static bool IsPointerReceiver(IrExpression? receiver)
+        => receiver?.ResultType is { Kind: TypeRefKind.Pointer };
+
+    static bool AccessorRequiresUnsafe(MethodRef accessor, IrExpression? receiver)
+        => accessor.RequiresUnsafe
+            || SignatureRequiresUnsafe(accessor)
+            || IsPointerReceiver(receiver);
+
+    static bool CallRendersPointerReceiver(Call call)
+    {
+        if (call.Arguments is not [var receiver, ..] || !IsPointerReceiver(receiver))
+            return false;
+
+        if (call.Callee.HasThis)
+            return true;
+
+        return call.Callee.IsExtension == MetadataFactState.Yes
+            && call.Callee.ParameterTypes is
+            [{ Kind: TypeRefKind.ByRef, ElementType: { } target }, ..]
+            && receiver.ResultType?.ElementType?.Equals(target) == true;
+    }
 
     static bool IsPointerArithmetic(Binary binary)
         => binary.Kind is BinaryKind.Add or BinaryKind.Subtract

@@ -916,15 +916,10 @@ public class UnsafeEmitterTests
 
     // ---- Recompile rail: the new-rules output is valid, warning-free C# ----
     //
-    // The fidelity/compile-back rails recompile *without* the
-    // updated-memory-safety-rules feature, so they can never surface CS9081 on a
-    // hoisted stackalloc declaration that dropped `scoped`. These tests close that
-    // gap: they recompile the actual decompiled new-rules output and fail if it
-    // warns. CS9081 ("a stackalloc result may be exposed outside the method") is a
-    // ref-safety diagnostic independent of the new-rules feature, so the pinned
-    // Roslyn package surfaces it today; enabling the feature flag below is a no-op
-    // now but turns this into a full new-rules semantic check once the package
-    // advances to a compiler that implements the rules.
+    // The ordinary fidelity/compile-back rails derive the feature from the source
+    // module. These focused tests compile the actual decompiled new-rules output
+    // with the feature explicitly enabled, so both unsafe-context failures and
+    // ref-safety warnings such as CS9081 remain observable.
 
     [Fact]
     public void NewRulesModule_StackAllocSkipInit_RecompilesScopedWithoutWarning()

@@ -37,7 +37,12 @@ public sealed class ApiSurfaceUnsafeTests
     {
         // `public static unsafe int Risky() => 42;` — declared unsafe, no pointer
         // in the signature, so the only evidence is RequiresUnsafeAttribute.
-        Assert.True(Method(nameof(NewFixtures.Risky)).IsUnsafe);
+        ApiMember method = Method(nameof(NewFixtures.Risky));
+
+        Assert.True(method.IsUnsafe);
+        Assert.DoesNotContain(
+            method.Attributes,
+            attribute => attribute.Contains("RequiresUnsafeAttribute", StringComparison.Ordinal));
     }
 
     [Fact]

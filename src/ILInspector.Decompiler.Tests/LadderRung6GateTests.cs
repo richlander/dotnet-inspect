@@ -327,7 +327,13 @@ public class LadderRung6GateTests
                 }
                 public static unsafe class Extensions
                 {
-                    public static int ExtPtr(Point* p) => p->X;
+                    public static int ExtPtr(Point* p)
+                    {
+                        unsafe
+                        {
+                            return p->X;
+                        }
+                    }
                 }
                 """),
             body);
@@ -726,13 +732,13 @@ public class LadderRung6GateTests
         Assert.Contains("fixed (char* ", member.Body);
         Assert.Contains(" = value)", member.Body);
         Assert.DoesNotContain("pinned", member.Body);
-        AssertNoErrors(
-            RecompileNewRules(
-                assemblyPath == NewUnsafePath
-                    ? "static int M(string value)"
-                    : "static unsafe int M(string value)",
-                member.Body),
-            member.Body);
+        string methodHeader = assemblyPath == NewUnsafePath
+            ? "static int M(string value)"
+            : "static unsafe int M(string value)";
+        var diagnostics = assemblyPath == NewUnsafePath
+            ? RecompileNewRules(methodHeader, member.Body)
+            : RecompileLegacyRules(methodHeader, member.Body);
+        AssertNoErrors(diagnostics, member.Body);
     }
 
     [Fact]
@@ -917,7 +923,9 @@ public class LadderRung6GateTests
                 "SourceAuthoredCopyBlock" => "static unsafe void SourceAuthoredCopyBlock(byte* dest, byte* src)",
                 _ => $"static unsafe void {name}()"
             };
-            var diagnostics = RecompileNewRules(methodHeader, member.Body);
+            var diagnostics = assemblyPath == NewUnsafePath
+                ? RecompileNewRules(methodHeader, member.Body)
+                : RecompileLegacyRules(methodHeader, member.Body);
             AssertNoErrors(diagnostics, member.Body);
         }
     }
@@ -1221,12 +1229,26 @@ public class LadderRung6GateTests
         string methodHeader,
         string body,
         params MetadataReference[] extraReferences)
-        => RecompileNewRules(methodHeader, body, "", extraReferences);
+        => Recompile(methodHeader, body, "", useUpdatedMemorySafetyRules: true, extraReferences);
 
     static ImmutableArray<Diagnostic> RecompileNewRules(
         string methodHeader,
         string body,
         string extraDeclarations,
+        params MetadataReference[] extraReferences)
+        => Recompile(methodHeader, body, extraDeclarations, useUpdatedMemorySafetyRules: true, extraReferences);
+
+    static ImmutableArray<Diagnostic> RecompileLegacyRules(
+        string methodHeader,
+        string body,
+        params MetadataReference[] extraReferences)
+        => Recompile(methodHeader, body, "", useUpdatedMemorySafetyRules: false, extraReferences);
+
+    static ImmutableArray<Diagnostic> Recompile(
+        string methodHeader,
+        string body,
+        string extraDeclarations,
+        bool useUpdatedMemorySafetyRules,
         params MetadataReference[] extraReferences)
     {
         string source = $$"""
@@ -1243,8 +1265,12 @@ public class LadderRung6GateTests
                 }
             }
             """;
-        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview)
-            .WithFeatures([new KeyValuePair<string, string>("updated-memory-safety-rules", "true")]);
+        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
+        if (useUpdatedMemorySafetyRules)
+        {
+            parseOptions = parseOptions.WithFeatures(
+                [new KeyValuePair<string, string>("updated-memory-safety-rules", "true")]);
+        }
         var tree = CSharpSyntaxTree.ParseText(source, parseOptions);
         return CSharpCompilation.Create(
                 "__gate",
@@ -1318,7 +1344,10 @@ public class LadderRung6GateTests
             TypeRef.Definition("Synthetic", "LadderRung6", "NativeCanaries"),
             new MethodSignature(returnType, parameters, HasThis: false, GenericParameterCount: 0),
             locals,
-            BlockContainer(statements));
+            BlockContainer(statements))
+        {
+            UsesUpdatedMemorySafetyRules = true
+        };
 
     static BlockContainer BlockContainer(params IrNode[] statements)
     {
