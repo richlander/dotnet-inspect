@@ -301,7 +301,7 @@ public static partial class LocalArtifactSource
                 snapshot.ObservedLastWriteTimeUtc);
             contributions[index] = scope.Register(
                 provenance,
-                () => OpenSnapshot(snapshot.Bytes),
+                _ => OpenSnapshot(snapshot.Bytes),
                 kind: "local-directory-entry");
         }
 

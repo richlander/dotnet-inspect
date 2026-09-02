@@ -32,7 +32,43 @@ const escapeHtml = (value: unknown) => String(value)
 
 const NUSPEC_FACET: QueryFacetTerm = { key: "tfm-out-of-support", label: "out-of-support only", tier: "nuspec" };
 const DOWNLOAD_FACET: QueryFacetTerm = { key: "downloads-1m", label: "1M+ downloads", tier: "nuspec" };
-const FACETS: readonly QueryFacetTerm[] = [NUSPEC_FACET, DOWNLOAD_FACET];
+const TOOL_FACETS: readonly QueryFacetTerm[] = [
+  {
+    key: "package.query.dotnet-tool",
+    label: ".NET Tool",
+    tier: "nuspec",
+    selectionGroupId: "package.query.dotnet-tool-format",
+    displayGroupId: "package.query.display.dotnet-tool",
+    displayGroupLabel: ".NET tool format",
+  },
+  {
+    key: "package.query.dotnet-tool-v1",
+    label: "v1",
+    tier: "package-content",
+    selectionGroupId: "package.query.dotnet-tool-format",
+    displayGroupId: "package.query.display.dotnet-tool",
+    displayGroupLabel: ".NET tool format",
+  },
+  {
+    key: "package.query.dotnet-tool-v2",
+    label: "v2",
+    tier: "package-content",
+    selectionGroupId: "package.query.dotnet-tool-format",
+    displayGroupId: "package.query.display.dotnet-tool",
+    displayGroupLabel: ".NET tool format",
+  },
+];
+const SKILL_FACET: QueryFacetTerm = {
+  key: "package.query.embedded-skill",
+  label: "embedded SKILL.md",
+  tier: "package-content",
+};
+const FACETS: readonly QueryFacetTerm[] = [
+  NUSPEC_FACET,
+  ...TOOL_FACETS,
+  DOWNLOAD_FACET,
+  SKILL_FACET,
+];
 
 function row(packageId: string): QueryResultRow {
   return {
@@ -131,6 +167,50 @@ test("facet buttons expose pressed state without shipping promoted placeholders"
     html,
     /data-query-facet="downloads-1m"[\s\S]*aria-pressed="false"/);
   assert.doesNotMatch(html, /promoted|Deepen/);
+});
+
+test("tool format facets render as one independently selectable segmented control", () => {
+  const state: PackageQueryState = {
+    request: withFacet(
+      createQueryRequest("Microsoft."),
+      TOOL_FACETS[2]!),
+    outcome: appendRows(emptyOutcome(), [row("A")]),
+  };
+
+  const html = renderPackageQueryView({
+    state,
+    availableFacets: FACETS,
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /class="query-facet-group"[\s\S]*role="group"[\s\S]*aria-label="\.NET tool format"/);
+  assert.match(
+    html,
+    /data-query-facet="package\.query\.dotnet-tool"[\s\S]*>\s*\.NET Tool\s*<\/button>[\s\S]*data-query-facet="package\.query\.dotnet-tool-v1"[\s\S]*>\s*v1\s*<\/button>[\s\S]*data-query-facet="package\.query\.dotnet-tool-v2"[\s\S]*aria-pressed="true"[\s\S]*>\s*v2\s*<\/button>/);
+  assert.match(html, />\s*embedded SKILL\.md\s*<\/button>/);
+  assert.match(
+    html,
+    /Content facets download up to 20 candidate package archives/);
+});
+
+test("package-content results disclose their evidence tier", () => {
+  const state: PackageQueryState = {
+    request: withFacet(createQueryRequest("Contoso."), SKILL_FACET),
+    outcome: appendRows(emptyOutcome(), [{
+      ...row("Contoso.Skill"),
+      tier: "package-content",
+    }]),
+  };
+
+  const html = renderPackageQueryView({
+    state,
+    availableFacets: FACETS,
+    escapeHtml,
+  });
+
+  assert.match(html, /query-tier-package-content">package-content</);
 });
 
 test("a facet catalog failure remains visible beside an empty facet rail", () => {

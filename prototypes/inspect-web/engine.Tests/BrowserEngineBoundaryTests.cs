@@ -85,6 +85,11 @@ public sealed class BrowserEngineBoundaryTests
 
     public static int PerformanceNoAllocationProbe(int value) => value;
 
+    public static int InvocationDestinationProbe(int value) =>
+        InvocationDestinationTarget(value);
+
+    static int InvocationDestinationTarget(int value) => value;
+
     public static Guid PerformanceValueTypeConstructionProbe(byte[] bytes) =>
         new(bytes);
 
@@ -4068,9 +4073,18 @@ public sealed class BrowserEngineBoundaryTests
         using JsonDocument graphMemberDocument =
             JsonDocument.Parse(graphMemberJson);
         JsonElement graphMember = graphMemberDocument.RootElement;
+        JsonElement graphMemberType = graphMember.GetProperty("type");
+        Assert.Equal(
+            type.GetProperty("definitionId").GetString(),
+            graphMemberType.GetProperty("definitionId").GetString());
+        Assert.Equal(
+            type.GetProperty("assemblyId").GetString(),
+            graphMemberType.GetProperty("assemblyId").GetString());
+        JsonElement graphMemberApi =
+            Assert.Single(graphMemberType.GetProperty("api").EnumerateArray());
         Assert.Equal(
             JsonValueKind.Null,
-            graphMember.GetProperty("member")
+            graphMemberApi
                 .GetProperty("metadataToken").ValueKind);
         Assert.Equal(
             getter.GetProperty("token").GetInt32(),
@@ -4290,6 +4304,138 @@ public sealed class BrowserEngineBoundaryTests
                     == JsonValueKind.String)
                 .GroupBy(fact => fact.GetProperty("offset").GetString()),
             group => group.Count() > 1);
+    }
+
+    [Fact]
+    public async Task AnnotatedSourceDestinations_RetainLoadedAssemblyIdentity()
+    {
+        const string PackageId = "Browser.Annotated.Destinations";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageWorkspace.RegisterAcquiredPackage(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(
+                    image,
+                    image,
+                    $"{PackageId}.dll"),
+                fromCache: false));
+
+        string surfaceJson = await InspectionEngine.QueryPackage(
+            PackageId,
+            "1.0.0",
+            "net11.0");
+        using JsonDocument surfaceDocument =
+            JsonDocument.Parse(surfaceJson);
+        JsonElement type = Assert.Single(
+            surfaceDocument.RootElement
+                .GetProperty("types")
+                .EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("definitionId").GetString()
+                == typeof(BrowserEngineBoundaryTests).FullName);
+        JsonElement member = Assert.Single(
+            type.GetProperty("api").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("name").GetString()
+                == nameof(InvocationDestinationProbe));
+
+        string annotatedJson =
+            await InspectionEngine.QueryMemberAnnotatedSource(
+                PackageId,
+                "1.0.0",
+                "net11.0",
+                type.GetProperty("assembly").GetString()!,
+                type.GetProperty("definitionId").GetString()!,
+                type.GetProperty("queryId").GetString()!,
+                member.GetProperty("name").GetString()!,
+                member.GetProperty("signature").GetString()!,
+                member.GetProperty("graphSelectorKey").GetString()!,
+                member.GetProperty("metadataToken").GetInt32(),
+                "[]");
+        using JsonDocument annotatedDocument =
+            JsonDocument.Parse(annotatedJson);
+        JsonElement destination = Assert.Single(
+            annotatedDocument.RootElement
+                .GetProperty("viewerCatalog")
+                .GetProperty("invocationDestinations")
+                .EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("target")
+                    .GetProperty("memberName").GetString()
+                == nameof(InvocationDestinationTarget));
+        JsonElement target = destination.GetProperty("target");
+
+        Assert.Equal(
+            typeof(BrowserEngineBoundaryTests).Assembly.GetName().Version?.ToString(),
+            target.GetProperty("assemblyVersion").GetString());
+        Assert.Equal(
+            type.GetProperty("assemblyId").GetString(),
+            target.GetProperty("surfaceAssemblyId").GetString());
+    }
+
+    [Fact]
+    public async Task GraphMemberSurface_UsesSurfaceAssetForImplementationOnlyType()
+    {
+        const string PackageId = "Browser.Graph.Internal.Pair";
+        const string AssemblyName = "InspectWeb.Engine.Tests";
+        byte[] implementation = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] surface = BuildEmptySurfaceImage(
+            typeof(BrowserEngineBoundaryTests).Assembly.GetName());
+        BrowserPackageWorkspace.RegisterAcquiredPackage(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(
+                    surface,
+                    implementation,
+                    $"{AssemblyName}.dll"),
+                fromCache: false));
+        BrowserPackageCoordinate coordinate =
+            await BrowserPackageWorkspace.ResolveAsync(
+                PackageId,
+                "1.0.0",
+                "net11.0",
+                TestContext.Current.CancellationToken);
+        PackageCompileAsset surfaceAsset =
+            Assert.IsType<PackageCompileAsset>(coordinate.DefaultAsset);
+        MethodInfo method = typeof(BrowserEngineBoundaryTests).GetMethod(
+            nameof(InvocationDestinationTarget),
+            BindingFlags.NonPublic | BindingFlags.Static)
+            ?? throw new InvalidOperationException(
+                $"Missing {nameof(InvocationDestinationTarget)}.");
+
+        for (int attempt = 0; attempt < 2; attempt++)
+        {
+            string json = await InspectionEngine.QueryGraphMemberSurface(
+                PackageId,
+                "1.0.0",
+                "net11.0",
+                surfaceAsset.Id,
+                typeof(BrowserEngineBoundaryTests).FullName!,
+                method.Name,
+                "stale-selector",
+                method.MetadataToken);
+            using JsonDocument document = JsonDocument.Parse(json);
+            JsonElement type = document.RootElement.GetProperty("type");
+
+            Assert.Equal(
+                surfaceAsset.Id,
+                type.GetProperty("assemblyId").GetString());
+            Assert.StartsWith(
+                "compile:ref/net11.0/",
+                surfaceAsset.Id,
+                StringComparison.Ordinal);
+            Assert.Equal(
+                typeof(BrowserEngineBoundaryTests).FullName,
+                type.GetProperty("definitionId").GetString());
+            Assert.Equal(
+                $"{surfaceAsset.AssemblyName}:{typeof(BrowserEngineBoundaryTests).FullName}",
+                type.GetProperty("id").GetString());
+            Assert.Single(type.GetProperty("api").EnumerateArray());
+        }
     }
 
     [Fact]
@@ -4990,6 +5136,98 @@ public sealed class BrowserEngineBoundaryTests
             request => request.Contains(
                 "api.nuget.org",
                 StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task PackageQueryContent_AcquiresThroughBrowserPackagePolicy()
+    {
+        string packageId = $"gallery.query.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        byte[] archive = PackageWithSkill(packageId, version);
+        var handler = new GalleryPackageHandler(
+            packageId,
+            version,
+            archive);
+        using IPackageSourceClient source = Gallery(handler);
+        PackageManifestFacts manifest = Assert.IsType<
+            PackageManifestFactsResult.Available>(
+                PackageManifestFactsQuery.Execute(
+                    Encoding.UTF8.GetBytes(
+                        Nuspec(packageId, version)),
+                    PackageSourceCoordinate.Create(packageId, version))).Value;
+        var package = new PackageProfileMatch(
+            packageId,
+            version,
+            [],
+            TotalDownloads: 0,
+            Verified: false,
+            PackageSourceIdentity.NuGetOrg,
+            manifest);
+        using var deadline =
+            new BrowserPackageWorkspace.BrowserPackageOperationDeadline(
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        PackageQueryContentResult result =
+            await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
+                package,
+                source,
+                deadline);
+
+        IPackageContent content = Assert.IsType<
+            PackageQueryContentResult.Available>(result).Content;
+        Assert.Contains(
+            "skills/SKILL.md",
+            content.EnumerateEntries(),
+            StringComparer.Ordinal);
+        Assert.Equal(
+            [$"https://globalcdn.nuget.org/packages/{packageId}.{version}.nupkg"],
+            handler.Requested);
+    }
+
+    [Fact]
+    public async Task PackageQueryContent_PolicyRejectionRemainsVisible()
+    {
+        string packageId = $"gallery.query.no-length.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        var handler = new GalleryPackageHandler(
+            packageId,
+            version,
+            PackageWithSkill(packageId, version),
+            omitContentLength: true);
+        using IPackageSourceClient source = Gallery(handler);
+        PackageManifestFacts manifest = Assert.IsType<
+            PackageManifestFactsResult.Available>(
+                PackageManifestFactsQuery.Execute(
+                    Encoding.UTF8.GetBytes(
+                        Nuspec(packageId, version)),
+                    PackageSourceCoordinate.Create(packageId, version))).Value;
+        var package = new PackageProfileMatch(
+            packageId,
+            version,
+            [],
+            TotalDownloads: 0,
+            Verified: false,
+            PackageSourceIdentity.NuGetOrg,
+            manifest);
+        using var deadline =
+            new BrowserPackageWorkspace.BrowserPackageOperationDeadline(
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        PackageQueryContentResult result =
+            await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
+                package,
+                source,
+                deadline);
+
+        string message = Assert.IsType<
+            PackageQueryContentResult.Unavailable>(result).Message;
+        Assert.Contains(
+            "did not declare its byte length",
+            message,
+            StringComparison.Ordinal);
+        Assert.True(handler.PayloadDisposed);
     }
 
     [Fact]
@@ -6001,6 +6239,41 @@ public sealed class BrowserEngineBoundaryTests
 
         return content.ToArray();
     }
+
+    static byte[] PackageWithSkill(string packageId, string version)
+    {
+        using var content = new MemoryStream();
+        using (var archive = new ZipArchive(
+            content,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using (StreamWriter manifest = new(
+                archive.CreateEntry(
+                    $"{packageId}.nuspec",
+                    CompressionLevel.NoCompression).Open(),
+                Encoding.UTF8,
+                leaveOpen: false))
+            {
+                manifest.Write(Nuspec(packageId, version));
+            }
+            archive.CreateEntry(
+                "skills/SKILL.md",
+                CompressionLevel.NoCompression);
+        }
+
+        return content.ToArray();
+    }
+
+    static string Nuspec(string packageId, string version) =>
+        $"""
+         <package>
+           <metadata>
+             <id>{packageId}</id>
+             <version>{version}</version>
+           </metadata>
+         </package>
+         """;
 
     static IPackageSourceClient Gallery(HttpMessageHandler handler) =>
         PackageSourceClientFactory.CreateGallery(
