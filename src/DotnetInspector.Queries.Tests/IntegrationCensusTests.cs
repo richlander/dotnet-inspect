@@ -2377,6 +2377,603 @@ public sealed class IntegrationCensusTests
         Assert.Same(snapshot, result.Snapshot);
     }
 
+    // ---- Matrix projection ---------------------------------------------
+
+    [Fact]
+    public void IntegrationMatrix_RetainsCandidateIdentityAndDispositionCounts()
+    {
+        IntegrationSourceParticipantIdentity participant =
+            Portable("matrix-counts");
+        IntegrationCandidateIdentity inside = ObservedCandidate(
+            participant,
+            IntegrationConceptCatalog.AI,
+            AssemblyPeer(
+                Assembly("Inside.Peer"),
+                TypeName("Peer", "Inside")));
+        IntegrationCandidateIdentity outside = ObservedCandidate(
+            participant,
+            IntegrationConceptCatalog.AI,
+            AssemblyPeer(
+                Assembly("Outside.Peer"),
+                TypeName("Peer", "Outside")));
+        var context = new Context();
+        AnalysisRequestPlan plan =
+            Plan(projection: IntegrationAnalysisCatalog.Matrix);
+        IntegrationTypeIdentity terminal = PeerTerminal(inside);
+        IntegrationCandidateAttempt.Classified insideAttempt =
+            ClassifiedIn(inside, context, terminal);
+        IntegrationCandidateAttempt.Classified outsideAttempt =
+            ClassifiedOut(outside, context);
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [participant],
+            producerAttempts: Producers(
+                [participant],
+                Completed(
+                    participant,
+                    Ecosystem,
+                    inside,
+                    outside)),
+            selectedTypes: [terminal],
+            contexts: [context],
+            candidateAttempts:
+            [
+                outsideAttempt,
+                insideAttempt,
+            ],
+            plan: plan);
+
+        IntegrationMatrixProjectionResult result =
+            IntegrationMatrixProjection.Project(plan, snapshot);
+        IntegrationMatrixRow row = Assert.Single(result.Rows);
+        IntegrationMatrixCell cell = MatrixCell(
+            result,
+            rowIndex: 0,
+            IntegrationConceptCatalog.AI);
+
+        Assert.Same(plan, result.Plan);
+        Assert.Same(snapshot, result.Snapshot);
+        Assert.Same(participant, row.Participant);
+        Assert.Same(context, row.BindingContext);
+        Assert.True(row.IsComplete);
+        Assert.True(cell.IsComplete);
+        Assert.Equal(1, cell.InCount);
+        Assert.Equal(1, cell.OutCount);
+        Assert.Equal(2, cell.TotalCount);
+        Assert.Equal([insideAttempt, outsideAttempt], cell.ClassifiedAttempts);
+        Assert.Same(inside, cell.ClassifiedAttempts[0].Address.Candidate);
+        Assert.Same(outside, cell.ClassifiedAttempts[1].Address.Candidate);
+    }
+
+    [Fact]
+    public void IntegrationMatrix_RepeatedLibraryAcrossContextsRemainsDistinct()
+    {
+        IntegrationSourceParticipantIdentity participant =
+            Portable("matrix-contexts");
+        IntegrationCandidateIdentity candidate = ObservedCandidate(
+            participant,
+            IntegrationConceptCatalog.AI,
+            DefaultPeer);
+        var first = new Context();
+        var second = new Context();
+        AnalysisRequestPlan plan =
+            Plan(projection: IntegrationAnalysisCatalog.Matrix);
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [participant],
+            producerAttempts: Producers(
+                [participant],
+                Completed(participant, Ecosystem, candidate)),
+            contexts: [first, second],
+            candidateAttempts:
+            [
+                ClassifiedOut(candidate, second),
+                ClassifiedOut(candidate, first),
+            ],
+            plan: plan);
+
+        IntegrationMatrixProjectionResult result =
+            IntegrationMatrixProjection.Project(plan, snapshot);
+
+        Assert.Equal(2, result.Rows.Length);
+        Assert.Same(participant, result.Rows[0].Participant);
+        Assert.Same(participant, result.Rows[1].Participant);
+        Assert.Same(first, result.Rows[0].BindingContext);
+        Assert.Same(second, result.Rows[1].BindingContext);
+        Assert.Equal(
+            1,
+            MatrixCell(result, 0, IntegrationConceptCatalog.AI).OutCount);
+        Assert.Equal(
+            1,
+            MatrixCell(result, 1, IntegrationConceptCatalog.AI).OutCount);
+    }
+
+    [Fact]
+    public void IntegrationMatrix_IncompleteLibraryDoesNotRenderAsZero()
+    {
+        IntegrationSourceParticipantIdentity participant =
+            Portable("matrix-source-failure");
+        var context = new Context();
+        var sourceFailure =
+            new IntegrationSourceParticipantAttempt.Failed(
+                participant,
+                new ParticipantFailure());
+        AnalysisRequestPlan plan =
+            Plan(projection: IntegrationAnalysisCatalog.Matrix);
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [participant],
+            sourceAttempts: [sourceFailure],
+            producerAttempts:
+            [
+                Unavailable(participant, Ecosystem),
+                Unavailable(participant, OpenTelemetry),
+                Unavailable(participant, Opportunity),
+            ],
+            contexts: [context],
+            plan: plan);
+
+        IntegrationMatrixProjectionResult result =
+            IntegrationMatrixProjection.Project(plan, snapshot);
+        IntegrationMatrixRow row = Assert.Single(result.Rows);
+
+        Assert.False(result.IsComplete);
+        Assert.False(row.IsComplete);
+        Assert.All(
+            row.Cells,
+            cell =>
+            {
+                Assert.False(cell.IsComplete);
+                Assert.Equal(0, cell.TotalCount);
+                var state = Assert.IsType<
+                    IntegrationMatrixCellState.Incomplete>(cell.State);
+                Assert.Same(sourceFailure, state.SourceAttempt);
+            });
+    }
+
+    [Fact]
+    public void IntegrationMatrix_PolicyFailureDoesNotContaminateUnrelatedCells()
+    {
+        IntegrationSourceParticipantIdentity participant =
+            Portable("matrix-policy-scope");
+        var context = new Context();
+        IntegrationProducerPolicyAttempt ecosystemFailure =
+            Failed(participant, Ecosystem);
+        IntegrationProducerPolicyAttempt opportunityFailure =
+            Failed(participant, Opportunity);
+        AnalysisRequestPlan plan =
+            Plan(projection: IntegrationAnalysisCatalog.Matrix);
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [participant],
+            producerAttempts:
+            [
+                opportunityFailure,
+                Completed(participant, OpenTelemetry),
+                ecosystemFailure,
+            ],
+            contexts: [context],
+            plan: plan);
+
+        IntegrationMatrixProjectionResult result =
+            IntegrationMatrixProjection.Project(plan, snapshot);
+        IntegrationMatrixCell affected = MatrixCell(
+            result,
+            0,
+            IntegrationConceptCatalog.AI);
+        IntegrationMatrixCell unrelated = MatrixCell(
+            result,
+            0,
+            IntegrationConceptCatalog.OpenTelemetry);
+
+        var state = Assert.IsType<
+            IntegrationMatrixCellState.Incomplete>(affected.State);
+        Assert.Equal(
+            [ecosystemFailure, opportunityFailure],
+            state.ProducerPolicyAttempts);
+        Assert.True(unrelated.IsComplete);
+        Assert.IsType<IntegrationMatrixCellState.Complete>(unrelated.State);
+        Assert.Equal(0, unrelated.TotalCount);
+    }
+
+    [Fact]
+    public void
+        IntegrationMatrix_ProducerPolicyFailureIncompletesEveryBindingContextForItsConcept()
+    {
+        IntegrationSourceParticipantIdentity participant =
+            Portable("matrix-policy-contexts");
+        var first = new Context();
+        var second = new Context();
+        IntegrationProducerPolicyAttempt failure =
+            Failed(participant, Ecosystem);
+        AnalysisRequestPlan plan =
+            Plan(projection: IntegrationAnalysisCatalog.Matrix);
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [participant],
+            producerAttempts:
+            [
+                failure,
+                Completed(participant, OpenTelemetry),
+                Completed(participant, Opportunity),
+            ],
+            contexts: [first, second],
+            plan: plan);
+
+        IntegrationMatrixProjectionResult result =
+            IntegrationMatrixProjection.Project(plan, snapshot);
+
+        Assert.Equal(2, result.Rows.Length);
+        foreach (int rowIndex in Enumerable.Range(0, result.Rows.Length))
+        {
+            IntegrationMatrixCell affected = MatrixCell(
+                result,
+                rowIndex,
+                IntegrationConceptCatalog.HttpClient);
+            var state = Assert.IsType<
+                IntegrationMatrixCellState.Incomplete>(affected.State);
+            Assert.Same(
+                failure,
+                Assert.Single(state.ProducerPolicyAttempts));
+            Assert.True(
+                MatrixCell(
+                    result,
+                    rowIndex,
+                    IntegrationConceptCatalog.OpenTelemetry).IsComplete);
+        }
+    }
+
+    [Fact]
+    public void
+        IntegrationMatrix_CandidateFailureDoesNotContaminateOtherBindingContexts()
+    {
+        IntegrationSourceParticipantIdentity participant =
+            Portable("matrix-candidate-context");
+        IntegrationCandidateIdentity candidate = ObservedCandidate(
+            participant,
+            IntegrationConceptCatalog.AI,
+            DefaultPeer);
+        var first = new Context();
+        var second = new Context();
+        var failedAttempt = new IntegrationCandidateAttempt.Failed(
+            new IntegrationCandidateAttemptAddress(candidate, first),
+            new CandidateFailure());
+        IntegrationCandidateAttempt.Classified healthyAttempt =
+            ClassifiedOut(candidate, second);
+        AnalysisRequestPlan plan =
+            Plan(projection: IntegrationAnalysisCatalog.Matrix);
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [participant],
+            producerAttempts: Producers(
+                [participant],
+                Completed(participant, Ecosystem, candidate)),
+            contexts: [first, second],
+            candidateAttempts:
+            [
+                healthyAttempt,
+                failedAttempt,
+            ],
+            plan: plan);
+
+        IntegrationMatrixProjectionResult result =
+            IntegrationMatrixProjection.Project(plan, snapshot);
+        IntegrationMatrixCell failed = MatrixCell(
+            result,
+            0,
+            IntegrationConceptCatalog.AI);
+        IntegrationMatrixCell healthy = MatrixCell(
+            result,
+            1,
+            IntegrationConceptCatalog.AI);
+
+        var state = Assert.IsType<
+            IntegrationMatrixCellState.Incomplete>(failed.State);
+        Assert.Same(failedAttempt, Assert.Single(state.CandidateAttempts));
+        Assert.Equal(0, failed.TotalCount);
+        Assert.True(healthy.IsComplete);
+        Assert.Same(
+            healthyAttempt,
+            Assert.Single(healthy.ClassifiedAttempts));
+        Assert.Equal(1, healthy.OutCount);
+    }
+
+    [Fact]
+    public void IntegrationMatrix_IncompleteCellRetainsPartialCounts()
+    {
+        IntegrationSourceParticipantIdentity participant =
+            Portable("matrix-partial");
+        IntegrationCandidateIdentity healthy = ObservedCandidate(
+            participant,
+            IntegrationConceptCatalog.AI,
+            AssemblyPeer(
+                Assembly("Healthy.Peer"),
+                TypeName("Peer", "Healthy")));
+        IntegrationCandidateIdentity failed = ObservedCandidate(
+            participant,
+            IntegrationConceptCatalog.AI,
+            AssemblyPeer(
+                Assembly("Failed.Peer"),
+                TypeName("Peer", "Failed")));
+        var context = new Context();
+        IntegrationCandidateAttempt.Classified healthyAttempt =
+            ClassifiedOut(healthy, context);
+        var failedAttempt = new IntegrationCandidateAttempt.Failed(
+            new IntegrationCandidateAttemptAddress(failed, context),
+            new CandidateFailure());
+        AnalysisRequestPlan plan =
+            Plan(projection: IntegrationAnalysisCatalog.Matrix);
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [participant],
+            producerAttempts: Producers(
+                [participant],
+                Completed(
+                    participant,
+                    Ecosystem,
+                    healthy,
+                    failed)),
+            contexts: [context],
+            candidateAttempts:
+            [
+                healthyAttempt,
+                failedAttempt,
+            ],
+            plan: plan);
+
+        IntegrationMatrixCell cell = MatrixCell(
+            IntegrationMatrixProjection.Project(plan, snapshot),
+            0,
+            IntegrationConceptCatalog.AI);
+
+        Assert.False(cell.IsComplete);
+        Assert.Same(
+            healthyAttempt,
+            Assert.Single(cell.ClassifiedAttempts));
+        Assert.Equal(0, cell.InCount);
+        Assert.Equal(1, cell.OutCount);
+        Assert.Equal(1, cell.TotalCount);
+        var state = Assert.IsType<
+            IntegrationMatrixCellState.Incomplete>(cell.State);
+        Assert.Same(failedAttempt, Assert.Single(state.CandidateAttempts));
+    }
+
+    [Fact]
+    public void
+        IntegrationMatrix_SuppressedAttemptIsAccountedWithoutCountOrFailure()
+    {
+        IntegrationSourceParticipantIdentity source =
+            Portable("matrix-suppressed-source");
+        IntegrationSourceParticipantIdentity adapter =
+            Portable("matrix-suppressed-adapter");
+        MetadataTypeDefinitionName peerType = TypeName("Peer", "Client");
+        IntegrationCandidateIdentity opportunity = OpportunityCandidate(
+            source,
+            IntegrationConceptCatalog.AI,
+            PolicyTargetPeer("Peer.Lib", peerType));
+        IntegrationCandidateIdentity observed = ObservedCandidate(
+            adapter,
+            IntegrationConceptCatalog.AI,
+            AssemblyPeer(Assembly("Peer.Lib"), peerType));
+        var sourceLookup =
+            Assert.IsType<IntegrationCandidatePeerIdentity.NamedType>(
+                NamedPeer(
+                    new MetadataTypeReferenceScope.CurrentAssembly(),
+                    opportunity.Source.SourceType));
+        IntegrationTypeIdentity terminal = PeerTerminal(observed);
+        var context = new Context();
+        var observedAddress =
+            new IntegrationCandidateAttemptAddress(observed, context);
+        var opportunityAddress =
+            new IntegrationCandidateAttemptAddress(opportunity, context);
+        var observedAttempt =
+            new IntegrationCandidateAttempt.Classified(
+                observedAddress,
+                new IntegrationCandidateDisposition.In(
+                    Resolved(observed, terminal)),
+                [Resolved(sourceLookup, SourceType(opportunity))]);
+        var suppressedAttempt =
+            new IntegrationCandidateAttempt.Suppressed(
+                opportunityAddress,
+                observedAddress,
+                new IntegrationOpportunityFulfillment(
+                    SourceType(opportunity),
+                    Resolved(opportunity, terminal)));
+        AnalysisRequestPlan plan =
+            Plan(projection: IntegrationAnalysisCatalog.Matrix);
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [source, adapter],
+            producerAttempts: Producers(
+                [source, adapter],
+                Completed(source, Opportunity, opportunity),
+                CompletedWithEvidence(
+                    adapter,
+                    Ecosystem,
+                    new IntegrationCandidateEvidence(
+                        observed,
+                        [sourceLookup]))),
+            selectedTypes: [terminal],
+            contexts: [context],
+            candidateAttempts:
+            [
+                suppressedAttempt,
+                observedAttempt,
+            ],
+            plan: plan);
+
+        IntegrationMatrixProjectionResult result =
+            IntegrationMatrixProjection.Project(plan, snapshot);
+        IntegrationMatrixCell sourceCell = MatrixCell(
+            result,
+            0,
+            IntegrationConceptCatalog.AI);
+        IntegrationMatrixCell adapterCell = MatrixCell(
+            result,
+            1,
+            IntegrationConceptCatalog.AI);
+
+        Assert.True(result.IsComplete);
+        Assert.True(sourceCell.IsComplete);
+        Assert.Equal(0, sourceCell.TotalCount);
+        Assert.True(adapterCell.IsComplete);
+        Assert.Same(
+            observedAttempt,
+            Assert.Single(adapterCell.ClassifiedAttempts));
+        Assert.Equal(1, adapterCell.InCount);
+        Assert.Same(
+            suppressedAttempt,
+            Assert.Single(result.Snapshot.SuppressedAttempts));
+    }
+
+    [Fact]
+    public void IntegrationMatrix_OrdersByDeclaredParticipantContextAndConceptOrder()
+    {
+        IntegrationSourceParticipantIdentity first =
+            Portable("matrix-order-first");
+        IntegrationSourceParticipantIdentity second =
+            Portable("matrix-order-second");
+        var firstContext = new Context();
+        var secondContext = new Context();
+        AnalysisRequestPlan plan =
+            Plan(projection: IntegrationAnalysisCatalog.Matrix);
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [second, first],
+            contexts: [secondContext, firstContext],
+            contextIncidence:
+            [
+                Incidence(first, firstContext, secondContext),
+                Incidence(second, firstContext),
+            ],
+            plan: plan);
+
+        IntegrationMatrixProjectionResult result =
+            IntegrationMatrixProjection.Project(plan, snapshot);
+
+        Assert.Equal(3, result.Rows.Length);
+        Assert.Same(second, result.Rows[0].Participant);
+        Assert.Same(firstContext, result.Rows[0].BindingContext);
+        Assert.Same(first, result.Rows[1].Participant);
+        Assert.Same(secondContext, result.Rows[1].BindingContext);
+        Assert.Same(first, result.Rows[2].Participant);
+        Assert.Same(firstContext, result.Rows[2].BindingContext);
+        Assert.All(
+            result.Rows,
+            row => Assert.Equal(
+                IntegrationAnalysisCatalog.Concepts,
+                row.Cells.Select(cell => cell.Concept)));
+    }
+
+    [Fact]
+    public void IntegrationMatrix_OmitsNonincidentParticipantContextPairs()
+    {
+        IntegrationSourceParticipantIdentity first =
+            Portable("matrix-sparse-first");
+        IntegrationSourceParticipantIdentity second =
+            Portable("matrix-sparse-second");
+        var firstContext = new Context();
+        var secondContext = new Context();
+        AnalysisRequestPlan plan =
+            Plan(projection: IntegrationAnalysisCatalog.Matrix);
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [first, second],
+            contexts: [firstContext, secondContext],
+            contextIncidence:
+            [
+                Incidence(first, firstContext),
+                Incidence(second, secondContext),
+            ],
+            plan: plan);
+
+        IntegrationMatrixProjectionResult result =
+            IntegrationMatrixProjection.Project(plan, snapshot);
+
+        Assert.Equal(2, result.Rows.Length);
+        Assert.Contains(
+            result.Rows,
+            row => ReferenceEquals(row.Participant, first)
+                && ReferenceEquals(row.BindingContext, firstContext));
+        Assert.Contains(
+            result.Rows,
+            row => ReferenceEquals(row.Participant, second)
+                && ReferenceEquals(row.BindingContext, secondContext));
+        Assert.DoesNotContain(
+            result.Rows,
+            row => ReferenceEquals(row.Participant, first)
+                && ReferenceEquals(row.BindingContext, secondContext));
+        Assert.DoesNotContain(
+            result.Rows,
+            row => ReferenceEquals(row.Participant, second)
+                && ReferenceEquals(row.BindingContext, firstContext));
+    }
+
+    [Fact]
+    public void IntegrationMatrix_JoinsSemanticParticipantAndContextIdentities()
+    {
+        IntegrationSourceParticipantIdentity rowParticipant =
+            Portable("matrix-semantic");
+        IntegrationSourceParticipantIdentity attemptParticipant =
+            Portable("matrix-semantic");
+        IntegrationCandidateIdentity candidate = ObservedCandidate(
+            attemptParticipant,
+            IntegrationConceptCatalog.AI,
+            DefaultPeer);
+        var rowContext = new CountingContext(7);
+        var attemptContext = new CountingContext(7);
+        IntegrationCandidateAttempt.Classified classified =
+            ClassifiedOut(candidate, attemptContext);
+        AnalysisRequestPlan plan =
+            Plan(projection: IntegrationAnalysisCatalog.Matrix);
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [rowParticipant],
+            producerAttempts: Producers(
+                [rowParticipant],
+                Completed(
+                    attemptParticipant,
+                    Ecosystem,
+                    candidate)),
+            contexts: [rowContext],
+            candidateAttempts: [classified],
+            plan: plan);
+
+        IntegrationMatrixProjectionResult result =
+            IntegrationMatrixProjection.Project(plan, snapshot);
+        IntegrationMatrixRow row = Assert.Single(result.Rows);
+        IntegrationMatrixCell cell = MatrixCell(
+            result,
+            0,
+            IntegrationConceptCatalog.AI);
+
+        Assert.Same(rowParticipant, row.Participant);
+        Assert.Same(rowContext, row.BindingContext);
+        Assert.Same(classified, Assert.Single(cell.ClassifiedAttempts));
+        Assert.Same(
+            attemptParticipant,
+            cell.ClassifiedAttempts[0].Address.Candidate.Source.Participant);
+        Assert.Same(
+            attemptContext,
+            cell.ClassifiedAttempts[0].Address.BindingContext);
+    }
+
+    [Fact]
+    public void IntegrationMatrix_RequiresMatrixPlanAndCompatibleSnapshot()
+    {
+        AnalysisReportSurface surface = Surface();
+        AnalysisUniverseDescription universe = FullUniverse();
+        AnalysisRequestPlan rows =
+            Plan(surface, universe, IntegrationAnalysisCatalog.Rows);
+        AnalysisRequestPlan matrix =
+            Plan(surface, universe, IntegrationAnalysisCatalog.Matrix);
+        IntegrationCensusSnapshot snapshot = Snapshot([], plan: rows);
+
+        IntegrationMatrixProjectionResult result =
+            IntegrationMatrixProjection.Project(matrix, snapshot);
+
+        Assert.Same(matrix, result.Plan);
+        Assert.Same(snapshot, result.Snapshot);
+        Assert.Throws<ArgumentException>(() =>
+            IntegrationMatrixProjection.Project(rows, snapshot));
+        Assert.Throws<ArgumentException>(() =>
+            IntegrationMatrixProjection.Project(
+                Plan(
+                    surface,
+                    FullUniverse(),
+                    IntegrationAnalysisCatalog.Matrix),
+                snapshot));
+    }
+
     // ---- Graph projection ----------------------------------------------
 
     [Fact]
@@ -2837,12 +3434,15 @@ public sealed class IntegrationCensusTests
     }
 
     [Fact]
-    public void IntegrationProjection_RowsAndGraphShareOneAnalysisAndSnapshot()
+    public void
+        IntegrationProjection_RowsMatrixAndGraphShareOneAnalysisAndSnapshot()
     {
         AnalysisReportSurface surface = Surface();
         AnalysisUniverseDescription universe = FullUniverse();
         AnalysisRequestPlan rows =
             Plan(surface, universe, IntegrationAnalysisCatalog.Rows);
+        AnalysisRequestPlan matrix =
+            Plan(surface, universe, IntegrationAnalysisCatalog.Matrix);
         AnalysisRequestPlan graph =
             Plan(surface, universe, IntegrationAnalysisCatalog.Graph);
         IntegrationSourceParticipantIdentity participant =
@@ -2853,6 +3453,8 @@ public sealed class IntegrationCensusTests
 
         IntegrationInventoryProjectionResult rowResult =
             IntegrationInventoryProjection.Project(rows, snapshot);
+        IntegrationMatrixProjectionResult matrixResult =
+            IntegrationMatrixProjection.Project(matrix, snapshot);
         IntegrationGraphProjectionResult graphResult =
             IntegrationGraphProjection.Project(
                 graph,
@@ -2862,11 +3464,25 @@ public sealed class IntegrationCensusTests
                     Observed));
 
         Assert.Same(snapshot, rowResult.Snapshot);
+        Assert.Same(snapshot, matrixResult.Snapshot);
         Assert.Same(snapshot, graphResult.Snapshot);
+        Assert.Same(rowResult.Analysis, matrixResult.Analysis);
         Assert.Same(rowResult.Analysis, graphResult.Analysis);
+        Assert.Same(rowResult.ReportSurface, matrixResult.ReportSurface);
         Assert.Same(rowResult.ReportSurface, graphResult.ReportSurface);
+        Assert.Same(rowResult.Universe, matrixResult.Universe);
         Assert.Same(rowResult.Universe, graphResult.Universe);
         Assert.Empty(rowResult.Rows);
+        IntegrationMatrixRow matrixRow =
+            Assert.Single(matrixResult.Rows);
+        Assert.Same(participant, matrixRow.Participant);
+        Assert.All(
+            matrixRow.Cells,
+            cell =>
+            {
+                Assert.True(cell.IsComplete);
+                Assert.Equal(0, cell.TotalCount);
+            });
         Assert.Empty(graphResult.CandidateInventory);
         Assert.Empty(graphResult.Document.Occurrences);
     }
@@ -3115,7 +3731,7 @@ public sealed class IntegrationCensusTests
             new IntegrationProducerPolicyAttemptAddress(participant, policy),
             new PolicyFailure());
 
-    static IntegrationCandidateAttempt ClassifiedOut(
+    static IntegrationCandidateAttempt.Classified ClassifiedOut(
         IntegrationCandidateIdentity candidate,
         IIntegrationBindingContextIdentity context) =>
         new IntegrationCandidateAttempt.Classified(
@@ -3146,6 +3762,14 @@ public sealed class IntegrationCensusTests
             relationships,
             InspectionGraphInducedSetAdmissionRule
                 .BothEndpointsWithinSubjectClosure);
+
+    static IntegrationMatrixCell MatrixCell(
+        IntegrationMatrixProjectionResult result,
+        int rowIndex,
+        IntegrationConceptDescriptor concept) =>
+        Assert.Single(
+            result.Rows[rowIndex].Cells.Where(
+                cell => ReferenceEquals(cell.Concept, concept)));
 
     // The exact selected-universe Type identity backing one candidate's source
     // element, admitted so completed producer evidence stays live.
