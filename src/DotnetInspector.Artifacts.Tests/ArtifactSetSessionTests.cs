@@ -106,7 +106,7 @@ public sealed class ArtifactSetSessionTests
     }
 
     [Fact]
-    public async Task ArtifactSetSession_ReleasesLeasesOnlyAfterDependentGroupsQuiesce()
+    public async Task ArtifactSetSession_ReleasesLeasesOnlyAfterOpenArtifactStreamsQuiesce()
     {
         CancellationToken cancellationToken =
             TestContext.Current.CancellationToken;

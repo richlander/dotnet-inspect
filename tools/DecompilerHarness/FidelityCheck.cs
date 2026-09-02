@@ -1257,8 +1257,7 @@ static class FidelityCheck
             if (original is null)
                 continue;
             var origOps = original.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
-            bool requiresAsync = function.RequiresAsyncBodyModifier
-                || function.IsRuntimeAsync == MetadataFactState.Yes;
+            bool requiresAsync = function.RequiresAsyncMethodContext;
             var wholeMember = TryRenderTargetMember(
                 pe,
                 source,

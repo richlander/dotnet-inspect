@@ -1240,18 +1240,22 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
 ```
 
 **Render A/B** (`--emit-render-ab` / `--render-ab`): the before/after text
-oracle for raise and printer changes. The first run writes a method-keyed JSON
-baseline of rendered bodies; the second run compares the current render against
-that baseline and reports changed, added, and removed methods. Changed methods
-are classified on two axes:
+oracle for raise and printer changes. The first run writes a versioned,
+method-keyed JSON baseline containing each rendered body and its typed async,
+unsafe, and await-syntax declaration context; the second run compares the
+current render against that baseline and reports changed, added, and removed
+methods. Body-only baselines predate the semantic-context contract and are
+rejected with a regeneration instruction rather than measured with current-head
+facts. Changed methods are classified on two axes:
 
 - spelling: `structural`, `paren-equivalent`, or `unparsed`;
 - semantic validity over the changed set only: `valid->valid`,
   `invalid->valid`, `valid->invalid`, or `invalid->invalid`.
 
-The semantic lane wraps each changed body in the same validity-check method shell
-and binds it with the validity diagnostic filters. It catches regressions that
-still parse, such as `1++`, without paying a corpus-wide compile cost. A
+The semantic lane wraps each changed body with its own recorded declaration
+context while sharing the matched method's signature and binding closure, then
+binds it with the validity diagnostic filters. It catches regressions that still
+parse, such as `1++`, without paying a corpus-wide compile cost. A
 `valid->invalid` transition is a semantic regression; expression-moving PRs
 should report the semantic line explicitly, e.g. `A/B: 55 changed (40
 paren-equivalent, 15 structural; semantic: 0 valid->invalid)`.
