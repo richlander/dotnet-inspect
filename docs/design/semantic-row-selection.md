@@ -7,11 +7,12 @@ Focused component design proposal for
 It defines the intended replacement for the semantic-selection portion of the
 existing umbrella design. The
 [composition map](item-and-line-limits.md#composition) adopts this component
-and retires the umbrella assignment. The current product does not implement
-this contract.
+and retires the umbrella assignment. The product implementation lives in
+`src/DotnetInspector.RowSelection`.
 
-All asserted behavior is unverified until the Release gates in
-[Required gates](#required-gates) land.
+The executable Release gates in
+`src/DotnetInspector.RowSelection.Tests` and the non-friend consumer in
+`tests/DotnetInspector.RowSelection.Consumer` verify the implemented contract.
 
 Related designs:
 
@@ -175,6 +176,11 @@ direct assembly asset, native asset, or `ProjectReference`; repository-wide
 build-only analyzers and targets remain allowed only when they contribute no
 compile/runtime asset. With deterministic caller callbacks, its public
 execution surface is synchronous and deterministic.
+
+The user-selected absence-claim posture is full coverage:
+`RowSelectionHasOnlyFrameworkRuntimeDependencies` checks the evaluated project
+closure, resolved compile/runtime/native package assets, and emitted assembly
+references. It has no residual and makes no component-specific NativeAOT claim.
 
 ## Normalized plan
 
@@ -740,7 +746,7 @@ the C# implementation; the named Release gates below remain required.
 
 ## Required gates
 
-The implementation must add these proportional outcome-level Release gates:
+The implementation provides these proportional outcome-level Release gates:
 
 | Gate | Contract |
 | --- | --- |

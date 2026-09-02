@@ -591,6 +591,9 @@ jobs:
       - name: Run artifact contract tests
         run: dotnet run --project src/DotnetInspector.Artifacts.Tests -c Release
 
+      - name: Run row-selection tests
+        run: dotnet run --project src/DotnetInspector.RowSelection.Tests -c Release
+
       - name: Run instruction-substrate tests
         run: dotnet run --project src/ILInspector.Instructions.Tests -c Release
 

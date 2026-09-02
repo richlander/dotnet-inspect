@@ -325,6 +325,7 @@ compiler-generated IL shapes differ in Debug.
 | --- | --- |
 | CLI and product output | `dotnet run --project src/dotnet-inspect.Tests -c Release` |
 | Artifact contracts | `dotnet run --project src/DotnetInspector.Artifacts.Tests -c Release` |
+| Row selection | `dotnet run --project src/DotnetInspector.RowSelection.Tests -c Release` |
 | Analysis | `dotnet run --project src/ILInspector.Analysis.Tests -c Release` |
 | Decompiler | `dotnet run --project src/ILInspector.Decompiler.Tests -c Release` |
 | C# text | `dotnet run --project tests/CSharpText.Tests -c Release` |
