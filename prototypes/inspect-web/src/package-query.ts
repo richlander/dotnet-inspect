@@ -2,7 +2,7 @@
 //
 // This module owns the request/outcome contract and pure state transitions for a
 // wide, streaming query over a package source (nuget.org today; other feeds
-// possible later), narrowed by product-issued nuspec facets.
+// possible later), narrowed by product-issued package facets.
 //
 // It is deliberately data-source-agnostic: `PackageQueryDataSource` is supplied
 // by the caller so this module can be built and tested against fake sources
@@ -14,9 +14,14 @@ export interface QueryFacetTerm {
   label: string;
   summary?: string;
   weight?: number;
-  tier: "nuspec";
+  tier: "nuspec" | "package-content";
   selectionGroupId?: string | null;
+  displayGroupId?: string | null;
+  displayGroupLabel?: string | null;
 }
+
+const DEFAULT_QUERY_CANDIDATE_LIMIT = 200;
+const PACKAGE_CONTENT_QUERY_CANDIDATE_LIMIT = 20;
 
 /** One rerunnable in-memory request. Never encodes a resolved outcome. */
 export interface QueryRequest {
@@ -37,7 +42,7 @@ export function createQueryRequest(
   return {
     scopeQuery,
     facets: [],
-    requestedLimit: 200,
+    requestedLimit: DEFAULT_QUERY_CANDIDATE_LIMIT,
     requestedMatchLimit: 100,
   };
 }
@@ -57,14 +62,29 @@ export function withFacet(
   facet: QueryFacetTerm,
 ): QueryRequest {
   if (request.facets.some(existing => existing.key === facet.key)) return request;
-  return { ...request, facets: [...request.facets, facet] };
+  return withFacets(request, [...request.facets, facet]);
 }
 
 export function withoutFacet(
   request: QueryRequest,
   facetKey: string,
 ): QueryRequest {
-  return { ...request, facets: request.facets.filter(f => f.key !== facetKey) };
+  return withFacets(
+    request,
+    request.facets.filter(facet => facet.key !== facetKey));
+}
+
+function withFacets(
+  request: QueryRequest,
+  facets: readonly QueryFacetTerm[],
+): QueryRequest {
+  return {
+    ...request,
+    facets,
+    requestedLimit: facets.some(facet => facet.tier === "package-content")
+      ? PACKAGE_CONTENT_QUERY_CANDIDATE_LIMIT
+      : DEFAULT_QUERY_CANDIDATE_LIMIT,
+  };
 }
 
 export function toggleFacet(
@@ -79,7 +99,7 @@ export function toggleFacet(
     ? request.facets.filter(existing =>
         existing.selectionGroupId !== facet.selectionGroupId)
     : request.facets;
-  return withFacet({ ...request, facets: compatible }, facet);
+  return withFacet(withFacets(request, compatible), facet);
 }
 
 /** One package's projection plus which predicate terms matched and why. Never
@@ -91,7 +111,7 @@ export function toggleFacet(
 export interface QueryResultRow {
   packageId: string;
   version: string;
-  tier: "nuspec";
+  tier: "nuspec" | "package-content";
   evidence: readonly [string, ...string[]];
   totalDownloads: number;
   producer?: string;

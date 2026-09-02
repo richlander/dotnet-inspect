@@ -31,6 +31,8 @@ internal sealed record CSharpDeclarationOptions
     public IReadOnlyCollection<string> AdditionalDeclaredTypeFullNames = [];
     public IReadOnlyCollection<string> AdditionalImportedDeclaredTypeFullNames = [];
     public IReadOnlyCollection<string> AdditionalKnownNamespaces = [];
+    public CSharpDeclaredTypeSelfNameAdmission.Admitted? DeclaredTypeSelfName { get; init; }
+    public string? LegacyDeclaredTypeIdentifier { get; init; }
     public CSharpNamespaceMode NamespaceMode { get; init; } = CSharpNamespaceMode.Omit;
     public bool AbbreviateSignature { get; init; }
     public bool TerminateMemberDeclaration { get; init; }
@@ -327,7 +329,7 @@ internal static class CSharpDeclarationWriter
                 ? $"[return: {string.Join(", ", signature.ReturnAttributes)}]\n"
                 : "";
             string delegateDeclaration =
-                $"{attributes}{returnAttributes}{TypeAccessibility(type)}{unsafeText} delegate {signature.ReturnType ?? "void"} {FormatTypeDisplayName(type)}{parameterList}";
+                $"{attributes}{returnAttributes}{TypeAccessibility(type)}{unsafeText} delegate {signature.ReturnType ?? "void"} {FormatTypeDisplayName(type, options)}{parameterList}";
             delegateDeclaration = AppendTypeParameterConstraints(delegateDeclaration, type.TypeParameters);
             return delegatePlan.Apply(delegateDeclaration + ";");
         }
@@ -1012,7 +1014,7 @@ internal static class CSharpDeclarationWriter
         }
 
         parts.Add(type.Kind == "enum" ? "enum" : type.Kind);
-        parts.Add(FormatTypeDisplayName(type));
+        parts.Add(FormatTypeDisplayName(type, options));
         var declaration = string.Join(" ", parts);
 
         var bases = new List<string>();
@@ -1078,15 +1080,15 @@ internal static class CSharpDeclarationWriter
 
         if (member.Name == ".cctor")
         {
-            signature = $"{FormatConstructorTypeName(type)}()";
+            signature = $"{FormatConstructorTypeName(type, options)}()";
         }
         else if (member.IsFinalizer && !options.SuppressFinalizerSpelling)
         {
-            signature = $"~{FormatConstructorTypeName(type)}()";
+            signature = $"~{FormatConstructorTypeName(type, options)}()";
         }
         else if (member.Kind == "constructor")
         {
-            var typeName = FormatConstructorTypeName(type);
+            var typeName = FormatConstructorTypeName(type, options);
             signature = $"{typeName}{FormatConstructorCall(signature)}";
         }
         else if (member.Name.StartsWith("op_", StringComparison.Ordinal))
@@ -1815,13 +1817,13 @@ internal static class CSharpDeclarationWriter
                 FormatParameter(parameter, options.IncludeSignatureAttributes)));
         if (member.Name == ".cctor")
         {
-            signature = $"{FormatConstructorTypeName(type)}()";
+            signature = $"{FormatConstructorTypeName(type, options)}()";
             return true;
         }
 
         if (member.Kind == "constructor")
         {
-            signature = $"{FormatConstructorTypeName(type)}({parameters})";
+            signature = $"{FormatConstructorTypeName(type, options)}({parameters})";
             return true;
         }
         if (member.Kind == "method"
@@ -2127,10 +2129,20 @@ internal static class CSharpDeclarationWriter
     // component and a backtick that is not a canonical suffix stays in the name
     // (MetadataNameArity). Truncating at the first backtick dropped every
     // following component, spelling Outer`1.Inner as the unrelated type Outer.
-    static string FormatTypeDisplayName(ApiType type)
-        => CSharpFormatter.FormatTypeName(
-            type,
-            includeVariance: true);
+    static string FormatTypeDisplayName(
+        ApiType type,
+        CSharpDeclarationOptions options)
+        => options.DeclaredTypeSelfName is { } selfName
+            ? type.TypeParameters.Count == 0
+                ? selfName.Identifier
+                : $"{selfName.Identifier}<{string.Join(", ", type.TypeParameters.Select(TypeParameterDisplayName))}>"
+            : options.LegacyDeclaredTypeIdentifier is { } legacyIdentifier
+                ? type.TypeParameters.Count == 0
+                    ? legacyIdentifier
+                    : $"{legacyIdentifier}<{string.Join(", ", type.TypeParameters.Select(TypeParameterDisplayName))}>"
+            : CSharpFormatter.FormatTypeName(
+                type,
+                includeVariance: true);
 
     static string? EnumUnderlyingBase(ApiType type)
     {
@@ -2264,9 +2276,13 @@ internal static class CSharpDeclarationWriter
         return false;
     }
 
-    static string FormatConstructorTypeName(ApiType type)
-        => SanitizeIdentifier(
-            CSharpFormatter.FormatDeclarationLeafMetadataName(type));
+    static string FormatConstructorTypeName(
+        ApiType type,
+        CSharpDeclarationOptions options)
+        => options.DeclaredTypeSelfName?.Identifier
+            ?? options.LegacyDeclaredTypeIdentifier
+            ?? SanitizeIdentifier(
+                CSharpFormatter.FormatDeclarationLeafMetadataName(type));
 
     static string EscapeMemberNameInSignature(string signature, string memberName)
     {

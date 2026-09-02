@@ -107,10 +107,23 @@ internal static class BrowserPackageWorkspace
     {
         Timeout = Timeout.InfiniteTimeSpan,
     };
+    static readonly PackageSourceAssociation GalleryAssociation =
+        PackageSourceAssociation.Create();
+    static readonly PackageSourceIdentity GalleryConfiguredIdentity =
+        PackageSourceIdentity.NuGetOrg;
+    static readonly IReadOnlyDictionary<
+        PackageSourceAssociation,
+        PackageSourceIdentity> ConfiguredSourceIdentities =
+        new Dictionary<PackageSourceAssociation, PackageSourceIdentity>(
+            ReferenceEqualityComparer.Instance)
+        {
+            [GalleryAssociation] = GalleryConfiguredIdentity,
+        };
     static readonly UniformPackageSourceAuthorization SourceAuthorization =
         new([PackageSource.NuGetOrg]);
     internal static readonly IPackageSourceClient Gallery =
         PackageSourceClientFactory.CreateGallery(
+            GalleryAssociation,
             new NuGetFetchOptions
             {
                 RequestTimeout = GalleryOperationTimeout,
@@ -203,6 +216,7 @@ internal static class BrowserPackageWorkspace
                 packageId,
                 version,
                 Gallery,
+                ConfiguredSourceIdentityFor(Gallery),
                 deadline,
                 cancellationToken),
             PackageOperationTimeout,
@@ -212,12 +226,14 @@ internal static class BrowserPackageWorkspace
         string packageId,
         string? version,
         IPackageSourceClient source,
+        PackageSourceIdentity configuredSourceIdentity,
         TimeSpan operationTimeout) =>
         RunPackageOperationAsync(
             deadline => AcquireCoreAsync(
                 packageId,
                 version,
                 source,
+                configuredSourceIdentity,
                 deadline,
                 CancellationToken.None),
             operationTimeout);
@@ -226,6 +242,7 @@ internal static class BrowserPackageWorkspace
         string packageId,
         string? version,
         IPackageSourceClient source,
+        PackageSourceIdentity configuredSourceIdentity,
         BrowserPackageOperationDeadline deadline,
         CancellationToken cancellationToken)
     {
@@ -255,6 +272,7 @@ internal static class BrowserPackageWorkspace
             pending = AcquirePayloadWithinOperationAsync(
                 coordinate,
                 source,
+                configuredSourceIdentity,
                 deadline.Remaining);
             PendingAcquisitions.Add(pendingKey, pending);
             ObserveAndRemovePendingAcquisition(pendingKey, pending);
@@ -312,6 +330,20 @@ internal static class BrowserPackageWorkspace
         };
     }
 
+    static PackageSourceIdentity ConfiguredSourceIdentityFor(
+        IPackageSourceClient source)
+    {
+        if (ConfiguredSourceIdentities.TryGetValue(
+                source.Source.Association,
+                out PackageSourceIdentity? identity))
+        {
+            return identity;
+        }
+
+        throw new InvalidOperationException(
+            "The package source association is not registered with a configured Browser source identity.");
+    }
+
     /// <summary>
     /// Resolves one exact package/version/framework identity into an acquirable package Root.
     /// The result preserves the product's compile-library outcome and carries assembly
@@ -337,12 +369,14 @@ internal static class BrowserPackageWorkspace
         string? version,
         string? targetFramework,
         IPackageSourceClient source,
+        PackageSourceIdentity configuredSourceIdentity,
         TimeSpan operationTimeout)
     {
         BrowserPackage package = await AcquireAsync(
             packageId,
             version,
             source,
+            configuredSourceIdentity,
             operationTimeout);
         return new BrowserPackageCoordinate(
             package,
@@ -614,12 +648,14 @@ internal static class BrowserPackageWorkspace
     static async Task<AcquiredPackageSourcePayload> AcquirePayloadAsync(
         PackageSourceCoordinate coordinate,
         IPackageSourceClient source,
+        PackageSourceIdentity configuredSourceIdentity,
         CancellationToken cancellationToken,
         IPackagePayloadTransferPolicy transferPolicy)
     {
         PackageSourcePayloadResult result =
             await PackagePayloadAcquisition.AcquireAsync(
             source,
+            configuredSourceIdentity,
             coordinate,
             Store,
             limits: PayloadLimits,
@@ -632,6 +668,69 @@ internal static class BrowserPackageWorkspace
                 throw new InvalidOperationException(unavailable.Message),
             PackageSourcePayloadResult.Failed failed =>
                 throw new InvalidOperationException(failed.Failure.Message),
+            _ => throw new InvalidOperationException(
+                "Package payload acquisition returned an unknown outcome."),
+        };
+    }
+
+    internal static ValueTask<PackageQueryContentResult>
+        AcquirePackageQueryContentAsync(
+            PackageProfileMatch package,
+            IPackageSourceClient source,
+            BrowserPackageOperationDeadline deadline) =>
+        AcquirePackageQueryContentAsync(
+            package,
+            source,
+            ConfiguredSourceIdentityFor(source),
+            deadline);
+
+    internal static async ValueTask<PackageQueryContentResult>
+        AcquirePackageQueryContentAsync(
+            PackageProfileMatch package,
+            IPackageSourceClient source,
+            PackageSourceIdentity configuredSourceIdentity,
+            BrowserPackageOperationDeadline deadline)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(configuredSourceIdentity);
+        ArgumentNullException.ThrowIfNull(deadline);
+        PackageSourceCoordinate coordinate = PackageSourceCoordinate.Create(
+            package.PackageId,
+            package.Version);
+
+        PackageSourcePayloadResult result;
+        try
+        {
+            result = await PackagePayloadAcquisition.AcquireAsync(
+                    source,
+                    configuredSourceIdentity,
+                    coordinate,
+                    Store,
+                    limits: PayloadLimits,
+                    cancellationToken: deadline.Token,
+                    transferPolicy: new BrowserPackageQueryTransferPolicy(
+                        new BrowserPackageOperationTransferPolicy(
+                            Store,
+                            deadline)))
+                .ConfigureAwait(false);
+        }
+        catch (BrowserPackagePayloadPolicyException exception)
+        {
+            return new PackageQueryContentResult.Unavailable(
+                exception.Message);
+        }
+        return result switch
+        {
+            PackageSourcePayloadResult.Acquired acquired =>
+                new PackageQueryContentResult.Available(
+                    acquired.Payload.Content),
+            PackageSourcePayloadResult.Unavailable unavailable =>
+                new PackageQueryContentResult.Unavailable(
+                    unavailable.Message),
+            PackageSourcePayloadResult.Failed failed =>
+                new PackageQueryContentResult.Unavailable(
+                    failed.Failure.Message),
             _ => throw new InvalidOperationException(
                 "Package payload acquisition returned an unknown outcome."),
         };
@@ -702,11 +801,13 @@ internal static class BrowserPackageWorkspace
     static Task<AcquiredPackageSourcePayload> AcquirePayloadWithinOperationAsync(
         PackageSourceCoordinate coordinate,
         IPackageSourceClient source,
+        PackageSourceIdentity configuredSourceIdentity,
         TimeSpan timeout) =>
         RunPackageOperationAsync(
             deadline => AcquirePayloadAsync(
                 coordinate,
                 source,
+                configuredSourceIdentity,
                 deadline.Token,
                 new BrowserPackageOperationTransferPolicy(
                     Store,
@@ -762,15 +863,11 @@ internal static class BrowserPackageWorkspace
             await source.GetVersionsAsync(
                 packageId,
                 cancellationToken).ConfigureAwait(false);
-        return operation switch
-        {
-            PackageSourceOperationResult<PackageVersionResult>.Succeeded succeeded =>
-                succeeded.Value,
-            PackageSourceOperationResult<PackageVersionResult>.Failed failed =>
-                throw new InvalidOperationException(failed.Failure.Message),
-            _ => throw new InvalidOperationException(
-                "Package version listing returned an unknown outcome."),
-        };
+        if (operation.Failure is { } failure)
+            throw new InvalidOperationException(failure.Message);
+        return operation.Value
+            ?? throw new InvalidOperationException(
+                "Package version listing returned no value or failure.");
     }
 
     internal static Task<string> ResolveDependencyVersionAsync(
@@ -985,6 +1082,31 @@ internal static class BrowserPackageWorkspace
             public void Dispose() => inner.Dispose();
         }
     }
+
+    internal sealed class BrowserPackageQueryTransferPolicy(
+        IPackagePayloadTransferPolicy inner)
+        : IPackagePayloadTransferPolicy
+    {
+        public IPackagePayloadReservation Reserve(
+            PackagePayloadTransfer transfer)
+        {
+            try
+            {
+                return inner.Reserve(transfer);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new BrowserPackagePayloadPolicyException(
+                    exception.Message,
+                    exception);
+            }
+        }
+    }
+
+    internal sealed class BrowserPackagePayloadPolicyException(
+        string message,
+        Exception innerException)
+        : InvalidOperationException(message, innerException);
 
     internal static string? SelectDependencyVersion(
         string[] versions,

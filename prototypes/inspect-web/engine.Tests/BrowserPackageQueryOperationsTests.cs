@@ -25,22 +25,31 @@ public sealed class BrowserPackageQueryOperationsTests
             Assert.Equal(expected.Summary, actual.Summary);
             Assert.Equal(expected.Weight, actual.Weight);
             Assert.Equal(expected.SelectionGroupId, actual.SelectionGroupId);
-            Assert.Equal(BrowserPackageQueryFacetTier.Nuspec, actual.Tier);
+            Assert.Equal(expected.DisplayGroupId, actual.DisplayGroupId);
+            Assert.Equal(expected.DisplayGroupLabel, actual.DisplayGroupLabel);
+            Assert.Equal(
+                expected.Tier == PackageQueryFacetTier.Nuspec
+                    ? BrowserPackageQueryFacetTier.Nuspec
+                    : BrowserPackageQueryFacetTier.PackageContent,
+                actual.Tier);
         }
     }
 
     [Fact]
     public void Project_PreservesFailureAndCompletionEvidence()
     {
-        var failure = new PackageProfileFailure(
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create());
+        var failure = new PackageQueryFailure(
             "Contoso.Bad",
             "1.0.0",
-            PackageSourceIdentity.NuGetOrg,
-            PackageProfileFailureKind.ManifestAcquisition,
+            source.Source,
+            PackageQueryFailureKind.ManifestAcquisition,
             "manifest unavailable");
         var summary = new PackageQuerySummary(
             new InertString(TextPolicy.Field, "Contoso."),
-            PackageSourceIdentity.NuGetOrg,
+            source.Source,
             CandidateLimit: 200,
             MatchLimit: 100,
             Candidates: 5,
@@ -54,20 +63,113 @@ public sealed class BrowserPackageQueryOperationsTests
         BrowserPackageQueryEvent projectedCompletion =
             BrowserPackageQueryOperations.Project(
                 new PackageQueryEvent.Completed(summary));
+        var profile = new PackageProfileMatch(
+            "Contoso.Package",
+            "1.0.0",
+            [],
+            42,
+            Verified: true,
+            source.Source,
+            new PackageManifestFacts(
+                PackageSourceCoordinate.Create(
+                    "Contoso.Package",
+                    "1.0.0"),
+                ManifestVersion: "nuspec",
+                Description: null,
+                Authors: null,
+                Repository: null,
+                RepositoryType: null,
+                RepositoryCommit: null,
+                License: null,
+                LicenseUrl: null,
+                PackageTypes: [],
+                IsToolPackage: false,
+                ReadmeFile: null,
+                DependencyGroups: []));
+        BrowserPackageQueryEvent projectedMatch =
+            BrowserPackageQueryOperations.Project(
+                new PackageQueryEvent.Match(
+                    new PackageQueryMatch(
+                        profile,
+                        PackageQueryFacetTier.Nuspec,
+                        [])));
+        string expectedProducer =
+            source.Source.Producer.Display.ToString();
 
+        Assert.Equal(
+            "https://api.nuget.org:443/v3/index.json",
+            expectedProducer);
         Assert.Equal(BrowserPackageQueryEventKind.Failure, projectedFailure.Kind);
         Assert.Equal(
             BrowserPackageQueryFailureKind.ManifestAcquisition,
             projectedFailure.Failure!.Kind);
         Assert.Equal("manifest unavailable", projectedFailure.Failure.Message);
         Assert.Equal(
+            expectedProducer,
+            projectedFailure.Failure.Producer);
+        Assert.Equal(
             BrowserPackageQueryEventKind.Completed,
             projectedCompletion.Kind);
         Assert.Equal(
             BrowserPackageQueryCompletionKind.CandidateLimitReached,
             projectedCompletion.Completion!.Kind);
+        Assert.Equal(
+            expectedProducer,
+            projectedCompletion.Completion.Producer);
         Assert.Equal(200, projectedCompletion.Completion.CandidateLimit);
         Assert.Equal(100, projectedCompletion.Completion.MatchLimit);
+        Assert.Equal(
+            expectedProducer,
+            projectedMatch.Row!.Producer);
+    }
+
+    [Fact]
+    public void Project_PreservesPackageContentTierAndFailure()
+    {
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create());
+        PackageProfileMatch package = new(
+            "Contoso.Tool",
+            "1.0.0",
+            [],
+            TotalDownloads: 42,
+            Verified: false,
+            source.Source,
+            Manifest(
+                "Contoso.Tool",
+                "1.0.0",
+                isToolPackage: true));
+        var match = new PackageQueryMatch(
+            package,
+            PackageQueryFacetTier.PackageContent,
+            [
+                new PackageQueryEvidence(
+                    PackageQuery.ToolV2FacetId,
+                    new InertString(
+                        TextPolicy.Prose,
+                        "DotnetToolSettings.xml declares v2.")),
+            ]);
+        var failure = new PackageQueryFailure(
+            "Contoso.Bad",
+            "1.0.0",
+            source.Source,
+            PackageQueryFailureKind.PackageContentAcquisition,
+            "package payload unavailable");
+
+        BrowserPackageQueryEvent projectedMatch =
+            BrowserPackageQueryOperations.Project(
+                new PackageQueryEvent.Match(match));
+        BrowserPackageQueryEvent projectedFailure =
+            BrowserPackageQueryOperations.Project(
+                new PackageQueryEvent.Failure(failure));
+
+        Assert.Equal(
+            BrowserPackageQueryFacetTier.PackageContent,
+            projectedMatch.Row!.Tier);
+        Assert.Equal(
+            BrowserPackageQueryFailureKind.PackageContentAcquisition,
+            projectedFailure.Failure!.Kind);
     }
 
     [Fact]
@@ -79,7 +181,7 @@ public sealed class BrowserPackageQueryOperationsTests
             Failure: null,
             Completion: new BrowserPackageQueryCompletion(
                 "Contoso.",
-                PackageSourceIdentity.NuGetOrg.Value,
+                PackageProducerIdentity.NuGetOrg.Display.ToString(),
                 CandidateLimit: 200,
                 MatchLimit: 100,
                 Candidates: 5,
@@ -128,4 +230,23 @@ public sealed class BrowserPackageQueryOperationsTests
 
         Assert.Contains("facet IDs are unknown", error.Message);
     }
+
+    static PackageManifestFacts Manifest(
+        string packageId,
+        string version,
+        bool isToolPackage) =>
+        new(
+            PackageSourceCoordinate.Create(packageId, version),
+            "nuspec",
+            Description: null,
+            Authors: null,
+            Repository: null,
+            RepositoryType: null,
+            RepositoryCommit: null,
+            License: null,
+            LicenseUrl: null,
+            PackageTypes: isToolPackage ? ["DotnetTool"] : [],
+            IsToolPackage: isToolPackage,
+            ReadmeFile: null,
+            DependencyGroups: []);
 }

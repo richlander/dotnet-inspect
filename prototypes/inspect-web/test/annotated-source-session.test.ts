@@ -34,6 +34,7 @@ import type {
 import { sampleDocument as sampleDocumentFixture } from "../../annotated-source-viewer/src/sample-document.js";
 import {
   csharpOnlyEmptyViewerCatalog,
+  sampleInvocationTarget,
   sampleViewerCatalog,
 } from "./annotated-source-result-fixture.ts";
 
@@ -67,6 +68,94 @@ test("viewer model derives supported, annotatable, and default sets from product
   assert.deepEqual(model.annotatableFindingIds, [0, 1]);
   assert.deepEqual(model.defaultFindingIds, [0, 1]);
   assert.deepEqual([...model.invocationLikeNodeKinds], ["ObjectCreationExpression"]);
+});
+
+test("viewer model retains product-issued invocation destinations by node", () => {
+  const document: AnnotatedSourceDocument = {
+    ...sampleDocument,
+    nodes: sampleDocument.nodes.map(node =>
+      node.id === 1
+        ? { ...node, kind: "InvocationExpression" }
+        : node),
+  };
+  const model = createAnnotatedSourceViewerModel({
+    ...sampleResult(document),
+    viewerCatalog: {
+      ...sampleViewerCatalog,
+      invocationLikeNodeKinds: ["InvocationExpression"],
+      invocationDestinations: [{
+        nodeId: 1,
+        target: sampleInvocationTarget,
+      }],
+      destinations: {
+        available: true,
+        unavailableReason: null,
+      },
+    },
+  });
+
+  assert.equal(model.invocationDestinations.length, 1);
+  assert.equal(model.invocationDestinations[0]?.nodeId, 1);
+  assert.equal(
+    model.invocationDestinations[0]?.target.selectorKey,
+    "method:Target",
+  );
+});
+
+test("viewer model rejects invalid or contradictory invocation destinations", () => {
+  const invocationDocument: AnnotatedSourceDocument = {
+    ...sampleDocument,
+    nodes: sampleDocument.nodes.map(node =>
+      node.id === 1
+        ? { ...node, kind: "InvocationExpression" }
+        : node),
+  };
+  const destination = {
+    nodeId: 1,
+    target: sampleInvocationTarget,
+  };
+
+  assert.throws(
+    () => createAnnotatedSourceViewerModel({
+      ...sampleResult(invocationDocument),
+      viewerCatalog: {
+        ...sampleViewerCatalog,
+        invocationDestinations: [destination],
+      },
+    }),
+    /Unavailable Annotated Source destinations cannot carry rows/,
+  );
+  assert.throws(
+    () => createAnnotatedSourceViewerModel({
+      ...sampleResult(invocationDocument),
+      viewerCatalog: {
+        ...sampleViewerCatalog,
+        invocationDestinations: [
+          destination,
+          destination,
+        ],
+        destinations: {
+          available: true,
+          unavailableReason: null,
+        },
+      },
+    }),
+    /destination node 1 is duplicated/,
+  );
+  assert.throws(
+    () => createAnnotatedSourceViewerModel({
+      ...sampleResult(),
+      viewerCatalog: {
+        ...sampleViewerCatalog,
+        invocationDestinations: [destination],
+        destinations: {
+          available: true,
+          unavailableReason: null,
+        },
+      },
+    }),
+    /does not name a C# invocation/,
+  );
 });
 
 test("unsupported-only targets do not enter the annotation universe or default set", () => {

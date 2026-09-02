@@ -4,7 +4,9 @@ import {
   assemblyDescriptorForType,
   assertNever,
   pdbSourceLimitationHtml,
+  callGraphAssemblyIdentityMatches,
   callGraphDiagnosticsMessage,
+  callGraphTargetMatchesType,
   callGraphTargetTypeId,
   combinedGraphTargetNavigationDisposition,
   createDependencyGraphPendingState,
@@ -15,6 +17,7 @@ import {
   graphTargetBlockedReason,
   graphMemberDeepLinkDisposition,
   graphMemberPendingMatchesView,
+  graphMemberSurfaceAssembly,
   graphMemberShareTarget,
   graphMemberSelection,
   graphMemberTargetWithSelectedBody,
@@ -71,7 +74,10 @@ import {
   bodyTargetMatchesOverload,
   captureLibraryScope,
   filterMemberGroups,
+  invalidateGraphMemberNavigationWork,
   invalidateMemberCallGraphWork,
+  invalidateMemberDestinationWork,
+  invalidateSourceDestinationWork,
   MEMBER_TRAITS,
   memberNavTargetIndex,
   memberScopeIsActive,
@@ -111,6 +117,7 @@ import {
 import {
   createNuGetPackageModel,
   createAppMemberSurface,
+  createAppTypeSurface,
   createPackageAcquisition,
   graphOnlyImplementationBody,
   retainGraphOnlyImplementationBody,
@@ -156,6 +163,7 @@ import {
   createSourceInspectionCoordinator,
   type GraphSourceRequest,
 } from "./source-inspection.ts";
+import { createOperationAuthorityPage } from "./operation-authority.ts";
 import {
   createMetadataInspectionCoordinator,
   type AppExplorerState,
@@ -221,8 +229,11 @@ import {
 import {
   bindScopeBar,
   captureScopeBarFocus,
+  createScopeBarState,
   renderScopeBar as renderScopeBarPure,
   restoreScopeBarFocus,
+  scopeBarShortLabel,
+  type ScopeBarBinding,
 } from "./scope-bar.ts";
 import {
   bindWorkspaceSubject,
@@ -662,6 +673,7 @@ const initialState = {
   memberAnnotated: null,
   memberAnnotatedLoading: false,
   memberAnnotatedError: "",
+  annotatedDestinationError: "",
   memberAnnotatedKey: "",
   memberAnnotatedEmbedded: null,
   memberAnnotatedModal: null,
@@ -844,6 +856,8 @@ interface StateOverrides {
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
 
 const state: AppState = initialState;
+const scopeBarState = createScopeBarState();
+let scopeBarBinding: ScopeBarBinding | null = null;
 type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
   | { kind: "canonical" }
   | {
@@ -921,8 +935,10 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
 }
 
 const keybindings = createWorkbenchKeybindings();
+const operationAuthority = createOperationAuthorityPage();
 const sourceInspection = createSourceInspectionCoordinator({
   state,
+  operationAuthority,
   queryMemberSource: request => inspectMemberSource(
     request.packageId,
     request.version,
@@ -952,6 +968,10 @@ const sourceInspection = createSourceInspectionCoordinator({
     taste),
   memberSourceHasConcreteOverload,
   cancelEngineSourceRequest: () => cancelSourceInspection?.(),
+  reportOperationDiagnostic: diagnostic => {
+    console.error("Source operation authority failure.", diagnostic);
+    return undefined;
+  },
   describeError: errorMessage,
   render,
   renderPreservingMemberFocus,
@@ -1169,10 +1189,7 @@ function ownsViewOperation(
 }
 
 function invalidateGraphMemberNavigation() {
-  state.graphMemberNavigationSeq++;
-  state.graphMemberNavigationTitle = "";
-  state.graphMemberNavigationError = "";
-  state.pendingGraphMemberDeepLink = null;
+  invalidateGraphMemberNavigationWork(state);
 }
 
 function normalizeCurrentNavEntry() {
@@ -1182,8 +1199,7 @@ function normalizeCurrentNavEntry() {
 function applyView(view: WorkspaceView) {
   const pkg = packageForView(state.packages, view);
   if (!pkg) return false;
-  invalidateMemberCallGraphWork(state);
-  invalidateGraphMemberNavigation();
+  invalidateMemberDestinationWork(state);
   activatePackage(pkg);
   state.libraryScope = restoreLibraryScope(
     view.libraryScope,
@@ -1227,6 +1243,7 @@ function applyView(view: WorkspaceView) {
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.annotatedDestinationError = "";
   state.selectedBodyTarget = memberHistory.selectedBodyTarget;
   if (!state.atPackageRoot) revealTypeInFilters(type);
   const requestedOverloadIndex = view.selectedOverloadIndex;
@@ -2270,8 +2287,7 @@ function currentSourceReloadKind() {
 }
 
 function clearMemberContentCache() {
-  invalidateMemberCallGraphWork(state);
-  invalidateGraphMemberNavigation();
+  invalidateMemberDestinationWork(state);
   state.memberSource = null;
   state.memberSourceError = "";
   state.memberCallGraph = null;
@@ -2281,6 +2297,7 @@ function clearMemberContentCache() {
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.annotatedDestinationError = "";
   state.selectedBodyTarget = null;
 }
 
@@ -2594,9 +2611,15 @@ function typeDisplayName(
 function render(options: { synchronizeUrl?: boolean } = {}) {
   sourceInspection.cancelHiddenRequest();
   document.body.classList.remove("package-query-route");
-  const scopeBarFocus = document.activeElement instanceof HTMLElement
-    ? captureScopeBarFocus(document.activeElement)
+  const focusedElement = document.activeElement instanceof HTMLElement
+    ? document.activeElement
     : null;
+  const scopeBarOwnsFocus = focusedElement
+    ?.closest("[data-scope-bar]") != null;
+  const scopeBarFocus = focusedElement
+    ? captureScopeBarFocus(focusedElement)
+    : null;
+  scopeBarBinding?.disconnect();
 
   // The Settings page is a modal-style full view layered over whatever the user came from
   // (home or a package). It owns no URL — it's a preferences panel, not shareable content —
@@ -2688,6 +2711,10 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     ? ' role="tabpanel" aria-labelledby="active-inspector-tab"'
     : "";
 
+  if (scopeBarOwnsFocus) {
+    app.tabIndex = -1;
+    app.focus({ preventScroll: true });
+  }
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal ? " inert" : ""}>
       ${workbenchShellHtml({
@@ -2779,7 +2806,18 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     };
   }
   bindEvents();
-  if (scopeBarFocus) restoreScopeBarFocus(document, scopeBarFocus);
+  if (scopeBarOwnsFocus) {
+    let restored = false;
+    if (scopeBarFocus) {
+      scopeBarBinding?.revealFocusTarget(scopeBarFocus);
+      restored = restoreScopeBarFocus(document, scopeBarFocus);
+    }
+    if (!restored) {
+      document.querySelector<HTMLElement>(".brand")
+        ?.focus({ preventScroll: true });
+    }
+    app.removeAttribute("tabindex");
+  }
   restorePackageQueryReturnFocus();
   restorePackageQueryWorkspaceFocus();
   recordNav();
@@ -3003,6 +3041,53 @@ function hasEffectiveInspector(): boolean {
   return typeLensesFor(state.package).some(([id]) => id === state.lens);
 }
 
+function packageLensPresentation(
+  id: PackageLens,
+): string {
+  switch (id) {
+    case "overview": return "◫";
+    case "dependencies": return "⇄";
+    case "integrations": return "⌁";
+    case "opportunities": return "◇";
+    case "analysis": return "∿";
+    case "metadata": return "≡";
+    default: return assertNever(id, "package lens presentation");
+  }
+}
+
+function typeLensPresentation(
+  id: TypeLens,
+): string {
+  switch (id) {
+    case "api": return "⌘";
+    case "metadata": return "≡";
+    case "source": return "⌑";
+    default: return assertNever(id, "type lens presentation");
+  }
+}
+
+function memberSectionPresentation(
+  id: MemberSection,
+): string {
+  switch (id) {
+    case "overview": return "◫";
+    case "call-graph": return "⑂";
+    case "facts": return "·";
+    case "source": return "⌑";
+    case "annotated": return "✎";
+    default: return assertNever(id, "member section presentation");
+  }
+}
+
+function scopeBarInspectorDefinitions<TId extends string>(
+  definitions: readonly (readonly [TId, string])[],
+  presentation: (id: TId) => string,
+): readonly (readonly [TId, string, string, string])[] {
+  return definitions.map(([id, label]) => {
+    return [id, label, scopeBarShortLabel(label), presentation(id)];
+  });
+}
+
 function renderScopeBar() {
   const sc = scope();
   const selected = selectedType();
@@ -3022,7 +3107,9 @@ function renderScopeBar() {
   if (sc === "package") {
     return renderScopeBarPure({
       scope: sc,
-      strip: packageLensesFor(state.package),
+      strip: scopeBarInspectorDefinitions(
+        packageLensesFor(state.package),
+        packageLensPresentation),
       activeStripId: state.packageLens,
       stripAttribute: "data-package-lens",
       panelId: "inspector-panel",
@@ -3034,7 +3121,9 @@ function renderScopeBar() {
     const member = selectedMember(selected);
     return renderScopeBarPure({
       scope: sc,
-      strip: member ? memberSectionsFor(member) : [],
+      strip: scopeBarInspectorDefinitions(
+        member ? memberSectionsFor(member) : [],
+        memberSectionPresentation),
       activeStripId: state.memberSection,
       stripAttribute: "data-member-section",
       panelId: "inspector-panel",
@@ -3048,7 +3137,9 @@ function renderScopeBar() {
       scope: sc,
       // `typeLensesFor` rather than the raw catalog: a runtime pack offers only the API
       // lens, and reading the catalog directly here would skip that restriction.
-      strip: typeLensesFor(state.package),
+      strip: scopeBarInspectorDefinitions(
+        typeLensesFor(state.package),
+        typeLensPresentation),
       activeStripId: state.lens,
       stripAttribute: "data-lens",
       panelId: "inspector-panel",
@@ -4428,11 +4519,14 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   } else if (state.memberSection === "facts") {
     content = renderMemberFacts(type, member, overload, overloadIndex);
   } else if (state.memberSection === "annotated") {
-    content = state.memberAnnotatedLoading
+    const destinationError = state.annotatedDestinationError
+      ? `<div id="annotated-destination-error" class="graph-drill-error" role="alert">${escapeHtml(state.annotatedDestinationError)}</div>`
+      : "";
+    content = destinationError + (state.memberAnnotatedLoading
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Annotating member…</h2><p>Raising the selected overload to C#, interleaving its IL, and collecting the facts observed about it.</p></section>`
       : state.memberAnnotated
         ? renderAnnotatedSource(state.memberAnnotated)
-        : `<section class="document-section empty-member-section"><h2>Annotated source query failed</h2><p>${escapeHtml(state.memberAnnotatedError || "No annotated source result was returned.")}</p></section>`;
+        : `<section class="document-section empty-member-section"><h2>Annotated source query failed</h2><p>${escapeHtml(state.memberAnnotatedError || "No annotated source result was returned.")}</p></section>`);
   } else if (state.memberSection === "source") {
     content = state.memberSourceLoading
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`
@@ -5071,7 +5165,7 @@ function bindTypePanelEvents() {
 }
 
 function bindScopeBarEvents() {
-  bindScopeBar(document, {
+  scopeBarBinding = bindScopeBar(document, {
     onMemberSectionSelect: section => {
       applyMemberSection(section);
     },
@@ -5116,7 +5210,7 @@ function bindScopeBarEvents() {
       state.memberBrowseTypeId = "";
       render();
     },
-  });
+  }, scopeBarState);
 }
 
 function bindSettingsPanelEvents() {
@@ -5206,6 +5300,8 @@ function renderAndFocusAnnotated(
 
 function openAnnotatedSourceModal() {
   if (!state.memberAnnotated) return;
+  invalidateMemberDestinationWork(state);
+  state.annotatedDestinationError = "";
   const model = createAnnotatedSourceViewerModel(state.memberAnnotated);
   const embedded = state.memberAnnotatedEmbedded
     ?? createEmbeddedSession(model);
@@ -5307,6 +5403,25 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
       const transition = toggleCoordinates(session);
       setSession(transition.state);
       renderAndFocusAnnotated(transition.focus);
+      return;
+    }
+    case "destination-open": {
+      const destination =
+        model.invocationDestinations[action.destinationIndex];
+      if (!destination) return;
+      invalidateMemberDestinationWork(state);
+      state.annotatedDestinationError = "";
+      const binding =
+        callGraphTargetBinding(
+          destination.target,
+          action.destination,
+          "annotated")
+        ?? blockedCallGraphNodeBinding(
+          destination.target,
+          "the exact target is unavailable in the current workspace",
+          "annotated");
+      dismissAnnotatedSourceModal(false);
+      binding.onSelect();
       return;
     }
     case "node-select":
@@ -6420,6 +6535,7 @@ async function pickSpotlight(
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.annotatedDestinationError = "";
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
@@ -6845,6 +6961,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   state.memberSourceKey = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.annotatedDestinationError = "";
   state.memberAnnotatedKey = "";
   state.memberFacts = null;
   state.memberFactsError = "";
@@ -8405,6 +8522,17 @@ function callGraphNodeBinding(
   const target =
     callGraph.targets?.find(candidate => candidate.id === nodeId) ?? null;
   if (!target) return null;
+  return callGraphTargetBinding(target);
+}
+
+type CallGraphTargetDestination = "default" | "member" | "source";
+type GraphNavigationFailureSurface = "call-graph" | "annotated";
+
+function callGraphTargetBinding(
+  target: BrowserCallGraphTarget,
+  destination: CallGraphTargetDestination = "default",
+  failureSurface: GraphNavigationFailureSurface = "call-graph",
+): CallGraphNodeBinding | null {
   const typeId = callGraphTargetTypeId(target);
 
   // Inside a platform descent the whole graph lives in the runtime pack, not
@@ -8432,9 +8560,19 @@ function callGraphNodeBinding(
     if (disposition === "blocked") {
       return blockedCallGraphNodeBinding(
         target,
-        graphTargetBlockedReason(candidate, "runtime"));
+        graphTargetBlockedReason(candidate, "runtime"),
+        failureSurface);
     }
     if (disposition === "none") return null;
+    if (destination === "source") {
+      return blockedCallGraphNodeBinding(
+        target,
+        "Source navigation is unavailable for platform targets",
+        failureSurface);
+    }
+    const runtimeSection = destination === "member"
+      ? "overview"
+      : "call-graph";
     return {
       label: `Open ${target.typeFullName}.${target.memberName}`,
       platform: disposition === "lookup",
@@ -8445,11 +8583,22 @@ function callGraphNodeBinding(
             resident.type,
             resident.group,
             resident.overloadIndex,
-            target);
+            target,
+            runtimeSection);
         } else if (disposition === "lookup") {
           observeAsync(
-            navigateOrDrillPlatform(target),
+            navigateOrDrillPlatform(
+              target,
+              runtimeSection,
+              failureSurface),
             "Opening a platform call-graph target");
+        } else if (destination === "member") {
+          observeAsync(
+            navigateOrDrillPlatform(
+              target,
+              runtimeSection,
+              failureSurface),
+            "Opening a resident platform member");
         } else {
           observeAsync(
             startPlatformDrill(target),
@@ -8467,6 +8616,29 @@ function callGraphNodeBinding(
     resolveLoadedGraphTargetCandidate<AppPackage, AppTypeSurface>(
       packages,
       target);
+  if (candidate.status === "resident" && destination !== "default") {
+    const residentPackage = loadedGraphTargetPackage(packages, target);
+    if (!residentPackage) {
+      return blockedCallGraphNodeBinding(
+        target,
+        "the exact target assembly is not unique in the loaded package workspace",
+        failureSurface);
+    }
+    const section = destination === "source" ? "source" : "overview";
+    return {
+      label: `Open ${target.typeFullName}.${target.memberName}`,
+      platform: false,
+      onSelect: () => {
+        observeAsync(
+          navigateToUnprojectedGraphMember(
+            residentPackage,
+            target,
+            section,
+            failureSurface),
+          "Opening a package graph member");
+      },
+    };
+  }
   const pack = runtimePackForFramework(
     runtimePackPackage(),
     state.package?.activeFramework || "");
@@ -8490,20 +8662,47 @@ function callGraphNodeBinding(
         || runtimeCandidate?.status === "skew"
       ? graphTargetBlockedReason(runtimeCandidate, "runtime")
       : graphTargetBlockedReason(candidate, "package");
-    return blockedCallGraphNodeBinding(target, reason);
+    return blockedCallGraphNodeBinding(
+      target,
+      reason,
+      failureSurface);
   }
   if (disposition === "none") return null;
   const loaded = disposition === "loaded" && candidate.status === "unique"
     ? resolveLoadedGraphTarget(target, candidate)
     : null;
+  if (destination === "source" && !loaded) {
+    return blockedCallGraphNodeBinding(
+      target,
+      "Source navigation requires a target in a loaded package workspace",
+      failureSurface);
+  }
+  if (destination === "source"
+    && loaded
+    && "group" in loaded
+    && !memberSectionIdsFor(
+      loaded.group,
+      loaded.pkg.isRuntimePack,
+      true).includes("source")) {
+    return blockedCallGraphNodeBinding(
+      target,
+      "Source navigation is unavailable for this member",
+      failureSurface);
+  }
   const platform = disposition === "platform";
+  const loadedSection = destination === "source" ? "source" : "overview";
+  const runtimeSection = destination === "member" ? "overview" : "call-graph";
   return {
     label: `Open ${target.typeFullName}.${target.memberName}`,
     platform,
     onSelect: () => {
       if (loaded) {
         observeAsync(
-          navigateToGraphMember(loaded, target),
+          navigateToGraphMember(
+            loaded,
+            target,
+            loadedSection,
+            failureSurface),
           "Opening a graph member");
       } else if (disposition === "resident") {
         if (pack && resident) {
@@ -8512,15 +8711,24 @@ function callGraphNodeBinding(
             resident.type,
             resident.group,
             resident.overloadIndex,
-            target);
+            target,
+            runtimeSection);
         } else {
           observeAsync(
-            startPlatformDrill(target),
+            destination === "member"
+              ? navigateOrDrillPlatform(
+                target,
+                runtimeSection,
+                failureSurface)
+              : startPlatformDrill(target),
             "Opening a resident platform call-graph target");
         }
       } else if (platform) {
         observeAsync(
-          navigateOrDrillPlatform(target),
+          navigateOrDrillPlatform(
+            target,
+            runtimeSection,
+            failureSurface),
           "Opening a platform call-graph target");
       }
     },
@@ -8530,20 +8738,38 @@ function callGraphNodeBinding(
 function blockedCallGraphNodeBinding(
   target: BrowserCallGraphTarget,
   reason: string,
+  failureSurface: GraphNavigationFailureSurface = "call-graph",
 ): CallGraphNodeBinding {
   return {
     label: `Cannot open ${target.typeFullName}.${target.memberName}: ${reason}`,
     blocked: true,
     onSelect: () => {
+      if (failureSurface === "annotated") {
+        state.annotatedDestinationError =
+          `Could not open ${target.typeFullName}.${target.memberName}: ${reason}.`;
+        renderAndFocusAnnotated({ kind: "explore" }, "embedded");
+        return;
+      }
       invalidateGraphMemberNavigation();
       state.memberCallGraphSeq++;
       state.memberCallGraphExpanding = false;
       state.platformDrillLoading = false;
-      observeAsync(
-        showPlatformTargetError(target, reason),
-        "Reporting a blocked platform call-graph target");
+      state.memberSection = "call-graph";
+      state.graphMemberNavigationError =
+        `Could not open ${target.typeFullName}.${target.memberName}: ${reason}.`;
+      render();
     },
   };
+}
+
+function loadedGraphTargetPackage(
+  packages: readonly AppPackage[],
+  target: BrowserCallGraphTarget,
+): AppPackage | null {
+  const matches = packages.filter(pkg =>
+    pkg.assemblies.some(assembly =>
+      callGraphAssemblyIdentityMatches(target, assembly)));
+  return matches.length === 1 ? matches[0] ?? null : null;
 }
 
 function currentCallGraph() {
@@ -8606,18 +8832,29 @@ function findGraphMemberSelection(
 
 async function loadGraphMemberSurface(
   pkg: AppPackage,
-  type: AppTypeSurface,
   target: BrowserCallGraphTarget | GraphMemberShareIdentity,
+  type: AppTypeSurface | null = null,
 ) {
   return inspectGraphMemberSurface(
     pkg.id,
     pkg.version,
     pkg.activeFramework,
-    type.assembly,
+    graphMemberSurfaceAssembly(target, type),
     target.typeDefinitionId ?? "",
     target.memberName,
     target.selectorKey,
     target.metadataToken ?? 0);
+}
+
+function singleProjectedGraphMember(
+  type: BrowserTypeSurface,
+): BrowserMemberSurface {
+  const member = type.api[0];
+  if (!member || type.api.length !== 1) {
+    throw new Error(
+      "The projected graph type did not retain exactly one selected member.");
+  }
+  return member;
 }
 
 function stageGraphMemberSelection(
@@ -8685,6 +8922,8 @@ function commitGraphMemberSelection(
 async function navigateToGraphMember(
   loaded: ReturnType<typeof resolveLoadedGraphTarget>,
   target: BrowserCallGraphTarget,
+  section: "overview" | "source" = "overview",
+  failureSurface: GraphNavigationFailureSurface = "call-graph",
 ) {
   state.memberCallGraphSeq++;
   state.memberCallGraphExpanding = false;
@@ -8700,24 +8939,60 @@ async function navigateToGraphMember(
       loaded.type,
       loaded.group,
       loaded.overloadIndex,
-      selectedBodyTarget);
+      selectedBodyTarget,
+      section);
     return;
   }
 
+  await navigateToGraphMemberProjection(
+    loaded.pkg,
+    loaded.type,
+    target,
+    section,
+    failureSurface);
+}
+
+async function navigateToUnprojectedGraphMember(
+  pkg: AppPackage,
+  target: BrowserCallGraphTarget,
+  section: "overview" | "source",
+  failureSurface: GraphNavigationFailureSurface = "call-graph",
+) {
+  state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
+  state.platformDrillLoading = false;
+  state.platformDrillError = "";
+  await navigateToGraphMemberProjection(
+    pkg,
+    null,
+    target,
+    section,
+    failureSurface);
+}
+
+async function navigateToGraphMemberProjection(
+  pkg: AppPackage,
+  existingType: AppTypeSurface | null,
+  target: BrowserCallGraphTarget,
+  section: "overview" | "source",
+  failureSurface: GraphNavigationFailureSurface = "call-graph",
+) {
   const seq = ++state.graphMemberNavigationSeq;
   const owner = captureViewOperation(seq);
-  const packageKey = packageIdentityKey(loaded.pkg);
+  const packageKey = packageIdentityKey(pkg);
   const navigationIsCurrent = () =>
     ownsViewOperation(owner, state.graphMemberNavigationSeq)
-    && state.packages.some(pkg => packageIdentityKey(pkg) === packageKey);
-  state.graphMemberNavigationTitle = loaded.title;
+    && state.packages.some(candidate =>
+      packageIdentityKey(candidate) === packageKey);
+  state.graphMemberNavigationTitle =
+    `${stripArity(target.typeFullName.split(".").pop() ?? "")}.${target.memberName}`;
   state.graphMemberNavigationError = "";
   render();
   try {
     const projection = await loadGraphMemberSurface(
-      loaded.pkg,
-      loaded.type,
-      target);
+      pkg,
+      target,
+      existingType);
     if (!navigationIsCurrent()) {
       if (seq === state.graphMemberNavigationSeq) {
         state.graphMemberNavigationTitle = "";
@@ -8728,14 +9003,37 @@ async function navigateToGraphMember(
     const selectedTarget = graphMemberTargetWithSelectedBody(
       target,
       projection.selectedBody);
+    const projectedMember = singleProjectedGraphMember(projection.type);
+    const projectedType = createAppTypeSurface(projection.type);
+    if (!callGraphTargetMatchesType(target, projectedType)) {
+      throw new Error(
+        "The projected graph member did not retain the exact target type and member.");
+    }
+    const type = existingType ?? {
+      ...projectedType,
+      api: [],
+      graphOnly: true,
+    };
     const staged = stageGraphMemberSelection(
-      loaded.pkg,
-      loaded.type,
+      pkg,
+      type,
       selectedTarget,
-      projection.member);
+      projectedMember);
+    if (section === "source"
+      && !memberSectionIdsFor(
+        staged.selection.group,
+        pkg.isRuntimePack,
+        true).includes("source")) {
+      showGraphMemberNavigationError(
+        target,
+        "Source navigation is unavailable for this member.",
+        failureSurface);
+      return;
+    }
+    if (!existingType) pkg.types.push(type);
     const selection = commitGraphMemberSelection(
-      loaded.pkg,
-      loaded.type,
+      pkg,
+      type,
       selectedTarget,
       staged);
     state.graphMemberNavigationTitle = "";
@@ -8744,7 +9042,8 @@ async function navigateToGraphMember(
       selection.type,
       selection.group,
       selection.overloadIndex,
-      selection.selectedBodyTarget);
+      selection.selectedBodyTarget,
+      section);
   } catch (error) {
     if (!navigationIsCurrent()) {
       if (seq === state.graphMemberNavigationSeq) {
@@ -8753,11 +9052,28 @@ async function navigateToGraphMember(
       }
       return;
     }
-    state.graphMemberNavigationTitle = "";
-    state.graphMemberNavigationError =
-      `Could not open ${loaded.title}: ${errorMessage(error)}`;
-    render();
+    showGraphMemberNavigationError(
+      target,
+      errorMessage(error),
+      failureSurface);
   }
+}
+
+function showGraphMemberNavigationError(
+  target: BrowserCallGraphTarget,
+  reason: string,
+  failureSurface: GraphNavigationFailureSurface,
+) {
+  state.graphMemberNavigationTitle = "";
+  const message =
+    `Could not open ${target.typeFullName}.${target.memberName}: ${reason}`;
+  if (failureSurface === "annotated") {
+    state.annotatedDestinationError = message;
+    renderAndFocusAnnotated({ kind: "explore" }, "embedded");
+    return;
+  }
+  state.graphMemberNavigationError = message;
+  render();
 }
 
 async function restorePendingGraphMember() {
@@ -8790,8 +9106,8 @@ async function restorePendingGraphMember() {
     }
     const projection = await loadGraphMemberSurface(
       pkg,
-      type,
-      pending.target);
+      pending.target,
+      type);
     if (!restorationIsCurrent()) {
       discardIfOwned();
       return;
@@ -8799,11 +9115,12 @@ async function restorePendingGraphMember() {
     const selectedTarget = graphMemberTargetWithSelectedBody(
       pending.target,
       projection.selectedBody);
+    const projectedMember = singleProjectedGraphMember(projection.type);
     const staged = stageGraphMemberSelection(
       pkg,
       type,
       selectedTarget,
-      projection.member);
+      projectedMember);
     if (staged.selection.group.key !== pending.member) {
       throw new Error("The shared member identity does not match the graph target.");
     }
@@ -8917,7 +9234,11 @@ function popPlatformDrill() {
 // the workspace package. A not-yet-resident sibling assembly is acquired first so its
 // surface can resolve the target; in-place descent preserves the target's full assembly
 // identity when that surface has no unique member match.
-async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
+async function navigateOrDrillPlatform(
+  node: BrowserCallGraphTarget,
+  section: "overview" | "call-graph" = "call-graph",
+  failureSurface: GraphNavigationFailureSurface = "call-graph",
+) {
   invalidateGraphMemberNavigation();
   const seq = ++state.memberCallGraphSeq;
   const owner = captureViewOperation(seq);
@@ -8942,7 +9263,8 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
   if (!node.assembly || !callGraphTargetTypeId(node)) {
     await showPlatformTargetError(
       node,
-      "the graph target does not carry an exact assembly and type identity");
+      "the graph target does not carry an exact assembly and type identity",
+      failureSurface);
     return;
   }
   const framework = state.package?.activeFramework || "";
@@ -8984,11 +9306,17 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
     }
     state.platformDrillLoading = false;
     if (!pack) {
-      state.platformDrillError = runtimeResult.failureMessage
+      const message = runtimeResult.failureMessage
         || state.runtimePackError
         || `Could not load platform assembly ${node.assembly}.`;
-      renderPreservingMemberFocus(preservedFocus);
-      await renderMermaidCallGraph();
+      if (failureSurface === "annotated") {
+        state.annotatedDestinationError = message;
+        renderAndFocusAnnotated({ kind: "explore" }, "embedded");
+      } else {
+        state.platformDrillError = message;
+        renderPreservingMemberFocus(preservedFocus);
+        await renderMermaidCallGraph();
+      }
       return;
     }
     recordPlatformRecent(node.assembly, targetPack);
@@ -8998,7 +9326,8 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
   if (candidate.status === "ambiguous" || candidate.status === "skew") {
     await showPlatformTargetError(
       node,
-      graphTargetBlockedReason(candidate, "runtime"));
+      graphTargetBlockedReason(candidate, "runtime"),
+      failureSurface);
     return;
   }
   let selection = findRuntimeMemberSelection(pack, node, candidate);
@@ -9031,11 +9360,17 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
     }
     state.platformDrillLoading = false;
     if (!pack) {
-      state.platformDrillError = runtimeResult.failureMessage
+      const message = runtimeResult.failureMessage
         || state.runtimePackError
         || `Could not load platform assembly ${node.assembly}.`;
-      renderPreservingMemberFocus(preservedFocus);
-      await renderMermaidCallGraph();
+      if (failureSurface === "annotated") {
+        state.annotatedDestinationError = message;
+        renderAndFocusAnnotated({ kind: "explore" }, "embedded");
+      } else {
+        state.platformDrillError = message;
+        renderPreservingMemberFocus(preservedFocus);
+        await renderMermaidCallGraph();
+      }
       return;
     }
     recordPlatformRecent(node.assembly, targetPack);
@@ -9044,51 +9379,81 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
     if (candidate.status === "ambiguous" || candidate.status === "skew") {
       await showPlatformTargetError(
         node,
-        graphTargetBlockedReason(candidate, "runtime"));
+        graphTargetBlockedReason(candidate, "runtime"),
+        failureSurface);
       return;
     }
     selection = findRuntimeMemberSelection(pack, node, candidate);
   }
   if (candidate.status === "resident"
       || (candidate.status === "missing" && assemblyResident)) {
+    if (section === "overview") {
+      await showPlatformTargetError(
+        node,
+        "the platform target does not expose a selectable member overview",
+        failureSurface);
+      return;
+    }
     await drillPlatformNode(node, navigationIsCurrent);
     return;
   }
   if (candidate.status !== "unique") {
     await showPlatformTargetError(
       node,
-      "the loaded platform assembly does not contain the exact target identity");
+      "the loaded platform assembly does not contain the exact target identity",
+      failureSurface);
     return;
   }
   if (!navigationIsCurrent()) return;
   if (!selection) {
+    if (section === "overview") {
+      await showPlatformTargetError(
+        node,
+        "the platform target does not expose a selectable member overview",
+        failureSurface);
+      return;
+    }
     await drillPlatformNode(node, navigationIsCurrent);
     return;
   }
-  navigateToRuntimeMember(pack, selection.type, selection.group, selection.overloadIndex, node);
+  navigateToRuntimeMember(
+    pack,
+    selection.type,
+    selection.group,
+    selection.overloadIndex,
+    node,
+    section);
 }
 
 async function showPlatformTargetError(
   node: BrowserCallGraphTarget,
   reason: string,
+  failureSurface: GraphNavigationFailureSurface = "call-graph",
 ) {
   state.platformDrillLoading = false;
-  state.platformDrillError =
+  const message =
     `Could not open ${node.typeFullName}.${node.memberName}: ${reason}.`;
+  if (failureSurface === "annotated") {
+    state.annotatedDestinationError = message;
+    renderAndFocusAnnotated({ kind: "explore" }, "embedded");
+    return;
+  }
+  state.platformDrillError = message;
   render();
   focusPlatformGraphError(document);
   await renderMermaidCallGraph();
 }
 
-// Enter the resident runtime pack focused on one member's call graph. Mirrors
-// navigateToMember but targets the call-graph section (the reason the user clicked a graph
-// node) and clears any active platform descent so the new member's graph loads fresh.
+// Enter the resident runtime pack focused on one member. This mirrors
+// navigateToMember while clearing any active platform descent so the selected section
+// loads from a fresh runtime-member location.
 function navigateToRuntimeMember(
   pack: AppPackage,
   type: AppTypeSurface,
   group: AppMemberGroup,
   overloadIndex: number,
   bodyTarget: BodyTarget | null = null,
+  section: "overview" | "call-graph" = "call-graph",
 ) {
   invalidateGraphMemberNavigation();
   activatePackage(pack);
@@ -9104,7 +9469,7 @@ function navigateToRuntimeMember(
   state.memberBrowseTypeId = type.id;
   state.selectedMemberKey = group.key;
   state.selectedOverloadIndex = overloadIndex ?? 0;
-  state.memberSection = "call-graph";
+  state.memberSection = section;
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
@@ -9121,9 +9486,14 @@ function navigateToRuntimeMember(
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.annotatedDestinationError = "";
   state.selectedBodyTarget = bodyTarget;
   state.typeCursor = Math.max(0, filteredTypes().findIndex(item => item.id === type.id));
-  observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
+  if (section === "overview") {
+    observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
+  } else {
+    observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
+  }
 }
 
 // Resolve a platform call-graph node's structured identity to a concrete type, member
@@ -9228,6 +9598,7 @@ function renderDocViewer() {
 }
 
 function invalidateSourceCaches() {
+  invalidateSourceDestinationWork(state);
   state.memberSource = null;
   state.memberSourceKey = "";
   state.memberSourceError = "";
@@ -9237,6 +9608,7 @@ function invalidateSourceCaches() {
   state.memberAnnotated = null;
   state.memberAnnotatedKey = "";
   state.memberAnnotatedError = "";
+  state.annotatedDestinationError = "";
   state.memberAnnotatedEmbedded = null;
   state.memberAnnotatedModal = null;
 }
@@ -9343,6 +9715,7 @@ function navigateToMember(
   group: AppMemberGroup,
   overloadIndex: number | null = null,
   bodyTarget: BodyTarget | null = null,
+  section: "overview" | "source" = "overview",
 ) {
   invalidateGraphMemberNavigation();
   let selectedBodyTarget = bodyTarget;
@@ -9369,7 +9742,7 @@ function navigateToMember(
   state.memberBrowseTypeId = type.id;
   state.selectedMemberKey = group.key;
   state.selectedOverloadIndex = overloadIndex;
-  state.memberSection = "overview";
+  state.memberSection = section;
   state.memberSource = null;
   state.memberSourceError = "";
   state.memberCallGraph = null;
@@ -9379,8 +9752,13 @@ function navigateToMember(
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.annotatedDestinationError = "";
   state.selectedBodyTarget = selectedBodyTarget;
-  observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
+  if (section === "source") {
+    observeAsync(loadSelectedMemberSource(), "Loading member source");
+  } else {
+    observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
+  }
 }
 
 async function loadSelectedMemberFacts() {
@@ -10827,8 +11205,7 @@ window.addEventListener("popstate", () => {
   const navigationSeq = navigationSequence.begin();
   let leftPackageQueryForWorkspaceSuccessor = false;
   const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation();
-  invalidateMemberCallGraphWork(state);
-  invalidateGraphMemberNavigation();
+  invalidateMemberDestinationWork(state);
   if (dismissedAnnotatedSourceModal) render({ synchronizeUrl: false });
   if (isPackageQueryPath(location.pathname)) {
     clearNavigationError();
