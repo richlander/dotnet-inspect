@@ -61,6 +61,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [CLI Row-Selection Grammar](design/cli-row-selection.md) | L3 item, Window, Top, direction, line-unit, shorthand, capability, and lowering rules for command-by-command adoption. |
 | [Source Delegation](design/source-delegation.md) | Delegated source execution: the effect protocol, closed result algebra, completion-evidence bases, and equivalence gates for row handoff and exact upstream Count. |
 | [Package Dependency Evidence](design/package-dependency-evidence.md) | Normalized declared dependency evidence, additive resolution and owner observations, cross-input equivalence, completion, and `InertString` query-result containment. |
+| [Restored Project Dependency Facts](design/restored-project-dependency-facts.md) | Host-neutral `project.assets.json` declarations, resolved package graph, typed identity, completion, failure, and containment. |
 | [Projected JSON Output](design/projected-json.md) | Typed versus lowered JSON, section-scoped projection, representability, atomic output, and adoption gates. |
 | [Inspection Graph Document](design/inspection-graph-document.md) | Typed multi-subject graph envelope for calls, metadata, integrations, Findings, occurrences, characteristics, and package/type lenses. |
 | [Custom-Attribute Value Decoding](design/custom-attribute-value-decoding.md) | The alignment, bounding, and guard-work invariants relating the custom-attribute value guard to SRM's decode, the two width-resolution paths, bounds, charging, and refusal semantics. Descriptive, with seven known gaps recorded against the contract. |
@@ -71,6 +72,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Allocation Triage Pre-Filters](design/allocation-triage-prefilters.md) | Which allocation candidates Performance Triage surfaces, why the pre-filters prune cold-by-construction shapes, and what realized cost the static side cannot predict. |
 | [Finding Nomenclature](design/finding-nomenclature.md) | Canonical observation/change vocabulary, arity ladder, operation outcomes, and Research composition boundary. |
 | [Finding Producer Design](design/finding-producers.md) | Choosing producer ownership, payloads, identities, result shapes, matching modes, and higher-rung boundaries. |
+| [Finding Instance Census](design/finding-instance-census.md) | Producer-issued receipt and per-instance keys for one sealed Finding census, including exact-association validation. |
 | [Finding Value Semantics](design/finding-value-equality.md) | Equality and hashing for Finding-owned structural values, ordered collections, identity sets, union cases, and operation objects. |
 | [Analysis Diff Format](design/analysis-diff.md) | Complete immutable two-version item sequences and exhaustive producer-issued N:M relations for shared CLI and browser/Wasm analysis. |
 | [Comparison Document](design/comparison-document.md) | Portable root and subject composition for shared CLI/browser diffs and clone payloads, including referenced rename/move descriptions. |

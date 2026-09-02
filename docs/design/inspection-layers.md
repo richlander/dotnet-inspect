@@ -272,6 +272,21 @@ dotnet run --project src/dotnet-inspect.Tests -c Release -- \
   -method '*PackageProfileDefaultScale*'
 ```
 
+`RestoredProjectDependencyFactsQuery` implements the contract in
+[`restored-project-dependency-facts.md`](restored-project-dependency-facts.md)
+over exact caller-supplied `project.assets.json` bytes and an optional exact
+TFM/RID request, supporting assets schema versions 3 and 4. It projects one
+content provenance digest, one selection identity independent of JSON property
+order, one root, per-framework declaration groups with `InertString`-contained
+package identity and version-constraint spellings, and a package-resolving
+graph of direct/transitive edges reachable from root traversal — never a path,
+filesystem, cache, MSBuild evaluation, or output type. Declaration and graph
+projection fail independently, each as a closed `Available` (complete or
+incomplete)/`Unavailable`/`Failed` outcome with a typed, content-free failure
+reason. This query has no CLI or section adoption yet; it is gated by
+`RestoredProjectDependencyFactsQueryTests` and the
+`restored-project.dependency-facts` fixture in `DotnetInspector.Fixtures`.
+
 L1 does not reference Markout.
 
 ### L2 — `DotnetInspector.Sections`

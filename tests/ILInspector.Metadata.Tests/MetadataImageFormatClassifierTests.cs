@@ -9,6 +9,7 @@ namespace ILInspector.Metadata.Tests;
 
 public sealed class MetadataImageFormatClassifierTests
 {
+
     [Fact]
     public void ClassifyRejectsNullReader()
         => Assert.Throws<ArgumentNullException>(
@@ -49,6 +50,7 @@ public sealed class MetadataImageFormatClassifierTests
         Assert.IsType<MetadataImageFormatResult.UnsupportedWindowsMetadata>(
             MetadataImageFormatClassifier.Classify(peReader));
     }
+
 
     [Theory]
     [InlineData("windowsRuntime 1.4")]
@@ -112,6 +114,30 @@ public sealed class MetadataImageFormatClassifierTests
 
         Assert.IsType<MetadataImageFormatResult.SupportedEcma335>(
             MetadataImageFormatClassifier.Classify(peReader));
+    }
+
+    [Fact]
+    public void Mdp017_PaddedByteCannotTerminateMaximumVersionString()
+    {
+        byte[] image = BuildImage(
+            "v4.0.30319",
+            additionalTypeCount: 20);
+        int versionStart =
+            MetadataStart(image)
+            + MetadataImageFormatClassifier.FixedPrefixLength;
+        BinaryPrimitives.WriteInt32LittleEndian(
+            image.AsSpan(versionStart - sizeof(int), sizeof(int)),
+            MetadataImageFormatClassifier.MaximumPaddedVersionLength);
+        Span<byte> version = image.AsSpan(
+            versionStart,
+            MetadataImageFormatClassifier.MaximumPaddedVersionLength);
+        version.Fill((byte)'A');
+        version[MetadataImageFormatClassifier.MaximumVersionStringLength] = 0;
+        using var peReader = Open(image);
+
+        AssertMalformed(
+            peReader,
+            MetadataRootMalformedReason.MissingVersionTerminator);
     }
 
     [Fact]
@@ -357,6 +383,16 @@ public sealed class MetadataImageFormatClassifierTests
         BinaryPrimitives.WriteInt32LittleEndian(
             image.AsSpan(CorHeaderStart(image) + 12, sizeof(int)),
             size);
+    }
+
+    static void RemoveMetadataDirectory(byte[] image)
+    {
+        using var peReader = Open(image);
+        PEHeader peHeader = peReader.PEHeaders.PEHeader!;
+        int directoryBase =
+            peReader.PEHeaders.PEHeaderStartOffset
+            + (peHeader.Magic == PEMagic.PE32Plus ? 112 : 96);
+        image.AsSpan(directoryBase + (14 * 8), 8).Clear();
     }
 
     static void TruncateMetadataAfterVersionField(byte[] image)
