@@ -264,6 +264,31 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
                     {{LegacyTypeName}}? Read() => null;
                 }
                 """);
+            File.WriteAllText(
+                Path.Combine(
+                    sourceRoot,
+                    "ConditionalReceiverConsumer.cs"),
+                $$"""
+                namespace Probe;
+                sealed class ReceiverOtherDescriptor
+                {
+                    public object {{IdentityPropertyName}} => new();
+                }
+                sealed class ConditionalReceiverConsumer
+                {
+                    object Read()
+                    {
+                #if CONDITIONAL_DESCRIPTOR_RECEIVER
+                        var descriptor =
+                            new NuGetFetch.{{DescriptorTypeName}}();
+                #else
+                        var descriptor =
+                            new ReceiverOtherDescriptor();
+                #endif
+                        return descriptor.{{IdentityPropertyName}};
+                    }
+                }
+                """);
 
             Dictionary<string, MigrationEntry> readers =
                 DiscoverReferences(new DirectoryInfo(root))
@@ -295,12 +320,18 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
                 1,
                 readers["tests/ConditionalUsingConsumer.cs"]
                     .ExplicitReferences);
+            Assert.Equal(
+                1,
+                readers["tests/ConditionalReceiverConsumer.cs"]
+                    .ImplicitReferences);
             Assert.All(
                 readers.Values.Where(entry =>
                     entry.Path is not
                         "tests/InactiveConsumer.cs"
                         and not
-                        "tests/ConditionalDescriptorConsumer.cs"),
+                        "tests/ConditionalDescriptorConsumer.cs"
+                        and not
+                        "tests/ConditionalReceiverConsumer.cs"),
                 entry => Assert.Equal(0, entry.ImplicitReferences));
             Assert.Contains(
                 "unlisted",
@@ -575,26 +606,37 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
         IEnumerable<SyntaxTree> trees) =>
         string.Join(
             '\n',
-            trees.SelectMany(tree =>
-                    tree.GetRoot()
-                        .DescendantNodes()
-                        .Where(node => node switch
-                        {
-                            UsingDirectiveSyntax => true,
-                            BaseNamespaceDeclarationSyntax => true,
-                            TypeDeclarationSyntax declaration =>
-                                declaration.Identifier.ValueText
-                                    is LegacyTypeName
-                                    or DescriptorTypeName,
-                            TypeParameterSyntax parameter =>
-                                parameter.Identifier.ValueText
-                                    is LegacyTypeName
-                                    or DescriptorTypeName,
-                            _ => false,
-                        })
-                        .Select(node =>
-                            $"{tree.FilePath}:{node.SpanStart}:{node}"))
+            trees.SelectMany(BindingConfigurationParts)
                 .Order(StringComparer.Ordinal));
+
+    static IEnumerable<string> BindingConfigurationParts(
+        SyntaxTree tree)
+    {
+        SyntaxNode syntax = tree.GetRoot();
+        foreach (UsingDirectiveSyntax directive in
+                 syntax.DescendantNodes()
+                     .OfType<UsingDirectiveSyntax>())
+        {
+            yield return $"{tree.FilePath}:using:"
+                + $"{directive.SpanStart}:{directive}";
+        }
+
+        bool hasPotentialReader = syntax.DescendantNodes()
+            .OfType<SimpleNameSyntax>()
+            .Any(name =>
+                name.Identifier.ValueText is
+                    LegacyTypeName
+                    or DescriptorTypeName
+                    or IdentityPropertyName);
+        if (!hasPotentialReader)
+            yield break;
+
+        foreach (SyntaxToken token in syntax.DescendantTokens())
+        {
+            yield return $"{tree.FilePath}:token:{token.SpanStart}:"
+                + $"{token.RawKind}:{token.ValueText}";
+        }
+    }
 
     static HashSet<int> ActiveSyntaxLocations(SyntaxNode syntax) =>
         [
