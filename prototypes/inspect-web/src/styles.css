@@ -197,7 +197,7 @@ body {
   align-items: center;
   min-width: 0;
   height: 100%;
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   padding: 0 6px;
   overflow-x: auto;
   overflow-y: hidden;
@@ -207,7 +207,34 @@ body {
   gap: 2px;
 }
 .lensbar::-webkit-scrollbar { height: 0; }
-.lensbar button {
+.slide-strip {
+  position: relative;
+  flex: none;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.slide-strip-items {
+  display: flex;
+  align-items: center;
+  width: max-content;
+  height: 100%;
+  gap: 2px;
+}
+.slide-strip[data-fallback="true"][data-oversized-alignment="end"] .slide-strip-items {
+  position: absolute;
+  right: 0;
+}
+.slide-strip-item[hidden] { display: none; }
+.slide-strip [data-slide-strip-representation] { display: none; }
+.slide-strip[data-mode="label"] [data-slide-strip-representation="label"],
+.slide-strip[data-mode="short-label"] [data-slide-strip-representation="short-label"],
+.slide-strip[data-mode="icon"] [data-slide-strip-representation="icon"],
+.slide-strip[data-mode="index"] [data-slide-strip-representation="index"] {
+  display: inline;
+}
+.slide-strip button {
   height: 38px;
   padding: 0 12px;
   border: 0;
@@ -218,11 +245,53 @@ body {
 }
 .lensbar button:hover { color: var(--text); background: rgba(255,255,255,.015); }
 .lensbar button.active { color: var(--text); border-bottom-color: var(--accent); }
-.inspector-strip { display: flex; align-items: center; gap: 2px; }
+.slide-strip-edge {
+  position: absolute;
+  z-index: 2;
+  top: 6px;
+  bottom: 6px;
+  width: 8px;
+  pointer-events: none;
+}
+.slide-strip-edge.before {
+  left: 0;
+  border-left: 2px solid var(--accent);
+  background: linear-gradient(90deg, var(--panel), transparent);
+}
+.slide-strip-edge.after {
+  right: 0;
+  border-right: 2px solid var(--accent);
+  background: linear-gradient(270deg, var(--panel), transparent);
+}
+.slide-strip-allocation {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+.slide-strip-allocation[hidden] { display: none; }
+.slide-strip-allocation button {
+  width: 22px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--dim);
+  font: 13px var(--mono);
+}
+.slide-strip-allocation button:hover:not([aria-disabled="true"]) {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+.slide-strip-allocation button[aria-disabled="true"] {
+  opacity: .35;
+  cursor: default;
+}
 .home-lens { color: var(--text) !important; font-weight: 600; cursor: pointer; }
 .home-lens.active { border-bottom-color: var(--accent); }
 .home-lens span { color: var(--accent); margin-right: 6px; }
-.scope-switch { display: flex; align-items: center; gap: 2px; padding: 3px; margin-right: 4px; background: rgba(127,127,127,.08); border: 1px solid var(--line); border-radius: 8px; }
+.scope-switch { padding: 3px; background: rgba(127,127,127,.08); border: 1px solid var(--line); border-radius: 8px; }
 .scope-switch button.scope-seg {
   height: 26px;
   padding: 0 12px;
@@ -236,7 +305,7 @@ body {
 }
 .scope-switch button.scope-seg:hover { color: var(--text); background: rgba(127,127,127,.12); }
 .scope-switch button.scope-seg.active { color: #fff; background: var(--accent); border-bottom-color: transparent; }
-.lens-separator { width: 1px; height: 17px; background: var(--line); margin: 0 5px; }
+.lens-separator { flex: none; width: 1px; height: 17px; background: var(--line); margin: 0 4px; }
 .workspace-coordinate-list { min-height: 0; overflow: auto; padding: 8px; }
 .workspace-coordinate {
   display: grid;
@@ -391,7 +460,7 @@ body {
   max-width: 320px;
   min-width: 72px;
 }
-.lens kbd { margin-left: 8px; color: var(--dim); font: 10px var(--mono); }
+.lens kbd { color: var(--dim); font: 10px var(--mono); }
 .lens-context { color: var(--dim); font: 10px var(--mono); }
 
 .workspace {
@@ -1282,9 +1351,6 @@ kbd {
   .brand span:last-child { display: none; }
   .inspected-target { gap: 6px; padding: 0 10px; }
   .subject-path-separator { margin: 0 6px; }
-  .lensbar button.lens { width: 28px; padding: 0; }
-  .lensbar .lens-label { display: none; }
-  .lensbar .lens kbd { margin-left: 0; }
   .workspace { grid-template-columns: 44% 56%; }
   .type-browser:not(.member-nav) .namespace-chips, .pane-footer { display: none; }
   .type-browser { grid-template-rows: 40px 38px auto auto minmax(0, 1fr); }

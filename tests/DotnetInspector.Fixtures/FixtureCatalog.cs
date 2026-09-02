@@ -116,6 +116,8 @@ public static class FixtureIds
         "research.target-correspondence.v2";
 
     public const string RunFasterAllocation = "runfaster.allocation";
+
+    public const string RestoredProjectDependencyFacts = "restored-project.dependency-facts";
 }
 
 public static class FixtureCatalog
@@ -535,6 +537,15 @@ public static class FixtureCatalog
         Boundaries(FixtureBoundary.SidecarAsset),
         Asset("fixture.nettrace", "runfaster.Tests", "Fixtures/RunFaster.AllocationFixture/fixture.nettrace"));
 
+    public static readonly FixtureDefinition RestoredProjectDependencyFacts = Fixture(
+        FixtureIds.RestoredProjectDependencyFacts,
+        "DotnetInspector.RestoredProjectFixtures",
+        "DotnetInspector.RestoredProjectFixtures.dll",
+        ["restored-project", "dependency-facts", "multi-target"],
+        Boundaries(FixtureBoundary.TargetFramework, FixtureBoundary.SidecarAsset, FixtureBoundary.PostBuildTransformation),
+        Asset("project.assets.json", "DotnetInspector.RestoredProjectFixtures", "project.assets.json"),
+        Asset("manifest.nuspec", "DotnetInspector.RestoredProjectFixtures", "RestoredProjectFixture.nuspec"));
+
     public static readonly IReadOnlyList<FixtureDefinition> All =
     [
         HostileLiterals,
@@ -589,6 +600,7 @@ public static class FixtureCatalog
         DecompilerUnsafeChainC,
         DecompilerVbFinalizer,
         RunFasterAllocation,
+        RestoredProjectDependencyFacts,
         ResearchTargetSample,
         ResearchTargetCorrespondenceV1,
         ResearchTargetCorrespondenceV2,
