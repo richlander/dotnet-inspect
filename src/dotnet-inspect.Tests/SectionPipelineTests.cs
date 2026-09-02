@@ -315,6 +315,74 @@ public class SectionPipelineTests
     // ===== Library pipeline integration tests =====
 
     [Fact]
+    public void IntegrationInventory_IsExplicitNetworkFreeVerboseSection()
+    {
+        DocumentSchema schema = IntegrationInventorySections.CreateSchema();
+        SectionCatalog<IntegrationInventoryProjectionResult> catalog =
+            IntegrationInventorySections.CreateCatalog();
+
+        Assert.Equal(
+            IntegrationInventorySections.Inventory,
+            IntegrationInventorySections.InventoryRows.Name);
+        Assert.False(
+            IntegrationInventorySections.InventoryRows.IsExpensive);
+        Assert.True(
+            IntegrationInventorySections.InventoryRows.ExplicitOnly);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            IntegrationInventorySections.InventoryRows.SizeClass);
+        Assert.Equal(
+            SectionCost.NetworkFree,
+            IntegrationInventorySections.InventoryRows.Cost);
+        Assert.Equal(
+            [
+                "Concept",
+                "Relationship",
+                "Source",
+                "Source Assembly",
+                "Source Provenance",
+                "Source Parent",
+                "Binding Context",
+                "Peer",
+                "Peer Scope",
+                "Terminal",
+                "Terminal Assembly",
+                "Terminal Provenance",
+                "Terminal Parent",
+                "Forwarding Hops",
+                "Disposition",
+                "Out Reason",
+                "Producer Policies",
+            ],
+            schema.GetSection(IntegrationInventorySections.Inventory)!
+                .Items.Select(static item => item.Name));
+        Assert.Equal(
+            [IntegrationInventorySections.Inventory],
+            catalog.AllSectionNames);
+        Assert.Empty(
+            catalog.Pipeline.GetCandidateSections(Verbosity.Detailed));
+        Assert.Equal(
+            [IntegrationInventorySections.Inventory],
+            catalog.Pipeline.GetCandidateSections(
+                Verbosity.Normal,
+                [IntegrationInventorySections.Inventory]));
+    }
+
+    [Fact]
+    public void IntegrationInventory_DoesNotWidenLibraryIntegrationsCategory()
+    {
+        SectionCatalog<LibraryInspection> catalog =
+            LibrarySections.CreateCatalog().Sections;
+
+        Assert.DoesNotContain(
+            IntegrationInventorySections.Inventory,
+            catalog.AllSectionNames);
+        Assert.DoesNotContain(
+            IntegrationInventorySections.Inventory,
+            catalog.CategoryMap[SectionCategoryNames.Integrations]);
+    }
+
+    [Fact]
     public void LibraryPipeline_HasExpectedSectionCount()
     {
         var pipeline = LibrarySections.CreatePipeline();
