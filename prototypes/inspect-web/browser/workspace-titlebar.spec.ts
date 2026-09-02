@@ -1083,3 +1083,48 @@ test("Workspace gives retained packets the pane and keeps Share readable", async
   await expect(page.locator("#copy-name")).toHaveCount(0);
   await expect(page.locator("[data-subject-copy]")).toHaveCount(0);
 });
+
+test("Workspace packet selection is observational and Open executes", async ({
+  page,
+}) => {
+  await page.goto("/browser/workspace-titlebar.html?workspace=1");
+
+  const packets = page.locator("[data-workspace-packet]");
+  await expect(packets).toHaveCount(3);
+  expect(await packets.evaluateAll(elements =>
+    elements.map(element => element.getAttribute("data-workspace-packet"))))
+    .toEqual([
+    "stj-serializer",
+    "stj-serialize-callgraph",
+    "stj-getdecimal-callgraph",
+  ]);
+  const href = page.url();
+  const serialize = page.locator(
+    '[data-workspace-packet="stj-serialize-callgraph"]');
+  await serialize.click();
+
+  await expect(serialize).toBeFocused();
+  await expect(page.locator(".workspace-heading h1"))
+    .toHaveText("Serialize call graph");
+  await expect(page.locator(".subject-path-segment"))
+    .toHaveText("Serialize call graph");
+  await expect(page.locator("body"))
+    .toHaveAttribute("data-workspace-execution-count", "0");
+  expect(page.url()).toBe(href);
+
+  const getDecimal = page.locator(
+    '[data-workspace-packet="stj-getdecimal-callgraph"]');
+  await getDecimal.click();
+  await expect(getDecimal).toBeFocused();
+  await expect(page.locator(".workspace-heading h1"))
+    .toHaveText("JsonElement.GetDecimal");
+  expect(page.url()).toBe(href);
+
+  await page.getByRole("button", { name: "Open workspace" }).click();
+  await expect(page.locator("body"))
+    .toHaveAttribute("data-workspace-execution-count", "1");
+  await expect(page.locator("body"))
+    .toHaveAttribute(
+      "data-workspace-execution",
+      "stj-getdecimal-callgraph");
+});

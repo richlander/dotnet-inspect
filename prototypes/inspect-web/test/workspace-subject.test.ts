@@ -5,6 +5,7 @@ import {
   focusWorkspacePacket,
   renderWorkspacePacketView,
   renderWorkspaceSubject,
+  retainWorkspacePacket,
 } from "../src/workspace-subject.ts";
 import type { BrowserHomeDemoResolved } from "../src/inspect-web-engine.d.ts";
 import type { PackageControlPackage } from "../src/package-controls.ts";
@@ -77,6 +78,24 @@ test("Workspace lists independently selectable packets", () => {
   assert.match(html, /Serialize call graph[\s\S]*Dense package-local STJ graph/);
   assert.match(html, /JsonElement\.GetDecimal[\s\S]*STJ number parse path/);
   assert.doesNotMatch(html, /data-workspace-open/);
+});
+
+test("Workspace packet retention keys scenarios independently of coordinates", () => {
+  const sibling = {
+    ...packet,
+    id: "stj-getdecimal-callgraph",
+    title: "JsonElement.GetDecimal",
+  };
+  const retained = retainWorkspacePacket(
+    retainWorkspacePacket([], packet),
+    sibling);
+
+  assert.deepEqual(
+    retained.map(item => item.id),
+    ["stj-serialize-callgraph", "stj-getdecimal-callgraph"]);
+  assert.deepEqual(
+    retained.map(item => item.workspaceMembers),
+    [packet.workspaceMembers, packet.workspaceMembers]);
 });
 
 test("Workspace packet details distinguish packet data from loaded coordinates", () => {

@@ -241,6 +241,7 @@ import {
   focusWorkspacePacket,
   renderWorkspacePacketView,
   renderWorkspaceSubject,
+  retainWorkspacePacket as retainWorkspacePacketInList,
 } from "./workspace-subject.ts";
 import {
   bindDocViewer,
@@ -7441,15 +7442,9 @@ function selectWorkspacePacket(packetId: string): void {
 }
 
 function retainWorkspacePacket(packet: ProductHomeDemoResolved): void {
-  const index = state.workspacePackets.findIndex(
-    candidate => candidate.id === packet.id);
-  if (index < 0) {
-    state.workspacePackets = [...state.workspacePackets, packet];
-  } else {
-    const packets = state.workspacePackets.slice();
-    packets[index] = packet;
-    state.workspacePackets = packets;
-  }
+  state.workspacePackets = retainWorkspacePacketInList(
+    state.workspacePackets,
+    packet);
   state.selectedWorkspacePacketId = packet.id;
 }
 

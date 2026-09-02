@@ -24,6 +24,17 @@ export interface WorkspaceSubjectBindingActions {
   onClose: (packageKey: string) => void;
 }
 
+export function retainWorkspacePacket(
+  packets: readonly BrowserHomeDemoResolved[],
+  packet: BrowserHomeDemoResolved,
+): BrowserHomeDemoResolved[] {
+  const index = packets.findIndex(candidate => candidate.id === packet.id);
+  if (index < 0) return [...packets, packet];
+  const retained = packets.slice();
+  retained[index] = packet;
+  return retained;
+}
+
 export function renderWorkspaceSubject(
   options: WorkspaceSubjectRenderOptions,
 ): string {
