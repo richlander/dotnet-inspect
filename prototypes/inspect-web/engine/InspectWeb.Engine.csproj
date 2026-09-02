@@ -9,6 +9,7 @@
     <WasmEnableExceptionHandling>false</WasmEnableExceptionHandling>
     <RepositoryUrl>https://github.com/richlander/dotnet-inspect</RepositoryUrl>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <IsInspectionProductProject>true</IsInspectionProductProject>
   </PropertyGroup>
 
   <ItemGroup>

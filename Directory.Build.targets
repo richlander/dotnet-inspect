@@ -31,6 +31,16 @@
     <Features>$(Features);updated-memory-safety-rules</Features>
   </PropertyGroup>
 
+  <!-- InspectionProductProjectDefault is supplied by product source
+       boundaries such as src/Directory.Build.props. Resolve the public marker
+       here, after project files have declared IsTestProject or an explicit
+       opt-in/opt-out. Inspect Web opts in from its product project files. -->
+  <PropertyGroup>
+    <IsInspectionProductProject Condition="'$(IsInspectionProductProject)' == '' and '$(InspectionProductProjectDefault)' == 'true' and '$(IsTestProject)' != 'true'">true</IsInspectionProductProject>
+    <IsInspectionProductProject Condition="'$(IsInspectionProductProject)' == ''">false</IsInspectionProductProject>
+    <_UsesBannedApiAnalyzer Condition="'$(MSBuildProjectExtension)' == '.csproj' and ('$(OwnsItsOwnStderr)' != 'true' or '$(IsInspectionProductProject)' == 'true')">true</_UsesBannedApiAnalyzer>
+  </PropertyGroup>
+
   <!-- Only CommandError may reach stderr (issue #3319). The rule is enforced by
        the compiler's semantic model via BannedApiAnalyzers, not by a scan of the
        source text, because a scan has to model C# to know what a name binds to
@@ -60,19 +70,30 @@
        dotnet-inspect.slnx — tests/DotnetInspector.ILRoundtrip.Tests and four
        metadata fixtures — so a solution build is not evidence that this rule
        holds. Build them too, or let CI find it. -->
-  <ItemGroup Condition="'$(OwnsItsOwnStderr)' != 'true' and '$(MSBuildProjectExtension)' == '.csproj'">
+  <ItemGroup Condition="'$(_UsesBannedApiAnalyzer)' == 'true'">
     <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(OwnsItsOwnStderr)' != 'true' and '$(MSBuildProjectExtension)' == '.csproj'">
     <AdditionalFiles Include="$(MSBuildThisFileDirectory)eng/BannedSymbols.txt" />
+  </ItemGroup>
+
+  <!-- Product inspection parses assembly bytes through SRM and must never load
+       or activate them in the runtime. This policy is independent of stderr
+       ownership: separate entry points may own their diagnostics without
+       gaining permission to load inspected code. -->
+  <ItemGroup Condition="'$(IsInspectionProductProject)' == 'true' and '$(MSBuildProjectExtension)' == '.csproj'">
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)eng/BannedSymbols.InspectionProduct.txt" />
   </ItemGroup>
 
   <!-- Escalated explicitly rather than left to the repository-wide
        TreatWarningsAsErrors default. Warning-producing fixture projects can opt
        out of that default, but the banned-API rule must remain an error
        everywhere it is on. -->
-  <PropertyGroup Condition="'$(OwnsItsOwnStderr)' != 'true' and '$(MSBuildProjectExtension)' == '.csproj'">
+  <PropertyGroup Condition="'$(_UsesBannedApiAnalyzer)' == 'true'">
     <WarningsAsErrors>$(WarningsAsErrors);RS0030</WarningsAsErrors>
   </PropertyGroup>
 

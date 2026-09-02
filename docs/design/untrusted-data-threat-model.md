@@ -297,6 +297,16 @@ inspection must not introduce `Assembly.Load`, `AssemblyLoadContext`, reflection
 over inspected binaries, module initializers, or dependency resolution that
 executes target code.
 
+`AssemblyLoadingPolicyTests` and
+`BrowserEngineLayeringTests.CompiledBrowserProductAssembliesReferenceNoForbiddenRuntimeRoute`
+are the gates for this absence claim. `IsInspectionProductProject` marks the
+shipped tool and Inspect Web project closures, `Directory.Build.targets`
+supplies `eng/BannedSymbols.InspectionProduct.txt` to
+`Microsoft.CodeAnalysis.BannedApiAnalyzers`, a compile-negative canary proves
+the analyzer is live, and Release-IL censuses keep an `RS0030` suppression from
+hiding a forbidden reference in first-party compiled product output. The
+censuses do not make an absence claim about third-party runtime dependencies.
+
 Reader-backed values remain inside their owning session. Values that cross a
 session boundary are copied or reduced to immutable tokens and shapes. This
 prevents use-after-dispose and avoids lending privileged readers to higher

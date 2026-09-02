@@ -12,6 +12,7 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <IsAotCompatible>false</IsAotCompatible>
+    <IsInspectionProductProject>false</IsInspectionProductProject>
   </PropertyGroup>
 
   <ItemGroup>

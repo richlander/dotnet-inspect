@@ -8,6 +8,14 @@
     <ArtifactsPath>$(MSBuildThisFileDirectory)../artifacts</ArtifactsPath>
     <IncludeProjectNameInArtifactsPaths>true</IncludeProjectNameInArtifactsPaths>
     <IsAotCompatible>true</IsAotCompatible>
+    <!--
+      Projects under src/ are product code by default. Tests are excluded after
+      their project files set IsTestProject, and conventionally named fixture
+      projects are excluded here. A non-product project with another name must
+      opt out explicitly with IsInspectionProductProject=false.
+    -->
+    <InspectionProductProjectDefault Condition="'$(InspectionProductProjectDefault)' == '' and $([System.String]::Copy('$(MSBuildProjectName)').Contains('Fixture'))">false</InspectionProductProjectDefault>
+    <InspectionProductProjectDefault Condition="'$(InspectionProductProjectDefault)' == ''">true</InspectionProductProjectDefault>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(OfficialAotBuild)' == 'true'">

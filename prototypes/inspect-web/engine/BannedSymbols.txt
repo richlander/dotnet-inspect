@@ -68,9 +68,6 @@ T:System.Reflection.Metadata.MetadataReaderProvider;Raw metadata decoding belong
 T:System.Reflection.Metadata.PEReaderExtensions;Bridging raw PE content to metadata belongs to product package realization; the browser host uses product queries.
 T:System.Reflection.Assembly;Inspected assemblies are parsed by product queries, never loaded into or reflected over in the runtime.
 T:System.Reflection.AssemblyName;Assembly identity decoding belongs to product realization, never path-based runtime reflection in the browser host.
-T:System.AppDomain;Inspected assemblies are never loaded, activated, or executed in a runtime application domain.
-T:System.Activator;Inspected assemblies are never activated through runtime reflection.
-T:System.Runtime.Loader.AssemblyLoadContext;Inspected assemblies are parsed by product queries, never loaded into the runtime.
 
 M:DotnetInspector.Queries.InspectionWorkspace.CreateAssemblyContextGroup(System.Collections.Generic.IEnumerable{DotnetInspector.Queries.AssemblyContextParticipant},DotnetInspector.Queries.AssemblyContextGroupOptions);Product package realization owns binding-consistent group composition.
 M:DotnetInspector.Queries.InspectionWorkspace.CreatePackageAssemblyContextRoles(System.Collections.Generic.IEnumerable{ILInspector.Metadata.ResolvedAssemblyReference},System.Collections.Generic.IEnumerable{ILInspector.Metadata.ResolvedAssemblyReference},System.Collections.Generic.IEnumerable{DotnetInspector.Queries.PackageAssemblyRoleCorrespondence},System.Boolean,DotnetInspector.Queries.AssemblyContextGroupOptions,DotnetInspector.Queries.AssemblyContextGroupOptions);Product package realization owns package role construction and correspondence.

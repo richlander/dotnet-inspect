@@ -3,6 +3,7 @@
     <TargetFramework>net11.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <IsInspectionProductProject>true</IsInspectionProductProject>
   </PropertyGroup>
 
   <ItemGroup>

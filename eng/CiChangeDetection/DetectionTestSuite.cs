@@ -441,6 +441,34 @@ internal static class DetectionTestSuite
                 + FormatValues(globalAnalyzerInput));
         }
 
+        Dictionary<string, string> productAnalyzerInput = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/BannedSymbols.InspectionProduct.txt",
+            outputs);
+        if (productAnalyzerInput["code"] != "true"
+            || productAnalyzerInput["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Product analyzer input canary did not select code and web: "
+                + FormatValues(productAnalyzerInput));
+        }
+
+        Dictionary<string, string> browserProductProject = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "prototypes/inspect-web/engine/InspectWeb.Engine.csproj",
+            outputs);
+        if (browserProductProject["code"] != "true"
+            || browserProductProject["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Browser product project canary did not select code and web: "
+                + FormatValues(browserProductProject));
+        }
+
         Dictionary<string, string> webProjectManifest = RunDetection(
             repository,
             body,

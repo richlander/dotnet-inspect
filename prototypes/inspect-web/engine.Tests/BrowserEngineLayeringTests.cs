@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Xml.Linq;
 using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
@@ -595,6 +597,18 @@ public sealed class BrowserEngineLayeringTests
     }
 
     [Fact]
+    public void CompiledBrowserProductAssembliesReferenceNoForbiddenRuntimeRoute()
+    {
+        Assert.Contains(
+            BrowserProductAssemblies,
+            assembly => assembly.GetName().Name == "InspectWeb.Engine");
+        Assert.Empty(
+            BrowserProductAssemblies
+                .SelectMany(ForbiddenRuntimeReferences)
+                .OrderBy(reference => reference, StringComparer.Ordinal));
+    }
+
+    [Fact]
     public void EngineCoreAssembly_HasNoFacadeContracts()
     {
         Assembly core = typeof(BrowserSourceOperationCoordinator).Assembly;
@@ -702,6 +716,12 @@ public sealed class BrowserEngineLayeringTests
     static IReadOnlyList<Assembly> ProductAssemblies { get; } =
         ProductReferenceClosure();
 
+    static IReadOnlyList<Assembly> BrowserProductAssemblies { get; } =
+    [
+        typeof(BrowserPackageSurface).Assembly,
+        .. ProductAssemblies,
+    ];
+
     static CSharpCompilation ProductCompilation { get; } = CSharpCompilation.Create(
         "BrowserEngineBannedSymbols",
         references:
@@ -715,7 +735,8 @@ public sealed class BrowserEngineLayeringTests
 
     static IReadOnlyList<string> BannedSymbols() =>
     [
-        .. File.ReadAllLines(BanListPath)
+        .. new[] { BanListPath, GlobalBanListPath }
+            .SelectMany(File.ReadAllLines)
             .Select(line => line.Trim())
             .Where(line => line.Length > 0 && !line.StartsWith(';'))
             .Select(line => line.Split(';')[0].Trim()),
@@ -738,6 +759,78 @@ public sealed class BrowserEngineLayeringTests
     static string BanListPath => Path.Combine(
         Path.GetDirectoryName(EngineProjectPath)!,
         "BannedSymbols.txt");
+
+    static string GlobalBanListPath => Path.Combine(
+        RepositoryRoot(),
+        "eng",
+        "BannedSymbols.InspectionProduct.txt");
+
+    static IEnumerable<string> ForbiddenRuntimeReferences(
+        Assembly assembly)
+    {
+        using FileStream stream = File.OpenRead(assembly.Location);
+        using PEReader pe = new(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        string assemblyName = assembly.GetName().Name!;
+
+        foreach (TypeReferenceHandle handle in reader.TypeReferences)
+        {
+            TypeReference type = reader.GetTypeReference(handle);
+            string namespaceName = reader.GetString(type.Namespace);
+            string typeName = reader.GetString(type.Name);
+
+            if ((namespaceName == "System"
+                    && typeName is "Activator" or "AppDomain")
+                || (namespaceName == "System.Runtime.Loader"
+                    && typeName == "AssemblyLoadContext")
+                || namespaceName == "System.Reflection.Emit"
+                || namespaceName.StartsWith(
+                    "System.Reflection.Emit.",
+                    StringComparison.Ordinal))
+            {
+                yield return
+                    $"{assemblyName}: T:{namespaceName}.{typeName}";
+            }
+        }
+
+        foreach (MemberReferenceHandle handle in reader.MemberReferences)
+        {
+            MemberReference member = reader.GetMemberReference(handle);
+            if (member.Parent.Kind != HandleKind.TypeReference)
+            {
+                continue;
+            }
+
+            TypeReference parent = reader.GetTypeReference(
+                (TypeReferenceHandle)member.Parent);
+            string namespaceName = reader.GetString(parent.Namespace);
+            string typeName = reader.GetString(parent.Name);
+            string memberName = reader.GetString(member.Name);
+
+            if ((namespaceName == "System.Reflection"
+                    && typeName == "Assembly"
+                    && AssemblyLoadingMethodNames.Contains(memberName))
+                || (namespaceName == "System"
+                    && typeName == "Type"
+                    && memberName == "GetType"))
+            {
+                yield return
+                    $"{assemblyName}: M:{namespaceName}.{typeName}.{memberName}";
+            }
+        }
+    }
+
+    static readonly HashSet<string> AssemblyLoadingMethodNames =
+        new(StringComparer.Ordinal)
+        {
+            "CreateInstance",
+            "Load",
+            "LoadFile",
+            "LoadFrom",
+            "LoadModule",
+            "LoadWithPartialName",
+            "UnsafeLoadFrom",
+        };
 
     static IReadOnlyList<Assembly> ProductReferenceClosure()
     {

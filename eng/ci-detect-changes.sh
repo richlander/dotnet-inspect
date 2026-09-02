@@ -415,8 +415,8 @@ while IFS= read -r -d '' file; do
     eng/generate-inspect-web-engine-facade.sh) WEB=true ;;
     eng/InspectWebAsyncLoweringReceipt.targets) WEB=true ;;
     eng/verify-inspect-web-async-deployment.sh) WEB=true ;;
-    # Global analyzer input consumed by every product and Browser build.
-    eng/BannedSymbols.txt) CODE=true; WEB=true ;;
+    # Global analyzer inputs consumed by product and Browser builds.
+    eng/BannedSymbols*.txt) CODE=true; WEB=true ;;
     # Controls checkout line endings on Windows, including the raw
     # string fixtures this lane exists to validate.
     .gitattributes) CODE=true ;;
@@ -430,6 +430,10 @@ while IFS= read -r -d '' file; do
     # Markdown under the browser prototype is documentation, not a browser
     # build input. Keep non-Markdown fixtures and configuration gated.
     prototypes/inspect-web/*.md) ;;
+    # The product marker for these two projects is asserted by the CODE lane;
+    # their Browser build and IL census remain in the WEB lane.
+    prototypes/inspect-web/engine/*.csproj) CODE=true; WEB=true ;;
+    prototypes/inspect-web/engine.Core/*.csproj) CODE=true; WEB=true ;;
     prototypes/inspect-web/*) WEB=true ;;
     prototypes/annotated-source-viewer/*) WEB=true ;;
     *.props|*.targets|*.sln|*.slnx) CODE=true; WEB=true ;;
