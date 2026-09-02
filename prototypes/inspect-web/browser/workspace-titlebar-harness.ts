@@ -114,7 +114,6 @@ const coordinates = [
     isRuntimePack: false,
   },
 ];
-const activeCoordinate = coordinates[0] ?? null;
 let activeScope: WorkspaceScope = workspaceMode
   ? "workspace"
   : packageMode
@@ -181,11 +180,29 @@ function scopeBarHtml() {
 
 const navigationHtml = workspaceMode
   ? renderWorkspaceSubject({
-      packages: coordinates,
-      activePackage: activeCoordinate,
+      packets: coordinates.map((coordinate, index) => ({
+        id: `packet-${index}`,
+        title: `${coordinate.id} packet ${index + 1}`,
+        summary: "A retained workspace packet",
+        workspaceMembers: [{
+          kind: "package",
+          id: coordinate.id,
+          version: coordinate.version,
+          framework: coordinate.activeFramework,
+          assembly: null,
+        }],
+        tabs: [],
+        focusTabIndex: 0,
+        view: {
+          library: null,
+          type: null,
+          memberAnchor: null,
+          memberKey: null,
+          section: "Methods",
+        },
+      })),
+      selectedPacketId: "packet-0",
       escapeHtml,
-      packageIdentityKey: item =>
-        `${item.id}@${item.version}::${item.activeFramework}`,
     })
   : `<section class="type-browser">
       <header class="browser-head">Target inventory</header>

@@ -1066,18 +1066,18 @@ test("the title line advertises the typed Package, Type, and Member path", async
   expect(zone.y + zone.height).toBeLessThanOrEqual(workspace.y);
 });
 
-test("Workspace gives retained coordinates the pane and keeps Share readable", async ({
+test("Workspace gives retained packets the pane and keeps Share readable", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/browser/workspace-titlebar.html?workspace=1");
 
-  const list = await box(page, ".workspace-coordinate-list");
-  const lastCoordinate = await box(page, ".workspace-coordinate:last-child");
+  const list = await box(page, ".workspace-packet-list");
+  const lastPacket = await box(page, ".workspace-packet:last-child");
   const share = await box(page, "#share");
 
   expect(list.height).toBeGreaterThan(200);
-  expect(lastCoordinate.y + lastCoordinate.height)
+  expect(lastPacket.y + lastPacket.height)
     .toBeLessThanOrEqual(list.y + list.height);
   expect(share.width).toBeGreaterThan(40);
   await expect(page.locator("#copy-name")).toHaveCount(0);
