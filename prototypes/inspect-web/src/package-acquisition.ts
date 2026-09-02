@@ -11,6 +11,7 @@ import type {
   BrowserMemberBodySelector,
   BrowserMemberSurface,
   BrowserPackageDocument,
+  BrowserPackageIcon,
   BrowserPackageSurface,
   BrowserParameterSurface,
   BrowserTypeSurface,
@@ -39,6 +40,7 @@ export interface AppMemberSurface
 
 export interface AppTypeSurface extends Omit<BrowserTypeSurface, "api"> {
   api: AppMemberSurface[];
+  graphOnly?: boolean;
 }
 
 export interface AppPackage {
@@ -61,6 +63,7 @@ export interface AppPackage {
   totalTypes: number;
   totalMembers: number;
   documents: BrowserPackageDocument[];
+  icon: BrowserPackageIcon | null;
   inspectionErrors?: string[];
   inspectionError?: string;
   isRuntimePack: boolean;
@@ -94,6 +97,15 @@ export function createAppMemberSurface(
     ...surface,
     parameters: surface.parameters.map(parameter => ({ ...parameter })),
     exceptions: [...surface.exceptions],
+  };
+}
+
+export function createAppTypeSurface(
+  surface: BrowserTypeSurface,
+): AppTypeSurface {
+  return {
+    ...surface,
+    api: (surface.api ?? []).map(createAppMemberSurface),
   };
 }
 
@@ -133,10 +145,7 @@ export function graphOnlyImplementationBody(
 }
 
 function packageTypes(result: BrowserPackageSurface): AppTypeSurface[] {
-  return (result.types ?? []).map(type => ({
-    ...type,
-    api: (type.api ?? []).map(createAppMemberSurface),
-  }));
+  return (result.types ?? []).map(createAppTypeSurface);
 }
 
 function surfaceInspectionErrors(result: BrowserPackageSurface): string[] {
@@ -225,6 +234,7 @@ export function createNuGetPackageModel(
       .reduce((count, candidate) => count + (candidate.publicTypes ?? 0), 0),
     totalMembers: result.totalMembers,
     documents: [...(result.documents ?? [])],
+    icon: result.icon,
     inspectionErrors,
     inspectionError: renderInspectionErrors(inspectionErrors),
     isRuntimePack: false,
@@ -280,6 +290,7 @@ function createRuntimePackageModelForAssembly(
     totalTypes: types.length,
     totalMembers: result.totalMembers,
     documents: [...(result.documents ?? [])],
+    icon: null,
     inspectionErrors,
     inspectionError: renderInspectionErrors(inspectionErrors),
     isRuntimePack: true,

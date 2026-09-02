@@ -10,6 +10,28 @@ using NuGetFetch;
 
 namespace InspectWeb.Engine;
 
+internal sealed record BrowserPackageCacheSnapshot(
+    int Packages,
+    int Resident,
+    int Workspaces,
+    long ResidentBytes);
+
+internal sealed record BrowserPackageDocumentEntry(
+    string Kind,
+    string Name,
+    string Path,
+    int Size);
+
+internal sealed record BrowserPackageDocumentPayload(
+    string Kind,
+    string Name,
+    string Path,
+    string Text);
+
+internal sealed record BrowserPackageIconPayload(
+    string MediaType,
+    string Base64);
+
 /// <summary>
 /// Browser acquisition adapter: shared package owners resolve and admit payloads, while this host
 /// owns the bounded session cache and registry of open workspaces.
@@ -160,7 +182,7 @@ internal static class BrowserPackageWorkspace
         bool RemovalRequested,
         Action<IDisposable>? OnDisposed);
 
-    public static BrowserPackageCacheStats Stats() =>
+    public static BrowserPackageCacheSnapshot Stats() =>
         new(
             Downloaded.Count,
             Cache.Count,
@@ -615,6 +637,54 @@ internal static class BrowserPackageWorkspace
         };
     }
 
+    internal static async ValueTask<PackageQueryContentResult>
+        AcquirePackageQueryContentAsync(
+            PackageProfileMatch package,
+            IPackageSourceClient source,
+            BrowserPackageOperationDeadline deadline)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(deadline);
+        PackageSourceCoordinate coordinate = PackageSourceCoordinate.Create(
+            package.PackageId,
+            package.Version);
+        PackageSourcePayloadResult result;
+        try
+        {
+            result = await PackagePayloadAcquisition.AcquireAsync(
+                    source,
+                    coordinate,
+                    Store,
+                    limits: PayloadLimits,
+                    cancellationToken: deadline.Token,
+                    transferPolicy: new BrowserPackageQueryTransferPolicy(
+                        new BrowserPackageOperationTransferPolicy(
+                            Store,
+                            deadline)))
+                .ConfigureAwait(false);
+        }
+        catch (BrowserPackagePayloadPolicyException exception)
+        {
+            return new PackageQueryContentResult.Unavailable(
+                exception.Message);
+        }
+        return result switch
+        {
+            PackageSourcePayloadResult.Acquired acquired =>
+                new PackageQueryContentResult.Available(
+                    acquired.Payload.Content),
+            PackageSourcePayloadResult.Unavailable unavailable =>
+                new PackageQueryContentResult.Unavailable(
+                    unavailable.Message),
+            PackageSourcePayloadResult.Failed failed =>
+                new PackageQueryContentResult.Unavailable(
+                    failed.Failure.Message),
+            _ => throw new InvalidOperationException(
+                "Package payload acquisition returned an unknown outcome."),
+        };
+    }
+
     internal static Task<T> WaitForSharedAcquisitionAsync<T>(
         Task<T> acquisition,
         CancellationToken cancellationToken)
@@ -963,6 +1033,31 @@ internal static class BrowserPackageWorkspace
             public void Dispose() => inner.Dispose();
         }
     }
+
+    internal sealed class BrowserPackageQueryTransferPolicy(
+        IPackagePayloadTransferPolicy inner)
+        : IPackagePayloadTransferPolicy
+    {
+        public IPackagePayloadReservation Reserve(
+            PackagePayloadTransfer transfer)
+        {
+            try
+            {
+                return inner.Reserve(transfer);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new BrowserPackagePayloadPolicyException(
+                    exception.Message,
+                    exception);
+            }
+        }
+    }
+
+    internal sealed class BrowserPackagePayloadPolicyException(
+        string message,
+        Exception innerException)
+        : InvalidOperationException(message, innerException);
 
     internal static string? SelectDependencyVersion(
         string[] versions,
@@ -1393,6 +1488,7 @@ internal sealed class BrowserPackage
 {
     const long MaxTextEntryBytes = 16L * 1024 * 1024;
     readonly AcquiredPackageSourcePayload? _acquiredPayload;
+    readonly Lazy<BrowserPackageIconPayload?> _icon;
 
     public BrowserPackage(
         string packageId,
@@ -1414,6 +1510,7 @@ internal sealed class BrowserPackage
             retainedBytes,
             fromCache,
             producerKey);
+        _icon = new(ProjectIcon);
     }
 
     internal BrowserPackage(
@@ -1445,6 +1542,7 @@ internal sealed class BrowserPackage
         RetainedBytes = retainedBytes;
         Content = content;
         _acquiredPayload = acquiredPayload;
+        _icon = new(ProjectIcon);
     }
 
     public string PackageId { get; }
@@ -1454,6 +1552,8 @@ internal sealed class BrowserPackage
     public InMemoryPackageContent Content { get; }
 
     internal byte[] RetainedBytes { get; }
+
+    public BrowserPackageIconPayload? Icon => _icon.Value;
 
     internal PackageRootBinding CreateRootBinding(string? targetFramework) =>
         PackageRootBinding.CreateFromSource(
@@ -1468,9 +1568,9 @@ internal sealed class BrowserPackage
     /// <see cref="ReadDocument"/>, which accepts only a path from this list, so no caller can
     /// coax an arbitrary entry — an assembly, a signature — out of the package.
     /// </summary>
-    public IReadOnlyList<BrowserPackageDocument> Documents()
+    public IReadOnlyList<BrowserPackageDocumentEntry> Documents()
     {
-        var documents = new List<BrowserPackageDocument>();
+        var documents = new List<BrowserPackageDocumentEntry>();
         foreach (PackageContentEntry entry in Content.EnumerateEntriesWithLengths())
         {
             string[] segments = entry.Path.Split('/');
@@ -1491,7 +1591,7 @@ internal sealed class BrowserPackage
                     + "limit.");
             }
 
-            documents.Add(new BrowserPackageDocument(
+            documents.Add(new BrowserPackageDocumentEntry(
                 kind,
                 kind == "skill" ? SkillDisplayName(segments) : fileName,
                 entry.Path,
@@ -1506,14 +1606,14 @@ internal sealed class BrowserPackage
         ];
     }
 
-    public BrowserPackageDocumentContent ReadDocument(string path)
+    public BrowserPackageDocumentPayload ReadDocument(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        BrowserPackageDocument document = Documents()
+        BrowserPackageDocumentEntry document = Documents()
             .FirstOrDefault(candidate => candidate.Path.Equals(path, StringComparison.Ordinal))
             ?? throw new InvalidOperationException(
                 $"'{path}' is not a browsable document in {PackageId} {Version}.");
-        return new BrowserPackageDocumentContent(
+        return new BrowserPackageDocumentPayload(
             document.Kind,
             document.Name,
             document.Path,
@@ -1570,6 +1670,18 @@ internal sealed class BrowserPackage
 
     internal bool TryReadText(string path, out byte[] bytes) =>
         TryRead(path, MaxTextEntryBytes, out bytes);
+
+    BrowserPackageIconPayload? ProjectIcon()
+    {
+        PackageIconResult result =
+            PackageIconQuery.Execute(Content, PackageId, Version);
+        if (result is not PackageIconResult.Available available)
+            return null;
+
+        return new BrowserPackageIconPayload(
+            available.Value.MediaType,
+            Convert.ToBase64String(available.Value.Bytes.AsSpan()));
+    }
 
     static bool IsUnderSkillsDirectory(string[] segments)
     {
@@ -1727,16 +1839,13 @@ internal sealed class BrowserPackageCoordinate
     }
 
     /// <summary>
-    /// The implementation assembly for one assembly name. Reference assemblies carry no method
-    /// bodies, so body-backed work resolves the matching asset from the shared effective
-    /// implementation universe rather than reasoning about package paths.
+    /// The implementation assembly for one assembly name. Body-backed work resolves the matching
+    /// asset from the shared effective implementation universe rather than reasoning about
+    /// package paths.
     /// </summary>
     public PackageCompileAsset ImplementationAsset(string assemblyIdOrName)
     {
         PackageCompileAsset selected = CompileAsset(assemblyIdOrName);
-        if (selected.Kind == PackageCompileAssetKind.Library)
-            return selected;
-
         return Selection.FindImplementationAsset(selected)
             ?? throw new InvalidOperationException(
                 $"The requested compile assembly in {PackageId} {Version} is a reference "

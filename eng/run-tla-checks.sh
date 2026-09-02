@@ -1,20 +1,16 @@
 #!/usr/bin/env bash
 set -e -o pipefail
 
-# Upholds the bar in docs/tla-plus-methodology.md: every checked-in TLA+
-# model's module parses (SANY) and TLC runs each of its .cfg files to
-# completion without an unexpected error.
+# Upholds the bar in docs/tla-plus-methodology.md for an explicit model scope:
+# every selected module parses (SANY) and TLC runs each selected directory's
+# .cfg files to completion without an unexpected error.
 #
-# Deliberately NOT enforced here: whether TLC's verdict is "no violation
-# found". Several .cfg files in this repository are committed negative
-# controls or mutation probes that are EXPECTED to report a safety or
-# liveness violation (see docs/tla-plus-methodology.md and each model's
-# README "Checked configurations" table). There is no repository-wide,
-# machine-readable convention recording which verdict a given .cfg expects,
-# so this gate cannot safely fail a PR merely because TLC found a violation
-# -- that would break the very configs whose job is to find one. Distinguish
-# "TLC completed its job" from "TLC agrees with the model" by TLC's own exit
-# status, using the codes documented in the tlc2.output.EC.ExitStatus enum:
+# eng/tla-expected-exit-codes.txt sparsely records configurations whose exact
+# semantic verdict is an enforced gate. Unlisted legacy configurations retain
+# the coherent-verdict policy because several are negative controls without a
+# repository-wide machine-readable expectation. Distinguish "TLC completed
+# its job" from "TLC produced the listed result" with the exit codes documented
+# in tlc2.output.EC.ExitStatus:
 #   0  SUCCESS
 #   10 VIOLATION_ASSUMPTION
 #   11 VIOLATION_DEADLOCK
@@ -27,17 +23,264 @@ set -e -o pipefail
 # crashes, or an unrecognized code) is treated as the "unexpected error"
 # this gate exists to catch.
 #
-# Also deliberately NOT a CI failure: a .cfg that does not finish within
-# TLA_CHECK_TIMEOUT_SECONDS. Some committed models are exhaustive checks over
-# hundreds of millions of states and can legitimately run far longer than any
-# per-PR budget this repository is willing to pay on a shared runner (see the
-# timeout branch below). That config is reported unverified this run rather
-# than failing the PR.
+# A timeout remains a warning for an unlisted configuration. It is a failure
+# for a listed configuration because no expected semantic verdict was observed.
 #
 # A .cfg's module is normally inferred (the sole .tla in its directory, or a
-# same-named one); eng/tla-module-overrides.txt overrides that for
-# directories where a .cfg must instead run against a model-checking harness
-# module.
+# same-named one); eng/tla-module-overrides.txt overrides that for directories
+# where a .cfg must instead run against a model-checking harness module.
+#
+# CI passes --changed-files0 and a NUL-delimited base-to-head path stream so a
+# PR checks changed model directories plus direct and transitive consumers of
+# changed modules. SANY supplies the dependency closure; source text is not
+# approximated as a module parser. --all is deliberately explicit: a
+# repository-wide sweep belongs to a deliberate local investigation, not the
+# per-PR gate.
+
+# Per-invocation wall-clock bound. Some committed models are large exhaustive
+# checks (hundreds of millions of states) that legitimately run far longer
+# than this; see the timeout handling below for why that is a warning, not a
+# CI failure. A model this budget cannot even start exploring within is still
+# worth flagging loudly, so the bound stays generous rather than unbounded.
+: "${TLA_CHECK_TIMEOUT_SECONDS:=600}"
+: "${TLA_DEPENDENCY_TIMEOUT_SECONDS:=30}"
+
+OK_EXIT_CODES="0 10 11 12 13 14"
+# Pinned tla2tools.jar standard modules must not be shadowed by the repository
+# library path. Update this list with the tool pin.
+STANDARD_MODULE_NAMES="Bags FiniteSets Integers Json Naturals Randomization Reals RealTime Sequences TLC TLCExt Toolbox _DotTrace _JsonTrace _Possible _TLAPlusCounterExample _TLCActionTrace _TLCTESpec _TLCTrace _TLCTracePlain"
+
+MODEL_ROOTS=(docs/design/models docs/models)
+MODULE_OVERRIDES_FILE=eng/tla-module-overrides.txt
+EXPECTED_EXIT_CODES_FILE=eng/tla-expected-exit-codes.txt
+MODEL_DIRS=()
+MODEL_FILES=()
+CHANGED_MODULE_PATHS=()
+EXPECTED_EXIT_CODES_CHANGED=false
+TLA_LIBRARY_PATH=
+FAILURES=0
+REPO_ROOT=$(pwd -P)
+
+usage() {
+  echo "Usage: $0 --changed-files0 | --all | <model-directory>..." >&2
+}
+
+add_model_dir() {
+  local dir="$1"
+  local candidate
+  for candidate in "${MODEL_DIRS[@]}"; do
+    if [ "$candidate" = "$dir" ]; then
+      return
+    fi
+  done
+  MODEL_DIRS+=("$dir")
+}
+
+append_library_dir() {
+  local dir="$1"
+  if [ -z "$TLA_LIBRARY_PATH" ]; then
+    TLA_LIBRARY_PATH="$dir"
+  else
+    TLA_LIBRARY_PATH="$TLA_LIBRARY_PATH:$dir"
+  fi
+}
+
+discover_model_modules() {
+  local root dir file basename module_name names_file duplicate_names
+  local duplicate_name
+  names_file=$(mktemp)
+
+  for root in "${MODEL_ROOTS[@]}"; do
+    [ -d "$root" ] || continue
+    while IFS= read -r -d '' dir; do
+      append_library_dir "$REPO_ROOT/$dir"
+    done < <(find "$root" -mindepth 1 -maxdepth 1 -type d -print0 | sort -z)
+    while IFS= read -r -d '' file; do
+      MODEL_FILES+=("$file")
+      basename=$(basename "$file")
+      module_name="${basename%.tla}"
+      printf '%s\t%s\n' "$module_name" "$file" >> "$names_file"
+      case " $STANDARD_MODULE_NAMES " in
+        *" $module_name "*)
+          echo "::error::$file shadows standard TLA+ module '$module_name' in the repository library namespace." >&2
+          FAILURES=$((FAILURES + 1))
+          ;;
+      esac
+    done < <(find "$root" -mindepth 2 -maxdepth 2 -type f -name "*.tla" -print0 | sort -z)
+  done
+
+  duplicate_names=$(cut -f1 "$names_file" | sort | uniq -d)
+  if [ -n "$duplicate_names" ]; then
+    while IFS= read -r duplicate_name; do
+      echo "::error::TLA+ module name '$duplicate_name' is not globally unique; owner modules share one repository library namespace." >&2
+      grep "^${duplicate_name}	" "$names_file" | cut -f2- >&2
+      FAILURES=$((FAILURES + 1))
+    done <<< "$duplicate_names"
+  fi
+
+  rm -f "$names_file"
+}
+
+is_model_root() {
+  local path="$1"
+  local root
+  for root in "${MODEL_ROOTS[@]}"; do
+    if [ "$path" = "$root" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+select_changed_path() {
+  local path="$1"
+  local extension_lower dir parent root
+
+  case "$path" in
+    ""|/*|*/|*//*)
+      echo "::error::Changed path '$path' is not a canonical repo-relative path." >&2
+      FAILURES=$((FAILURES + 1))
+      return
+      ;;
+  esac
+  case "/$path/" in
+    */./*|*/../*)
+      echo "::error::Changed path '$path' is not a canonical repo-relative path." >&2
+      FAILURES=$((FAILURES + 1))
+      return
+      ;;
+  esac
+
+  if [ "$path" = "$EXPECTED_EXIT_CODES_FILE" ]; then
+    EXPECTED_EXIT_CODES_CHANGED=true
+    return
+  fi
+
+  extension_lower=$(printf '%s' "${path##*.}" | tr '[:upper:]' '[:lower:]')
+  case "$extension_lower" in
+    tla|cfg) ;;
+    *) return ;;
+  esac
+
+  for root in "${MODEL_ROOTS[@]}"; do
+    case "$path" in
+      "$root"/*)
+        dir="${path%/*}"
+        parent="${dir%/*}"
+        if [ "$dir" = "$root" ]; then
+          if [ -e "$path" ]; then
+            echo "::error::$path is not in the layout eng/run-tla-checks.sh supports (a model directory exactly one level under $root)." >&2
+            FAILURES=$((FAILURES + 1))
+          fi
+        elif [ "$parent" = "$root" ]; then
+          if [ "$extension_lower" = "tla" ]; then
+            CHANGED_MODULE_PATHS+=("$path")
+          fi
+          # A deleted model directory has nothing left to check. A deleted file
+          # in a surviving directory still selects that directory so the
+          # remaining module/configuration set is verified.
+          if [ -d "$dir" ]; then
+            add_model_dir "$dir"
+          fi
+        elif [ -e "$path" ]; then
+          echo "::error::$path is nested deeper than eng/run-tla-checks.sh supports (one directory level under $root)." >&2
+          FAILURES=$((FAILURES + 1))
+        fi
+        return
+        ;;
+    esac
+  done
+}
+
+select_transitive_consumers() {
+  local path module_file module_log module_exit changed_absolute
+
+  if [ "${#CHANGED_MODULE_PATHS[@]}" -eq 0 ]; then
+    return
+  fi
+
+  # SANY resolves each root module's complete EXTENDS/INSTANCE closure. Use
+  # that semantic dependency graph rather than approximating TLA+ syntax with
+  # grep; any direct or transitive consumer of a changed module is selected.
+  # If a changed module was deleted, any unchanged surviving consumer fails
+  # this sweep because its import no longer resolves. An updated consumer is
+  # already directly selected by its own changed path.
+  for module_file in "${MODEL_FILES[@]}"; do
+    module_log=$(mktemp)
+    set +e
+    timeout "${TLA_DEPENDENCY_TIMEOUT_SECONDS}s" \
+      java "-DTLA-Library=$TLA_LIBRARY_PATH" \
+      -cp "$TLA_TOOLS_JAR" tla2sany.SANY \
+      "$REPO_ROOT/$module_file" </dev/null >"$module_log" 2>&1
+    module_exit=$?
+    set -e
+    if [ "$module_exit" -ne 0 ]; then
+      echo "::error::SANY could not resolve dependencies for $module_file" >&2
+      tail -n 40 "$module_log" >&2
+      rm -f "$module_log"
+      FAILURES=$((FAILURES + 1))
+      continue
+    fi
+
+    for path in "${CHANGED_MODULE_PATHS[@]}"; do
+      changed_absolute="$REPO_ROOT/$path"
+      if grep -Fq "Parsing file $changed_absolute" "$module_log"; then
+        add_model_dir "${module_file%/*}"
+        break
+      fi
+    done
+    rm -f "$module_log"
+  done
+}
+
+SCOPE_MODE=directories
+if [ "$#" -eq 0 ]; then
+  usage
+  exit 2
+elif [ "$1" = "--changed-files0" ]; then
+  if [ "$#" -ne 1 ]; then
+    usage
+    exit 2
+  fi
+  SCOPE_MODE=changed
+  changed_files_file=$(mktemp)
+  trap 'rm -f "$changed_files_file"' EXIT
+  cat > "$changed_files_file"
+  if [ -s "$changed_files_file" ]; then
+    last_byte=$(
+      tail -c 1 "$changed_files_file" | od -An -t u1 | tr -d '[:space:]'
+    )
+    if [ "$last_byte" != "0" ]; then
+      echo "::error::The changed-file stream is not NUL terminated." >&2
+      exit 2
+    fi
+  fi
+  while IFS= read -r -d '' path; do
+    select_changed_path "$path"
+  done < "$changed_files_file"
+elif [ "$1" = "--all" ]; then
+  if [ "$#" -ne 1 ]; then
+    usage
+    exit 2
+  fi
+  SCOPE_MODE=all
+  for root in "${MODEL_ROOTS[@]}"; do
+    [ -d "$root" ] || continue
+    while IFS= read -r -d '' dir; do
+      add_model_dir "$dir"
+    done < <(find "$root" -mindepth 1 -maxdepth 1 -type d -print0 | sort -z)
+  done
+else
+  for dir in "$@"; do
+    parent="${dir%/*}"
+    if ! is_model_root "$parent" || [ ! -d "$dir" ]; then
+      echo "::error::$dir is not an existing model directory directly under ${MODEL_ROOTS[*]}." >&2
+      FAILURES=$((FAILURES + 1))
+      continue
+    fi
+    add_model_dir "$dir"
+  done
+fi
 
 if [ -z "${TLA_TOOLS_JAR:-}" ]; then
   echo "::error::TLA_TOOLS_JAR is not set." >&2
@@ -47,18 +290,6 @@ if [ ! -f "$TLA_TOOLS_JAR" ]; then
   echo "::error::TLA_TOOLS_JAR ($TLA_TOOLS_JAR) does not exist." >&2
   exit 1
 fi
-
-# Per-invocation wall-clock bound. Some committed models are large exhaustive
-# checks (hundreds of millions of states) that legitimately run far longer
-# than this; see the timeout handling below for why that is a warning, not a
-# CI failure. A model this budget cannot even start exploring within is still
-# worth flagging loudly, so the bound stays generous rather than unbounded.
-: "${TLA_CHECK_TIMEOUT_SECONDS:=600}"
-
-OK_EXIT_CODES="0 10 11 12 13 14"
-
-MODEL_ROOTS=(docs/design/models docs/models)
-MODULE_OVERRIDES_FILE=eng/tla-module-overrides.txt
 
 override_module_for() {
   local cfg_path="$1"
@@ -79,6 +310,22 @@ override_module_for() {
   return 1
 }
 
+expected_exit_for() {
+  local cfg_path="$1"
+  local line exit_code
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      ""|"#"*) continue ;;
+    esac
+    if [ "${line%%=*}" = "$cfg_path" ]; then
+      exit_code="${line#*=}"
+      printf '%s\n' "$exit_code"
+      return 0
+    fi
+  done < "$EXPECTED_EXIT_CODES_FILE"
+  return 1
+}
+
 is_ok_exit_code() {
   local code="$1"
   local candidate
@@ -90,10 +337,118 @@ is_ok_exit_code() {
   return 1
 }
 
-FAILURES=0
+validate_expected_exit_codes() {
+  local seen_keys_file line line_no key value trimmed_key trimmed_value
+  local key_dir key_root key_is_supported_root candidate_root
+  local duplicate_keys
+
+  if [ ! -f "$EXPECTED_EXIT_CODES_FILE" ]; then
+    echo "::error::$EXPECTED_EXIT_CODES_FILE is missing; exact TLA+ semantic gates are not optional." >&2
+    FAILURES=$((FAILURES + 1))
+    return
+  fi
+
+  seen_keys_file=$(mktemp)
+  line_no=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line_no=$((line_no + 1))
+    case "$line" in
+      ""|"#"*) continue ;;
+    esac
+    case "$line" in
+      *=*) ;;
+      *)
+        echo "::error::$EXPECTED_EXIT_CODES_FILE:$line_no is malformed ('$line'): expected '<cfg-path>=<TLC-exit-code>'." >&2
+        FAILURES=$((FAILURES + 1))
+        continue
+        ;;
+    esac
+
+    key="${line%%=*}"
+    value="${line#*=}"
+    trimmed_key="${key#"${key%%[![:space:]]*}"}"
+    trimmed_key="${trimmed_key%"${trimmed_key##*[![:space:]]}"}"
+    trimmed_value="${value#"${value%%[![:space:]]*}"}"
+    trimmed_value="${trimmed_value%"${trimmed_value##*[![:space:]]}"}"
+    if [ "$key" != "$trimmed_key" ] || [ "$value" != "$trimmed_value" ]; then
+      echo "::error::$EXPECTED_EXIT_CODES_FILE:$line_no has leading or trailing whitespace around '=' ('$line')." >&2
+      FAILURES=$((FAILURES + 1))
+      continue
+    fi
+    if [ -z "$key" ] || [ -z "$value" ]; then
+      echo "::error::$EXPECTED_EXIT_CODES_FILE:$line_no has an empty cfg path or exit code ('$line')." >&2
+      FAILURES=$((FAILURES + 1))
+      continue
+    fi
+
+    case "$key" in
+      /*|*/|*//*)
+        echo "::error::$EXPECTED_EXIT_CODES_FILE:$line_no names non-canonical path '$key'." >&2
+        FAILURES=$((FAILURES + 1))
+        continue
+        ;;
+    esac
+    case "/$key/" in
+      */./*|*/../*)
+        echo "::error::$EXPECTED_EXIT_CODES_FILE:$line_no names non-canonical path '$key'." >&2
+        FAILURES=$((FAILURES + 1))
+        continue
+        ;;
+    esac
+
+    key_dir="${key%/*}"
+    key_root="${key_dir%/*}"
+    key_is_supported_root=false
+    for candidate_root in "${MODEL_ROOTS[@]}"; do
+      if [ "$key_root" = "$candidate_root" ]; then
+        key_is_supported_root=true
+        break
+      fi
+    done
+    if [ "${key##*.}" != "cfg" ] || [ "$key_is_supported_root" != true ]; then
+      echo "::error::$EXPECTED_EXIT_CODES_FILE:$line_no names '$key', which is not a lowercase .cfg directly inside a supported model directory." >&2
+      FAILURES=$((FAILURES + 1))
+      continue
+    fi
+    if [ ! -f "$key" ]; then
+      echo "::error::$EXPECTED_EXIT_CODES_FILE:$line_no names missing configuration '$key'." >&2
+      FAILURES=$((FAILURES + 1))
+      continue
+    fi
+    if ! is_ok_exit_code "$value"; then
+      echo "::error::$EXPECTED_EXIT_CODES_FILE:$line_no names unsupported TLC exit code '$value' for '$key'." >&2
+      FAILURES=$((FAILURES + 1))
+      continue
+    fi
+
+    printf '%s\n' "$key" >> "$seen_keys_file"
+  done < "$EXPECTED_EXIT_CODES_FILE"
+
+  duplicate_keys=$(sort "$seen_keys_file" | uniq -d)
+  if [ -n "$duplicate_keys" ]; then
+    while IFS= read -r key; do
+      echo "::error::$EXPECTED_EXIT_CODES_FILE has more than one outcome for '$key'." >&2
+      FAILURES=$((FAILURES + 1))
+    done <<< "$duplicate_keys"
+  fi
+  rm -f "$seen_keys_file"
+}
+
+select_expected_outcome_dirs() {
+  local line key
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      ""|"#"*) continue ;;
+    esac
+    key="${line%%=*}"
+    add_model_dir "${key%/*}"
+  done < "$EXPECTED_EXIT_CODES_FILE"
+}
+
 CHECKED_MODULES=0
 CHECKED_CONFIGS=0
 TIMEOUTS=0
+EXACT_OUTCOMES=0
 
 # Validate the whole override file up front, before any model checking
 # begins, so a config mistake in it fails loudly and specifically instead of
@@ -194,6 +549,11 @@ if [ -f "$MODULE_OVERRIDES_FILE" ]; then
       FAILURES=$((FAILURES + 1))
       continue
     fi
+    if [ ! -f "$key_dir/$value.tla" ]; then
+      echo "::error::$MODULE_OVERRIDES_FILE:$line_no names module '$value' for '$key', but '$key_dir/$value.tla' does not exist." >&2
+      FAILURES=$((FAILURES + 1))
+      continue
+    fi
     printf '%s\n' "$key" >> "$seen_keys_file"
   done < "$MODULE_OVERRIDES_FILE"
 
@@ -214,6 +574,25 @@ if [ -f "$MODULE_OVERRIDES_FILE" ]; then
   rm -f "$seen_keys_file"
 fi
 
+expected_failures_before=$FAILURES
+validate_expected_exit_codes
+if [ "$FAILURES" -gt "$expected_failures_before" ]; then
+  exit 1
+fi
+if [ "$EXPECTED_EXIT_CODES_CHANGED" = true ]; then
+  select_expected_outcome_dirs
+fi
+
+discover_model_modules
+if [ "$FAILURES" -gt 0 ]; then
+  exit 1
+fi
+if [ "$SCOPE_MODE" = changed ]; then
+  select_transitive_consumers
+  rm -f "$changed_files_file"
+  trap - EXIT
+fi
+
 # The discovery loop below only picks up .tla/.cfg files that live exactly
 # one directory level under each model root (docs/design/models/<model>/*.tla).
 # That matches every model directory's actual layout today, but a file placed
@@ -222,21 +601,21 @@ fi
 # still matching eng/ci-detect-changes.sh's classification (its `case`
 # patterns span `/`, so they are deliberately broader than this script's
 # layout assumption). Fail loudly rather than silently skip such a file.
-for root in "${MODEL_ROOTS[@]}"; do
-  [ -d "$root" ] || continue
-  while IFS= read -r -d '' misplaced; do
-    echo "::error::$misplaced is not in the layout eng/run-tla-checks.sh supports (a model directory exactly one level under $root). Move it into its own model directory directly under $root, or extend this script's discovery to handle this layout." >&2
-    FAILURES=$((FAILURES + 1))
-  done < <(find "$root" -mindepth 1 -maxdepth 1 \( -iname "*.tla" -o -iname "*.cfg" \) -print0)
-  while IFS= read -r -d '' nested; do
-    echo "::error::$nested is nested deeper than eng/run-tla-checks.sh supports (one directory level under $root). Move it into a model directory directly under $root, or extend this script's discovery to handle nesting." >&2
-    FAILURES=$((FAILURES + 1))
-  done < <(find "$root" -mindepth 3 \( -iname "*.tla" -o -iname "*.cfg" \) -print0)
-done
+if [ "$SCOPE_MODE" = all ]; then
+  for root in "${MODEL_ROOTS[@]}"; do
+    [ -d "$root" ] || continue
+    while IFS= read -r -d '' misplaced; do
+      echo "::error::$misplaced is not in the layout eng/run-tla-checks.sh supports (a model directory exactly one level under $root). Move it into its own model directory directly under $root, or extend this script's discovery to handle this layout." >&2
+      FAILURES=$((FAILURES + 1))
+    done < <(find "$root" -mindepth 1 -maxdepth 1 \( -iname "*.tla" -o -iname "*.cfg" \) -print0)
+    while IFS= read -r -d '' nested; do
+      echo "::error::$nested is nested deeper than eng/run-tla-checks.sh supports (one directory level under $root). Move it into a model directory directly under $root, or extend this script's discovery to handle nesting." >&2
+      FAILURES=$((FAILURES + 1))
+    done < <(find "$root" -mindepth 3 \( -iname "*.tla" -o -iname "*.cfg" \) -print0)
+  done
+fi
 
-for root in "${MODEL_ROOTS[@]}"; do
-  [ -d "$root" ] || continue
-  while IFS= read -r -d '' dir; do
+for dir in "${MODEL_DIRS[@]}"; do
     tla_files=()
     while IFS= read -r -d '' file; do
       tla_files+=("$file")
@@ -277,7 +656,8 @@ for root in "${MODEL_ROOTS[@]}"; do
           ;;
       esac
       echo "-- SANY: $module"
-      if ! (cd "$dir" && java -cp "$TLA_TOOLS_JAR" tla2sany.SANY "$tla_basename" </dev/null); then
+      if ! (cd "$dir" && java "-DTLA-Library=$TLA_LIBRARY_PATH" \
+        -cp "$TLA_TOOLS_JAR" tla2sany.SANY "$tla_basename" </dev/null); then
         echo "::error::SANY could not parse $dir/$tla_basename" >&2
         FAILURES=$((FAILURES + 1))
         continue
@@ -363,38 +743,46 @@ for root in "${MODEL_ROOTS[@]}"; do
       log=$(mktemp)
       set +e
       (cd "$dir" && timeout "${TLA_CHECK_TIMEOUT_SECONDS}s" \
-        java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+        java -XX:+UseParallelGC "-DTLA-Library=$TLA_LIBRARY_PATH" \
+        -cp "$TLA_TOOLS_JAR" tlc2.TLC \
         -workers auto -cleanup -noGenerateSpecTE \
         -config "$cfg_name" "$module") < /dev/null > "$log" 2>&1
       exit_code=$?
       set -e
       CHECKED_CONFIGS=$((CHECKED_CONFIGS + 1))
+      expected_exit=$(expected_exit_for "$cfg" || true)
 
       if [ "$exit_code" -eq 124 ]; then
-        # Not a CI failure: some committed models are exhaustive checks over
-        # hundreds of millions of states (see PackageCachePublicationSafety's
-        # recorded state count) that legitimately run far longer than this
-        # per-invocation budget on a shared runner. Failing PRs on that would
-        # make an unrelated change's CI time depend on the slowest model in
-        # the repository. This config was not verified this run; the
-        # repository's Deep Inspect lane is the place for a full run.
-        echo "::warning::TLC did not finish $dir/$cfg_basename within ${TLA_CHECK_TIMEOUT_SECONDS}s; not verified this run. Run it directly (see the model's README) or via Deep Inspect for full verification." >&2
-        TIMEOUTS=$((TIMEOUTS + 1))
+        # Unlisted exhaustive checks can legitimately exceed the shared-runner
+        # budget and remain explicitly unverified. A listed exact-outcome gate
+        # cannot pass without producing its declared semantic verdict.
+        if [ -n "$expected_exit" ]; then
+          echo "::error::TLC did not finish exact-outcome gate $dir/$cfg_basename within ${TLA_CHECK_TIMEOUT_SECONDS}s; expected exit $expected_exit." >&2
+          FAILURES=$((FAILURES + 1))
+        else
+          echo "::warning::TLC did not finish $dir/$cfg_basename within ${TLA_CHECK_TIMEOUT_SECONDS}s; not verified this run. Run it directly (see the model's README) or via Deep Inspect for full verification." >&2
+          TIMEOUTS=$((TIMEOUTS + 1))
+        fi
       elif ! is_ok_exit_code "$exit_code"; then
         echo "::error::TLC reported an unexpected error (exit $exit_code) for $dir/$cfg_basename" >&2
         tail -n 60 "$log" >&2
         FAILURES=$((FAILURES + 1))
+      elif [ -n "$expected_exit" ] && [ "$exit_code" -ne "$expected_exit" ]; then
+        echo "::error::TLC reported exit $exit_code for exact-outcome gate $dir/$cfg_basename; expected $expected_exit." >&2
+        tail -n 60 "$log" >&2
+        FAILURES=$((FAILURES + 1))
       else
+        if [ -n "$expected_exit" ]; then
+          EXACT_OUTCOMES=$((EXACT_OUTCOMES + 1))
+        fi
         tail -n 5 "$log"
       fi
       rm -f "$log"
     done
-
     echo "::endgroup::"
-  done < <(find "$root" -mindepth 1 -maxdepth 1 -type d -print0 | sort -z)
 done
 
-echo "Checked $CHECKED_MODULES module(s) and $CHECKED_CONFIGS configuration(s) ($TIMEOUTS not verified within budget)."
+echo "Checked $CHECKED_MODULES module(s) and $CHECKED_CONFIGS configuration(s) ($EXACT_OUTCOMES exact outcomes, $TIMEOUTS not verified within budget)."
 
 if [ "$FAILURES" -gt 0 ]; then
   echo "::error::$FAILURES TLA+ check(s) failed." >&2

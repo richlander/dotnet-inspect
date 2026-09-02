@@ -41,10 +41,11 @@ The pilots do not yet satisfy the full contract. In particular, the current
 global rendered-line limiter can truncate their lowered JSON, section and field
 keys are still derived from display headings, and section-scoped projection has
 not been proven over broad multi-section documents.
-[Item and line limits](item-and-line-limits.md) now owns the settled target:
-semantic item/range windows happen before encoding, and line windows modify
-each printable content value rather than truncating serialized JSON. These are
-hardening targets, not accepted compatibility behavior.
+The historical #4677 target proposed that semantic item/range windows happen
+before encoding and that line windows modify each printable content value
+rather than truncating serialized JSON. These remain hardening proposals
+pending the focused owners indexed by [Item and line
+limits](item-and-line-limits.md), not accepted compatibility behavior.
 
 Related docs:
 
@@ -125,8 +126,7 @@ layout, and other lens-owned output either honors its own accepted projection
 or rejects it under the lens contract; a central JSON router may not pull that
 request into the normal lowered-document path.
 
-The settled [item and line limit](item-and-line-limits.md) contract imposes
-three format requirements:
+The historical #4677 item-and-line proposal listed three format requirements:
 
 - limit flags do not choose the typed or lowered dialect;
 - semantic item/range windows apply before JSON encoding; and
@@ -699,8 +699,9 @@ JSON.
   `--fields`/`--columns`; their migration must be explicit.
 - No general field-to-column alias; the shipped `vocabulary` exception is
   command-owned and gated.
-- No second item-domain, range, line-window, or multi-print contract; this
-  document consumes [Item and line limits](item-and-line-limits.md).
+- No second item-domain, range, line-window, or multi-print contract; any
+  adoption here must consume the focused owners sequenced by the [item-and-line
+  composition](item-and-line-limits.md#composition).
 - No silent fallback from requested lowered JSON to typed or unprojected JSON.
 - No reconstruction of sections, rows, or trees from rendered Markdown.
 - No assumption that a future typed Markout seam may change the shipped lowered

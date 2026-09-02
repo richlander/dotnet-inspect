@@ -38,16 +38,36 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
         string? projectAssetsPath,
         string? targetFramework,
         string? platformFramework = null)
+        : this(
+            ResolvedAssemblyReference.CreateFromPath(
+                assemblyPath,
+                isPlatformAssembly
+                    ? AssemblyResolutionProvenance.Platform(
+                        platformFramework ?? "InstalledPlatform",
+                        frameworkVersion: null,
+                        "TypeDefinitionResolutionSession")
+                    : AssemblyResolutionProvenance.Local(
+                        "TypeDefinitionResolutionSession")),
+            isPlatformAssembly,
+            projectAssetsPath,
+            targetFramework,
+            platformFramework)
     {
-        _root = ResolvedAssemblyReference.CreateFromPath(
-            assemblyPath,
-            isPlatformAssembly
-                ? AssemblyResolutionProvenance.Platform(
-                    platformFramework ?? "InstalledPlatform",
-                    frameworkVersion: null,
-                    "TypeDefinitionResolutionSession")
-                : AssemblyResolutionProvenance.Local(
-                    "TypeDefinitionResolutionSession"));
+    }
+
+    internal TypeDefinitionResolutionSession(
+        ResolvedAssemblyReference root,
+        bool isPlatformAssembly,
+        string? projectAssetsPath,
+        string? targetFramework,
+        string? platformFramework = null)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+        if (root.Path is not { } assemblyPath)
+            throw new ArgumentException(
+                "The CLI resolution root must have a filesystem path.",
+                nameof(root));
+        _root = root;
 
         var resolver = new AssemblyDependencyResolver(
             new AssemblyDependencyResolutionOptions(assemblyPath)

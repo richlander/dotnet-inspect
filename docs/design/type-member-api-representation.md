@@ -96,7 +96,7 @@ binding is unverified pending
 | `ApiTypeShape` | One identity-sensitive API signature or serializer root | Primitive code, array kind and rank, exact named definition, and constructed generic arguments | Display spelling, assembly resolution, or universal type correspondence |
 | `MemberTargetSelector` | One member-selection request | The user's member question, including overload and digest syntax | Evidence that selection succeeded |
 | `MetadataNamedTypeReference` | One decoded signature detached from its reader | Which exact named type definition and metadata scope the signature denotes | Resolution to an acquired assembly, constructed-type shape, or display spelling |
-| `StateMachineRelationship` and `StateMachineRelationshipResult` | One physical metadata module | Which kickoff, same-module state-machine type, and exact interface implementation methods form an authenticated compiler-state-machine relationship, or why structural authentication failed | Analysis attribution, decompiler reconstruction eligibility, source ownership, or presentation policy |
+| `StateMachineRelationship` and `StateMachineRelationshipResult` | One physical metadata module | Which kickoff, same-module state-machine type, and closed interface-role dispositions form an authenticated compiler-state-machine relationship, or why structural authentication failed | Analysis attribution, decompiler reconstruction eligibility, source ownership, or presentation policy |
 
 #### `DotnetInspector.Queries`
 
@@ -113,6 +113,35 @@ parse them or own a parallel grouping vocabulary: `ApiInventoryQuery` maps each
 item into one product-owned kind facet and accepts the returned opaque IDs for
 filtering. Unknown IDs and unclassified producer values fail visibly rather
 than becoming an empty inventory.
+
+### Projected Member declaring identity
+
+When an `ApiMember` is projected beneath a Type other than its metadata
+declaration, `DeclaringTypeDefinitionName` retains the declaration's exact
+`MetadataTypeDefinitionName`. It is the lookup-name currency for consumers that
+must distinguish the declaration from the containing or receiver Type;
+`DeclaringType` remains display text and `DeclaringTypeCanonicalName` remains
+the separate canonical-anchor spelling consumed by `ApiMemberIdentity`.
+
+The typed lookup name and canonical `MemberAnchor` projection originate from
+the same declaring Type, but neither substitutes for the other. A projected
+Member is emitted only when the producer retains the typed declaration name.
+The field is serialized as a structured namespace-plus-segments value and is
+charged to the bounded API-surface retained-text budget. Null remains the
+compatibility shape for a Member declared on its containing Type and for an
+older serialized projection; consumers requiring exact projected declaration
+identity must fail visibly rather than parse either declaring-Type string.
+`DeclaringTypeCanonicalName` identifies a projected row: both declaring
+currencies are absent on a declaration-side Member, while canonical text
+present with typed identity absent is an older or incomplete projection that
+cannot support exact lookup.
+
+This contract is gated by
+`ExtensionAttachmentNameBoundaryTests.AttachedExtension_PreservesTypedDeclaringTypeAndAnchor`,
+`ApiSurfaceExtractorBoundsTests.ProjectedDeclaringTypeIdentityContributesItsOwnRetainedText`,
+`ApiSurfaceRelationshipFailureTests.ExtractSummary_CyclicTypePreservesValidSiblingAndFailure`,
+and
+`ApiOutputFormatterTests.ApiTypeJson_RoundTripsProjectedMemberDeclaringTypeIdentity`.
 
 `ApiTypeShape` is also the currency for a serialized
 `[JsonSerializable(typeof(T))]` root. Its parser accepts only complete

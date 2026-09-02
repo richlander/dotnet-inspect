@@ -184,6 +184,7 @@ docs/design/models/binding-selection-version/BindingSelectionVersionBrokenFinalV
 docs/design/models/binding-selection-version/BindingSelectionVersionBrokenPrecommitMutation.cfg=BindingSelectionVersion
 docs/design/models/binding-selection-version/BindingSelectionVersionLiveness.cfg=BindingSelectionVersion
 docs/design/models/binding-selection-version/BindingSelectionVersionSafety.cfg=BindingSelectionVersion
+docs/design/models/binding-selection-version/CompositeBindingVersionBrokenLifecycle.cfg=CompositeBindingVersion
 docs/design/models/binding-selection-version/CompositeBindingVersionBrokenNoRefresh.cfg=CompositeBindingVersion
 docs/design/models/binding-selection-version/CompositeBindingVersionBrokenRelabel.cfg=CompositeBindingVersion
 docs/design/models/binding-selection-version/CompositeBindingVersionBrokenRouteToken.cfg=CompositeBindingVersion

@@ -251,7 +251,8 @@ public class ResearchTargetResolverTests
                 resolved.Address,
                 ResearchTargetRelationshipRole.Getter,
                 resolved.Module,
-                resolved.Candidates));
+                resolved.Candidates,
+                resolved.BodyIdentity));
         Rejects(
             new ResearchTargetOutcome.Resolved(
                 resolved.Target,
@@ -259,14 +260,16 @@ public class ResearchTargetResolverTests
                 resolved.Role,
                 LibraryBodyIndex.Open(
                     FixtureCatalog.DiffV1.AssemblyPath()).ModuleIdentity,
-                resolved.Candidates));
+                resolved.Candidates,
+                resolved.BodyIdentity));
         Rejects(
             new ResearchTargetOutcome.Resolved(
                 resolved.Target,
                 resolved.Address,
                 resolved.Role,
                 resolved.Module,
-                []));
+                [],
+                resolved.BodyIdentity));
         Rejects(
             new ResearchTargetOutcome.NotFound(
                 new MemberTargetDiagnostic(
@@ -292,6 +295,90 @@ public class ResearchTargetResolverTests
                 MethodDefinitionCount: 0,
                 Surface: null),
             omitMetadataEvidence: true);
+
+        ImmutableArray<ResearchTargetValidationEvidence> validEvidence =
+        [
+            new(
+                request,
+                input,
+                ResearchTargetInputRole.Implementation,
+                inputEvidence,
+                resolved.Target.ApiType,
+                metadata,
+                TargetResolutionFailed: false,
+                resolved),
+        ];
+        var beforeOnly = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.BeforeOnly>(
+                Assert.Single(valid.Correspondences));
+
+        RejectsProjection(
+            valid.Censuses.RemoveAt(valid.Censuses.Length - 1),
+            valid.Correspondences);
+        RejectsProjection(valid.Censuses, []);
+        RejectsProjection(
+            valid.Censuses,
+            [.. valid.Correspondences, beforeOnly]);
+
+        var staleKey = new ResearchTargetCorrespondenceKey(
+            beforeOnly.Scope,
+            beforeOnly.DomainId,
+            beforeOnly.Before.CorrespondenceKey.Role,
+            new ResearchTargetBodyIdentity(
+                beforeOnly.Before.CorrespondenceKey.BodyIdentity!.DeclaringType,
+                beforeOnly.Before.CorrespondenceKey.BodyIdentity.Name + "-stale",
+                beforeOnly.Before.CorrespondenceKey.BodyIdentity.GenericArity,
+                beforeOnly.Before.CorrespondenceKey.BodyIdentity.ParameterTypes,
+                beforeOnly.Before.CorrespondenceKey.BodyIdentity
+                    .ConversionReturnType,
+                beforeOnly.Before.CorrespondenceKey.BodyIdentity.IsExtension),
+            anchor: null);
+        RejectsProjection(
+            valid.Censuses,
+            [
+                new ResearchTargetCorrespondenceOutcome.BeforeOnly(
+                    beforeOnly.Domain,
+                    beforeOnly.Before,
+                    new ResearchTargetKeyAbsenceProof(
+                        beforeOnly.AfterAbsence.Census,
+                        staleKey,
+                        ResearchTargetAbsenceEvidenceKind.NoAdmittedInput,
+                        notFoundAttempt: null)),
+            ]);
+
+        ResearchTargetDomainSideCensus wrongCensus =
+            valid.Censuses.Single(
+                census =>
+                    census.Side == ResearchComparisonSide.Before);
+        RejectsProjection(
+            valid.Censuses,
+            [
+                new ResearchTargetCorrespondenceOutcome.BeforeOnly(
+                    beforeOnly.Domain,
+                    beforeOnly.Before,
+                    new ResearchTargetKeyAbsenceProof(
+                        wrongCensus,
+                        beforeOnly.Before.CorrespondenceKey,
+                        ResearchTargetAbsenceEvidenceKind.NoAdmittedInput,
+                        notFoundAttempt: null)),
+            ]);
+
+        void RejectsProjection(
+            ImmutableArray<ResearchTargetDomainSideCensus> censuses,
+            ImmutableArray<ResearchTargetCorrespondenceOutcome>
+                correspondences)
+        {
+            ResearchTargetResolution corrupted = new(
+                valid.Operation,
+                valid.Scopes,
+                censuses,
+                correspondences);
+            Assert.Throws<InvalidOperationException>(
+                () => ResearchTargetResolutionValidator.Validate(
+                    planning,
+                    corrupted,
+                    validEvidence));
+        }
 
         void Rejects(
             ResearchTargetOutcome corrupted,
@@ -722,6 +809,777 @@ public class ResearchTargetResolverTests
                 blocked.ConflictingInputs));
     }
 
+    // ------------------------------------------- census and correspondence
+
+    [Fact]
+    public void ResearchTargetKeys_AreOwnerIssuedAndNotDisplayDerived()
+    {
+        TargetFixture fixture = TargetFixture.Create(
+            [(Diff(FixtureCatalog.DiffV1), Diff(FixtureCatalog.DiffV2), null)]);
+        ResearchTargetResolution resolution =
+            fixture.ResolveDefault(DiffType, "Stable");
+        var paired = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.Paired>(
+                Assert.Single(resolution.Correspondences));
+
+        Assert.Empty(
+            typeof(ResearchStrictTargetKey).GetConstructors(
+                BindingFlags.Public | BindingFlags.Instance));
+        Assert.Empty(
+            typeof(ResearchTargetCorrespondenceKey).GetConstructors(
+                BindingFlags.Public | BindingFlags.Instance));
+        Assert.Same(paired.Scope, paired.Before.StrictKey.Scope);
+        Assert.Same(paired.DomainId, paired.Before.StrictKey.Domain);
+        Assert.Same(
+            paired.Before.Attempt.Request.Input,
+            paired.Before.StrictKey.Input);
+        Assert.DoesNotContain(
+            paired.Before.Attempt.Request.Input.ToString()!,
+            paired.Before.CorrespondenceKey.CanonicalIdentity,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ResearchTargetKeys_EraseOnlyAddressAndSideLocalIdentity()
+    {
+        TargetFixture fixture = TargetFixture.Create(
+            [(Diff(FixtureCatalog.DiffV1), Diff(FixtureCatalog.DiffV2), null)]);
+        ResearchTargetResolution resolution =
+            fixture.ResolveDefault(DiffType, "GenericIdentity");
+        var paired = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.Paired>(
+                Assert.Single(resolution.Correspondences));
+
+        Assert.NotSame(
+            paired.Before.StrictKey.Input,
+            paired.After.StrictKey.Input);
+        Assert.NotEqual(
+            paired.Before.StrictKey.Address,
+            paired.After.StrictKey.Address);
+        Assert.NotEqual(paired.Before.StrictKey, paired.After.StrictKey);
+        Assert.Equal(
+            paired.Before.CorrespondenceKey,
+            paired.After.CorrespondenceKey);
+        Assert.Null(
+            typeof(ResearchTargetCorrespondenceKey).GetProperty("Input"));
+        Assert.Null(
+            typeof(ResearchTargetCorrespondenceKey).GetProperty("Side"));
+        Assert.Null(
+            typeof(ResearchTargetCorrespondenceKey).GetProperty("Address"));
+        Assert.Null(
+            typeof(ResearchTargetCorrespondenceKey).GetProperty("Module"));
+    }
+
+    [Fact]
+    public void ResearchTargetKeys_PreserveDomainSignatureExtensionAndRelationshipRole()
+    {
+        TargetFixture fixture = TargetFixture.Create(
+            [(Diff(FixtureCatalog.DiffV1), Diff(FixtureCatalog.DiffV2), null)]);
+        ResearchTargetResolution resolution = fixture.Resolve(
+            fixture.Carried(0, DiffType, "Stable"),
+            fixture.Carried(0, DiffType, "GenericIdentity"),
+            fixture.Carried(
+                0,
+                "DiffFixtureSample.ExtensionSample",
+                "Twice"));
+
+        ResearchTargetCorrespondenceKey stable =
+            Assert.IsType<ResearchTargetCorrespondenceOutcome.Paired>(
+                resolution.Correspondences.Single(
+                    outcome => ReferenceEquals(
+                        outcome.Scope,
+                        resolution.Scopes[0].Id)))
+                .Before.CorrespondenceKey;
+        var generic = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.Paired>(
+                resolution.Correspondences.Single(
+                    outcome => ReferenceEquals(
+                        outcome.Scope,
+                        resolution.Scopes[1].Id)));
+        var extension = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.Paired>(
+                resolution.Correspondences.Single(
+                    outcome => ReferenceEquals(
+                        outcome.Scope,
+                        resolution.Scopes[2].Id)));
+
+        Assert.NotEqual(
+            stable.CanonicalIdentity,
+            generic.Before.CorrespondenceKey.CanonicalIdentity);
+        Assert.Equal(
+            ResearchTargetRelationshipRole.Method,
+            stable.Role);
+        Assert.Equal(
+            ResearchTargetRelationshipRole.Method,
+            extension.Before.CorrespondenceKey.Role);
+        Assert.Equal(
+            "Twice",
+            extension.Before.CorrespondenceKey.BodyIdentity!.Name);
+        Assert.Equal(
+            "DiffFixtureSample.ExtensionSample",
+            extension.Before.CorrespondenceKey.BodyIdentity
+                .DeclaringType.DefinitionName!.ToMetadataFullName());
+        Assert.True(
+            extension.Before.CorrespondenceKey.BodyIdentity.IsExtension);
+        Assert.True(
+            extension.Before.Target.Target.ApiMember.Member.IsExtension);
+
+        TargetFixture nestedFixture =
+            TargetFixture.Create([(Sample(), Sample(), null)]);
+        var nested = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.Paired>(
+                Assert.Single(
+                    nestedFixture.ResolveDefault(NestedType, "Method")
+                        .Correspondences));
+        Assert.Equal(
+            ["TargetOuter", "TargetInner"],
+            nested.Before.CorrespondenceKey.BodyIdentity!.DeclaringType
+                .DefinitionName!.Segments);
+
+        TargetFixture accessorFixture =
+            TargetFixture.Create([(Sample(), Sample(), null)]);
+        var getter = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.Paired>(
+                Assert.Single(
+                    accessorFixture.ResolveDefault(SampleType, "Value:1")
+                        .Correspondences));
+        var setter = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.Paired>(
+                Assert.Single(
+                    accessorFixture.ResolveDefault(SampleType, "Value:2")
+                        .Correspondences));
+        Assert.Equal(
+            ResearchTargetRelationshipRole.Getter,
+            getter.Before.CorrespondenceKey.Role);
+        Assert.Equal(
+            ResearchTargetRelationshipRole.Setter,
+            setter.Before.CorrespondenceKey.Role);
+        Assert.Equal(
+            getter.Before.CorrespondenceKey.CanonicalIdentity,
+            setter.Before.CorrespondenceKey.CanonicalIdentity);
+        Assert.NotEqual(
+            getter.Before.CorrespondenceKey,
+            setter.Before.CorrespondenceKey);
+
+        var field = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.Paired>(
+                Assert.Single(
+                    accessorFixture.ResolveDefault(SampleType, "Field")
+                        .Correspondences));
+        Assert.Equal(
+            ResearchTargetRelationshipRole.None,
+            field.Before.CorrespondenceKey.Role);
+        Assert.Null(field.Before.StrictKey.Address);
+        Assert.Same(
+            field.Before.Target.Anchor,
+            field.Before.StrictKey.Anchor);
+        Assert.Equal(
+            field.Before.Target.Anchor.CanonicalSignature,
+            field.Before.CorrespondenceKey.CanonicalIdentity);
+
+        var firstConversion = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.Paired>(
+                Assert.Single(
+                    fixture.ResolveDefault(
+                            "DiffFixtureSample.ConversionSample",
+                            "op_Implicit:1")
+                        .Correspondences));
+        var secondConversion = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.Paired>(
+                Assert.Single(
+                    fixture.ResolveDefault(
+                            "DiffFixtureSample.ConversionSample",
+                            "op_Implicit:2")
+                        .Correspondences));
+        Assert.NotEqual(
+            firstConversion.Before.CorrespondenceKey.CanonicalIdentity,
+            secondConversion.Before.CorrespondenceKey.CanonicalIdentity);
+    }
+
+    [Fact]
+    public void ResearchTargetKeys_UseTupleErasedCanonicalTypes()
+    {
+        TargetFixture fixture = TargetFixture.Create(
+            [(
+                Diff(FixtureCatalog.ResearchTargetCorrespondenceV1),
+                Diff(FixtureCatalog.ResearchTargetCorrespondenceV2),
+                null)]);
+        var paired = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.Paired>(
+                Assert.Single(
+                    fixture.ResolveDefault(
+                            "CorrespondenceIdentity.GenericCollisions",
+                            "Tuple")
+                        .Correspondences));
+
+        Assert.Equal(
+            paired.Before.CorrespondenceKey.BodyIdentity,
+            paired.After.CorrespondenceKey.BodyIdentity);
+        Assert.Equal(
+            ResearchTargetTypeIdentityKind.GenericInstance,
+            Assert.Single(
+                paired.Before.CorrespondenceKey.BodyIdentity!.ParameterTypes)
+                .Kind);
+    }
+
+    [Fact]
+    public void ResearchTargetKeys_UseTypedBodyIdentityForGenericAndNestedCollisions()
+    {
+        TargetFixture fixture = TargetFixture.Create(
+            [(
+                Diff(FixtureCatalog.ResearchTargetCorrespondenceV1),
+                Diff(FixtureCatalog.ResearchTargetCorrespondenceV2),
+                null)]);
+
+        var namedType = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.Paired>(
+                Assert.Single(
+                    fixture.ResolveDefault(
+                            "CorrespondenceIdentity.GenericCollisions",
+                            "NamedType")
+                        .Correspondences));
+        Assert.Equal(
+            namedType.Before.CorrespondenceKey.BodyIdentity,
+            namedType.After.CorrespondenceKey.BodyIdentity);
+        Assert.Equal(
+            ResearchTargetTypeIdentityKind.MethodGenericParameter,
+            namedType.Before.CorrespondenceKey.BodyIdentity!
+                .ParameterTypes[0].Kind);
+        Assert.Equal(
+            ResearchTargetTypeIdentityKind.Definition,
+            namedType.Before.CorrespondenceKey.BodyIdentity
+                .ParameterTypes[1].Kind);
+        Assert.Equal(
+            "T",
+            namedType.Before.CorrespondenceKey.BodyIdentity
+                .ParameterTypes[1].DefinitionName!.Segments.Single());
+
+        var primitiveName = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.Paired>(
+                Assert.Single(
+                    fixture.ResolveDefault(
+                            "CorrespondenceIdentity.GenericCollisions",
+                            "PrimitiveName")
+                        .Correspondences));
+        Assert.Equal(
+            primitiveName.Before.CorrespondenceKey.BodyIdentity,
+            primitiveName.After.CorrespondenceKey.BodyIdentity);
+        Assert.Equal(
+            ResearchTargetTypeIdentityKind.MethodGenericParameter,
+            Assert.Single(
+                primitiveName.Before.CorrespondenceKey.BodyIdentity!
+                    .ParameterTypes).Kind);
+
+        ResearchTargetResolution nested = fixture.ResolveDefault(
+            "CorrespondenceIdentity.Outer.Inner",
+            "M");
+        ResearchTargetCorrespondenceOutcome.CounterpartUnavailable[] drift =
+        [
+            .. nested.Correspondences
+                .Select(Assert.IsType<
+                    ResearchTargetCorrespondenceOutcome
+                        .CounterpartUnavailable>),
+        ];
+        Assert.Equal(2, drift.Length);
+        Assert.All(
+            drift,
+            outcome => Assert.Equal(
+                ResearchTargetTaintKind.SelectionDrift,
+                outcome.Taint.Kind));
+
+        MetadataTypeDefinitionName? beforeType =
+            drift.Single(outcome =>
+                    outcome.Attempt.Request.Side
+                        == ResearchComparisonSide.Before)
+                .CorrespondenceKey!.BodyIdentity!
+                .DeclaringType.DefinitionName;
+        MetadataTypeDefinitionName? afterType =
+            drift.Single(outcome =>
+                    outcome.Attempt.Request.Side
+                        == ResearchComparisonSide.After)
+                .CorrespondenceKey!.BodyIdentity!
+                .DeclaringType.DefinitionName;
+        Assert.NotNull(beforeType);
+        Assert.NotNull(afterType);
+        Assert.Equal(
+            ["Outer", "Inner"],
+            beforeType!.Segments);
+        Assert.Equal(
+            ["Inner"],
+            afterType!.Segments);
+        Assert.Equal(
+            "CorrespondenceIdentity.Outer",
+            afterType.Namespace);
+    }
+
+    [Fact]
+    public void ResearchTargetCensus_DerivesCompleteAttemptAndCorrespondenceDomains()
+    {
+        TargetFixture fixture = TargetFixture.Create(
+            [
+                (Sample(), Sample(), Diff(FixtureCatalog.DiffV1)),
+                (Diff(FixtureCatalog.DiffV1), null, null),
+            ]);
+        ResearchTargetResolution resolution = fixture.Resolve(
+            fixture.Carried(0, SampleType, "Method"),
+            fixture.Carried(1, DiffType, "Stable"));
+
+        Assert.Equal(resolution.Domains.Length * 2, resolution.Censuses.Length);
+        foreach (ResearchTargetDomain domain in resolution.Domains)
+        {
+            ResearchTargetDomainSideCensus[] censuses =
+                resolution.Censuses.Where(
+                    census => ReferenceEquals(census.Domain, domain)).ToArray();
+            Assert.Equal(2, censuses.Length);
+            Assert.Equal(
+                Enum.GetValues<ResearchComparisonSide>().ToHashSet(),
+                censuses.Select(census => census.Side).ToHashSet());
+            foreach (ResearchTargetDomainSideCensus census in censuses)
+            {
+                Assert.Equal(
+                    domain.Side(census.Side),
+                    census.Inputs);
+                Assert.Equal(
+                    domain.Attempts.Where(
+                        attempt => attempt.Request.Side == census.Side),
+                    census.Attempts);
+            }
+
+            Assert.Contains(
+                resolution.Correspondences,
+                outcome => ReferenceEquals(outcome.Domain, domain));
+        }
+    }
+
+    [Fact]
+    public void ResearchTargetCensus_BlockedDomainTaintsResolvedTargetsOnBothSides()
+    {
+        TargetFixture fixture = TargetFixture.Create(
+            [
+                (Sample(), SampleWithForeignModule(), null),
+                (SampleWithForeignModule(), Sample(), null),
+            ]);
+        ResearchTargetResolution resolution = fixture.Resolve(
+            fixture.Carried(0, SampleType, "Method"),
+            fixture.Carried(1, SampleType, "Method"));
+
+        Assert.Equal(2, resolution.Correspondences.Length);
+        Assert.Equal(
+            Enum.GetValues<ResearchComparisonSide>().ToHashSet(),
+            resolution.Correspondences
+                .Cast<ResearchTargetCorrespondenceOutcome.CounterpartUnavailable>()
+                .Select(outcome => outcome.Attempt.Request.Side)
+                .ToHashSet());
+        Assert.All(
+            resolution.Correspondences,
+            outcome =>
+            {
+                var unavailable = Assert.IsType<
+                    ResearchTargetCorrespondenceOutcome.CounterpartUnavailable>(
+                        outcome);
+                Assert.Equal(
+                    ResearchTargetTaintKind.BlockedDomain,
+                    unavailable.Taint.Kind);
+                Assert.Single(unavailable.Taint.Attempts);
+                Assert.Null(unavailable.StrictKey);
+                Assert.Null(unavailable.CorrespondenceKey);
+            });
+    }
+
+    [Fact]
+    public void ResearchTargetCensus_BlockedDomainWithoutResolvedTargetsIsVisible()
+    {
+        TargetFixture fixture =
+            TargetFixture.Create([(Unreadable(), Unreadable(), null)]);
+        ResearchTargetResolution resolution =
+            fixture.ResolveDefault(SampleType, "Method");
+
+        var unavailable = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.DomainUnavailable>(
+                Assert.Single(resolution.Correspondences));
+        Assert.Equal(
+            ResearchTargetTaintKind.BlockedDomain,
+            unavailable.Taint.Kind);
+        Assert.Equal(2, unavailable.Taint.Attempts.Length);
+        Assert.All(
+            unavailable.Taint.Attempts,
+            attempt => Assert.Equal(
+                ResearchTargetOutcomeKind.Failed,
+                attempt.Outcome.Kind));
+    }
+
+    [Fact]
+    public void ResearchTargetCensus_BlockedDomainPrecedesKeyConstruction()
+    {
+        TargetFixture fixture = TargetFixture.Create(
+            [(Sample(), SampleWithForeignModule(), null)]);
+        ResearchTargetResolution resolution =
+            fixture.ResolveDefault(SampleType, "Method");
+
+        var unavailable = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.CounterpartUnavailable>(
+                Assert.Single(resolution.Correspondences));
+        Assert.IsType<ResearchTargetOutcome.Resolved>(
+            unavailable.Attempt.Outcome);
+        Assert.Null(unavailable.StrictKey);
+        Assert.Null(unavailable.CorrespondenceKey);
+        Assert.Empty(unavailable.Taint.StrictKeys);
+        Assert.DoesNotContain(
+            resolution.Correspondences,
+            outcome => outcome.Kind
+                is ResearchTargetCorrespondenceKind.Paired
+                    or ResearchTargetCorrespondenceKind.BeforeOnly
+                    or ResearchTargetCorrespondenceKind.AfterOnly
+                    or ResearchTargetCorrespondenceKind.Absent);
+    }
+
+    [Fact]
+    public void ResearchTargetCensus_DivergentResolvedKeysAreUnavailable()
+    {
+        TargetFixture fixture = TargetFixture.Create(
+            [(Diff(FixtureCatalog.DiffV1), Diff(FixtureCatalog.DiffV2), null)]);
+        ResearchTargetResolution resolution = fixture.ResolveDefault(
+            "DiffFixtureSample.ConstructorRemovalSample",
+            ".ctor:1");
+
+        Assert.Equal(2, resolution.Correspondences.Length);
+        Assert.All(
+            resolution.Correspondences,
+            outcome =>
+            {
+                var unavailable = Assert.IsType<
+                    ResearchTargetCorrespondenceOutcome.CounterpartUnavailable>(
+                        outcome);
+                Assert.Equal(
+                    ResearchTargetTaintKind.SelectionDrift,
+                    unavailable.Taint.Kind);
+                Assert.NotNull(unavailable.StrictKey);
+                Assert.NotNull(unavailable.CorrespondenceKey);
+                Assert.Equal(2, unavailable.Taint.Attempts.Length);
+                Assert.Equal(2, unavailable.Taint.StrictKeys.Length);
+            });
+        Assert.Equal(
+            Enum.GetValues<ResearchComparisonSide>().ToHashSet(),
+            resolution.Correspondences
+                .Cast<ResearchTargetCorrespondenceOutcome.CounterpartUnavailable>()
+                .Select(outcome => outcome.Attempt.Request.Side)
+                .ToHashSet());
+    }
+
+    [Fact]
+    public void ResearchTargetKeyAbsence_RequiresCompleteHealthyKeyLocalCensus()
+    {
+        TargetFixture fixture = TargetFixture.Create(
+            [(Sample(), SampleWithForeignModule(), null)]);
+        ResearchTargetResolution resolution =
+            fixture.ResolveDefault(SampleType, "Method");
+
+        Assert.Contains(
+            resolution.Censuses,
+            census => census.Health == ResearchTargetCensusHealth.Blocked);
+        Assert.DoesNotContain(
+            resolution.Correspondences,
+            outcome => outcome
+                is ResearchTargetCorrespondenceOutcome.BeforeOnly
+                    or ResearchTargetCorrespondenceOutcome.AfterOnly);
+    }
+
+    [Fact]
+    public void ResearchTargetKeyAbsence_RequiresPositiveSelectorCoverage()
+    {
+        TargetFixture fixture = TargetFixture.Create(
+            [(Diff(FixtureCatalog.DiffV1), Diff(FixtureCatalog.DiffV2), null)]);
+        ResearchTargetResolution ordinal = fixture.ResolveDefault(
+            "DiffFixtureSample.ConstructorRemovalSample",
+            ".ctor:1");
+        MemberAnchor anchor = Assert.Single(
+            ordinal.Correspondences
+                .OfType<
+                    ResearchTargetCorrespondenceOutcome
+                        .CounterpartUnavailable>(),
+            outcome => outcome.Attempt.Request.Side
+                == ResearchComparisonSide.Before)
+            .Target.Anchor;
+        string fingerprint = anchor.Fingerprint;
+        ResearchTargetResolution positive = fixture.Resolve(
+            fixture.Carried(
+                0,
+                "DiffFixtureSample.ConstructorRemovalSample",
+                new MemberTargetSelector(
+                    anchor.StableSelector,
+                    ".ctor",
+                    DigestPrefix: fingerprint)));
+        var beforeOnly = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.BeforeOnly>(
+                Assert.Single(positive.Correspondences));
+        Assert.Equal(
+            MemberTargetDiagnosticKind.DigestNotFound,
+            Assert.IsType<ResearchTargetOutcome.NotFound>(
+                beforeOnly.AfterAbsence.NotFoundAttempt!.Outcome)
+                .MetadataDiagnostic!.Kind);
+        Assert.StartsWith(
+            fingerprint,
+            beforeOnly.Before.Target.Anchor.Fingerprint,
+            StringComparison.OrdinalIgnoreCase);
+
+        ResearchTargetResolution nonAbsence = fixture.ResolveDefault(
+            "DiffFixtureSample.MethodRemovalSample",
+            "Removed:3");
+        Assert.IsType<ResearchTargetCorrespondenceOutcome.DomainUnavailable>(
+            Assert.Single(nonAbsence.Correspondences));
+        Assert.DoesNotContain(
+            nonAbsence.Correspondences,
+            outcome => outcome
+                is ResearchTargetCorrespondenceOutcome.BeforeOnly
+                    or ResearchTargetCorrespondenceOutcome.AfterOnly
+                    or ResearchTargetCorrespondenceOutcome.Absent);
+    }
+
+    [Fact]
+    public void ResearchTargetDomainAbsence_RequiresCompleteHealthyEmptySide()
+    {
+        TargetFixture fixture = TargetFixture.Create(
+            [(Diff(FixtureCatalog.DiffV1), null, null)]);
+        ResearchTargetResolution resolution =
+            fixture.ResolveDefault(DiffType, "NotPresent");
+        var absent = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.Absent>(
+                Assert.Single(resolution.Correspondences));
+
+        Assert.Equal(
+            ResearchTargetAbsenceEvidenceKind.NotFound,
+            absent.BeforeAbsence.EvidenceKind);
+        Assert.IsType<ResearchTargetOutcome.NotFound>(
+            absent.BeforeAbsence.NotFoundAttempt!.Outcome);
+        Assert.Equal(
+            ResearchTargetAbsenceEvidenceKind.NoAdmittedInput,
+            absent.AfterAbsence.EvidenceKind);
+        Assert.Null(absent.AfterAbsence.NotFoundAttempt);
+        Assert.All(
+            resolution.Censuses,
+            census => Assert.Equal(
+                ResearchTargetCensusHealth.Healthy,
+                census.Health));
+    }
+
+    [Fact]
+    public void ResearchTargetFailure_NeverBecomesAbsenceEvidence()
+    {
+        TargetFixture fixture =
+            TargetFixture.Create([(Unreadable(), null, null)]);
+        ResearchTargetResolution resolution =
+            fixture.ResolveDefault(SampleType, "Method");
+
+        var unavailable = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.DomainUnavailable>(
+                Assert.Single(resolution.Correspondences));
+        Assert.Single(unavailable.Taint.Attempts);
+        Assert.IsType<ResearchTargetOutcome.Failed>(
+            unavailable.Taint.Attempts[0].Outcome);
+        Assert.DoesNotContain(
+            resolution.Correspondences,
+            outcome => outcome.Kind
+                is ResearchTargetCorrespondenceKind.BeforeOnly
+                    or ResearchTargetCorrespondenceKind.AfterOnly
+                    or ResearchTargetCorrespondenceKind.Absent);
+    }
+
+    [Fact]
+    public void ResearchProducerHandoff_CompleteOutcomesRetainExactEndpointOrAbsenceEvidence()
+    {
+        TargetFixture fixture = TargetFixture.Create(
+            [
+                (Diff(FixtureCatalog.DiffV1), Diff(FixtureCatalog.DiffV2), null),
+                (Diff(FixtureCatalog.DiffV1), Diff(FixtureCatalog.DiffV2), null),
+                (Diff(FixtureCatalog.DiffV2), Diff(FixtureCatalog.DiffV1), null),
+                (Diff(FixtureCatalog.DiffV1), Diff(FixtureCatalog.DiffV2), null),
+            ]);
+        ResearchTargetResolution resolution = fixture.Resolve(
+            fixture.Carried(0, DiffType, "Stable"),
+            fixture.Carried(
+                1,
+                "DiffFixtureSample.MethodRemovalSample",
+                "Removed:1"),
+            fixture.Carried(
+                2,
+                "DiffFixtureSample.MethodRemovalSample",
+                "Removed:1"),
+            fixture.Carried(3, DiffType, "NotPresent"));
+
+        Assert.Equal(
+            Enum.GetValues<ResearchTargetCorrespondenceKind>()
+                .Except(
+                [
+                    ResearchTargetCorrespondenceKind.CounterpartUnavailable,
+                    ResearchTargetCorrespondenceKind.DomainUnavailable,
+                ])
+                .ToHashSet(),
+            resolution.Correspondences.Select(outcome => outcome.Kind)
+                .ToHashSet());
+
+        var paired = Assert.Single(
+            resolution.Correspondences
+                .OfType<ResearchTargetCorrespondenceOutcome.Paired>());
+        Assert.Same(
+            paired.Before.Attempt,
+            paired.Domain.Attempts.Single(
+                attempt => attempt.Request.Side
+                    == ResearchComparisonSide.Before));
+        Assert.Same(
+            paired.After.Attempt,
+            paired.Domain.Attempts.Single(
+                attempt => attempt.Request.Side
+                    == ResearchComparisonSide.After));
+
+        var beforeOnly = Assert.Single(
+            resolution.Correspondences
+                .OfType<ResearchTargetCorrespondenceOutcome.BeforeOnly>());
+        Assert.Same(
+            beforeOnly.AfterAbsence.NotFoundAttempt,
+            beforeOnly.AfterAbsence.Census.Attempts.Single());
+
+        var afterOnly = Assert.Single(
+            resolution.Correspondences
+                .OfType<ResearchTargetCorrespondenceOutcome.AfterOnly>());
+        Assert.Same(
+            afterOnly.BeforeAbsence.NotFoundAttempt,
+            afterOnly.BeforeAbsence.Census.Attempts.Single());
+
+        var absent = Assert.Single(
+            resolution.Correspondences
+                .OfType<ResearchTargetCorrespondenceOutcome.Absent>());
+        Assert.Same(
+            absent.BeforeAbsence.NotFoundAttempt,
+            absent.BeforeAbsence.Census.Attempts.Single());
+        Assert.Same(
+            absent.AfterAbsence.NotFoundAttempt,
+            absent.AfterAbsence.Census.Attempts.Single());
+    }
+
+    [Fact]
+    public void ResearchProducerHandoff_BlockedOutcomesExposeNoCompletedEndpointSet()
+    {
+        TargetFixture fixture = TargetFixture.Create(
+            [(Sample(), SampleWithForeignModule(), null)]);
+        var unavailable = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.CounterpartUnavailable>(
+                Assert.Single(
+                    fixture.ResolveDefault(SampleType, "Method")
+                        .Correspondences));
+
+        Assert.Null(unavailable.StrictKey);
+        Assert.Null(unavailable.CorrespondenceKey);
+        Assert.Null(
+            unavailable.GetType().GetProperty(
+                nameof(ResearchCorrespondingTarget)));
+        Assert.DoesNotContain(
+            unavailable.GetType().GetProperties(),
+            property => property.PropertyType
+                == typeof(ResearchCorrespondingTarget));
+    }
+
+    [Fact]
+    public void ResearchProducerHandoff_DoesNotClassifyInspectionTopology()
+    {
+        string[] forbidden =
+        [
+            "Bodyful",
+            "Bodyless",
+            "NotMethodLike",
+            "BodyAdded",
+            "BodyRemoved",
+            "NoBody",
+            "TargetAbsent",
+            "ProducerEligible",
+            "Complete",
+            "NoApplicableInput",
+        ];
+        Type[] types =
+        [
+            typeof(ResearchTargetResolution),
+            typeof(ResearchTargetDomainSideCensus),
+            typeof(ResearchTargetCorrespondenceOutcome),
+            .. typeof(ResearchTargetCorrespondenceOutcome)
+                .GetNestedTypes(BindingFlags.Public),
+        ];
+
+        foreach (Type type in types)
+        {
+            Assert.DoesNotContain(
+                forbidden,
+                term => type.Name.Contains(term, StringComparison.Ordinal));
+            Assert.All(
+                type.GetProperties(),
+                property => Assert.DoesNotContain(
+                    forbidden,
+                    term => property.Name.Contains(
+                        term,
+                        StringComparison.Ordinal)));
+        }
+    }
+
+    [Fact]
+    public void ResearchImplementationTargetPath_HasNoStringKeyedIdentityBag()
+    {
+        Type[] types =
+        [
+            typeof(ResearchTargetResolution),
+            typeof(ResearchTargetDomainSideCensus),
+            typeof(ResearchStrictTargetKey),
+            typeof(ResearchTargetCorrespondenceKey),
+            typeof(ResearchCorrespondingTarget),
+            typeof(ResearchTargetKeyAbsenceProof),
+            typeof(ResearchTargetDomainAbsenceProof),
+            typeof(ResearchTargetTaintEvidence),
+            typeof(ResearchTargetCorrespondenceOutcome),
+            .. typeof(ResearchTargetCorrespondenceOutcome)
+                .GetNestedTypes(BindingFlags.Public),
+        ];
+
+        foreach (Type type in types)
+        {
+            IEnumerable<Type> signatureTypes =
+                type.GetFields(
+                        BindingFlags.Public
+                            | BindingFlags.NonPublic
+                            | BindingFlags.Instance
+                            | BindingFlags.Static)
+                    .Select(field => field.FieldType)
+                    .Concat(type.GetProperties().Select(
+                        property => property.PropertyType))
+                    .Concat(type.GetConstructors(
+                            BindingFlags.Public
+                                | BindingFlags.NonPublic
+                                | BindingFlags.Instance)
+                        .SelectMany(constructor => constructor.GetParameters())
+                        .Select(parameter => parameter.ParameterType));
+            Assert.DoesNotContain(
+                signatureTypes,
+                IsStringKeyedDictionary);
+        }
+
+        static bool IsStringKeyedDictionary(Type type)
+        {
+            if (type.IsGenericType
+                && type.GetGenericArguments()[0] == typeof(string)
+                && type.GetGenericTypeDefinition()
+                    is var definition
+                && (definition == typeof(Dictionary<,>)
+                    || definition == typeof(IDictionary<,>)
+                    || definition == typeof(IReadOnlyDictionary<,>)
+                    || definition == typeof(ImmutableDictionary<,>)))
+            {
+                return true;
+            }
+
+            return type.GetInterfaces().Any(
+                candidate => candidate.IsGenericType
+                    && candidate.GetGenericTypeDefinition()
+                        == typeof(IReadOnlyDictionary<,>)
+                    && candidate.GetGenericArguments()[0] == typeof(string));
+        }
+    }
+
     // ----------------------------------------------------------------- scopes
 
     [Fact]
@@ -820,6 +1678,17 @@ public class ResearchTargetResolverTests
             ResearchTargetNotRequestedReason.ExactAddressDesignatesAnotherInput,
             unevaluated.NotRequestedReason);
         Assert.Null(unevaluated.Request);
+        var incomplete = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.CounterpartUnavailable>(
+                Assert.Single(matched.Correspondences));
+        Assert.Same(attempt, incomplete.Attempt);
+        Assert.Equal(
+            ResearchTargetTaintKind.BlockedDomain,
+            incomplete.Taint.Kind);
+        Assert.Empty(incomplete.Taint.Attempts);
+        Assert.Equal([unevaluated], incomplete.Taint.IncompleteInputs);
+        Assert.Null(incomplete.StrictKey);
+        Assert.Null(incomplete.CorrespondenceKey);
 
         // A wrong MVID blocks before any census can see a resolved target.
         MetadataMethodAddress foreignModule =
@@ -967,6 +1836,9 @@ public class ResearchTargetResolverTests
             typeof(ResolvedAssemblyReference),
             typeof(IAssemblyReferenceResolver),
             typeof(LibraryBodyIndex),
+            typeof(MethodIdentity),
+            typeof(TypeRef),
+            typeof(ResolvableTypeReference),
             typeof(ImplementationAssemblyInput),
             typeof(MetadataReader),
             typeof(System.Reflection.PortableExecutable.PEReader),
@@ -994,12 +1866,30 @@ public class ResearchTargetResolverTests
                 typeof(ResearchTargetOutcome.Unavailable),
                 typeof(ResearchTargetOutcome.Failed),
                 typeof(ResearchTargetDiagnostic),
+                typeof(ResearchTargetCorrespondenceKey),
+                typeof(ResearchTargetBodyIdentity),
+                typeof(ResearchTargetTypeIdentity),
             ])
         {
             Assert.Contains(reached, closure);
         }
 
         Assert.Empty(Violations(closure, forbidden));
+
+        Assert.Equal(
+            [
+                nameof(ResearchTargetTypeIdentity.AssemblyName),
+                nameof(ResearchTargetTypeIdentity.DefinitionName),
+                nameof(ResearchTargetTypeIdentity.ElementType),
+                nameof(ResearchTargetTypeIdentity.GenericParameterIndex),
+                nameof(ResearchTargetTypeIdentity.Kind),
+                nameof(ResearchTargetTypeIdentity.Rank),
+                nameof(ResearchTargetTypeIdentity.TypeArguments),
+            ],
+            typeof(ResearchTargetTypeIdentity)
+                .GetProperties(BindingFlags.Instance | BindingFlags.Public)
+                .Select(property => property.Name)
+                .Order(StringComparer.Ordinal));
 
         // The same walk reports a deliberate violation, so it cannot pass by
         // reaching nothing.
@@ -1390,9 +2280,18 @@ public class ResearchTargetResolverTests
             ResearchTargetDiagnosticKind.IncompleteMetadataSurface,
             failed.Diagnostic.Kind);
 
+        ResearchTargetResolution resolved =
+            fixture.ResolveDefault("N.C", "M");
         Assert.IsType<ResearchTargetOutcome.Resolved>(
-            Assert.Single(
-                fixture.ResolveDefault("N.C", "M").Attempts).Outcome);
+            Assert.Single(resolved.Attempts).Outcome);
+        var unavailable = Assert.IsType<
+            ResearchTargetCorrespondenceOutcome.CounterpartUnavailable>(
+                Assert.Single(resolved.Correspondences));
+        Assert.Null(unavailable.StrictKey);
+        Assert.Null(unavailable.CorrespondenceKey);
+        Assert.Equal(
+            ResearchTargetTaintKind.BodyIdentityUnavailable,
+            unavailable.Taint.Kind);
     }
 
     [Fact]
@@ -2030,12 +2929,12 @@ public class ResearchTargetResolverTests
         {
             contribution = scope.Register(
                 TestArtifactProvenance.Instance,
-                openRead);
+                _ => openRead());
         }
 
         authority.CreateRetainedContent(
             contribution.Registration,
-            openRead);
+            _ => openRead());
         authority.CompleteAdmission(admission);
         return contribution.Registration;
     }

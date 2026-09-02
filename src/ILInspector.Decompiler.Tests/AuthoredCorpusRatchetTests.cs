@@ -1533,19 +1533,33 @@ public class AuthoredCorpusRatchetTests
             workflow,
             StringComparison.Ordinal);
         Assert.Contains(
-            "<PackageReference Include=\"System.Text.Encodings.Web\" Version=\"$VERSION\" />",
-            poolScript,
-            StringComparison.Ordinal);
-        Assert.Contains(
             "VERSION=\"10.0.10\"",
             poolScript,
             StringComparison.Ordinal);
+        string[] expectedSpecs =
+        [
+            "System.Text.Encodings.Web|system.text.encodings.web|lib/net10.0/System.Text.Encodings.Web.dll|91f4b016890cfd5468d46d32c451931cac34096f869cc1c8077c902d9a7f5ccd",
+            "System.Runtime.Serialization.Formatters|system.runtime.serialization.formatters|lib/net8.0/System.Runtime.Serialization.Formatters.dll|33693c0971e95d158efc64307e6ef379a9dc322f1642178e3c29c8e1d4db255e",
+            "System.Reflection.Context|system.reflection.context|lib/net10.0/System.Reflection.Context.dll|94da27080f9aaa03e3719828976838ba39b0d8d7299fe9bd6130b1c822014f3b",
+            "System.Reflection.Metadata|system.reflection.metadata|lib/net10.0/System.Reflection.Metadata.dll|2a8c49aa47e910f4e690bce79be3986d3cfb0df8d8e978bbdf51b76d594a378d",
+        ];
+        Assert.Equal(
+            expectedSpecs,
+            poolScript
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => line.Trim())
+                .Where(line => line.StartsWith("\"System.", StringComparison.Ordinal))
+                .Select(line => line.Trim('"')));
         Assert.Contains(
-            "TFM=\"net10.0\"",
+            "printf '    <PackageReference Include=\"%s\" Version=\"%s\" />\\n' \"$package_id\" \"$VERSION\"",
             poolScript,
             StringComparison.Ordinal);
         Assert.Contains(
-            "ASSEMBLY_SHA256=\"91f4b016890cfd5468d46d32c451931cac34096f869cc1c8077c902d9a7f5ccd\"",
+            "if [ \"$actual_sha256\" != \"$expected_sha256\" ]; then",
+            poolScript,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "printf '%s\\n' \"${assemblies[@]}\" > \"$out\"",
             poolScript,
             StringComparison.Ordinal);
         Assert.Contains(

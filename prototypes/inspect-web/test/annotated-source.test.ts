@@ -33,6 +33,7 @@ import type { AnnotatedSourceDocument } from "../src/annotated-source-view.ts";
 import { sampleDocument as sampleDocumentFixture } from "../../annotated-source-viewer/src/sample-document.js";
 import {
   csharpOnlyEmptyViewerCatalog,
+  sampleInvocationTarget,
   sampleViewerCatalog,
 } from "./annotated-source-result-fixture.ts";
 import { fakeDom } from "./fake-dom.ts";
@@ -107,6 +108,11 @@ test("annotated source bindings dispatch the documented fixed and chip actions",
     new FakeElement({ annotatedAction: "medium-toggle", medium: "CSharp" }),
     new FakeElement({ annotatedAction: "coordinate-toggle" }),
     new FakeElement({ annotatedAction: "node-select", nodeId: "7" }),
+    new FakeElement({
+      annotatedAction: "destination-open",
+      destinationIndex: "2",
+      destination: "source",
+    }),
   ];
   const calls: AnnotatedSourceAction[] = [];
   bindAnnotatedSource(
@@ -136,6 +142,11 @@ test("annotated source bindings dispatch the documented fixed and chip actions",
     { kind: "medium-toggle", medium: "CSharp" },
     { kind: "coordinate-toggle" },
     { kind: "node-select", nodeId: 7 },
+    {
+      kind: "destination-open",
+      destinationIndex: 2,
+      destination: "source",
+    },
   ]);
 });
 
@@ -147,6 +158,11 @@ test("malformed action identities are inert rather than dispatched as NaN", () =
     new FakeElement({ annotatedAction: "finding-toggle", factId: "-1" }),
     new FakeElement({ annotatedAction: "medium-toggle", medium: "Other" }),
     new FakeElement({ annotatedAction: "node-select", nodeId: "" }),
+    new FakeElement({
+      annotatedAction: "destination-open",
+      destinationIndex: "x",
+      destination: "other",
+    }),
   ];
   const calls: AnnotatedSourceAction[] = [];
   bindAnnotatedSource(
@@ -190,6 +206,31 @@ function modalHtml(source: AnnotatedSourceResult = result): string {
     session: openModalSession(model, createEmbeddedSession(model)).modal,
     escapeHtml,
   });
+}
+
+function invocationResult(): AnnotatedSourceResult {
+  return {
+    ...result,
+    document: {
+      ...sampleDocument,
+      nodes: sampleDocument.nodes.map(node =>
+        node.id === 1
+          ? { ...node, kind: "InvocationExpression" }
+          : node),
+    },
+    viewerCatalog: {
+      ...sampleViewerCatalog,
+      invocationLikeNodeKinds: ["InvocationExpression"],
+      invocationDestinations: [{
+        nodeId: 1,
+        target: sampleInvocationTarget,
+      }],
+      destinations: {
+        available: true,
+        unavailableReason: null,
+      },
+    },
+  };
 }
 
 test("the result preserves the validated portable document contract", () => {
@@ -243,6 +284,35 @@ test("page-owned actions expose Copy and Explore only when the document is ready
   assert.doesNotMatch(enabled, / disabled/);
   assert.match(disabled, /id="copy-annotated"[^>]* disabled/);
   assert.match(disabled, /id="explore-annotated"[^>]* disabled/);
+});
+
+test("a selected invocation exposes separate Member and Source destinations", () => {
+  const source = invocationResult();
+  const model = createAnnotatedSourceViewerModel(source);
+  const modal = openModalSession(model, createEmbeddedSession(model)).modal;
+  const unselected = renderAnnotatedSourceModal({
+    result: source,
+    session: modal,
+    escapeHtml,
+  });
+  const selected = renderAnnotatedSourceModal({
+    result: source,
+    session: selectNode(modal, 1),
+    escapeHtml,
+  });
+
+  assert.doesNotMatch(unselected, /data-annotated-action="destination-open"/);
+  assert.match(
+    selected,
+    /data-destination-index="0"\s+data-destination="member"[\s\S]*?>Member<\/button>/,
+  );
+  assert.match(
+    selected,
+    /data-destination-index="0"\s+data-destination="source"[\s\S]*?>Source<\/button>/,
+  );
+  assert.match(selected, /Open member overview for Example\.Targets\.Target/);
+  assert.match(selected, /Open source for Example\.Targets\.Target/);
+  assert.doesNotMatch(selected, />Navigate</);
 });
 
 test("C# highlighting crosses product segments without changing source text", () => {
@@ -551,6 +621,7 @@ test("mixed-line hidden media keeps its layout text but removes its action", () 
       defaultFindingIds: [],
       supportedMedia: ["CSharp", "Il"],
       invocationLikeNodeKinds: [],
+      invocationDestinations: [],
       findingEvidence: {
         available: false,
         unavailableReason: "NotProjected",
@@ -671,8 +742,66 @@ test("Annotated Source composition requires a concrete overload and validated se
     /const annotatedWorkingSurface =\s*annotatedPageContext && state\.memberAnnotatedEmbedded !== null;/);
   assert.match(
     appSource,
-    /detail-actions\$\{annotatedPageContext \? " annotated-page-actions" : ""\}/);
+    /shell-actions\$\{annotatedPageContext \? " annotated-page-actions" : ""\}/);
   assert.match(
     appSource,
     /detail-scroll\$\{annotatedWorkingSurface \? " annotated-working-surface" : ""\}/);
+});
+
+test("Annotated Source destination actions use typed graph routes and exact sections", () => {
+  const appSource = readFileSync(
+    new URL("../src/dotnet-inspect.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    appSource,
+    /case "destination-open":[\s\S]*model\.invocationDestinations\[action\.destinationIndex\][\s\S]*callGraphTargetBinding\([\s\S]*destination\.target,[\s\S]*action\.destination,[\s\S]*"annotated"\)[\s\S]*dismissAnnotatedSourceModal\(false\)[\s\S]*binding\.onSelect\(\)/,
+  );
+  assert.match(
+    appSource,
+    /const loadedSection = destination === "source" \? "source" : "overview"/,
+  );
+  assert.match(
+    appSource,
+    /const runtimeSection = destination === "member" \? "overview" : "call-graph"/,
+  );
+  assert.match(
+    appSource,
+    /candidate\.status === "resident" && destination !== "default"[\s\S]*navigateToUnprojectedGraphMember\([\s\S]*section/,
+  );
+  assert.match(
+    appSource,
+    /singleProjectedGraphMember\(projection\.type\)[\s\S]*createAppTypeSurface\(projection\.type\)[\s\S]*callGraphTargetMatchesType\(target, projectedType\)[\s\S]*graphOnly: true/,
+  );
+  assert.match(
+    appSource,
+    /if \(section === "source"\) \{\s*observeAsync\(loadSelectedMemberSource\(\), "Loading member source"\)/,
+  );
+  assert.match(
+    appSource,
+    /failureSurface === "annotated"[\s\S]*state\.annotatedDestinationError[\s\S]*renderAndFocusAnnotated\(\{ kind: "explore" \}, "embedded"\)/,
+  );
+  assert.match(
+    appSource,
+    /id="annotated-destination-error"[\s\S]*role="alert"/,
+  );
+  assert.match(
+    appSource,
+    /function openAnnotatedSourceModal\(\) \{[\s\S]*invalidateMemberDestinationWork\(state\);/,
+  );
+  assert.match(
+    appSource,
+    /case "destination-open":[\s\S]*invalidateMemberDestinationWork\(state\);[\s\S]*callGraphTargetBinding/,
+  );
+  assert.match(
+    appSource,
+    /function invalidateSourceCaches\(\) \{\s*invalidateSourceDestinationWork\(state\);/,
+  );
+  assert.equal(
+    appSource.match(
+      /state\.memberAnnotated = null;\s*state\.memberAnnotated(?:Key = "";\s*state\.memberAnnotated)?Error = "";\s*state\.annotatedDestinationError = "";/g,
+    )?.length,
+    7,
+  );
 });

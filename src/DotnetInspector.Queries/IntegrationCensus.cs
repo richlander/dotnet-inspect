@@ -528,6 +528,50 @@ public sealed class IntegrationProducerPolicyAttemptAddress :
         HashCode.Combine(Participant, Policy);
 }
 
+/// <summary>
+/// One candidate plus structured source lookups that may prove an observed
+/// Integration fulfills an opportunity.
+/// </summary>
+public sealed class IntegrationCandidateEvidence
+{
+    public IntegrationCandidateEvidence(
+        IntegrationCandidateIdentity candidate,
+        IEnumerable<IntegrationCandidatePeerIdentity.NamedType>?
+            fulfillmentSourceLookups = null)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        Candidate = candidate;
+        FulfillmentSourceLookups =
+            [.. fulfillmentSourceLookups ?? []];
+        if (FulfillmentSourceLookups.Any(lookup => lookup is null))
+        {
+            throw new ArgumentException(
+                "Fulfillment-source lookups cannot contain null.",
+                nameof(fulfillmentSourceLookups));
+        }
+        if (FulfillmentSourceLookups.Distinct().Count()
+            != FulfillmentSourceLookups.Length)
+        {
+            throw new ArgumentException(
+                "Fulfillment-source lookups cannot contain duplicates.",
+                nameof(fulfillmentSourceLookups));
+        }
+        if (!FulfillmentSourceLookups.IsEmpty
+            && !ReferenceEquals(
+                candidate.Relationship,
+                InspectionGraphIntegrationsCatalog.IntegrationObserved))
+        {
+            throw new ArgumentException(
+                "Only observed Integration evidence can declare fulfillment-source lookups.",
+                nameof(fulfillmentSourceLookups));
+        }
+    }
+
+    public IntegrationCandidateIdentity Candidate { get; }
+    public ImmutableArray<IntegrationCandidatePeerIdentity.NamedType>
+        FulfillmentSourceLookups { get; }
+}
+
 /// <summary>One terminal producer-policy receipt.</summary>
 public abstract class IntegrationProducerPolicyAttempt
 {
@@ -548,36 +592,84 @@ public abstract class IntegrationProducerPolicyAttempt
             : base(address)
         {
             ArgumentNullException.ThrowIfNull(candidates);
-            Candidates = [.. candidates];
-            if (Candidates.Any(candidate => candidate is null))
+            ImmutableArray<IntegrationCandidateIdentity> copied =
+                [.. candidates];
+            if (copied.Any(candidate => candidate is null))
             {
                 throw new ArgumentException(
                     "Completed candidate evidence cannot contain null.",
                     nameof(candidates));
             }
-            if (Candidates.Any(candidate =>
-                    !candidate.Source.Participant.Equals(
-                        address.Participant)))
+            Initialize(
+                [.. copied.Select(candidate =>
+                    new IntegrationCandidateEvidence(candidate))]);
+        }
+
+        Completed(
+            IntegrationProducerPolicyAttemptAddress address,
+            ImmutableArray<IntegrationCandidateEvidence> evidence)
+            : base(address)
+            => Initialize(evidence);
+
+        public static Completed WithEvidence(
+            IntegrationProducerPolicyAttemptAddress address,
+            IEnumerable<IntegrationCandidateEvidence> evidence)
+        {
+            ArgumentNullException.ThrowIfNull(evidence);
+            return new Completed(address, [.. evidence]);
+        }
+
+        void Initialize(
+            ImmutableArray<IntegrationCandidateEvidence> evidence)
+        {
+            Evidence = evidence;
+            if (Evidence.Any(candidate => candidate is null))
+            {
+                throw new ArgumentException(
+                    "Completed candidate evidence cannot contain null.",
+                    nameof(evidence));
+            }
+            if (Evidence.Any(candidate =>
+                    !candidate.Candidate.Source.Participant.Equals(
+                        Address.Participant)))
             {
                 throw new ArgumentException(
                     "Completed candidate evidence must belong to the addressed participant.",
-                    nameof(candidates));
+                    nameof(evidence));
             }
-            if (Candidates.Any(candidate =>
+            if (Evidence.Any(evidence =>
                     !ReferenceEquals(
-                        candidate.Relationship,
-                        address.Policy.Relationship)
-                    || !address.Policy.Policy.Concepts.Contains(
-                        candidate.Concept,
+                        evidence.Candidate.Relationship,
+                        Address.Policy.Relationship)
+                    || !Address.Policy.Policy.Concepts.Contains(
+                        evidence.Candidate.Concept,
                         ReferenceEqualityComparer.Instance)))
             {
                 throw new ArgumentException(
                     "Completed candidate evidence must match the addressed producer policy.",
-                    nameof(candidates));
+                    nameof(evidence));
             }
+            if (!ReferenceEquals(
+                    Address.Policy,
+                    IntegrationAnalysisCatalog.EcosystemObserved)
+                && Evidence.Any(evidence =>
+                    !evidence.FulfillmentSourceLookups.IsEmpty))
+            {
+                throw new ArgumentException(
+                    "Only the ecosystem-observed producer policy can declare fulfillment-source lookups.",
+                    nameof(evidence));
+            }
+
+            Candidates =
+            [
+                .. Evidence.Select(static evidence => evidence.Candidate),
+            ];
         }
 
-        public ImmutableArray<IntegrationCandidateIdentity> Candidates { get; }
+        public ImmutableArray<IntegrationCandidateEvidence> Evidence
+            { get; private set; } = [];
+        public ImmutableArray<IntegrationCandidateIdentity> Candidates
+            { get; private set; } = [];
     }
 
     public sealed class Unavailable : IntegrationProducerPolicyAttempt
@@ -797,14 +889,37 @@ public abstract class IntegrationCandidateAttempt
     {
         public Classified(
             IntegrationCandidateAttemptAddress address,
-            IntegrationCandidateDisposition disposition)
+            IntegrationCandidateDisposition disposition,
+            IEnumerable<IntegrationResolvedPeer>?
+                fulfillmentSourceResolutions = null)
             : base(address)
         {
             ArgumentNullException.ThrowIfNull(disposition);
             Disposition = disposition;
+            FulfillmentSourceResolutions =
+                [.. fulfillmentSourceResolutions ?? []];
+            if (FulfillmentSourceResolutions.Any(
+                    resolution => resolution is null))
+            {
+                throw new ArgumentException(
+                    "Fulfillment-source resolutions cannot contain null.",
+                    nameof(fulfillmentSourceResolutions));
+            }
+            if (FulfillmentSourceResolutions
+                    .Select(resolution => resolution.Lookup)
+                    .Distinct()
+                    .Count()
+                != FulfillmentSourceResolutions.Length)
+            {
+                throw new ArgumentException(
+                    "Fulfillment-source resolutions cannot repeat a lookup.",
+                    nameof(fulfillmentSourceResolutions));
+            }
         }
 
         public IntegrationCandidateDisposition Disposition { get; }
+        public ImmutableArray<IntegrationResolvedPeer>
+            FulfillmentSourceResolutions { get; }
     }
 
     public sealed class Suppressed : IntegrationCandidateAttempt
@@ -849,15 +964,18 @@ public sealed class IntegrationCensusCandidate
 {
     internal IntegrationCensusCandidate(
         IntegrationCandidateIdentity identity,
-        IEnumerable<IntegrationProducerPolicyAttemptAddress> producerAttempts)
+        IEnumerable<IntegrationProducerPolicyAttemptAddress> producerAttempts,
+        IEnumerable<IntegrationCandidateEvidence> evidence)
     {
         Identity = identity;
         ProducerAttempts = [.. producerAttempts];
+        Evidence = [.. evidence];
     }
 
     public IntegrationCandidateIdentity Identity { get; }
     public ImmutableArray<IntegrationProducerPolicyAttemptAddress>
         ProducerAttempts { get; }
+    public ImmutableArray<IntegrationCandidateEvidence> Evidence { get; }
 }
 
 /// <summary>
@@ -869,6 +987,9 @@ public sealed class IntegrationCensusSnapshot
     readonly Dictionary<
         IntegrationCandidateAttemptAddress,
         IntegrationCandidateAttempt> _candidateAttemptsByAddress;
+    readonly Dictionary<
+        IntegrationCandidateIdentity,
+        IntegrationCensusCandidate> _candidatesByIdentity;
     readonly HashSet<IntegrationTypeIdentity> _selectedTypeSet;
 
     public IntegrationCensusSnapshot(
@@ -936,7 +1057,9 @@ public sealed class IntegrationCensusSnapshot
             nameof(producerPolicyAttempts));
         ValidateProducerAttempts();
 
-        Candidates = BuildCandidates();
+        Candidates = BuildCandidates(ProducerPolicyAttempts);
+        _candidatesByIdentity = Candidates.ToDictionary(
+            static candidate => candidate.Identity);
         var expectedCandidateAddresses =
             ImmutableArray.CreateBuilder<
                 IntegrationCandidateAttemptAddress>();
@@ -1069,26 +1192,31 @@ public sealed class IntegrationCensusSnapshot
         }
     }
 
-    ImmutableArray<IntegrationCensusCandidate> BuildCandidates()
+    internal static ImmutableArray<IntegrationCensusCandidate> BuildCandidates(
+        IEnumerable<IntegrationProducerPolicyAttempt> producerPolicyAttempts)
     {
         var candidateOrder = new List<IntegrationCandidateIdentity>();
         var candidateProducers = new Dictionary<
             IntegrationCandidateIdentity,
             (
                 List<IntegrationProducerPolicyAttemptAddress> Order,
-                HashSet<IntegrationProducerPolicyAttemptAddress> Set)>();
+                HashSet<IntegrationProducerPolicyAttemptAddress> Set,
+                List<IntegrationCandidateEvidence> Evidence)>();
         foreach (IntegrationProducerPolicyAttempt.Completed attempt
-            in ProducerPolicyAttempts.OfType<
+            in producerPolicyAttempts.OfType<
                 IntegrationProducerPolicyAttempt.Completed>())
         {
-            foreach (IntegrationCandidateIdentity candidate
-                in attempt.Candidates)
+            foreach (IntegrationCandidateEvidence evidence
+                in attempt.Evidence)
             {
+                IntegrationCandidateIdentity candidate =
+                    evidence.Candidate;
                 if (!candidateProducers.TryGetValue(
                         candidate,
                         out var producers))
                 {
                     producers = (
+                        [],
                         [],
                         []);
                     candidateProducers.Add(candidate, producers);
@@ -1099,6 +1227,7 @@ public sealed class IntegrationCensusSnapshot
                 {
                     producers.Order.Add(attempt.Address);
                 }
+                producers.Evidence.Add(evidence);
             }
         }
 
@@ -1107,7 +1236,8 @@ public sealed class IntegrationCensusSnapshot
             .. candidateOrder.Select(candidate =>
                 new IntegrationCensusCandidate(
                     candidate,
-                    candidateProducers[candidate].Order)),
+                    candidateProducers[candidate].Order,
+                    candidateProducers[candidate].Evidence)),
         ];
     }
 
@@ -1132,6 +1262,38 @@ public sealed class IntegrationCensusSnapshot
     {
         IntegrationCandidateIdentity candidate = attempt.Address.Candidate;
         ValidateResolution(candidate, attempt.Disposition.Peer);
+        IntegrationCensusCandidate censusCandidate =
+            _candidatesByIdentity[candidate];
+        IntegrationCandidatePeerIdentity.NamedType[] declaredSources =
+        [
+            .. censusCandidate.Evidence
+                .SelectMany(evidence =>
+                    evidence.FulfillmentSourceLookups)
+                .Distinct(),
+        ];
+        if (declaredSources.Length
+            != attempt.FulfillmentSourceResolutions.Length)
+        {
+            throw new ArgumentException(
+                "Fulfillment-source resolutions must exactly cover the declared lookups.",
+                nameof(CandidateAttempts));
+        }
+        foreach (IntegrationResolvedPeer source
+            in attempt.FulfillmentSourceResolutions)
+        {
+            if (!ReferenceEquals(
+                    candidate.Relationship,
+                    InspectionGraphIntegrationsCatalog.IntegrationObserved)
+                || !censusCandidate.Evidence.Any(evidence =>
+                    evidence.FulfillmentSourceLookups.Any(
+                        lookup => lookup.Equals(source.Lookup))))
+            {
+                throw new ArgumentException(
+                    "Fulfillment-source resolution requires a declared observed-source lookup.",
+                    nameof(CandidateAttempts));
+            }
+            ValidateResolvedLookup(source.Lookup, source);
+        }
 
         IntegrationTypeIdentity terminal =
             attempt.Disposition.Peer.Terminal;
@@ -1200,22 +1362,25 @@ public sealed class IntegrationCensusSnapshot
         if (!attempt.Fulfillment.SourceType.Equals(
                 SourceTypeOf(suppressed))
             || !attempt.Fulfillment.Target.Terminal.Equals(
-                classified.Disposition.Peer.Terminal))
+                classified.Disposition.Peer.Terminal)
+            || !classified.FulfillmentSourceResolutions.Any(
+                source => source.Terminal.Equals(
+                    attempt.Fulfillment.SourceType)))
         {
             throw new ArgumentException(
-                "Suppression fulfillment must retain the opportunity's exact source and resolved target Types.",
+                "Suppression fulfillment must retain an observed source and the opportunity's exact resolved target Type.",
                 nameof(CandidateAttempts));
         }
         ValidateResolution(suppressed, attempt.Fulfillment.Target);
     }
 
-    static IntegrationTypeIdentity SourceTypeOf(
+    internal static IntegrationTypeIdentity SourceTypeOf(
         IntegrationCandidateIdentity candidate) =>
         new(
             candidate.Source.Participant,
             candidate.Source.SourceType);
 
-    static void ValidateResolution(
+    internal static void ValidateResolution(
         IntegrationCandidateIdentity candidate,
         IntegrationResolvedPeer resolved)
     {
@@ -1225,8 +1390,16 @@ public sealed class IntegrationCensusSnapshot
                 "Resolved peer evidence must retain its exact candidate lookup.",
                 nameof(CandidateAttempts));
         }
-        if (resolved.ResolutionPath.Any(
-                type => type.Type != candidate.Peer.Type))
+        ValidateResolvedLookup(candidate.Peer, resolved);
+    }
+
+    internal static void ValidateResolvedLookup(
+        IntegrationCandidatePeerIdentity lookup,
+        IntegrationResolvedPeer resolved)
+    {
+        if (!lookup.Equals(resolved.Lookup)
+            || resolved.ResolutionPath.Any(
+                type => type.Type != lookup.Type))
         {
             throw new ArgumentException(
                 "Every resolved peer hop must retain the candidate Type name.",
@@ -1246,7 +1419,7 @@ public sealed class IntegrationCensusSnapshot
         }
     }
 
-    static void ValidatePlan(AnalysisRequestPlan plan)
+    internal static void ValidatePlan(AnalysisRequestPlan plan)
     {
         if (!ReferenceEquals(
                 plan.Analysis,
@@ -1269,7 +1442,7 @@ public sealed class IntegrationCensusSnapshot
         }
     }
 
-    static ImmutableArray<IntegrationProducerPolicyBinding>
+    internal static ImmutableArray<IntegrationProducerPolicyBinding>
         RequiredPolicies(AnalysisRequestPlan plan)
     {
         var policies =
@@ -1294,7 +1467,7 @@ public sealed class IntegrationCensusSnapshot
         return policies.ToImmutable();
     }
 
-    static ImmutableArray<IntegrationSourceBindingContextIncidence>
+    internal static ImmutableArray<IntegrationSourceBindingContextIncidence>
         CanonicalizeIncidence(
             ImmutableArray<IntegrationSourceParticipantIdentity> participants,
             ImmutableArray<IntegrationSourceBindingContextIncidence> supplied,
