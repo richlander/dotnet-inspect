@@ -115,6 +115,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Call Graph Projection](design/call-graph-projection.md) | Projecting the inspection graph into a call graph. |
 | [Instruction Substrate](design/instruction-substrate.md) | Shared IL/control-flow substrate consumed by Analysis and the Decompiler. |
 | [TypeScript Facades for `[JSExport]`](design/ts-jsexport.md) | Generating TypeScript facades for JSExport members. |
+| [Classic Async Request Adapter](design/classic-async-request-adapter.md) | Carries exact Metadata relationship evidence and owner failures into the Decompiler classic-inverse boundary. |
 | [Classic Async Inverse Core](design/classic-async-reconstruction.md) | Proof-carrying reconstruction of authenticated classic async requests. |
 | [Decompiler Raise Discipline](decompiler-raise-discipline.md) | Rules for raising IL into decompiler structures. |
 
