@@ -40,6 +40,8 @@ public sealed record CSharpFormatOptions
     internal IReadOnlyCollection<string> AdditionalDeclaredTypeFullNames { get; init; } = [];
     internal IReadOnlyCollection<string> AdditionalImportedDeclaredTypeFullNames { get; init; } = [];
     internal IReadOnlyCollection<string> AdditionalKnownNamespaces { get; init; } = [];
+    internal CSharpDeclaredTypeSelfNameAdmission.Admitted? DeclaredTypeSelfName { get; init; }
+    internal string? LegacyDeclaredTypeIdentifier { get; init; }
     public CSharpNamespacePolicy NamespacePolicy { get; init; } = CSharpNamespacePolicy.Omit;
     public bool AbbreviateSignature { get; init; }
     public bool TerminateMemberDeclaration { get; init; }
@@ -770,6 +772,8 @@ public sealed class CSharpFormatter
             AdditionalDeclaredTypeFullNames = options.AdditionalDeclaredTypeFullNames,
             AdditionalImportedDeclaredTypeFullNames = options.AdditionalImportedDeclaredTypeFullNames,
             AdditionalKnownNamespaces = options.AdditionalKnownNamespaces,
+            DeclaredTypeSelfName = options.DeclaredTypeSelfName,
+            LegacyDeclaredTypeIdentifier = options.LegacyDeclaredTypeIdentifier,
             NamespaceMode = options.NamespacePolicy switch
             {
                 CSharpNamespacePolicy.Omit => CSharpNamespaceMode.Omit,

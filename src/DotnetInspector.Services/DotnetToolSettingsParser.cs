@@ -74,7 +74,7 @@ public static class DotnetToolSettingsParser
     {
         try
         {
-            return ParseDocument(HardenedXml.ParseXDocument(xml));
+            return ParseContentOrThrow(xml);
         }
         catch
         {
@@ -82,9 +82,25 @@ public static class DotnetToolSettingsParser
         }
     }
 
+    /// <summary>
+    /// Parses <c>DotnetToolSettings.xml</c> from raw XML content, or
+    /// <see langword="null"/> for an unsupported document.
+    /// </summary>
+    /// <exception cref="System.Xml.XmlException">
+    /// The content is not a well-formed XML document.
+    /// </exception>
+    public static DotnetToolSettingsData? ParseContentOrThrow(string xml)
+    {
+        ArgumentNullException.ThrowIfNull(xml);
+        return ParseDocument(HardenedXml.ParseXDocument(xml));
+    }
+
     private static DotnetToolSettingsData? ParseDocument(XDocument doc)
     {
         var root = doc.Root;
+        if (root?.Name != "DotNetCliTool")
+            return null;
+
         var version = root?.Attribute("Version")?.Value;
 
         return version switch

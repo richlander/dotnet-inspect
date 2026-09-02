@@ -60,6 +60,51 @@ internal static class InspectionGraphProjectionUtilities
                 && node.GroupIds.Any(groupId =>
                     source.Groups[groupId].Subject == package);
         }
+        if (owner is InspectionGraphSubject.AssemblySubject
+            {
+                Identity:
+                    InspectionGraphAssemblyIdentity.CensusParticipant
+                    assembly,
+            })
+        {
+            return subject switch
+            {
+                InspectionGraphSubject.TypeSubject
+                {
+                    Identity:
+                        InspectionGraphTypeIdentity.CensusType type,
+                } =>
+                    assembly.Participant.Equals(
+                        type.Identity.Participant),
+                InspectionGraphSubject.MemberSubject
+                {
+                    Identity:
+                        InspectionGraphMemberIdentity.CensusMember
+                        assemblyMember,
+                } =>
+                    assembly.Participant.Equals(
+                        assemblyMember.Source.Participant),
+                _ => false,
+            };
+        }
+        if (owner is InspectionGraphSubject.TypeSubject
+            {
+                Identity:
+                    InspectionGraphTypeIdentity.CensusType
+                    integrationOwnerType,
+            }
+            && subject is InspectionGraphSubject.MemberSubject
+            {
+                Identity:
+                    InspectionGraphMemberIdentity.CensusMember
+                    integrationMember,
+            })
+        {
+            return integrationOwnerType.Identity.Participant.Equals(
+                    integrationMember.Source.Participant)
+                && integrationOwnerType.Identity.Type.Equals(
+                    integrationMember.Source.SourceType);
+        }
         if (!TryGetRegistration(owner, out var ownerRegistration)
             || !TryGetRegistration(subject, out var subjectRegistration)
             || !ReferenceEquals(

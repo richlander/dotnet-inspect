@@ -2,7 +2,7 @@
 
 This document is the composition map for the `dotnet-inspect` website
 redesign. It states the overall redesign summary, the product dependencies
-the redesign composes, the document map for its five focused owners, the
+the redesign composes, the document map for its six focused owners, the
 relationships among them, and the boundary with the reference product. It
 does not itself define selector visual language, navigation rendering,
 consumer effect lifecycle, shell interaction, or page-level composition; each
@@ -26,7 +26,7 @@ boundary. It does not own:
 - canonical packet encoding or decoding;
 - CLI and library output formatting; or
 - any UI-internal visual language, rendering, consumer, shell, or
-  composition behavior claimed by the five focused owners in the
+  composition behavior claimed by the six focused owners in the
   [document map](#document-map) below.
 
 ## Document map
@@ -34,7 +34,8 @@ boundary. It does not own:
 | Document | Owns |
 | -------- | ---- |
 | [Inspect Web Presentation Language](inspect-web-presentation-language.md) | Reusable visual and accessibility language: selector-control states, progressive filter disclosure, shared subject-heading rules, and compact source-provenance presentation. |
-| [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md) | Rendering and interacting with product-issued coordinate, workspace, subject, hierarchy, Library, lens, and activation descriptors. |
+| [Inspect Web SlideStrip](inspect-web-slide-strip.md) | Reusable one-region ordered-item presentation: Label, optional Short Label and Icon, derived Index, whole-strip modes, contiguous sliding windows, edge disclosure, and focus preservation. |
+| [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md) | Rendering and interacting with product-issued coordinate, workspace, subject, hierarchy, Library, lens, and activation descriptors, including the first composition of two SlideStrip controls as the Slideable Subject Strip. |
 | [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) | The browser-side navigation-result consumer model: canonical location and refresh, browser history, product transition lifecycle, effect authority, synchronization debt, and renderer/destination lifetimes. |
 | [Inspect Web Shell Interaction](inspect-web-shell-interaction.md) | The persistent shell and shared transient/routed surface interaction: shell actions, shared menu/modal semantics, Spotlight Search, Open, Settings entry, the command palette, and routed-versus-modal classification. |
 | [Inspect Web Surface Composition](inspect-web-surface-composition.md) | Browser host page-level composition and placement: working surfaces, Unified Settings, package-source presentation, responsive composition, and the data bar and Diagnostics. |
@@ -75,38 +76,69 @@ independent cosmetic changes.
 
 | Area | Direction |
 | ---- | --------- |
-| Subject navigation | Use one single-line Workspace, coordinate, and current-subject command |
-| Workspace selection | Replace package tabs with a Workspace surface |
-| Package coordinate | Keep a compact package, version, and TFM argument beside `dotnet-inspect` |
+| Persistent hierarchy | Use one title line for product, inspected target, and Search/history; replace custom subject/inspector rendering with the Slideable Subject Strip |
+| Workspace title bar | Follow `dotnet-inspect` with the icon-backed typed Package > Library > Type > Member target path, then responsive Back/Forward and flush-right Search |
+| Subject navigation | Establish Workspace, Package, Type, and Member in the second row now; add Library when product descriptors are ready |
+| Subject zone | Compose separately styled subject and inspector SlideStrip controls with inspector-first allocation and discrete boundary movement |
+| Workspace selection | Keep ordinary single-workspace use free of tabs; manage retained coordinates inside the Workspace subject |
+| Package coordinate | Render version and TFM selectors in Package content; platform is workspace content, not a workspace |
 | Library inspection | Select all libraries or one library within Library |
-| Type headings | Let the inspection command identify API and Source; retain detail in Metadata |
+| Type headings | Use a compact exact-target heading in API and Source; retain detail in Metadata |
 | Filters | Collapse selector rows by default and summarize hidden restrictions |
 | Selected controls | Use one accent selected-state treatment across selector families |
 | Source provenance | Use a compact status/action row without validation prose or link glyphs |
-| Search and opening | Use Spotlight for search and a separate local-artifact Open flow |
+| Search and opening | Open Spotlight from a responsive flush-right title-line control immediately after Back/Forward; use a separate local-artifact Open flow |
 | Settings | Use one Settings experience with contextual entry points |
 | Data bar | Show build identity, acquired source, CLI, and skill links on one line |
 
-Together, these decisions move subject-specific controls and detail into the
-view that owns them. Persistent chrome carries the `dotnet-inspect` Workspace
-root control, shell actions, and one data line. Inspection surfaces add the
-compact coordinate/subject command and lens navigation. Content views spend
-their vertical space on the package, library, type, member, API, metadata, or
-source material the user selected.
+Together, these decisions make the web shell read like the CLI without
+rendering a command string. The title line progresses from `dotnet-inspect` to
+the icon-backed ordered target path, then a responsive Search/history cluster.
+The full-width zone below adopts the Slideable Subject Strip for subject and
+inspector navigation. Each reusable strip selects one uniform representation
+mode and a contiguous window inside the width the composite assigns it.
+Inspector-first allocation preserves multiple inspector controls when capacity
+permits, while explicit controls move the boundary to semantic window and mode
+thresholds. Segment-level copy remains on the typed title-line target. Package
+coordinate editing, target inventories, and other navigation remain inside the
+working surface rather than consuming persistent chrome.
+
+This focused update establishes one new owner,
+[Inspect Web SlideStrip](inspect-web-slide-strip.md), and pairs it with exactly
+one first adoption in Navigation Presentation. SlideStrip owns reusable
+single-region representation and window behavior. Navigation Presentation
+owns the SSS composition's two tablists, different styling and navigation,
+inspector-first width allocation, boundary controls, and subject-driven
+inspector replacement.
+
+Moving application and contextual actions out of the subject row remains
+required product direction, but it is not part of this focused pattern and
+first-adopter contract. Surface Composition changes are limited to deferring
+its stale inspector representation, horizontal-movement, pressure-trigger, and
+matching acceptance restatements to Navigation Presentation. Shell Interaction
+and Surface Composition retain their current application-action contracts until
+[#5482](https://github.com/richlander/dotnet-inspect/issues/5482) defines the
+shell-owned application control and
+[#5483](https://github.com/richlander/dotnet-inspect/issues/5483) relocates it
+and the contextual actions at the page-composition layer.
 
 ## Cross-document relationships
 
-The five focused owners compose in one direction, from product data to
+The six focused owners compose in one direction, from product data to
 rendered pixels, with the effect-authority handoff running the other way on
 every user action:
 
-1. [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md)
+1. [Inspect Web SlideStrip](inspect-web-slide-strip.md) selects one
+   whole-strip visual mode and a contiguous window for one adopter-supplied
+   inventory without owning that inventory's semantic roles or navigation.
+2. [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md)
    renders the subject, hierarchy, Library, and lens descriptors issued by
    Inspection Subject Navigation and the View Facet Registry, using the
+   SlideStrip control for each SSS region and the
    shared visual language from
    [Inspect Web Presentation Language](inspect-web-presentation-language.md)
    for selector pills, progressive disclosure, and heading suppression.
-2. A user action submits only an opaque product-issued action ID. Its typed
+3. A user action submits only an opaque product-issued action ID. Its typed
    result -- semantic outcome, synchronization disposition, and effect
    authority -- is consumed exclusively by
    [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md),
@@ -114,12 +146,12 @@ every user action:
    browser history, and resolves focus and announcement under that
    authority. Navigation Presentation never validates authority itself; it
    only renders whatever the consumer installs.
-3. [Inspect Web Shell Interaction](inspect-web-shell-interaction.md) owns the
+4. [Inspect Web Shell Interaction](inspect-web-shell-interaction.md) owns the
    persistent shell and the modal/routed surfaces it launches (Spotlight,
    Open, Settings, Diagnostics). It hands committed navigation actions to the
    same consumer for focus resolution and history commitment, and it hosts
    the persistent live region and focus anchor the consumer targets.
-4. [Inspect Web Surface Composition](inspect-web-surface-composition.md)
+5. [Inspect Web Surface Composition](inspect-web-surface-composition.md)
    places the working surfaces those other owners render -- Source,
    Annotated Source, Package query, Settings, and Diagnostics -- into the
    page layout, deferring their internal behavior to each surface's existing
@@ -132,12 +164,49 @@ rendering, interaction, or placement rules does not require reopening the
 others unless it changes the opaque descriptor, action ID, or typed outcome
 they exchange.
 
-## Reference-product boundary
+## Reference-experience boundary
 
-[npmx.dev](https://npmx.dev/) is an interaction reference for density,
-shareable state, code-first working surfaces, keyboard access, and persistent
-package context. It is not the website's information architecture.
+No external application is the overall Inspect Web UX target. The product's
+Workspace -> Package -> Library -> Type -> Member model and its lenses remain
+normative. Reference applications supply evidence for individual capabilities:
 
+| Capability | Reference evidence |
+| ---------- | ------------------ |
+| Product-to-subject-to-inspector grammar | the `dotnet-inspect` CLI |
+| Elastic strip allocation and returned unused width | tmux window list and status line |
+| Spotlight, command palette, keyboard navigation, and focus | Visual Studio Code |
+| Dense web-native package exploration and shareable state | npmx.dev |
+| Assembly, Type, and Member hierarchy | ILSpy and Visual Studio Object Browser |
+| Read-only inspection posture and evidence panes | Chrome DevTools |
+| URLs, browser history, and familiar web conventions | GitHub |
+
+These references are neither architectural owners nor templates to copy. tmux
+is the primary allocation evidence because its natural-width window entries
+return unused space to neighboring status content; ordinary browser, terminal,
+and editor tabs typically reserve a fixed tab region instead. SlideStrip
+diverges from tmux by preserving typed item identity, complete accessible
+labels, policy-selected visual representations, and focused-item reveal rather
+than exposing raw window indexes or clipping text without identity. The
+CLI correspondence does not turn the title line into editable command text;
+Visual Studio Code does not imply an editor workbench, command center, Activity
+Bar, file Explorer, editor tabs, movable regions, or desktop-window
+assumptions; and Chrome DevTools does not imply a browser-debugging information
+architecture.
+
+No single established application or component model matches SlideStrip or
+the complete Slideable Subject Strip composition. Their conventional parts
+form a deliberate hybrid: tmux contributes elastic natural-width allocation,
+Priority+ navigation contributes deterministic whole-strip mode preference,
+carousel and scrollable-tab models contribute a disclosed contiguous window
+without removing identities, and split views contribute user-directed
+allocation between adjacent regions. SlideStrip diverges from ordinary
+Priority+ controls by sliding one consistently represented window instead of
+mixing compact and full items or moving entries into an overflow menu. The SSS
+diverges from ordinary split views by moving between semantic window and mode
+thresholds instead of a draggable pixel-sized divider.
+
+[npmx.dev](https://npmx.dev/) contributes fast package exploration, density,
+code-first working surfaces, keyboard access, and persistent package context.
 Inspect Web does not copy:
 
 - npm-style `main`, `docs`, `code`, `diff`, `changelog`, and `stats` hierarchy;
@@ -150,8 +219,8 @@ Inspect Web does not copy:
 - npmx branding and component styling.
 
 Package, Library, Type, and Member ownership and their local lenses remain the
-dotnet-inspect model. Npmx influences interaction quality without redefining
-the product domain.
+dotnet-inspect model. Every reference is bounded to the capability named above
+and none redefines the product domain.
 
 ## Implementation gates
 

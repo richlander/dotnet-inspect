@@ -1,3 +1,4 @@
+using CiChangeDetection.Planning;
 using static CiChangeDetection.GateAssertions;
 
 namespace CiChangeDetection;
@@ -242,7 +243,8 @@ internal static class DetectionTestSuite
             missingWebManifestBody,
             "pull_request",
             "src/dotnet-inspect/Program.cs",
-            outputs);
+            outputs,
+            parity: false);
         if (missingWebManifest["code"] != "true"
             || missingWebManifest["web"] != "true")
         {
@@ -667,6 +669,19 @@ internal static class DetectionTestSuite
                 "ts-jsexport TypeScript gate did not select only web: "
                 + FormatValues(tsJsExportGate));
         }
+        Dictionary<string, string> tsJsExportContextAotGate = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/test-ts-jsexport-context-aot.sh",
+            outputs);
+        if (tsJsExportContextAotGate["code"] != "true"
+            || tsJsExportContextAotGate["web"] != "false")
+        {
+            throw new InvalidOperationException(
+                "ts-jsexport context NativeAOT gate did not select only code: "
+                + FormatValues(tsJsExportContextAotGate));
+        }
         foreach (string tsJsExportInput in new[]
         {
             "tests/ILInspector.JsExportSurface.TypeScriptFixtures/TypeScriptFixtureExports.cs",
@@ -773,7 +788,8 @@ internal static class DetectionTestSuite
                 StringComparison.Ordinal),
             "pull_request",
             "src/dotnet-inspect/Program.cs",
-            outputs);
+            outputs,
+            parity: false);
         if (missingDecompilerSkipList["decompiler"] != "true")
         {
             throw new InvalidOperationException(
@@ -1297,7 +1313,8 @@ internal static class DetectionTestSuite
             brokenGhInvocation,
             "pull_request",
             "README.md",
-            outputs);
+            outputs,
+            parity: false);
         if (brokenGh["code"] == "false" && brokenGh["docs"] == "true")
         {
             throw new InvalidOperationException(
@@ -1332,24 +1349,42 @@ internal static class DetectionTestSuite
         bool truncatePushStream = false,
         bool emptyPushRecord = false,
         string? tlaCandidateFiles = null,
-        bool tlaCandidateResolutionSucceeds = true) =>
-        new DetectionHarness(repository, body, expectedOutputs).Run(
-            new DetectionScenario(
-                eventName,
-                files,
-                previousFiles,
-                reportedChangedFileCount,
-                changedFileCountIsString,
-                resolutionSucceeds,
-                malformedFileRecordJson,
-                objectShapedFilePage,
-                nulFileRecord,
-                nulPreviousFileRecord,
-                fileStatus,
-                failDecodeAt,
-                truncateRecordStream,
-                truncatePushStream,
-                emptyPushRecord,
-                tlaCandidateFiles,
-                tlaCandidateResolutionSucceeds));
+        bool tlaCandidateResolutionSucceeds = true,
+        bool parity = true)
+    {
+        DetectionScenario scenario = new(
+            eventName,
+            files,
+            previousFiles,
+            reportedChangedFileCount,
+            changedFileCountIsString,
+            resolutionSucceeds,
+            malformedFileRecordJson,
+            objectShapedFilePage,
+            nulFileRecord,
+            nulPreviousFileRecord,
+            fileStatus,
+            failDecodeAt,
+            truncateRecordStream,
+            truncatePushStream,
+            emptyPushRecord,
+            tlaCandidateFiles,
+            tlaCandidateResolutionSucceeds);
+        Dictionary<string, string> values =
+            new DetectionHarness(repository, body, expectedOutputs)
+                .Run(scenario);
+
+        // Every ordinary scenario is also an effective-parity case: the
+        // production planner must reach the same selections from the same
+        // event and path corpus. `parity: false` names a scenario that mutates
+        // the oracle itself; ChangePlanParity.IsComparable excludes the
+        // fallback and split-candidate cases the planner deliberately refuses
+        // or resolves differently.
+        if (parity && ChangePlanParity.IsComparable(scenario))
+        {
+            ChangePlanParity.Assert(repository, scenario, values);
+        }
+
+        return values;
+    }
 }

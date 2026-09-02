@@ -167,8 +167,9 @@ opens Settings. Closing Settings returns to inline Annotated Source without
 reopening the viewer; any changed style regenerates the affected inline output.
 
 Changing style regenerates only affected decompiler output. The preference is
-not part of the visible inspection command and a shared workspace does not
-impose the sender's style preference on its recipient.
+not part of the title line or subject zone, and a
+shared workspace does not impose the sender's style preference on its
+recipient.
 
 ## Unified Settings
 
@@ -216,11 +217,27 @@ One information hierarchy adapts across viewport sizes:
 - wide layouts retain Type or Member navigation beside a full working surface;
 - narrow layouts replace the navigation pane with a visible
   `Types` or `Members` button that opens the shared modal navigation drawer;
-- the inspection command remains one line;
-- `Copy target` remains a visible trailing action;
-- coordinate and leaf subject have highest truncation priority;
-- intermediate qualification elides first;
-- lens navigation scrolls horizontally instead of wrapping; and
+- the title line and full-width subject/inspector zone each remain one line;
+- the subject zone remains outside and above the navigation/content grid;
+- the product and inspected-target root marks retain bounded icon slots in the
+  title line;
+- title-line Back and Forward sit immediately left of Search, which is flush
+  right; the trailing cluster yields from full Search, to a `Search` button, to
+  flush-right arrows, to nothing as the inspected target grows;
+- subject and inspector representations adapt through Navigation
+  Presentation's measurement-driven Slideable Subject Strip contract rather
+  than a fixed shell breakpoint;
+- second-row Share, Settings, optional contextual actions, and trailing Help
+  may collapse completely before the Slideable Subject Strip enters
+  control-free pressure, but a subject-owned sole entry action that is also a
+  required return-focus target remains visible and takes priority over those
+  optional actions;
+- subject and inspector navigation follows Navigation Presentation's
+  contiguous horizontal window contract instead of wrapping;
+- subject-path segments and optional advertisements elide visually without
+  losing the complete accessible subject path or segment-level copy controls;
+  the Search label may collapse from its scoped label to `Search` before the
+  control disappears; and
 - full identities remain available through accessible labels and focused or
   expanded states.
 
@@ -331,8 +348,11 @@ with the absence of a synthesized `Default feed` control.
 3. Activate the visible `Types` button and confirm the drawer's accessible
    dialog name, initial focus, focus containment, Escape dismissal, and focus
    return.
-4. Confirm that the inspection command and lens strip remain single-line
-   scrolling or truncating surfaces rather than wrapping.
+4. Confirm that the title-line inspected target and second-row
+   subject/inspector strip remain single-line rather than wrapping. Confirm
+   that the title-line target elides while preserving its complete accessible
+   path, and that only the Slideable Subject Strip uses contiguous windows and
+   edge disclosure.
 5. With focus in the wide navigation pane, narrow the viewport and confirm that
    focus moves to the new drawer button without opening it.
 6. Open the drawer, restore the wide viewport, and confirm that the drawer

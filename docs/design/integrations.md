@@ -41,6 +41,45 @@ issued by adjacent owners. It does not construct a workspace, validate a
 generic analysis request, define graph induction, resolve `find` scope, select
 Sections, or render output.
 
+## Named consumers and rendering strategy
+
+[#3629](https://github.com/richlander/dotnet-inspect/issues/3629) is the
+end-to-end tracker for the shared Census and its host consumers:
+
+- [#5529](https://github.com/richlander/dotnet-inspect/issues/5529) is the CLI
+  Workspace Integration Census report. It consumes the candidate rows and
+  matrix cells through a CLI-owned L2/Markout lowering.
+- [#5530](https://github.com/richlander/dotnet-inspect/issues/5530) is the
+  inspect-web Workspace Integration Census surface. It consumes the same typed
+  matrix result through the product engine and presents an interactive
+  participant/context-by-Integration grid.
+
+Both consumer slices depend on
+[#4647](https://github.com/richlander/dotnet-inspect/issues/4647) for one
+product-owned workspace packet and normalized execution receipt that can carry
+the same workspace and context address into the CLI and browser. The current
+`IIntegrationBindingContextIdentity` grants comparison only inside its
+owner-issued workspace generation; it has no portable display or navigation
+contract. A host must not stringify that object, use collection position, or
+derive context identity from a library label. Until #4647 supplies the shared
+address, cross-host presentation is blocked rather than allowed to invent one.
+
+`IntegrationInventoryProjectionResult` and
+`IntegrationMatrixProjectionResult` are the shared typed information
+boundaries. The CLI uses the normal Markout path. Integration defines matrix
+cells, not the CLI's flattened logical row: #5529 owns a stable long-form
+report-row schema plus its count, filtering, windowing, structured-output, and
+diagnostic behavior under the Section and Output Shapes contracts.
+
+The browser intentionally bypasses Markout only at its final presentation
+boundary. Its interactive responsive matrix requires host-owned focus,
+selection, navigation, and contextual expansion rather than a terminal or
+document table. TypeScript may pivot the exact typed cells visually, but it
+must not reconstruct participant or context identity, incidence, Integration
+concepts, candidate disposition, counts, completeness, or failure scope.
+Cross-host parity compares product-owned structured execution and matrix
+receipts, never browser HTML with CLI Markdown.
+
 ## User model
 
 Discover the family, then select a focused section:
@@ -370,8 +409,10 @@ execution is implemented by `IntegrationCensusExecutor`, which consumes exact
 Workspace-issued capability bindings, validates their correspondence before
 producer execution, runs producer policies sequentially, binds and resolves
 complete context-local candidate batches, and constructs the immutable
-snapshot. Inventory, graph correspondence, matrix projection, and their
-remaining gates are still target design.
+snapshot. The Inventory row projection, graph correspondence projection, and
+sparse matrix projection are implemented and verified by their named gates
+below. The remaining candidate edge cases, CLI lowering, shared host receipt
+and parity, and WASM demo are still target design.
 
 The Census is one Integration analysis over one finite universe. It is not a
 loop that runs the existing Library-targeted question once per participant.
@@ -387,7 +428,7 @@ The Integration analysis descriptor consumes the request topology from
 | Report surface | One owner-issued Workspace identity in a report-domain-only target role |
 | Universe | One finite owner-issued population of acquired Type evidence with participant outcomes and provenance |
 | Mode | `Census` |
-| Projection | Candidate rows, sparse library-by-concept matrix, or Integration graph |
+| Projection | Candidate rows, sparse participant/context-by-Integration matrix, or Integration graph |
 
 The descriptor declares these combinations before producer execution.
 Existing Targeted Library behavior and graph-supported Member and Type anchors
@@ -861,11 +902,25 @@ candidate attempt and retains:
 - `In` or `Out` plus the typed `Out` reason; and
 - admitted relationship identity when `In`.
 
+The admitted relationship identity is the exact context-addressed candidate
+attempt. It is not a graph-local occurrence or edge id. A later graph
+projection must retain correspondence from this identity to the graph-owned
+occurrence and logical edge it admits.
+
+`IntegrationCensusProjectionResult` retains the independently validated plan
+and the exact compatible snapshot. `IntegrationInventoryProjectionResult`
+adds the immutable rows in the snapshot's canonical classified-attempt order.
+An incomplete snapshot may therefore retain healthy rows beside its original
+typed failures without projecting failed attempts as `Out` or successful empty
+rows.
+
 The Section is `Verbose`, `NetworkFree`, and `ExplicitOnly`. It does not enter
 the existing Library `@Integrations` catalog, so selecting that category keeps
 its current focused-section meaning and bounded output. A workspace host may
 assign the Section to an authored workspace category under the
 [Section model](section-model.md) contract.
+The reusable L2 catalog and schema exist independently of host registration;
+this slice does not add a CLI route or Library pipeline binding.
 Those declarations describe the Integration-produced row set;
 [Section model](section-model.md) remains authoritative for discovery,
 selection, effectiveness, category expansion, count, and empty-section
@@ -904,6 +959,44 @@ and context order plus concept-catalog order, not discovery timing. The
 ordering gate uses discovery order that deliberately differs from all three
 declared orders and includes one participant repeated across binding contexts.
 
+### Matrix projection
+
+The sparse matrix adapter consumes an independently validated matrix request
+plus a compatible Census snapshot. Its row domain is exactly the
+owner-issued source-participant/context incidence relation; it never constructs
+the full participant-by-context cross product. Each incident row retains the
+canonical Census participant and context identities and carries one cell for
+every configured concept in catalog order.
+
+A cell retains every exact classified candidate attempt for its
+participant/context/concept coordinate and derives its `In` and `Out` counts
+from those attempts. Complete zero is therefore an explicit complete cell with
+no classified attempts. A suppressed candidate attempt contributes no count
+and no incompleteness; it remains accounted by the shared Census snapshot.
+An incomplete cell may retain healthy classified attempts and their partial
+counts, but also retains the exact causes that make the total
+non-authoritative:
+
+- a rejected or failed source participant affects every concept in each of its
+  incident contexts;
+- an unavailable or failed producer policy affects only its declared concepts
+  in every incident context for that participant; and
+- a failed candidate attempt affects only its exact
+  participant/context/concept coordinate.
+
+Participant and binding-context joins use their owner-defined semantic
+equality. Concept and producer-policy joins use catalog reference identity.
+Rows and cells retain the exact snapshot receipts rather than cloning
+identities or deriving correspondence from display text. Global universe
+completeness and failure evidence remains available beside the sparse rows
+through the projection result and its Census snapshot.
+
+The current projection is host-neutral and does not make its context identity
+portable. #5529 and #5530 consume it only after #4647 supplies their shared
+workspace/context execution address. The CLI then lowers cells into a stable
+long-form Markout row contract, while inspect-web pivots the same cells into
+its host-specific interactive grid.
+
 ### Graph projection
 
 The graph adapter consumes an independently validated graph request plus a
@@ -920,6 +1013,36 @@ candidate inventory is produced before
 `InspectionGraphInducedSetProjection` removes non-admitted occurrences; it is
 never reconstructed from the projection's surviving edges or filtered
 `BindingMissing` details.
+
+`IntegrationGraphProjectionResult` retains the exact Graph plan, compatible
+snapshot, explicit induced-set request, projected graph document, and candidate
+inventory in canonical classified-attempt order. An `Out` inventory entry has
+no admitted occurrence. Every `In` entry retains its pre-induction edge and
+occurrence subjects plus a closed projection state: `Retained` names the final
+dense occurrence and logical-edge ids, while `FilteredByRequest` records that
+the existing induced-set projection removed it. A missing `In` occurrence is
+therefore not representable as an ordinary result.
+
+Census graph occurrence evidence retains the exact classified attempt, and its
+relationship-specific occurrence identity is the
+`IntegrationCandidateAttemptAddress`. Distinct context attempts can therefore
+remain distinct occurrences while normal graph collapse maps them to one
+logical edge. `integration.observed` admits the candidate's source member or
+Type; this widens the descriptor's admitted source currency without changing
+the legacy workspace query's existing member occurrences. Opportunity
+projection preserves its existing assembly-to-Type logical edge and
+Type-to-Type occurrence semantics.
+
+Graph subjects wrap the exact Integration-issued candidate source, resolved
+Type, or participant identity. They never invent an acquisition registration
+or derive identity from display text. Coordinate-backed package participants
+join their realized package group on both source and terminal sides.
+Integration-backed member, Type, and assembly subjects remain graph
+session-bound because `IIntegrationBindingContextIdentity` has no portable
+contract. An incomplete snapshot retains healthy admitted occurrences beside a
+global graph failure containing the exact unhealthy source, producer-policy,
+and candidate receipts; the graph document cannot look successfully complete
+when the projection result is incomplete.
 
 ### Peer lookup and parent provenance
 
@@ -952,12 +1075,14 @@ remain network-free.
 
 ### Demo contract
 
-The canonical demo uses one retained superset workspace and three finite Type
-universe descriptions:
+The canonical demo uses one retained superset workspace, the same
+product-owned workspace/context execution receipt in both hosts, and three
+finite Type universe descriptions:
 
 1. The first universe produces at least one `In` and one `Out` candidate.
-2. The row Section and sparse matrix show the same candidate identities and
-   disposition counts.
+2. The candidate-row Section, CLI long-form matrix Section, and inspect-web
+   participant/context matrix show the same candidate identities, cell states,
+   and disposition counts from structured product receipts.
 3. The `Out` peer full name is passed to `find` unchanged with its finite scope,
    or its authoritative parent coordinate is used directly.
 4. Adding the peer's parent to the selected universe moves the same candidate
@@ -967,8 +1092,10 @@ universe descriptions:
 6. Removing the sole evidence-bearing source makes the candidate disappear
    instead of creating negative evidence.
 
-The WASM app renders the shared row or matrix projection and contains no
-Integration detection or disposition policy.
+The CLI and WASM hosts render the shared projections without Integration
+detection or disposition policy. A repeated participant in two binding
+contexts remains two addressed rows in both hosts; equal display labels never
+collapse them.
 
 ### Delivery
 
@@ -980,10 +1107,16 @@ Implementation should land as focused slices:
    and the projection-neutral Census snapshot (implemented core model);
 3. sequential Workspace-backed execution over exact typed capability bindings
    (implemented);
-4. `Integration Inventory` row Section and structured row output;
-5. graph correspondence from `In` candidates without changing graph semantics;
-6. sparse matrix projection and WASM demo; and
-7. separately owned #4979 `find` prerequisite or optional enrichment for
+4. `Integration Inventory` row Section and structured row output
+   (implemented as a host-neutral row projection plus an unregistered reusable
+   L2 catalog and schema);
+5. graph correspondence from `In` candidates without changing graph semantics
+   (implemented);
+6. sparse matrix projection (implemented);
+7. #5529 CLI Workspace Census report and Markout lowering;
+8. #5530 inspect-web Workspace Census matrix, after #4647 supplies the shared
+   context execution receipt; and
+9. separately owned #4979 `find` prerequisite or optional enrichment for
    discovering an unknown parent.
 
 Each slice must preserve current focused Library sections and explicit
@@ -1115,6 +1248,50 @@ The projection-neutral core-model slice is verified by:
 - `IntegrationCensusExecutor_ResolvedFulfillmentSourcesExactlyCoverDeclaredLookups`
 - `IntegrationCensusExecutor_FulfillmentResolutionCannotRepeatLookup`
 
+The Integration Inventory row-projection slice is verified by:
+
+- `IntegrationInventory_RowsRetainTypedSourcePeerAndProvenance`
+- `IntegrationInventory_PeerLookupRetainsEveryTypeReferenceScopeArm`
+- `IntegrationInventory_ForwardedInAndOutRetainTerminalDefinitionProvenanceAndHops`
+- `IntegrationInventory_ForwardedOutUsesTerminalParentForHandoff`
+- `IntegrationInventory_KnownParentUsesAuthoritativeCoordinate`
+- `IntegrationInventory_UnknownParentNeverGuessesFromAssemblyName`
+- `IntegrationInventory_FindPatternUsesTypeLookupGrammarUnchanged`
+- `IntegrationInventory_SameCandidateAcrossContextsProducesDistinctRows`
+- `IntegrationInventory_IncompleteCensusRetainsHealthyRowsWithoutManufacturingFailureRows`
+- `IntegrationInventory_IncompleteEmptyCensusRetainsFailureState`
+- `IntegrationInventory_IsExplicitNetworkFreeVerboseSection`
+- `IntegrationInventory_DoesNotWidenLibraryIntegrationsCategory`
+- `IntegrationProjection_EachResponseRetainsItsExactValidatedRequest`
+- `IntegrationProjection_ReuseRequiresCompatibleCensusSnapshot`
+
+The Integration graph-correspondence slice is verified by:
+
+- `IntegrationGraph_OnlyInCandidatesContributeOccurrences`
+- `IntegrationGraph_OutCandidatesAreNeitherEdgesNorFailures`
+- `IntegrationGraph_CandidateInventoryPrecedesInducedSetProjection`
+- `IntegrationGraph_RetainsCandidateAttemptOccurrenceAndEdgeCorrespondence`
+- `IntegrationGraph_MultipleCandidatesMayCorrespondToOneLogicalEdge`
+- `IntegrationGraph_OpportunityPreservesAssemblyEdgeAndTypeOccurrence`
+- `IntegrationGraph_IncompleteCensusRetainsHealthyGraphAndFailure`
+- `IntegrationGraph_RequiresGraphPlanAndCensusBackedRequest`
+
+The Integration sparse-matrix slice is verified by:
+
+- `IntegrationMatrix_RetainsCandidateIdentityAndDispositionCounts`
+- `IntegrationMatrix_RepeatedLibraryAcrossContextsRemainsDistinct`
+- `IntegrationMatrix_IncompleteLibraryDoesNotRenderAsZero`
+- `IntegrationMatrix_PolicyFailureDoesNotContaminateUnrelatedCells`
+- `IntegrationMatrix_ProducerPolicyFailureIncompletesEveryBindingContextForItsConcept`
+- `IntegrationMatrix_CandidateFailureDoesNotContaminateOtherBindingContexts`
+- `IntegrationMatrix_IncompleteCellRetainsPartialCounts`
+- `IntegrationMatrix_SuppressedAttemptIsAccountedWithoutCountOrFailure`
+- `IntegrationMatrix_OrdersByDeclaredParticipantContextAndConceptOrder`
+- `IntegrationMatrix_OmitsNonincidentParticipantContextPairs`
+- `IntegrationMatrix_JoinsSemanticParticipantAndContextIdentities`
+- `IntegrationMatrix_RequiresMatrixPlanAndCompatibleSnapshot`
+- `IntegrationProjection_RowsMatrixAndGraphShareOneAnalysisAndSnapshot`
+
 The remaining target implementation is unverified until these named gates
 land:
 
@@ -1125,30 +1302,8 @@ land:
 - `IntegrationCandidate_UnavailableAmbiguousOrMissingSelectedPeerIsFailure`
 - `IntegrationCandidate_UnresolvedForwardingIsFailure`
 - `IntegrationCandidate_RemovingSoleSourceRemovesCandidate`
-- `IntegrationInventory_RowsRetainTypedSourcePeerAndProvenance`
-- `IntegrationInventory_PeerLookupRetainsEveryTypeReferenceScopeArm`
-- `IntegrationInventory_ForwardedInAndOutRetainTerminalDefinitionProvenanceAndHops`
-- `IntegrationInventory_ForwardedOutUsesTerminalParentForHandoff`
-- `IntegrationInventory_KnownParentUsesAuthoritativeCoordinate`
-- `IntegrationInventory_UnknownParentNeverGuessesFromAssemblyName`
-- `IntegrationInventory_FindPatternUsesTypeLookupGrammarUnchanged`
-- `IntegrationInventory_IsExplicitNetworkFreeVerboseSection`
-- `IntegrationInventory_DoesNotWidenLibraryIntegrationsCategory`
-- `IntegrationMatrix_RetainsCandidateIdentityAndDispositionCounts`
-- `IntegrationMatrix_RepeatedLibraryAcrossContextsRemainsDistinct`
-- `IntegrationMatrix_IncompleteLibraryDoesNotRenderAsZero`
-- `IntegrationMatrix_PolicyFailureDoesNotContaminateUnrelatedCells`
-- `IntegrationMatrix_ProducerPolicyFailureIncompletesEveryBindingContextForItsConcept`
-- `IntegrationMatrix_CandidateFailureDoesNotContaminateOtherBindingContexts`
-- `IntegrationMatrix_OrdersByDeclaredParticipantContextAndConceptOrder`
-- `IntegrationGraph_OnlyInCandidatesContributeOccurrences`
-- `IntegrationGraph_OutCandidatesAreNeitherEdgesNorFailures`
-- `IntegrationGraph_CandidateInventoryPrecedesInducedSetProjection`
-- `IntegrationGraph_RetainsCandidateAttemptOccurrenceAndEdgeCorrespondence`
-- `IntegrationGraph_MultipleCandidatesMayCorrespondToOneLogicalEdge`
-- `IntegrationProjection_EachResponseRetainsItsExactValidatedRequest`
-- `IntegrationProjection_ReuseRequiresCompatibleCensusSnapshot`
-- `IntegrationProjection_RowsMatrixAndGraphShareOneAnalysisAndSnapshot`
+- `IntegrationMatrixCli_LowersCellsThroughMarkoutWithoutReconstructingSemantics`
+- `IntegrationMatrixHosts_ShareWorkspaceReceiptAndCellState`
 - `IntegrationWasmDemo_RendersSharedProjectionWithoutDetectionPolicy`
 
 The configured concept set, universe-requirement set and per-requirement
@@ -1172,6 +1327,10 @@ candidate identity or deriving it after admission must make the gate fail.
 - No redefinition of analysis-request validation, workspace composition,
   graph induction, Section mechanics, output formatting, or `find` search
   scope.
+- No portable binding-context display or navigation identity before #4647
+  supplies the shared workspace/context execution receipt.
+- No CLI command spelling, CLI report-row schema, or inspect-web interaction
+  and layout contract in this Integration-owned design.
 - No promise that adding one package makes an otherwise incompatible candidate
   admissible.
 - No portable identity claim for local source evidence without an

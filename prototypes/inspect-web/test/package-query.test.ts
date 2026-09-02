@@ -40,6 +40,12 @@ const NO_DEPENDENCIES_FACET: QueryFacetTerm = {
   selectionGroupId: "package.query.dependencies",
 };
 
+const SKILL_FACET: QueryFacetTerm = {
+  key: "package.query.embedded-skill",
+  label: "embedded SKILL.md",
+  tier: "package-content",
+};
+
 function row(packageId: string): QueryResultRow {
   return {
     packageId,
@@ -66,6 +72,19 @@ test("createQueryRequest gives candidate and match limits independent defaults",
   assert.equal(defaults.requestedLimit, 200);
   assert.equal(defaults.requestedMatchLimit, 100);
   assert.notEqual(defaults.requestedLimit, defaults.requestedMatchLimit);
+});
+
+test("package-content facets lower the candidate bound until the last one is removed", () => {
+  const base = createQueryRequest("Microsoft.");
+  const withSkill = withFacet(base, SKILL_FACET);
+  const withSkillAndManifest = withFacet(withSkill, TFM_FACET);
+  const manifestOnly = withoutFacet(
+    withSkillAndManifest,
+    SKILL_FACET.key);
+
+  assert.equal(withSkill.requestedLimit, 20);
+  assert.equal(withSkillAndManifest.requestedLimit, 20);
+  assert.equal(manifestOnly.requestedLimit, 200);
 });
 
 test("withScopeQuery preserves facets and bounds while changing the prefix", () => {
