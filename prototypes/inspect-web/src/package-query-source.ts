@@ -34,17 +34,15 @@ export function packageQueryFacets(
 function toQueryFacet(
   descriptor: BrowserPackageQueryFacetDescriptor,
 ): QueryFacetTerm {
-  if (descriptor.tier !== "Nuspec") {
-    throw new Error(
-      `Unsupported package-query facet tier '${String(descriptor.tier)}'.`);
-  }
   return {
     key: descriptor.id,
     label: descriptor.label,
     summary: descriptor.summary,
     weight: descriptor.weight,
-    tier: "nuspec",
+    tier: toQueryTier(descriptor.tier),
     selectionGroupId: descriptor.selectionGroupId,
+    displayGroupId: descriptor.displayGroupId,
+    displayGroupLabel: descriptor.displayGroupLabel,
   };
 }
 
@@ -239,7 +237,7 @@ function parseCompletion(value: unknown): BrowserPackageQueryCompletion {
 function facetTierValue(
   value: unknown,
 ): BrowserPackageQueryRow["tier"] {
-  if (value === "Nuspec") return value;
+  if (value === "Nuspec" || value === "PackageContent") return value;
   throw new TypeError(
     `Unsupported package-query row tier '${String(value)}'.`);
 }
@@ -253,6 +251,8 @@ function failureKindValue(
     case "ManifestAcquisition":
     case "ManifestContract":
     case "InvalidManifest":
+    case "PackageContentAcquisition":
+    case "PackageContentEvaluation":
       return value;
     default:
       throw new TypeError(
@@ -313,10 +313,6 @@ function dispatchEvent(
 function toQueryRow(
   row: NonNullable<BrowserPackageQueryEvent["row"]>,
 ): QueryResultRow {
-  if (row.tier !== "Nuspec") {
-    throw new TypeError(
-      `Unsupported package-query row tier '${String(row.tier)}'.`);
-  }
   const evidence = row.evidence.map(item => item.text);
   if (!evidence.length) {
     throw new TypeError("A package-query row contained no evidence.");
@@ -324,11 +320,25 @@ function toQueryRow(
   return {
     packageId: row.packageId,
     version: row.version,
-    tier: "nuspec",
+    tier: toQueryTier(row.tier),
     evidence: [evidence[0]!, ...evidence.slice(1)],
     totalDownloads: row.totalDownloads,
     producer: row.producer,
   };
+}
+
+function toQueryTier(
+  tier: BrowserPackageQueryRow["tier"],
+): QueryResultRow["tier"] {
+  switch (tier) {
+    case "Nuspec":
+      return "nuspec";
+    case "PackageContent":
+      return "package-content";
+    default:
+      throw new TypeError(
+        `Unsupported package-query tier '${String(tier)}'.`);
+  }
 }
 
 function formatFailure(failure: BrowserPackageQueryFailure): string {
