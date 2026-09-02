@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   bindScopeBar,
+  captureScopeBarFocus,
   renderScopeBar,
+  restoreScopeBarFocus,
   type ScopeBarBindingActions,
 } from "../src/scope-bar.ts";
 import { fakeDom } from "./fake-dom.ts";
@@ -74,6 +76,22 @@ const typeLenses = [
   ["metadata", "Metadata"],
   ["source", "Source"],
 ] as const;
+
+test("typed tab focus survives element replacement", () => {
+  const original = new FakeElement({ lens: "metadata" });
+  const target = captureScopeBarFocus(fakeDom.htmlElement(original));
+  assert.deepEqual(target, { kind: "type-lens", value: "metadata" });
+  assert.ok(target);
+
+  const replacement = new FakeElement({ lens: "metadata" });
+  const root = new FakeRoot();
+  root.add("[data-lens]", replacement);
+
+  assert.equal(
+    restoreScopeBarFocus(fakeDom.parentNode(root), target),
+    true);
+  assert.equal(replacement.focused, true);
+});
 
 test("package scope bindings dispatch only scope and package-lens controls", () => {
   const root = new FakeRoot();

@@ -74,6 +74,32 @@ test("the inspected target precedes title navigation and package selectors stay 
     456);
 });
 
+test("keyboard tab activation preserves focus across shell replacement", async ({
+  page,
+}) => {
+  await page.goto("/browser/workspace-titlebar.html");
+
+  const api = page.getByRole("tab", { name: "API" });
+  const metadata = page.getByRole("tab", { name: "Metadata" });
+  await api.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(metadata).toBeFocused();
+  await expect(metadata).toHaveAttribute("aria-selected", "false");
+  await page.keyboard.press("Enter");
+  await expect(metadata).toHaveAttribute("aria-selected", "true");
+  await expect(metadata).toBeFocused();
+
+  const type = page.getByRole("tab", { name: "Type" });
+  const packageSubject = page.getByRole("tab", { name: "Package" });
+  await type.focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect(packageSubject).toBeFocused();
+  await expect(packageSubject).toHaveAttribute("aria-selected", "false");
+  await page.keyboard.press("Enter");
+  await expect(packageSubject).toHaveAttribute("aria-selected", "true");
+  await expect(packageSubject).toBeFocused();
+});
+
 test("packages without an embedded icon use NuGet's package fallback", async ({
   page,
 }) => {

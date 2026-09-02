@@ -220,7 +220,9 @@ import {
 } from "./annotated-source-session.ts";
 import {
   bindScopeBar,
+  captureScopeBarFocus,
   renderScopeBar as renderScopeBarPure,
+  restoreScopeBarFocus,
 } from "./scope-bar.ts";
 import {
   bindWorkspaceSubject,
@@ -2592,6 +2594,9 @@ function typeDisplayName(
 function render(options: { synchronizeUrl?: boolean } = {}) {
   sourceInspection.cancelHiddenRequest();
   document.body.classList.remove("package-query-route");
+  const scopeBarFocus = document.activeElement instanceof HTMLElement
+    ? captureScopeBarFocus(document.activeElement)
+    : null;
 
   // The Settings page is a modal-style full view layered over whatever the user came from
   // (home or a package). It owns no URL — it's a preferences panel, not shareable content —
@@ -2774,6 +2779,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     };
   }
   bindEvents();
+  if (scopeBarFocus) restoreScopeBarFocus(document, scopeBarFocus);
   restorePackageQueryReturnFocus();
   restorePackageQueryWorkspaceFocus();
   recordNav();

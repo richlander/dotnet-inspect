@@ -35,6 +35,55 @@ export interface ScopeBarBindingActions {
   onTypeLensSelect: (lens: TypeLens) => void;
 }
 
+export type ScopeBarFocusTarget =
+  | { kind: "member-section"; value: MemberSection }
+  | { kind: "package-lens"; value: PackageLens }
+  | { kind: "scope"; value: WorkspaceScope }
+  | { kind: "type-lens"; value: TypeLens };
+
+export function captureScopeBarFocus(
+  element: HTMLElement,
+): ScopeBarFocusTarget | null {
+  const scope = element.dataset.scope;
+  if (isWorkspaceScope(scope)) return { kind: "scope", value: scope };
+
+  const packageLens = element.dataset.packageLens;
+  if (isPackageLens(packageLens)) {
+    return { kind: "package-lens", value: packageLens };
+  }
+
+  const typeLens = element.dataset.lens;
+  if (isTypeLens(typeLens)) return { kind: "type-lens", value: typeLens };
+
+  const memberSection = element.dataset.memberSection;
+  return isMemberSection(memberSection)
+    ? { kind: "member-section", value: memberSection }
+    : null;
+}
+
+export function restoreScopeBarFocus(
+  root: ParentNode,
+  target: ScopeBarFocusTarget,
+): boolean {
+  const [selector, value] = target.kind === "scope"
+    ? ["[data-scope]", target.value]
+    : target.kind === "package-lens"
+      ? ["[data-package-lens]", target.value]
+      : target.kind === "type-lens"
+        ? ["[data-lens]", target.value]
+        : ["[data-member-section]", target.value];
+  const replacement = [...root.querySelectorAll<HTMLElement>(selector)]
+    .find(element => (
+      element.dataset.scope
+      ?? element.dataset.packageLens
+      ?? element.dataset.lens
+      ?? element.dataset.memberSection
+    ) === value);
+  if (!replacement) return false;
+  replacement.focus();
+  return true;
+}
+
 export function bindScopeBar(
   root: ParentNode,
   actions: ScopeBarBindingActions,
@@ -70,6 +119,11 @@ export function bindScopeBar(
 function bindRovingTabs(tabs: readonly HTMLButtonElement[]): void {
   tabs.forEach((tab, index) =>
     tab.addEventListener("keydown", event => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        tab.click();
+        return;
+      }
       const targetIndex = event.key === "ArrowLeft"
         ? (index - 1 + tabs.length) % tabs.length
         : event.key === "ArrowRight"

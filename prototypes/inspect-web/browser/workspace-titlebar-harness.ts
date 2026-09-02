@@ -1,5 +1,16 @@
-import { bindScopeBar, renderScopeBar } from "../src/scope-bar.ts";
+import {
+  bindScopeBar,
+  captureScopeBarFocus,
+  renderScopeBar,
+  restoreScopeBarFocus,
+} from "../src/scope-bar.ts";
 import { renderAnnotatedSourcePageActions } from "../src/annotated-source.ts";
+import type {
+  MemberSection,
+  PackageLens,
+  TypeLens,
+  WorkspaceScope,
+} from "../src/data.ts";
 import {
   focusWorkbenchSearch,
   workbenchShellHtml,
@@ -95,6 +106,62 @@ const coordinates = [
   },
 ];
 const activeCoordinate = coordinates[0] ?? null;
+let activeScope: WorkspaceScope = workspaceMode
+  ? "workspace"
+  : packageMode
+    ? "package"
+    : memberMode
+      ? "member"
+      : "type";
+let activePackageLens: PackageLens = "overview";
+let activeTypeLens: TypeLens = "api";
+let activeMemberSection: MemberSection = "overview";
+const packageStrip: readonly (readonly [PackageLens, string])[] = [
+  ["overview", "Overview"],
+  ["dependencies", "Dependencies"],
+];
+const typeStrip: readonly (readonly [TypeLens, string])[] = [
+  ["api", "API"],
+  ["metadata", "Metadata"],
+  ["source", "Source"],
+];
+const memberStrip: readonly (readonly [MemberSection, string])[] = [
+  ["overview", "Overview"],
+  ["call-graph", "Call graph"],
+  ["facts", "Facts"],
+  ["source", "Source"],
+  ["annotated", "Annotated source"],
+];
+
+function scopeBarHtml() {
+  const strip = activeScope === "workspace"
+    ? []
+    : activeScope === "package"
+      ? packageStrip
+      : activeScope === "member"
+        ? memberStrip
+        : typeStrip;
+  return renderScopeBar({
+    scope: activeScope,
+    strip,
+    activeStripId: activeScope === "workspace"
+      ? null
+      : activeScope === "package"
+        ? activePackageLens
+        : activeScope === "member"
+          ? activeMemberSection
+          : activeTypeLens,
+    stripAttribute: activeScope === "package"
+      ? "data-package-lens"
+      : activeScope === "member"
+        ? "data-member-section"
+        : "data-lens",
+    panelId: "inspector-panel",
+    showMemberScope: memberMode,
+    escapeHtml,
+  });
+}
+
 const navigationHtml = workspaceMode
   ? renderWorkspaceSubject({
       packages: coordinates,
@@ -156,43 +223,7 @@ app.innerHTML = `
         </nav>`,
     })}
     <header class="subject-zone" aria-label="Subjects and inspectors">
-      ${renderScopeBar({
-        scope: workspaceMode
-          ? "workspace"
-          : packageMode
-            ? "package"
-            : memberMode
-              ? "member"
-              : "type",
-        strip: workspaceMode
-          ? []
-          : packageMode
-            ? [["overview", "Overview"], ["dependencies", "Dependencies"]]
-            : memberMode
-              ? [
-                  ["overview", "Overview"],
-                  ["call-graph", "Call graph"],
-                  ["facts", "Facts"],
-                  ["source", "Source"],
-                  ["annotated", "Annotated source"],
-                ]
-              : [["api", "API"], ["metadata", "Metadata"], ["source", "Source"]],
-        activeStripId: workspaceMode
-          ? null
-          : packageMode
-            ? "overview"
-            : memberMode
-              ? "overview"
-              : "api",
-        stripAttribute: packageMode
-          ? "data-package-lens"
-          : memberMode
-            ? "data-member-section"
-            : "data-lens",
-        panelId: "inspector-panel",
-        showMemberScope: memberMode,
-        escapeHtml,
-      })}
+      ${scopeBarHtml()}
       <nav class="shell-actions${annotatedMode ? " annotated-page-actions" : ""}" aria-label="Application">
         <button id="share">Share</button>
         ${annotatedMode ? renderAnnotatedSourcePageActions(true) : ""}
@@ -225,11 +256,38 @@ document.querySelectorAll<HTMLElement>("[data-subject-copy]").forEach(button =>
     document.body.dataset.copiedSubject = subjectPath[index]?.label ?? "";
   }));
 
-bindScopeBar(document, {
-  onMemberSectionSelect: () => {},
-  onPackageLensSelect: () => {},
-  onScopeSelect: () => {},
-  onTypeLensSelect: () => {},
-});
+function renderHarnessScopeBar() {
+  const focusTarget = document.activeElement instanceof HTMLElement
+    ? captureScopeBarFocus(document.activeElement)
+    : null;
+  const scopeBar = document.querySelector<HTMLElement>(".lensbar");
+  if (!scopeBar) throw new Error("The scope bar is unavailable.");
+  scopeBar.outerHTML = scopeBarHtml();
+  bindHarnessScopeBar();
+  if (focusTarget) restoreScopeBarFocus(document, focusTarget);
+}
+
+function bindHarnessScopeBar() {
+  bindScopeBar(document, {
+    onMemberSectionSelect: section => {
+      activeMemberSection = section;
+      renderHarnessScopeBar();
+    },
+    onPackageLensSelect: lens => {
+      activePackageLens = lens;
+      renderHarnessScopeBar();
+    },
+    onScopeSelect: scope => {
+      activeScope = scope;
+      renderHarnessScopeBar();
+    },
+    onTypeLensSelect: lens => {
+      activeTypeLens = lens;
+      renderHarnessScopeBar();
+    },
+  });
+}
+
+bindHarnessScopeBar();
 
 window.focusWorkbenchSearchProbe = () => focusWorkbenchSearch(document);
