@@ -154,27 +154,19 @@ entry gate invalidates every later result, so run it first and report it.
 
    Filter to a class while iterating, e.g.
    `… -c Release -- -filter "/*/*/IteratorAcknowledgmentPassTests/*"`.
-   [The repository xUnit test host](design/xunit-test-host.md) owns
-   explicit-selection non-vacuity. The decompiler host owns `--gate` preset
-   expansion and applies its current preflight to the expanded xUnit argument
-   vector. It rejects an explicit `-class`, `-method`, or `-filter` selector
-   that matches no discovered test. Every requested `-id` must resolve after
-   the other filters, even when another ID is valid. The host also rejects
-   standalone or combined direct selections that resolve to no runnable test,
-   including through explicit-test mode, and reports stale or malformed
-   `-run` serializations directly. Namespace, trait, and partially disjoint
-   final-witness coverage remain unverified until adoption of the repository
-   host contract tracked by #5379.
-   Preflight discovery runs in a short-lived child process so its serializer
-   registration and disposable theory data cannot alter the real runner process.
-   `ExplicitFilterGuardTests.TestHost_RejectsEveryUnmatchedExplicitFilter` is
-   the subprocess gate for both the rejection and isolation contracts.
-   `ExplicitFilterGuardTests.AppHostAlias_ConcurrentProcessesAreIsolated`
-   protects its renamed-apphost regression from concurrent test processes by
-   holding isolated aliases live in independent workers while another host
-   starts through the real muxer.
-   `ExplicitFilterGuardTests.AppHostAlias_CancellationCleansParentOwnedDirectories`
-   protects worker cleanup when the parent cancels those processes.
+   [The repository xUnit test host](design/xunit-test-host.md) selects
+   Microsoft Testing Platform (MTP) as the owner of aggregate non-vacuity.
+   The decompiler host owns `--gate` preset expansion and the stronger
+   per-class execution receipt for `--gate pre-merge`: the preset names
+   independent correctness claims, so the CI checker requires report evidence
+   for every expected class rather than relying only on MTP's aggregate
+   minimum.
+
+   Until the MTP adoption tracked by #5379, the decompiler executable retains
+   its transitional `ExplicitFilterGuard` preflight. That preflight is not the
+   repository contract and is removed by adoption rather than generalized.
+   The MTP migration must preserve `--gate` expansion and the per-class receipt
+   while replacing native xUnit selector syntax with MTP filters.
 
 3. **IR invariant checks.** Every pass must leave a structurally valid tree.
    `IrPasses.Run` calls `function.CheckInvariant()` after each pass — armed by
