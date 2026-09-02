@@ -1,3 +1,5 @@
+using System.Net;
+
 using DotnetInspector.Core;
 using InertText;
 
@@ -115,6 +117,7 @@ public partial class SymbolPackageDownloader
             }
             catch (Exception ex)
             {
+                FeedFailureTelemetry.Record(snupkgUrl, status: null);
                 log?.Invoke(
                     "Error downloading symbol package: "
                     + UrlRedaction.DescribeRequestFailure(snupkgUrl, ex));
@@ -163,6 +166,9 @@ public partial class SymbolPackageDownloader
             }
             catch (Exception ex)
             {
+                FeedFailureTelemetry.Record(
+                    snupkgUrl,
+                    HttpStatusCode.OK);
                 log?.Invoke(
                     "Error reading symbol package: "
                     + UrlRedaction.DescribeRequestFailure(snupkgUrl, ex));
@@ -204,6 +210,10 @@ public partial class SymbolPackageDownloader
             {
                 if (stored.Windows)
                     windowsPdbDetected = true;
+                else
+                    FeedFailureTelemetry.Record(
+                        snupkgUrl,
+                        HttpStatusCode.OK);
                 log?.Invoke(
                     "The matching Portable PDB could not be read back from the configured store.");
                 return new PdbProbeResult(

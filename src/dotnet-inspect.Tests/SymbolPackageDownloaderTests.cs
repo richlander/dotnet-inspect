@@ -1,4 +1,5 @@
 using System.Net;
+using DotnetInspector.Core;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Tests;
@@ -31,17 +32,27 @@ public class SymbolPackageDownloaderTests : IDisposable
             cancellationToken: TestContext.Current.CancellationToken);
         var firstCount = handler.RequestCount;
 
-        var second = await downloader.DownloadPdbAsync(
-            guid, pdbAge: 1, pdbFileName: "Missing.pdb", isPortable: true,
-            assemblyPath: "/tmp/Missing.dll",
-            packageName: "Example.Package",
-            packageVersion: "1.0.0",
-            cancellationToken: TestContext.Current.CancellationToken);
+        PdbDownloadResult second;
+        bool cachedFailure;
+        using (FeedFailureTelemetry.Scope(mergeIntoParent: false))
+        {
+            second = await downloader.DownloadPdbAsync(
+                guid, pdbAge: 1, pdbFileName: "Missing.pdb", isPortable: true,
+                assemblyPath: "/tmp/Missing.dll",
+                packageName: "Example.Package",
+                packageVersion: "1.0.0",
+                cancellationToken: TestContext.Current.CancellationToken);
+            cachedFailure =
+                FeedFailureTelemetry.Current is { HasFailures: true };
+        }
 
         Assert.Null(first.PdbFilePath);
         Assert.Null(second.PdbFilePath);
         Assert.True(firstCount > 0);
         Assert.Equal(firstCount, handler.RequestCount);
+        Assert.Equal(
+            statusCode == HttpStatusCode.Forbidden,
+            cachedFailure);
     }
 
     [Theory]

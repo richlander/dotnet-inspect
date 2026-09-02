@@ -1,3 +1,4 @@
+using System.Net;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -388,13 +389,21 @@ static class AuthoredRebuildFidelity
                     identity,
                     AccessorBodyText(property, SyntaxKind.SetAccessorDeclaration)),
             IndexerDeclarationSyntax indexer
-                when AccessorNameMatches(identity, "get_", "Item")
+                when IndexerAccessorMatches(
+                    identity,
+                    "get_",
+                    indexer,
+                    expectedParameterCount)
                 => ScoredBody(
                     indexer.ExplicitInterfaceSpecifier,
                     identity,
                     AccessorBodyText(indexer, SyntaxKind.GetAccessorDeclaration)),
             IndexerDeclarationSyntax indexer
-                when AccessorNameMatches(identity, "set_", "Item")
+                when IndexerAccessorMatches(
+                    identity,
+                    "set_",
+                    indexer,
+                    expectedParameterCount)
                 => ScoredBody(
                     indexer.ExplicitInterfaceSpecifier,
                     identity,
@@ -444,6 +453,29 @@ static class AuthoredRebuildFidelity
                     returnsVoid: false)),
             _ => (-1, ExtractedBody.None),
         };
+
+    static bool IndexerAccessorMatches(
+        MetadataMethodIdentity identity,
+        string prefix,
+        IndexerDeclarationSyntax indexer,
+        int? expectedParameterCount)
+    {
+        int parameterCount = indexer.ParameterList.Parameters.Count
+            + (prefix == "set_" ? 1 : 0);
+        if (!ParameterCountMatches(parameterCount, expectedParameterCount))
+            return false;
+
+        string? declaredName =
+            CSharpSourceIdentityContext.IndexerMetadataName(indexer);
+        if (declaredName is not null)
+            return AccessorNameMatches(identity, prefix, declaredName);
+
+        // The PDB body slicer can omit an IndexerName attribute outside its
+        // vouched declaration range. The exact mapped MethodDef supplies the
+        // accessor name; equal-rank neighboring indexers remain ambiguous.
+        return identity.SimpleName.StartsWith(prefix, StringComparison.Ordinal)
+            && identity.SimpleName.Length > prefix.Length;
+    }
 
     static bool ParameterCountMatches(int actual, int? expected)
         => expected is null || actual == expected.Value;
@@ -611,9 +643,14 @@ static class AuthoredRebuildFidelity
                     or SyntaxKind.RemoveAccessorDeclaration);
         }
 
+        ArrowExpressionClauseSyntax? expressionBody = declaration switch
+        {
+            PropertyDeclarationSyntax property => property.ExpressionBody,
+            IndexerDeclarationSyntax indexer => indexer.ExpressionBody,
+            _ => null,
+        };
         if (accessorKind == SyntaxKind.GetAccessorDeclaration
-            && declaration is PropertyDeclarationSyntax
-                { ExpressionBody: { } expressionBody })
+            && expressionBody is not null)
         {
             return new($"return {expressionBody.Expression};", Printer: null);
         }
@@ -968,6 +1005,9 @@ static class AuthoredRebuildFidelity
         if (!source.Context.NeedsPdb || source.Context.PdbId is not { } pdb)
             return;
 
+        using var failureScope =
+            FeedFailureTelemetry.Scope(mergeIntoParent: false);
+        FeedFailureCollector failures = FeedFailureTelemetry.Current!;
         var result = await new SymbolPackageDownloader(httpClient).DownloadPdbAsync(
             pdb.Guid,
             pdb.Age,
@@ -978,7 +1018,22 @@ static class AuthoredRebuildFidelity
             packageVersion,
             portablePdbStamp: pdb.Stamp);
         if (result.PdbFilePath is not null)
+        {
             source.LoadPdb(result.PdbFilePath, "Symbol Package", result.SymbolServer);
+            return;
+        }
+
+        if (failures.HasFailures)
+        {
+            throw new HttpRequestException(
+                "Portable PDB sources did not answer: "
+                + string.Join(
+                    "; ",
+                    failures.Failures.Select(static failure =>
+                        failure.Status == HttpStatusCode.OK
+                            ? "a source returned invalid or mismatched Portable PDB content"
+                            : $"{failure.StatusText} while {failure.PhaseText}")));
+        }
     }
 
     static void WriteReport(

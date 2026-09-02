@@ -74,6 +74,7 @@ public partial class SymbolPackageDownloader
         if (CoreCache.TryGet(SymbolMissCacheCategory, key, SymbolForbiddenCacheTtl, extension: "forbidden") != null)
         {
             log?.Invoke($"Using cached symbol miss: {source}");
+            FeedFailureTelemetry.Record(key, HttpStatusCode.Forbidden);
             return true;
         }
 

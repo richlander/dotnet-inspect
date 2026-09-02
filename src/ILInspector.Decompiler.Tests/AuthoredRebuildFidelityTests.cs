@@ -1,3 +1,5 @@
+using System.Net;
+
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
@@ -7,6 +9,8 @@ using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Emit;
 
 namespace ILInspector.DecompilerHarness;
 
@@ -143,6 +147,8 @@ public sealed class AuthoredRebuildFidelityTests
     [InlineData("int IFoo.M() { return 5; }", "Sample.IFoo.M", "return 5;")]
     [InlineData("public static bool operator ==(__AuthoredSourceHost left, __AuthoredSourceHost right) => true;", "op_Equality", "return true;")]
     [InlineData("public static implicit operator int(__AuthoredSourceHost value) => 6;", "op_Implicit", "return 6;")]
+    [InlineData("public int this[int index] => index;", "get_Item", "return index;")]
+    [InlineData("[System.Runtime.CompilerServices.IndexerName(\"Custom\")] public int this[int index] => index;", "get_Custom", "return index;")]
     public void AuthoredMemberSource_ExtractsRtsTargetBody(
         string memberSource,
         string methodName,
@@ -233,6 +239,60 @@ public sealed class AuthoredRebuildFidelityTests
             "get_Item",
             out string body));
         Assert.Contains("return index;", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AuthoredMemberSource_ExpressionBodiedIndexerIsNotBodyless()
+    {
+        const string source = "public int this[int index] => index;";
+
+        Assert.True(AuthoredRebuildFidelity.TryExtractTargetBodies(
+            source,
+            "get_Item",
+            expectedParameterCount: 1,
+            out string body,
+            out string? printerBody));
+        Assert.Equal("return index;", body);
+        Assert.Null(printerBody);
+        Assert.False(AuthoredRebuildFidelity.IsBodylessTarget(
+            source,
+            "get_Item",
+            expectedParameterCount: 1));
+    }
+
+    [Theory]
+    [InlineData("void operator +=(int value) { }", "op_AdditionAssignment")]
+    [InlineData("void operator -=(int value) { }", "op_SubtractionAssignment")]
+    [InlineData("void operator *=(int value) { }", "op_MultiplyAssignment")]
+    [InlineData("void operator /=(int value) { }", "op_DivisionAssignment")]
+    [InlineData("void operator %=(int value) { }", "op_ModulusAssignment")]
+    [InlineData("void operator &=(int value) { }", "op_BitwiseAndAssignment")]
+    [InlineData("void operator |=(int value) { }", "op_BitwiseOrAssignment")]
+    [InlineData("void operator ^=(int value) { }", "op_ExclusiveOrAssignment")]
+    [InlineData("void operator <<=(int value) { }", "op_LeftShiftAssignment")]
+    [InlineData("void operator >>=(int value) { }", "op_RightShiftAssignment")]
+    [InlineData("void operator >>>=(int value) { }", "op_UnsignedRightShiftAssignment")]
+    [InlineData("void operator ++() { }", "op_IncrementAssignment")]
+    [InlineData("void operator --() { }", "op_DecrementAssignment")]
+    [InlineData("void operator checked +=(int value) { }", "op_CheckedAdditionAssignment")]
+    [InlineData("void operator checked ++() { }", "op_CheckedIncrementAssignment")]
+    public void AuthoredMemberSource_MapsAssignmentOperatorMetadataNames(
+        string source,
+        string expected)
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        var root = CSharpSyntaxTree.ParseText(
+                $"class C {{ {source} }}",
+                new CSharpParseOptions(LanguageVersion.Preview),
+                cancellationToken: cancellationToken)
+            .GetCompilationUnitRoot(cancellationToken);
+        var declaration =
+            Assert.Single(root.DescendantNodes().OfType<OperatorDeclarationSyntax>());
+
+        Assert.Equal(
+            expected,
+            CSharpSourceIdentityContext.OperatorMetadataName(declaration));
     }
 
     [Fact]
@@ -454,6 +514,89 @@ public sealed class AuthoredRebuildFidelityTests
         Assert.Contains("source fetch failed", failedAttempt.Detail, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.NotFound, false, "No matching portable PDB")]
+    [InlineData(HttpStatusCode.InternalServerError, true, "sources did not answer")]
+    [InlineData(HttpStatusCode.OK, true, "invalid or mismatched")]
+    public async Task SourceCorrespondencePdbAcquisition_DistinguishesAbsenceFromFailure(
+        HttpStatusCode statusCode,
+        bool expectedFailure,
+        string expectedDetail)
+    {
+        NuGetCache.Initialize("dotnet-inspect");
+        var fixture = CompilePortablePdbFixture();
+        try
+        {
+            using var httpClient =
+                new HttpClient(new StaticStatusHandler(statusCode));
+            var results =
+                await ReturnToSenderSourceProbe.EvaluateSourceCorrespondenceAsync(
+                    [fixture.AssemblyPath],
+                    cap: 1,
+                    httpClient,
+                    new SourceFetcher(httpClient));
+
+            ReturnToSenderSourceProbeResult result = Assert.Single(results);
+            SourceAcquisitionOutcome expected = expectedFailure
+                ? SourceAcquisitionOutcome.Failed
+                : SourceAcquisitionOutcome.Absent;
+            Assert.True(
+                result.SourceAcquisition == expected,
+                $"Expected {expected}, got {result.SourceAcquisition}: "
+                    + result.SourceAcquisitionDetail);
+            Assert.Contains(
+                expectedDetail,
+                result.SourceAcquisitionDetail,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SourceCorrespondencePdbAcquisition_AdaptsCustomExpressionBodiedIndexer()
+    {
+        var fixture = CompilePortablePdbFixture(
+            """
+            public sealed class Fixture
+            {
+                [System.Runtime.CompilerServices.IndexerName("Custom")]
+                public int this[int index] => index;
+            }
+            """,
+            deletePdb: false);
+        try
+        {
+            var handler = new StaticStatusHandler(HttpStatusCode.NotFound);
+            using var httpClient = new HttpClient(handler);
+            var results =
+                await ReturnToSenderSourceProbe.EvaluateSourceCorrespondenceAsync(
+                    [fixture.AssemblyPath],
+                    cap: 1,
+                    httpClient,
+                    new SourceFetcher(httpClient));
+
+            ReturnToSenderSourceProbeResult result = Assert.Single(results);
+            Assert.True(
+                result.SourceAcquisition == SourceAcquisitionOutcome.Complete,
+                $"{result.SourceAcquisition}: {result.SourceAcquisitionDetail}; "
+                    + $"source={result.SourcePath}");
+            Assert.Equal("get_Custom", result.Target.Method);
+            Assert.Contains(
+                "return index;",
+                result.ExpectedBody,
+                StringComparison.Ordinal);
+            Assert.NotEqual("valid_match.source_bodyless", result.Reason);
+            Assert.Equal(0, handler.RequestCount);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
     [Fact]
     public void SourceCorrespondenceAcquisition_InfersGlobalPackageCoordinate()
     {
@@ -523,5 +666,73 @@ public sealed class AuthoredRebuildFidelityTests
                 Environment.NewLine,
                 emit.Diagnostics));
         return path;
+    }
+
+    static (string Directory, string AssemblyPath) CompilePortablePdbFixture(
+        string? source = null,
+        bool deletePdb = true)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"authored-pdb-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string sourcePath = Path.Combine(directory, "Fixture.cs");
+        string assemblyPath = Path.Combine(directory, "Fixture.dll");
+        string pdbPath = Path.Combine(directory, "Fixture.pdb");
+        source ??=
+            "public sealed class Fixture { public int Value => 1; }";
+        File.WriteAllText(
+            sourcePath,
+            source);
+        var compilation = CSharpCompilation.Create(
+            "Fixture",
+            [
+                CSharpSyntaxTree.ParseText(
+                    Microsoft.CodeAnalysis.Text.SourceText.From(
+                        File.ReadAllText(sourcePath),
+                        new System.Text.UTF8Encoding(
+                            encoderShouldEmitUTF8Identifier: false)),
+                    path: sourcePath),
+            ],
+            RoslynTestReferences.TrustedPlatform,
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: OptimizationLevel.Release));
+        using (var assembly = File.Create(assemblyPath))
+        using (var pdb = File.Create(pdbPath))
+        {
+            var emit = compilation.Emit(
+                assembly,
+                pdb,
+                options: new EmitOptions(
+                    debugInformationFormat: DebugInformationFormat.PortablePdb,
+                    pdbFilePath: pdbPath));
+            Assert.True(
+                emit.Success,
+                string.Join(
+                    Environment.NewLine,
+                    emit.Diagnostics));
+        }
+
+        if (deletePdb)
+            File.Delete(pdbPath);
+        return (directory, assemblyPath);
+    }
+
+    sealed class StaticStatusHandler(HttpStatusCode statusCode)
+        : HttpMessageHandler
+    {
+        public int RequestCount { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            RequestCount++;
+            return Task.FromResult(new HttpResponseMessage(statusCode)
+            {
+                RequestMessage = request,
+            });
+        }
     }
 }

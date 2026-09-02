@@ -802,7 +802,10 @@ Release gates
 `PdbMappedSourceIndex_IsIneligibleForFaultAttribution` respectively prove live
 population and that this index cannot refine an RTS verdict.
 `SourceCorrespondenceAcquisition_PreservesAbsentAndFailedOutcomes` preserves
-the typed unavailable states, and
+the typed member-source states,
+`SourceCorrespondencePdbAcquisition_DistinguishesAbsenceFromFailure` proves
+that a definitive PDB miss remains absent while an operational source failure
+fails acquisition, and
 `SourceAcquisitionFailure_FailsOnlyTheLiveCensusLane` proves that acquisition
 failure and RTS-invalid correspondence remain independent exit decisions.
 

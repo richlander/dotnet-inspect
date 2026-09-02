@@ -1,3 +1,5 @@
+using System.Net;
+
 using DotnetInspector.Core;
 
 namespace DotnetInspector.Packages;
@@ -113,6 +115,11 @@ public partial class SymbolPackageDownloader
                 windowsPdbDetected = true;
                 log?.Invoke("MSDL returned a Windows PDB (not supported)");
             }
+            else
+            {
+                FeedFailureTelemetry.Record(url, HttpStatusCode.OK);
+                log?.Invoke("MSDL returned an invalid or mismatched Portable PDB");
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -120,6 +127,7 @@ public partial class SymbolPackageDownloader
         }
         catch (Exception ex) when (!storeOperation)
         {
+            FeedFailureTelemetry.Record(url, status: null);
             log?.Invoke($"MSDL error: {ex.Message}");
         }
 
@@ -245,6 +253,12 @@ public partial class SymbolPackageDownloader
                     windowsPdbDetected = true;
                     log?.Invoke("Symbol server returned a Windows PDB (not supported)");
                 }
+                else
+                {
+                    FeedFailureTelemetry.Record(url, HttpStatusCode.OK);
+                    log?.Invoke(
+                        "Symbol server returned an invalid or mismatched Portable PDB");
+                }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -252,6 +266,7 @@ public partial class SymbolPackageDownloader
             }
             catch (Exception ex) when (!storeOperation)
             {
+                FeedFailureTelemetry.Record(url, status: null);
                 log?.Invoke($"Symbol server error: {ex.Message}");
             }
         }
