@@ -9,4 +9,8 @@
     <IsInspectionProductProject>true</IsInspectionProductProject>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="System.Reflection.MetadataLoadContext" />
+  </ItemGroup>
+
 </Project>
