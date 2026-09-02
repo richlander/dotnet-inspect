@@ -344,9 +344,10 @@ the `IsPackable`/`VersionPrefix` release rules live in
 
 ## Evidence and validation
 
-Match evidence to the claim and use the smallest existing check that proves it.
-Detailed practices — matching evidence to claim types, the style-oracle
-consultation procedure, and the harness/product boundary — live in
+Use the smallest sufficient set of claims and gates: state only what the user
+goal or an owned boundary or contract requires, and add only evidence that
+proves it. Inherit existing platform contracts unless a new dependency, API,
+or design calls one into question. Detailed practices live in
 [`docs/evidence-and-validation.md`](docs/evidence-and-validation.md). Three rules
 are load-bearing everywhere:
 
