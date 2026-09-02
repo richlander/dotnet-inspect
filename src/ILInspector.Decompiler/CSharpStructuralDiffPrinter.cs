@@ -1306,7 +1306,8 @@ public static class CSharpStructuralDiffPrinter
     ///
     /// This is a best-effort textual heuristic, not a parser: it accepts
     /// only characters that can appear in a type-argument list (identifier
-    /// characters, <c>.</c>, <c>,</c>, whitespace, nested <c>&lt;&gt;</c>,
+    /// characters, the <c>@</c> verbatim-identifier escape prefix (e.g.
+    /// <c>@event</c>), <c>.</c>, <c>,</c>, whitespace, nested <c>&lt;&gt;</c>,
     /// and array-suffix <c>[]</c>) and bails (returns <c>false</c>) the
     /// moment it sees anything else -- a parenthesis, brace, quote,
     /// semicolon, or an arithmetic/comparison/logical operator -- treating
@@ -1337,7 +1338,7 @@ public static class CSharpStructuralDiffPrinter
                 continue;
             }
             if (char.IsLetterOrDigit(character)
-                || character is '_' or '.' or ',' or '[' or ']'
+                || character is '_' or '.' or ',' or '[' or ']' or '@'
                 || char.IsWhiteSpace(character))
             {
                 continue;
@@ -1374,10 +1375,23 @@ public static class CSharpStructuralDiffPrinter
             }
             if (character == '"') { inString = true; continue; }
             if (character == '\'') { inChar = true; continue; }
-            if (character == '<' && TryFindGenericArgumentListEnd(argsText, index, out int genericClose))
+            if (character == '<')
             {
-                index = genericClose;
-                continue;
+                // `<<` is always the shift-left operator, never two adjacent
+                // generic-argument-list opens (a real nested open always has
+                // an identifier between successive `<` characters, e.g.
+                // `Foo<Bar<Baz>>`). Skip both characters so the second `<`
+                // is never independently reconsidered as its own opener.
+                if (index + 1 < argsText.Length && argsText[index + 1] == '<')
+                {
+                    index++;
+                    continue;
+                }
+                if (TryFindGenericArgumentListEnd(argsText, index, out int genericClose))
+                {
+                    index = genericClose;
+                    continue;
+                }
             }
             if (character is '(' or '[' or '{') depth++;
             else if (character is ')' or ']' or '}') depth--;
@@ -1441,10 +1455,21 @@ public static class CSharpStructuralDiffPrinter
             }
             if (character == '"') { inString = true; continue; }
             if (character == '\'') { inChar = true; continue; }
-            if (character == '<' && TryFindGenericArgumentListEnd(argsText, index, out int genericClose))
+            if (character == '<')
             {
-                index = genericClose;
-                continue;
+                // See the matching comment in SplitTopLevelArguments: `<<`
+                // is always the shift-left operator, never two adjacent
+                // generic-argument-list opens.
+                if (index + 1 < argsText.Length && argsText[index + 1] == '<')
+                {
+                    index++;
+                    continue;
+                }
+                if (TryFindGenericArgumentListEnd(argsText, index, out int genericClose))
+                {
+                    index = genericClose;
+                    continue;
+                }
             }
             if (character is '(' or '[' or '{') { depth++; continue; }
             if (character is ')' or ']' or '}') { depth--; continue; }

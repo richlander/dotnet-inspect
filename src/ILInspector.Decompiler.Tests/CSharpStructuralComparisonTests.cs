@@ -1121,6 +1121,12 @@ public class CSharpStructuralComparisonTests
     [InlineData("Bar<A,B>()", new[] { "Bar<A,B>()" })]
     [InlineData("Bar<A,receiver,B>()", new[] { "Bar<A,receiver,B>()" })]
     [InlineData("Dictionary<string, List<int>>.Empty", new[] { "Dictionary<string, List<int>>.Empty" })]
+    // Round-1 review (GPT-5.6 Sol): a C#-escaped (verbatim) identifier such
+    // as `@event` is valid generic type-argument syntax and is produced by
+    // this printer, but was outside TryFindGenericArgumentListEnd's accepted
+    // character set, breaking recognition the same way an unescaped
+    // identifier would if it were rejected.
+    [InlineData("Bar<@event,B>()", new[] { "Bar<@event,B>()" })]
     public void SplitTopLevelArguments_DoesNotSplitInsideGenericTypeArgumentList(
         string argsText,
         string[] expectedArguments)
@@ -1139,6 +1145,22 @@ public class CSharpStructuralComparisonTests
         // separator, exactly as before this fix.
         var arguments = CSharpStructuralDiffPrinter.SplitTopLevelArguments("a < b, c");
         Assert.Equal(["a < b", "c"], arguments);
+    }
+
+    [Fact]
+    public void SplitTopLevelArguments_StillSplitsAroundShiftOperatorArguments()
+    {
+        // Round-1 review (GPT-5.6 Sol): `<<`/`>>` are ordinary shift
+        // operators, not two adjacent generic-argument-list opens/closes --
+        // a real nested generic open always has an identifier between
+        // successive `<` characters (e.g. `Foo<Bar<Baz>>`), so two `<`
+        // characters can never legitimately be adjacent. Without this guard,
+        // the second `<` of `<<` was independently misrecognized as its own
+        // generic-list open, and the first `>` of the trailing `>>`
+        // incorrectly closed it, swallowing the genuine top-level commas
+        // between `a << b`, `receiver`, and `c >> d`.
+        var arguments = CSharpStructuralDiffPrinter.SplitTopLevelArguments("a << b, receiver, c >> d");
+        Assert.Equal(["a << b", "receiver", "c >> d"], arguments);
     }
 
     [Fact]
