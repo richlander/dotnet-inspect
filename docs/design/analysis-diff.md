@@ -2,9 +2,11 @@
 
 ## Status and ownership
 
-This document proposes the `ILInspector.Findings`-owned `AnalysisDiff<T>`
-information format for
-[#5491](https://github.com/richlander/dotnet-inspect/issues/5491).
+This document defines the `ILInspector.Findings`-owned `AnalysisDiff<T>`
+information format designed in
+[#5491](https://github.com/richlander/dotnet-inspect/issues/5491) and
+implemented in
+[#5504](https://github.com/richlander/dotnet-inspect/issues/5504).
 
 The normative claim is:
 
@@ -29,8 +31,10 @@ Producers own:
 Consumers own statistics, equivalence policy, prioritization, querying,
 projection, and presentation.
 
-All behavior in this document is unverified until the implementation effort
-names and adds the Release gates under [Required gates](#required-gates).
+The format is implemented by `AnalysisDiff<T>`, `AnalysisDiffRelation`, and the
+correspondence classification enums. The Release gates under
+[Required gates](#required-gates) verify the Finding-owned construction and
+value contracts.
 
 The product already has a user-visible `Analysis Diff` section and CLR
 presentation types named `DiffSections.AnalysisDiff`, `AnalysisDiffView`, and
@@ -466,20 +470,31 @@ relation per item.
 
 ## Required gates
 
-The implementation effort must add Release gates proving at least:
+The Release test
+`src/ILInspector.Instructions.Tests/AnalysisDiffTests.cs` verifies:
 
-- empty, addition-only, removal-only, one-to-one, one-to-many, many-to-one, and
+- `AnalysisDiff_ConstructsEmptyDiff` and
+  `AnalysisDiff_ConstructsOneSidedAndAllCorrespondenceArities` cover empty,
+  addition-only, removal-only, one-to-one, one-to-many, many-to-one, and
   many-to-many construction;
-- a moved-and-changed correspondence;
-- explicit unclassified content and placement;
-- rejection of default arrays, null items, empty relations, unsorted or
-  duplicate coordinates, multi-item additions or removals, out-of-range
-  coordinates, overlap, and incomplete endpoint coverage;
-- canonical relation order and equality across permuted relation input;
-- sequence value equality and hashing over independently allocated equal
-  values;
-- unequal relation membership or classification producing unequal values; and
-- payload equality remaining independent of correspondence.
+- `AnalysisDiff_CarriesOrthogonalCorrespondenceFacets` covers moved-and-changed
+  correspondence plus explicit unclassified content and placement;
+- `AnalysisDiff_PreservesPathologicalMixedTopology` reproduces the mixed
+  one-to-many, moved-and-changed, unchanged, removal, and addition
+  demonstration;
+- `AnalysisDiff_RejectsDefaultArraysAndNullValues`,
+  `AnalysisDiffRelation_RejectsInvalidCoordinates`,
+  `AnalysisDiffRelation_RejectsUnknownClassifications`, and
+  `AnalysisDiff_RejectsOutOfRangeOverlapAndIncompleteCoverage` cover the
+  construction failures;
+- `AnalysisDiff_CanonicalizesRelationOrder` covers canonical storage, equality,
+  and hashing across permuted relation input;
+- `AnalysisDiff_UsesSequenceValueEquality` covers independently allocated equal
+  endpoint and relation values;
+- `AnalysisDiff_DistinguishesMembershipAndClassification` covers unequal
+  relation membership and classifications; and
+- `AnalysisDiff_PayloadEqualityDoesNotEstablishCorrespondence` covers the
+  boundary between materialized payload equality and correspondence.
 
 Producer adapters and consumer statistics name their own gates. These
 construction gates do not prove a producer's correspondence or classification
