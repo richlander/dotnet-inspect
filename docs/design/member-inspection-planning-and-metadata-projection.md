@@ -1409,17 +1409,28 @@ Depends on: slice 1.
   `ApiMemberSectionDescriptors`.
 - Replace explicit-member dotted-tail provisional unions with labeled complete-
   type and peeled-member alternatives.
+- Apply query syntax to each surviving interpretation rather than using it to
+  erase target ambiguity. For example, a Body Shapes predicate keeps the type
+  alternative and promotes only the member alternative to exact-member detail.
 - Resolve the active catalog only after target/member resolution.
+- For non-static dotted ambiguity, reject selectors absent from every candidate
+  catalog before acquisition, but defer selectors valid in at least one
+  candidate until target/member resolution selects the active catalog. This
+  intentionally replaces a provisional-catalog diagnostic when the same
+  selector is valid for another interpretation.
 - Move shape validation to the resolved plan.
-- Preserve current address precedence and diagnostics for non-static execution
-  through a compatibility adapter except for the declared `--all-libraries`
-  correction below.
+- Preserve current address precedence and all other diagnostics for non-static
+  execution through a compatibility adapter except for the declared ambiguity
+  and `--all-libraries` corrections.
 - Intentionally replace commandless static-schema resolution notes and
   target-chosen catalogs with deterministic syntax-only catalogs or labeled
   alternatives; update command help and compatibility tests in this slice.
 - Intentionally add target-free static schema for package single-library and
   all-libraries views that currently defer or reject discovery; preserve their
   render behavior and document the new structural query.
+- Resolve static selectors against each route's selectable sections. This makes
+  invalid direct-library selectors visible instead of ignored and continues to
+  reject contextual schema sections that are not legal direct selectors.
 - Intentionally make commandless `<target> --all-libraries` route to package
   all-libraries before any lookup in static and non-static modes. The option
   exists only on the package command; this replaces the current lookup-driven

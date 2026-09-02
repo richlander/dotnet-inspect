@@ -318,6 +318,254 @@ public sealed class InspectionPlanningTests
             route.RewrittenTokens[0]);
     }
 
+    [Fact]
+    public void CommandlessGenericBodyQuery_SelectsTheTypeView()
+    {
+        bool classified =
+            StructuralViewRegistry.TryClassifyCommandless(
+                [
+                    "System.Collections.Generic.List<string>",
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                ],
+                structuralDiscovery: true,
+                out CommandlessStructuralRoute? route);
+
+        Assert.True(classified);
+        Assert.NotNull(route);
+        Assert.Equal(
+            StructuralViewIdentity.Type,
+            route.Route.View.Identity);
+        Assert.Equal(
+            InspectionCatalogIdentity.ApiMember,
+            route.Route.Catalog);
+    }
+
+    [Fact]
+    public void CommandlessExplicitIndex_SelectsMemberDetail()
+    {
+        bool classified =
+            StructuralViewRegistry.TryClassifyCommandless(
+                [
+                    "System.String",
+                    "-m",
+                    "Contains",
+                    "--index",
+                    "1",
+                ],
+                structuralDiscovery: true,
+                out CommandlessStructuralRoute? route);
+
+        Assert.True(classified);
+        Assert.NotNull(route);
+        Assert.Equal(
+            StructuralViewIdentity.MemberTarget,
+            route.Route.View.Identity);
+        Assert.Equal(
+            InspectionCatalogIdentity.ApiMemberDetail,
+            route.Route.Catalog);
+    }
+
+    [Fact]
+    public async Task ExplicitGenericMemberSchema_IsOneTypeView()
+    {
+        var result = await RunAppAsync(
+            "member",
+            "System.Collections.Generic.List<string>",
+            "--platform",
+            "System.Private.CoreLib",
+            "-D",
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.DoesNotContain(
+            "[member/",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            SectionNames.Methods,
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CommandlessGenericBodySchema_IsOneTypeView()
+    {
+        var result = await RunAppAsync(
+            "Missing.Namespace.Generic<Type>",
+            "--where",
+            "Kind=ObjectCreationExpression",
+            "-D",
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(SectionNames.TypeInfo, result.Output);
+        Assert.Contains(SectionNames.BodyShapes, result.Output);
+        Assert.DoesNotContain(
+            "[member/",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task CommandlessIndexSchema_IsMemberDetail()
+    {
+        var result = await RunAppAsync(
+            "Missing.Type",
+            "--platform",
+            "Missing.Platform.For.Schema",
+            "-m",
+            "Run",
+            "--index",
+            "1",
+            "-D",
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(SectionNames.Signature, result.Output);
+        Assert.DoesNotContain(SectionNames.TypeInfo, result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task MultiArgumentDottedMemberSchema_MatchesExplicitMember()
+    {
+        string[] common =
+        [
+            "-D",
+            "--schema",
+            "--table",
+            "--tips",
+            "q",
+        ];
+        var dotted = await RunAppAsync(
+            [
+                "member",
+                "System.Text.Json",
+                "JsonSerializer.Serialize",
+                .. common,
+            ]);
+        var explicitMember = await RunAppAsync(
+            [
+                "member",
+                "System.Text.Json",
+                "JsonSerializer",
+                "-m",
+                "Serialize",
+                .. common,
+            ]);
+
+        Assert.Equal(explicitMember, dotted);
+        Assert.Equal(0, dotted.Exit);
+        Assert.DoesNotContain(
+            "[member/",
+            dotted.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("member-shape", "--shape is only valid for type targets.")]
+    [InlineData("member-arity", "cannot combine different generic arities")]
+    [InlineData("member-kind", "Unknown C# body kind 'loop'.")]
+    [InlineData("member-mermaid", "--mermaid is standalone")]
+    [InlineData("type-order", "Field 'bogus' is not sortable")]
+    [InlineData("package-multi", "Multiple package inspection cannot be combined")]
+    public async Task StaticSchema_PreservesTargetIndependentValidation(
+        string scenario,
+        string expectedError)
+    {
+        string[] args = scenario switch
+        {
+            "member-shape" =>
+                ["member", "System.String", "--shape", "record", "-D", "--schema"],
+            "member-arity" =>
+                ["member", "System.String", "-m", "Foo`1", "-m", "Bar`2", "-D", "--schema"],
+            "member-kind" =>
+                ["member", "System.String", "-m", "Substring", "--where", "Kind=loop", "-D", "--schema"],
+            "member-mermaid" =>
+                ["member", "System.String", "-m", "Substring", "--mermaid", "--json", "-D", "--schema"],
+            "type-order" =>
+                ["type", "System.String", "--order-by", "bogus", "-D", "--schema"],
+            "package-multi" =>
+                ["package", "Newtonsoft.Json", "Serilog", "-D", "--schema"],
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(scenario),
+                scenario,
+                "Unknown validation scenario."),
+        };
+
+        var result = await RunAppAsync(args);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            expectedError,
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("package", "Summary")]
+    [InlineData("library", "DefinitelyNotASection")]
+    public async Task StaticSchema_RejectsNonSelectableRouteSections(
+        string command,
+        string selector)
+    {
+        string target = command == "package"
+            ? "Missing.Package.For.Schema"
+            : "missing-library.dll";
+
+        var result = await RunAppAsync(
+            command,
+            target,
+            "-D",
+            "--schema",
+            "-S",
+            selector,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"Select value '{selector}' not found.",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            target,
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ApiStaticSchema_PreservesCategoryDoorsAndCostAnnotations()
+    {
+        var result = await RunAppAsync(
+            "type",
+            "System.String",
+            "-D",
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains("@All", result.Output);
+        Assert.Contains("@Audit", result.Output);
+        Assert.Contains("(verbose)", result.Output);
+        Assert.Empty(result.Error);
+    }
+
     private static Task<(int Exit, string Output, string Error)>
         RunAppAsync(params string[] args) =>
         ConsoleCapture.RunAsync(async () =>

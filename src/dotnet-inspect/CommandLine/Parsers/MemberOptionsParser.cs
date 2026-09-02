@@ -21,9 +21,11 @@ public static class MemberOptionsParser
         ParseResult parseResult,
         SharedOptions options,
         MemberCommandArgs args,
-        out StructuralDiscoveryPlan? plan)
+        out StructuralDiscoveryPlan? plan,
+        out OptionError? error)
     {
         plan = null;
+        error = null;
         if (!options.IsDiscoveryMode(parseResult)
             || !options.ParseSchema(parseResult))
         {
@@ -49,10 +51,16 @@ public static class MemberOptionsParser
         string? typeName = sourceInputs.Args.Length > typeIndex
             ? sourceInputs.Args[typeIndex]
             : sourceInputs.Args.FirstOrDefault();
-        string[] positionalMembers =
+        List<string> positionalMembers =
             sourceInputs.Args.Length > typeIndex + 1
-                ? sourceInputs.Args[(typeIndex + 1)..]
+                ? [.. sourceInputs.Args[(typeIndex + 1)..]]
                 : [];
+        ApplySyntacticMemberSplit(
+            sourceInputs,
+            routerDeferredTypeOrMember: false,
+            ref typeName,
+            positionalMembers,
+            optionMembers);
         string[] constructorMembers =
             ctor ? [".ctor"] : [];
         string[] members =
@@ -61,6 +69,48 @@ public static class MemberOptionsParser
             .. optionMembers,
             .. constructorMembers,
         ];
+        if (parseResult.GetResult(args.ShapeOption)
+            is { Implicit: false })
+        {
+            error = new OptionError(
+                "--shape is only valid for type targets.");
+            return true;
+        }
+
+        string[] parsedMembers = [.. members];
+        var (_, _, _, genericArity, genericArityConflict, _) =
+            SharedParsers.ProcessMemberArguments(
+                parsedMembers,
+                inferDottedTypeFilter:
+                    string.IsNullOrEmpty(typeName),
+                suppliedTypeName: typeName);
+        var (memberFilter, _) = BuildMemberFilter(
+            parsedMembers,
+            ctor,
+            out _);
+        error = GetMemberSelectionError(
+            genericArity,
+            genericArityConflict,
+            memberFilter.Count);
+        if (error is not null)
+            return true;
+
+        error = SharedParsers.ParseAnalysisQueryOptions(
+            parseResult,
+            options,
+            typeScoped: false,
+            typeName: null,
+            out _,
+            out _);
+        if (error is not null)
+            return true;
+
+        error = GetMermaidOptionError(
+            parseResult,
+            options);
+        if (error is not null)
+            return true;
+
         string[] discoverSelectors =
             options.ParseDiscover(parseResult) ?? [];
         string[] sectionSelectors =
@@ -96,23 +146,20 @@ public static class MemberOptionsParser
                     ? InspectionCatalogIdentity.ApiMemberDetail
                     : InspectionCatalogIdentity.ApiMemberOverload;
 
+        bool unambiguousMemberTail =
+            !string.IsNullOrWhiteSpace(typeName)
+            && StructuralViewRegistry
+                .HasUnambiguousMemberTail(typeName);
         bool dottedTailAmbiguity =
             members.Length == 0
             && !string.IsNullOrWhiteSpace(typeName)
-            && (FqnParser.LastTopLevelDot(typeName) > 0
-                || StructuralViewRegistry
-                    .HasUnambiguousMemberTail(typeName));
-        bool bodyKindGesture =
-            (parseResult.GetValue(options.RowWhere) ?? [])
-                .Any(expression =>
-                    expression.StartsWith(
-                        "Kind=",
-                        StringComparison.OrdinalIgnoreCase));
+            && (unambiguousMemberTail
+                || (!StructuralViewRegistry
+                        .HasExplicitGenericTypeTail(typeName)
+                    && FqnParser.LastTopLevelDot(typeName) > 0));
         if (dottedTailAmbiguity
             && (index is not null
-                || bodyKindGesture
-                || StructuralViewRegistry
-                    .HasUnambiguousMemberTail(typeName!)))
+                || unambiguousMemberTail))
         {
             plan = new StructuralDiscoveryPlan.Resolved(
                 StructuralViewRegistry.Route(
@@ -389,25 +436,12 @@ public static class MemberOptionsParser
         // crosses that same metadata boundary instead of forcing a syntactic type/member guess.
         // Skip if the right part contains '<' — that's a generic type name (e.g., Generic.List<T>),
         // not a type.member pair.
-        bool explicitSourceSelectorSplit = !routerDeferredTypeOrMember
-            && sourceInputs.HasExplicitSource
-            && sourceInputs.Args.Length == 1
-            && typeName != null
-            && HasMemberSelectorSuffix(typeName);
-        if (typeName != null
-            && (((!sourceInputs.HasExplicitSource && sourceInputs.Args.Length > 1)
-                    || explicitSourceSelectorSplit))
-            && typeName.Contains('.')
-            && positionalMembers.Count == 0
-            && optionMembers.Length == 0)
-        {
-            var (splitTypeName, splitMemberName) = SharedParsers.SplitTrailingMember(typeName);
-            if (splitMemberName != null)
-            {
-                positionalMembers.Add(splitMemberName);
-                typeName = splitTypeName;
-            }
-        }
+        ApplySyntacticMemberSplit(
+            sourceInputs,
+            routerDeferredTypeOrMember,
+            ref typeName,
+            positionalMembers,
+            optionMembers);
 
         // Check for unrecognized options in positional args
         var badOption = positionalMembers.FirstOrDefault(m => m.StartsWith('-'));
@@ -436,10 +470,13 @@ public static class MemberOptionsParser
         var (memberFilter, memberLimit) = BuildMemberFilter(allMembers, ctorOnly, out var clearShorthand);
         if (clearShorthand)
             shorthandIndex = null;
-        if (memberGenericArityConflict)
-            return new VersionError("A member selection cannot combine different generic arities.");
-        if (memberGenericArity.HasValue && memberFilter.Count != 1)
-            return new VersionError("A generic arity selector requires exactly one member name.");
+        OptionError? memberSelectionError =
+            GetMemberSelectionError(
+                memberGenericArity,
+                memberGenericArityConflict,
+                memberFilter.Count);
+        if (memberSelectionError is not null)
+            return new VersionError(memberSelectionError.Value);
 
         var kindValues = parseResult.GetValue(args.KindOption) ?? [];
         var kindFilter = SharedParsers.ParseKindFilter(kindValues);
@@ -448,44 +485,26 @@ public static class MemberOptionsParser
         var select = opts.ParseSelect(parseResult);
         var selectDefault = opts.ParseSelectDefault(parseResult);
         bool hasExplicitSelect = select is { Length: > 0 } || selectDefault;
-        var whereExpressions = parseResult.GetValue(opts.RowWhere) ?? [];
-        if (!BodyKindQueryOptions.TryExtract(
-                whereExpressions,
-                out var bodyKindQuery,
-                out var performanceWhere,
-                out var bodyKindError))
-        {
-            return new VersionError(bodyKindError);
-        }
-        var performanceTriage = opts.ParsePerformanceTriageOptions(
-            parseResult,
-            performanceWhere);
-        if (!PerformanceTriageOptions.TryValidate(performanceTriage, out var triageShapeError))
-            return new VersionError(triageShapeError);
-        if (bodyKindQuery.HasFilter && performanceTriage.HasFilters)
-        {
-            return new VersionError(
-                "A Body Shapes predicate cannot yet be combined with Performance Triage "
-                + "filters or --order-by in one query.");
-        }
+        OptionError? analysisError =
+            SharedParsers.ParseAnalysisQueryOptions(
+                parseResult,
+                opts,
+                typeScoped: false,
+                typeName: null,
+                out BodyKindQueryOptions bodyKindQuery,
+                out PerformanceTriageOptions performanceTriage);
+        if (analysisError is not null)
+            return new VersionError(analysisError.Value);
         // Only surface Performance Triage from row filters when the user did not select sections
         // with -S; an explicit selection must not silently gain a second section.
         if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult) && !hasExplicitSelect)
             select = [.. select ?? [], SectionNames.PerformanceTriage];
 
+        OptionError? mermaidError =
+            GetMermaidOptionError(parseResult, opts);
+        if (mermaidError is not null)
+            return new VersionError(mermaidError.Value);
         var embeddedMermaid = opts.IsEmbeddedMermaid(parseResult);
-        if (parseResult.GetValue(opts.Mermaid)
-            && (parseResult.GetValue(opts.Json)
-                || parseResult.GetValue(opts.PlainText)
-                || parseResult.GetValue(opts.Bare)
-                || parseResult.GetValue(opts.Table)
-                || parseResult.GetValue(opts.Tsv)
-                || parseResult.GetValue(opts.Jsonl)
-                || (!embeddedMermaid && parseResult.GetResult(opts.Verbosity) is { Implicit: false })))
-        {
-            return new VersionError(
-                "--mermaid is standalone unless paired with --markdown; it cannot combine with another output format.");
-        }
 
         var outputFormat = opts.ResolveFormat(parseResult);
         var options = new MemberOptions
@@ -608,6 +627,85 @@ public static class MemberOptionsParser
             return (new HashSet<string>(allMembers, StringComparer.OrdinalIgnoreCase), null);
 
         return ([], null);
+    }
+
+    private static OptionError? GetMemberSelectionError(
+        int? genericArity,
+        bool genericArityConflict,
+        int memberCount)
+    {
+        if (genericArityConflict)
+        {
+            return new OptionError(
+                "A member selection cannot combine different generic arities.");
+        }
+
+        if (genericArity.HasValue && memberCount != 1)
+        {
+            return new OptionError(
+                "A generic arity selector requires exactly one member name.");
+        }
+
+        return null;
+    }
+
+    private static void ApplySyntacticMemberSplit(
+        SharedParsers.SourceSelectionInputs sourceInputs,
+        bool routerDeferredTypeOrMember,
+        ref string? typeName,
+        List<string> positionalMembers,
+        string[] optionMembers)
+    {
+        bool explicitSourceSelectorSplit =
+            !routerDeferredTypeOrMember
+            && sourceInputs.HasExplicitSource
+            && sourceInputs.Args.Length == 1
+            && typeName is not null
+            && HasMemberSelectorSuffix(typeName);
+        bool multiArgumentDottedTarget =
+            !sourceInputs.HasExplicitSource
+            && sourceInputs.Args.Length > 1;
+        if (typeName is null
+            || (!multiArgumentDottedTarget
+                && !explicitSourceSelectorSplit)
+            || !typeName.Contains('.')
+            || positionalMembers.Count != 0
+            || optionMembers.Length != 0)
+        {
+            return;
+        }
+
+        var (splitTypeName, splitMemberName) =
+            SharedParsers.SplitTrailingMember(typeName);
+        if (splitMemberName is null)
+            return;
+
+        positionalMembers.Add(splitMemberName);
+        typeName = splitTypeName;
+    }
+
+    private static OptionError? GetMermaidOptionError(
+        ParseResult parseResult,
+        SharedOptions options)
+    {
+        bool embeddedMermaid =
+            options.IsEmbeddedMermaid(parseResult);
+        if (parseResult.GetValue(options.Mermaid)
+            && (parseResult.GetValue(options.Json)
+                || parseResult.GetValue(options.PlainText)
+                || parseResult.GetValue(options.Bare)
+                || parseResult.GetValue(options.Table)
+                || parseResult.GetValue(options.Tsv)
+                || parseResult.GetValue(options.Jsonl)
+                || (!embeddedMermaid
+                    && parseResult.GetResult(options.Verbosity)
+                        is { Implicit: false })))
+        {
+            return new OptionError(
+                "--mermaid is standalone unless paired with --markdown; it cannot combine with another output format.");
+        }
+
+        return null;
     }
 
 }

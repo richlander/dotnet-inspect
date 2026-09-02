@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
+using DotnetInspector.Options;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
@@ -236,6 +237,60 @@ public static class SharedParsers
             return (null, limit);
 
         return (value, null);
+    }
+
+    public static OptionError? ParseAnalysisQueryOptions(
+        ParseResult parseResult,
+        SharedOptions options,
+        bool typeScoped,
+        string? typeName,
+        out BodyKindQueryOptions bodyKindQuery,
+        out PerformanceTriageOptions performanceTriage)
+    {
+        string[] whereExpressions =
+            parseResult.GetValue(options.RowWhere) ?? [];
+        if (!BodyKindQueryOptions.TryExtract(
+                whereExpressions,
+                out bodyKindQuery,
+                out string[] performanceWhere,
+                out OptionError bodyKindError))
+        {
+            performanceTriage = new PerformanceTriageOptions();
+            return bodyKindError;
+        }
+
+        if (typeScoped
+            && bodyKindQuery.HasFilter
+            && (string.IsNullOrWhiteSpace(typeName)
+                || typeName.Contains('*')
+                || typeName.Contains('?')))
+        {
+            performanceTriage = new PerformanceTriageOptions();
+            return new OptionError(
+                "A type-scoped Body Shapes query requires one exact type name.");
+        }
+
+        performanceTriage =
+            options.ParsePerformanceTriageOptions(
+                parseResult,
+                performanceWhere);
+        if (!PerformanceTriageOptions.TryValidate(
+                performanceTriage,
+                out OptionError triageShapeError))
+        {
+            return triageShapeError;
+        }
+
+        if (bodyKindQuery.HasFilter
+            && performanceTriage.HasFilters)
+        {
+            return new OptionError(
+                typeScoped
+                    ? "A Body Shapes predicate cannot yet be combined with Performance Triage filters or --order-by in one type query."
+                    : "A Body Shapes predicate cannot yet be combined with Performance Triage filters or --order-by in one query.");
+        }
+
+        return null;
     }
 
     /// <summary>

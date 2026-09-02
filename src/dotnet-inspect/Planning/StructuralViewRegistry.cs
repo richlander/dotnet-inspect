@@ -106,10 +106,11 @@ public abstract record StructuralDiscoveryPlan
 public sealed record StructuralSchemaProjection(
     StructuralRoute Route,
     DocumentSchema Schema,
+    IReadOnlyList<string> SelectableSectionNames,
     IReadOnlyList<string> DefaultSectionNames,
     IReadOnlyDictionary<string, string> SectionCostAnnotations,
     IReadOnlyDictionary<string, string[]> SectionCategories,
-    IReadOnlySet<string> ListedCategoryDoors,
+    IReadOnlySet<string>? ListedCategoryDoors,
     IReadOnlySet<string> CatalogHiddenSections,
     ImmutableDictionary<string, StructuralSectionInput> SectionInputs);
 
@@ -372,9 +373,8 @@ public static class StructuralViewRegistry
             }
         }
 
-        if (HasUnambiguousCommandlessMemberGesture(
-                tokens,
-                target))
+        if (ContainsOption(tokens, "--index")
+            || HasUnambiguousMemberTail(target))
         {
             classification = new CommandlessStructuralRoute(
                 Route(
@@ -384,9 +384,7 @@ public static class StructuralViewRegistry
             return true;
         }
 
-        if (target.EndsWith('>')
-            && TypeMatcher.HasExplicitGenericNotation(
-                target))
+        if (HasExplicitGenericTypeTail(target))
         {
             classification = new CommandlessStructuralRoute(
                 Route(
@@ -427,6 +425,13 @@ public static class StructuralViewRegistry
         string target = tokens[0];
         string[] memberSelectors =
             GetOptionValues(tokens, "-m", "--member");
+        bool hasBodyKindFilter =
+            BodyKindQueryOptions.TryExtract(
+                GetOptionValues(tokens, "--where"),
+                out BodyKindQueryOptions bodyKindQuery,
+                out _,
+                out _)
+            && bodyKindQuery.HasFilter;
         bool hasExplicitApiSource =
             ContainsOption(tokens, "--package")
             || ContainsOption(tokens, "--platform")
@@ -493,6 +498,7 @@ public static class StructuralViewRegistry
                 selector.OverloadIndex is not null
                 || !string.IsNullOrWhiteSpace(
                     selector.DigestPrefix)
+                || hasBodyKindFilter
                 || demand.RequiredTarget
                     == InspectionTargetRequirement.ExactMember
                     ? InspectionCatalogIdentity.ApiMemberDetail
@@ -589,11 +595,11 @@ public static class StructuralViewRegistry
             StructuralOutputShape.Document)
     {
         DocumentSchema schema;
+        IReadOnlyList<string> selectableSections;
         IReadOnlyList<string> defaultSections;
         IReadOnlyDictionary<string, string> annotations;
         IReadOnlyDictionary<string, string[]> categories;
-        IReadOnlySet<string> listedCategoryDoors =
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        IReadOnlySet<string>? listedCategoryDoors = null;
         IReadOnlySet<string> catalogHiddenSections =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         switch (route.Catalog)
@@ -602,6 +608,8 @@ public static class StructuralViewRegistry
             {
                 var catalog = PackageSectionDescriptors.CreateCatalog();
                 schema = PackageCommand.PackageDiscoverySchema();
+                selectableSections =
+                    catalog.Sections.SelectableSectionNames;
                 defaultSections =
                     catalog.Sections.BareSelectSectionNames;
                 annotations = catalog.Pipeline.GetCostAnnotations();
@@ -616,6 +624,8 @@ public static class StructuralViewRegistry
             {
                 var catalog = LibrarySections.CreateCatalog();
                 schema = LibraryCommand.CreateStructuralSchema();
+                selectableSections =
+                    catalog.Sections.SelectableSectionNames;
                 defaultSections = catalog.Sections.InfoSectionNames;
                 annotations = catalog.Pipeline.GetCostAnnotations();
                 categories = catalog.Sections.SelectionCategoryMap;
@@ -632,6 +642,8 @@ public static class StructuralViewRegistry
                     ? PackageCommand
                         .PackageAllLibrariesDiscoverySchema()
                     : LibraryCommand.CreateStructuralSchema();
+                selectableSections =
+                    catalog.Sections.SelectableSectionNames;
                 defaultSections = catalog.Sections.InfoSectionNames;
                 annotations = catalog.Pipeline.GetCostAnnotations();
                 categories = catalog.Sections.SelectionCategoryMap;
@@ -645,6 +657,8 @@ public static class StructuralViewRegistry
             {
                 var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
                 schema = ApiCommand.GetStructuralSchema(route.Catalog);
+                selectableSections =
+                    pipeline.SelectableSectionNames;
                 defaultSections = pipeline.FixedOverviewSectionNames;
                 annotations = pipeline.GetCostAnnotations();
                 categories = pipeline.GetCategoryMap();
@@ -658,6 +672,10 @@ public static class StructuralViewRegistry
                     ApiInspectionCatalogRegistry.CreateMemberPipeline(
                         route.Catalog);
                 schema = ApiCommand.GetStructuralSchema(route.Catalog);
+                selectableSections =
+                    ApiInspectionCatalogRegistry
+                        .Get(route.Catalog)
+                        .SectionNames;
                 defaultSections =
                     ApiInspectionCatalogRegistry
                         .Get(route.Catalog)
@@ -707,10 +725,16 @@ public static class StructuralViewRegistry
                     pair => pair.Value,
                     StringComparer.OrdinalIgnoreCase);
         }
+        selectableSections = selectableSections
+            .Where(name => schema.SectionNames.Contains(
+                name,
+                StringComparer.OrdinalIgnoreCase))
+            .ToArray();
 
         return new StructuralSchemaProjection(
             route,
             schema,
+            selectableSections,
             defaultSections,
             annotations,
             categories,
@@ -740,7 +764,7 @@ public static class StructuralViewRegistry
         {
             SelectResult result = SelectResolver.ResolveSelectAsSections(
                 request.Select,
-                [.. schema.SectionNames],
+                projection.SelectableSectionNames,
                 projection.DefaultSectionNames,
                 projection.SectionCategories,
                 request.SelectDefault
@@ -844,7 +868,7 @@ public static class StructuralViewRegistry
             StructuralSchemaProjection projection = Project(route);
             SelectResult result = SelectResolver.ResolveSelectAsSections(
                 selectors,
-                [.. projection.Schema.SectionNames],
+                projection.SelectableSectionNames,
                 infoSections: null,
                 projection.SectionCategories,
                 selectDefault: false);
@@ -968,20 +992,6 @@ public static class StructuralViewRegistry
                 option + "=",
                 StringComparison.Ordinal));
 
-    private static bool HasUnambiguousCommandlessMemberGesture(
-        IReadOnlyList<string> tokens,
-        string target)
-    {
-        if (HasUnambiguousMemberTail(target))
-            return true;
-
-        return GetOptionValues(tokens, "--where")
-            .Any(expression =>
-                expression.StartsWith(
-                    "Kind=",
-                    StringComparison.OrdinalIgnoreCase));
-    }
-
     internal static bool HasUnambiguousMemberTail(
         string target)
     {
@@ -1007,6 +1017,15 @@ public static class StructuralViewRegistry
             || tail.StartsWith(
                 "operator",
                 StringComparison.Ordinal);
+    }
+
+    internal static bool HasExplicitGenericTypeTail(
+        string target)
+    {
+        int trailingSegmentStart =
+            CSharpText.FqnParser.LastTopLevelDot(target) + 1;
+        return TypeMatcher.HasExplicitGenericNotation(
+            target[trailingSegmentStart..]);
     }
 
     private static string[] GetOptionValues(

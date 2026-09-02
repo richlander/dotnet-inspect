@@ -303,31 +303,31 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "assembly-type-list",
                 "schema-static/effective-deferred",
-                "ApiType[schema:8:FE1B16EEA0D2]",
+                "ApiType[schema:16:35B2A603B562]",
                 "focus=none;discovery=none",
                 "focus:none"),
             new(
                 "type-member-list",
                 "schema-static/effective-deferred",
-                "ApiMember[schema:32:0F5B4EA1E460]",
+                "ApiMember[schema:66:FE9290184C28]",
                 "focus=none;discovery=none",
                 "focus:pdb=True;source=False"),
             new(
                 "member-type-view",
                 "schema-static/effective-deferred",
-                "ApiMember[schema:32:0F5B4EA1E460]",
+                "ApiMember[schema:66:FE9290184C28]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(
                 "overload-inventory",
                 "schema-static/effective-deferred/executed-multiple-overloads",
-                "ApiMemberOverload[schema:39:FC5904ABC7D8]",
+                "ApiMemberOverload[schema:81:0B835ECE3CFC]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(
                 "exact-member-detail",
                 "schema-static/effective-deferred",
-                "ApiMemberDetail[schema:25:F808481CE5B4]",
+                "ApiMemberDetail[schema:57:9CF9EB2E407B]",
                 "focus=none;discovery=none",
                 "focus:pdb=True;source=True"),
             new(

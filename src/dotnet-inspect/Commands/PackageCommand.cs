@@ -54,6 +54,12 @@ public class PackageCommand
         if (!packageLibraryMode)
             options = NormalizeDependencyProjection(options);
 
+        if (packageArgs.Length > 1
+            && !ValidateMultiPackageMode(options))
+        {
+            return 1;
+        }
+
         if (packageLibraryMode
             && options.Discover is not null
             && options.Schema)
@@ -86,12 +92,6 @@ public class PackageCommand
                     StructuralViewIdentity.Package,
                     InspectionCatalogIdentity.Package),
                 StructuralDiscoveryRequest.From(options));
-        }
-
-        if (packageArgs.Length > 1
-            && !ValidateMultiPackageMode(options))
-        {
-            return 1;
         }
 
         // @Hidden is a discovery-only pole. For the embedded-library render modes (which resolve

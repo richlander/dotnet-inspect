@@ -125,8 +125,15 @@ public static class ApiCommandDefinitions
                     parseResult,
                     opts,
                     commandArgs,
-                    out StructuralDiscoveryPlan? structuralPlan))
+                    out StructuralDiscoveryPlan? structuralPlan,
+                    out OptionError? structuralError))
             {
+                if (structuralError is not null)
+                {
+                    CommandError.Write(structuralError.Value);
+                    return 1;
+                }
+
                 StructuralDiscoveryRequest request =
                     StructuralDiscoveryRequest.From(
                         parseResult,
@@ -311,8 +318,15 @@ public static class ApiCommandDefinitions
                     parseResult,
                     opts,
                     commandArgs,
-                    out StructuralDiscoveryPlan? structuralPlan))
+                    out StructuralDiscoveryPlan? structuralPlan,
+                    out OptionError? structuralError))
             {
+                if (structuralError is not null)
+                {
+                    CommandError.Write(structuralError.Value);
+                    return 1;
+                }
+
                 StructuralDiscoveryRequest request =
                     StructuralDiscoveryRequest.From(
                         parseResult,

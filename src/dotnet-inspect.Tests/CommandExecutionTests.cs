@@ -4406,7 +4406,12 @@ public partial class CommandExecutionTests
             ]);
 
         Assert.Equal(0, exit);
-        Assert.Contains("| Body Shapes | section |", output);
+        Assert.Contains(
+            "| [member/member-target/ApiMemberDetail] Body Shapes | section |",
+            output);
+        Assert.Contains(
+            "| [type/type/ApiMember] Body Shapes | section |",
+            output);
         Assert.Empty(error);
     }
 
@@ -4441,7 +4446,9 @@ public partial class CommandExecutionTests
         Assert.Equal(0, direct.Exit);
         Assert.Equal(0, deferred.Exit);
         Assert.Contains("| Body Shapes | section |", direct.Output);
-        Assert.Contains("| Body Shapes | section |", deferred.Output);
+        Assert.Contains(
+            "| [member/member-target/ApiMemberDetail] Body Shapes | section |",
+            deferred.Output);
         Assert.Empty(direct.Error);
         Assert.Empty(deferred.Error);
     }
@@ -4636,6 +4643,31 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("  Classes", ambiguous.Error);
         Assert.DoesNotContain("  Inspection Failures", ambiguous.Error);
         Assert.DoesNotContain("  Method Groups", explicitMember.Error);
+    }
+
+    [Fact]
+    public async Task Member_DottedTargetDefersAlternativeSpecificSectionUntilResolution()
+    {
+        string missingAssembly = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+
+        var result = await RunAppAsync(
+            "member",
+            "Missing.Type.Member",
+            "--library",
+            missingAssembly,
+            "-S",
+            "Signature",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains("File not found", result.Error);
+        Assert.DoesNotContain(
+            "Select value 'Signature' not found.",
+            result.Error);
     }
 
     [Fact]

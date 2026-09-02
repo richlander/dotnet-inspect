@@ -20,9 +20,11 @@ public static class TypeOptionsParser
         ParseResult parseResult,
         SharedOptions options,
         TypeCommandArgs args,
-        out StructuralDiscoveryPlan? plan)
+        out StructuralDiscoveryPlan? plan,
+        out OptionError? error)
     {
         plan = null;
+        error = null;
         if (!options.IsDiscoveryMode(parseResult)
             || !options.ParseSchema(parseResult))
         {
@@ -45,6 +47,34 @@ public static class TypeOptionsParser
                 : sourceInputs.Args.Length >= 2
                     ? sourceInputs.Args[1]
                     : sourceInputs.Args.FirstOrDefault();
+        if (hasProjectSource && sourceInputs.HasExplicitSource)
+        {
+            error = new OptionError(
+                "--project cannot be combined with --package, --library, or --platform.");
+            return true;
+        }
+
+        string[] memberValues =
+            parseResult.GetValue(args.MemberOption) ?? [];
+        if (memberValues.Any(value =>
+                MemberTargetSelector.Parse(value)
+                    .GenericArity.HasValue))
+        {
+            error = new OptionError(
+                "The type command's -m filter does not support generic arity selectors; use the member command.");
+            return true;
+        }
+
+        error = SharedParsers.ParseAnalysisQueryOptions(
+            parseResult,
+            options,
+            typeScoped: true,
+            typeName,
+            out _,
+            out _);
+        if (error is not null)
+            return true;
+
         InspectionCatalogIdentity catalog =
             string.IsNullOrWhiteSpace(typeName)
             || TypeMatcher.IsTypeGlobPattern(typeName)
@@ -201,34 +231,16 @@ public static class TypeOptionsParser
         var kindValues = parseResult.GetValue(args.KindOption) ?? [];
         var kindFilter = SharedParsers.ParseKindFilter(kindValues);
         var routePolicy = TypeRoutePolicy.Resolve(sourceSelection.Args, sourceSelection.HasExplicitSource, source);
-        var whereExpressions = parseResult.GetValue(opts.RowWhere) ?? [];
-        if (!BodyKindQueryOptions.TryExtract(
-                whereExpressions,
-                out var bodyKindQuery,
-                out var performanceWhere,
-                out var bodyKindError))
-        {
-            return new VersionError(bodyKindError);
-        }
-        if (bodyKindQuery.HasFilter
-            && (string.IsNullOrWhiteSpace(source.TypeName)
-                || source.TypeName.Contains('*')
-                || source.TypeName.Contains('?')))
-        {
-            return new VersionError(
-                "A type-scoped Body Shapes query requires one exact type name.");
-        }
-        var performanceTriage = opts.ParsePerformanceTriageOptions(
-            parseResult,
-            performanceWhere);
-        if (!PerformanceTriageOptions.TryValidate(performanceTriage, out var triageShapeError))
-            return new VersionError(triageShapeError);
-        if (bodyKindQuery.HasFilter && performanceTriage.HasFilters)
-        {
-            return new VersionError(
-                "A Body Shapes predicate cannot yet be combined with Performance Triage "
-                + "filters or --order-by in one type query.");
-        }
+        OptionError? analysisError =
+            SharedParsers.ParseAnalysisQueryOptions(
+                parseResult,
+                opts,
+                typeScoped: true,
+                source.TypeName,
+                out BodyKindQueryOptions bodyKindQuery,
+                out PerformanceTriageOptions performanceTriage);
+        if (analysisError is not null)
+            return new VersionError(analysisError.Value);
         var select = opts.ParseSelect(parseResult);
         var selectDefault = opts.ParseSelectDefault(parseResult);
         bool hasExplicitSelect = select is { Length: > 0 } || selectDefault;
