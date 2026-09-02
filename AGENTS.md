@@ -343,16 +343,24 @@ the `IsPackable`/`VersionPrefix` release rules live in
 
 ## Evidence and validation
 
-Match evidence to the claim and use the smallest existing check that proves it.
-Detailed practices — matching evidence to claim types, the style-oracle
-consultation procedure, and the harness/product boundary — live in
-[`docs/evidence-and-validation.md`](docs/evidence-and-validation.md). Two rules
+Use the smallest sufficient set of claims and gates: state only what the user
+goal or an owned boundary or contract requires, and add only evidence that
+proves it. Inherit existing platform contracts unless a new dependency, API,
+or design calls one into question. Detailed practices live in
+[`docs/evidence-and-validation.md`](docs/evidence-and-validation.md). Three rules
 are load-bearing everywhere:
 
 - **Asserted properties name their gate.** A safety, soundness, or faithfulness
   claim must name its enforcing gate or say `unverified`. A gate counts only
   when it runs in the suite's Release configuration; use runtime opt-ins, not
   `[Conditional("DEBUG")]`.
+- **Composition absence-claim coverage is a user choice.** Before asserting
+  that a product or repository boundary contains no dependency, runtime, API
+  family, prohibited construct, or unsupported platform capability, propose
+  full, partial, or no gate coverage. Negatively phrased algorithmic correctness
+  properties use ordinary contract gates. The
+  [evidence guide](docs/evidence-and-validation.md#absence-claims-choose-their-coverage)
+  owns the detailed rules.
 - **Harnesses don't manufacture the evidence they check.** They own
   orchestration, fixtures, oracles, and reporting, but must exercise
   product-owned artifact construction — never construct, normalize, or repair
