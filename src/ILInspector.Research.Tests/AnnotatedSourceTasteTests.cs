@@ -13,6 +13,7 @@ namespace ILInspector.Research.Tests;
 /// render no longer reproduces the member's opcodes) suppresses the IL rather
 /// than asserting a correspondence that does not hold.
 /// </summary>
+[Collection(AnalysisIndexCacheCollection.Name)]
 public class AnnotatedSourceTasteTests
 {
     static string Annotated(string method, PrinterOptions? options)
