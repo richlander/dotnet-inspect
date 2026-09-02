@@ -640,6 +640,7 @@ public sealed class BrowserEngineLayeringTests
             typeof(BrowserPackageCacheSnapshot),
             typeof(BrowserPackageDocumentEntry),
             typeof(BrowserPackageDocumentPayload),
+            typeof(BrowserPackageIconPayload),
         ];
 
         Assert.All(workspaceTypes, type => Assert.Same(core, type.Assembly));
