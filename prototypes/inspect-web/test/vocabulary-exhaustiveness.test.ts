@@ -59,8 +59,8 @@ const widenings = [
   {
     vocabulary: "WorkspaceScope",
     file: "data.ts",
-    find: 'const workspaceScopes = ["package", "type", "member"] as const;',
-    replace: 'const workspaceScopes = ["package", "type", "member", "probe-workspace-scope"] as const;',
+    find: 'const workspaceScopes = ["workspace", "package", "type", "member"] as const;',
+    replace: 'const workspaceScopes = ["workspace", "package", "type", "member", "probe-workspace-scope"] as const;',
     token: "probe-workspace-scope",
     dispatches: ["onScopeSelect", "renderScopeBar", "selectScopeLensByIndex"],
   },

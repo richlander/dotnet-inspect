@@ -42,6 +42,7 @@ public sealed record BrowserPackageSurface(
     string Version,
     string[] Frameworks,
     string ActiveFramework,
+    BrowserPackageIcon? Icon,
     string? DefaultAssemblyId,
     BrowserCompileLibraryAvailability CompileLibrary,
     BrowserAssemblySurface[] Assemblies,
@@ -51,6 +52,14 @@ public sealed record BrowserPackageSurface(
     BrowserPackageDocument[] Documents,
     string[] InspectionErrors,
     string? InspectionError);
+
+/// <summary>
+/// One bounded embedded package icon. <see cref="Base64"/> contains only bytes admitted by
+/// <c>PackageIconQuery</c>; the Browser host never transports the deprecated remote icon URL.
+/// </summary>
+public sealed record BrowserPackageIcon(
+    string MediaType,
+    string Base64);
 
 /// <summary>
 /// One product-owned accessibility bucket, carried verbatim from

@@ -7,6 +7,7 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Research.Tests;
 
+[Collection(AnalysisIndexCacheCollection.Name)]
 public class ResearchFactRegistryTests
 {
     [Fact]
@@ -218,6 +219,264 @@ public class ResearchFactRegistryTests
         finally
         {
             Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void AnalysisIndexCache_ForPath_ReopensWhenTheFileAtThePathChanges()
+    {
+        // Regression test for the path-keyed staleness gap described in
+        // docs/design/analysis-index-cache.md: a `ForPath` hit must not
+        // return an index built from bytes that no longer exist at that
+        // path.
+        string firstSourcePath = typeof(ResearchFixture).Assembly.Location;
+        string secondSourcePath = typeof(LibraryBodyIndex).Assembly.Location;
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-research-staleness-{Guid.NewGuid():N}.dll");
+        File.Copy(firstSourcePath, path);
+        // Force a distinct fingerprint deterministically rather than relying
+        // on a real-time gap between the two writes below.
+        File.SetLastWriteTimeUtc(
+            path,
+            new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        try
+        {
+            ResearchFactRequirements requirements =
+                ResearchFactRequirements.ForAssembly(
+                    LibraryBodyAnalysisFeatures.MethodEvidence);
+
+            LibraryBodyIndex first =
+                AnalysisIndexCache.ForPath(path, requirements, 0);
+            string firstAssemblyName = Assert.Single(
+                first.Methods
+                    .Select(method => method.AssemblyName)
+                    .Distinct());
+
+            File.Copy(secondSourcePath, path, overwrite: true);
+            File.SetLastWriteTimeUtc(
+                path,
+                new DateTime(2002, 2, 2, 0, 0, 0, DateTimeKind.Utc));
+
+            LibraryBodyIndex second =
+                AnalysisIndexCache.ForPath(path, requirements, 0);
+            string secondAssemblyName = Assert.Single(
+                second.Methods
+                    .Select(method => method.AssemblyName)
+                    .Distinct());
+
+            Assert.NotSame(first, second);
+            Assert.NotEqual(firstAssemblyName, secondAssemblyName);
+
+            // The now-current content is still served on a later hit.
+            Assert.Same(
+                second,
+                AnalysisIndexCache.ForPath(path, requirements, 0));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void AnalysisIndexCache_ForPath_ReportsIdentityUnconfirmedOnlyWhenAPriorGenerationDisagreed()
+    {
+        // Regression test for the identity-change signal described in
+        // docs/design/analysis-index-cache.md's "Surfacing identity changes
+        // to callers": this cache must tell a caller when a result should
+        // not be treated as continuous with whatever it (or another caller)
+        // was shown before for this same path, not just silently self-heal.
+        string firstSourcePath = typeof(ResearchFixture).Assembly.Location;
+        string secondSourcePath = typeof(LibraryBodyIndex).Assembly.Location;
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-research-identity-signal-{Guid.NewGuid():N}.dll");
+        File.Copy(firstSourcePath, path);
+        File.SetLastWriteTimeUtc(
+            path,
+            new DateTime(2003, 3, 3, 0, 0, 0, DateTimeKind.Utc));
+        try
+        {
+            ResearchFactRequirements requirements =
+                ResearchFactRequirements.ForAssembly(
+                    LibraryBodyAnalysisFeatures.MethodEvidence);
+
+            // A first, stable observation of a path this cache has never
+            // seen before carries no known-prior generation to disagree
+            // with.
+            AnalysisIndexCache.ForPath(
+                path, requirements, 0, out bool firstIdentityUnconfirmed);
+            Assert.False(firstIdentityUnconfirmed);
+
+            // A repeat hit against unchanged content agrees with the
+            // generation it already cached.
+            AnalysisIndexCache.ForPath(
+                path, requirements, 0, out bool hitIdentityUnconfirmed);
+            Assert.False(hitIdentityUnconfirmed);
+
+            File.Copy(secondSourcePath, path, overwrite: true);
+            File.SetLastWriteTimeUtc(
+                path,
+                new DateTime(2004, 4, 4, 0, 0, 0, DateTimeKind.Utc));
+
+            // The cached generation from the first observation no longer
+            // matches: whatever the earlier caller saw is now stale, and
+            // this cache must say so rather than silently substituting a
+            // fresh generation under the same path.
+            AnalysisIndexCache.ForPath(
+                path, requirements, 0, out bool changedIdentityUnconfirmed);
+            Assert.True(changedIdentityUnconfirmed);
+
+            // The newly cached generation is stable going forward.
+            AnalysisIndexCache.ForPath(
+                path, requirements, 0, out bool settledIdentityUnconfirmed);
+            Assert.False(settledIdentityUnconfirmed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void AnalysisIndexCache_ForPath_ReportsIdentityUnconfirmedAcrossDifferentScopes()
+    {
+        // Round-3 review (both seats, independently) found that deriving
+        // identityUnconfirmed only from the scope-compatible cache entry is
+        // too narrow: a member-scoped observation and a later
+        // assembly-scoped request for the same path are two different
+        // reuse candidates, but one and the same path identity. A change
+        // must be reported even when no compatible cache entry for the new
+        // request's scope ever existed.
+        string firstSourcePath = typeof(ResearchFixture).Assembly.Location;
+        string secondSourcePath = typeof(LibraryBodyIndex).Assembly.Location;
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-research-identity-scope-{Guid.NewGuid():N}.dll");
+        File.Copy(firstSourcePath, path);
+        File.SetLastWriteTimeUtc(
+            path,
+            new DateTime(2005, 5, 5, 0, 0, 0, DateTimeKind.Utc));
+        try
+        {
+            int token = LibraryBodyIndex.Open(
+                    path,
+                    LibraryBodyAnalysisFeatures.MethodEvidence)
+                .Methods.First(method =>
+                    method.Name
+                        == nameof(
+                            ResearchFixture.CallsAllocInLoopCallee))
+                .MetadataToken;
+            ResearchFactRequirements member =
+                ResearchFactRequirements.ForMember(
+                    LibraryBodyAnalysisFeatures.MethodEvidence);
+            ResearchFactRequirements assembly =
+                ResearchFactRequirements.ForAssembly(
+                    LibraryBodyAnalysisFeatures.MethodEvidence);
+
+            // A first, member-scoped observation caches under that scope.
+            AnalysisIndexCache.ForPath(
+                path, member, token, out bool memberIdentityUnconfirmed);
+            Assert.False(memberIdentityUnconfirmed);
+
+            File.Copy(secondSourcePath, path, overwrite: true);
+            File.SetLastWriteTimeUtc(
+                path,
+                new DateTime(2006, 6, 6, 0, 0, 0, DateTimeKind.Utc));
+
+            // An assembly-scoped request never matches the member-scoped
+            // entry on the reuse predicate, so it always reopens -- but it
+            // must still report the identity change, because this same
+            // path already had a confirmed generation under this process.
+            AnalysisIndexCache.ForPath(
+                path, assembly, 0, out bool assemblyIdentityUnconfirmed);
+            Assert.True(assemblyIdentityUnconfirmed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void AnalysisIndexCache_ForPath_ReportsIdentityUnconfirmedOnACacheHitStaleRelativeToAnotherScope()
+    {
+        // Round-4 review (both seats, independently) found that a
+        // fingerprint-matching cache *hit* returned identityUnconfirmed =
+        // false unconditionally, without consulting the scope-independent
+        // s_lastPathFingerprints history. That let an older, still
+        // fingerprint-valid entry from one scope mask a change already
+        // confirmed under a different scope: restore a path's earlier
+        // generation A after a differently scoped request has already
+        // observed and confirmed a later generation B, and a member-scoped
+        // hit against the still-valid A entry must still report a change,
+        // because the *last confirmed* generation for this path was B, not
+        // A.
+        string generationASourcePath = typeof(ResearchFixture).Assembly.Location;
+        string generationBSourcePath = typeof(LibraryBodyIndex).Assembly.Location;
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-research-identity-hit-{Guid.NewGuid():N}.dll");
+        DateTime generationATimestamp =
+            new(2007, 7, 7, 0, 0, 0, DateTimeKind.Utc);
+        File.Copy(generationASourcePath, path);
+        File.SetLastWriteTimeUtc(path, generationATimestamp);
+        try
+        {
+            int token = LibraryBodyIndex.Open(
+                    path,
+                    LibraryBodyAnalysisFeatures.MethodEvidence)
+                .Methods.First(method =>
+                    method.Name
+                        == nameof(
+                            ResearchFixture.CallsAllocInLoopCallee))
+                .MetadataToken;
+            ResearchFactRequirements member =
+                ResearchFactRequirements.ForMember(
+                    LibraryBodyAnalysisFeatures.MethodEvidence);
+            ResearchFactRequirements assembly =
+                ResearchFactRequirements.ForAssembly(
+                    LibraryBodyAnalysisFeatures.MethodEvidence);
+
+            // A first, member-scoped observation of generation A caches
+            // member/A and records A as the last confirmed fingerprint.
+            AnalysisIndexCache.ForPath(
+                path, member, token, out bool firstIdentityUnconfirmed);
+            Assert.False(firstIdentityUnconfirmed);
+
+            // Generation B is observed under a different (assembly) scope.
+            // The member/A entry is scope-incompatible, so it is left
+            // untouched in the reuse cache while the last confirmed
+            // fingerprint moves to B.
+            File.Copy(generationBSourcePath, path, overwrite: true);
+            File.SetLastWriteTimeUtc(
+                path,
+                new DateTime(2008, 8, 8, 0, 0, 0, DateTimeKind.Utc));
+            AnalysisIndexCache.ForPath(
+                path, assembly, 0, out bool secondIdentityUnconfirmed);
+            Assert.True(secondIdentityUnconfirmed);
+
+            // Generation A returns, with the exact bytes and timestamp the
+            // still-cached member/A entry recorded, so the member-scoped
+            // request below is a fingerprint-matching cache *hit* -- but
+            // this path's last confirmed generation was B, so this hit
+            // must still be reported as an identity change.
+            File.Copy(generationASourcePath, path, overwrite: true);
+            File.SetLastWriteTimeUtc(path, generationATimestamp);
+            AnalysisIndexCache.ForPath(
+                path, member, token, out bool hitIdentityUnconfirmed);
+            Assert.True(hitIdentityUnconfirmed);
+
+            // Having reconfirmed A, a further member-scoped hit against
+            // the now up-to-date history agrees again.
+            AnalysisIndexCache.ForPath(
+                path, member, token, out bool settledIdentityUnconfirmed);
+            Assert.False(settledIdentityUnconfirmed);
+        }
+        finally
+        {
+            File.Delete(path);
         }
     }
 

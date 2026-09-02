@@ -5,6 +5,7 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Research.Tests;
 
+[Collection(AnalysisIndexCacheCollection.Name)]
 public class AnnotatedSourceDocumentProjectionTests
 {
     [Fact]

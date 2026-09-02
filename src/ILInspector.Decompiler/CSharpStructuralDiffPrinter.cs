@@ -240,6 +240,15 @@ public static class CSharpStructuralDiffPrinter
                 return calleeTransition.DetailSummary;
         }
 
+        if (textChanged
+            && IsUsingDeclarationRoleCandidate(row)
+            && beforeText is not null
+            && afterText is not null
+            && TryDescribeUsingDeclarationRoleTransition(beforeText, afterText, out var usingTransition))
+        {
+            return usingTransition.DetailSummary;
+        }
+
         return beforeText is null && afterText is null
             ? ""
             : FormatTransition(beforeText, afterText);
@@ -307,6 +316,17 @@ public static class CSharpStructuralDiffPrinter
             }
         }
 
+        if (IsUsingDeclarationRoleCandidate(row)
+            && TryDescribeUsingDeclarationRoleTransition(
+                Contain(beforeText)!,
+                Contain(afterText)!,
+                out var usingTransition))
+        {
+            return side == CSharpStructuralSide.Before
+                ? $"; {usingTransition.BeforeDescription}"
+                : $"; {usingTransition.AfterDescription}";
+        }
+
         string counterpart = side == CSharpStructuralSide.Before
             ? afterText
             : beforeText;
@@ -319,6 +339,10 @@ public static class CSharpStructuralDiffPrinter
     static bool IsInvocationRoleCandidate(CSharpStructuralDiffRow row)
         => string.Equals(row.BeforeKind, "InvocationExpression", StringComparison.Ordinal)
             && string.Equals(row.AfterKind, "InvocationExpression", StringComparison.Ordinal);
+
+    static bool IsUsingDeclarationRoleCandidate(CSharpStructuralDiffRow row)
+        => string.Equals(row.BeforeKind, "UsingStatement", StringComparison.Ordinal)
+            && string.Equals(row.AfterKind, "UsingStatement", StringComparison.Ordinal);
 
     /// <summary>
     /// Item 3 (issue #5022): a side-local role description for the narrow,
@@ -509,6 +533,95 @@ public static class CSharpStructuralDiffPrinter
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Item 10 (issue #5022): a side-local role description for the
+    /// #4113 "using-resource declaration dropped/added" shape licensed by
+    /// <c>NarrowUsingResourceDeclaration</c> in <c>CSharpStructuralComparison.cs</c>
+    /// -- once that narrowing has already confirmed the declared identifier
+    /// is never read elsewhere in the statement's own body, this purely
+    /// re-derives which side is the declaring one from each side's own
+    /// already-narrowed text, so a "declares variable" / "variable-less
+    /// resource" caption is only ever produced for that one verified shape.
+    /// </summary>
+    readonly record struct UsingDeclarationRoleTransition(
+        string BeforeDescription,
+        string AfterDescription,
+        string DetailSummary);
+
+    static bool TryDescribeUsingDeclarationRoleTransition(
+        string beforeText,
+        string afterText,
+        out UsingDeclarationRoleTransition transition)
+    {
+        transition = default;
+
+        if (TryParseTrailingDeclarationEquals(beforeText, out string droppedName)
+            && !TryParseTrailingDeclarationEquals(afterText, out _))
+        {
+            transition = new UsingDeclarationRoleTransition(
+                $"declares variable `{droppedName}` (never read)",
+                "variable-less resource (declaration dropped; never read)",
+                $"header: variable declaration dropped (`{droppedName}` never read)");
+            return true;
+        }
+
+        if (TryParseTrailingDeclarationEquals(afterText, out string addedName)
+            && !TryParseTrailingDeclarationEquals(beforeText, out _))
+        {
+            transition = new UsingDeclarationRoleTransition(
+                "variable-less resource (declaration added; never read)",
+                $"declares variable `{addedName}` (never read)",
+                $"header: variable declaration added (`{addedName}` never read)");
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Recognizes exactly the `Type identifier =` shape (the C# grammar for
+    /// a using-resource declarator, which allows no modifiers) that
+    /// <c>TryParseDeclarationPrefix</c> in <c>CSharpStructuralComparison.cs</c>
+    /// narrows a row's span to. This is an independent textual re-check, not
+    /// a shared call, matching this file's existing pattern (e.g.
+    /// <see cref="TryParseQualifiedCall"/>) of recognizing nothing beyond
+    /// what each side's own selected text shows.
+    /// </summary>
+    static bool TryParseTrailingDeclarationEquals(string text, out string identifier)
+    {
+        identifier = "";
+        string trimmed = text.TrimEnd();
+        if (trimmed.Length < 2 || trimmed[^1] != '=' || IsCompoundEqualsPrefixChar(trimmed[^2]))
+            return false;
+
+        string beforeEquals = trimmed[..^1].TrimEnd();
+        string[] tokens = beforeEquals.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        if (tokens.Length != 2 || !IsSimpleIdentifier(tokens[1]))
+            return false;
+
+        identifier = tokens[1];
+        return true;
+    }
+
+    static bool IsCompoundEqualsPrefixChar(char character)
+        => character is '=' or '!' or '<' or '>' or '+' or '-' or '*' or '/' or '%' or '&' or '|' or '^';
+
+    static bool IsSimpleIdentifier(string text)
+    {
+        if (text.Length == 0)
+            return false;
+        char first = text[0];
+        if (!char.IsLetter(first) && first != '_' && first != '@')
+            return false;
+        for (int index = 1; index < text.Length; index++)
+        {
+            char character = text[index];
+            if (!char.IsLetterOrDigit(character) && character != '_')
+                return false;
+        }
+        return true;
     }
 
     /// <summary>
