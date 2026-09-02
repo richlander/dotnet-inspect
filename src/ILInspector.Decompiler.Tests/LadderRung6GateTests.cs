@@ -978,6 +978,88 @@ public class LadderRung6GateTests
     }
 
     [Fact]
+    public void Rung6UnsafeHeaderBeforeAwaitingBody_PreservesSafeBoundary()
+    {
+        var taskOfInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task`1"),
+            [Int32]);
+        var boolean = TypeRef.CoreLib("System", "Boolean");
+        var holder = TypeRef.Definition("Synthetic", "", "Holder");
+        var risky = new MethodRef(
+            holder,
+            "get_Risky",
+            boolean,
+            [],
+            HasThis: true)
+        {
+            RequiresUnsafe = true,
+        };
+        var fromResult = new MethodRef(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task"),
+            "FromResult",
+            taskOfInt,
+            [Int32],
+            HasThis: false);
+
+        IrFunction CreateFunction()
+        {
+            var thenArm = new Block();
+            thenArm.Add(new ExpressionStatement(new AwaitExpression(
+                new Call(
+                    fromResult,
+                    isVirtual: false,
+                    [new Constant(1, Int32)]),
+                Int32)));
+            var function = Function(
+                "UnsafeHeaderBeforeAwaitingBody",
+                taskOfInt,
+                [new Parameter("holder", holder)],
+                [boolean],
+                new StoreLocal(
+                    0,
+                    boolean,
+                    new LoadProperty(
+                        risky,
+                        new LoadArgument(0, "holder", holder),
+                        [])),
+                new IfStatement(
+                    new LoadLocal(0, boolean),
+                    thenArm,
+                    elseArm: null),
+                new Return(new AwaitExpression(
+                    new Call(
+                        fromResult,
+                        isVirtual: false,
+                        [new Constant(2, Int32)]),
+                    Int32)));
+            function.RequiresAsyncBodyModifier = true;
+            new ExpressionInliningPass().Run(function, PassContext.None);
+            return function;
+        }
+
+        var updatedFunction = CreateFunction();
+        updatedFunction.UsesUpdatedMemorySafetyRules = true;
+        var updated = CSharpPrinter.Print(updatedFunction);
+        var legacyFunction = CreateFunction();
+        legacyFunction.UsesUpdatedMemorySafetyRules = false;
+        var legacy = CSharpPrinter.Print(legacyFunction);
+        const string declarations =
+            "using System.Threading.Tasks; "
+            + "public sealed class Holder { public unsafe bool Risky => true; }";
+        const string header =
+            "static async System.Threading.Tasks.Task<int> M(Holder holder)";
+
+        Assert.Contains("if (V_0)", updated.Output);
+        Assert.Contains("if (V_0)", legacy.Output);
+        Assert.DoesNotContain("if (holder.Risky)", updated.Output);
+        Assert.DoesNotContain("if (holder.Risky)", legacy.Output);
+        Assert.DoesNotContain("unsafe\n{\n    if", updated.Output);
+        Assert.DoesNotContain("unsafe\n{\n    if", legacy.Output);
+        AssertNoErrors(RecompileNewRules(header, updated.Output!, declarations), updated.Output!);
+        AssertNoErrors(RecompileLegacyRules(header, legacy.Output!, declarations), legacy.Output!);
+    }
+
+    [Fact]
     public void Rung6LegacyAsyncLocalFunction_UsesExplicitInnerBlock()
     {
         var task = TypeRef.CoreLib("System.Threading.Tasks", "Task");

@@ -195,6 +195,74 @@ public class ExpressionInliningPassTests
     }
 
     [Fact]
+    public void UnsafeEvaluation_IsNotInlinedIntoHeaderWhoseBodyAwaits()
+    {
+        var taskOfInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task`1"),
+            [Int32]);
+        var getter = new MethodRef(Holder, "get_Risky", Bool, [], HasThis: true)
+        {
+            RequiresUnsafe = true,
+        };
+        var fromResult = new MethodRef(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task"),
+            "FromResult",
+            taskOfInt,
+            [Int32],
+            HasThis: false);
+        var thenArm = new Block();
+        thenArm.Add(new ExpressionStatement(new AwaitExpression(
+            new Call(
+                fromResult,
+                isVirtual: false,
+                [new Constant(1, Int32)]),
+            Int32)));
+        var block = new Block();
+        block.Add(new StoreLocal(
+            0,
+            Bool,
+            new LoadProperty(
+                getter,
+                new LoadArgument(0, "holder", Holder),
+                [])));
+        block.Add(new IfStatement(
+            new LoadLocal(0, Bool),
+            thenArm,
+            elseArm: null));
+        block.Add(new Return(new AwaitExpression(
+            new Call(
+                fromResult,
+                isVirtual: false,
+                [new Constant(2, Int32)]),
+            Int32)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(
+                taskOfInt,
+                [new Parameter("holder", Holder)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [Bool],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+            RequiresAsyncBodyModifier = true,
+        };
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<StoreLocal>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("V_0 = holder.Risky;", output);
+        Assert.Contains("if (V_0)", output);
+        Assert.DoesNotContain("if (holder.Risky)", output);
+        Assert.DoesNotContain("unsafe\n{\n    if", output);
+    }
+
+    [Fact]
     public void UpdatedSafePointerComparison_IsNotAnUnsafeAwaitOperand()
     {
         var pointer = TypeRef.Pointer(Int32);

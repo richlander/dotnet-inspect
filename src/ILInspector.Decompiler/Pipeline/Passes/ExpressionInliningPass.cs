@@ -259,8 +259,8 @@ public sealed class ExpressionInliningPass : IIrPass
             var storedValue = store is StoreLocal localStore
                 ? localStore.Value
                 : ((StoreStackSlot)store).Value;
-            if (ReferenceOwnership.HasAncestor<AwaitExpression>(load)
-                && UnsafeAwaitOperand.RequiresUnsafeContext(storedValue))
+            if (UnsafeAwaitOperand.RequiresUnsafeContext(storedValue)
+                && UnsafeAwaitOperand.ContainsAwait(next))
                 continue;
             if (UnsafeAwaitOperand.ContainsAwait(storedValue)
                 && UnsafeAwaitOperand.RequiresUnsafeContext(next))
@@ -384,6 +384,9 @@ public sealed class ExpressionInliningPass : IIrPass
                 // A value that reads places must still evaluate first at the use
                 // site; an effect-free value that reads nothing can land anywhere.
                 if ((reads.Count > 0 || RequiresFirstEvaluation(value)) && !IsFirstEvaluatedLeaf(use, useStatement))
+                    continue;
+                if (UnsafeAwaitOperand.RequiresUnsafeContext(value)
+                    && UnsafeAwaitOperand.ContainsAwait(useStatement))
                     continue;
                 if (UnsafeAwaitOperand.ContainsAwait(value)
                     && UnsafeAwaitOperand.RequiresUnsafeContext(useStatement))
