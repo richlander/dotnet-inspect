@@ -7062,12 +7062,13 @@ public class ReturnToSenderPrototypeTests
             Kind = "class",
             TypeParameters = [new TypeParameter { Name = "T", Constraints = ["class"] }],
         };
-        var result = new CSharpTypePrinter().Print(new CSharpTypePrintRequest(
-            type,
-            primaryConstructorParameters:
-            [
-                new ApiParameter { Type = "string", Name = "message" }
-            ]));
+        var result = Assert.IsType<CSharpTypePrintOutcome.Printed>(
+            new CSharpTypePrinter().Print(new CSharpTypePrintRequest(
+                type,
+                primaryConstructorParameters:
+                [
+                    new ApiParameter { Type = "string", Name = "message" }
+                ]))).Result;
 
         Assert.Contains("public class Class1<T>(string message) where T : class", Assert.Single(result.Units).Source);
     }
