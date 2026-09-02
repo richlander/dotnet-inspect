@@ -252,26 +252,39 @@ It is opaque to `ComparisonDocument<T>` but has a producer-owned canonical
 spelling and scope. It must not contain credentials or depend on one live
 reader, process-local handle, or document-local collection position.
 
+The producer declares the coordinate scope used by one document. A root
+identifier is complete within the outer comparison context. When the root is a
+structural container, a child identifier may instead be complete relative to
+that root endpoint. The same relative child coordinate can then identify one
+ordinary subject under both a renamed or moved Before root and its After root.
+When the root is only a reference point, as in clone composition, child
+identifiers may be complete coordinates in the outer comparison context.
+
 `Display` is caller-issued human text. It may resemble the identifier but has
 no identity authority. A consumer never parses display text to recover an
 identifier, root, parent, member name, or change classification.
 
 For dotnet-inspect type/member adoption, an identifier is expected to project a
-portable structural coordinate within the producer-owned comparison context
-rather than flatten display text:
+portable structural coordinate within its producer-declared scope rather than
+flatten display text:
 
 ```text
-portable type coordinate
+type root coordinate
   exact metadata type identity
 
-portable member coordinate
-  portable type coordinate
+member subject coordinate relative to a type root
+  + MemberAnchor
+
+member subject coordinate relative to an assembly or comparison-set root
+  relative portable type coordinate
   + MemberAnchor
 ```
 
 The outer producer result owns the Before/After realized acquisition
 coordinates and their versions. This design does not own that outer context,
-the domain projection above, or its serialized grammar.
+the domain projection above, or its serialized grammar. A domain consumer may
+compose a typed root coordinate with a typed root-relative child coordinate;
+it never recovers either value from display text or payload rendering.
 
 The root occupies its own identifier namespace. Subject identifiers are unique
 within their primary endpoint space:
@@ -315,6 +328,31 @@ that one primary identity is sufficient to name the logical subject in this
 document. When a comparison spans evaluated acquisitions, the producer's outer
 result identifies those endpoints; `ComparisonDocument<T>` retains the
 scope-relative root and subject composition within them.
+
+For a Diff child under an exceptional root change, the one primary identifier
+is sufficient only when its ordinal spelling is the same complete coordinate
+relative to each endpoint root. If the producer instead chooses child
+coordinates in an outer scope and the root transition changes a child's
+identifier there, that child is Rename, Move, or Rename plus Move and carries
+its own complete endpoint description. The envelope does not infer either
+outcome from the root.
+
+For example, a type-root document may represent this without duplicating the
+root Move:
+
+```text
+Root Before: AssemblyA.TypeA
+Root After:  AssemblyB.TypeA
+Root change: Move
+
+Child identifier in each endpoint root scope: MemberAnchor(M)
+Child change: Diff
+```
+
+An assembly-root document that instead identifies the child as
+`TypeA + MemberAnchor(M)` on Before and After may also keep the child Diff. If
+the root or subject scope makes those two child identifiers differ, the
+producer emits the applicable child Rename or Move with its own description.
 
 Addition is explicit even when `T` can independently represent a one-sided
 comparison. A root may have a NotApplicable comparison; without Addition, a
@@ -404,9 +442,11 @@ surviving IDs and descriptions without renumbering joins.
 
 Each description has exactly one referring root or subject in v1. Sharing is
 not supported because a description contains subject-specific complete
-endpoints. A type-level move belongs on the root; unchanged member subjects do
-not repeat it. Common transformation descriptors may be repeated without
-sharing the endpoint description.
+endpoints. A type-level move belongs on the root. Member subjects whose
+identifiers remain unchanged relative to the Before and After type roots do not
+repeat it; members whose producer-issued identifiers change in the chosen scope
+carry their own exceptional descriptions. Common transformation descriptors
+may be repeated without sharing the endpoint description.
 
 The indirection is deliberate even with one reference: it keeps ordinary and
 exceptional subjects equally compact in the ordered population, gives
@@ -1020,6 +1060,11 @@ least:
   root;
 - Rename, Move, and combined Rename/Move with complete descriptions;
 - root-level as well as subject-level exceptional changes;
+- a root Rename and a root Move whose unchanged child remains Diff through the
+  same root-relative identifier in both endpoint scopes;
+- a root change with an outer-context child coordinate that also changes,
+  requiring a separate child Rename or Move description rather than implicit
+  propagation;
 - after-primary identity for Rename/Move and before-primary identity for
   Deletion;
 - addition-only payload composition through Addition;
