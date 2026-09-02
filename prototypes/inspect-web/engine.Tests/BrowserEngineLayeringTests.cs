@@ -569,6 +569,89 @@ public sealed class BrowserEngineLayeringTests
         Assert.DoesNotContain("T:ILInspector.Metadata.ResolvedAssemblyReference", banned);
     }
 
+    [Fact]
+    public void EngineCoreProject_HasOneWayOwnerReference()
+    {
+        Assert.Contains(
+            ProjectReferences(EngineProjectPath),
+            project => project.Equals(
+                CoreProjectPath,
+                StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(
+            ProjectReferences(CoreProjectPath),
+            project => project.Equals(
+                EngineProjectPath,
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void EngineCoreProject_PinsBrowserLayeringGate()
+    {
+        Assert.Contains(
+            ProjectItems(CoreProjectPath, "AdditionalFiles"),
+            path => path.Equals(
+                BanListPath,
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void EngineCoreAssembly_HasNoFacadeContracts()
+    {
+        Assembly core = typeof(BrowserSourceOperationCoordinator).Assembly;
+
+        Assert.Equal("InspectWeb.Engine.Core", core.GetName().Name);
+        Assert.DoesNotContain(
+            core.GetReferencedAssemblies(),
+            reference => reference.Name is not null
+                && reference.Name.StartsWith(
+                    "InspectWeb.Engine",
+                    StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            core.DefinedTypes.SelectMany(type =>
+                type.GetMethods(
+                    BindingFlags.Public
+                    | BindingFlags.NonPublic
+                    | BindingFlags.Static
+                    | BindingFlags.DeclaredOnly)),
+            method => method
+                .GetCustomAttributesData()
+                .Any(attribute =>
+                    attribute.AttributeType.FullName
+                    == "System.Runtime.InteropServices.JavaScript.JSExportAttribute"));
+        Assert.DoesNotContain(
+            core.DefinedTypes,
+            type => typeof(System.Text.Json.Serialization.JsonSerializerContext)
+                .IsAssignableFrom(type));
+    }
+
+    [Fact]
+    public void EngineCoreAssembly_OwnsSharedWorkspaceState()
+    {
+        Assembly core = typeof(BrowserSourceOperationCoordinator).Assembly;
+        Type[] workspaceTypes =
+        [
+            typeof(BrowserPackageWorkspace),
+            typeof(BrowserInspectionScope),
+            typeof(BrowserPlatformWorkspace),
+            typeof(BrowserApiSurfacePolicy),
+        ];
+        Type[] internalResultTypes =
+        [
+            typeof(BrowserPackageCacheSnapshot),
+            typeof(BrowserPackageDocumentEntry),
+            typeof(BrowserPackageDocumentPayload),
+        ];
+
+        Assert.All(workspaceTypes, type => Assert.Same(core, type.Assembly));
+        Assert.All(
+            internalResultTypes,
+            type =>
+            {
+                Assert.Same(core, type.Assembly);
+                Assert.False(type.IsPublic);
+            });
+    }
+
     static Type? Resolve(string fullName) => ProductAssemblies
         .Select(assembly => assembly.GetType(fullName, throwOnError: false))
         .OfType<Type>()
@@ -644,6 +727,13 @@ public sealed class BrowserEngineLayeringTests
         "engine",
         "InspectWeb.Engine.csproj");
 
+    static string CoreProjectPath => Path.Combine(
+        RepositoryRoot(),
+        "prototypes",
+        "inspect-web",
+        "engine.Core",
+        "InspectWeb.Engine.Core.csproj");
+
     static string BanListPath => Path.Combine(
         Path.GetDirectoryName(EngineProjectPath)!,
         "BannedSymbols.txt");
@@ -659,23 +749,8 @@ public sealed class BrowserEngineLayeringTests
             if (!projects.Add(project))
                 continue;
 
-            XDocument document = XDocument.Load(project);
-            foreach (XElement reference in document
-                .Descendants()
-                .Where(element =>
-                    element.Name.LocalName == "ProjectReference"))
-            {
-                string include = reference.Attribute("Include")?.Value
-                    ?? throw new InvalidOperationException(
-                        $"ProjectReference in '{project}' has no Include.");
-                string normalized = include.Replace(
-                    '\\',
-                    Path.DirectorySeparatorChar);
-                pending.Push(Path.GetFullPath(
-                    Path.Combine(
-                        Path.GetDirectoryName(project)!,
-                        normalized)));
-            }
+            foreach (string reference in ProjectReferences(project))
+                pending.Push(reference);
         }
 
         return
@@ -689,6 +764,36 @@ public sealed class BrowserEngineLayeringTests
                 .Distinct(StringComparer.Ordinal)
                 .Select(name => Assembly.Load(new AssemblyName(name)))
                 .OrderBy(assembly => assembly.GetName().Name, StringComparer.Ordinal),
+        ];
+    }
+
+    static IReadOnlyList<string> ProjectReferences(string project) =>
+        ProjectItems(project, "ProjectReference");
+
+    static IReadOnlyList<string> ProjectItems(
+        string project,
+        string itemName)
+    {
+        XDocument document = XDocument.Load(project);
+        return
+        [
+            .. document
+                .Descendants()
+                .Where(element =>
+                    element.Name.LocalName == itemName)
+                .Select(item =>
+                {
+                    string include = item.Attribute("Include")?.Value
+                        ?? throw new InvalidOperationException(
+                            $"{itemName} in '{project}' has no Include.");
+                    string normalized = include.Replace(
+                        '\\',
+                        Path.DirectorySeparatorChar);
+                    return Path.GetFullPath(
+                        Path.Combine(
+                            Path.GetDirectoryName(project)!,
+                            normalized));
+                }),
         ];
     }
 

@@ -4339,7 +4339,8 @@ public sealed class PackageSourceClientTests
                 new NuGetFetchOptions
                 {
                     RequestTimeout = TimeSpan.FromMilliseconds(50),
-                    OperationTimeout = TimeSpan.FromSeconds(1),
+                    // If both bounds elapse, Operation correctly wins.
+                    OperationTimeout = TimeSpan.FromSeconds(30),
                 });
 
         PackageSourceFailure failure = payload

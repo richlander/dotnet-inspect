@@ -1,3 +1,5 @@
+using System.IO.Compression;
+using System.Net;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -5,15 +7,25 @@ using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Packages;
+using DotnetInspector.Sections;
+using DotnetInspector.Services;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
 
+[Collection("Console")]
 public class SourceForwarderResolutionTests
 {
     const TypeAttributes Forwarder = (TypeAttributes)0x00200000;
+
+    public SourceForwarderResolutionTests()
+    {
+        NuGetCache.Initialize("dotnet-inspect");
+    }
 
     [Fact]
     public void ResolutionSession_FollowsLegitimateAcquiredSibling()
@@ -212,6 +224,318 @@ public class SourceForwarderResolutionTests
         finally
         {
             Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ApiServices_RetainsSelectedForwarderDescriptor()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string facadePath = Path.Combine(directory, "Facade.dll");
+            string sourceAssemblyPath =
+                typeof(SourceForwarderResolutionTests).Assembly.Location;
+            string targetPath = Path.Combine(
+                directory,
+                Path.GetFileName(sourceAssemblyPath));
+            File.Copy(sourceAssemblyPath, targetPath);
+            AssemblyName targetName =
+                AssemblyName.GetAssemblyName(targetPath);
+            File.WriteAllBytes(
+                facadePath,
+                BuildAssembly(
+                    "Facade",
+                    new AssemblyReferenceIdentity(
+                        targetName.Name!,
+                        targetName.Version,
+                        targetName.CultureName,
+                        null),
+                    typeNamespace:
+                        typeof(SourceForwarderResolutionTests)
+                            .Namespace!,
+                    typeName:
+                        nameof(SourceForwarderResolutionTests)));
+            ApiSurface api =
+                AssemblyReader.ExtractApiSurface(facadePath)!;
+            ApiSurface targetApi =
+                AssemblyReader.ExtractApiSurface(targetPath)!;
+            ApiType targetType = Assert.Single(
+                targetApi.Types,
+                static type =>
+                    type.FullName
+                    == "DotnetInspector.Tests.SourceForwarderResolutionTests");
+            ResolvedAssemblyReference targetAssembly =
+                ResolvedAssemblyReference.CreateFromPath(
+                    targetPath,
+                    AssemblyResolutionProvenance.Package(
+                        "Supplier.Symbols",
+                        "2.0.0",
+                        "net10.0",
+                        rid: null));
+            var sourceAssemblies =
+                new Dictionary<
+                    ApiType,
+                    ResolvedAssemblyReference>(
+                    ReferenceEqualityComparer.Instance);
+
+            int copied = ApiServices.MergeForwardedTypes(
+                api,
+                targetApi,
+                new HashSet<MetadataTypeDefinitionName>
+                {
+                    targetType.DefinitionName!,
+                },
+                targetAssembly,
+                sourceAssemblies: sourceAssemblies);
+
+            Assert.Equal(1, copied);
+            ApiType selectedType = Assert.Single(api.Types);
+            var loaded = new ApiServices.LoadedApiSurface(
+                api,
+                facadePath,
+                targetPath,
+                sourceAssemblies);
+            Assert.Same(
+                targetAssembly,
+                loaded.GetSourceAssembly(selectedType));
+            var package =
+                Assert.IsType<
+                    AssemblyResolutionProvenance.PackageAsset>(
+                        loaded.GetSourceAssembly(selectedType)
+                            .Provenance);
+            Assert.Equal("Supplier.Symbols", package.PackageId);
+            Assert.Equal("2.0.0", package.PackageVersion);
+
+            using var source = SourceLinkService.Open(
+                loaded.GetSourceAssembly(selectedType));
+            Assert.True(source.Context.NeedsPdb);
+            string pdbPath =
+                Path.ChangeExtension(sourceAssemblyPath, ".pdb");
+            Assert.True(
+                File.Exists(pdbPath),
+                $"Expected test PDB at {pdbPath}");
+            var handler = new SymbolPackageHandler(
+                BuildSnupkg(
+                    source.Context.PdbId!.PdbFileName,
+                    File.ReadAllBytes(pdbPath)));
+            using var client = new HttpClient(handler);
+
+            await PdbAcquisitionService.AcquireAsync(
+                source.Context,
+                loaded.GetSourceAssembly(selectedType),
+                client,
+                new InMemoryPdbStore(),
+                new UniformPackageSourceAuthorization(
+                    [NuGetFetch.PackageSource.NuGetOrg]),
+                log: null,
+                cancellationToken:
+                    TestContext.Current.CancellationToken,
+                fallbackPackageName: "Root.Symbols",
+                fallbackPackageVersion: "1.0.0");
+
+            Assert.True(source.HasPdb);
+            Uri request = Assert.Single(
+                handler.RequestUris,
+                static uri => uri.AbsolutePath.EndsWith(
+                    ".snupkg",
+                    StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(
+                "supplier.symbols.2.0.0.snupkg",
+                request.AbsolutePath,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(
+                "root.symbols",
+                request.AbsolutePath,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ApiServices_RetainsRootPackageDescriptor()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string rootPath = Path.Combine(directory, "Root.dll");
+            File.WriteAllBytes(
+                rootPath,
+                BuildAssembly("Root"));
+
+            ApiServices.LoadedApiSurface loaded =
+                Assert.IsType<ApiServices.LoadedApiSurface>(
+                    ApiServices.LoadFullApi(
+                        rootPath,
+                        runtimeAssemblyPath: null,
+                        packagePath: null,
+                        packageName: "Root.Symbols",
+                        apiSource: SourceKind.NuGet,
+                        apiVersion: "1.0.0",
+                        selectedTfm: "net10.0",
+                        new VerboseLogger(enabled: false),
+                        new ApiOptions()));
+
+            ApiType selectedType = Assert.Single(
+                loaded.Api.Types);
+            ResolvedAssemblyReference sourceAssembly =
+                loaded.GetSourceAssembly(selectedType);
+            Assert.Equal(
+                Path.GetFullPath(rootPath),
+                sourceAssembly.Path);
+            var package =
+                Assert.IsType<
+                    AssemblyResolutionProvenance.PackageAsset>(
+                        sourceAssembly.Provenance);
+            Assert.Equal("Root.Symbols", package.PackageId);
+            Assert.Equal("1.0.0", package.PackageVersion);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TypeSourceFiles_ForwardedPlatformDescriptorSelectsPlatformPolicy()
+    {
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Platform(
+                "netstandard",
+                "10.0.0",
+                "test"),
+            isForwarded: true);
+        try
+        {
+            var handler = new RecordingNotFoundHandler();
+            using var client = new HttpClient(handler);
+            var options = new TypeOptions
+            {
+                TypeName = fixture.Type.FullName,
+                IncludeSections = [SectionNames.SourceFiles],
+                Verbose = true,
+            };
+            var source = new ApiSourceResult(
+                fixture.AssemblyPath,
+                RuntimeAssemblyPath: null,
+                PackageName: "Microsoft.Root.Symbols",
+                PackageVersion: "1.0.0",
+                ResolvedPackagePath:
+                    "Microsoft.Root.Symbols@1.0.0",
+                ApiSource: SourceKind.NuGet,
+                ApiVersion: "1.0.0",
+                PlatformFramework: null,
+                SelectedTfm: "net10.0",
+                ProjectAssetsPath: null,
+                TempDir: null,
+                TypeName: fixture.Type.FullName,
+                Context: new CommandContext(
+                    verbose: true,
+                    client));
+
+            var (exit, _, error) =
+                await ConsoleCapture.RunAsync(
+                    () => TypeCommand.ExecuteResolvedAsync(
+                        options,
+                        source,
+                        fixture.Loaded));
+
+            Assert.Equal(0, exit);
+            Assert.Contains(
+                "Platform library, trying MSDL symbol server",
+                error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "Microsoft package detected",
+                error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                handler.RequestUris,
+                static uri => uri.AbsolutePath.EndsWith(
+                    ".snupkg",
+                    StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            Directory.Delete(
+                fixture.Directory,
+                recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TypeSourceFiles_ProjectDescriptorUsesPackageFallback()
+    {
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Project(
+                "test.csproj",
+                "net10.0",
+                rid: null),
+            isForwarded: false);
+        try
+        {
+            string packageName =
+                $"Supplier.Symbols.{Guid.NewGuid():N}";
+            var handler = new RecordingNotFoundHandler();
+            using var client = new HttpClient(handler);
+            var options = new TypeOptions
+            {
+                TypeName = fixture.Type.FullName,
+                IncludeSections = [SectionNames.SourceFiles],
+                ProjectPath = "test.csproj",
+                Verbose = true,
+            };
+            var source = new ApiSourceResult(
+                fixture.AssemblyPath,
+                RuntimeAssemblyPath: null,
+                PackageName: packageName,
+                PackageVersion: "2.0.0",
+                ResolvedPackagePath: null,
+                ApiSource: SourceKind.Project,
+                ApiVersion: "2.0.0",
+                PlatformFramework: null,
+                SelectedTfm: "net10.0",
+                ProjectAssetsPath: null,
+                TempDir: null,
+                TypeName: fixture.Type.FullName,
+                Context: new CommandContext(
+                    verbose: true,
+                    client));
+
+            var (exit, _, _) =
+                await ConsoleCapture.RunAsync(
+                    () => TypeCommand.ExecuteResolvedAsync(
+                        options,
+                        source,
+                        fixture.Loaded));
+
+            Assert.Equal(0, exit);
+            Uri[] packageRequests =
+            [
+                .. handler.RequestUris.Where(
+                    uri => uri.AbsolutePath.Contains(
+                    packageName,
+                    StringComparison.OrdinalIgnoreCase)
+                    && uri.AbsolutePath.EndsWith(
+                        ".snupkg",
+                        StringComparison.OrdinalIgnoreCase)),
+            ];
+            Assert.NotEmpty(packageRequests);
+            Assert.All(
+                packageRequests,
+                request => Assert.Contains(
+                    $"{packageName}.2.0.0.snupkg",
+                    request.AbsolutePath,
+                    StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            Directory.Delete(
+                fixture.Directory,
+                recursive: true);
         }
     }
 
@@ -1362,6 +1686,114 @@ public class SourceForwarderResolutionTests
         var image = new BlobBuilder();
         builder.Serialize(image);
         return image.ToArray();
+    }
+
+    static byte[] BuildSnupkg(
+        string pdbFileName,
+        byte[] pdbBytes)
+    {
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(
+            buffer,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            ZipArchiveEntry entry = archive.CreateEntry(
+                $"lib/net10.0/{pdbFileName}");
+            using Stream stream = entry.Open();
+            stream.Write(pdbBytes);
+        }
+
+        return buffer.ToArray();
+    }
+
+    static (
+        string Directory,
+        string AssemblyPath,
+        ApiType Type,
+        ApiServices.LoadedApiSurface Loaded)
+        CreateTypeSourceFixture(
+            AssemblyResolutionProvenance provenance,
+            bool isForwarded)
+    {
+        string directory = CreateDirectory();
+        string sourceAssemblyPath =
+            typeof(SourceForwarderResolutionTests).Assembly.Location;
+        string assemblyPath = Path.Combine(
+            directory,
+            Path.GetFileName(sourceAssemblyPath));
+        File.Copy(sourceAssemblyPath, assemblyPath);
+        ApiSurface api =
+            AssemblyReader.ExtractApiSurface(assemblyPath)!;
+        ApiType type = Assert.Single(
+            api.Types,
+            static candidate =>
+                candidate.FullName
+                == "DotnetInspector.Tests.SourceForwarderResolutionTests");
+        api.Types = [type];
+        type.IsForwarded = isForwarded;
+        type.SourceAssemblyPath = assemblyPath;
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                assemblyPath,
+                provenance);
+        var sourceAssemblies =
+            new Dictionary<
+                ApiType,
+                ResolvedAssemblyReference>(
+                ReferenceEqualityComparer.Instance)
+            {
+                [type] = assembly,
+            };
+        var loaded = new ApiServices.LoadedApiSurface(
+            api,
+            assemblyPath,
+            assemblyPath,
+            sourceAssemblies);
+        return (
+            directory,
+            assemblyPath,
+            type,
+            loaded);
+    }
+
+    sealed class RecordingNotFoundHandler
+        : HttpMessageHandler
+    {
+        internal List<Uri> RequestUris { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            RequestUris.Add(request.RequestUri!);
+            return Task.FromResult(
+                new HttpResponseMessage(
+                    HttpStatusCode.NotFound));
+        }
+    }
+
+    sealed class SymbolPackageHandler(
+        byte[] snupkg) : HttpMessageHandler
+    {
+        internal List<Uri> RequestUris { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            RequestUris.Add(request.RequestUri!);
+            return Task.FromResult(
+                request.RequestUri!.AbsolutePath.EndsWith(
+                    ".snupkg",
+                    StringComparison.OrdinalIgnoreCase)
+                    ? new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new ByteArrayContent(snupkg),
+                    }
+                    : new HttpResponseMessage(
+                        HttpStatusCode.NotFound));
+        }
     }
 
     sealed class MappingPolicy(

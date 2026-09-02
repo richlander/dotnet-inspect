@@ -8,11 +8,16 @@ fi
 
 lowering="$1"
 assembly="$2"
+core_assembly="$(dirname "$assembly")/InspectWeb.Engine.Core.dll"
 site="$3"
 receipt="$4"
 compile_receipts="$5"
 if [[ "$lowering" != "compiler" && "$lowering" != "runtime" ]]; then
   echo "Expected lowering must be 'compiler' or 'runtime'." >&2
+  exit 1
+fi
+if [[ ! -f "$core_assembly" ]]; then
+  echo "Published Engine.Core assembly was not found: $core_assembly" >&2
   exit 1
 fi
 
@@ -29,6 +34,7 @@ graph_result="$scratch/async-project-graph.json"
   "$repo_root/prototypes/inspect-web/scripts/verify-async-lowering.cs" \
   -- \
   "$assembly" \
+  "$core_assembly" \
   "$lowering" \
   "$census"
 
@@ -71,7 +77,7 @@ mkdir -p "$(dirname "$receipt")"
   "$census" "$graph_result" "$receipt" <<'JS'
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 const [assembly, site, lowering, contract, censusPath, graphResultPath, receipt] =
   process.argv.slice(2);
@@ -86,6 +92,7 @@ if (!assembly
 }
 const census = JSON.parse(readFileSync(censusPath, "utf8"));
 const graphResult = JSON.parse(readFileSync(graphResultPath, "utf8"));
+const coreAssembly = resolve(dirname(assembly), "InspectWeb.Engine.Core.dll");
 if (!Number.isInteger(graphResult.repository_project_count)
     || graphResult.repository_project_count <= 0) {
   throw new Error("invalid async project graph result");
@@ -95,7 +102,19 @@ const counts = [
   census.compiler_async_method_count,
   census.runtime_async_method_count,
 ];
-if (!counts.every(Number.isInteger)
+const expectedAssemblies = new Set([
+  "InspectWeb.Engine.dll",
+  "InspectWeb.Engine.Core.dll",
+]);
+if (census.assembly_count !== expectedAssemblies.size
+    || !Array.isArray(census.assemblies)
+    || census.assemblies.length !== expectedAssemblies.size
+    || census.assemblies.some(
+      assembly => !expectedAssemblies.delete(assembly.file)
+        || !Number.isInteger(assembly.async_method_count)
+        || assembly.async_method_count <= 0)
+    || expectedAssemblies.size !== 0
+    || !counts.every(Number.isInteger)
     || census.async_method_count <= 0
     || census.async_method_count
       !== census.compiler_async_method_count + census.runtime_async_method_count
@@ -114,23 +133,34 @@ if (webcil.length !== 1) {
   throw new Error(
     `Expected one published InspectWeb.Engine WebCIL image; found ${webcil.length}.`);
 }
+const coreWebcil = frameworkFiles.filter(
+  name => /^InspectWeb\.Engine\.Core\.[A-Za-z0-9]+\.wasm$/.test(name));
+if (coreWebcil.length !== 1) {
+  throw new Error(
+    `Expected one published InspectWeb.Engine.Core WebCIL image; found ${coreWebcil.length}.`);
+}
 function sha256(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 writeFileSync(
   receipt,
   `${JSON.stringify({
-    schema: 3,
+    schema: 4,
     method: "InspectionEngine.AsyncLoweringCanary",
     lowering,
     result: "inspect-web-async-lowering-ok",
+    assembly_count: census.assembly_count,
     async_method_count: census.async_method_count,
     compiler_async_method_count: census.compiler_async_method_count,
     runtime_async_method_count: census.runtime_async_method_count,
     repository_project_count: graphResult.repository_project_count,
     publish_assembly_sha256: sha256(assembly),
+    publish_core_assembly_sha256: sha256(coreAssembly),
     published_webcil_file: webcil[0],
     published_webcil_sha256: sha256(resolve(site, "_framework", webcil[0])),
+    published_core_webcil_file: coreWebcil[0],
+    published_core_webcil_sha256: sha256(
+      resolve(site, "_framework", coreWebcil[0])),
     contract_sha256: sha256(contract),
   })}\n`);
 JS

@@ -10,6 +10,143 @@ namespace DotnetInspector.Services.Tests;
 public class PdbAcquisitionServiceTests
 {
     [Fact]
+    public async Task SelectedPackageDescriptor_OverridesCallerPackageFallback()
+    {
+        var (assembly, pdbBytes) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Package(
+                "Supplier.Symbols",
+                "2.0.0",
+                "net10.0",
+                rid: null));
+        using var source = SourceLinkService.Open(assembly);
+        var handler = new SymbolPackageHandler(
+            BuildSnupkg(
+                source.Context.PdbId!.PdbFileName,
+                pdbBytes));
+        using var client = new HttpClient(handler);
+
+        await PdbAcquisitionService.AcquireAsync(
+            source.Context,
+            assembly,
+            client,
+            new InMemoryPdbStore(),
+            new UniformPackageSourceAuthorization(
+                [NuGetFetch.PackageSource.NuGetOrg]),
+            log: null,
+            cancellationToken:
+                TestContext.Current.CancellationToken,
+            fallbackPackageName: "Root.Symbols",
+            fallbackPackageVersion: "1.0.0");
+
+        Assert.True(source.HasPdb);
+        Uri request = Assert.Single(
+            handler.RequestUris,
+            static uri => uri.AbsolutePath.EndsWith(
+                ".snupkg",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(
+            "supplier.symbols.2.0.0.snupkg",
+            request.AbsolutePath,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "root.symbols",
+            request.AbsolutePath,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("local")]
+    [InlineData("project")]
+    [InlineData("designated")]
+    public async Task SelectedLocalOrProjectDescriptor_UsesCallerPackageFallback(
+        string provenanceKind)
+    {
+        var (assembly, pdbBytes) = CreateTestAssembly(
+            provenanceKind switch
+            {
+                "local" =>
+                    AssemblyResolutionProvenance.Local("test"),
+                "project" =>
+                    AssemblyResolutionProvenance.Project(
+                        "test.csproj",
+                        "net10.0",
+                        rid: null),
+                "designated" =>
+                    AssemblyResolutionProvenance.Designated("test"),
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(provenanceKind)),
+            });
+        using var source = SourceLinkService.Open(assembly);
+        var handler = new SymbolPackageHandler(
+            BuildSnupkg(
+                source.Context.PdbId!.PdbFileName,
+                pdbBytes));
+        using var client = new HttpClient(handler);
+
+        await PdbAcquisitionService.AcquireAsync(
+            source.Context,
+            assembly,
+            client,
+            new InMemoryPdbStore(),
+            new UniformPackageSourceAuthorization(
+                [NuGetFetch.PackageSource.NuGetOrg]),
+            log: null,
+            cancellationToken:
+                TestContext.Current.CancellationToken,
+            fallbackPackageName: "Root.Symbols",
+            fallbackPackageVersion: "1.0.0");
+
+        Assert.True(source.HasPdb);
+        Uri request = Assert.Single(
+            handler.RequestUris,
+            static uri => uri.AbsolutePath.EndsWith(
+                ".snupkg",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(
+            "root.symbols.1.0.0.snupkg",
+            request.AbsolutePath,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task SelectedPlatformDescriptor_IgnoresCallerPackageFallback()
+    {
+        var (assembly, _) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Platform(
+                "runtime",
+                "10.0.0",
+                "test"));
+        using var source = SourceLinkService.Open(assembly);
+        var handler = new SymbolPackageHandler([]);
+        using var client = new HttpClient(handler);
+
+        await PdbAcquisitionService.AcquireAsync(
+            source.Context,
+            assembly,
+            client,
+            new InMemoryPdbStore(),
+            new UniformPackageSourceAuthorization(
+                [NuGetFetch.PackageSource.NuGetOrg]),
+            log: null,
+            cancellationToken:
+                TestContext.Current.CancellationToken,
+            fallbackPackageName: "Root.Symbols",
+            fallbackPackageVersion: "1.0.0");
+
+        Assert.NotEmpty(handler.RequestUris);
+        Assert.DoesNotContain(
+            handler.RequestUris,
+            static uri => uri.AbsolutePath.EndsWith(
+                ".snupkg",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(
+            handler.RequestUris,
+            static uri => uri.AbsolutePath.Contains(
+                "root.symbols",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task PathlessParticipant_AcquiresMatchingPdbThroughInMemoryStore()
     {
         string assemblyPath =
@@ -237,6 +374,31 @@ public class PdbAcquisitionServiceTests
         using var reader = new PEReader(stream);
         return AssemblyReferenceIdentity.FromAssemblyDefinition(
             reader.GetMetadataReader());
+    }
+
+    private static (
+        ResolvedAssemblyReference Assembly,
+        byte[] PdbBytes)
+        CreateTestAssembly(
+            AssemblyResolutionProvenance provenance)
+    {
+        string assemblyPath =
+            typeof(PdbAcquisitionServiceTests).Assembly.Location;
+        string pdbPath =
+            Path.ChangeExtension(assemblyPath, ".pdb");
+        Assert.True(
+            File.Exists(pdbPath),
+            $"Expected test PDB at {pdbPath}");
+        byte[] assemblyBytes = File.ReadAllBytes(assemblyPath);
+        return (
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(assemblyBytes),
+                path: null,
+                () => new MemoryStream(
+                    assemblyBytes,
+                    writable: false),
+                provenance),
+            File.ReadAllBytes(pdbPath));
     }
 
     private static byte[] BuildSnupkg(

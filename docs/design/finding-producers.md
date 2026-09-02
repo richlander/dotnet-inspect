@@ -99,8 +99,9 @@ census. Human diagnostic messages are not occurrence identity.
 **Status:** the shared Findings topology is implemented and verified by the
 gates named in
 [Finding Nomenclature](finding-nomenclature.md#typed-inspection-topology).
-The adjacent producer obligations below remain unverified pending focused
-migrations in each native owner.
+`ILInspector.ILDiff` has adopted the obligations below through
+`IlAssemblyDiff.CompareMemberEndpoints`. The adjacent C# producer obligations
+remain unverified pending their focused migration.
 
 Body differs use the shared
 [typed inspection topology](finding-nomenclature.md#typed-inspection-topology)
@@ -148,12 +149,20 @@ supplies exact endpoints or typed absence evidence; the producer decides
 whether it can inspect them and owns its native observations, pair algorithm,
 and result.
 
-These adoption properties are **unverified** in #4796. Each producer migration
-must name owner-specific gates for explicit endpoint evidence, null rejection,
-skipping native comparison for non-`Complete` endpoints, retaining the topology
-transition, and retiring bespoke missing-body failures. The Findings gates
-prove the shared state and transition contract; they do not prove adjacent
-producer wiring.
+The ILDiff adoption is gated by
+`CompareMemberEndpoints_BodyfulPair_RetainsFindingAndNativeResults`,
+`CompareMemberEndpoints_BodyfulAndBodyless_UsesNoApplicableInputWithoutPairDiff`,
+`CompareMemberEndpoints_BodyfulAndSubjectAbsent_RetainsExplicitAbsenceWithoutPairDiff`,
+`CompareMemberEndpoints_BothSubjectAbsent_IsExactWithoutPairDiff`,
+`CompareMemberEndpoints_DecodeFailure_RetainsFailedInspectionWithoutPairDiff`,
+and `PresentEndpoint_RejectsNullAndNilEvidence`. Together they verify explicit
+endpoint evidence, null rejection, retained topology, pair suppression outside
+`Complete`/`Complete`, and the absence of bespoke missing-body failures on the
+adopted path. Legacy assembly-wide and `CompareMembers` paths retain their
+existing compatibility result until their consumers migrate; they are not the
+typed endpoint path. Each remaining producer migration must name equivalent
+owner-specific gates. The Findings gates prove the shared state and transition
+contract; they do not prove adjacent producer wiring.
 
 ## 5. Choose identity and ordering semantics
 

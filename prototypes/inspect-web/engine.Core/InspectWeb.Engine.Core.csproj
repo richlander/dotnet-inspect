@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="InspectWeb.Engine" />
+    <InternalsVisibleTo Include="InspectWeb.Engine.Tests" />
+    <AdditionalFiles Include="..\engine\BannedSymbols.txt" />
+    <ProjectReference Include="..\..\..\src\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
+    <ProjectReference Include="..\..\..\src\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
+    <ProjectReference Include="..\..\..\src\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
+    <ProjectReference Include="..\..\..\src\DotnetInspector.Services\DotnetInspector.Services.csproj" />
+    <ProjectReference Include="..\..\..\src\ILInspector.Metadata\ILInspector.Metadata.csproj" />
+    <ProjectReference Include="..\..\..\src\NuGetFetch\NuGetFetch.csproj" />
+  </ItemGroup>
+</Project>

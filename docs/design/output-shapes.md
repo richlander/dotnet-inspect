@@ -9,10 +9,11 @@ shared vocabulary for the output flags
 do.
 
 The item-limit, projection-role, typed-L2 result, and multi-item print passages
-describe the approved
-[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) target, not
-released behavior. [Item and line limits](item-and-line-limits.md) records its
-implementation status and required gates.
+describe historical
+[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) target
+behavior, not released or implementation-ready contracts. [Item and line
+limits](item-and-line-limits.md) records the replacement composition and
+focused-owner gaps; it defines no product syntax, behavior, or gates.
 
 Related docs:
 
@@ -20,10 +21,11 @@ Related docs:
 - [Projected JSON output](projected-json.md) — typed versus lowered JSON, representability, and atomic failure
 - [Rendering model](rendering-model.md) — verbosity vs mode-switch flags
 - [Schema query](schema-query.md) — `-D` discovery of sections and columns
-- [Command model](command-model.md) — command surface and shared options
-- [Item and line limits](item-and-line-limits.md) — the approved target for
-  `-n`, range-only `--rows`, ranked `--top`, line windows, and multi-item
-  printable payloads
+- [CLI change classification and obsolete
+  inputs](cli-change-classification.md) — published surfaces, change
+  disclosure, invalid-input guards, and routing reservations
+- [Item and line limits](item-and-line-limits.md) — composition history for the
+  retired umbrella target and an index of its focused owners
 - [Section-row shaping](section-row-shaping.md) — typed declared-row-set
   binding, projection roles, and terminal Count semantics
 - [The package query CLI](package-query-cli.md) — a facet-matched package
@@ -307,10 +309,9 @@ do for graph nodes.
 
 ### Printable payload projections
 
-The target contract from
-[Item and line limits](item-and-line-limits.md) makes normal `--print` a batch
-projection over the selected rows. Every selected row is projected to its
-declared printable payload:
+The historical #4677 target made normal `--print` a batch projection over the
+selected rows. Every selected row was projected to its declared printable
+payload:
 
 | Selected rows | `--print` | `--print --row N\|first\|last` |
 | ---: | --- | --- |
@@ -323,6 +324,9 @@ before projection. `--row` is the mutually exclusive exactly-one alternative to
 the item/range windows; line-mode `-n` remains available under `--lines`.
 `--paths` and `--urls` project the same selected rows without acquiring their
 content.
+
+This batch behavior remains pending focused L3 payload-projection ownership and
+must not guide implementation until that owner adopts it with its gates.
 
 Numeric `--row N` addresses a row by its position after filtering and effective
 ordering, but before item/range windows or payload projection. Sections do not
@@ -578,7 +582,8 @@ Every command that exposes `--print` also exposes and wires unary `--bare` and
 the projection rather than accidents of its parent command. Structured
 multi-item `--out` is a different mode: after atomic preflight it may publish
 complete result records incrementally, including typed row failures, as
-specified by [Item and line limits](item-and-line-limits.md).
+described by the historical #4677 target. It remains pending focused L3
+payload-projection ownership and gates.
 
 Tool-authored companion sections still use the stream split: for example,
 `package X -S "Package README file" --print --info` writes the framed, encoded
@@ -625,7 +630,7 @@ the caller made.
 | Flag | Effect |
 | --- | --- |
 | `--markdown` | force the full Markdown Document format |
-| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). Accepted lenses and payload projections claim their own output first. Plain document `--json` keeps the pre-lowered typed document; an otherwise-unclaimed, non-empty `--fields`/`--columns` request names lowered vocabulary and opts into the lowered display view (#3494), with the same machine table keys as `--jsonl` and with semantic item/range windows and `--compact` preserved. `find` and `vocabulary` currently wire lowered document paths, while discovery owns projected JSON under its lens contract; unadopted projection-capable routes reject unsupported combinations before typed JSON serialization. Complete structured values under item and line limits remain unverified; `ProjectedJsonWindowingTests` and the gates in [Item and line limits](item-and-line-limits.md) own the target. See [Projected JSON output](projected-json.md) for routing, representability, diagnostics, and compatibility. |
+| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). Accepted lenses and payload projections claim their own output first. Plain document `--json` keeps the pre-lowered typed document; an otherwise-unclaimed, non-empty `--fields`/`--columns` request names lowered vocabulary and opts into the lowered display view (#3494), with the same machine table keys as `--jsonl` and with semantic item/range windows and `--compact` preserved. `find` and `vocabulary` currently wire lowered document paths, while discovery owns projected JSON under its lens contract; unadopted projection-capable routes reject unsupported combinations before typed JSON serialization. Complete structured values for the historical item/line target remain unverified and await focused ownership; `ProjectedJsonWindowingTests` covers only its named current projected-JSON paths. See [Projected JSON output](projected-json.md) for routing, representability, diagnostics, and compatibility. |
 | `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector) |
 | `--table` | render the single selected section as a space-padded pretty table |
 | `--no-header` (`--no-headers`) | drop the Table header row |

@@ -15,4 +15,6 @@ internal sealed record DetectionScenario(
     int FailDecodeAt = 0,
     bool TruncateRecordStream = false,
     bool TruncatePushStream = false,
-    bool EmptyPushRecord = false);
+    bool EmptyPushRecord = false,
+    string? TlaCandidateFiles = null,
+    bool TlaCandidateResolutionSucceeds = true);

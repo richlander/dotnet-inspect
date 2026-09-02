@@ -6,11 +6,12 @@ public record PackageIdentity(string Id, string? Version);
 /// A NuGet package source.
 /// </summary>
 /// <remarks>
-/// Construction is the check: <see cref="Url"/> rejects a URL that cannot be used as a source,
-/// so holding a <c>PackageSource</c> is itself the evidence that its URL passed. Validating at
-/// the points that resolve sources instead would be containment applied by calling a function —
-/// something a new path can forget, and something no reviewer can see the absence of, because
-/// <c>string</c> is the type of both a checked and an unchecked URL.
+/// Construction is the check: <see cref="Url"/> rejects a value that cannot be
+/// used as a source and canonicalizes local paths. Holding a
+/// <c>PackageSource</c> is itself evidence that the value passed source
+/// classification. Validating only at resolution points would be containment
+/// applied by calling a function — something a new path can forget and a
+/// reviewer cannot see in the type.
 /// </remarks>
 public record PackageSource(string Name, string Url, PackageSourceCredential? Credential = null)
 {
@@ -20,7 +21,8 @@ public record PackageSource(string Name, string Url, PackageSourceCredential? Cr
     private readonly string _url = ValidatedUrl(Url);
 
     /// <summary>
-    /// The source URL. Assigning one that cannot be used as a NuGet source throws.
+    /// The source endpoint or canonical local path. Assigning an unusable
+    /// source throws.
     /// </summary>
     /// <exception cref="UnsupportedSourceException">The URL cannot be used as a source.</exception>
     public string Url
@@ -32,7 +34,11 @@ public record PackageSource(string Name, string Url, PackageSourceCredential? Cr
     private static string ValidatedUrl(string url)
     {
         UnsupportedSourceException.ThrowIfUnsupported(url);
-        return url;
+        return LocalPackageSourceIdentity.IsLocalSource(url)
+            ? LocalPackageSourceIdentity.Create(
+                url,
+                Directory.GetCurrentDirectory()).CanonicalPath
+            : url;
     }
 
     public static PackageSource NuGetOrg { get; } =

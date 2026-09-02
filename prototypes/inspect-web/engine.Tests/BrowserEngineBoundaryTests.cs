@@ -1392,6 +1392,60 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void RidSpecificPackage_SeparatesCompileAndImplementationAssets()
+    {
+        const string packageId = "Rid.Specific";
+        byte[] image =
+            File.ReadAllBytes(
+                typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] unrelatedImage =
+            File.ReadAllBytes(
+                typeof(PackageAssemblyContextRealization).Assembly.Location);
+        var package = new BrowserPackage(
+            packageId,
+            "1.0.0",
+            PackageEntries(
+                ("lib/net11.0/Rid.Specific.dll", image),
+                ("lib/net11.0/shadow/Rid.Specific.dll", unrelatedImage),
+                ("runtimes/linux-x64/lib/net11.0/Rid.Specific.dll", image)),
+            fromCache: false);
+        var coordinate = new BrowserPackageCoordinate(
+            package,
+            new PackageRootRealization(
+                package.Content,
+                packageId,
+                package.Version,
+                "net11.0",
+                "linux-x64"));
+
+        PackageCompileAsset compile =
+            coordinate.CompileAsset("Rid.Specific.dll");
+        Assert.Equal("lib/net11.0/Rid.Specific.dll", compile.Path);
+        Assert.Equal(
+            "runtimes/linux-x64/lib/net11.0/Rid.Specific.dll",
+            coordinate.ImplementationAsset("Rid.Specific.dll").Path);
+        using var scope = new BrowserInspectionScope([coordinate]);
+        BrowserWorkspaceParticipant surface =
+            Assert.Single(scope.SurfaceParticipants);
+        BrowserWorkspaceParticipant implementation =
+            scope.ImplementationParticipants.Single(candidate =>
+                candidate.Asset.Path
+                    == "runtimes/linux-x64/lib/net11.0/Rid.Specific.dll");
+        Assert.Equal(compile.Path, surface.Asset.Path);
+        Assert.Equal(
+            "runtimes/linux-x64/lib/net11.0/Rid.Specific.dll",
+            implementation.Asset.Path);
+        Assert.Contains(
+            scope.ImplementationParticipants,
+            candidate =>
+                candidate.Asset.Path
+                    == "lib/net11.0/shadow/Rid.Specific.dll");
+        Assert.Same(
+            implementation,
+            scope.ImplementationParticipant(surface));
+    }
+
+    [Fact]
     public async Task PackageFrameworkUnavailability_DoesNotEmitArtifactFramework()
     {
         const char bidi = '\u202E';
@@ -1918,7 +1972,7 @@ public sealed class BrowserEngineBoundaryTests
                 [Coordinate(id, Package(image, $"lib/net11.0/{id}.dll", 25 * MiB))]);
         }
 
-        BrowserPackageCacheStats stats = BrowserPackageWorkspace.Stats();
+        BrowserPackageCacheSnapshot stats = BrowserPackageWorkspace.Stats();
         Assert.Equal(3, stats.Workspaces);
         Assert.Equal(3, stats.Resident);
         Assert.InRange(stats.ResidentBytes, 75L * MiB, 76L * MiB);
@@ -1927,7 +1981,7 @@ public sealed class BrowserEngineBoundaryTests
             "pending.package@1.0.0",
             80L * MiB))
         {
-            BrowserPackageCacheStats reserved = BrowserPackageWorkspace.Stats();
+            BrowserPackageCacheSnapshot reserved = BrowserPackageWorkspace.Stats();
             Assert.InRange(reserved.ResidentBytes, 80L * MiB, 128L * MiB);
             Assert.Equal(1, reserved.Workspaces);
         }
@@ -2640,12 +2694,48 @@ public sealed class BrowserEngineBoundaryTests
             PackageDocuments(maxEntries),
             fromCache: false);
 
-        IReadOnlyList<BrowserPackageDocument> documents = package.Documents();
+        IReadOnlyList<BrowserPackageDocumentEntry> documents = package.Documents();
 
         Assert.Equal(maxEntries, documents.Count);
         Assert.Same(
             package.Content.EnumerateEntriesWithLengths(),
             package.Content.EnumerateEntriesWithLengths());
+    }
+
+    [Fact]
+    public void PackageWireProjection_PreservesCoreValues()
+    {
+        var stats = new BrowserPackageCacheSnapshot(1, 2, 3, 4);
+        var entry = new BrowserPackageDocumentEntry(
+            "skill",
+            "Inspect",
+            "skills/inspect/SKILL.md",
+            5);
+        var payload = new BrowserPackageDocumentPayload(
+            entry.Kind,
+            entry.Name,
+            entry.Path,
+            "# Inspect");
+
+        Assert.Equal(
+            new BrowserPackageCacheStats(1, 2, 3, 4),
+            BrowserPackageWireProjection.Project(stats));
+        Assert.Equal(
+            [
+                new BrowserPackageDocument(
+                    entry.Kind,
+                    entry.Name,
+                    entry.Path,
+                    entry.Size),
+            ],
+            BrowserPackageWireProjection.Project([entry]));
+        Assert.Equal(
+            new BrowserPackageDocumentContent(
+                payload.Kind,
+                payload.Name,
+                payload.Path,
+                payload.Text),
+            BrowserPackageWireProjection.Project(payload));
     }
 
     [Fact]
@@ -4754,7 +4844,7 @@ public sealed class BrowserEngineBoundaryTests
         string packageId,
         string version)
     {
-        BrowserPackageCacheStats before = BrowserPackageWorkspace.Stats();
+        BrowserPackageCacheSnapshot before = BrowserPackageWorkspace.Stats();
 
         InvalidOperationException failure =
             await Assert.ThrowsAsync<InvalidOperationException>(
@@ -4764,7 +4854,7 @@ public sealed class BrowserEngineBoundaryTests
                     TestContext.Current.CancellationToken));
 
         Assert.Contains("package coordinate", failure.Message, StringComparison.OrdinalIgnoreCase);
-        BrowserPackageCacheStats after = BrowserPackageWorkspace.Stats();
+        BrowserPackageCacheSnapshot after = BrowserPackageWorkspace.Stats();
         Assert.Equal(before.Packages, after.Packages);
         Assert.Equal(before.Resident, after.Resident);
         Assert.Equal(before.ResidentBytes, after.ResidentBytes);

@@ -132,16 +132,21 @@ The request adapter supplies an authenticated value with these roles:
 ClassicInverseRequest
   DeclaredMethod       guarded owner-issued identity
   ExecutionMethod      guarded owner-issued identity
-  Relationship         successful owner-issued classic relationship
+  Relationship         resolved owner-issued classic relationship certificate
   KickoffBody          unmodified import snapshot bound to DeclaredMethod
   ExecutionBody        unmodified import snapshot bound to ExecutionMethod
 ```
 
 The names describe roles, not a required implementation shape. The core treats
-the relationship and guards as opaque owner evidence. It neither recreates
-them from names or IR nor selects replacement identities. A missing, rejected,
-or filtered owner result never becomes a core request; preserving those result
-arms is #5277's responsibility.
+the relationship, its role dispositions, and the guards as opaque owner
+evidence. It neither recreates them from names or IR nor selects replacement
+identities. A missing, rejected, or filtered owner result never becomes a core
+request; preserving those result arms is #5277's responsibility. A resolved
+relationship may record an absent classic support role under the
+Metadata-owned
+[relationship contract](state-machine-relationship-index.md#evidence-carrying-certificate);
+the inverse requires the certified kickoff and execution identities, not a
+support MethodDef.
 
 ### Body availability and post-build artifacts
 
@@ -165,8 +170,8 @@ A request cannot be formed from the inspected artifact when:
 - a required MethodDef fails Metadata's managed-IL-body predicate because it
   has RVA zero, is P/Invoke, uses a non-IL code type, is unmanaged, is
   runtime-implemented, or is an internal call; or
-- trimming retains a relationship claim but removes role evidence, so the
-  Metadata relationship is rejected.
+- Metadata rejects the relationship because identity evidence is missing,
+  ambiguous, malformed, or contradictory.
 
 Artifact category alone never decides availability. Abstract members and
 bodyless interface declarations ordinarily have RVA zero, but a default
@@ -181,11 +186,12 @@ MethodDefs or relationship evidence fail the boundary above.
 The inverse core cannot repair these unavailable inputs. When a method or its
 body is absent, the current artifact no longer contains the executable
 operations, evaluation order, and exception structure that a reconstruction
-proof must account for. When only relationship evidence is missing, its
-Metadata owner may extend that relationship contract if the artifact retains
-enough evidence; the inverse cannot infer it locally. Supplying an authenticated
-pre-trim assembly or another body source would require a separate acquisition
-and request-adapter contract.
+proof must account for. An absent `SetStateMachine` support MethodDef does not
+remove the retained kickoff or execution operations and therefore does not
+block a request when Metadata certifies the relationship with
+`AbsentFromArtifact`. The inverse cannot infer that identity or disposition
+locally. Supplying an authenticated pre-trim assembly or another body source
+would require a separate acquisition and request-adapter contract.
 
 ### Recipe demonstration matrix
 
@@ -232,7 +238,7 @@ The resulting matrix separates artifact availability from reconstruction:
 | --- | --- | --- |
 | Implementation | Kickoff, `MoveNext`, and `SetStateMachine` retain compiler IL. | Authenticated request; the neighboring accepted recipe reconstructs. |
 | SDK reference | The same MethodDefs retain synthesized `ldnull; throw` bodies. | Authenticated request; `ClassicInverseBodyReplacingReferenceAssembliesDecline` remains the core gate. |
-| Ordinary trim, reachable method | Kickoff and `MoveNext` remain, but ILLink removes `SetStateMachine`. | Metadata rejects the relationship, so no core request forms. |
+| Ordinary trim, reachable method | Kickoff and `MoveNext` remain, but ILLink removes `SetStateMachine`. | Metadata authenticates the relationship with `SetStateMachine: AbsentFromArtifact`; #5277 must form the request so the inverse can prove or decline the retained bodies. |
 | Ordinary trim, unused method | The kickoff and generated state machine are removed. | No core request forms. |
 | Role-preserved trim | All required MethodDefs retain post-trim IL. | Authenticated request; the accepted recipe reconstructs from the trimmed artifact. |
 | Default-interface implementation | The kickoff and execution MethodDefs carry managed IL. | Authenticated request without a declaring-type category exclusion. |
@@ -256,10 +262,12 @@ inverse-core decision gates below.
 Before #5277 supplies the authenticated request boundary, the legacy
 `ClassicAsyncReconstructionPass` still reports `Full` for both trimmed
 variants: it discovers the generated execution sibling directly and therefore
-bypasses Metadata's rejection in the ordinary-trim case. That measured
-pre-implementation behavior is not a valid core request. The eventual
-end-to-end demo must stop reconstructing the ordinary-trim artifact while the
-role-preserved artifact continues to produce:
+bypasses Metadata's certificate in the ordinary-trim case. That measured
+behavior is not yet a valid core request. #5277 must attach the resolved
+relationship and explicit support-role disposition rather than preserve that
+sibling inference. The eventual end-to-end demo must reconstruct both
+retained-body trim variants through authenticated requests, while the unused
+and body-replacing cases continue to decline:
 
 ```csharp
 int left = await first;

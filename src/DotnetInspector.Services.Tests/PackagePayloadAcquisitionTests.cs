@@ -2156,7 +2156,8 @@ public sealed class PackagePayloadAcquisitionTests
         var options = new NuGetFetchOptions
         {
             RequestTimeout = TimeSpan.FromMilliseconds(40),
-            OperationTimeout = TimeSpan.FromSeconds(1),
+            // If both bounds elapse, Operation correctly wins.
+            OperationTimeout = TimeSpan.FromSeconds(30),
         };
         var store = new InMemoryPackageStore();
         using IPackageSourceClient source =
