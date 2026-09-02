@@ -75,7 +75,7 @@ This document owns:
 - the distinction between advisory progress and durable outcome events;
 - exactly one semantic completion, after every nonterminal event;
 - adapter-side pull, batching, progress coalescing, and bounded buffering;
-- operation-token handoff into enumeration and suppression of semantic events
+- operation-token handoff into enumeration and cessation of event requests
   after cancellation is observed; and
 - the host-neutral obligations an adopting feature must define and gate.
 
@@ -205,13 +205,13 @@ worker adapter owns bounded batching:
 A buffered batch is emitted when it reaches the adopter's declared batch size,
 before the adapter awaits a `MoveNextAsync` that did not complete
 synchronously, before the adapter returns the terminal result, and before the
-adapter reports cancellation or exceptional producer termination when the
-buffer is nonempty. An event is established once `MoveNextAsync` successfully
-returns it to the adapter. Batch fullness alone is never a reason to retain
-established events across an asynchronous producer suspension or producer
-termination. An adapter may enumerate explicitly rather than use `await
-foreach` when it needs to observe those boundaries; it remains the stream's
-sole consumer.
+adapter reports physical cancellation or exceptional producer termination to
+its enclosing operation boundary when the buffer is nonempty. An event is
+established once `MoveNextAsync` successfully returns it to the adapter. Batch
+fullness alone is never a reason to retain established events across an
+asynchronous producer suspension or producer termination. An adapter may
+enumerate explicitly rather than use `await foreach` when it needs to observe
+those boundaries; it remains the stream's sole consumer.
 
 The callback channel carries only nonterminal stream events. The adapter
 retains `Completed` and returns its value once through the operation's terminal
@@ -220,7 +220,9 @@ both a callback and a fulfilled `Task`.
 
 The current-operation owner decides whether a transported event may update the
 view. A stale event can be consumed for protocol and release purposes without
-regaining publication authority.
+regaining publication authority. Durable means the feature and adapter do not
+coalesce or discard the event before that owner-issued handoff; it does not
+reserve publication authority after logical cancellation or replacement.
 
 ### Residual worker integration
 
@@ -255,15 +257,23 @@ The adapter passes the operation cancellation token into async enumeration,
 for example with `WithCancellation`. The adopting feature owns whether its
 producer uses `[EnumeratorCancellation]`, which awaited dependencies receive
 the token, and where CPU work observes it. Once enumeration observes
-cancellation, the adapter requests no later event and publishes no event that
+cancellation, the adapter requests no later event and hands off no event that
 was not already established. It hands off any nonempty established batch
-before the operation owner supplies the visible cancellation reason.
+before reporting physical producer termination to its enclosing operation
+boundary.
+
+Logical cancellation and publication authority remain owned independently.
+An authority-initiated cancellation may already have published its reason and
+revoked publication before physical producer cancellation reaches the adapter.
+In that case, the adapter still performs its owner-issued handoff for the
+established batch in order, but the authority consumes it without updating the
+view.
 
 Item failures are data only when the feature can continue and retain honest
 accounting. A source or boundary failure that prevents an honest completion
 uses the feature's failed completion or the enclosing operation failure path.
 An exceptional producer termination likewise follows any handoff of an
-established nonempty batch.
+established nonempty batch before the adapter reports that termination.
 Adapters do not convert malformed events, callback failures, worker failures,
 or unexpected exceptions into empty successful streams.
 
@@ -317,14 +327,15 @@ adopter must prove:
 2. progress is monotonic within a phase and never exceeds a declared total;
 3. items and item failures retain producer order around progress events;
 4. exactly one completion is observed and no callback carries it;
-5. cancellation and unexpected failure request no later event and publish no
+5. cancellation and unexpected failure request no later event and hand off no
    event that was not already established;
 6. the currently adopted callback or batch path flushes on its declared bound,
    producer suspension, and producer termination; an under-full durable batch
    followed by synchronously canceled and faulted `MoveNextAsync` outcomes is
-   handed off in order before the operation reports cancellation or failure;
-   the path cannot drop durable events or reorder completion, and a worker
-   claim requires the residual owner work above;
+   handed off in order before the adapter reports physical producer
+   termination, while logical cancellation may independently suppress its view
+   publication; the path cannot drop durable events or reorder completion, and
+   a worker claim requires the residual owner work above;
 7. stale-operation events cannot update replacement feature state;
 8. a CLI consumer can enumerate the same host-neutral stream without Browser
    types; and
