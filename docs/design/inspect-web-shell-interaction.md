@@ -474,7 +474,7 @@ outcomes.
    control appears, and that Back and Forward sit immediately left of the
    visible flush-right Search control, which opens Spotlight.
 
-### Application menu
+### Application menu scenarios
 
 1. Confirm that one `Application menu` button exists separately from the
    subject and inspector tablists and retains one logical identity across shell
