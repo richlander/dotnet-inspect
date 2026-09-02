@@ -480,6 +480,7 @@ body {
   max-width: 320px;
   min-width: 72px;
 }
+.shell-actions.annotated-page-actions { min-width: 80px; }
 .lens kbd { color: var(--dim); font: 10px var(--mono); }
 .lens-context { color: var(--dim); font: 10px var(--mono); }
 

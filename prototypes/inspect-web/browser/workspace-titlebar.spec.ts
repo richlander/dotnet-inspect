@@ -40,7 +40,7 @@ test("the title bar contains the inspected target without tab-like workspace ide
   await expect(page.locator(".subject-zone #share")).toBeVisible();
   await expect(page.locator(".subject-zone #open-settings")).toBeVisible();
   await expect(page.locator(".subject-zone #help")).toBeVisible();
-  await expect(page.locator(".shell-actions > button").last())
+  await expect(page.locator(".legacy-application-actions > button").last())
     .toHaveAttribute("id", "help");
   await expect(page.locator(".workspace-title")).toHaveCount(0);
   await expect(page.locator(".titlebar")).not.toContainText("0:");
