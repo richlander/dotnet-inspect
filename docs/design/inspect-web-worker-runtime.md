@@ -13,10 +13,12 @@ operation authority. The runtime core, browser binding, responsiveness, and
 final gates named below remain required.
 
 Its finite state models establish only the abstract properties recorded with
-those models. Durable event batches remain a later residual blocked on
-[#5566](https://github.com/richlander/dotnet-inspect/issues/5566),
-[#5570](https://github.com/richlander/dotnet-inspect/issues/5570), and
-[#5419](https://github.com/richlander/dotnet-inspect/issues/5419).
+those models. The engine-to-browser event-stream contract is now defined by
+[the async event-stream owner](engine-browser-async-event-stream.md). Durable
+worker event batches remain a later residual blocked on
+[#5570](https://github.com/richlander/dotnet-inspect/issues/5570) and the
+relevant [#5419](https://github.com/richlander/dotnet-inspect/issues/5419)
+managed handoff.
 
 ## Decision
 
