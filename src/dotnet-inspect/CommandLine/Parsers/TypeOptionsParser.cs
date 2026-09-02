@@ -85,9 +85,11 @@ public static class TypeOptionsParser
         if (error is not null)
             return true;
 
+        var (typeFilter, _) =
+            SharedParsers.ParseTypeFilter(
+                parseResult.GetValue(args.TypeFilterOption));
         bool hasTypeFilter =
-            parseResult.GetResult(args.TypeFilterOption)
-                is { Implicit: false };
+            !string.IsNullOrWhiteSpace(typeFilter);
         InspectionCatalogIdentity catalog =
             hasTypeFilter
             || string.IsNullOrWhiteSpace(typeName)

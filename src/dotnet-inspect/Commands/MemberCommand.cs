@@ -329,7 +329,9 @@ public static class MemberCommand
             // here to avoid a spurious "digest cannot be combined with --index" conflict.
             if (!effectiveOptions.OverloadIndex.HasValue
                 && string.IsNullOrWhiteSpace(effectiveOptions.MemberDigest)
-                && ShouldAutoSelectSingleOverload(effectiveOptions))
+                && ShouldAutoSelectSingleOverload(
+                    effectiveOptions,
+                    executionPlan))
             {
                 var autoMemberName = effectiveOptions.MemberFilter.First();
                 var autoOverloads = GetCandidateMembers(apiType, effectiveOptions, autoMemberName);
@@ -396,7 +398,10 @@ public static class MemberCommand
             }
 
             if (effectiveOptions.OverloadIndex is null
-                && TryGetSelectedSingleOverloadSections(effectiveOptions, out var singleOverloadSections))
+                && TryGetSelectedSingleOverloadSections(
+                    effectiveOptions,
+                    executionPlan,
+                    out var singleOverloadSections))
             {
                 var memberName = effectiveOptions.MemberFilter.First();
                 var overloads = GetCandidateMembers(apiType, effectiveOptions, memberName);
@@ -773,11 +778,16 @@ public static class MemberCommand
         };
     }
 
-    private static bool ShouldAutoSelectSingleOverload(MemberOptions options)
+    private static bool ShouldAutoSelectSingleOverload(
+        MemberOptions options,
+        ResolvedMemberInspectionPlan plan)
     {
         if (options.MemberFilter.Count != 1)
             return false;
-        if (!TryGetSelectedSingleOverloadSections(options, out _))
+        if (!TryGetSelectedSingleOverloadSections(
+                options,
+                plan,
+                out _))
             return false;
         return true;
     }
@@ -850,7 +860,10 @@ public static class MemberCommand
                 + $"Select one with {stable}:1 through {stable}:{count}.");
     }
 
-    private static bool TryGetSelectedSingleOverloadSections(MemberOptions options, out List<string> sections)
+    private static bool TryGetSelectedSingleOverloadSections(
+        MemberOptions options,
+        ResolvedMemberInspectionPlan plan,
+        out List<string> sections)
     {
         sections = [];
         if (options.MemberFilter.Count != 1)
@@ -859,6 +872,15 @@ public static class MemberCommand
         {
             sections = [SectionNames.BodyShapes];
             return true;
+        }
+        if (options.EffectiveDiscovery
+            && plan.Selection.RequiredTarget
+                == InspectionTargetRequirement.ExactMember)
+        {
+            sections = SingleOverloadSectionNames
+                .Where(plan.Selection.ResolvedSections.Contains)
+                .ToList();
+            return sections.Count > 0;
         }
         if (options.IncludeSections is not { Count: > 0 } includeSections)
             return false;
@@ -885,28 +907,16 @@ public static class MemberCommand
 
     private static readonly string[] SingleOverloadSectionNames =
     [
-        SectionNames.Signature,
-        SectionNames.CustomAttributes,
-        SectionNames.DecompiledSource,
-        SectionNames.FidelityCauses,
-        SectionNames.AppliedTaste,
-        SectionNames.AnnotatedSource,
-        SectionNames.AnnotatedSourceDocument,
-        SectionNames.PdbSource,
-        SectionNames.SourceDiff,
-        SectionNames.Calls,
-        SectionNames.ExceptionRegions,
-        SectionNames.AllocationFacts,
-        SectionNames.SafetyFacts,
-        SectionNames.CostFacts,
-        SectionNames.Callers,
-        SectionNames.CallGraph,
-        SectionNames.UnsafeOperations,
-        SectionNames.BodyShapes,
-        SectionNames.TopLeverage,
-        SectionNames.PerformanceTriage,
-        SectionNames.Facts,
-        SectionNames.IL
+        .. ApiMemberDetailSectionDescriptors.CreatePipeline()
+            .SelectableSectionNames
+            .Where(section =>
+                ApiSectionDemandIndex.Classify(
+                    InspectionSurface.Member,
+                    [section],
+                    selectDefault: false,
+                    InspectionTargetRequirement.MemberSet)
+                .RequiredTarget
+                    == InspectionTargetRequirement.ExactMember),
     ];
 
     private static bool IsPureSelector(string[]? select, string name) =>

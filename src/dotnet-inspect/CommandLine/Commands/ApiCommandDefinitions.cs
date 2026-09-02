@@ -345,6 +345,24 @@ public static class ApiCommandDefinitions
                 };
             }
 
+            if (ApiCommand.RejectUniversallyInvalidMemberSelect(
+                    opts.ParseDiscover(parseResult),
+                    opts.ParseSelect(parseResult),
+                    opts.ParseSelectDefault(parseResult),
+                    allowListingPipeline:
+                        parseResult.GetValue(
+                            routerDeferredTargetOption) is not null,
+                    includeMemberTypeView:
+                        parseResult.GetValue(
+                            routerDeferredTargetOption) is not null
+                        || !MemberOptionsParser
+                            .HasAcquisitionFreeMemberGesture(
+                                parseResult,
+                                commandArgs)))
+            {
+                return 1;
+            }
+
             var result = await MemberOptionsParser.ParseAsync(parseResult, opts, commandArgs);
 
             switch (result)

@@ -71,6 +71,11 @@ public class PackageCommand
             {
                 return 1;
             }
+            if (!options.AllLibraries
+                && !ValidatePackageLibraryMode(options))
+            {
+                return 1;
+            }
 
             StructuralRoute route = options.AllLibraries
                 ? StructuralViewRegistry.Route(
@@ -4376,7 +4381,8 @@ public class PackageCommand
 
         List<string> conflicts = [];
         if (options.AllLibraries) conflicts.Add("--all-libraries");
-        if (options.ListLayout) conflicts.Add("--layout");
+        if (options.ListLayout || options.ListLayoutExplicitlySet)
+            conflicts.Add("--layout");
         if (HasPathFilter(options)) conflicts.Add("--path");
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
@@ -4397,7 +4403,8 @@ public class PackageCommand
     {
         List<string> conflicts = [];
         if (options.PackageLibrary != null) conflicts.Add("--library");
-        if (options.ListLayout) conflicts.Add("--layout");
+        if (options.ListLayout || options.ListLayoutExplicitlySet)
+            conflicts.Add("--layout");
         if (HasPathFilter(options)) conflicts.Add("--path");
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");

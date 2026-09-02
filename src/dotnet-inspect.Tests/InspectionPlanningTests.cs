@@ -522,7 +522,7 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
-    public async Task ExplicitGenericMemberSchema_IsOneTypeView()
+    public async Task ExplicitGenericMemberSchema_ReturnsCompleteTypeAndPeeledMemberAlternatives()
     {
         var result = await RunAppAsync(
             "member",
@@ -536,14 +536,15 @@ public sealed class InspectionPlanningTests
             "q");
 
         Assert.Equal(0, result.Exit);
-        Assert.DoesNotContain(
-            "[member/",
+        Assert.Contains(
+            "[member/member-target/ApiMemberOverload]",
             result.Output,
             StringComparison.Ordinal);
         Assert.Contains(
-            SectionNames.Methods,
+            "[member/type-view/ApiMember]",
             result.Output,
             StringComparison.Ordinal);
+        Assert.Empty(result.Error);
     }
 
     [Fact]
@@ -866,7 +867,7 @@ public sealed class InspectionPlanningTests
     {
         string[] common =
         [
-            "Missing.Generic<T>",
+            "MissingGeneric<T>",
             "--package",
             "Missing.Package",
             "-D",
@@ -881,7 +882,7 @@ public sealed class InspectionPlanningTests
         var member = await RunAppAsync(["member", .. common]);
         var commandless = await RunAppAsync(
             [
-                "Missing.Generic<T>",
+                "MissingGeneric<T>",
                 "-D",
                 "--schema",
                 "-S",
@@ -1026,6 +1027,758 @@ public sealed class InspectionPlanningTests
             result.Error);
         Assert.DoesNotContain(
             target,
+            result.Error);
+    }
+
+    [Fact]
+    public async Task CommandlessStructuralMode_UsesParsedAttachedValues()
+    {
+        string[] common =
+        [
+            "Missing.Type.Run",
+            "--schema",
+            "--count",
+            "--tips",
+            "q",
+        ];
+        var equals = await RunAppAsync(
+            [.. common, "-D=Signature"]);
+        var colon = await RunAppAsync(
+            [.. common, "-D:Signature"]);
+
+        Assert.Equal(equals, colon);
+        Assert.Equal(0, colon.Exit);
+
+        string missing =
+            Path.Combine(
+                Path.GetTempPath(),
+                $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+        var disabled = await RunAppAsync(
+            "Missing.Type.Run",
+            "--library",
+            missing,
+            "-D",
+            "Signature",
+            "--schema=false",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, disabled.Exit);
+        Assert.Contains("File not found", disabled.Error);
+    }
+
+    [Fact]
+    public async Task DirectLibraryStructuralSchema_DoesNotResolvePlatformTarget()
+    {
+        var result = await RunAppAsync(
+            "library",
+            "System.Text.Json",
+            "-D",
+            "--schema",
+            "--count",
+            "--verbose",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.DoesNotContain(
+            "Resolved from installed packs",
+            result.Output + result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("format", "--mermaid is standalone")]
+    [InlineData("package-version", "--library cannot be combined with --versions")]
+    [InlineData("package-dependencies", "--library cannot be combined with --dependencies")]
+    [InlineData("package-layout", "--library cannot be combined with --layout")]
+    [InlineData("all-libraries-layout", "--all-libraries cannot be combined with --layout")]
+    public async Task StaticSchema_PreservesRouteValidationAddedByReplacement(
+        string scenario,
+        string expectedError)
+    {
+        string[] args = scenario switch
+        {
+            "format" =>
+            [
+                "Missing.Type.Run",
+                "-D",
+                "Signature",
+                "--schema",
+                "--mermaid",
+                "--json",
+            ],
+            "package-version" =>
+            [
+                "package",
+                "Missing.Package",
+                "--library",
+                "--versions",
+                "-D",
+                "--schema",
+            ],
+            "package-dependencies" =>
+            [
+                "package",
+                "Missing.Package",
+                "--library",
+                "ref/net8.0/Missing.dll",
+                "--dependencies",
+                "-D",
+                "--schema",
+            ],
+            "package-layout" =>
+            [
+                "package",
+                "Missing.Package",
+                "--library",
+                "ref/net8.0/Missing.dll",
+                "--layout",
+                "-D",
+                "--schema",
+            ],
+            "all-libraries-layout" =>
+            [
+                "package",
+                "Missing.Package",
+                "--all-libraries",
+                "--layout",
+                "-D",
+                "--schema",
+            ],
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(scenario),
+                scenario,
+                "Unknown validation scenario."),
+        };
+
+        var result = await RunAppAsync(args);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(expectedError, result.Error);
+    }
+
+    [Fact]
+    public async Task CommandlessAlternatives_DoNotDiscardSelectDuringDiscovery()
+    {
+        var result = await RunAppAsync(
+            "Missing.Type.Run",
+            "-D",
+            "Signature",
+            "--schema",
+            "-S",
+            "DefinitelyNotASection",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Select value 'DefinitelyNotASection' not found.",
+            result.Error);
+    }
+
+    [Theory]
+    [InlineData("member")]
+    [InlineData("commandless")]
+    public async Task StaticSchema_SelectionDeterminesDemandBeforeDiscovery(
+        string route)
+    {
+        string[] args = route == "member"
+            ?
+            [
+                "member",
+                "Missing.Type",
+                "-m",
+                "Run",
+                "-S",
+                SectionNames.Signature,
+                "-D",
+                SelectResolver.AllSelector,
+                "--schema",
+                "--table",
+                "--tips",
+                "q",
+            ]
+            :
+            [
+                "Missing.Type",
+                "-m",
+                "Run",
+                "-S",
+                SectionNames.Signature,
+                "-D",
+                SelectResolver.AllSelector,
+                "--schema",
+                "--table",
+                "--tips",
+                "q",
+            ];
+
+        var result = await RunAppAsync(args);
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(SectionNames.Signature, result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task EffectiveDiscovery_RejectsSelectionDisjointSectionBeforeAcquisition()
+    {
+        string missing =
+            Path.Combine(
+                Path.GetTempPath(),
+                $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+
+        var result = await RunAppAsync(
+            "member",
+            "Missing.Type",
+            "-m",
+            "Run",
+            "--library",
+            missing,
+            "-S",
+            SectionNames.Signature,
+            "-D",
+            SectionNames.Methods,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Contains(
+            $"Select value '{SectionNames.Methods}' not found.",
+            result.Error);
+        Assert.DoesNotContain("File not found", result.Error);
+    }
+
+    [Theory]
+    [InlineData("library", "--layout=false")]
+    [InlineData("library", "--layout:false")]
+    [InlineData("all", "--layout=false")]
+    [InlineData("all", "--layout:false")]
+    public async Task StaticPackageLibrarySchema_ExplicitFalseLayoutIsDisabled(
+        string route,
+        string layout)
+    {
+        string[] scope =
+            route == "library"
+                ? ["--library", "ref/net8.0/Missing.dll"]
+                : ["--all-libraries"];
+
+        var result = await RunAppAsync(
+            [
+                "package",
+                "Missing.Package",
+                .. scope,
+                layout,
+                "-D",
+                "--schema",
+                "--count",
+                "--tips",
+                "q",
+            ]);
+
+        Assert.Equal(0, result.Exit);
+        Assert.DoesNotContain(
+            "cannot be combined with --layout",
+            result.Error);
+    }
+
+    [Theory]
+    [InlineData("-D")]
+    [InlineData("-S")]
+    public async Task Member_RejectsInferredUniversalMissBeforeAcquisition(
+        string projection)
+    {
+        var result = await RunAppAsync(
+            "member",
+            "System.String",
+            "-m",
+            "Contains",
+            projection,
+            "DefinitelyNotASection",
+            "--verbose",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Contains(
+            "Select value 'DefinitelyNotASection' not found.",
+            result.Error);
+        Assert.DoesNotContain(
+            "Resolved from installed packs",
+            result.Output + result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Extracting API",
+            result.Output + result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("signature")]
+    [InlineData("cost")]
+    [InlineData("semantics")]
+    public async Task EffectiveDiscovery_ExactSectionAutoSelectsUniqueOverload(
+        string scenario)
+    {
+        string fixture =
+            (scenario == "signature"
+                ? typeof(Fixtures.BodyShapeFixture)
+                : typeof(CostOverlayFixture))
+                .Assembly.Location;
+        string typeName =
+            scenario == "signature"
+                ? typeof(Fixtures.BodyShapeFixture).FullName!
+                : typeof(CostOverlayFixture).FullName!;
+        string memberName = scenario switch
+        {
+            "signature" =>
+                nameof(Fixtures.BodyShapeFixture.PublicCreation),
+            "cost" =>
+                nameof(CostOverlayFixture.Caller),
+            "semantics" =>
+                nameof(CostOverlayFixture.CallsExceptionOnly),
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(scenario),
+                scenario,
+                "Unknown exact discovery scenario."),
+        };
+        string section = scenario switch
+        {
+            "signature" => SectionNames.Signature,
+            "cost" => SectionNames.CostOverlay,
+            "semantics" => SectionNames.SemanticsOverlay,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(scenario),
+                scenario,
+                "Unknown exact discovery scenario."),
+        };
+        string[] common =
+        [
+            "member",
+            typeName,
+            "-m",
+            memberName,
+            "--library",
+            fixture,
+            "-D",
+            section,
+            "--table",
+            "--tips",
+            "q",
+        ];
+
+        var implicitOverload =
+            await RunAppAsync(common);
+        var explicitOverload =
+            await RunAppAsync(
+                [
+                    .. common[..4],
+                    "--index",
+                    "1",
+                    .. common[4..],
+                ]);
+
+        Assert.True(
+            implicitOverload.Exit == 0,
+            implicitOverload.Output + implicitOverload.Error);
+        Assert.Equal(explicitOverload, implicitOverload);
+        if (scenario == "signature")
+            Assert.Contains(section, implicitOverload.Output);
+    }
+
+    [Theory]
+    [InlineData(SectionNames.CostOverlay)]
+    [InlineData(SectionNames.SemanticsOverlay)]
+    public async Task EffectiveDiscovery_ExactOverlayRequiresOneOfMultipleOverloads(
+        string section)
+    {
+        var result = await RunAppAsync(
+            "member",
+            "System.String",
+            "-m",
+            "Contains",
+            "--platform",
+            "System.Private.CoreLib",
+            "-D",
+            section,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Contains(
+            $"section '{section}' requires a single selected overload",
+            result.Error);
+    }
+
+    [Theory]
+    [InlineData("select-discover")]
+    [InlineData("positional-member")]
+    public async Task Member_PreflightPreservesCompleteAcquisitionFreeIntent(
+        string scenario)
+    {
+        string[] args = scenario switch
+        {
+            "select-discover" =>
+            [
+                "member",
+                "System.String",
+                "-m",
+                "Contains",
+                "--platform",
+                "System.Private.CoreLib",
+                "-S",
+                SectionNames.TypeInfo,
+                "-D",
+                SectionNames.Signature,
+                "--verbose",
+                "--tips",
+                "q",
+            ],
+            "positional-member" =>
+            [
+                "member",
+                "System.Text.Json",
+                "System.Text.Json.JsonSerializer",
+                "Serialize",
+                "-S",
+                SectionNames.TypeInfo,
+                "--verbose",
+                "--tips",
+                "q",
+            ],
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(scenario),
+                scenario,
+                "Unknown preflight scenario."),
+        };
+
+        var result = await RunAppAsync(args);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Contains(
+            $"Select value '{SectionNames.TypeInfo}' not found.",
+            result.Error);
+        Assert.DoesNotContain(
+            "Resolved from installed packs",
+            result.Output + result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Extracting API",
+            result.Output + result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task StaticSchema_NumericFilterUsesNormalizedLimitIntent(
+        string command)
+    {
+        string filter = command == "type" ? "-t" : "-m";
+        string[] common =
+        [
+            command,
+            "System.String",
+            "--platform",
+            "System.Private.CoreLib",
+            "-D",
+            SectionNames.TypeInfo,
+            "--schema",
+            "--count",
+            "--tips",
+            "q",
+        ];
+
+        var baseline = await RunAppAsync(common);
+        var limited = await RunAppAsync(
+            [
+                .. common[..4],
+                filter,
+                "5",
+                .. common[4..],
+            ]);
+
+        Assert.Equal(baseline, limited);
+        Assert.Equal(0, limited.Exit);
+    }
+
+    [Fact]
+    public async Task StaticMemberSchema_IndexWithoutMemberIsDiagnostic()
+    {
+        var result = await RunAppAsync(
+            "member",
+            "String",
+            "--platform",
+            "System.Private.CoreLib",
+            "--index",
+            "1",
+            "-D",
+            "--schema",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--index/Name:N requires exactly one member name.",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task CommandlessTypeGlobStructuralSchemaMatchesExplicitType()
+    {
+        string[] projection =
+        [
+            "-D",
+            SectionNames.ApiInfo,
+            "--schema",
+            "--count",
+            "--tips",
+            "q",
+        ];
+        var commandless =
+            await RunAppAsync(
+                ["System.*", .. projection]);
+        var explicitType =
+            await RunAppAsync(
+                ["type", "System.*", .. projection]);
+
+        Assert.Equal(explicitType, commandless);
+        Assert.Equal(0, commandless.Exit);
+    }
+
+    [Fact]
+    public async Task CommandlessExplicitLibraryPathHasNoPackageAlternative()
+    {
+        string missing =
+            Path.Combine(
+                Path.GetTempPath(),
+                $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+        var result = await RunAppAsync(
+            "Missing.Type.Run",
+            "--library",
+            missing,
+            "-D",
+            "Signature",
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.DoesNotContain(
+            "[package/",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains("[type/type/", result.Output);
+        Assert.Contains("[member/member-target/", result.Output);
+    }
+
+    [Fact]
+    public async Task CommandlessConstructorStructuralSchemaMatchesMemberSet()
+    {
+        string[] projection =
+        [
+            "-D",
+            "--schema",
+            "--count",
+            "--tips",
+            "q",
+        ];
+        var commandless =
+            await RunAppAsync(
+                ["System.String..ctor", .. projection]);
+        var explicitMember =
+            await RunAppAsync(
+                [
+                    "member",
+                    "System.String",
+                    "-m",
+                    ".ctor",
+                    .. projection,
+                ]);
+
+        Assert.Equal(explicitMember, commandless);
+        Assert.Equal(0, commandless.Exit);
+    }
+
+    [Fact]
+    public async Task CommandlessGenericMemberOptionMatchesExplicitMember()
+    {
+        string[] projection =
+        [
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--count",
+            "--tips",
+            "q",
+        ];
+        var commandless =
+            await RunAppAsync(
+                [
+                    "System.Collections.Generic.List<string>",
+                    "-m",
+                    "Add",
+                    .. projection,
+                ]);
+        var explicitMember =
+            await RunAppAsync(
+                [
+                    "member",
+                    "System.Collections.Generic.List<string>",
+                    "-m",
+                    "Add",
+                    .. projection,
+                ]);
+
+        Assert.Equal(explicitMember, commandless);
+        Assert.Equal(0, commandless.Exit);
+    }
+
+    [Fact]
+    public async Task CommandlessSourceIdentityExactMemberMatchesExplicitMember()
+    {
+        string[] projection =
+        [
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--count",
+            "--tips",
+            "q",
+        ];
+        var commandless =
+            await RunAppAsync(
+                [
+                    "System.Private.CoreLib",
+                    "--platform",
+                    "System.Private.CoreLib",
+                    "System.String.Contains:1",
+                    .. projection,
+                ]);
+        var explicitMember =
+            await RunAppAsync(
+                [
+                    "member",
+                    "System.String",
+                    "-m",
+                    "Contains:1",
+                    "--platform",
+                    "System.Private.CoreLib",
+                    .. projection,
+                ]);
+
+        Assert.Equal(explicitMember, commandless);
+        Assert.Equal(0, commandless.Exit);
+    }
+
+    [Fact]
+    public async Task StaticGenericMemberTailKeepsPeeledInterpretation()
+    {
+        string fixture =
+            typeof(MemberGenericSelectorFixture)
+                .Assembly.Location;
+        var result = await RunAppAsync(
+            "member",
+            $"{typeof(MemberGenericSelectorFixture).FullName}.GenericChoice<T>",
+            "--library",
+            fixture,
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(
+            "[member/member-target/ApiMemberDetail] Signature",
+            result.Output);
+        Assert.Contains(
+            "[member/type-view/ApiMember] unresolved 'Signature'",
+            result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Theory]
+    [InlineData("library")]
+    [InlineData("platform")]
+    public async Task CommandlessGenericMethodTailKeepsTypeAndMemberInterpretations(
+        string source)
+    {
+        string[] scope = source == "library"
+            ?
+            [
+                "--library",
+                Path.Combine(
+                    Path.GetTempPath(),
+                    "missing-generic-member.dll"),
+            ]
+            :
+            [
+                "--platform",
+                "Missing.Generic.Member.Platform",
+            ];
+
+        var result = await RunAppAsync(
+            [
+                "Missing.Type<T>.Run<U>",
+                .. scope,
+                "-D",
+                SectionNames.Signature,
+                "--schema",
+                "--table",
+                "--tips",
+                "q",
+            ]);
+
+        Assert.True(
+            result.Exit == 0,
+            result.Output + result.Error);
+        Assert.Contains(
+            "[member/member-target/ApiMemberDetail] Signature",
+            result.Output);
+        Assert.Contains(
+            "ApiMember] unresolved 'Signature'",
+            result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Theory]
+    [InlineData("library")]
+    [InlineData("all")]
+    public async Task ProgrammaticPackageLibraryModeRejectsLayout(
+        string route)
+    {
+        var options = new InspectionOptions
+        {
+            PackageArgs = ["Missing.Package"],
+            PackageLibrary =
+                route == "library"
+                    ? "ref/net8.0/Missing.dll"
+                    : null,
+            AllLibraries = route == "all",
+            ListLayout = true,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(options));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            route == "library"
+                ? "--library cannot be combined with --layout"
+                : "--all-libraries cannot be combined with --layout",
+            result.Error);
+        Assert.DoesNotContain(
+            "Package 'Missing.Package' not found",
             result.Error);
     }
 

@@ -64,11 +64,10 @@ public sealed record InspectionSectionIntent(
     ImmutableArray<string> DiscoverySelectors,
     InspectionDiscoveryMode DiscoveryMode)
 {
-    public ImmutableArray<string> EffectiveSelectors =>
-        DiscoveryMode != InspectionDiscoveryMode.None
-        && !DiscoverySelectors.IsEmpty
-            ? DiscoverySelectors
-            : Selectors;
+    public ImmutableArray<string> DemandSelectors =>
+        !Selectors.IsEmpty || SelectDefault
+            ? Selectors
+            : DiscoverySelectors;
 }
 
 public sealed record InspectionProjectionIntent(
@@ -247,7 +246,7 @@ public sealed record ResolvedMemberInspectionPlan(
     {
         ParsedInspectionIntent intent = ParsedInspectionIntent.FromOptions(options);
         ImmutableArray<string> demandSelectors =
-            intent.Sections.EffectiveSelectors;
+            intent.Sections.DemandSelectors;
         InspectionTargetRequirement baseRequirement =
             intent.Surface == InspectionSurface.Member
             && intent.Members.Selectors.Length > 0

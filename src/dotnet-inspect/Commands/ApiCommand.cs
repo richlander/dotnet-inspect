@@ -123,81 +123,167 @@ public class ApiCommand
             options.Discover is { Length: > 0 }
                 ? options.Discover
                 : options.Select;
-        if (!(options.RouterDeferredTypeOrMember
-                || RequiresMemberPipelineLookup(options))
-            || options.IncludeSections is not null
+        if (options.IncludeSections is not null
             || selectors is not { Length: > 0 })
         {
             return false;
         }
 
-        var memberPipelines = new[]
+        return RejectUniversallyInvalidMemberSelect(
+            options.Discover,
+            options.Select,
+            options.SelectDefault,
+            options.RouterDeferredTypeOrMember,
+            includeMemberTypeView:
+                options.RouterDeferredTypeOrMember
+                || options.MemberFilter.Count == 0);
+    }
+
+    internal static bool RejectUniversallyInvalidMemberSelect(
+        string[]? discover,
+        string[]? select,
+        bool selectDefault,
+        bool allowListingPipeline,
+        bool includeMemberTypeView)
+    {
+        var allMemberPipelines = new[]
         {
             ApiMemberSectionDescriptors.CreatePipeline(),
             ApiMemberOverloadSectionDescriptors.CreatePipeline(),
             ApiMemberDetailSectionDescriptors.CreatePipeline(),
         };
-        var knownSections = memberPipelines.SelectMany(
-                static pipeline => pipeline.SelectableSectionNames)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        var memberPipelines =
+            includeMemberTypeView
+                ? allMemberPipelines
+                : allMemberPipelines[1..];
+        string[] knownSections =
+        [
+            .. memberPipelines
+                .SelectMany(static pipeline =>
+                    pipeline.SelectableSectionNames),
+        ];
+        knownSections =
+        [
+            .. knownSections.Distinct(
+                StringComparer.OrdinalIgnoreCase),
+        ];
+        string[] defaultSections =
+        [
+            .. memberPipelines
+                .SelectMany(pipeline =>
+                    ReferenceEquals(
+                        pipeline,
+                        allMemberPipelines[2])
+                        ? pipeline.FixedOverviewSectionNames
+                        : pipeline.InfoSectionNames),
+        ];
         Dictionary<string, string[]> categories =
             new(StringComparer.OrdinalIgnoreCase);
-
         foreach (var pipeline in memberPipelines)
             AddCategories(pipeline.GetCategoryMap());
 
-        var result = SelectResolver.ResolveSelectAsSections(
-            selectors,
+        bool hasSelection =
+            select is { Length: > 0 }
+            || selectDefault;
+        SelectResult selection = SelectResolver.ResolveSelectAsSections(
+            select,
             knownSections,
-            infoSections: [],
+            defaultSections,
             categories,
-            selectDefault: false);
-        bool totalFailure = result.Unresolved.Count > 0
-            && result.Sections is null or { Count: 0 };
-        if (totalFailure
-            && options.RouterDeferredTypeOrMember
-            && ResolvesAgainstListingPipeline(selectors))
+            selectDefault);
+        if (hasSelection
+            && IsTotalFailure(selection))
         {
+            if (!allowListingPipeline)
+                return SelectOutput.WriteUnresolved(selection);
+
+            var listingPipeline =
+                ApiTypeSectionDescriptors.CreatePipeline();
+            SelectResult listingSelection =
+                SelectResolver.ResolveSelectAsSections(
+                    select,
+                    listingPipeline.SelectableSectionNames,
+                    listingPipeline.FixedOverviewSectionNames,
+                    listingPipeline.GetCategoryMap(),
+                    selectDefault);
+            if (IsTotalFailure(listingSelection))
+                return SelectOutput.WriteUnresolved(selection);
+
+            knownSections =
+                listingPipeline.SelectableSectionNames;
+            categories =
+                new Dictionary<string, string[]>(
+                    listingPipeline.GetCategoryMap(),
+                    StringComparer.OrdinalIgnoreCase);
+            selection = listingSelection;
+        }
+
+        if (discover is not { Length: > 0 })
             return false;
-        }
 
-        return totalFailure
-            && SelectOutput.WriteUnresolved(result);
-
-        static bool ResolvesAgainstListingPipeline(
-            string[] selectors)
+        IReadOnlyList<string> discoverySections =
+            hasSelection
+                ? [.. selection.Sections ?? []]
+                : knownSections;
+        var discoverySet = new HashSet<string>(
+            discoverySections,
+            StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, string[]> discoveryCategories =
+            categories
+                .Select(pair => new KeyValuePair<string, string[]>(
+                    pair.Key,
+                    [.. pair.Value.Where(discoverySet.Contains)]))
+                .Where(pair => pair.Value.Length > 0)
+                .ToDictionary(
+                    pair => pair.Key,
+                    pair => pair.Value,
+                    StringComparer.OrdinalIgnoreCase);
+        SelectResult discovery = SelectResolver.ResolveSelectAsSections(
+            discover,
+            discoverySections,
+            infoSections: [],
+            discoveryCategories,
+            selectDefault: false);
+        if (!hasSelection
+            && IsTotalFailure(discovery)
+            && allowListingPipeline)
         {
-            var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
-            var listingResult = SelectResolver.ResolveSelectAsSections(
-                selectors,
-                pipeline.SelectableSectionNames,
-                infoSections: [],
-                pipeline.GetCategoryMap(),
-                selectDefault: false);
-            return listingResult.Sections is { Count: > 0 };
+            var listingPipeline =
+                ApiTypeSectionDescriptors.CreatePipeline();
+            SelectResult listingDiscovery =
+                SelectResolver.ResolveSelectAsSections(
+                    discover,
+                    listingPipeline.SelectableSectionNames,
+                    infoSections: [],
+                    listingPipeline.GetCategoryMap(),
+                    selectDefault: false);
+            if (!IsTotalFailure(listingDiscovery))
+                return false;
         }
+        return IsTotalFailure(discovery)
+            && SelectOutput.WriteUnresolved(discovery);
 
         void AddCategories(
-            IReadOnlyDictionary<string, string[]> additions)
+            IReadOnlyDictionary<string, string[]> source)
         {
-            foreach (var (name, sections) in additions)
+            foreach (var (name, sections) in source)
             {
-                categories[name] = categories.TryGetValue(
-                    name,
-                    out var existing)
-                    ? existing.Concat(sections)
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .ToArray()
-                    : sections;
+                categories[name] =
+                    categories.TryGetValue(
+                        name,
+                        out string[]? existing)
+                        ? existing.Concat(sections)
+                            .Distinct(
+                                StringComparer.OrdinalIgnoreCase)
+                            .ToArray()
+                        : sections;
             }
         }
-    }
 
-    private static bool RequiresMemberPipelineLookup(MemberOptions options) =>
-        options.MemberFilter.Count == 0
-        && options.TypeName is { } memberTypeName
-        && FqnParser.LastTopLevelDot(memberTypeName) > 0;
+        static bool IsTotalFailure(SelectResult result) =>
+            result.Unresolved.Count > 0
+            && result.Sections is null or { Count: 0 };
+    }
 
     internal static bool RejectRouteIndependentOptionShape(
         MemberOptions options)
@@ -417,8 +503,9 @@ public class ApiCommand
             hasTypeName
             && TypeMatcher.IsTypeGlobPattern(options.TypeName!);
         bool singleTypeMode = options is MemberOptions || (hasTypeName && !typeNameIsGlob);
-        var knownSections = singleTypeMode ? memberPipeline.SelectableSectionNames : typePipeline.SelectableSectionNames;
-
+        var knownSections = singleTypeMode
+            ? memberPipeline.SelectableSectionNames
+            : typePipeline.SelectableSectionNames;
         // Bare -S renders the fixed overview: the sections whose length does not depend on which
         // type you are looking at. For a single type that is Type Info, so `type X -S` reports the
         // same shape for a 250-member class and an 8-member enum, where the member sections it used
@@ -1424,26 +1511,53 @@ public class ApiCommand
     {
         var pipeline = ApiMemberSectionPipelines.Create(options);
         var explicitInclude = options is MemberOptions { MemberSectionsPreResolved: true };
-        var sections = new HashSet<string>(
+        if (options.Discover is { Length: > 0 } discover)
+        {
+            bool hasSelection =
+                options.IncludeSections is not null
+                || options.Select is { Length: > 0 }
+                || options.SelectDefault;
+            IReadOnlyList<string> discoveryScope =
+                hasSelection
+                    ? [.. pipeline.GetCandidateSections(
+                        options.Verbosity,
+                        options.IncludeSections)]
+                    : pipeline.SelectableSectionNames;
+            var discoverySet = new HashSet<string>(
+                discoveryScope,
+                StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, string[]> categories =
+                pipeline.GetCategoryMap()
+                    .Select(pair =>
+                        new KeyValuePair<string, string[]>(
+                            pair.Key,
+                            [.. pair.Value.Where(
+                                discoverySet.Contains)]))
+                    .Where(pair => pair.Value.Length > 0)
+                    .ToDictionary(
+                        pair => pair.Key,
+                        pair => pair.Value,
+                        StringComparer.OrdinalIgnoreCase);
+            var resolved = SelectResolver.ResolveSelectAsSections(
+                discover,
+                discoveryScope,
+                infoSections: [],
+                categories);
+            var discoveredSections = new HashSet<string>(
+                resolved.Sections ?? [],
+                StringComparer.OrdinalIgnoreCase);
+            if (!options.BodyKindQuery.HasFilter)
+                discoveredSections.Remove(SectionNames.BodyShapes);
+            return discoveredSections;
+        }
+
+        return new HashSet<string>(
             pipeline.GetEffectiveSections(
                 type,
                 options.Verbosity,
                 options.IncludeSections,
                 explicitInclude: explicitInclude),
             StringComparer.OrdinalIgnoreCase);
-        if (options.Discover is { Length: > 0 } discover)
-        {
-            var resolved = SelectResolver.ResolveSelectAsSections(
-                discover, pipeline.SelectableSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap());
-            if (!resolved.HasError && resolved.Sections is { Count: > 0 })
-                sections.UnionWith(resolved.Sections);
-        }
-        if (!options.BodyKindQuery.HasFilter
-            && options.Discover is not null)
-        {
-            sections.Remove(SectionNames.BodyShapes);
-        }
-        return sections;
     }
 
     // ===== Full API Surface Rendering =====

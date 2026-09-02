@@ -17,6 +17,57 @@ namespace DotnetInspector.CommandLine;
 /// </summary>
 public static class MemberOptionsParser
 {
+    internal static bool HasAcquisitionFreeMemberGesture(
+        ParseResult parseResult,
+        MemberCommandArgs args)
+    {
+        SharedParsers.SourceSelectionInputs sourceInputs =
+            SharedParsers.ReadSourceSelectionInputs(
+                parseResult,
+                args.ArgsArg,
+                args.PackageOption,
+                args.AssemblyOption,
+                args.PlatformOption);
+        bool hasProjectSource =
+            (parseResult.GetValue(args.ProjectOption) ?? []).Length > 0
+            && !sourceInputs.HasExplicitSource;
+        int typeIndex =
+            SharedParsers.GetStructuralTypeArgumentIndex(
+                sourceInputs,
+                hasProjectSource);
+        string? typeName =
+            typeIndex >= 0
+            && typeIndex < sourceInputs.Args.Length
+                ? sourceInputs.Args[typeIndex]
+                : null;
+        List<string> positionalMembers =
+            sourceInputs.Args.Length > typeIndex + 1
+                ? [.. sourceInputs.Args[(typeIndex + 1)..]]
+                : [];
+        string[] optionMembers =
+            parseResult.GetValue(args.MemberOption) ?? [];
+        ApplySyntacticMemberSplit(
+            sourceInputs,
+            routerDeferredTypeOrMember: false,
+            ref typeName,
+            positionalMembers,
+            optionMembers);
+        string[] members =
+        [
+            .. positionalMembers,
+            .. optionMembers,
+        ];
+        var (memberFilter, _) =
+            BuildMemberFilter(
+                members,
+                parseResult.GetValue(args.CtorOption),
+                out _);
+        return memberFilter.Count > 0
+            || (!string.IsNullOrWhiteSpace(typeName)
+                && StructuralViewRegistry
+                    .HasUnambiguousMemberTail(typeName));
+    }
+
     public static bool TryCreateStructuralPlan(
         ParseResult parseResult,
         SharedOptions options,
@@ -88,7 +139,7 @@ public static class MemberOptionsParser
         }
 
         string[] parsedMembers = [.. members];
-        var (_, _, _, genericArity, genericArityConflict, _) =
+        var (_, shorthandIndex, memberDigest, genericArity, genericArityConflict, _) =
             SharedParsers.ProcessMemberArguments(
                 parsedMembers,
                 inferDottedTypeFilter:
@@ -104,6 +155,16 @@ public static class MemberOptionsParser
             memberFilter.Count);
         if (error is not null)
             return true;
+        if ((index is not null || shorthandIndex is not null)
+            && memberFilter.Count == 0
+            && (string.IsNullOrWhiteSpace(typeName)
+                || CSharpText.FqnParser.LastTopLevelDot(
+                    typeName) < 0))
+        {
+            error = new OptionError(
+                "--index/Name:N requires exactly one member name.");
+            return true;
+        }
 
         error = SharedParsers.ParseAnalysisQueryOptions(
             parseResult,
@@ -123,35 +184,36 @@ public static class MemberOptionsParser
 
         string[] discoverSelectors =
             options.ParseDiscover(parseResult) ?? [];
+        string[] selectSelectors =
+            options.ParseSelect(parseResult) ?? [];
+        bool selectDefault =
+            options.ParseSelectDefault(parseResult);
+        bool hasSelection =
+            selectSelectors.Length > 0
+            || selectDefault;
         string[] sectionSelectors =
-            discoverSelectors.Length > 0
-                ? discoverSelectors
-                : options.ParseSelect(parseResult) ?? [];
+            hasSelection
+                ? selectSelectors
+                : discoverSelectors;
         InspectionTargetRequirement baseRequirement =
-            members.Length == 0
+            memberFilter.Count == 0
                 ? InspectionTargetRequirement.Type
                 : InspectionTargetRequirement.MemberSet;
         SectionDemandClassification demand =
             ApiSectionDemandIndex.Classify(
                 InspectionSurface.Member,
                 [.. sectionSelectors],
-                options.ParseSelectDefault(parseResult),
+                hasSelection && selectDefault,
                 baseRequirement);
         bool exactMember =
             index is not null
+            || shorthandIndex is not null
+            || !string.IsNullOrWhiteSpace(memberDigest)
             || bodyKindQuery.HasFilter
-            || members.Any(member =>
-            {
-                MemberTargetSelector selector =
-                    MemberTargetSelector.Parse(member);
-                return selector.OverloadIndex is not null
-                    || !string.IsNullOrWhiteSpace(
-                        selector.DigestPrefix);
-            })
             || demand.RequiredTarget
                 == InspectionTargetRequirement.ExactMember;
         InspectionCatalogIdentity memberCatalog =
-            members.Length == 0
+            memberFilter.Count == 0
                 ? InspectionCatalogIdentity.ApiMember
                 : exactMember
                     ? InspectionCatalogIdentity.ApiMemberDetail
@@ -162,22 +224,11 @@ public static class MemberOptionsParser
             && StructuralViewRegistry
                 .HasUnambiguousMemberTail(typeName);
         bool dottedTailAmbiguity =
-            members.Length == 0
+            memberFilter.Count == 0
             && !string.IsNullOrWhiteSpace(typeName)
+            && !TypeMatcher.IsTypeGlobPattern(typeName)
             && (unambiguousMemberTail
-                || (!StructuralViewRegistry
-                        .HasExplicitGenericTypeTail(typeName)
-                    && FqnParser.LastTopLevelDot(typeName) > 0));
-        if (dottedTailAmbiguity
-            && (index is not null
-                || unambiguousMemberTail))
-        {
-            plan = new StructuralDiscoveryPlan.Resolved(
-                StructuralViewRegistry.Route(
-                    StructuralViewIdentity.MemberTarget,
-                    InspectionCatalogIdentity.ApiMemberDetail));
-            return true;
-        }
+                || FqnParser.LastTopLevelDot(typeName) > 0);
 
         if (!dottedTailAmbiguity)
         {
@@ -191,19 +242,34 @@ public static class MemberOptionsParser
         }
 
         string dottedTypeName = typeName!;
+        var (_, impliedMemberName) =
+            SharedParsers.SplitTrailingMember(
+                dottedTypeName);
         string impliedMember =
-            dottedTypeName[
-                (FqnParser.LastTopLevelDot(dottedTypeName) + 1)..];
+            impliedMemberName
+            ?? dottedTypeName[
+                (FqnParser.LastTopLevelDot(
+                    dottedTypeName) + 1)..];
         MemberTargetSelector impliedSelector =
             MemberTargetSelector.Parse(impliedMember);
         InspectionCatalogIdentity peeledCatalog =
-            impliedSelector.OverloadIndex is not null
+            index is not null
+            || impliedSelector.OverloadIndex is not null
             || !string.IsNullOrWhiteSpace(impliedSelector.DigestPrefix)
             || bodyKindQuery.HasFilter
             || demand.RequiredTarget
                 == InspectionTargetRequirement.ExactMember
                 ? InspectionCatalogIdentity.ApiMemberDetail
                 : InspectionCatalogIdentity.ApiMemberOverload;
+        if (unambiguousMemberTail)
+        {
+            plan = new StructuralDiscoveryPlan.Resolved(
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.MemberTarget,
+                    peeledCatalog));
+            return true;
+        }
+
         plan = new StructuralDiscoveryPlan.Alternatives(
             StructuralViewRegistry.CreateAlternatives(
                 [
@@ -694,7 +760,7 @@ public static class MemberOptionsParser
         typeName = splitTypeName;
     }
 
-    private static OptionError? GetMermaidOptionError(
+    internal static OptionError? GetMermaidOptionError(
         ParseResult parseResult,
         SharedOptions options)
     {

@@ -169,6 +169,17 @@ public static class CommandLineHelpers
         return false;
     }
 
+    public static bool IsExplicitLibraryPath(string value) =>
+        Path.IsPathRooted(value)
+        || (value.Length > 0 && value[0] is '/' or '\\')
+        || value.StartsWith("./", StringComparison.Ordinal)
+        || value.StartsWith(@".\", StringComparison.Ordinal)
+        || value.StartsWith("../", StringComparison.Ordinal)
+        || value.StartsWith(@"..\", StringComparison.Ordinal)
+        || (value.Length >= 2
+            && char.IsAsciiLetter(value[0])
+            && value[1] == ':');
+
     /// <summary>
     /// Returns true if the value looks like a version number (e.g. "2.0.0", "8.0.0-preview.1").
     /// Used to detect when a user passes a version as a positional argument instead of using the @ syntax.

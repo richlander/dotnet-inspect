@@ -88,23 +88,13 @@ public static class RouterCommandDefinition
 
             RequestTelemetry.Breadcrumb("router-hit", string.Join(' ', tokens));
             bool structuralDiscovery =
-                tokens.Any(token =>
-                    token is "--discover" or "-D"
-                    || token.StartsWith(
-                        "--discover=",
-                        StringComparison.Ordinal)
-                    || token.StartsWith(
-                        "-D=",
-                        StringComparison.Ordinal))
-                && tokens.Any(token =>
-                    token == "--schema"
-                    || token.StartsWith(
-                        "--schema=",
-                        StringComparison.Ordinal));
+                opts.IsDiscoveryMode(sourceParseResult)
+                && opts.ParseSchema(sourceParseResult);
             if (structuralDiscovery
                 && RouterTokenRewriter.TryRewriteAcquisitionFree(
                     tokens,
                     rootCommand,
+                    structuralSchema: true,
                     out string[] structuralRewrite))
             {
                 structuralRewrite =
@@ -150,6 +140,10 @@ public static class RouterCommandDefinition
                         typeName: null,
                         out _,
                         out _);
+                analysisError ??=
+                    MemberOptionsParser.GetMermaidOptionError(
+                        analysisParseResult,
+                        opts);
                 if (analysisError is not null)
                 {
                     CommandError.Write(analysisError.Value);
@@ -297,6 +291,7 @@ public static class RouterCommandDefinition
             if (TryRewriteAcquisitionFree(
                     tokens,
                     rootCommand,
+                    structuralSchema: false,
                     out string[] rewritten))
                 return rewritten;
 
@@ -515,6 +510,7 @@ public static class RouterCommandDefinition
         public static bool TryRewriteAcquisitionFree(
             string[] tokens,
             RootCommand rootCommand,
+            bool structuralSchema,
             out string[] rewritten)
         {
             rewritten = [];
@@ -576,8 +572,6 @@ public static class RouterCommandDefinition
                 || ContainsOption(
                     tokens,
                     "--versions-with-feed");
-            bool structuralSchema =
-                IsStaticSchemaDiscovery(tokens);
             bool hasStructuralPackageAssetPath =
                 hasLibraryValue
                 && IsPackageRelativeLibraryPath(libraryValue)
@@ -613,7 +607,8 @@ public static class RouterCommandDefinition
             }
 
             if (hasMemberOption
-                && (!hasExplicitGenericNotation
+                && (structuralSchema
+                    || !hasExplicitGenericNotation
                     || (hasExplicitApiSource
                         && trailingSegmentHasGenericNotation
                         && trailingSegmentStart == 0)))
@@ -679,6 +674,20 @@ public static class RouterCommandDefinition
             }
 
             if (structuralSchema
+                && hasLibraryValue
+                && hasExplicitGenericNotation
+                && StructuralViewRegistry
+                    .HasExplicitGenericTypeTail(target)
+                && !StructuralViewRegistry
+                    .HasGenericTypeAndGenericTailAmbiguity(target)
+                && !StructuralViewRegistry
+                    .HasUnambiguousMemberTail(target))
+            {
+                rewritten = ["type", target, .. tail];
+                return true;
+            }
+
+            if (structuralSchema
                 && hasLibraryValue)
             {
                 return false;
@@ -686,9 +695,19 @@ public static class RouterCommandDefinition
 
             if (hasExplicitApiSource)
             {
-                rewritten = target.Contains('.')
-                    ? RouteDeferredTypeOrMember(target, tail)
-                    : ["type", target, .. tail];
+                rewritten =
+                    structuralSchema
+                    && hasExplicitGenericNotation
+                    && StructuralViewRegistry
+                        .HasExplicitGenericTypeTail(target)
+                    && !StructuralViewRegistry
+                        .HasGenericTypeAndGenericTailAmbiguity(target)
+                    && !StructuralViewRegistry
+                        .HasUnambiguousMemberTail(target)
+                        ? ["type", target, .. tail]
+                        : target.Contains('.')
+                            ? RouteDeferredTypeOrMember(target, tail)
+                            : ["type", target, .. tail];
                 return true;
             }
 
@@ -723,7 +742,7 @@ public static class RouterCommandDefinition
             }
 
             if (hasExplicitGenericNotation
-                && IsStaticSchemaDiscovery(tokens))
+                && structuralSchema)
             {
                 if (StructuralViewRegistry
                     .HasUnambiguousMemberTail(target))
@@ -736,6 +755,8 @@ public static class RouterCommandDefinition
                 rewritten =
                     StructuralViewRegistry
                         .HasExplicitGenericTypeTail(target)
+                    && !StructuralViewRegistry
+                        .HasGenericTypeAndGenericTailAmbiguity(target)
                     ? ["type", target, .. tail]
                     : target.Contains('.')
                     ? RouteDeferredTypeOrMember(target, tail)
@@ -752,11 +773,6 @@ public static class RouterCommandDefinition
                                        token,
                                        option,
                                        out _));
-
-        private static bool IsStaticSchemaDiscovery(string[] tokens)
-            => (ContainsOption(tokens, "--discover")
-                || ContainsOption(tokens, "-D"))
-               && ContainsOption(tokens, "--schema");
 
         private static string? GetOptionValue(
             string[] tokens,
@@ -1156,7 +1172,8 @@ public static class RouterCommandDefinition
                 && value.EndsWith(
                     ".dll",
                     StringComparison.OrdinalIgnoreCase)
-                && !IsExplicitLibraryPath(value);
+                && !CommandLineHelpers
+                    .IsExplicitLibraryPath(value);
         }
 
         private static bool IsPackageRelativeLibraryPath(string value)
@@ -1165,17 +1182,6 @@ public static class RouterCommandDefinition
             // resembles a type; consulting cwd would make routing nondeterministic.
             return PackageCoordinateResolver.IsPackageRelativeAssetPath(value);
         }
-
-        private static bool IsExplicitLibraryPath(string value) =>
-            Path.IsPathRooted(value)
-            || (value.Length > 0 && value[0] is '/' or '\\')
-            || value.StartsWith("./", StringComparison.Ordinal)
-            || value.StartsWith(@".\", StringComparison.Ordinal)
-            || value.StartsWith("../", StringComparison.Ordinal)
-            || value.StartsWith(@"..\", StringComparison.Ordinal)
-            || (value.Length >= 2
-                && char.IsAsciiLetter(value[0])
-                && value[1] == ':');
 
         private static bool IsExplicitSourceIdentity(
             string target,
@@ -1272,11 +1278,20 @@ public static class RouterCommandDefinition
                 return true;
             }
 
+            if (structuralSchema
+                && StructuralViewRegistry
+                    .HasUnambiguousMemberTail(targetToken))
+            {
+                rewritten =
+                    [MemberCommand.Name, targetToken, .. sourceTail];
+                return true;
+            }
+
             rewritten = structuralSchema
                 ? ["type", targetToken, .. sourceTail]
                 : targetToken.Contains('.')
-                ? RouteDeferredTypeOrMember(targetToken, sourceTail)
-                : ["type", targetToken, .. sourceTail];
+                    ? RouteDeferredTypeOrMember(targetToken, sourceTail)
+                    : ["type", targetToken, .. sourceTail];
             return true;
         }
 
