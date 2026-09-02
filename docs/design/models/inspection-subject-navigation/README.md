@@ -288,11 +288,12 @@ remaining differences are deliberate abstractions rather than disagreements:
   correlation, and Workspace containment.
 - **Optional restoration inputs.** Canonical restoration's subject and lens are
   optional in the packet, and retained occurrence context is independently
-  optional. The model always receives both resolved subject and lens values
-  because the claim under test begins at the narrower pair-publication
-  boundary: one exact pair is prepared and published together. It models
-  neither retained occurrence context, other restoration participants, nor
-  installation.
+  optional. A subject-less request may carry root-only occurrence context but
+  not a retained Library/Type/Member path. The model always receives both
+  resolved subject and lens values because the claim under test begins at the
+  narrower pair-publication boundary: one exact pair is prepared and published
+  together. It models neither retained occurrence context, valid optional-input
+  combinations, other restoration participants, nor installation.
 - **Retained request payload.** `SnapshotAuthority.tla` instantiates exact
   retained-result correlation for a lens request. Exact subject-result
   correlation remains a named implementation gate; canonical preparation
