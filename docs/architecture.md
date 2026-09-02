@@ -145,7 +145,7 @@ depends on typed models.
 
 | Region | Place in flow | Responsibility | Primary authority |
 | ------ | ------------- | -------------- | ----------------- |
-| `ILInspector.Findings` | Result contracts | Domain-free observation, census, matching, transition, complete analysis-diff, and correlation contracts. | [Finding nomenclature](design/finding-nomenclature.md), [Analysis diff](design/analysis-diff.md), [Finding producers](design/finding-producers.md) |
+| `ILInspector.Findings` | Result contracts | Domain-free observation, sealed-census identity, matching, transition, comparison, complete analysis-diff, and correlation contracts. | [Finding nomenclature](design/finding-nomenclature.md), [Finding instance census](design/finding-instance-census.md), [Analysis diff](design/analysis-diff.md), [Finding producers](design/finding-producers.md) |
 | `ILInspector.Instructions` | Decode substrate | Shared instruction decoding and exception-region-aware basic blocks. | [Instruction substrate](design/instruction-substrate.md) |
 | `ILInspector.ControlFlow` | Flow substrate | Shared control-flow, dominance, and dataflow kernels. | [Instruction substrate](design/instruction-substrate.md) |
 | `ILInspector.Text` | Text producer | Exact ordered line inspection and generic text comparison on the Finding spine. | [Finding producers](design/finding-producers.md) |
@@ -194,6 +194,11 @@ referencing the CLI assembly.
 
 Harnesses and fixtures may prove product behavior, but they do not manufacture
 or repair the product evidence they measure.
+
+Within the CLI host, `PackageIndexCache` is a focused derived-result owner. Its
+[package index cache](design/package-index-cache.md) contract defines when a
+persistent filesystem-derived package projection may replace cold inspection;
+`CoreCache` remains only its storage mechanism.
 
 ## Core currencies
 
