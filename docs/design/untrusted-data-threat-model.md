@@ -299,21 +299,27 @@ executes target code.
 
 That prohibition is
 [mitigation by absence](../evidence-and-validation.md#mitigation-by-absence).
-Measured 2026-09-01 across the 1,081 non-test C# sources under `src/`:
 
-```console
-$ git ls-files 'src/**/*.cs' | grep -viE '\.tests?/|fixtures?/|testdata' \
-    | xargs grep -nE 'Assembly\.Load|AssemblyLoadContext|Reflection\.Emit|AppDomain|Activator\.CreateInstance'
-(no matches)
-```
+Certification:
 
-The only non-test occurrences repo-wide are three in `tools/DecompilerHarness`,
-outside the product boundary. The prohibition above is the standing policy that
-keeps that true. No gate enforces the absence itself, so the claim is
-**`unverified`**: `BannedApiAnalyzers` runs on every `.csproj`, but its
-`eng/BannedSymbols.txt` wiring is scoped to the stderr-containment concern and
-is opted out wholesale by `OwnsItsOwnStderr`, so it cannot carry this policy
-without separate design. Issue #5488 tracks gating it.
+- **Date:** 2026-09-01
+- **Scope:** the 1,081 tracked non-test C# sources under `src/`
+- **Command:**
+
+  ```console
+  $ git ls-files 'src/**/*.cs' | grep -viE '\.tests?/|fixtures?/|testdata' \
+      | xargs grep -nE 'Assembly\.Load|AssemblyLoadContext|Reflection\.Emit|AppDomain|Activator\.CreateInstance'
+  ```
+
+- **Finding:** 0 matches. The only non-test occurrences repo-wide are three in
+  `tools/DecompilerHarness`, outside the product boundary.
+- **Policy:** the prohibition stated above, scoped to product paths by
+  `AGENTS.md`'s "free of inspected-assembly loading" constraint.
+- **Gate:** `unverified`. `BannedApiAnalyzers` runs on every `.csproj` with
+  `RS0030` escalated to an error, but its `eng/BannedSymbols.txt` wiring is
+  scoped to the stderr-containment concern and is opted out wholesale by
+  `OwnsItsOwnStderr`, so it cannot carry this policy without separate design.
+  Issue #5488 tracks gating it.
 
 Reader-backed values remain inside their owning session. Values that cross a
 session boundary are copied or reduced to immutable tokens and shapes. This

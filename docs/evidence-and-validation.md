@@ -84,6 +84,42 @@ practice.
 Only when no standard gate exists does measured-absence-plus-policy stand on
 its own — and then the claim is `unverified`, and must say so.
 
+### The certification block
+
+Record the result as a fixed set of fields, not as prose. Prose lets a leg go
+missing without the gap being obvious; a field that is absent, or filled with
+hedging, is visible at a glance. Copy this shape:
+
+```markdown
+Certification:
+
+- **Date:** <when the command below was run>
+- **Scope:** <the corpus searched, and its size>
+- **Command:** <the exact reproducible command>
+- **Finding:** <the result, e.g. `0 matches`>
+- **Policy:** <the standing prohibition, and where it is stated>
+- **Gate:** <the enforcing rule, or `unverified` and why not>
+```
+
+Each field is load-bearing:
+
+- **Scope** is separate from **Command** because a command carries its own
+  filters. An over-narrow exclusion yields a zero that is true and worthless,
+  and the reader cannot see that from the command alone. State the denominator
+  so the number can be disputed.
+- **Command** searches tracked files. `grep -r` reaches into build output and
+  `node_modules`, which inflates or deflates the count unpredictably; prefer
+  `git ls-files` or `git grep`.
+- **Finding** is the raw result, not an interpretation of it. If the count is
+  not zero, mitigation by absence does not apply and the record should not be
+  written.
+- **Gate** is where the record is most likely to flatter itself. Name the rule
+  only if it actually fires on this construct in this configuration; otherwise
+  write `unverified` and the reason, and link the issue tracking the gate.
+
+Re-measuring replaces the whole block, including the date. Do not leave an old
+date beside a new finding.
+
 Keep the write-up proportional to the evidence. A hazard with zero instances
 earns a sentence, not an essay. Prose describing a hazard that does not exist
 here dilutes the material that does and implies a threat the reader then has to
@@ -112,12 +148,15 @@ absent. Measuring is what caught that, which is why measurement is leg one and
 not a formality.
 
 The record itself belongs with the claim it supports, not here. The
-repository's load-bearing instance is
-[Assemblies are parsed, never loaded](design/untrusted-data-threat-model.md#assemblies-are-parsed-never-loaded):
-measurement, standing prohibition, date, and an honest `unverified` because
-the analyzer that could gate it is scoped to a different concern (#5488).
-Stating why a claim is not yet gated is what keeps it from reading as a
-control that exists.
+repository's filled-in instance of the certification block is
+[Assemblies are parsed, never loaded](design/untrusted-data-threat-model.md#assemblies-are-parsed-never-loaded),
+whose **Gate** field reads `unverified` because the analyzer that could enforce
+it is scoped to a different concern (#5488). Stating why a claim is not yet
+gated is what keeps it from reading as a control that exists.
+
+A survey of several constructs at once, like the table above, is the other
+legitimate shape; use the block for a single claim in its owning document, and
+a table when comparing constructs. Both carry the same fields.
 
 ## Harness boundary
 
