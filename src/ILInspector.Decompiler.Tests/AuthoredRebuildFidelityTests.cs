@@ -1,4 +1,6 @@
 using System.Net;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
@@ -263,7 +265,7 @@ public sealed class AuthoredRebuildFidelityTests
     [Theory]
     [InlineData("void operator +=(int value) { }", "op_AdditionAssignment")]
     [InlineData("void operator -=(int value) { }", "op_SubtractionAssignment")]
-    [InlineData("void operator *=(int value) { }", "op_MultiplyAssignment")]
+    [InlineData("void operator *=(int value) { }", "op_MultiplicationAssignment")]
     [InlineData("void operator /=(int value) { }", "op_DivisionAssignment")]
     [InlineData("void operator %=(int value) { }", "op_ModulusAssignment")]
     [InlineData("void operator &=(int value) { }", "op_BitwiseAndAssignment")]
@@ -656,6 +658,143 @@ public sealed class AuthoredRebuildFidelityTests
     }
 
     [Fact]
+    public async Task SourceCorrespondencePdbAcquisition_RejectsUnverifiedStandalonePdb()
+    {
+        NuGetCache.Initialize("dotnet-inspect");
+        var fixture = CompilePortablePdbFixture(deletePdb: false);
+        try
+        {
+            CompileFixture(
+                "public sealed class Fixture { public int Value => 2; }",
+                fixture.Directory,
+                "Fixture");
+            using var httpClient =
+                new HttpClient(
+                    new StaticStatusHandler(
+                        HttpStatusCode.NotFound));
+            var results =
+                await ReturnToSenderSourceProbe.EvaluateSourceCorrespondenceAsync(
+                    [fixture.AssemblyPath],
+                    cap: 1,
+                    httpClient,
+                    new SourceFetcher(httpClient));
+
+            ReturnToSenderSourceProbeResult result = Assert.Single(results);
+            Assert.Equal(
+                SourceAcquisitionOutcome.Failed,
+                result.SourceAcquisition);
+            Assert.Contains(
+                "identity cannot be verified",
+                result.SourceAcquisitionDetail,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SourceCorrespondencePdbAcquisition_MalformedEmbeddedPdbIsFailure()
+    {
+        NuGetCache.Initialize("dotnet-inspect");
+        var fixture =
+            CompilePortablePdbFixture(
+                embeddedPdb: true);
+        try
+        {
+            File.WriteAllBytes(
+                fixture.AssemblyPath,
+                CorruptEmbeddedPdb(
+                    File.ReadAllBytes(
+                        fixture.AssemblyPath)));
+            using var httpClient =
+                new HttpClient(
+                    new StaticStatusHandler(
+                        HttpStatusCode.NotFound));
+            var results =
+                await ReturnToSenderSourceProbe.EvaluateSourceCorrespondenceAsync(
+                    [fixture.AssemblyPath],
+                    cap: 1,
+                    httpClient,
+                    new SourceFetcher(httpClient));
+
+            ReturnToSenderSourceProbeResult result = Assert.Single(results);
+            Assert.Equal(
+                SourceAcquisitionOutcome.Failed,
+                result.SourceAcquisition);
+            Assert.Contains(
+                "embedded portable PDB signature is invalid",
+                result.SourceAcquisitionDetail,
+                StringComparison.OrdinalIgnoreCase);
+
+            IReadOnlyList<AuthoredRebuildFidelityResult> fidelity =
+                await AuthoredRebuildFidelity.EvaluateAssembliesAsync(
+                    [fixture.AssemblyPath],
+                    cap: 1,
+                    httpClient,
+                    new SourceFetcher(httpClient));
+            AuthoredRebuildFidelityResult authored = Assert.Single(fidelity);
+            Assert.Equal(
+                AuthoredRebuildOutcome.SourceFailed,
+                authored.Outcome);
+            Assert.Contains(
+                "embedded portable PDB signature is invalid",
+                authored.Detail,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SourceCorrespondencePdbAcquisition_MapsCompiledMultiplicationAssignment()
+    {
+        var fixture = CompilePortablePdbFixture(
+            """
+            public sealed class Fixture
+            {
+                public void operator *=(int value) { }
+                public void operator checked *=(int value) { }
+            }
+            """,
+            deletePdb: false);
+        try
+        {
+            using var httpClient =
+                new HttpClient(
+                    new StaticStatusHandler(
+                        HttpStatusCode.NotFound));
+            var results =
+                await ReturnToSenderSourceProbe.EvaluateSourceCorrespondenceAsync(
+                    [fixture.AssemblyPath],
+                    cap: 2,
+                    httpClient,
+                    new SourceFetcher(httpClient));
+
+            Assert.Equal(2, results.Count);
+            Assert.All(
+                results,
+                result => Assert.Equal(
+                    SourceAcquisitionOutcome.Complete,
+                    result.SourceAcquisition));
+            Assert.Equal(
+                [
+                    "op_CheckedMultiplicationAssignment",
+                    "op_MultiplicationAssignment",
+                ],
+                results.Select(
+                    result => result.Target.Method).Order().ToArray());
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task SourceCorrespondencePdbAcquisition_AdaptsCustomExpressionBodiedIndexer()
     {
         var fixture = CompilePortablePdbFixture(
@@ -770,7 +909,8 @@ public sealed class AuthoredRebuildFidelityTests
 
     static (string Directory, string AssemblyPath) CompilePortablePdbFixture(
         string? source = null,
-        bool deletePdb = true)
+        bool deletePdb = true,
+        bool embeddedPdb = false)
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -792,15 +932,33 @@ public sealed class AuthoredRebuildFidelityTests
                         File.ReadAllText(sourcePath),
                         new System.Text.UTF8Encoding(
                             encoderShouldEmitUTF8Identifier: false)),
+                    options: CSharpParseOptions.Default.WithLanguageVersion(
+                        LanguageVersion.Preview),
                     path: sourcePath),
             ],
             RoslynTestReferences.TrustedPlatform,
             new CSharpCompilationOptions(
                 OutputKind.DynamicallyLinkedLibrary,
                 optimizationLevel: OptimizationLevel.Release));
-        using (var assembly = File.Create(assemblyPath))
-        using (var pdb = File.Create(pdbPath))
+        if (embeddedPdb)
         {
+            using var assembly = File.Create(assemblyPath);
+            var emit =
+                compilation.Emit(
+                    assembly,
+                    options: new EmitOptions(
+                        debugInformationFormat:
+                            DebugInformationFormat.Embedded));
+            Assert.True(
+                emit.Success,
+                string.Join(
+                    Environment.NewLine,
+                    emit.Diagnostics));
+        }
+        else
+        {
+            using var assembly = File.Create(assemblyPath);
+            using var pdb = File.Create(pdbPath);
             var emit = compilation.Emit(
                 assembly,
                 pdb,
@@ -814,9 +972,24 @@ public sealed class AuthoredRebuildFidelityTests
                     emit.Diagnostics));
         }
 
-        if (deletePdb)
+        if (deletePdb && File.Exists(pdbPath))
             File.Delete(pdbPath);
         return (directory, assemblyPath);
+    }
+
+    static byte[] CorruptEmbeddedPdb(byte[] original)
+    {
+        byte[] bytes = (byte[])original.Clone();
+        using var stream = new MemoryStream(bytes, writable: false);
+        using var reader = new PEReader(stream);
+        DebugDirectoryEntry embedded =
+            Assert.Single(
+                reader.ReadDebugDirectory(),
+                static entry =>
+                    entry.Type
+                    == DebugDirectoryEntryType.EmbeddedPortablePdb);
+        bytes[embedded.DataPointer] ^= 0xff;
+        return bytes;
     }
 
     sealed class StaticStatusHandler(HttpStatusCode statusCode)

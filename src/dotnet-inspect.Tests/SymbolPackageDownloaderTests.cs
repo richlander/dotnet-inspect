@@ -15,9 +15,15 @@ public class SymbolPackageDownloaderTests : IDisposable
     }
 
     [Theory]
-    [InlineData(HttpStatusCode.NotFound)]
-    [InlineData(HttpStatusCode.Forbidden)]
-    public async Task DownloadPdbAsync_DefinitiveMiss_IsCached(HttpStatusCode statusCode)
+    [InlineData(HttpStatusCode.NotFound, true, false)]
+    [InlineData(HttpStatusCode.Forbidden, true, true)]
+    [InlineData(HttpStatusCode.Unauthorized, false, true)]
+    [InlineData(HttpStatusCode.TooManyRequests, false, true)]
+    [InlineData(HttpStatusCode.Gone, false, true)]
+    public async Task DownloadPdbAsync_CachePreservesAbsenceAndFailure(
+        HttpStatusCode statusCode,
+        bool expectedCached,
+        bool expectedFailure)
     {
         var handler = new CountingHandler(_ => new HttpResponseMessage(statusCode));
         using var client = new HttpClient(handler);
@@ -49,10 +55,10 @@ public class SymbolPackageDownloaderTests : IDisposable
         Assert.Null(first.PdbFilePath);
         Assert.Null(second.PdbFilePath);
         Assert.True(firstCount > 0);
-        Assert.Equal(firstCount, handler.RequestCount);
         Assert.Equal(
-            statusCode == HttpStatusCode.Forbidden,
-            cachedFailure);
+            expectedCached,
+            handler.RequestCount == firstCount);
+        Assert.Equal(expectedFailure, cachedFailure);
     }
 
     [Theory]

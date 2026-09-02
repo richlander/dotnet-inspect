@@ -470,7 +470,7 @@ internal sealed class CSharpSourceIdentityContext
             SyntaxKind.GreaterThanEqualsToken => "op_GreaterThanOrEqual",
             SyntaxKind.PlusEqualsToken => "op_AdditionAssignment",
             SyntaxKind.MinusEqualsToken => "op_SubtractionAssignment",
-            SyntaxKind.AsteriskEqualsToken => "op_MultiplyAssignment",
+            SyntaxKind.AsteriskEqualsToken => "op_MultiplicationAssignment",
             SyntaxKind.SlashEqualsToken => "op_DivisionAssignment",
             SyntaxKind.PercentEqualsToken => "op_ModulusAssignment",
             SyntaxKind.AmpersandEqualsToken => "op_BitwiseAndAssignment",

@@ -98,7 +98,15 @@ public partial class SymbolPackageDownloader
         if (HttpRetryHelper.IsRetryableStatus(statusCode))
             return;
 
-        var extension = statusCode == HttpStatusCode.Forbidden ? "forbidden" : "miss";
+        string? extension = statusCode switch
+        {
+            HttpStatusCode.NotFound => "miss",
+            HttpStatusCode.Forbidden => "forbidden",
+            _ => null,
+        };
+        if (extension is null)
+            return;
+
         CoreCache.Set(SymbolMissCacheCategory, key, ((int)statusCode).ToString(), extension);
     }
 }

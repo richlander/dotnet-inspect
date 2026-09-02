@@ -391,7 +391,6 @@ static partial class ReturnToSenderSourceProbe
             if (targets.Count == 0)
                 continue;
 
-            using var source = SourceLinkService.Open(assemblyPath);
             var acquisitions = new Dictionary<string, SourceAcquisitionAttempt>(StringComparer.Ordinal);
             var sourceMembers = new List<ReturnToSenderSourceMember>();
             NuGetPackageCoordinate? package =
@@ -399,9 +398,11 @@ static partial class ReturnToSenderSourceProbe
                     ? suppliedPackage
                     : TryGetNuGetPackageCoordinate(assemblyPath);
 
+            SourceLinkService? source = null;
             SourceAcquisitionAttempt? assemblyAcquisition = null;
             try
             {
+                source = SourceLinkService.Open(assemblyPath);
                 await AuthoredRebuildFidelity.AcquirePdbAsync(
                     source,
                     httpClient,
@@ -419,7 +420,9 @@ static partial class ReturnToSenderSourceProbe
                     Member: null);
             }
 
-            if (assemblyAcquisition is null && source.Context.NeedsPdb)
+            if (assemblyAcquisition is null
+                && source is not null
+                && source.Context.NeedsPdb)
             {
                 assemblyAcquisition = new SourceAcquisitionAttempt(
                     SourceAcquisitionOutcome.Absent,
@@ -430,17 +433,34 @@ static partial class ReturnToSenderSourceProbe
                     Member: null);
             }
 
-            foreach (var target in targets)
+            using (source)
             {
-                SourceAcquisitionAttempt acquisition = assemblyAcquisition
-                    ?? await AcquireSourceAsync(
-                        source,
-                        fetcher,
-                        target,
-                        repositoryPaths);
-                acquisitions.Add(Key(target.Target), acquisition);
-                if (acquisition.Member is { } member)
-                    sourceMembers.Add(member);
+                foreach (var target in targets)
+                {
+                    SourceAcquisitionAttempt acquisition;
+                    if (assemblyAcquisition is not null)
+                    {
+                        acquisition = assemblyAcquisition;
+                    }
+                    else
+                    {
+                        if (source is null)
+                        {
+                            throw new InvalidOperationException(
+                                "Source acquisition completed without a source context or failure.");
+                        }
+
+                        acquisition = await AcquireSourceAsync(
+                            source,
+                            fetcher,
+                            target,
+                            repositoryPaths);
+                    }
+
+                    acquisitions.Add(Key(target.Target), acquisition);
+                    if (acquisition.Member is { } member)
+                        sourceMembers.Add(member);
+                }
             }
 
             ReturnToSenderSourceIndex sourceIndex =

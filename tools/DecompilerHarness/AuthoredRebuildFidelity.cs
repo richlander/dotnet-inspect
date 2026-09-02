@@ -117,10 +117,11 @@ static class AuthoredRebuildFidelity
                 continue;
             }
 
-            using var source = SourceLinkService.Open(assemblyPath);
+            SourceLinkService? source = null;
             Exception? pdbAcquisitionFailure = null;
             try
             {
+                source = SourceLinkService.Open(assemblyPath);
                 await AcquirePdbAsync(
                     source,
                     httpClient,
@@ -135,29 +136,33 @@ static class AuthoredRebuildFidelity
                     .CompilationClosure?.References
                 ?? ReturnToSender.CompilationReferences(
                     assemblyPath).ToArray();
-            var buildContext = AssessBuildContext(
-                SourceLinkInspector.InspectDll(assemblyPath).IsDeterministic,
-                MetadataFindings.InspectCompilationOptions(
-                    source.Context,
-                    new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath))),
-                MetadataFindings.InspectCompilationReferences(
-                    source.Context,
-                    new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath))),
-                compilationReferences);
+            AuthoredBuildContextAssessment buildContext =
+                source is null
+                    ? new AuthoredBuildContextAssessment(
+                        AuthoredBuildContextStatus.Failed,
+                        IsDeterministic: false,
+                        "Portable PDB acquisition failed before build-context inspection.")
+                    : AssessBuildContext(
+                        SourceLinkInspector.InspectDll(assemblyPath).IsDeterministic,
+                        MetadataFindings.InspectCompilationOptions(
+                            source.Context,
+                            new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath))),
+                        MetadataFindings.InspectCompilationReferences(
+                            source.Context,
+                            new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath))),
+                        compilationReferences);
 
-            foreach (var decompilerResult in decompilerResults)
+            using (source)
             {
-                if (results.Count >= cap)
-                    break;
+                foreach (var decompilerResult in decompilerResults)
+                {
+                    if (results.Count >= cap)
+                        break;
 
-                AuthoredRebuildFidelityResult evaluated =
-                    pdbAcquisitionFailure is null
-                        ? await EvaluateAsync(
-                            source,
-                            fetcher,
-                            decompilerResult,
-                            buildContext)
-                        : new AuthoredRebuildFidelityResult(
+                    AuthoredRebuildFidelityResult evaluated;
+                    if (pdbAcquisitionFailure is not null)
+                    {
+                        evaluated = new AuthoredRebuildFidelityResult(
                             decompilerResult,
                             AuthoredRebuildOutcome.SourceFailed,
                             ChecksumVerification: null,
@@ -165,15 +170,32 @@ static class AuthoredRebuildFidelity
                             "Portable PDB acquisition failed: "
                                 + pdbAcquisitionFailure.Message,
                             ImplementationDiff: null);
-                results.Add(
-                    evaluated with
+                    }
+                    else
                     {
-                        DecompilerLane =
-                            evaluated.DecompilerLane with
-                            {
-                                FinalRequest = null,
-                            },
-                    });
+                        if (source is null)
+                        {
+                            throw new InvalidOperationException(
+                                "PDB acquisition completed without a source context or failure.");
+                        }
+
+                        evaluated = await EvaluateAsync(
+                            source,
+                            fetcher,
+                            decompilerResult,
+                            buildContext);
+                    }
+
+                    results.Add(
+                        evaluated with
+                        {
+                            DecompilerLane =
+                                evaluated.DecompilerLane with
+                                {
+                                    FinalRequest = null,
+                                },
+                        });
+                }
             }
         }
 
@@ -1046,6 +1068,18 @@ static class AuthoredRebuildFidelity
         string? packageVersion = null,
         IPdbStore? pdbStore = null)
     {
+        if (source.Context.HasPdb
+            && source.Context.PdbId is null
+            && string.Equals(
+                source.Context.PdbLocation,
+                "Standalone",
+                StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                "The standalone Portable PDB identity cannot be verified "
+                + "because the assembly has no Portable CodeView entry.");
+        }
+
         if (!source.Context.NeedsPdb || source.Context.PdbId is not { } pdb)
             return;
 
@@ -1086,6 +1120,8 @@ static class AuthoredRebuildFidelity
     internal static bool IsPdbAcquisitionFailure(Exception exception)
         => exception is IOException
             or UnauthorizedAccessException
+            or BadImageFormatException
+            or InvalidDataException
             or InvalidOperationException
             or HttpRequestException
             or TaskCanceledException;

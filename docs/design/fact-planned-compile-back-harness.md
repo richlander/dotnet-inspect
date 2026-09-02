@@ -815,6 +815,13 @@ download-limit and cache-permission boundaries, while
 rejected same-name PDB from a symbol package that genuinely contains no
 candidate. `AuthoredRebuildFidelity_PdbFailureProducesSourceFailedResult` keeps
 the existing authored-rebuild command on the same typed failure contract.
+`SourceCorrespondencePdbAcquisition_RejectsUnverifiedStandalonePdb` prevents an
+identity-less adjacent PDB from entering this lane, and
+`SourceCorrespondencePdbAcquisition_MalformedEmbeddedPdbIsFailure` preserves a
+typed result when embedded-PDB opening fails. The compiler-backed
+`SourceCorrespondencePdbAcquisition_MapsCompiledMultiplicationAssignment`
+guards C# assignment-operator correlation against hand-written metadata-name
+drift.
 
 The census projects source-probe rows into Finding-style evidence keyed by
 member stable selector when available, but it does not change the RTS status.
