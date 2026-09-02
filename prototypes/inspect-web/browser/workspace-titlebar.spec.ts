@@ -405,14 +405,36 @@ test("width-only changes retain the initially applied window", async ({
     const wider = snapshot();
     controller.apply(controller.resolve(170));
     const complete = snapshot();
+    controller.apply(controller.resolve(100));
+    const moved = controller.slide("after");
+    const slid = snapshot();
+    controller.apply(controller.resolve(170));
+    const expandedAfterSlide = snapshot();
+    controller.apply(controller.resolve(110));
+    const narrowedAfterSlide = snapshot();
 
-    return { initial, wider, complete };
+    return {
+      initial,
+      wider,
+      complete,
+      moved,
+      slid,
+      expandedAfterSlide,
+      narrowedAfterSlide,
+    };
   });
 
   expect(state).toEqual({
     initial: { visible: ["a", "b"], leading: "a" },
     wider: { visible: ["a", "b"], leading: "a" },
     complete: { visible: ["a", "b", "c"], leading: "a" },
+    moved: true,
+    slid: { visible: ["c"], leading: "c" },
+    expandedAfterSlide: {
+      visible: ["a", "b", "c"],
+      leading: "c",
+    },
+    narrowedAfterSlide: { visible: ["b", "c"], leading: "c" },
   });
 });
 
@@ -543,9 +565,11 @@ test("manual windows survive resize and reset with inspector inventory", async (
   await page.setViewportSize({ width: 800, height: 900 });
   await expect(visibleLabels()).toHaveCount(5);
   await page.setViewportSize({ width: 560, height: 900 });
-  await expect(visibleLabels()).toHaveCount(2);
-  await expect(page.locator('[data-member-section="overview"]')).toBeHidden();
-  await expect(inspector.locator("[data-slide-strip-before]")).toBeVisible();
+  const narrowedLabels = await visibleLabels().allTextContents();
+  expect(narrowedLabels).toContain("Call graph");
+  await expect(page.locator('[data-member-section="call-graph"]'))
+    .toHaveAttribute("tabindex", "0");
+  await expect(help).toBeFocused();
 
   const memberSubject = page.locator('[data-scope="member"]');
   await memberSubject.focus();
