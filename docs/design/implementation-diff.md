@@ -867,11 +867,14 @@ This boundary does not define:
 **Status:** target design for
 [#5441](https://github.com/richlander/dotnet-inspect/issues/5441). No runtime
 type implements this contract, and every named gate below is **unverified**.
-The C# and ILDiff owners must first supply their focused typed-inspection
-adapters under
+The ILDiff owner now supplies its focused typed-inspection adapter through
+`IlAssemblyDiff.CompareMemberEndpoints`, gated by the owner-specific tests named
+in [IL diff canonicalization boundary](il-diff-canonicalization.md). The C#
+owner must still supply its focused adapter under
 [Finding producer guidance](finding-producers.md#admit-body-topology-before-native-comparison).
-Those prerequisites are tracked by
-[#5443](https://github.com/richlander/dotnet-inspect/issues/5443) and
+The remaining prerequisite is
+[#5443](https://github.com/richlander/dotnet-inspect/issues/5443); the delivered
+ILDiff prerequisite was tracked by
 [#5444](https://github.com/richlander/dotnet-inspect/issues/5444).
 
 This boundary is owned by `ILInspector.Research`. It turns one complete target
@@ -1137,10 +1140,11 @@ is required for this design.
 
 Implementation proceeds in focused owner order:
 
-1. C# and ILDiff separately adopt the shared Findings endpoint topology and
-   expose typed adapters and native results that retain the transition under
-   [#5443](https://github.com/richlander/dotnet-inspect/issues/5443) and
-   [#5444](https://github.com/richlander/dotnet-inspect/issues/5444).
+1. ILDiff has adopted the shared Findings endpoint topology and exposed its
+   typed adapter and native result under
+   [#5444](https://github.com/richlander/dotnet-inspect/issues/5444). C# must
+   adopt the same owner-specific obligations under
+   [#5443](https://github.com/richlander/dotnet-inspect/issues/5443).
 2. Research implements its catalog, exact work derivation, sequential session,
    input access, cleanup, and completion validator.
 3. The Research completion becomes available to the separately owned rank-5

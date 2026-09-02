@@ -1,0 +1,13 @@
+# Exact TLC semantic verdicts enforced by eng/run-tla-checks.sh.
+#
+# Unlisted configurations retain the legacy coherent-verdict policy. Add an
+# entry only when the configuration's exact outcome is a named repository gate.
+# Format: one canonical `<path-to-cfg>=<TLC-exit-code>` pair per line.
+
+docs/design/models/binding-selection-version/AssemblyBindingPolicyVersionLifecycle.cfg=0
+docs/design/models/binding-selection-version/CompositeBindingVersionBrokenLifecycle.cfg=13
+docs/design/models/binding-selection-version/CompositeBindingVersionLiveness.cfg=0
+docs/design/models/binding-selection-version/CompositeBindingVersionSafety.cfg=0
+docs/design/models/workspace-binding-policy-realization/BrokenImportedBindingVersionLifecycle.cfg=13
+docs/design/models/workspace-binding-policy-realization/WorkspaceBindingPolicyRealizationLiveness.cfg=0
+docs/design/models/workspace-binding-policy-realization/WorkspaceBindingPolicyRealizationSafety.cfg=0

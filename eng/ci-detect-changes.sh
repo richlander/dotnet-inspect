@@ -307,7 +307,7 @@ selects_tla_job() {
   local path="$1"
   local path_lower
   case "$path" in
-    .github/workflows/ci.yml|eng/ci-detect-changes.sh|eng/run-tla-checks.sh|eng/test-tla-checks.sh|eng/tla-module-overrides.txt)
+    .github/workflows/ci.yml|eng/ci-detect-changes.sh|eng/run-tla-checks.sh|eng/test-tla-checks.sh|eng/tla-module-overrides.txt|eng/tla-expected-exit-codes.txt)
       return 0
       ;;
   esac
