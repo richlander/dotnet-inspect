@@ -183,6 +183,18 @@ Bar, file Explorer, editor tabs, movable regions, or desktop-window
 assumptions; and Chrome DevTools does not imply a browser-debugging information
 architecture.
 
+No single established application or component model matches the complete
+Slideable Subject Strip. Its conventional parts form a deliberate hybrid:
+tmux contributes elastic natural-width allocation, Priority+ navigation
+contributes deterministic readable-label priority, scrollable tab bars
+contribute last-resort movement without removing identities, and split views
+contribute user-directed allocation between adjacent regions. The SSS diverges
+from ordinary Priority+ controls by compacting in place instead of moving
+entries into an overflow menu, and from ordinary split views by using discrete
+semantic reveal steps instead of a draggable pixel-sized divider. This design
+therefore names and specifies its own composite rather than claiming
+conformance to an existing widget.
+
 [npmx.dev](https://npmx.dev/) contributes fast package exploration, density,
 code-first working surfaces, keyboard access, and persistent package context.
 Inspect Web does not copy:
