@@ -115,7 +115,7 @@ public abstract class ArtifactSetPublicationOutcome
 /// <c>ArtifactSetSession_ConcurrentTerminationWaitsForCleanup</c> and
 /// <c>ArtifactSetSession_ConcurrentAbortAndDisposalShareCleanup</c>.
 /// Content-access quiescence is gated by
-/// <c>ArtifactSetSession_ReleasesLeasesOnlyAfterDependentGroupsQuiesce</c>
+/// <c>ArtifactSetSession_ReleasesLeasesOnlyAfterOpenArtifactStreamsQuiesce</c>
 /// and <c>ArtifactSetSession_DisposalCancelsInFlightMaterialization</c>.
 /// </remarks>
 public sealed class ArtifactSetSession : IAsyncDisposable

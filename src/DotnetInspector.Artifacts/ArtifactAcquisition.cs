@@ -11,9 +11,9 @@ public interface IArtifactAcquisitionDiagnostic
 /// Source-owned resource lifetime returned by one successful acquisition.
 /// </summary>
 /// <remarks>
-/// The future artifact-set owner must retain this lease until dependent groups
-/// quiesce. That lifetime is unverified until
-/// <c>ArtifactSetSession_ReleasesLeasesOnlyAfterDependentGroupsQuiesce</c>.
+/// The artifact workspace owner must retain this lease until dependent groups
+/// quiesce. That lifetime is gated by
+/// <c>WorkspaceClose_ReleasesArtifactSessionAfterExactDependentGroupQuiesces</c>.
 /// </remarks>
 public interface IArtifactAcquisitionLease : IAsyncDisposable
 {
