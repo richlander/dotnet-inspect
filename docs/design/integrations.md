@@ -861,11 +861,25 @@ candidate attempt and retains:
 - `In` or `Out` plus the typed `Out` reason; and
 - admitted relationship identity when `In`.
 
+The admitted relationship identity is the exact context-addressed candidate
+attempt. It is not a graph-local occurrence or edge id. A later graph
+projection must retain correspondence from this identity to the graph-owned
+occurrence and logical edge it admits.
+
+`IntegrationCensusProjectionResult` retains the independently validated plan
+and the exact compatible snapshot. `IntegrationInventoryProjectionResult`
+adds the immutable rows in the snapshot's canonical classified-attempt order.
+An incomplete snapshot may therefore retain healthy rows beside its original
+typed failures without projecting failed attempts as `Out` or successful empty
+rows.
+
 The Section is `Verbose`, `NetworkFree`, and `ExplicitOnly`. It does not enter
 the existing Library `@Integrations` catalog, so selecting that category keeps
 its current focused-section meaning and bounded output. A workspace host may
 assign the Section to an authored workspace category under the
 [Section model](section-model.md) contract.
+The reusable L2 catalog and schema exist independently of host registration;
+this slice does not add a CLI route or Library pipeline binding.
 Those declarations describe the Integration-produced row set;
 [Section model](section-model.md) remains authoritative for discovery,
 selection, effectiveness, category expansion, count, and empty-section
@@ -980,7 +994,9 @@ Implementation should land as focused slices:
    and the projection-neutral Census snapshot (implemented core model);
 3. sequential Workspace-backed execution over exact typed capability bindings
    (implemented);
-4. `Integration Inventory` row Section and structured row output;
+4. `Integration Inventory` row Section and structured row output
+   (implemented as a host-neutral row projection plus an unregistered reusable
+   L2 catalog and schema);
 5. graph correspondence from `In` candidates without changing graph semantics;
 6. sparse matrix projection and WASM demo; and
 7. separately owned #4979 `find` prerequisite or optional enrichment for
@@ -1115,6 +1131,23 @@ The projection-neutral core-model slice is verified by:
 - `IntegrationCensusExecutor_ResolvedFulfillmentSourcesExactlyCoverDeclaredLookups`
 - `IntegrationCensusExecutor_FulfillmentResolutionCannotRepeatLookup`
 
+The Integration Inventory row-projection slice is verified by:
+
+- `IntegrationInventory_RowsRetainTypedSourcePeerAndProvenance`
+- `IntegrationInventory_PeerLookupRetainsEveryTypeReferenceScopeArm`
+- `IntegrationInventory_ForwardedInAndOutRetainTerminalDefinitionProvenanceAndHops`
+- `IntegrationInventory_ForwardedOutUsesTerminalParentForHandoff`
+- `IntegrationInventory_KnownParentUsesAuthoritativeCoordinate`
+- `IntegrationInventory_UnknownParentNeverGuessesFromAssemblyName`
+- `IntegrationInventory_FindPatternUsesTypeLookupGrammarUnchanged`
+- `IntegrationInventory_SameCandidateAcrossContextsProducesDistinctRows`
+- `IntegrationInventory_IncompleteCensusRetainsHealthyRowsWithoutManufacturingFailureRows`
+- `IntegrationInventory_IncompleteEmptyCensusRetainsFailureState`
+- `IntegrationInventory_IsExplicitNetworkFreeVerboseSection`
+- `IntegrationInventory_DoesNotWidenLibraryIntegrationsCategory`
+- `IntegrationProjection_EachResponseRetainsItsExactValidatedRequest`
+- `IntegrationProjection_ReuseRequiresCompatibleCensusSnapshot`
+
 The remaining target implementation is unverified until these named gates
 land:
 
@@ -1125,15 +1158,6 @@ land:
 - `IntegrationCandidate_UnavailableAmbiguousOrMissingSelectedPeerIsFailure`
 - `IntegrationCandidate_UnresolvedForwardingIsFailure`
 - `IntegrationCandidate_RemovingSoleSourceRemovesCandidate`
-- `IntegrationInventory_RowsRetainTypedSourcePeerAndProvenance`
-- `IntegrationInventory_PeerLookupRetainsEveryTypeReferenceScopeArm`
-- `IntegrationInventory_ForwardedInAndOutRetainTerminalDefinitionProvenanceAndHops`
-- `IntegrationInventory_ForwardedOutUsesTerminalParentForHandoff`
-- `IntegrationInventory_KnownParentUsesAuthoritativeCoordinate`
-- `IntegrationInventory_UnknownParentNeverGuessesFromAssemblyName`
-- `IntegrationInventory_FindPatternUsesTypeLookupGrammarUnchanged`
-- `IntegrationInventory_IsExplicitNetworkFreeVerboseSection`
-- `IntegrationInventory_DoesNotWidenLibraryIntegrationsCategory`
 - `IntegrationMatrix_RetainsCandidateIdentityAndDispositionCounts`
 - `IntegrationMatrix_RepeatedLibraryAcrossContextsRemainsDistinct`
 - `IntegrationMatrix_IncompleteLibraryDoesNotRenderAsZero`
@@ -1146,8 +1170,6 @@ land:
 - `IntegrationGraph_CandidateInventoryPrecedesInducedSetProjection`
 - `IntegrationGraph_RetainsCandidateAttemptOccurrenceAndEdgeCorrespondence`
 - `IntegrationGraph_MultipleCandidatesMayCorrespondToOneLogicalEdge`
-- `IntegrationProjection_EachResponseRetainsItsExactValidatedRequest`
-- `IntegrationProjection_ReuseRequiresCompatibleCensusSnapshot`
 - `IntegrationProjection_RowsMatrixAndGraphShareOneAnalysisAndSnapshot`
 - `IntegrationWasmDemo_RendersSharedProjectionWithoutDetectionPolicy`
 

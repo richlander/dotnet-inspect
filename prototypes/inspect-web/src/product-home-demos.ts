@@ -147,6 +147,7 @@ export function productHomeDemoLocationHref(
     package: focusTab.kind === "group"
       ? BROWSER_RUNTIME_PACKAGE
       : focusTab.source,
+    subject: null,
     tabs,
     contexts: [{
       id: "g0",
