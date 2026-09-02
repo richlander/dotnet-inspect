@@ -246,10 +246,10 @@ the retained producer-facing endpoint evidence under
 [Complete census and correspondence](#complete-census-and-correspondence), are
 implemented and verified by their named gates in
 [Target-resolution migration and gates](#target-resolution-migration-and-gates)
-and the owning sections. Producer-specific adapters and inspection-topology
-classification remain future independently owned work. The Research local
-producer-session and completion boundary is specified below but remains
-unimplemented.
+and the owning sections. The native C# and IL producer adapters and their
+inspection-topology classification are implemented and verified by their
+owning sections. The Research local producer-session and completion boundary
+is specified below but remains unimplemented.
 
 This design proposes one place to answer the target question before comparison
 work begins: which member, if any, did each side select; can those targets
