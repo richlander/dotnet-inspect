@@ -94,7 +94,8 @@ module's rules, so legacy output is byte-identical.
 
 An operation needs a block when it is:
 
-- a pointer dereference (`*p`) or a function-pointer invocation (`calli`);
+- a pointer dereference or pointer member/indexer access (`*p`, `p->F`,
+  `(*p)[i]`), or a function-pointer invocation (`calli`);
 - a call to a *requires-unsafe* member — one stamped with `RequiresUnsafeAttribute`
   (`System.Diagnostics.CodeAnalysis`), i.e. declared `unsafe`/`extern`, even with
   no pointer in the call;
