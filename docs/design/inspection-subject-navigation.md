@@ -661,10 +661,12 @@ Type navigation has an explicit Library context:
 | Library | The active Library |
 | Type or Member | The defining Library |
 | Package or Root | Available aggregate, then the highest-ranked trustworthy Type's Library, then primary or first available Library |
-| Workspace | Retained context of the active occurrence when one exists; otherwise none |
+| Workspace | Defining Library of the deepest retained Type or Member; otherwise the deepest retained Library; otherwise apply the Package-or-Root rule to the retained root; none without retained occurrence context |
 
 If no context can be established, the context is unavailable or failed. The
 context does not activate Library or promote Package, Root, or Workspace.
+Workspace context is derived from the retained path and realized occurrence
+facts; it is not an independently selectable or caller-authored Library.
 
 ### Aggregate and single-library capability
 
@@ -1090,6 +1092,7 @@ The eventual subject-navigation implementation must include named gates for:
 - `Construction_RejectsAbsentOwnerIssuedComponents`
 - `PortableCoordinateAlone_CannotIdentifyRetainedPackageSubject`
 - `WorkspaceSubject_PreservesActiveOccurrenceAndDescendantContext`
+- `WorkspaceTypeInventoryContext_DerivesFromDeepestRetainedNode`
 - `WorkspaceSubject_ExposesCoordinatesWithoutNavigationAggregation`
 - `PackageAndNonPackageRoot_AreMutuallyExclusive`
 - `RetainedCoordinateActivation_UsesExactOccurrenceAction`
@@ -1241,6 +1244,7 @@ result identifies Navigation as the failure source.
 | Foreign-Workspace subject, action, or restoration payload | Rejected before Registry resolution, correspondence, or fallback |
 | Restoration occurrence and subject ancestry disagree inside one Workspace | Preparation aborts before Registry resolution |
 | Restoration active Type and retained path name different Types in one occurrence | Preparation aborts before Registry resolution |
+| Workspace restoration retains Type in Library L2 but supplies L1 as Type-inventory context | Preparation aborts before Registry resolution |
 | Two Workspace-selected restorations share an occurrence but retain different Type contexts | Distinct prepared snapshots preserve the exact independently supplied descendant context |
 | Retained Member disappears while Workspace is active | Retained context falls back to the containing Type while Workspace and its lens remain active |
 | Package content or selection generation is replaced at the same portable coordinate | New exact Package subject; stale subject and actions are rejected |
