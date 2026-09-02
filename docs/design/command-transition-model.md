@@ -461,8 +461,12 @@ the resolved exact package coordinate, exact package-relative asset, and TFM.
 That includes the ordinary case where the package image is also the image the
 caller named: the original package spelling may float to another version, so it
 cannot be the replay address for a printed MethodDef token. The exact address
-survives package ranges and same-named assets in other TFMs
-(`Similar_PackageForwardedPopulation_DisclosesTheExactReplayAddress`,
+survives package ranges and same-named assets in other TFMs. Package-coordinate
+replay and forwarded dependency discovery consult the same ordered
+global-packages-root inventory, so an active `NUGET_PACKAGES` override does not
+hide a retained target in the default secondary root
+(`ListCachedPackageContent_UsesASecondaryGlobalPackagesRoot`,
+`Similar_PackageForwardedPopulation_DisclosesTheExactReplayAddress`,
 `Similar_PackageSameImage_DisclosesTheExactReplayAddress`). An image the caller
 supplied directly outlives the command and is disclosed unchanged
 (`ReplayableCandidateAddress_ForADirectlyNamedLibrary_KeepsThePathIntact`,

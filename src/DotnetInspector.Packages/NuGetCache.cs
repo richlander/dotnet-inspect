@@ -233,24 +233,27 @@ public static class NuGetCache
         string packageName,
         string version,
         IReadOnlyList<string>? allowedSourceKeys,
-        string? globalPackagesPath = null)
+        string? globalPackagesPath = null,
+        IReadOnlyList<string>? globalPackagesPaths = null)
         => [.. EnumerateCachedPackageContent(
             packageName,
             version,
             allowedSourceKeys,
-            globalPackagesPath)];
+            globalPackagesPath,
+            globalPackagesPaths)];
 
     /// <summary>
     /// Cache tiers for a coordinate, preferred order: product-owned app-cache
-    /// slots (configured producer order), then NuGet global-packages. Yields
-    /// lazily so a usable app-cache hit never opens global
+    /// slots (configured producer order), then the ordered NuGet global-packages
+    /// roots. Yields lazily so a usable app-cache hit never opens global
     /// <c>.nupkg.metadata</c> or inspects a corrupt foreign tree.
     /// </summary>
     internal static IEnumerable<CachedPackage> EnumerateCachedPackageContent(
         string packageName,
         string version,
         IReadOnlyList<string>? allowedSourceKeys,
-        string? globalPackagesPath = null)
+        string? globalPackagesPath = null,
+        IReadOnlyList<string>? globalPackagesPaths = null)
     {
         ValidatePathComponent(packageName, "package name");
         ValidatePathComponent(version, "version");
@@ -307,14 +310,19 @@ public static class NuGetCache
         // (admission rejected them or none existed).
         if (!_skipNuGetCache)
         {
-            var nugetCachePath = globalPackagesPath ?? GetNuGetCachePath();
-            CachedPackage? global = TryGetGlobalPackageContent(
-                nugetCachePath,
-                normalizedName,
-                normalizedVersion,
-                allowedSourceKeys);
-            if (global is not null)
+            IEnumerable<string> roots = globalPackagesPath is not null
+                ? [globalPackagesPath]
+                : globalPackagesPaths ?? GetNuGetPackageRoots();
+            foreach (string root in roots)
             {
+                CachedPackage? global = TryGetGlobalPackageContent(
+                    root,
+                    normalizedName,
+                    normalizedVersion,
+                    allowedSourceKeys);
+                if (global is null)
+                    continue;
+
                 if (!any)
                 {
                     any = true;

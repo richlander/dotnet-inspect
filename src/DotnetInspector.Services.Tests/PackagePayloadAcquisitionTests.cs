@@ -711,6 +711,61 @@ public sealed class PackagePayloadAcquisitionTests
         }
     }
 
+    /// <summary>
+    /// Dependency resolution can find a forwarded target in the default global-packages root
+    /// while an explicit <c>NUGET_PACKAGES</c> override is active. Exact package replay must
+    /// consult that same secondary root rather than declaring the retained package unavailable.
+    /// </summary>
+    [Fact]
+    public void ListCachedPackageContent_UsesASecondaryGlobalPackagesRoot()
+    {
+        string cacheRoot = TempDirectory();
+        string primaryRoot = TempDirectory();
+        string secondaryRoot = TempDirectory();
+        NuGetCache.Initialize(
+            "dotnet-inspect-test",
+            cacheRoot,
+            skipNuGetCache: false);
+        try
+        {
+            string sourceKey = NuGetCache.GetSourceKey(NuGetOrg.Url);
+            string packageDirectory = Path.Combine(
+                secondaryRoot,
+                PackageId.ToLowerInvariant(),
+                Version.ToLowerInvariant());
+            Directory.CreateDirectory(packageDirectory);
+            File.WriteAllText(
+                Path.Combine(packageDirectory, ".nupkg.metadata"),
+                $$"""{"source":"{{NuGetOrg.Url}}"}""");
+            File.WriteAllBytes(
+                Path.Combine(
+                    packageDirectory,
+                    $"{PackageId.ToLowerInvariant()}.{Version.ToLowerInvariant()}.nupkg"),
+                [1]);
+
+            IReadOnlyList<CachedPackage> listed =
+                NuGetCache.ListCachedPackageContent(
+                    PackageId,
+                    Version,
+                    [sourceKey],
+                    globalPackagesPaths: [primaryRoot, secondaryRoot]);
+
+            CachedPackage package = Assert.Single(listed);
+            Assert.Equal(packageDirectory, package.ExtractPath);
+            Assert.Equal(sourceKey, package.ProducerKey);
+            Assert.False(package.RequiresArchiveTreeMatch);
+        }
+        finally
+        {
+            foreach (string directory in
+                new[] { cacheRoot, primaryRoot, secondaryRoot })
+            {
+                if (Directory.Exists(directory))
+                    Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
     [Fact]
     public void GlobalPackageMetadata_OverMaxBytes_IsIgnored()
     {
