@@ -38,12 +38,12 @@ namespace ILInspector.Metadata;
 /// own is not evidence that the two sides agree.
 /// </para>
 /// </remarks>
-internal static class SystemTypeArgumentName
+public static class SystemTypeArgumentName
 {
     /// <summary>
     /// The rendered name that denotes <c>System.Type</c>.
     /// </summary>
-    internal const string Rendered = "System.Type";
+    public const string Rendered = "System.Type";
 
     /// <summary>
     /// Reports whether a rendered type name denotes <c>System.Type</c>.
@@ -52,6 +52,6 @@ internal static class SystemTypeArgumentName
     /// A rendered type name, or <see langword="null"/> when the name could not
     /// be resolved. An unresolved name is not <c>System.Type</c>.
     /// </param>
-    internal static bool Matches(string? renderedName)
+    public static bool Matches(string? renderedName)
         => string.Equals(renderedName, Rendered, StringComparison.Ordinal);
 }

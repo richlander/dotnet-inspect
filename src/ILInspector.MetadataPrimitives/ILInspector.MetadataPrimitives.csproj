@@ -19,7 +19,6 @@
     <InternalsVisibleTo Include="ILInspector.Instructions" />
     <InternalsVisibleTo Include="ILInspector.Metadata" />
     <InternalsVisibleTo Include="ILInspector.Metadata.Tests" />
-    <InternalsVisibleTo Include="ts-jsexport" />
   </ItemGroup>
 
   <!-- SRM-only by design: no project references. System.Reflection.Metadata is part of the BCL. -->
