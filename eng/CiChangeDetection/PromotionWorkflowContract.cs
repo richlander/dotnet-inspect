@@ -6,7 +6,7 @@ namespace CiChangeDetection;
 internal static class PromotionWorkflowContract
 {
     private const string AzureAction =
-        "Azure/static-web-apps-deploy@4d27395796ac319302594769cfe812bd207490b1";
+        "Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9";
     private const string CheckoutAction =
         "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803";
     private const string DownloadArtifactAction =
