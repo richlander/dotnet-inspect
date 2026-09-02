@@ -49,7 +49,9 @@ read that way:
   not modelled. The model's opaque `coordinate` intent represents
   Navigation-local coordinate activation and variation, not an external effect
   that must consume its correlated result before another explicit command can
-  be admitted. Named implementation gates enforce that barrier.
+  be admitted. The synchronous pre-admission refusal for a blocked command is
+  likewise outside the result-authority state machine. Named implementation
+  gates enforce that barrier and refusal shape.
 - **UI accessibility.** Focus, roving `tabindex`, menu and tablist semantics,
   and rendering belong to [Inspect Web Navigation
   Presentation](../../inspect-web-navigation-presentation.md); focus movement
