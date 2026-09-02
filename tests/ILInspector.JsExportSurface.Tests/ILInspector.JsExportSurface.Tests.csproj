@@ -24,6 +24,7 @@
     <ProjectReference Include="../../src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
     <ProjectReference Include="../../src/ILInspector.JsExportSurface/ILInspector.JsExportSurface.csproj" />
     <ProjectReference Include="../../src/ts-jsexport/ts-jsexport.csproj" />
+    <ProjectReference Include="../../src/TsJsExport.Contracts/TsJsExport.Contracts.csproj" />
     <ProjectReference Include="../../src/ILInspector.JsExportSurface.Fixtures/ILInspector.JsExportSurface.Fixtures.csproj" />
     <ProjectReference
       Include="../../src/ILInspector.JsExportSurface.RuntimeAsyncFixtures/ILInspector.JsExportSurface.RuntimeAsyncFixtures.csproj"
@@ -33,6 +34,10 @@
     <ProjectReference Include="../ILInspector.JsExportSurface.PublishabilityFixtures/ILInspector.JsExportSurface.PublishabilityFixtures.csproj" />
     <ProjectReference Include="../ILInspector.JsExportSurface.ScalarFixtures/ILInspector.JsExportSurface.ScalarFixtures.csproj" />
     <ProjectReference Include="../ILInspector.JsExportSurface.TypeScriptFixtures/ILInspector.JsExportSurface.TypeScriptFixtures.csproj" />
+    <ProjectReference Include="../TsJsExport.ContextFixtures.Host/TsJsExport.ContextFixtures.Host.csproj" />
+    <ProjectReference
+      Include="../TsJsExport.ContextFixtures.WrongContract/TsJsExport.ContextFixtures.WrongContract.csproj"
+      Aliases="WrongContractFixture" />
   </ItemGroup>
 
   <Target Name="CopyRuntimeAsyncFixture" AfterTargets="Build">
