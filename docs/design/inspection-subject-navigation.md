@@ -811,14 +811,23 @@ resolution, correspondence, or fallback.
 | Type | Retain when available; otherwise highest-ranked trustworthy Type in its defining Library, then that Library, aggregate, then the exact Package or Root |
 | Member | Retain when available; otherwise containing Type; if that Type is unavailable, apply the Type rule |
 
-Navigation first reconciles the active subject through the table. If that
-changes the active subject, retained context is reduced to the valid ancestry
-of the replacement; invalid descendants are not carried across the fallback.
-If the active subject remains and is an ancestor of a deeper retained path,
-Navigation independently reconciles the deepest retained descendant through
-the same table, stopping at the active subject rather than falling back above
-it. It then rebuilds the contiguous path and derives Type-inventory Library
-context from that path and current realized facts.
+Navigation first reconciles the active subject through the table. When an exact
+successor occurrence is supplied and the active ancestor resolves exactly
+there, Navigation next applies
+[retained-coordinate variation](#retained-coordinate-variation) to the deepest
+retained descendant under that resolved ancestor. A correspondable descendant
+is retained in the successor path; a missing or ambiguous descendant follows
+the variation fallback but stops at the resolved active ancestor rather than
+falling back above it.
+
+When active-subject reconciliation instead changes structural level or uses an
+independent fallback, retained context is reduced to the valid ancestry of the
+replacement; invalid descendants are not carried across that fallback. When
+the active subject remains unchanged inside one occurrence, Navigation
+independently reconciles the deepest retained descendant through the same table,
+again stopping at the active subject. Every path result is rebuilt as contiguous
+ancestry, and Type-inventory Library context is derived from that path and
+current realized facts.
 
 For example, with Package active and retained `Package -> Library -> Type ->
 Member`, a missing Member falls back the retained context to Type while Package
@@ -1168,6 +1177,7 @@ The eventual subject-navigation implementation must include named gates for:
 - `FailedUnchangedSnapshot_RetainsStateRevision`
 - `FailedResult_InstalledRevisionMatchesRecordedResultRevision`
 - `RetainedCoordinateVariation_UsesTypedCorrespondence`
+- `CoordinateVariation_ExactResolvedAncestorPreservesCorrespondableRetainedContext`
 - `LensReconciliation_PreservesExactSubjectScopedIdentity`
 - `RetainedSession_UsesInstalledSnapshotAsOnlyPriorState`
 - `RetainedSession_BindsOneExactWorkspaceOccurrence`
@@ -1259,6 +1269,7 @@ result identifies Navigation as the failure source.
 | Two Workspace-selected restorations share an occurrence but retain different Type contexts | Distinct prepared snapshots preserve the exact independently supplied descendant context |
 | Retained Member disappears while Workspace is active | Retained context falls back to the containing Type while Workspace and its lens remain active |
 | Retained Member disappears while Package is active | Retained context falls back to the containing Type while Package and its lens remain active |
+| Package O1 with retained Type/Member context resolves exactly to successor Package O2 | Correspondable retained descendants resolve under O2 before invalid descendants are discarded |
 | Package content or selection generation is replaced at the same portable coordinate | New exact Package subject; stale subject and actions are rejected |
 | Coordinate variation within one Workspace | Typed correspondence or independent recommendation confined to the requested occurrence |
 | Coordinate variation across Workspaces | No correspondence; separate retained session and independently restored state |
