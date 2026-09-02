@@ -216,12 +216,7 @@ public static class CSharpStructuralDiffPrinter
     /// </summary>
     static string FormatDetail(CSharpStructuralComparison comparison, CSharpStructuralDiffRow row)
     {
-        bool textChanged = row.Change.HasFlag(CSharpStructuralChangeKind.Changed)
-            && !CSharpBodyDiff.SelectedTextEqual(
-                comparison.Before,
-                row.BeforeSpans,
-                comparison.After,
-                row.AfterSpans);
+        bool textChanged = RowTextChanged(comparison, row);
         bool added = row.Change.HasFlag(CSharpStructuralChangeKind.Added);
         bool removed = row.Change.HasFlag(CSharpStructuralChangeKind.Removed);
         if (!textChanged && !added && !removed)
@@ -229,15 +224,20 @@ public static class CSharpStructuralDiffPrinter
 
         string? beforeText = InlineText(comparison.Before, row.BeforeSpans);
         string? afterText = InlineText(comparison.After, row.AfterSpans);
-        if (textChanged
-            && IsInvocationRoleCandidate(row)
-            && beforeText is not null
-            && afterText is not null)
+        if (textChanged && IsInvocationRoleCandidate(row))
         {
-            if (TryDescribeQualifierArgumentRoleTransition(beforeText, afterText, out var qualifierTransition))
-                return qualifierTransition.DetailSummary;
-            if (TryDescribeCalleeRenamedRoleTransition(comparison, beforeText, afterText, out var calleeTransition))
-                return calleeTransition.DetailSummary;
+            // Use the full matched node's text, not the (possibly narrowed,
+            // issue #5486) caret spans -- these captions need to see the
+            // whole call shape to recognize it.
+            string? beforeCallText = FullNodeText(comparison.Before, row.BeforeNodeId) ?? beforeText;
+            string? afterCallText = FullNodeText(comparison.After, row.AfterNodeId) ?? afterText;
+            if (beforeCallText is not null && afterCallText is not null)
+            {
+                if (TryDescribeQualifierArgumentRoleTransition(beforeCallText, afterCallText, out var qualifierTransition))
+                    return qualifierTransition.DetailSummary;
+                if (TryDescribeCalleeRenamedRoleTransition(comparison, beforeCallText, afterCallText, out var calleeTransition))
+                    return calleeTransition.DetailSummary;
+            }
         }
 
         if (textChanged
@@ -254,6 +254,43 @@ public static class CSharpStructuralDiffPrinter
             : FormatTransition(beforeText, afterText);
     }
 
+    /// <summary>
+    /// Whether a row's text meaningfully changed. For most rows this is the
+    /// (possibly narrowed) caret spans' own text equality -- narrowing
+    /// preserves the property that the narrowed span still differs whenever
+    /// the row does (items 2/7/10 only narrow when the surrounding text is
+    /// identical, so the difference necessarily survives inside the narrowed
+    /// span). The one shape that does not preserve this property is issue
+    /// #5486's qualifier/argument narrowing: `receiver` narrows to the exact
+    /// same identifier text on both sides, even though its role (qualifier
+    /// vs. argument) genuinely changed. For that shape, compare the full
+    /// matched nodes' text instead of the narrowed caret spans.
+    /// </summary>
+    static bool RowTextChanged(CSharpStructuralComparison comparison, CSharpStructuralDiffRow row)
+    {
+        if (!row.Change.HasFlag(CSharpStructuralChangeKind.Changed))
+            return false;
+
+        if (IsInvocationRoleCandidate(row)
+            && row.BeforeNodeId is int beforeId
+            && row.AfterNodeId is int afterId)
+        {
+            var beforeNode = comparison.Before.Nodes[beforeId];
+            var afterNode = comparison.After.Nodes[afterId];
+            return !CSharpBodyDiff.SelectedTextEqual(
+                comparison.Before,
+                beforeNode.Spans,
+                comparison.After,
+                afterNode.Spans);
+        }
+
+        return !CSharpBodyDiff.SelectedTextEqual(
+            comparison.Before,
+            row.BeforeSpans,
+            comparison.After,
+            row.AfterSpans);
+    }
+
     static string? InlineText(AnnotatedSourceDocument document, ImmutableArray<AnnotatedSourceSpan> spans)
     {
         if (spans.Length != 1 || spans[0].Length > MaximumInlineTransitionLength)
@@ -263,18 +300,70 @@ public static class CSharpStructuralDiffPrinter
         return CanRenderExactInline(text) ? Contain(text) : null;
     }
 
+    /// <summary>
+    /// The full text of a matched node's own span, independent of whatever
+    /// (possibly narrowed) caret spans its row carries. Invocation-role
+    /// captions (item 3's qualifier/argument transition, item 9's
+    /// callee-rename) need to see the whole call shape to recognize it, even
+    /// when the row's caret has been narrowed to just the moved sub-token
+    /// (issue #5486) -- the caret position and the caption derivation are
+    /// separate concerns.
+    ///
+    /// Also used (as <c>internal</c>) by <c>RefineInvocationQualifierArgumentRows</c>
+    /// to gate narrowing itself: a row must only be narrowed when this same
+    /// method would later be able to recognize and render its full call
+    /// shape, otherwise the caption/detail logic falls back to the (now
+    /// narrowed, textually-identical-on-both-sides) caret spans and produces
+    /// a misleading self-transition such as "changed to receiver".
+    /// </summary>
+    internal static string? FullNodeText(AnnotatedSourceDocument document, int? nodeId)
+    {
+        if (nodeId is not int id)
+            return null;
+
+        var node = document.Nodes[id];
+        if (node.Spans.Count != 1 || node.Spans[0].Length > MaximumInlineTransitionLength)
+            return null;
+
+        string text = SelectText(document, node.Spans[0]);
+        return CanRenderExactInline(text) ? Contain(text) : null;
+    }
+
     static string TextTransitionSuffix(
         CSharpStructuralComparison comparison,
         CSharpStructuralDiffRow row,
         CSharpStructuralSide side)
     {
-        if (!row.Change.HasFlag(CSharpStructuralChangeKind.Changed)
-            || CSharpBodyDiff.SelectedTextEqual(
-                comparison.Before,
-                row.BeforeSpans,
-                comparison.After,
-                row.AfterSpans))
+        if (!RowTextChanged(comparison, row))
             return "";
+
+        // Invocation-role captions need the whole call shape, not the
+        // (possibly narrowed, issue #5486) caret spans -- try this first,
+        // independent of the caret's own span count/length, and fall back to
+        // the caret-derived text below when the shape isn't recognized.
+        if (IsInvocationRoleCandidate(row))
+        {
+            string? beforeCallText = FullNodeText(comparison.Before, row.BeforeNodeId);
+            string? afterCallText = FullNodeText(comparison.After, row.AfterNodeId);
+            if (beforeCallText is not null && afterCallText is not null)
+            {
+                if (TryDescribeQualifierArgumentRoleTransition(
+                        beforeCallText, afterCallText, out var qualifierTransition))
+                {
+                    return side == CSharpStructuralSide.Before
+                        ? $"; {qualifierTransition.BeforeDescription}"
+                        : $"; {qualifierTransition.AfterDescription}";
+                }
+
+                if (TryDescribeCalleeRenamedRoleTransition(
+                        comparison, beforeCallText, afterCallText, out var calleeTransition))
+                {
+                    return side == CSharpStructuralSide.Before
+                        ? $"; {calleeTransition.BeforeDescription}"
+                        : $"; {calleeTransition.AfterDescription}";
+                }
+            }
+        }
 
         if (row.BeforeSpans.Length != 1 || row.AfterSpans.Length != 1)
             return "; text changed";
@@ -291,30 +380,6 @@ public static class CSharpStructuralDiffPrinter
         string afterText = SelectText(comparison.After, afterSpan);
         if (!CanRenderExactInline(beforeText) || !CanRenderExactInline(afterText))
             return "; text changed";
-
-        if (IsInvocationRoleCandidate(row))
-        {
-            if (TryDescribeQualifierArgumentRoleTransition(
-                    Contain(beforeText)!,
-                    Contain(afterText)!,
-                    out var qualifierTransition))
-            {
-                return side == CSharpStructuralSide.Before
-                    ? $"; {qualifierTransition.BeforeDescription}"
-                    : $"; {qualifierTransition.AfterDescription}";
-            }
-
-            if (TryDescribeCalleeRenamedRoleTransition(
-                    comparison,
-                    Contain(beforeText)!,
-                    Contain(afterText)!,
-                    out var calleeTransition))
-            {
-                return side == CSharpStructuralSide.Before
-                    ? $"; {calleeTransition.BeforeDescription}"
-                    : $"; {calleeTransition.AfterDescription}";
-            }
-        }
 
         if (IsUsingDeclarationRoleCandidate(row)
             && TryDescribeUsingDeclarationRoleTransition(
@@ -418,7 +483,7 @@ public static class CSharpStructuralDiffPrinter
     /// exactly, or when more than one position does (an ambiguous match is
     /// not an honest one).
     /// </summary>
-    static bool TryFindInsertedArgumentIndex(
+    internal static bool TryFindInsertedArgumentIndex(
         ImmutableArray<string> smaller,
         ImmutableArray<string> larger,
         string value,
@@ -1105,7 +1170,7 @@ public static class CSharpStructuralDiffPrinter
     /// narrow heuristic does not recognize -- callers must treat that as "no
     /// opinion", not as evidence the shape does not exist.
     /// </summary>
-    static bool TryParseQualifiedCall(
+    internal static bool TryParseQualifiedCall(
         string text,
         out string? qualifier,
         out string callee,
@@ -1265,6 +1330,94 @@ public static class CSharpStructuralDiffPrinter
         }
         results.Add(argsText[start..].Trim());
         return results.ToImmutable();
+    }
+
+    /// <summary>
+    /// Locates the trimmed span of the <paramref name="argumentIndex"/>-th
+    /// top-level argument in <paramref name="text"/>'s own call-expression
+    /// argument list (the same shape <see cref="TryParseQualifiedCall"/> and
+    /// <see cref="SplitTopLevelArguments"/> recognize), as an offset and
+    /// length relative to <paramref name="text"/> itself. Used to narrow a
+    /// structural-diff caret to the exact argument a qualifier moved into or
+    /// out of, rather than the call's entire span (issue #5486).
+    /// </summary>
+    internal static bool TryFindArgumentSpan(string text, int argumentIndex, out int start, out int length)
+    {
+        start = 0;
+        length = 0;
+        if (argumentIndex < 0)
+            return false;
+
+        int openParen = FindUnquotedIndexOf(text, '(', 0);
+        if (openParen < 0)
+            return false;
+        int closeParen = FindMatchingClose(text, openParen);
+        if (closeParen < 0)
+            return false;
+
+        int argsStart = openParen + 1;
+        string argsText = text[argsStart..closeParen];
+        if (argsText.Trim().Length == 0)
+            return false;
+
+        int depth = 0;
+        bool inString = false;
+        bool inChar = false;
+        int segmentStart = 0;
+        int currentIndex = 0;
+        for (int index = 0; index < argsText.Length; index++)
+        {
+            char character = argsText[index];
+            if (inString)
+            {
+                if (character == '\\') { index++; continue; }
+                if (character == '"') inString = false;
+                continue;
+            }
+            if (inChar)
+            {
+                if (character == '\\') { index++; continue; }
+                if (character == '\'') inChar = false;
+                continue;
+            }
+            if (character == '"') { inString = true; continue; }
+            if (character == '\'') { inChar = true; continue; }
+            if (character is '(' or '[' or '{') { depth++; continue; }
+            if (character is ')' or ']' or '}') { depth--; continue; }
+            if (character != ',' || depth != 0)
+                continue;
+
+            if (currentIndex == argumentIndex)
+                return TryTrimArgumentSegment(argsText, argsStart, segmentStart, index, out start, out length);
+
+            currentIndex++;
+            segmentStart = index + 1;
+        }
+
+        return currentIndex == argumentIndex
+            && TryTrimArgumentSegment(argsText, argsStart, segmentStart, argsText.Length, out start, out length);
+    }
+
+    static bool TryTrimArgumentSegment(
+        string argsText,
+        int argsStart,
+        int segmentStart,
+        int segmentEnd,
+        out int start,
+        out int length)
+    {
+        start = 0;
+        length = 0;
+        string raw = argsText[segmentStart..segmentEnd];
+        string leftTrimmed = raw.TrimStart();
+        int leadingWhitespace = raw.Length - leftTrimmed.Length;
+        string trimmed = leftTrimmed.TrimEnd();
+        if (trimmed.Length == 0)
+            return false;
+
+        start = argsStart + segmentStart + leadingWhitespace;
+        length = trimmed.Length;
+        return true;
     }
 
     static bool CanRenderExactInline(string text)
