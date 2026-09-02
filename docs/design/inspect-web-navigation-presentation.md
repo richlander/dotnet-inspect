@@ -265,6 +265,11 @@ Allocation-button bounds and activation use the currently rendered stable
 level, not an unclamped retained request. An enabled button always selects the
 adjacent Pareto level and therefore cannot converge to the same rendered pair.
 
+The subject strip's window-continuity key is its ordered subject identity
+sequence plus subject-policy version. The inspector strip's key is the active
+subject identity, ordered inspector identity sequence, and inspector-policy
+version. Width and focus movement do not replace either key.
+
 The subject tablist uses one tab stop and manual activation. Left and Right
 Arrow move focus through the complete installed subject order, sliding the
 window by the smallest amount needed when focus reaches a hidden item. Home and
@@ -276,6 +281,13 @@ changes only allocation and focus remains on the button. Each strip's leading
 and trailing highlights disclose hidden items but add no tab stop. Any sliding
 animation preserves the focused element and is omitted when reduced motion is
 requested.
+
+When a window, mode, or allocation change excludes the sole roving-tab-stop
+holder while that tablist is unfocused, the adopter moves `tabindex="0"` without
+moving focus or selection. It uses the active tab when that tab is visible;
+otherwise it uses the nearest visible item in owner order, with the strip's
+preferred direction breaking equal-distance ties. The visible tablist always
+retains exactly one tab stop.
 
 Whenever a presentation-local capacity or measurement change removes an
 allocation control that owns focus, the composite transfers focus before
@@ -709,9 +721,11 @@ add and pass these named Inspect Web tests:
   single-label subject capacity, multi-item compact inspector capacity,
   control-free removal, terminal-deficit unused-width then ratio-distance
   ordering and inspector tie-break, fallback-visibility floors, two-strip and
-  subject-only internal-minimum scrolling, presentation-local window and
-  allocation retention, reduced-motion behavior, and focus/tab-stop
-  preservation across allocation changes and asynchronous shell replacement.
+  subject-only internal-minimum scrolling, explicit first-adopter
+  window-continuity keys, unfocused visible roving-tab-stop relocation,
+  presentation-local window and allocation retention, reduced-motion behavior,
+  and focus/tab-stop preservation across allocation changes and asynchronous
+  shell replacement.
 
 The implementation fixture supplies typed product results through the normal
 navigation boundary. It does not construct a parallel host catalog or bypass
@@ -804,6 +818,10 @@ are proved by the gates in
    allocation bias survives while the subject and ordered inspector identity
    sequence remain installed. Change that sequence without changing the
    subject and confirm that allocation resets to inspector-first.
+   Then move focus outside each tablist and change its window so the previous
+   tab-stop holder is hidden. Confirm that focus and selection do not move and
+   that the active visible tab, or otherwise the nearest visible item, becomes
+   the sole tab stop.
 8. Focus each allocation button in turn and install a presentation that removes
    it through a presentation-local resize or measurement change: all labels
    fitting and control-free pressure. Confirm that focus and the sole roving

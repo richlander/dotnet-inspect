@@ -138,12 +138,13 @@ viable modes, allocation, retained window, and focus:
    focus destination. During a directional slide, a separate window target is
    the adjacent hidden item and candidate windows pin it to the trailing edge
    for slide-after or the leading edge for slide-before. If any normal pinned
-   candidate across the viable modes also contains current focus, candidates
-   that would hide focus are discarded. Otherwise the pinned item becomes the
-   pending focus destination for the atomic transaction. On ordinary layout,
-   if an item owns focus, candidates must contain it. On initial or reset
-   placement with no focus input, they must contain the policy's initial
-   anchor.
+   candidate across the viable modes also contains an item in this strip that
+   currently owns focus, candidates that would hide it are discarded. If a
+   strip item owns focus and no pinned candidate can retain it, the pinned item
+   becomes the pending focus destination for the atomic transaction. Focus
+   outside the strip is never a destination input. On ordinary layout, if an
+   item owns focus, candidates must contain it. On initial or reset placement
+   with no focus input, they must contain the policy's initial anchor.
 4. Within each mode, the control first maximizes visible item count, then
    minimizes movement from the retained leading identity, then uses the
    policy's preferred direction as the final tie-break.
@@ -201,14 +202,16 @@ leading edge. The resolver removes as many items from the opposite edge as
 unequal widths require; it never skips the adjacent hidden target or reveals an
 item beyond that pinned edge. If no multi-item window fits, the pinned item
 becomes the singleton and the normal fallback rule applies when it is
-oversized.
+oversized. A request at an edge with no hidden item in that direction is a
+no-op.
 
 Sliding does not select or activate an item. When the requested movement would
 hide the focused item, the window target becomes the pending focus destination
 and the atomic reveal-tab-stop-focus transaction applies. Otherwise focus
-remains on its installed item. Adopter keyboard navigation may explicitly make
-the same identity both target and pending focus destination. Pointer, touch,
-trackpad, or wheel handling uses the focus-preserving window-target operation.
+remains on its installed item or on the external control that owns it. Adopter
+keyboard navigation may explicitly make the same identity both target and
+pending focus destination. Pointer, touch, trackpad, or wheel handling uses the
+focus-preserving window-target operation.
 
 The strip exposes leading and trailing edge-availability states. Their
 overlaid visual treatment may be a vertical highlight or fade, but the
@@ -348,6 +351,7 @@ The implementation PR must add focused tests that prove:
 - slide-before and slide-after bounds;
 - focused one-item slide transactions in both directions;
 - unequal-width directional slides that pin the adjacent hidden item;
+- external-focus sliding without focus transfer;
 - atomic reveal-then-focus navigation to an out-of-window identity;
 - invalid policy and missing required-Label rejection;
 - installed initial-anchor validation;
@@ -404,6 +408,9 @@ normal Inspect Web frontend and production Browser/Wasm suites.
    needed, and no farther item is revealed.
    Repeat with a multi-item overlap that can retain focus and confirm that the
    adjacent item is pinned as the window target while focus remains unchanged.
+   Move focus outside the strip, repeat pointer and wheel slides, and confirm
+   that external focus remains unchanged. At each inventory edge, confirm that
+   a request with no hidden item in that direction is a no-op.
 7. Replace the installed inventory while focus and selection differ. Confirm
    that retained identities preserve focus and adopter-owned navigation state
    and that removed identities use the adopter's external focus rule. Install
