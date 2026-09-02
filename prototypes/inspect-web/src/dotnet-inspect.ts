@@ -157,6 +157,7 @@ import {
   productHomeDemoLocationHref,
   setProductHomeDemoCatalog,
   type ProductHomeDemoId,
+  type ProductHomeDemoResolved,
 } from "./product-home-demos.ts";
 import {
   createSourceInspectionCoordinator,
@@ -236,7 +237,10 @@ import {
 } from "./scope-bar.ts";
 import {
   bindWorkspaceSubject,
+  focusWorkspacePacket,
+  renderWorkspacePacketView,
   renderWorkspaceSubject,
+  retainWorkspacePacket as retainWorkspacePacketInList,
 } from "./workspace-subject.ts";
 import {
   bindDocViewer,
@@ -736,6 +740,8 @@ const initialState = {
   memberDocumentationKey: "",
   lens: "api" as const,
   packageLens: "overview" as const,
+  workspacePackets: [],
+  selectedWorkspacePacketId: "",
   workspaceSubjectOpen: false,
   atPackageRoot: false,
   typeFilter: "",
@@ -799,6 +805,7 @@ const initialState = {
 interface StateOverrides {
   packages: AppPackage[];
   package: AppPackage | null;
+  workspacePackets: ProductHomeDemoResolved[];
   workspaceShareBasis: BrowserWorkspaceShareState | null;
   platformIndex: PlatformIndex | null;
   queryNoticeRetryAction: RetryAction;
@@ -2961,7 +2968,11 @@ function inspectedSubjectPath(
   current: AppTypeSurface | null | undefined,
 ): readonly SubjectPathSegment[] {
   if (scope() === "workspace") {
-    return [{ kind: "workspace", label: "Workspace", copyable: false }];
+    return [{
+      kind: "workspace",
+      label: selectedWorkspacePacket()?.title ?? "Current workspace",
+      copyable: false,
+    }];
   }
   const path: SubjectPathSegment[] = [{
     kind: "package",
@@ -3012,10 +3023,9 @@ function renderInspectedSubjectPath(
 
 function renderWorkspaceNavPane() {
   return renderWorkspaceSubject({
-    packages: state.packages,
-    activePackage: state.package,
+    packets: state.workspacePackets,
+    selectedPacketId: state.selectedWorkspacePacketId || null,
     escapeHtml,
-    packageIdentityKey,
   });
 }
 
@@ -3235,26 +3245,13 @@ function renderPackageView() {
 }
 
 function renderWorkspaceView() {
-  const packages = state.packages.filter(item => !item.isRuntimePack);
-  const current = state.package && !state.package.isRuntimePack
-    ? state.package
-    : packages[0] ?? null;
-  const platform = runtimePackPackage();
-  return `<header class="type-heading workspace-heading">
-    <div class="type-badge">W</div>
-    <div>
-      <div class="type-namespace">Inspection workspace</div>
-      <h1>Workspace</h1>
-      <code class="type-signature">${packages.length} coordinate${packages.length === 1 ? "" : "s"} · platform ${platform ? "available" : "not loaded"}</code>
-    </div>
-  </header>
-  <section class="workspace-overview">
-    <h2>Current coordinate</h2>
-    ${current
-      ? `<p><strong>${escapeHtml(current.id)}</strong> ${escapeHtml(current.version)} · ${escapeHtml(current.activeFramework)}</p>`
-      : "<p>No package coordinate is open.</p>"}
-    <p>Use Search to open another package. Platform libraries are included when the workspace requires them.</p>
-  </section>`;
+  return renderWorkspacePacketView({
+    packet: selectedWorkspacePacket(),
+    packages: state.packages,
+    activePackage: state.package,
+    escapeHtml,
+    packageIdentityKey,
+  });
 }
 
 function packageLensBody() {
@@ -5518,11 +5515,8 @@ const graphBackActions: GraphBackBindingActions = {
 
 function bindWorkspaceSubjectEvents() {
   bindWorkspaceSubject(document, {
-    onActivate: key => {
-      const packageModel = state.packages.find(
-        item => packageIdentityKey(item) === key);
-      if (packageModel) selectWorkspacePackage(packageModel);
-    },
+    onSelect: selectWorkspacePacket,
+    onOpen: runHomeDemo,
     onClose: closeWorkspacePackage,
   });
 }
@@ -7472,8 +7466,29 @@ function bindHomeEvents() {
 // deep links built from the resolved projection; member-bound Call Graph demos
 // execute through one generated engine operation over the product-resolved
 // workspace and view.
+function selectedWorkspacePacket(): ProductHomeDemoResolved | null {
+  return state.workspacePackets.find(
+    packet => packet.id === state.selectedWorkspacePacketId) ?? null;
+}
+
+function selectWorkspacePacket(packetId: string): void {
+  if (!state.workspacePackets.some(packet => packet.id === packetId)) return;
+  state.selectedWorkspacePacketId = packetId;
+  state.workspaceSubjectOpen = true;
+  state.atPackageRoot = true;
+  render();
+  afterCurrentNavigationFrame(() =>
+    focusWorkspacePacket(document, packetId));
+}
+
+function retainWorkspacePacket(packet: ProductHomeDemoResolved): void {
+  state.workspacePackets = retainWorkspacePacketInList(
+    state.workspacePackets,
+    packet);
+  state.selectedWorkspacePacketId = packet.id;
+}
+
 function runHomeDemo(kind: ProductHomeDemoId) {
-  state.home = false;
   const resolveResult = inspectResolveHomeDemo(kind);
   const resolved = resolveResult.found ? resolveResult.demo : null;
   if (!resolved) {
@@ -7483,6 +7498,8 @@ function runHomeDemo(kind: ProductHomeDemoId) {
     render();
     return;
   }
+  retainWorkspacePacket(resolved);
+  state.home = false;
   const link = productHomeDemoLocationHref(
     resolved,
     inspectEncodeWorkspaceShareState);

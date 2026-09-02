@@ -127,8 +127,8 @@ The Application menu occupies one non-shrinking control-sized slot aligned to
 the navigation band's inline end. It remains visible at every supported
 viewport width and is not part of the subject or inspector tablist, their
 overflow viewport, or their allocation ladder. Wide and narrow layouts keep
-the same two-region topology; width changes only the capacity assigned to the
-Slideable Subject Strip.
+the active surface's region topology; width changes only the capacity assigned
+to the Slideable Subject Strip.
 
 The menu surface is placed in the shared top-level overlay layer, anchored to
 the button's inline end and constrained to the viewport. It may cover the

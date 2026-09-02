@@ -1008,12 +1008,23 @@ test("Annotated Source keeps its sole Explore entry under shell pressure", async
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/browser/workspace-titlebar.html?member=1&annotated=1");
 
-    const actions = await box(page, ".shell-actions");
-    const explore = await box(page, "#explore-annotated");
     await expect(page.locator("#explore-annotated")).toBeVisible();
-    expect(explore.x).toBeGreaterThanOrEqual(actions.x - 1);
-    expect(explore.x + explore.width)
-      .toBeLessThanOrEqual(actions.x + actions.width);
+    const bounds = await page.evaluate(() => {
+      const actions = document.querySelector<HTMLElement>(".shell-actions");
+      const explore = document.querySelector<HTMLElement>("#explore-annotated");
+      if (!actions || !explore)
+        throw new Error("Annotated Source actions are unavailable.");
+      const actionsRect = actions.getBoundingClientRect();
+      const exploreRect = explore.getBoundingClientRect();
+      return {
+        actionsLeft: actionsRect.left,
+        actionsRight: actionsRect.right,
+        exploreLeft: exploreRect.left,
+        exploreRight: exploreRect.right,
+      };
+    });
+    expect(bounds.exploreLeft).toBeGreaterThanOrEqual(bounds.actionsLeft - 1);
+    expect(bounds.exploreRight).toBeLessThanOrEqual(bounds.actionsRight);
     expect(await page.evaluate(() =>
       document.documentElement.scrollWidth
       - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
@@ -1123,20 +1134,65 @@ test("the title line advertises the typed Package, Type, and Member path", async
   expect(zone.y + zone.height).toBeLessThanOrEqual(workspace.y);
 });
 
-test("Workspace gives retained coordinates the pane and keeps Share readable", async ({
+test("Workspace gives retained packets the pane and keeps Share readable", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/browser/workspace-titlebar.html?workspace=1");
 
-  const list = await box(page, ".workspace-coordinate-list");
-  const lastCoordinate = await box(page, ".workspace-coordinate:last-child");
+  const list = await box(page, ".workspace-packet-list");
+  const lastPacket = await box(page, ".workspace-packet:last-child");
   const share = await box(page, "#share");
 
   expect(list.height).toBeGreaterThan(200);
-  expect(lastCoordinate.y + lastCoordinate.height)
+  expect(lastPacket.y + lastPacket.height)
     .toBeLessThanOrEqual(list.y + list.height);
   expect(share.width).toBeGreaterThan(40);
   await expect(page.locator("#copy-name")).toHaveCount(0);
   await expect(page.locator("[data-subject-copy]")).toHaveCount(0);
+});
+
+test("Workspace packet selection is observational and Open executes", async ({
+  page,
+}) => {
+  await page.goto("/browser/workspace-titlebar.html?workspace=1");
+
+  const packets = page.locator("[data-workspace-packet]");
+  await expect(packets).toHaveCount(3);
+  expect(await packets.evaluateAll(elements =>
+    elements.map(element => element.getAttribute("data-workspace-packet"))))
+    .toEqual([
+    "stj-serializer",
+    "stj-serialize-callgraph",
+    "stj-getdecimal-callgraph",
+  ]);
+  const href = page.url();
+  const serialize = page.locator(
+    '[data-workspace-packet="stj-serialize-callgraph"]');
+  await serialize.click();
+
+  await expect(serialize).toBeFocused();
+  await expect(page.locator(".workspace-heading h1"))
+    .toHaveText("Serialize call graph");
+  await expect(page.locator(".subject-path-segment"))
+    .toHaveText("Serialize call graph");
+  await expect(page.locator("body"))
+    .toHaveAttribute("data-workspace-execution-count", "0");
+  expect(page.url()).toBe(href);
+
+  const getDecimal = page.locator(
+    '[data-workspace-packet="stj-getdecimal-callgraph"]');
+  await getDecimal.click();
+  await expect(getDecimal).toBeFocused();
+  await expect(page.locator(".workspace-heading h1"))
+    .toHaveText("JsonElement.GetDecimal");
+  expect(page.url()).toBe(href);
+
+  await page.getByRole("button", { name: "Open workspace" }).click();
+  await expect(page.locator("body"))
+    .toHaveAttribute("data-workspace-execution-count", "1");
+  await expect(page.locator("body"))
+    .toHaveAttribute(
+      "data-workspace-execution",
+      "stj-getdecimal-callgraph");
 });
