@@ -907,16 +907,30 @@ public static class MemberCommand
 
     private static readonly string[] SingleOverloadSectionNames =
     [
-        .. ApiMemberDetailSectionDescriptors.CreatePipeline()
-            .SelectableSectionNames
-            .Where(section =>
-                ApiSectionDemandIndex.Classify(
-                    InspectionSurface.Member,
-                    [section],
-                    selectDefault: false,
-                    InspectionTargetRequirement.MemberSet)
-                .RequiredTarget
-                    == InspectionTargetRequirement.ExactMember),
+        SectionNames.Signature,
+        SectionNames.CustomAttributes,
+        SectionNames.DecompiledSource,
+        SectionNames.FidelityCauses,
+        SectionNames.AppliedTaste,
+        SectionNames.AnnotatedSource,
+        SectionNames.AnnotatedSourceDocument,
+        SectionNames.CostOverlay,
+        SectionNames.SemanticsOverlay,
+        SectionNames.PdbSource,
+        SectionNames.SourceDiff,
+        SectionNames.Calls,
+        SectionNames.ExceptionRegions,
+        SectionNames.AllocationFacts,
+        SectionNames.SafetyFacts,
+        SectionNames.CostFacts,
+        SectionNames.Callers,
+        SectionNames.CallGraph,
+        SectionNames.UnsafeOperations,
+        SectionNames.BodyShapes,
+        SectionNames.TopLeverage,
+        SectionNames.PerformanceTriage,
+        SectionNames.Facts,
+        SectionNames.IL,
     ];
 
     private static bool IsPureSelector(string[]? select, string name) =>
