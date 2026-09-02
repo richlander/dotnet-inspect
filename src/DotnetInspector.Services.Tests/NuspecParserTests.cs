@@ -269,6 +269,27 @@ public class NuspecParserTests : IDisposable
     }
 
     [Fact]
+    public void Parse_IconMetadata_IsExtracted()
+    {
+        var nuspec = WriteNuspec("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+              <metadata>
+                <id>MyPackage</id>
+                <version>1.0.0</version>
+                <icon>images\package.png</icon>
+                <iconUrl>https://example.test/legacy.png</iconUrl>
+              </metadata>
+            </package>
+            """);
+
+        var result = NuspecParser.Parse(nuspec);
+
+        Assert.Equal(@"images\package.png", result.IconFile);
+        Assert.Equal("https://example.test/legacy.png", result.IconUrl);
+    }
+
+    [Fact]
     public void Parse_GroupedDependencies_AreExtracted()
     {
         var nuspec = WriteNuspec("""

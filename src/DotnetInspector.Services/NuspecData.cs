@@ -27,6 +27,8 @@ public class NuspecData
     public string? LicenseUrl { get; set; }
     public List<string>? PackageTypes { get; set; }
     public bool IsToolPackage { get; set; }
+    public string? IconFile { get; set; }
+    public string? IconUrl { get; set; }
     public string? ReadmeFile { get; set; }
     public List<DependencyGroup>? DependencyGroups { get; set; }
 }

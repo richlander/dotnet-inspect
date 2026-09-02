@@ -3,6 +3,7 @@ import type {
   QueryFacetTerm,
   QueryResultRow,
 } from "./package-query.ts";
+import { renderBrand } from "./brand.ts";
 
 export interface PackageQueryBindingActions {
   onBack: () => void;
@@ -361,7 +362,11 @@ export function renderPackageQueryView(
   return `
     <div class="query-page">
       <header class="query-page-bar">
-        <a id="package-query-workspace" class="brand" href="${escapeHtml(workspaceHref)}" aria-label="dotnet inspect ${workspaceHref === "/" ? "home" : "workspace"}"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
+        ${renderBrand({
+          id: "package-query-workspace",
+          href: workspaceHref,
+          ariaLabel: `dotnet inspect ${workspaceHref === "/" ? "home" : "workspace"}`,
+        })}
         <button id="package-query-back" type="button">Back</button>
       </header>
       <main class="query-main">
