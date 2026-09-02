@@ -412,11 +412,12 @@ worked example that document points at.
   `StringBudget_…` asserts only that the full length is reported and the
   preview is non-empty.
 - **Parse, never load.** Metadata-table projection uses SRM readers and must not
-  load or execute inspected assemblies. The composition absence claim that
-  this path contains no runtime-loading or execution mechanism has
-  user-selected no gate coverage and is `unverified`. NativeAOT publication is
-  not claimed as an absence gate. A malformed coded index resolves to a visible
-  failure marker, not a fabricated target.
+  load or execute inspected assemblies. Loading new IL assemblies at runtime is
+  unsupported by NativeAOT, and the shipped dotnet-inspect product graph is
+  maintained as NativeAOT-compatible. NativeAOT therefore provides
+  user-selected partial evidence for this composition absence claim, not a
+  syntactic or path-complete proof. A malformed coded index resolves to a
+  visible failure marker, not a fabricated target.
 - **Heaps are explicit-only.** The string/blob/user-string/guid heaps are the largest
   amplification surface, so nothing that merely asks for *more output* may turn
   one on — only naming a heap section does. Verbosity is the axis that would
