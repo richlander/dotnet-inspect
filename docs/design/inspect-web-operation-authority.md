@@ -13,6 +13,18 @@ The checked
 establishes only the bounded abstract properties recorded with that model. It
 does not prove TypeScript, browser, producer, worker, or managed behavior.
 
+## Approved host scope
+
+This component is intentionally inspect-web browser-host policy. Replaceable
+DOM-view operation lifetime and current-view publication authority are its
+named host concerns; one existing source view is the first implementation
+consumer. The CLI has no corresponding named consumer, so this design does not
+create or claim a shared CLI/browser substrate.
+
+The user approved this single-host scope on 2026-09-02 before implementation.
+The same decision is recorded in implementation issue #5092 and end-to-end
+tracker #4937.
+
 ## Responsibility
 
 The inspect-web operation-authority component owns:
@@ -298,6 +310,12 @@ owner, including identities whose producer preparation is rejected. Neither ID
 nor sequence allocation resets or wraps during the page lifetime. Exhausting
 the safe-integer range rejects the start before producer preparation and leaves
 every existing session and cancellation count unchanged.
+
+An ID-source collision is visible through the same `identity-exhausted` result.
+The page owner consumes the attempted sequence, permanently exhausts that
+identity source, and does not prepare a producer or ask the source for another
+ID. This keeps the public result vocabulary closed while refusing to trust an
+allocator after it proposes a page-lifetime reuse.
 
 The sequence is allocation evidence for producer adapters that need bounded
 ordering or replay checks. It is not encoded into, parsed from, or compared
@@ -709,6 +727,7 @@ This owner does not claim:
   termination;
 - managed cancellation-token, progress-delegate, or result-envelope behavior;
 - generated-facade construction or bootstrap;
+- a CLI operation-authority abstraction;
 - feature rendering, retry, cache, shared-work, or queue semantics; or
 - browser responsiveness.
 

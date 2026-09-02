@@ -2999,9 +2999,18 @@ test("type projection completions render only while current and preserve navigat
   const typeSource =
     sourceInspectionSource.match(/async loadTypeSource\(request\)[\s\S]*?\n    },/)?.[0]
     ?? "";
+  const typeSourceAuthority =
+    sourceInspectionSource.match(
+      /const publishTypeSourceEvent = \(event: TypeSourceFeatureEvent\)[\s\S]*?const typeSourceSession:/,
+    )?.[0]
+    ?? "";
+  assert.match(
+    typeSourceAuthority,
+    /case "started":[\s\S]*case "replaced":[\s\S]*context\.preservedFocus =\s*dependencies\.renderPreservingMemberFocus\(\);[\s\S]*case "terminal":[\s\S]*state\.typeSourceLoading = false;[\s\S]*if \(context\.request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(\s*context\.preservedFocus,/);
   assert.match(
     typeSource,
-    /const preservedFocus = dependencies\.renderPreservingMemberFocus\(\);[\s\S]*const ownsRequest = \(\) =>[\s\S]*if \(ownsRequest\(\)\) \{\s*state\.typeSourceLoading = false;\s*if \(request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(preservedFocus\);/);
+    /typeSourceSession\.start\(request, typeSourceAdapter\)[\s\S]*await result\.handle\.quiesced/);
+  assert.doesNotMatch(typeSource, /sourceRequestGeneration|ownsRequest/);
   assert.doesNotMatch(typeSource, /finally \{[\s\S]*dependencies\.render\(\)/);
   const typeMetadata =
     appSource.match(/async function loadSelectedTypeMetadata\([\s\S]*?\n}\n\n\/\/ Projects/)?.[0]
@@ -3138,6 +3147,11 @@ test("Type Source completion settles behind workbench overlays", () => {
   const typeSource =
     sourceInspectionSource.match(/async loadTypeSource\(request\)[\s\S]*?\n    },/)?.[0]
     ?? "";
+  const typeSourceAuthority =
+    sourceInspectionSource.match(
+      /const publishTypeSourceEvent = \(event: TypeSourceFeatureEvent\)[\s\S]*?const typeSourceSession:/,
+    )?.[0]
+    ?? "";
   assert.match(
     appSource,
     /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| state\.graphSourceOpen\s*\|\| state\.docViewerOpen\s*\|\| state\.memberAnnotatedModal !== null;/);
@@ -3145,8 +3159,11 @@ test("Type Source completion settles behind workbench overlays", () => {
     appSource,
     /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*currentSourceOperationKind\(\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);
   assert.match(
+    typeSourceAuthority,
+    /case "terminal":[\s\S]*state\.typeSourceLoading = false;[\s\S]*if \(context\.request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(\s*context\.preservedFocus,/);
+  assert.match(
     typeSource,
-    /const ownsRequest = \(\) =>[\s\S]*if \(ownsRequest\(\)\) \{\s*state\.typeSourceLoading = false;\s*if \(request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(preservedFocus\)/);
+    /typeSourceSession\.start\(request, typeSourceAdapter\)[\s\S]*await result\.handle\.quiesced/);
   assert.match(
     appSource,
     /function isInteractiveElement\(element: Element \| null\)[\s\S]*"button, a\[href\], input, select, textarea, summary, "[\s\S]*\[role=button\][\s\S]*id: "workspace\.drill-in"[\s\S]*key: "Enter"[\s\S]*!isInteractiveElement\([\s\S]*event\.target instanceof Element \? event\.target : null\)/);
@@ -3511,6 +3528,9 @@ test("source operations cancel when superseded or hidden", () => {
   assert.match(
     appSource,
     /cancelSourceQuery: cancelSourceInspection/);
+  assert.match(
+    appSource,
+    /const operationAuthority = createOperationAuthorityPage\(\);[\s\S]*createSourceInspectionCoordinator\(\{[\s\S]*operationAuthority,/);
 
   const renderBody =
     appSource.match(
@@ -3524,6 +3544,9 @@ test("source operations cancel when superseded or hidden", () => {
   assert.match(
     sourceInspectionSource,
     /const cancelCurrentRequest = \(\) => \{[\s\S]*cancelSourceRequestState\(state\)[\s\S]*cancelHiddenRequest\(\)[\s\S]*sourceSurfaceIsVisible\(\s*state,\s*dependencies\.memberSourceHasConcreteOverload\(\)\)[\s\S]*cancelCurrentRequest\(\)/);
+  assert.match(
+    sourceInspectionSource,
+    /dependencies\.operationAuthority\.createSession\([\s\S]*typeSourceSession\.start\(request, typeSourceAdapter\)[\s\S]*await result\.handle\.quiesced/);
   assert.match(appSource, /sourceInspection\.loadMemberSource\(\{/);
   assert.match(appSource, /sourceInspection\.loadTypeSource\(\{/);
   assert.match(appSource, /sourceInspection\.openGraphSource\(request, title\)/);
