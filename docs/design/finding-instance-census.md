@@ -246,6 +246,8 @@ The Release executable gates in
   validation;
 - `Seal_ReceiptsSuccessfulEmptyCensusesIndependently` proves initialized,
   separately receipted empty censuses;
+- `Seal_EnumeratesInputExactlyOnce` proves one eager enumeration retains the
+  original ordered Finding references;
 - `Seal_RejectsInvalidCollections` proves construction-time collection
   containment;
 - `Validate_DistinguishesReceiptAndCollectionFailures` proves receipt,
@@ -257,7 +259,9 @@ The Release executable gates in
 - `ValidateEntry_AdmitsSubsetsWithoutWeakeningAssociation` proves filtered
   projections retain receipt and exact-association admission;
 - `Validate_UsesDeterministicFailurePrecedence` proves validation ordering is
-  stable when duplicate, extra, missing, and substituted defects coexist; and
+  stable when duplicate, extra, missing, and substituted defects coexist;
+- `Validate_UsesFullFailurePrecedence` proves the complete receipt, collection,
+  key-shape, and association precedence plus first-input diagnostics; and
 - `Validate_ReportsSmallestKeyIndependentOfCandidateOrder` proves smallest-key
   diagnostics do not depend on projection order.
 

@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Immutable;
 
 using ILInspector.Findings;
@@ -26,6 +27,19 @@ public class FindingCensusTests
                 "Expected invalid census validation."),
         };
 
+    static FindingCensusValidationFailure AssertFailure(
+        FindingCensusValidation validation,
+        FindingCensusValidationFailureKind kind,
+        int key = 0,
+        int? inputIndex = null)
+    {
+        FindingCensusValidationFailure failure = Failure(validation);
+        Assert.Equal(kind, failure.Kind);
+        Assert.Equal(key, failure.Key.Value);
+        Assert.Equal(inputIndex, failure.InputIndex);
+        return failure;
+    }
+
     [Fact]
     public void Seal_PreservesOrderMultiplicityAndExactInstances()
     {
@@ -43,9 +57,13 @@ public class FindingCensusTests
             census.Entries[0].Key,
             independentlySealed.Entries[0].Key);
         Assert.Equal([first, second], census.Findings);
+        Assert.Same(first, census.Findings[0]);
+        Assert.Same(second, census.Findings[1]);
         Assert.Equal([1, 2], census.Entries.Select(entry => entry.Key.Value));
         Assert.Same(first, census.Entries[0].Finding);
         Assert.Same(second, census.Entries[1].Finding);
+        Assert.Same(census.Findings[0], census.Entries[0].Finding);
+        Assert.Same(census.Findings[1], census.Entries[1].Finding);
 
         FindingCensusValidation validation = census.Validate(
             census.Receipt,
@@ -69,6 +87,22 @@ public class FindingCensusTests
     }
 
     [Fact]
+    public void Seal_EnumeratesInputExactlyOnce()
+    {
+        var first = Finding();
+        var second = Finding();
+        var findings = new OneShotEnumerable<Finding<string>>([first, second]);
+
+        var census = FindingCensus<string>.Seal(findings);
+
+        Assert.Equal(1, findings.EnumerationCount);
+        Assert.Same(first, census.Findings[0]);
+        Assert.Same(second, census.Findings[1]);
+        Assert.Same(first, census.Entries[0].Finding);
+        Assert.Same(second, census.Entries[1].Finding);
+    }
+
+    [Fact]
     public void Seal_RejectsInvalidCollections()
     {
         Assert.Throws<ArgumentNullException>(
@@ -89,26 +123,27 @@ public class FindingCensusTests
         var census = FindingCensus<string>.Seal([finding]);
         var other = FindingCensus<string>.Seal([finding]);
 
-        Assert.Equal(
+        AssertFailure(
+            census.Validate(default, census.Entries),
             FindingCensusValidationFailureKind.DefaultReceipt,
-            Failure(census.Validate(default, census.Entries)).Kind);
-        Assert.Equal(
+            key: 0);
+        AssertFailure(
+            census.Validate(other.Receipt, census.Entries),
             FindingCensusValidationFailureKind.WrongReceipt,
-            Failure(census.Validate(other.Receipt, census.Entries)).Kind);
-        Assert.Equal(
-            FindingCensusValidationFailureKind.UninitializedEntries,
-            Failure(census.Validate(
+            key: 0);
+        AssertFailure(
+            census.Validate(
                 census.Receipt,
-                default(ImmutableArray<FindingCensusEntry<string>>))).Kind);
+                default(ImmutableArray<FindingCensusEntry<string>>)),
+            FindingCensusValidationFailureKind.UninitializedEntries,
+            key: 0);
 
         ImmutableArray<FindingCensusEntry<string>> entriesWithNull = [null!];
-        FindingCensusValidationFailure nullEntry = Failure(census.Validate(
-            census.Receipt,
-            entriesWithNull));
-        Assert.Equal(
+        AssertFailure(
+            census.Validate(census.Receipt, entriesWithNull),
             FindingCensusValidationFailureKind.NullEntry,
-            nullEntry.Kind);
-        Assert.Equal(0, nullEntry.InputIndex);
+            key: 0,
+            inputIndex: 0);
         Assert.Throws<ArgumentNullException>(
             () => census.Validate(census.Receipt, null!));
     }
@@ -121,50 +156,47 @@ public class FindingCensusTests
         var census = FindingCensus<string>.Seal([first, second]);
         var larger = FindingCensus<string>.Seal([first, second, Finding()]);
 
-        FindingCensusValidationFailure defaultKey = Failure(census.Validate(
-            census.Receipt,
-            [
-                new FindingCensusEntry<string>(default, first),
-                census.Entries[1],
-            ]));
-        Assert.Equal(
+        AssertFailure(
+            census.Validate(
+                census.Receipt,
+                [
+                    new FindingCensusEntry<string>(default, first),
+                    census.Entries[1],
+                ]),
             FindingCensusValidationFailureKind.DefaultKey,
-            defaultKey.Kind);
-        Assert.Equal(0, defaultKey.InputIndex);
+            key: 0,
+            inputIndex: 0);
 
-        FindingCensusValidationFailure duplicate = Failure(census.Validate(
-            census.Receipt,
-            [
-                census.Entries[0],
-                new FindingCensusEntry<string>(
-                    census.Entries[0].Key,
-                    second),
-            ]));
-        Assert.Equal(
+        AssertFailure(
+            census.Validate(
+                census.Receipt,
+                [
+                    census.Entries[0],
+                    new FindingCensusEntry<string>(
+                        census.Entries[0].Key,
+                        second),
+                ]),
             FindingCensusValidationFailureKind.DuplicateKey,
-            duplicate.Kind);
-        Assert.Equal(1, duplicate.Key.Value);
+            key: 1);
 
-        FindingCensusValidationFailure extra = Failure(census.Validate(
-            census.Receipt,
-            [
-                census.Entries[0],
-                new FindingCensusEntry<string>(
-                    larger.Entries[2].Key,
-                    second),
-            ]));
-        Assert.Equal(
+        AssertFailure(
+            census.Validate(
+                census.Receipt,
+                [
+                    census.Entries[0],
+                    new FindingCensusEntry<string>(
+                        larger.Entries[2].Key,
+                        second),
+                ]),
             FindingCensusValidationFailureKind.ExtraKey,
-            extra.Kind);
-        Assert.Equal(3, extra.Key.Value);
+            key: 3);
 
-        FindingCensusValidationFailure missing = Failure(census.Validate(
-            census.Receipt,
-            [census.Entries[1]]));
-        Assert.Equal(
+        AssertFailure(
+            census.Validate(
+                census.Receipt,
+                [census.Entries[1]]),
             FindingCensusValidationFailureKind.MissingKey,
-            missing.Kind);
-        Assert.Equal(1, missing.Key.Value);
+            key: 1);
     }
 
     [Fact]
@@ -178,19 +210,17 @@ public class FindingCensusTests
         Assert.Equal(first, substitute);
         Assert.NotSame(first, substitute);
 
-        FindingCensusValidationFailure failure = Failure(census.Validate(
-            census.Receipt,
-            [
-                new FindingCensusEntry<string>(
-                    census.Entries[0].Key,
-                    substitute),
-                census.Entries[1],
-            ]));
-
-        Assert.Equal(
+        AssertFailure(
+            census.Validate(
+                census.Receipt,
+                [
+                    new FindingCensusEntry<string>(
+                        census.Entries[0].Key,
+                        substitute),
+                    census.Entries[1],
+                ]),
             FindingCensusValidationFailureKind.SubstitutedFinding,
-            failure.Kind);
-        Assert.Equal(1, failure.Key.Value);
+            key: 1);
     }
 
     [Fact]
@@ -206,42 +236,48 @@ public class FindingCensusTests
         Assert.True(
             census.ValidateEntry(census.Receipt, census.Entries[1])
                 is FindingCensusValidation.Valid);
-        Assert.Equal(
-            FindingCensusValidationFailureKind.DefaultReceipt,
-            Failure(census.ValidateEntry(
+        AssertFailure(
+            census.ValidateEntry(
                 default,
-                census.Entries[1])).Kind);
-        Assert.Equal(
-            FindingCensusValidationFailureKind.WrongReceipt,
-            Failure(census.ValidateEntry(
+                census.Entries[1]),
+            FindingCensusValidationFailureKind.DefaultReceipt,
+            key: 0);
+        AssertFailure(
+            census.ValidateEntry(
                 other.Receipt,
-                census.Entries[1])).Kind);
-        Assert.Equal(
-            FindingCensusValidationFailureKind.NullEntry,
-            Failure(census.ValidateEntry(
+                census.Entries[1]),
+            FindingCensusValidationFailureKind.WrongReceipt,
+            key: 0);
+        AssertFailure(
+            census.ValidateEntry(
                 census.Receipt,
-                null)).Kind);
-        Assert.Equal(
-            FindingCensusValidationFailureKind.DefaultKey,
-            Failure(census.ValidateEntry(
+                null),
+            FindingCensusValidationFailureKind.NullEntry,
+            key: 0);
+        AssertFailure(
+            census.ValidateEntry(
                 census.Receipt,
                 new FindingCensusEntry<string>(
                     default,
-                    second))).Kind);
-        Assert.Equal(
-            FindingCensusValidationFailureKind.ExtraKey,
-            Failure(census.ValidateEntry(
+                    second)),
+            FindingCensusValidationFailureKind.DefaultKey,
+            key: 0);
+        AssertFailure(
+            census.ValidateEntry(
                 census.Receipt,
                 new FindingCensusEntry<string>(
                     larger.Entries[2].Key,
-                    second))).Kind);
-        Assert.Equal(
-            FindingCensusValidationFailureKind.SubstitutedFinding,
-            Failure(census.ValidateEntry(
+                    second)),
+            FindingCensusValidationFailureKind.ExtraKey,
+            key: 3);
+        AssertFailure(
+            census.ValidateEntry(
                 census.Receipt,
                 new FindingCensusEntry<string>(
                     census.Entries[1].Key,
-                    substitute))).Kind);
+                    substitute)),
+            FindingCensusValidationFailureKind.SubstitutedFinding,
+            key: 2);
     }
 
     [Fact]
@@ -252,7 +288,7 @@ public class FindingCensusTests
         var census = FindingCensus<string>.Seal([first, second]);
         var larger = FindingCensus<string>.Seal([first, second, Finding()]);
 
-        FindingCensusValidationFailure duplicateBeforeExtra = Failure(
+        AssertFailure(
             census.Validate(
                 census.Receipt,
                 [
@@ -263,13 +299,11 @@ public class FindingCensusTests
                     new FindingCensusEntry<string>(
                         larger.Entries[2].Key,
                         second),
-                ]));
-        Assert.Equal(
+                ]),
             FindingCensusValidationFailureKind.DuplicateKey,
-            duplicateBeforeExtra.Kind);
-        Assert.Equal(2, duplicateBeforeExtra.Key.Value);
+            key: 2);
 
-        FindingCensusValidationFailure extraBeforeMissing = Failure(
+        AssertFailure(
             census.Validate(
                 census.Receipt,
                 [
@@ -277,24 +311,64 @@ public class FindingCensusTests
                     new FindingCensusEntry<string>(
                         larger.Entries[2].Key,
                         first),
-                ]));
-        Assert.Equal(
+                ]),
             FindingCensusValidationFailureKind.ExtraKey,
-            extraBeforeMissing.Kind);
-        Assert.Equal(3, extraBeforeMissing.Key.Value);
+            key: 3);
 
-        FindingCensusValidationFailure missingBeforeSubstitution = Failure(
+        AssertFailure(
             census.Validate(
                 census.Receipt,
                 [
                     new FindingCensusEntry<string>(
                         census.Entries[1].Key,
                         first),
-                ]));
-        Assert.Equal(
+                ]),
             FindingCensusValidationFailureKind.MissingKey,
-            missingBeforeSubstitution.Kind);
-        Assert.Equal(1, missingBeforeSubstitution.Key.Value);
+            key: 1);
+    }
+
+    [Fact]
+    public void Validate_UsesFullFailurePrecedence()
+    {
+        var first = Finding();
+        var second = Finding();
+        var census = FindingCensus<string>.Seal([first, second]);
+        var other = FindingCensus<string>.Seal([first, second]);
+
+        ImmutableArray<FindingCensusEntry<string>> uninitialized = default;
+        AssertFailure(
+            census.Validate(default, uninitialized),
+            FindingCensusValidationFailureKind.DefaultReceipt);
+        AssertFailure(
+            census.Validate(other.Receipt, uninitialized),
+            FindingCensusValidationFailureKind.WrongReceipt);
+        AssertFailure(
+            census.Validate(census.Receipt, uninitialized),
+            FindingCensusValidationFailureKind.UninitializedEntries);
+
+        FindingCensusEntry<string>[] nullBeforeDefault =
+        [
+            census.Entries[0],
+            null!,
+            new(default, second),
+            null!,
+        ];
+        AssertFailure(
+            census.Validate(census.Receipt, nullBeforeDefault),
+            FindingCensusValidationFailureKind.NullEntry,
+            inputIndex: 1);
+
+        FindingCensusEntry<string>[] defaultBeforeDuplicate =
+        [
+            census.Entries[0],
+            census.Entries[0],
+            new(default, second),
+            new(default, second),
+        ];
+        AssertFailure(
+            census.Validate(census.Receipt, defaultBeforeDuplicate),
+            FindingCensusValidationFailureKind.DefaultKey,
+            inputIndex: 2);
     }
 
     [Fact]
@@ -374,11 +448,25 @@ public class FindingCensusTests
             FindingCensusValidationFailureKind kind,
             int key,
             IEnumerable<FindingCensusEntry<string>> entries)
+            => AssertFailure(
+                census.Validate(census.Receipt, entries),
+                kind,
+                key);
+    }
+
+    sealed class OneShotEnumerable<T>(IEnumerable<T> values) : IEnumerable<T>
+    {
+        int _enumerationCount;
+
+        public int EnumerationCount => _enumerationCount;
+
+        public IEnumerator<T> GetEnumerator()
         {
-            FindingCensusValidationFailure failure = Failure(
-                census.Validate(census.Receipt, entries));
-            Assert.Equal(kind, failure.Kind);
-            Assert.Equal(key, failure.Key.Value);
+            if (Interlocked.Increment(ref _enumerationCount) != 1)
+                throw new InvalidOperationException("The sequence was enumerated twice.");
+            return values.GetEnumerator();
         }
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
 }
