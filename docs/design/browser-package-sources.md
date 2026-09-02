@@ -723,10 +723,14 @@ migration is a dependency, not authority for those consumers to reinterpret
 reference to the legacy type from the source tree, including implicit
 formatting and equality call sites rather than only reads of selected members.
 Its temporary file inventory groups NuGetFetch compatibility and tests under
-issue #4795, package authority and acquisition readers under #4797, and query
-and CLI projection readers under #4806. Browser pending-acquisition readers,
-including the direct `BrowserPackageWorkspace` read, are grouped under #4805.
-It fails for both an unlisted reference and a stale entry.
+issue #4795, package authority and acquisition readers under #4797, and Browser
+pending-acquisition readers, including the direct `BrowserPackageWorkspace`
+read, under #4805. Query and CLI projection readers completed their #4806
+migration in this slice; the empty set must remain empty. The inventory records
+explicit type-reference and implicit descriptor-identity-reference counts per
+file, so it fails for an unlisted file, a stale entry, or reference-count
+drift within an enrolled file. A synthetic mutation gate proves all three
+comparisons are non-vacuous.
 
 Issue #4805 is both a direct legacy-type migration and a cache dependency
 through package-owned endpoint canonicalization. Its browser cache slots
@@ -910,6 +914,12 @@ Implementation is not complete until Release gates establish:
 - `LegacyPackageSourceIdentitySurfaceMatchesMigrationSet` prevents the
   additive compatibility window from acquiring any new legacy type,
   formatting, equality, or factory consumer;
+- `LegacyMigrationSetComparisonRejectsInventoryMutations` proves the
+  source-derived migration inventory rejects unlisted files, stale entries,
+  and reference-count drift;
+- `LegacyReferenceDiscoveryIncludesImplicitFormattingAndEquality` proves the
+  inventory observes descriptor identity consumers that do not spell the
+  legacy type at their use site;
 - `LegacyPackageSourceIdentityBehaviorRemainsStable` pins exact vectors for
   legacy factories, `NuGetOrg`, `Value`, endpoint-shaped formatting, equality,
   and equal-value hash consistency, plus Gallery and NuGetV3

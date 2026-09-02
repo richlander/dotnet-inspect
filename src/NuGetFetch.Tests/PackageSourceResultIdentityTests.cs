@@ -1107,29 +1107,6 @@ public sealed class PackageSourceResultIdentityTests
     }
 
     [Fact]
-    public void LegacyPackageSourceIdentitySurfaceMatchesMigrationSet()
-    {
-        Assert.NotEqual(
-            typeof(PackageSourceIdentity),
-            typeof(PackageProducerIdentity));
-        Assert.Equal(
-            typeof(string),
-            typeof(PackageSourceIdentity)
-                .GetProperty(nameof(PackageSourceIdentity.Value))!
-                .PropertyType);
-        Assert.Equal(
-            typeof(PackageSourceIdentity),
-            typeof(PackageSourceDescriptor)
-                .GetProperty(nameof(PackageSourceDescriptor.Identity))!
-                .PropertyType);
-        Assert.DoesNotContain(
-            typeof(IPackageSourceClient).GetProperties(),
-            property =>
-                property.PropertyType
-                    == typeof(PackageSourceIdentity));
-    }
-
-    [Fact]
     public void LegacyPackageSourceIdentityBehaviorRemainsStable()
     {
         PackageSourceIdentity first =
