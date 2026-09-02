@@ -265,9 +265,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   inspection-facet identities, labels, order, structural applicability,
   discovery, and typed resolution outcomes.
 - [Inspection subject navigation](design/inspection-subject-navigation.md):
-  host-neutral root, Library, Type, and Member descriptors, availability,
-  initial recommendations, transitions, reconciliation, and model-checked
-  retained-session authority.
+  host-neutral Workspace, Package or non-package Root, Library, Type, and
+  Member descriptors, availability, initial recommendations, transitions,
+  reconciliation, and model-checked retained-session authority.
 - [Inspect Web UI](design/inspect-web-ui.md): composition map for the website
   redesign, linking
   [presentation language](design/inspect-web-presentation-language.md),
