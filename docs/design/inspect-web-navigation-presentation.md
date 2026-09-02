@@ -112,6 +112,11 @@ and Member subject descriptors supplied by Inspection Subject Navigation. The
 prototype establishes `Workspace`, `Package`, `Type`, and `Member` now;
 Library joins when its product descriptor and behavior are ready. The current
 subject is selected programmatically and is not conveyed by color alone.
+The named subject tablist uses one tab stop and manual activation. Left and
+Right Arrow move focus through the rendered subjects, Home and End move to the
+first and last subject, and focus movement does not select a subject until
+Enter or Space activates it. Every subject references the shared subject panel,
+which is labelled by the active subject.
 
 The inspector strip immediately follows the subject strip. It contains the
 active subject's owner-ordered lenses or, for Member, its applicable sections.

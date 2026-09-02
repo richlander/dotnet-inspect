@@ -81,7 +81,7 @@ export function bindWorkbenchShell(
 
 export function focusWorkbenchSearch(root: ParentNode): boolean {
   const search = root.querySelector<HTMLElement>("#open-search");
-  if (!search) return false;
+  if (!search || search.getClientRects().length === 0) return false;
   search.focus();
   return true;
 }

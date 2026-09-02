@@ -32,7 +32,7 @@ export function renderWorkspaceSubject(
         <strong>${escapeHtml(item.id)}</strong>
         <span>${escapeHtml(item.version)} · ${escapeHtml(item.activeFramework)}</span>
       </button>
-      <button type="button" data-workspace-close="${key}" aria-label="Close ${escapeHtml(item.id)}">×</button>
+      <button type="button" data-workspace-close="${key}" aria-label="Close ${escapeHtml(item.id)} ${escapeHtml(item.version)} ${escapeHtml(item.activeFramework)}">×</button>
     </div>`;
   }).join("");
   return `<aside class="type-browser workspace-nav">

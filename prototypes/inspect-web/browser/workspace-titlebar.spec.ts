@@ -141,6 +141,21 @@ test("right-side actions yield from labels to arrows to nothing", async ({
   await expect(page.locator("#inspector-panel")).toHaveAttribute(
     "aria-labelledby",
     "active-inspector-tab");
+  const subjectTabs = page.locator(".scope-switch [data-subject-tab]");
+  await expect(subjectTabs).toHaveCount(4);
+  expect(await subjectTabs.evaluateAll(tabs =>
+    tabs.every(tab => tab.getAttribute("aria-controls") === "subject-panel")))
+    .toBe(true);
+  await expect(page.locator("#subject-panel")).toHaveAttribute(
+    "aria-labelledby",
+    "active-subject-tab");
+  await expect(page.locator(".scope-switch [tabindex='0']")).toHaveCount(1);
+  const memberSubject = page.locator('[data-scope="member"]');
+  await expect(memberSubject).toHaveAttribute("aria-selected", "true");
+  await memberSubject.focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect(page.locator('[data-scope="type"]')).toBeFocused();
+  await expect(memberSubject).toHaveAttribute("aria-selected", "true");
   await overview.focus();
   await page.keyboard.press("ArrowRight");
   await expect(callGraph).toBeFocused();
@@ -166,6 +181,8 @@ test("right-side actions yield from labels to arrows to nothing", async ({
 
   await page.setViewportSize({ width: 650, height: 900 });
   await expect(page.locator("#open-search")).toBeHidden();
+  expect(await page.evaluate(() => window.focusWorkbenchSearchProbe()))
+    .toBe(false);
   await expect(page.locator(".title-navigation .nav-history")).toBeVisible();
   await expect(page.locator("#share")).toBeHidden();
   await expect(page.locator("#open-settings")).toBeVisible();
@@ -188,6 +205,25 @@ test("right-side actions yield from labels to arrows to nothing", async ({
   const narrowTypeList = await box(page, ".type-list");
   expect(narrowNamespacePicker.y + narrowNamespacePicker.height)
     .toBeLessThanOrEqual(narrowTypeList.y);
+});
+
+test("Annotated Source keeps its sole Explore entry under shell pressure", async ({
+  page,
+}) => {
+  for (const width of [1120, 1050, 800, 600, 400]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/browser/workspace-titlebar.html?member=1&annotated=1");
+
+    const actions = await box(page, ".shell-actions");
+    const explore = await box(page, "#explore-annotated");
+    await expect(page.locator("#explore-annotated")).toBeVisible();
+    expect(explore.x).toBeGreaterThanOrEqual(actions.x - 1);
+    expect(explore.x + explore.width)
+      .toBeLessThanOrEqual(actions.x + actions.width);
+    expect(await page.evaluate(() =>
+      document.documentElement.scrollWidth
+      - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+  }
 });
 
 test("the title line advertises the typed Package, Type, and Member path", async ({

@@ -227,8 +227,10 @@ One information hierarchy adapts across viewport sizes:
 - at the narrow shell breakpoint, inspector label-and-order pairs collapse to
   their single boxed order symbols while retaining the complete accessible
   labels;
-- second-row Share, Settings, contextual actions, and trailing Help may
-  collapse completely before the subject/inspector strip wraps;
+- second-row Share, Settings, optional contextual actions, and trailing Help
+  may collapse completely before the subject/inspector strip wraps, but a
+  subject-owned sole entry action that is also a required return-focus target
+  remains visible and takes priority over those optional actions;
 - subject and inspector navigation scroll horizontally instead of wrapping;
 - subject-path segments and optional advertisements elide visually without
   losing the complete accessible subject path or segment-level copy controls;

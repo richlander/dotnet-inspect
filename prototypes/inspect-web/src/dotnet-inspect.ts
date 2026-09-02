@@ -2740,7 +2740,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           : ""}
       </div>
 
-      <main class="workspace">
+      <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="active-subject-tab">
         ${renderNavPane(current, visible)}
 
         <section class="detail-pane">

@@ -22,6 +22,7 @@ export interface RenderScopeBarOptions<TId extends string = string> {
   activeStripId: NoInfer<TId> | null;
   stripAttribute: string;
   panelId?: string;
+  subjectPanelId?: string;
   showMemberScope?: boolean;
   emptyStripLabel?: string;
   escapeHtml: (value: unknown) => string;
@@ -38,30 +39,12 @@ export function bindScopeBar(
   root: ParentNode,
   actions: ScopeBarBindingActions,
 ) {
-  const inspectorTabs = [
+  bindRovingTabs([
+    ...root.querySelectorAll<HTMLButtonElement>("[data-subject-tab]"),
+  ]);
+  bindRovingTabs([
     ...root.querySelectorAll<HTMLButtonElement>("[data-inspector-tab]"),
-  ];
-  inspectorTabs.forEach((tab, index) =>
-    tab.addEventListener("keydown", event => {
-      const targetIndex = event.key === "ArrowLeft"
-        ? (index - 1 + inspectorTabs.length) % inspectorTabs.length
-        : event.key === "ArrowRight"
-          ? (index + 1) % inspectorTabs.length
-          : event.key === "Home"
-            ? 0
-            : event.key === "End"
-              ? inspectorTabs.length - 1
-              : null;
-      if (targetIndex === null) return;
-      const target = inspectorTabs[targetIndex];
-      if (!target) return;
-      event.preventDefault();
-      inspectorTabs.forEach(candidate => {
-        candidate.tabIndex = -1;
-      });
-      target.tabIndex = 0;
-      target.focus();
-    }));
+  ]);
   root.querySelectorAll<HTMLElement>("[data-scope]").forEach(button =>
     button.addEventListener("click", () => {
       const scope = button.dataset.scope;
@@ -84,6 +67,30 @@ export function bindScopeBar(
     }));
 }
 
+function bindRovingTabs(tabs: readonly HTMLButtonElement[]): void {
+  tabs.forEach((tab, index) =>
+    tab.addEventListener("keydown", event => {
+      const targetIndex = event.key === "ArrowLeft"
+        ? (index - 1 + tabs.length) % tabs.length
+        : event.key === "ArrowRight"
+          ? (index + 1) % tabs.length
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? tabs.length - 1
+              : null;
+      if (targetIndex === null) return;
+      const target = tabs[targetIndex];
+      if (!target) return;
+      event.preventDefault();
+      tabs.forEach(candidate => {
+        candidate.tabIndex = -1;
+      });
+      target.tabIndex = 0;
+      target.focus();
+    }));
+}
+
 function lensButton(
   id: string,
   label: string,
@@ -101,8 +108,14 @@ function lensButton(
   return `<button class="lens ${active ? "active" : ""}" ${attribute}="${id}" data-inspector-tab role="tab" aria-selected="${active}" tabindex="${tabStop ? "0" : "-1"}"${activeAttributes} aria-label="${escapedLabel}" title="${escapedLabel}"><span class="lens-label">${escapedLabel}</span><kbd aria-hidden="true">${index + 1}</kbd></button>`;
 }
 
-function scopeSegment(id: string, label: string, active: boolean): string {
-  return `<button class="scope-seg ${active ? "active" : ""}" data-scope="${id}" role="tab" aria-selected="${active}">${label}</button>`;
+function scopeSegment(
+  id: string,
+  label: string,
+  active: boolean,
+  subjectPanelId: string,
+): string {
+  const activeAttributes = active ? ' id="active-subject-tab"' : "";
+  return `<button class="scope-seg ${active ? "active" : ""}" data-scope="${id}" role="tab" aria-selected="${active}" tabindex="${active ? "0" : "-1"}"${activeAttributes} data-subject-tab aria-controls="${subjectPanelId}">${label}</button>`;
 }
 
 // The leading control is the subject ladder. Workspace manages retained coordinates;
@@ -117,6 +130,7 @@ export function renderScopeBar<TId extends string>(
     activeStripId,
     stripAttribute,
     panelId,
+    subjectPanelId = "subject-panel",
     showMemberScope = scope === "member",
     emptyStripLabel = "",
     escapeHtml,
@@ -131,6 +145,7 @@ export function renderScopeBar<TId extends string>(
       : scope === "type"
         ? "Type"
         : "Member";
+  const escapedSubjectPanelId = escapeHtml(subjectPanelId);
   const stripHtml = strip.length > 0
     ? `<div class="inspector-strip" role="tablist" aria-label="${subjectLabel} lenses">${strip
         .map(([id, label], index) => lensButton(
@@ -149,10 +164,10 @@ export function renderScopeBar<TId extends string>(
   return `
     <nav class="lensbar" aria-label="Subjects and inspectors">
       <div class="scope-switch" role="tablist" aria-label="Subject">
-        ${scopeSegment("workspace", "Workspace", scope === "workspace")}
-        ${scopeSegment("package", "Package", scope === "package")}
-        ${scopeSegment("type", "Type", scope === "type")}
-        ${showMemberScope ? scopeSegment("member", "Member", scope === "member") : ""}
+        ${scopeSegment("workspace", "Workspace", scope === "workspace", escapedSubjectPanelId)}
+        ${scopeSegment("package", "Package", scope === "package", escapedSubjectPanelId)}
+        ${scopeSegment("type", "Type", scope === "type", escapedSubjectPanelId)}
+        ${showMemberScope ? scopeSegment("member", "Member", scope === "member", escapedSubjectPanelId) : ""}
       </div>
       <span class="lens-separator"></span>
       ${stripHtml}

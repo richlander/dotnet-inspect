@@ -25,6 +25,7 @@ class FakeElement {
   readonly dataset: Record<string, string | undefined>;
   hidden = true;
   focused = false;
+  rendered = true;
   value = "";
   private readonly listeners = new Map<string, EventListener[]>();
 
@@ -40,6 +41,10 @@ class FakeElement {
 
   focus() {
     this.focused = true;
+  }
+
+  getClientRects() {
+    return this.rendered ? [{}] : [];
   }
 
   dispatch(type: string, values: Record<string, unknown> = {}) {
@@ -157,6 +162,10 @@ test("workbench search focus stays with the shell selector owner", () => {
 
   assert.equal(focusWorkbenchSearch(fakeDom.parentNode(root)), true);
   assert.equal(search.focused, true);
+  search.rendered = false;
+  search.focused = false;
+  assert.equal(focusWorkbenchSearch(fakeDom.parentNode(root)), false);
+  assert.equal(search.focused, false);
   assert.equal(
     focusWorkbenchSearch(fakeDom.parentNode(new FakeRoot())),
     false);

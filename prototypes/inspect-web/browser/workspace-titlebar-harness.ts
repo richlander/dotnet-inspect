@@ -1,6 +1,16 @@
 import { bindScopeBar, renderScopeBar } from "../src/scope-bar.ts";
-import { workbenchShellHtml } from "../src/shell-controls.ts";
+import { renderAnnotatedSourcePageActions } from "../src/annotated-source.ts";
+import {
+  focusWorkbenchSearch,
+  workbenchShellHtml,
+} from "../src/shell-controls.ts";
 import { renderWorkspaceSubject } from "../src/workspace-subject.ts";
+
+declare global {
+  interface Window {
+    focusWorkbenchSearchProbe: () => boolean;
+  }
+}
 
 function escapeHtml(value: unknown): string {
   return String(value)
@@ -16,6 +26,7 @@ const params = new URL(location.href).searchParams;
 const workspaceMode = params.has("workspace");
 const packageMode = params.has("package");
 const memberMode = params.has("member");
+const annotatedMode = params.has("annotated");
 const longMode = params.has("long");
 const defaultPackageIcon =
   "https://nuget.org/Content/gallery/img/default-package-icon-256x256.png";
@@ -182,14 +193,15 @@ app.innerHTML = `
         showMemberScope: memberMode,
         escapeHtml,
       })}
-      <nav class="shell-actions" aria-label="Application">
+      <nav class="shell-actions${annotatedMode ? " annotated-page-actions" : ""}" aria-label="Application">
         <button id="share">Share</button>
+        ${annotatedMode ? renderAnnotatedSourcePageActions(true) : ""}
         <button id="open-settings">Settings</button>
         <button id="help" aria-label="Keyboard help">?</button>
       </nav>
     </header>
     <div class="notice-stack"></div>
-    <main class="workspace">
+    <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="active-subject-tab">
       ${navigationHtml}
       <section class="detail-pane">
         <article id="inspector-panel" class="detail-scroll"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
@@ -219,3 +231,5 @@ bindScopeBar(document, {
   onScopeSelect: () => {},
   onTypeLensSelect: () => {},
 });
+
+window.focusWorkbenchSearchProbe = () => focusWorkbenchSearch(document);

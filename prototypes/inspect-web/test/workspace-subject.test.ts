@@ -75,3 +75,30 @@ test("Workspace activation and Close dispatch package identity keys", () => {
   listeners.get("close:click")?.(fakeDom.event());
   assert.deepEqual(calls, ["activate:activate-key", "close:close-key"]);
 });
+
+test("Workspace Close names distinguish matching package ids", () => {
+  const packages: PackageControlPackage[] = [
+    {
+      id: "Example.Package",
+      version: "1.0.0",
+      activeFramework: "net8.0",
+      isRuntimePack: false,
+    },
+    {
+      id: "Example.Package",
+      version: "2.0.0",
+      activeFramework: "net10.0",
+      isRuntimePack: false,
+    },
+  ];
+
+  const html = renderWorkspaceSubject({
+    packages,
+    activePackage: packages[0] ?? null,
+    escapeHtml,
+    packageIdentityKey,
+  });
+
+  assert.match(html, /aria-label="Close Example\.Package 1\.0\.0 net8\.0"/);
+  assert.match(html, /aria-label="Close Example\.Package 2\.0\.0 net10\.0"/);
+});

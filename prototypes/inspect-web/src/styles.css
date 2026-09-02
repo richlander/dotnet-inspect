@@ -389,6 +389,7 @@ body {
 .shell-actions.annotated-page-actions {
   flex-basis: 320px;
   max-width: 320px;
+  min-width: 72px;
 }
 .lens kbd { margin-left: 8px; color: var(--dim); font: 10px var(--mono); }
 .lens-context { color: var(--dim); font: 10px var(--mono); }
@@ -1314,13 +1315,17 @@ kbd {
   .title-navigation .nav-history { display: none; }
 }
 
+@container shell-actions (max-width: 319px) {
+  #copy-annotated { display: none; }
+}
+
 @container shell-actions (max-width: 259px) {
-  #copy-annotated,
-  #explore-annotated { display: none; }
+  .annotated-page-actions #help { display: none; }
 }
 
 @container shell-actions (max-width: 174px) {
   #share { display: none; }
+  .annotated-page-actions #open-settings { display: none; }
 }
 
 @container shell-actions (max-width: 104px) {

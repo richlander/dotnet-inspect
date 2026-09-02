@@ -9,6 +9,8 @@ import { fakeDom } from "./fake-dom.ts";
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
+  focused = false;
+  tabIndex = 0;
   private readonly listeners = new Map<string, EventListener[]>();
 
   constructor(dataset: Record<string, string | undefined> = {}) {
@@ -21,10 +23,19 @@ class FakeElement {
     this.listeners.set(type, listeners);
   }
 
-  dispatch(type: string) {
+  focus() {
+    this.focused = true;
+  }
+
+  dispatch(type: string, values: Record<string, unknown> = {}) {
+    let prevented = false;
     for (const listener of this.listeners.get(type) ?? []) {
-      listener(fakeDom.event());
+      listener(fakeDom.event({
+        ...values,
+        preventDefault: () => prevented = true,
+      }));
     }
+    return prevented;
   }
 }
 
@@ -101,7 +112,7 @@ test("workspace scope leads the subject ladder without an inspector", () => {
 
   assert.match(
     html,
-    /data-scope="workspace" role="tab" aria-selected="true"[\s\S]*data-scope="package"[\s\S]*data-scope="type"/);
+    /data-scope="workspace" role="tab" aria-selected="true" tabindex="0" id="active-subject-tab" data-subject-tab aria-controls="subject-panel"[\s\S]*data-scope="package"[\s\S]*data-scope="type"/);
   assert.doesNotMatch(html, /package-coordinate-controls|class="lens /);
 });
 
@@ -144,6 +155,25 @@ test("scope bar binding tolerates an empty strip", () => {
   assert.doesNotThrow(() => bindScopeBar(
     fakeDom.parentNode(root),
     recordingActions([])));
+});
+
+test("subject tabs use manual roving keyboard focus", () => {
+  const root = new FakeRoot();
+  const workspace = new FakeElement();
+  const packageSubject = new FakeElement();
+  const type = new FakeElement();
+  workspace.tabIndex = -1;
+  packageSubject.tabIndex = 0;
+  type.tabIndex = -1;
+  root.add("[data-subject-tab]", workspace, packageSubject, type);
+
+  bindScopeBar(fakeDom.parentNode(root), recordingActions([]));
+
+  assert.equal(packageSubject.dispatch("keydown", { key: "ArrowRight" }), true);
+  assert.equal(type.focused, true);
+  assert.deepEqual(
+    [workspace.tabIndex, packageSubject.tabIndex, type.tabIndex],
+    [-1, -1, 0]);
 });
 
 test("scope bar bindings ignore missing and unknown dataset values", () => {
@@ -323,5 +353,7 @@ test("no strip entry is marked active when nothing matches activeStripId", () =>
   assert.match(
     html,
     /data-package-lens="overview" data-inspector-tab role="tab" aria-selected="false" tabindex="0"/);
-  assert.doesNotMatch(html, /aria-controls=/);
+  assert.doesNotMatch(
+    html,
+    /data-package-lens="overview"[^>]*aria-controls=/);
 });
