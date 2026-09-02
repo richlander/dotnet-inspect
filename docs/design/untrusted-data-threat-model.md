@@ -308,9 +308,10 @@ not an ordinary product-source-change gate. Unannotated overloads, changes for
 which the smoke is skipped, and inspection paths the smoke does not execute are
 the declared residual.
 
-`AssemblyLoadContext`, reflection over inspected binaries, module initializers,
-and dependency resolution that executes target code remain prohibited design
-directions. Their absence is not asserted as verified here.
+`Assembly.Load`, `AssemblyLoadContext`, reflection over inspected binaries,
+module initializers, and dependency resolution that executes target code remain
+prohibited design directions. Their absence beyond the partial claim above is
+not asserted as verified here.
 
 Reader-backed values remain inside their owning session. Values that cross a
 session boundary are copied or reduced to immutable tokens and shapes. This
