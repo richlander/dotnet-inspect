@@ -488,6 +488,13 @@ public static class SearchCommandDefinitions
                 Platform: allPlatformFrameworks,
                 Extensions: parseResult.GetValue(extensionsOption),
                 AspNetCore: parseResult.GetValue(aspnetcoreOption));
+            bool hasExplicitSearchSource = scopeFlags.Platform ||
+                scopeFlags.Extensions ||
+                scopeFlags.AspNetCore ||
+                packages.Length > 0 ||
+                assemblies.Length > 0 ||
+                projects.Length > 0 ||
+                platformAssemblies.Length > 0;
             var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies,
                 hasOtherScopeIndicators: projects.Length > 0 || platformAssemblies.Length > 0);
 
@@ -512,8 +519,10 @@ public static class SearchCommandDefinitions
 
             var exitCode = await DependsCommand.ExecuteTypeDependsAsync(options);
 
-            // Type not found — fall back to library mode if the name could be a library
-            if (exitCode == DependsCommand.TypeNotFoundExitCode && !targetType!.Contains('<'))
+            // A source option makes the positional argument unambiguously a type.
+            if (exitCode == DependsCommand.TypeNotFoundExitCode &&
+                !hasExplicitSearchSource &&
+                !targetType!.Contains('<'))
             {
                 var libOptions = new DependsOptions
                 {

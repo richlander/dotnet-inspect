@@ -19,8 +19,9 @@ default activation and explicit scope composition.
 ## Preconditions
 
 Use an isolated session so the explicit package-catalog acquisition in section
-6 does not depend on an existing cache. The default platform-only steps do not
-require network access.
+6 does not depend on an existing cache. The `runtime` and `aspnetcore` parts of
+the default platform scope resolve locally. Its `netstandard` reference pack
+may require NuGet acquisition in a cold isolated session.
 
 ```bash
 export DOTNET_INSPECT_ISOLATED=extension-methods

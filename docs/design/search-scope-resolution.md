@@ -82,7 +82,8 @@ Explicit selectors compose additively:
 | `--extensions` | the current Microsoft.Extensions package catalog |
 | `--aspnetcore` | the current ASP.NET Core package catalog |
 | explicit `--package` values | those package coordinates |
-| valued `--platform`, `--library`, `--project`, `--bin`, or `--package-prefix` | no catalog contribution; their presence suppresses the default |
+| `--package-prefix` | matching package coordinates; its presence suppresses the default even when expansion is empty |
+| valued `--platform`, `--library`, `--project`, or `--bin` | no framework or package contribution; their presence suppresses the default |
 
 Valued `--platform` is parser output for a platform-library source, not the
 bare platform-group selection. This design consumes that distinction and does
@@ -149,7 +150,11 @@ The Release `dotnet-inspect.Tests` suite enforces the contract:
 - `SearchScopeResolutionTests.ExplicitGroups_ComposeInOrderWithoutDuplicatePackages`
   gates additive composition, order, and case-insensitive set semantics;
 - `SearchScopeResolutionTests.ExplicitMissingDirectory_DoesNotFallBackToPlatform`
-  is the outcome-level pathological gate; and
+  and
+  `SearchScopeResolutionTests.DependsExplicitSourceMiss_DoesNotFallBackToLibraryMode`
+  are the outcome-level pathological gates;
+- `SearchScopeResolutionTests.DependsImplicitScope_RetainsBareLibraryFallback`
+  gates the command's source-free type-or-library convenience; and
 - `SearchScopeResolutionTests.CuratedCompatibilityInput_IsNotRegistered`
   gates removal of the redundant hidden input from every participating
   command.

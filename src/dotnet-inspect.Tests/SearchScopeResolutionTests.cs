@@ -154,6 +154,45 @@ public class SearchScopeResolutionTests
         Assert.Contains("Directory not found", error, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task DependsExplicitSourceMiss_DoesNotFallBackToLibraryMode()
+    {
+        string missingLibrary = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-search-scope-{Guid.NewGuid():N}.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "depends",
+            "System.Console",
+            "--library",
+            missingLibrary,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Type 'System.Console' not found in the specified scope.",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DependsImplicitScope_RetainsBareLibraryFallback()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "depends",
+            "System.Runtime",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.True(int.Parse(output.Trim()) > 0);
+    }
+
     [Theory]
     [InlineData("find", "System.String")]
     [InlineData("implements", "IDisposable")]
