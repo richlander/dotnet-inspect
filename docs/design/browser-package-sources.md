@@ -924,10 +924,10 @@ Implementation is not complete until Release gates establish:
   legacy type at their use site;
 - `LegacyReferenceDiscoveryIncludesAliasesAndInactiveBranches` proves the
   inventory semantically attributes local and global legacy type aliases and
-  descriptor identity readers across every distinct namespace-import
-  configuration and active-token configuration of a conditional file with a
-  potential reader site, then conservatively unions executable legacy-type,
-  alias, and descriptor identity name spans from normally inactive branches;
+  descriptor identity readers across every bounded conditional-compilation
+  configuration, including cross-file aliases and inferred receiver bindings,
+  then conservatively unions executable legacy-type, alias, and descriptor
+  identity name spans from normally inactive branches;
 - `LegacyPackageSourceIdentityBehaviorRemainsStable` pins exact vectors for
   legacy factories, `NuGetOrg`, `Value`, endpoint-shaped formatting, equality,
   and equal-value hash consistency, plus Gallery and NuGetV3

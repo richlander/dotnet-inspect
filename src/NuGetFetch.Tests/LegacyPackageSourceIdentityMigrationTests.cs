@@ -289,6 +289,47 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
                     }
                 }
                 """);
+            File.WriteAllText(
+                Path.Combine(sourceRoot, "DescriptorAlias.cs"),
+                $$"""
+                global using DescriptorAlias =
+                    NuGetFetch.{{DescriptorTypeName}};
+                """);
+            File.WriteAllText(
+                Path.Combine(sourceRoot, "CrossFileOtherDescriptor.cs"),
+                $$"""
+                namespace Probe;
+                sealed class CrossFileOtherDescriptor
+                {
+                    public object {{IdentityPropertyName}} => new();
+                }
+                """);
+            File.WriteAllText(
+                Path.Combine(sourceRoot, "ConditionalFactory.cs"),
+                """
+                namespace Probe;
+                static class ConditionalFactory
+                {
+                #if CONDITIONAL_CROSS_FILE_RECEIVER
+                    public static DescriptorAlias Create() => new();
+                #else
+                    public static CrossFileOtherDescriptor Create() => new();
+                #endif
+                }
+                """);
+            File.WriteAllText(
+                Path.Combine(sourceRoot, "CrossFileReceiverConsumer.cs"),
+                $$"""
+                namespace Probe;
+                sealed class CrossFileReceiverConsumer
+                {
+                    object Read()
+                    {
+                        var descriptor = ConditionalFactory.Create();
+                        return descriptor.{{IdentityPropertyName}};
+                    }
+                }
+                """);
 
             Dictionary<string, MigrationEntry> readers =
                 DiscoverReferences(new DirectoryInfo(root))
@@ -324,6 +365,10 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
                 1,
                 readers["tests/ConditionalReceiverConsumer.cs"]
                     .ImplicitReferences);
+            Assert.Equal(
+                1,
+                readers["tests/CrossFileReceiverConsumer.cs"]
+                    .ImplicitReferences);
             Assert.All(
                 readers.Values.Where(entry =>
                     entry.Path is not
@@ -331,7 +376,9 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
                         and not
                         "tests/ConditionalDescriptorConsumer.cs"
                         and not
-                        "tests/ConditionalReceiverConsumer.cs"),
+                        "tests/ConditionalReceiverConsumer.cs"
+                        and not
+                        "tests/CrossFileReceiverConsumer.cs"),
                 entry => Assert.Equal(0, entry.ImplicitReferences));
             Assert.Contains(
                 "unlisted",
@@ -394,13 +441,6 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
         INamedTypeSymbol? legacyType =
             compilation.GetTypeByMetadataName(
                 $"NuGetFetch.{LegacyTypeName}");
-        IPropertySymbol? descriptorIdentity =
-            compilation
-                .GetTypeByMetadataName(
-                    $"NuGetFetch.{DescriptorTypeName}")
-                ?.GetMembers(IdentityPropertyName)
-                .OfType<IPropertySymbol>()
-                .SingleOrDefault();
         HashSet<string> legacyAliases =
             DiscoverLegacyAliases(
                 baseline,
@@ -411,27 +451,6 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
                 tree => tree.FilePath,
                 tree => ActiveSyntaxLocations(tree.GetRoot()),
                 StringComparer.Ordinal);
-
-        foreach (SyntaxTree tree in baseline)
-        {
-            SyntaxNode syntax = tree.GetRoot();
-            if (!HasPotentialReferences(syntax, legacyAliases))
-                continue;
-
-            SemanticModel semantics = compilation.GetSemanticModel(tree);
-            ReferenceLocations locations = references[tree.FilePath];
-            locations.Explicit.UnionWith(
-                ExplicitReferenceLocations(
-                    syntax,
-                    semantics,
-                    legacyType,
-                    legacyAliases));
-            locations.Implicit.UnionWith(
-                ImplicitReferenceLocations(
-                    syntax,
-                    semantics,
-                    descriptorIdentity));
-        }
 
         int configurationCount = 1 << conditionalSymbols.Length;
         for (int mask = 0; mask < configurationCount; mask++)
@@ -454,13 +473,6 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
                 legacyAliases);
         }
 
-        HashSet<string> analyzedBindingConfigurations =
-            new(StringComparer.Ordinal)
-            {
-                BindingConfigurationFingerprint(
-                    baseline.Where(tree =>
-                        conditionalPaths.Contains(tree.FilePath))),
-            };
         for (int mask = 0; mask < configurationCount; mask++)
         {
             string[] definedSymbols =
@@ -473,13 +485,6 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
                 definedSymbols,
                 baselineByPath,
                 conditionalPaths);
-            string bindingConfiguration =
-                BindingConfigurationFingerprint(
-                    trees.Where(tree =>
-                        conditionalPaths.Contains(tree.FilePath)));
-            if (!analyzedBindingConfigurations.Add(bindingConfiguration))
-                continue;
-
             CSharpCompilation configuredCompilation =
                 CreateCompilation(trees);
             INamedTypeSymbol? configuredLegacyType =
@@ -599,42 +604,6 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
             {
                 aliases.Add(alias.Name.Identifier.ValueText);
             }
-        }
-    }
-
-    static string BindingConfigurationFingerprint(
-        IEnumerable<SyntaxTree> trees) =>
-        string.Join(
-            '\n',
-            trees.SelectMany(BindingConfigurationParts)
-                .Order(StringComparer.Ordinal));
-
-    static IEnumerable<string> BindingConfigurationParts(
-        SyntaxTree tree)
-    {
-        SyntaxNode syntax = tree.GetRoot();
-        foreach (UsingDirectiveSyntax directive in
-                 syntax.DescendantNodes()
-                     .OfType<UsingDirectiveSyntax>())
-        {
-            yield return $"{tree.FilePath}:using:"
-                + $"{directive.SpanStart}:{directive}";
-        }
-
-        bool hasPotentialReader = syntax.DescendantNodes()
-            .OfType<SimpleNameSyntax>()
-            .Any(name =>
-                name.Identifier.ValueText is
-                    LegacyTypeName
-                    or DescriptorTypeName
-                    or IdentityPropertyName);
-        if (!hasPotentialReader)
-            yield break;
-
-        foreach (SyntaxToken token in syntax.DescendantTokens())
-        {
-            yield return $"{tree.FilePath}:token:{token.SpanStart}:"
-                + $"{token.RawKind}:{token.ValueText}";
         }
     }
 
