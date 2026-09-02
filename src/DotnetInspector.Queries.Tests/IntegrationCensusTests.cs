@@ -2377,6 +2377,544 @@ public sealed class IntegrationCensusTests
         Assert.Same(snapshot, result.Snapshot);
     }
 
+    // ---- Graph projection ----------------------------------------------
+
+    [Fact]
+    public void IntegrationGraph_OnlyInCandidatesContributeOccurrences()
+    {
+        IntegrationSourceParticipantIdentity participant =
+            Portable("graph-in-out");
+        IntegrationCandidateIdentity inside = ObservedCandidate(
+            participant,
+            IntegrationConceptCatalog.AI,
+            AssemblyPeer(
+                Assembly("Peer.In"),
+                TypeName("Peer", "Inside")),
+            TypeElement("Source", "Observed"));
+        IntegrationCandidateIdentity outside = new(
+            OpportunityRel,
+            IntegrationConceptCatalog.Aspire,
+            new IntegrationCandidateSourceIdentity(
+                participant,
+                TypeElement("Source", "Opportunity")),
+            PolicyTargetPeer(
+                "Peer.Out",
+                TypeName("Peer", "Outside")));
+        IntegrationTypeIdentity terminal = PeerTerminal(inside);
+        var context = new Context();
+        AnalysisRequestPlan plan = Plan(
+            projection: IntegrationAnalysisCatalog.Graph);
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [participant],
+            producerAttempts: Producers(
+                [participant],
+                Completed(participant, Ecosystem, inside),
+                Completed(participant, Opportunity, outside)),
+            selectedTypes: [terminal],
+            contexts: [context],
+            candidateAttempts:
+            [
+                ClassifiedIn(inside, context, terminal),
+                ClassifiedOut(outside, context),
+            ],
+            plan: plan);
+
+        IntegrationGraphProjectionResult result =
+            IntegrationGraphProjection.Project(
+                plan,
+                snapshot,
+                GraphRequest(
+                    [
+                        PackageSubject(participant),
+                        PackageSubject(terminal.Participant),
+                    ],
+                    Observed,
+                    OpportunityRel));
+
+        InspectionGraphOccurrence occurrence =
+            Assert.Single(result.Document.Occurrences);
+        var evidence = Assert.IsType<
+            InspectionGraphIntegrationCensusCandidateEvidence>(
+                occurrence.Evidence);
+        Assert.Same(
+            inside,
+            evidence.Attempt.Address.Candidate);
+        Assert.Equal(2, result.CandidateInventory.Length);
+        Assert.NotNull(
+            Assert.Single(
+                result.CandidateInventory,
+                item => ReferenceEquals(item.Candidate, inside))
+                .Occurrence);
+        Assert.Null(
+            Assert.Single(
+                result.CandidateInventory,
+                item => ReferenceEquals(item.Candidate, outside))
+                .Occurrence);
+    }
+
+    [Fact]
+    public void IntegrationGraph_OutCandidatesAreNeitherEdgesNorFailures()
+    {
+        IntegrationSourceParticipantIdentity participant =
+            Portable("graph-out");
+        IntegrationCandidateIdentity candidate = new(
+            OpportunityRel,
+            IntegrationConceptCatalog.AI,
+            new IntegrationCandidateSourceIdentity(
+                participant,
+                TypeElement("Source", "Opportunity")),
+            PolicyTargetPeer(
+                "Peer.Out",
+                TypeName("Peer", "Outside")));
+        var context = new Context();
+        AnalysisRequestPlan plan = Plan(
+            projection: IntegrationAnalysisCatalog.Graph);
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [participant],
+            producerAttempts: Producers(
+                [participant],
+                Completed(participant, Opportunity, candidate)),
+            contexts: [context],
+            candidateAttempts:
+            [
+                ClassifiedOut(candidate, context),
+            ],
+            plan: plan);
+
+        IntegrationGraphProjectionResult result =
+            IntegrationGraphProjection.Project(
+                plan,
+                snapshot,
+                GraphRequest(
+                    [PackageSubject(participant)],
+                    OpportunityRel));
+
+        Assert.Empty(result.Document.Nodes);
+        Assert.Empty(result.Document.Edges);
+        Assert.Empty(result.Document.Occurrences);
+        Assert.Empty(result.Document.Failures);
+        Assert.Single(result.Document.Groups);
+        Assert.Null(Assert.Single(result.CandidateInventory).Occurrence);
+    }
+
+    [Fact]
+    public void IntegrationGraph_CandidateInventoryPrecedesInducedSetProjection()
+    {
+        IntegrationSourceParticipantIdentity firstSource =
+            Portable("graph-first");
+        IntegrationSourceParticipantIdentity secondSource =
+            Portable("graph-second");
+        IntegrationCandidateIdentity first = ObservedCandidate(
+            firstSource,
+            IntegrationConceptCatalog.AI,
+            AssemblyPeer(
+                Assembly("Peer.First"),
+                TypeName("Peer", "First")),
+            TypeElement("Source", "First"));
+        IntegrationCandidateIdentity second = ObservedCandidate(
+            secondSource,
+            IntegrationConceptCatalog.Aspire,
+            AssemblyPeer(
+                Assembly("Peer.Second"),
+                TypeName("Peer", "Second")),
+            TypeElement("Source", "Second"));
+        IntegrationTypeIdentity firstTerminal = PeerTerminal(first);
+        IntegrationTypeIdentity secondTerminal = PeerTerminal(second);
+        var context = new Context();
+        AnalysisRequestPlan plan = Plan(
+            projection: IntegrationAnalysisCatalog.Graph);
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [firstSource, secondSource],
+            producerAttempts: Producers(
+                [firstSource, secondSource],
+                Completed(firstSource, Ecosystem, first),
+                Completed(secondSource, Ecosystem, second)),
+            selectedTypes: [firstTerminal, secondTerminal],
+            contexts: [context],
+            candidateAttempts:
+            [
+                ClassifiedIn(second, context, secondTerminal),
+                ClassifiedIn(first, context, firstTerminal),
+            ],
+            plan: plan);
+
+        IntegrationGraphProjectionResult result =
+            IntegrationGraphProjection.Project(
+                plan,
+                snapshot,
+                GraphRequest(
+                    [
+                        PackageSubject(firstSource),
+                        PackageSubject(firstTerminal.Participant),
+                    ],
+                    Observed));
+
+        Assert.Equal(2, result.CandidateInventory.Length);
+        Assert.Equal(
+            snapshot.ClassifiedAttempts,
+            result.CandidateInventory.Select(
+                static item => item.Attempt));
+        IntegrationGraphCandidateProjection retained = Assert.Single(
+            result.CandidateInventory,
+            item => ReferenceEquals(item.Candidate, first));
+        IntegrationGraphCandidateProjection filtered = Assert.Single(
+            result.CandidateInventory,
+            item => ReferenceEquals(item.Candidate, second));
+        Assert.IsType<IntegrationGraphOccurrenceProjection.Retained>(
+            Assert.IsType<IntegrationGraphCandidateOccurrence>(
+                retained.Occurrence).Projection);
+        Assert.IsType<IntegrationGraphOccurrenceProjection.FilteredByRequest>(
+            Assert.IsType<IntegrationGraphCandidateOccurrence>(
+                filtered.Occurrence).Projection);
+        Assert.Single(result.Document.Occurrences);
+    }
+
+    [Fact]
+    public void IntegrationGraph_RetainsCandidateAttemptOccurrenceAndEdgeCorrespondence()
+    {
+        IntegrationSourceParticipantIdentity participant =
+            Portable("graph-correspondence");
+        IntegrationCandidateIdentity candidate = ObservedCandidate(
+            participant,
+            IntegrationConceptCatalog.AI,
+            AssemblyPeer(
+                Assembly("Peer.Correspondence"),
+                TypeName("Peer", "Client")),
+            TypeElement("Source", "TypeEvidence"));
+        IntegrationTypeIdentity terminal = PeerTerminal(candidate);
+        var context = new Context();
+        IntegrationCandidateAttempt.Classified attempt =
+            ClassifiedIn(candidate, context, terminal);
+        AnalysisRequestPlan plan = Plan(
+            projection: IntegrationAnalysisCatalog.Graph);
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [participant],
+            producerAttempts: Producers(
+                [participant],
+                Completed(participant, Ecosystem, candidate)),
+            selectedTypes: [terminal],
+            contexts: [context],
+            candidateAttempts: [attempt],
+            plan: plan);
+
+        IntegrationGraphProjectionResult result =
+            IntegrationGraphProjection.Project(
+                plan,
+                snapshot,
+                GraphRequest(
+                    [
+                        PackageSubject(participant),
+                        PackageSubject(terminal.Participant),
+                    ],
+                    Observed));
+
+        IntegrationGraphCandidateProjection projected =
+            Assert.Single(result.CandidateInventory);
+        IntegrationGraphCandidateOccurrence admitted =
+            Assert.IsType<IntegrationGraphCandidateOccurrence>(
+                projected.Occurrence);
+        var retained = Assert.IsType<
+            IntegrationGraphOccurrenceProjection.Retained>(
+                admitted.Projection);
+        InspectionGraphOccurrence occurrence =
+            result.Document.Occurrences[retained.OccurrenceId];
+        InspectionGraphEdge edge =
+            result.Document.Edges[retained.EdgeId];
+        var evidence = Assert.IsType<
+            InspectionGraphIntegrationCensusCandidateEvidence>(
+                occurrence.Evidence);
+
+        Assert.Same(attempt, projected.Attempt);
+        Assert.Same(attempt, evidence.Attempt);
+        Assert.Equal(admitted.OccurrenceSource, occurrence.SourceSubject);
+        Assert.Equal(admitted.OccurrenceTarget, occurrence.TargetSubject);
+        Assert.Contains(retained.OccurrenceId, edge.OccurrenceIds);
+        Assert.Equal(admitted.EdgeSource,
+            result.Document.Nodes[edge.FromNodeId].Subject);
+        Assert.Equal(admitted.EdgeTarget,
+            result.Document.Nodes[edge.ToNodeId].Subject);
+        var source = Assert.IsType<
+            InspectionGraphTypeIdentity.CensusType>(
+                Assert.IsType<InspectionGraphSubject.TypeSubject>(
+                    occurrence.SourceSubject).Identity);
+        var target = Assert.IsType<
+            InspectionGraphTypeIdentity.CensusType>(
+                Assert.IsType<InspectionGraphSubject.TypeSubject>(
+                    occurrence.TargetSubject).Identity);
+        Assert.Same(participant, source.Identity.Participant);
+        Assert.Same(terminal, target.Identity);
+        Assert.Null(source.Identity.Participant.Registration);
+        Assert.NotNull(source.Identity.Participant.Coordinate);
+        Assert.Equal(
+            InspectionGraphDocumentScope.SessionBound,
+            result.Document.Scope);
+        Assert.Same(result.GraphRequest, result.Document.InducedSetRequest);
+    }
+
+    [Fact]
+    public void IntegrationGraph_OpportunityPreservesAssemblyEdgeAndTypeOccurrence()
+    {
+        IntegrationSourceParticipantIdentity participant =
+            Portable("graph-opportunity");
+        IntegrationCandidateIdentity candidate = OpportunityCandidate(
+            participant,
+            IntegrationConceptCatalog.AI,
+            PolicyTargetPeer(
+                "Peer.Opportunity",
+                TypeName("Peer", "Client")));
+        IntegrationTypeIdentity terminal = PeerTerminal(candidate);
+        var context = new Context();
+        AnalysisRequestPlan plan = Plan(
+            projection: IntegrationAnalysisCatalog.Graph);
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [participant],
+            producerAttempts: Producers(
+                [participant],
+                Completed(participant, Opportunity, candidate)),
+            selectedTypes: [terminal],
+            contexts: [context],
+            candidateAttempts:
+            [
+                ClassifiedIn(candidate, context, terminal),
+            ],
+            plan: plan);
+
+        IntegrationGraphProjectionResult result =
+            IntegrationGraphProjection.Project(
+                plan,
+                snapshot,
+                GraphRequest(
+                    [
+                        PackageSubject(participant),
+                        PackageSubject(terminal.Participant),
+                    ],
+                    OpportunityRel));
+
+        InspectionGraphEdge edge = Assert.Single(result.Document.Edges);
+        InspectionGraphOccurrence occurrence =
+            Assert.Single(result.Document.Occurrences);
+        Assert.IsType<
+            InspectionGraphAssemblyIdentity.CensusParticipant>(
+                Assert.IsType<InspectionGraphSubject.AssemblySubject>(
+                    result.Document.Nodes[edge.FromNodeId].Subject).Identity);
+        Assert.IsType<InspectionGraphSubject.TypeSubject>(
+            occurrence.SourceSubject);
+        Assert.Equal(
+            occurrence.TargetSubject,
+            result.Document.Nodes[edge.ToNodeId].Subject);
+    }
+
+    [Fact]
+    public void IntegrationGraph_MultipleCandidatesMayCorrespondToOneLogicalEdge()
+    {
+        IntegrationSourceParticipantIdentity participant =
+            Portable("graph-many");
+        IntegrationCandidateIdentity candidate = ObservedCandidate(
+            participant,
+            IntegrationConceptCatalog.AI,
+            AssemblyPeer(
+                Assembly("Peer.Many"),
+                TypeName("Peer", "Client")),
+            new IntegrationCandidateSourceElement.Member(
+                TypeName("Source", "Adapter"),
+                Anchor("Source.Adapter")));
+        IntegrationTypeIdentity terminal = PeerTerminal(candidate);
+        var first = new Context();
+        var second = new Context();
+        AnalysisRequestPlan plan = Plan(
+            projection: IntegrationAnalysisCatalog.Graph);
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [participant],
+            producerAttempts: Producers(
+                [participant],
+                Completed(participant, Ecosystem, candidate)),
+            selectedTypes: [terminal],
+            contexts: [first, second],
+            candidateAttempts:
+            [
+                ClassifiedIn(candidate, second, terminal),
+                ClassifiedIn(candidate, first, terminal),
+            ],
+            plan: plan);
+
+        IntegrationGraphProjectionResult result =
+            IntegrationGraphProjection.Project(
+                plan,
+                snapshot,
+                GraphRequest(
+                    [
+                        PackageSubject(participant),
+                        PackageSubject(terminal.Participant),
+                    ],
+                    Observed));
+
+        IntegrationGraphOccurrenceProjection.Retained[] retained =
+        [
+            .. result.CandidateInventory.Select(item =>
+                Assert.IsType<
+                    IntegrationGraphOccurrenceProjection.Retained>(
+                        Assert.IsType<IntegrationGraphCandidateOccurrence>(
+                            item.Occurrence).Projection)),
+        ];
+        Assert.Equal(2, retained.Length);
+        Assert.NotEqual(
+            retained[0].OccurrenceId,
+            retained[1].OccurrenceId);
+        Assert.Equal(retained[0].EdgeId, retained[1].EdgeId);
+        Assert.Single(result.Document.Edges);
+        Assert.Equal(2, Assert.Single(result.Document.Edges).OccurrenceIds.Length);
+    }
+
+    [Fact]
+    public void IntegrationGraph_IncompleteCensusRetainsHealthyGraphAndFailure()
+    {
+        IntegrationSourceParticipantIdentity participant =
+            Portable("graph-incomplete");
+        IntegrationCandidateIdentity healthy = ObservedCandidate(
+            participant,
+            IntegrationConceptCatalog.AI,
+            AssemblyPeer(
+                Assembly("Peer.Healthy"),
+                TypeName("Peer", "Healthy")),
+            TypeElement("Source", "Healthy"));
+        IntegrationCandidateIdentity failed = ObservedCandidate(
+            participant,
+            IntegrationConceptCatalog.Aspire,
+            AssemblyPeer(
+                Assembly("Peer.Failed"),
+                TypeName("Peer", "Failed")),
+            TypeElement("Source", "Failed"));
+        IntegrationTypeIdentity terminal = PeerTerminal(healthy);
+        var context = new Context();
+        AnalysisRequestPlan plan = Plan(
+            projection: IntegrationAnalysisCatalog.Graph);
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [participant],
+            producerAttempts: Producers(
+                [participant],
+                Completed(
+                    participant,
+                    Ecosystem,
+                    healthy,
+                    failed)),
+            selectedTypes: [terminal],
+            contexts: [context],
+            candidateAttempts:
+            [
+                ClassifiedIn(healthy, context, terminal),
+                new IntegrationCandidateAttempt.Failed(
+                    new IntegrationCandidateAttemptAddress(
+                        failed,
+                        context),
+                    new CandidateFailure()),
+            ],
+            plan: plan);
+
+        IntegrationGraphProjectionResult result =
+            IntegrationGraphProjection.Project(
+                plan,
+                snapshot,
+                GraphRequest(
+                    [
+                        PackageSubject(participant),
+                        PackageSubject(terminal.Participant),
+                    ],
+                    Observed));
+
+        Assert.False(result.IsComplete);
+        Assert.Single(result.Document.Occurrences);
+        InspectionGraphFailure failure =
+            Assert.Single(result.Document.Failures);
+        Assert.Same(
+            InspectionGraphIntegrationsCatalog.ProjectionFailure,
+            failure.Descriptor);
+        var evidence = Assert.IsType<
+            InspectionGraphIntegrationCensusFailureEvidence>(
+                failure.Evidence);
+        Assert.Single(evidence.CandidateAttempts);
+        Assert.Empty(evidence.SourceAttempts);
+        Assert.Empty(evidence.ProducerPolicyAttempts);
+    }
+
+    [Fact]
+    public void IntegrationProjection_RowsAndGraphShareOneAnalysisAndSnapshot()
+    {
+        AnalysisReportSurface surface = Surface();
+        AnalysisUniverseDescription universe = FullUniverse();
+        AnalysisRequestPlan rows =
+            Plan(surface, universe, IntegrationAnalysisCatalog.Rows);
+        AnalysisRequestPlan graph =
+            Plan(surface, universe, IntegrationAnalysisCatalog.Graph);
+        IntegrationSourceParticipantIdentity participant =
+            Portable("graph-shared");
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [participant],
+            plan: rows);
+
+        IntegrationInventoryProjectionResult rowResult =
+            IntegrationInventoryProjection.Project(rows, snapshot);
+        IntegrationGraphProjectionResult graphResult =
+            IntegrationGraphProjection.Project(
+                graph,
+                snapshot,
+                GraphRequest(
+                    [PackageSubject(participant)],
+                    Observed));
+
+        Assert.Same(snapshot, rowResult.Snapshot);
+        Assert.Same(snapshot, graphResult.Snapshot);
+        Assert.Same(rowResult.Analysis, graphResult.Analysis);
+        Assert.Same(rowResult.ReportSurface, graphResult.ReportSurface);
+        Assert.Same(rowResult.Universe, graphResult.Universe);
+        Assert.Empty(rowResult.Rows);
+        Assert.Empty(graphResult.CandidateInventory);
+        Assert.Empty(graphResult.Document.Occurrences);
+    }
+
+    [Fact]
+    public void IntegrationGraph_RequiresGraphPlanAndCensusBackedRequest()
+    {
+        IntegrationSourceParticipantIdentity participant =
+            Portable("graph-request");
+        AnalysisReportSurface surface = Surface();
+        AnalysisUniverseDescription universe = FullUniverse();
+        AnalysisRequestPlan rows =
+            Plan(surface, universe, IntegrationAnalysisCatalog.Rows);
+        AnalysisRequestPlan graph =
+            Plan(surface, universe, IntegrationAnalysisCatalog.Graph);
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [participant],
+            plan: rows);
+        InspectionGraphInducedSetRequest request = GraphRequest(
+            [PackageSubject(participant)],
+            Observed);
+
+        Assert.Throws<ArgumentException>(() =>
+            IntegrationGraphProjection.Project(rows, snapshot, request));
+        Assert.Throws<ArgumentException>(() =>
+            IntegrationGraphProjection.Project(
+                graph,
+                snapshot,
+                GraphRequest(
+                    [PackageSubject(participant)],
+                    InspectionGraphIntegrationsCatalog.Extension)));
+        Assert.Throws<ArgumentException>(() =>
+            IntegrationGraphProjection.Project(
+                graph,
+                snapshot,
+                GraphRequest(
+                    [
+                        InspectionGraphSubject.ForRealizedPackage(
+                            new RealizedMemberCoordinate.Package(
+                                "contoso.foreign",
+                                "1.0.0",
+                                "fixture",
+                                "net11.0",
+                                null)),
+                    ],
+                    Observed)));
+    }
+
     // =====================================================================
     // Fixture / helper layer
     // =====================================================================
@@ -2584,6 +3122,30 @@ public sealed class IntegrationCensusTests
             new IntegrationCandidateAttemptAddress(candidate, context),
             new IntegrationCandidateDisposition.Out(
                 Resolved(candidate, PeerTerminal(candidate))));
+
+    static IntegrationCandidateAttempt.Classified ClassifiedIn(
+        IntegrationCandidateIdentity candidate,
+        IIntegrationBindingContextIdentity context,
+        IntegrationTypeIdentity terminal) =>
+        new(
+            new IntegrationCandidateAttemptAddress(candidate, context),
+            new IntegrationCandidateDisposition.In(
+                Resolved(candidate, terminal)));
+
+    static InspectionGraphSubject PackageSubject(
+        IntegrationSourceParticipantIdentity participant) =>
+        InspectionGraphSubject.ForRealizedPackage(
+            Assert.IsType<RealizedMemberCoordinate.Package>(
+                participant.Coordinate));
+
+    static InspectionGraphInducedSetRequest GraphRequest(
+        IEnumerable<InspectionGraphSubject> subjects,
+        params InspectionGraphRelationshipDescriptor[] relationships) =>
+        new(
+            subjects,
+            relationships,
+            InspectionGraphInducedSetAdmissionRule
+                .BothEndpointsWithinSubjectClosure);
 
     // The exact selected-universe Type identity backing one candidate's source
     // element, admitted so completed producer evidence stays live.
