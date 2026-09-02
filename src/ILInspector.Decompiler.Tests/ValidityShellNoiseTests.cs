@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspector.Fixtures;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
 using Microsoft.CodeAnalysis;
@@ -14,10 +15,112 @@ public class ValidityShellNoiseTests
     static readonly TypeRef NonGenericConvertType =
         TypeRef.Definition("ILInspector.Decompiler", "ILInspector.Decompiler.Pipeline", "Convert");
 
+    [Fact]
+    public void RuntimeAsyncNoAwaitShell_UsesMetadataAsyncContext()
+    {
+        using var source = MetadataSource.Open(
+            FixtureCatalog.DecompilerRuntimeAsync.AssemblyPath());
+        var function = IrImporter.Import(
+            source,
+            "ILInspector.Decompiler.Fixtures.ClassicAsync.AsyncFixtures",
+            "NoAwait");
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+
+        Assert.Equal(MetadataFactState.Yes, function.IsRuntimeAsync);
+        Assert.False(function.RequiresAsyncBodyModifier);
+
+        var projection = CSharpPrinter.Print(function);
+        string body = Assert.IsType<string>(projection.Output);
+        string shell = ValidityCheck.Shell(
+            function,
+            body,
+            function.DeclaringType.Name,
+            function.Name,
+            new Dictionary<string, Dictionary<string, string>>(),
+            ValidityCheck.MethodShellContext.Create(
+                function,
+                projection.RequiresUnsafeBodyModifier));
+
+        Assert.Contains("async Task __M(", shell);
+        Assert.DoesNotContain(
+            Compile(shell),
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void RuntimeAsyncNoAwaitUnsafeShell_PreservesUnsafeContext()
+    {
+        using var source = MetadataSource.Open(
+            typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.RuntimeAsyncNoAwaitUnsafe));
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+
+        Assert.Equal(MetadataFactState.Yes, function.IsRuntimeAsync);
+        Assert.False(function.RequiresAsyncBodyModifier);
+
+        var projection = CSharpPrinter.Print(function);
+        Assert.True(projection.RequiresUnsafeBodyModifier);
+        string body = Assert.IsType<string>(projection.Output);
+        string shell = ValidityCheck.Shell(
+            function,
+            body,
+            function.DeclaringType.Name,
+            function.Name,
+            new Dictionary<string, Dictionary<string, string>>(),
+            ValidityCheck.MethodShellContext.Create(
+                function,
+                projection.RequiresUnsafeBodyModifier));
+
+        Assert.Contains("async unsafe Task __M(", shell);
+        Assert.DoesNotContain(
+            Compile(shell),
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void OrdinaryTaskReturningShell_DoesNotInferAsyncFromReturnType()
+    {
+        TypeRef task = TypeRef.CoreLib(
+            "System.Threading.Tasks",
+            "Task");
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("fixture", "", "Ordinary"),
+            new MethodSignature(
+                task,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            new BlockContainer());
+
+        string shell = ValidityCheck.Shell(
+            function,
+            "return null;\n",
+            function.DeclaringType.Name,
+            function.Name,
+            new Dictionary<string, Dictionary<string, string>>(),
+            ValidityCheck.MethodShellContext.Create(
+                function,
+                requiresUnsafeContext: false));
+
+        Assert.Contains("unsafe Task __M(", shell);
+        Assert.DoesNotContain(
+            Compile(shell),
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+    }
+
     [Theory]
+    [InlineData(nameof(CfgSampleClass.AwaitOnce))]
     [InlineData(nameof(CfgSampleClass.AwaitUsingResource))]
     [InlineData(nameof(CfgSampleClass.NestedAwaitUsingResources))]
-    public void AwaitUsingShell_UsesAsyncBodyFactAfterAwaitExpressionsAreConsumed(
+    [InlineData(nameof(CfgSampleClass.AwaitForeach))]
+    public void AsyncShellWithAwaitSyntax_DoesNotComposeUnsafeModifier(
         string methodName)
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
@@ -26,15 +129,18 @@ public class ValidityShellNoiseTests
         IrPasses.Run(function);
 
         Assert.True(function.RequiresAsyncBodyModifier);
-        Assert.Empty(function.Descendants.OfType<AwaitExpression>());
 
         string body = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
+        Assert.Contains("await", body);
         string shell = ValidityCheck.Shell(
             function,
             body,
             typeof(CfgSampleClass).FullName!,
             methodName,
-            new Dictionary<string, Dictionary<string, string>>());
+            new Dictionary<string, Dictionary<string, string>>(),
+            ValidityCheck.MethodShellContext.Create(
+                function,
+                requiresUnsafeContext: true));
 
         Assert.Contains("async Task<int> __M(", shell);
         Assert.DoesNotContain("unsafe Task<int> __M(", shell);

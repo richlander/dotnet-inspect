@@ -219,7 +219,9 @@ public sealed class PackageSourceClientTests
         IPackageSourceClient runtime =
             PackageSourceClientFactory.Create(source, client);
 
-        Assert.Equal(PackageSourceKind.NuGetV3, runtime.Kind);
+        Assert.Equal(
+            PackageSourceKind.NuGetV3,
+            runtime.Source.TransportKind);
         Assert.Equal(
             PackageSourceCapabilities.Search
                 | PackageSourceCapabilities.VersionEnumeration
@@ -234,7 +236,7 @@ public sealed class PackageSourceClientTests
             Assert.Single(versions.Candidates);
         Assert.Equal("contoso", candidate.Coordinate.PackageId);
         Assert.Equal("1.0.0", candidate.Coordinate.Version);
-        Assert.Equal(runtime.Identity, candidate.Producer);
+        Assert.Same(runtime.Source, candidate.Source);
         Assert.Equal(
             PackageDiscoveryContract.CompleteVersionEnumeration,
             candidate.DiscoveryContract);
@@ -248,11 +250,13 @@ public sealed class PackageSourceClientTests
                 "1.0.0",
                 TestContext.Current.CancellationToken));
         Assert.Equal(candidate.Coordinate, manifest.Coordinate);
-        Assert.Equal(runtime.Identity, manifest.Producer);
-        Assert.Equal(PackageSourceKind.NuGetV3, manifest.TransportKind);
+        Assert.Same(runtime.Source, manifest.Source);
+        Assert.Equal(
+            PackageSourceKind.NuGetV3,
+            manifest.Source.TransportKind);
         Assert.Equal(
             "<package />",
-            Encoding.UTF8.GetString(manifest.Content.Span));
+            Encoding.UTF8.GetString(manifest.Content.ToArray()));
         PackageSourcePayload packagePayload = Succeeded(
             await runtime.GetPackageAsync(
                 "contoso",
@@ -260,11 +264,13 @@ public sealed class PackageSourceClientTests
                 TestContext.Current.CancellationToken));
         await using Stream package = packagePayload.Content;
         Assert.Equal(candidate.Coordinate, packagePayload.Coordinate);
-        Assert.Equal(runtime.Identity, packagePayload.Producer);
+        Assert.Same(runtime.Source, packagePayload.Source);
         Assert.Equal(
             PackageSourcePayloadKind.Package,
             packagePayload.Kind);
-        Assert.Equal(PackageSourceKind.NuGetV3, packagePayload.TransportKind);
+        Assert.Equal(
+            PackageSourceKind.NuGetV3,
+            packagePayload.Source.TransportKind);
         using var reader = new StreamReader(package);
         Assert.Equal(
             "package bytes",
@@ -318,15 +324,23 @@ public sealed class PackageSourceClientTests
                     TestContext.Current.CancellationToken))
                 .Candidates);
         Assert.Equal("1.0.0", candidate.Coordinate.Version);
-        Assert.Equal(runtime.Identity, candidate.Producer);
+        Assert.Same(runtime.Source, candidate.Source);
         Assert.DoesNotContain(
             "secret",
-            runtime.Identity.Value,
+            runtime.Source.Producer.Key,
             StringComparison.OrdinalIgnoreCase);
+        using IPackageSourceClient rotated =
+            PackageSourceClientFactory.Create(
+                new PackageSource(
+                    "rotated",
+                    ServiceIndex + "?sig=other"),
+                new RecordingHandler());
         Assert.Equal(
-            runtime.Identity,
-            PackageSourceIdentity.ForProducerEndpoint(
-                new Uri(ServiceIndex + "?sig=other")));
+            runtime.Source.Producer,
+            rotated.Source.Producer);
+        Assert.NotSame(
+            runtime.Source.Association,
+            rotated.Source.Association);
         Assert.Equal(
             [signedServiceIndex, Versions],
             handler.Requested);
@@ -442,7 +456,7 @@ public sealed class PackageSourceClientTests
         Assert.Equal(
             PackageSourceFailureKind.InvalidResponse,
             failure.Kind);
-        Assert.Equal(runtime.Identity, failure.Producer);
+        Assert.Same(runtime.Source, failure.Source);
     }
 
     [Fact]
@@ -947,8 +961,10 @@ public sealed class PackageSourceClientTests
         Assert.Equal(
             PackageSourceFailureKind.Unsupported,
             error.Kind);
-        Assert.Equal(runtime.Identity, error.Producer);
-        Assert.Equal(PackageSourceKind.NuGetV3, error.TransportKind);
+        Assert.Same(runtime.Source, error.Source);
+        Assert.Equal(
+            PackageSourceKind.NuGetV3,
+            error.Source.TransportKind);
         Assert.Empty(handler.Requested);
     }
 
@@ -1079,7 +1095,7 @@ public sealed class PackageSourceClientTests
                 .Matches);
 
         Assert.Equal("Contoso", match.Metadata.Id);
-        Assert.Equal(runtime.Identity, match.Candidate.Producer);
+        Assert.Same(runtime.Source, match.Candidate.Source);
         Assert.Equal(PackageListingState.Listed, match.Candidate.ListingState);
         Assert.Equal(
             [ServiceIndex, firstRequest, secondRequest],
@@ -1212,11 +1228,6 @@ public sealed class PackageSourceClientTests
 
         Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
         Assert.Equal(PackageSourceCapabilities.Search, failure.Capability);
-        Assert.Equal(
-            new PackageSourceTimeout(
-                PackageSourceTimeoutKind.Operation,
-                TimeSpan.FromMilliseconds(100)),
-            failure.Timeout);
     }
 
     [Fact]
@@ -1270,11 +1281,7 @@ public sealed class PackageSourceClientTests
                     TestContext.Current.CancellationToken,
                 operationContext: operation));
 
-        Assert.Equal(
-            new PackageSourceTimeout(
-                PackageSourceTimeoutKind.Request,
-                options.RequestTimeout),
-            failure.Timeout);
+        Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
         Assert.Empty(result.Matches);
         Assert.Equal(
             [ServiceIndex, SearchRequest],
@@ -1312,11 +1319,6 @@ public sealed class PackageSourceClientTests
                 operationContext: operation));
 
         Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
-        Assert.Equal(
-            new PackageSourceTimeout(
-                PackageSourceTimeoutKind.MetadataBody,
-                sourceOptions.MetadataBodyTimeout),
-            failure.Timeout);
     }
 
     [Fact]
@@ -1349,11 +1351,7 @@ public sealed class PackageSourceClientTests
                     TestContext.Current.CancellationToken,
                 operationContext: operation));
 
-        Assert.Equal(
-            new PackageSourceTimeout(
-                PackageSourceTimeoutKind.Operation,
-                options.OperationTimeout),
-            failure.Timeout);
+        Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
         Assert.Empty(handler.Requested);
     }
 
@@ -1386,11 +1384,6 @@ public sealed class PackageSourceClientTests
                 operationContext: operation));
 
         Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
-        Assert.Equal(
-            new PackageSourceTimeout(
-                PackageSourceTimeoutKind.Operation,
-                options.OperationTimeout),
-            failure.Timeout);
     }
 
     [Fact]
@@ -1486,11 +1479,6 @@ public sealed class PackageSourceClientTests
         PackageSourceFailure failure = Failed(await search);
 
         Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
-        Assert.Equal(
-            new PackageSourceTimeout(
-                PackageSourceTimeoutKind.Operation,
-                options.OperationTimeout),
-            failure.Timeout);
     }
 
     [Fact]
@@ -1551,7 +1539,6 @@ public sealed class PackageSourceClientTests
 
         Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
         Assert.Equal(PackageSourceCapabilities.Search, failure.Capability);
-        Assert.Null(failure.Timeout);
     }
 
     [Fact]
@@ -1572,7 +1559,6 @@ public sealed class PackageSourceClientTests
 
         Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
         Assert.Equal(PackageSourceCapabilities.Search, failure.Capability);
-        Assert.Null(failure.Timeout);
     }
 
     [Fact]
@@ -1870,7 +1856,7 @@ public sealed class PackageSourceClientTests
         Assert.Equal("Contoso", match.Metadata.Id);
         Assert.Equal("contoso", match.Candidate.Coordinate.PackageId);
         Assert.Equal("1.0.0", match.Candidate.Coordinate.Version);
-        Assert.Equal(runtime.Identity, match.Candidate.Producer);
+        Assert.Same(runtime.Source, match.Candidate.Source);
         Assert.Equal(
             PackageDiscoveryContract.KeywordSearch,
             match.Candidate.DiscoveryContract);
@@ -1886,7 +1872,18 @@ public sealed class PackageSourceClientTests
                     cancellationToken:
                         TestContext.Current.CancellationToken))
                 .Matches);
-        Assert.Equal(match.Candidate, prefixMatch.Candidate);
+        Assert.Equal(
+            match.Candidate.Coordinate,
+            prefixMatch.Candidate.Coordinate);
+        Assert.Equal(
+            match.Candidate.DiscoveryContract,
+            prefixMatch.Candidate.DiscoveryContract);
+        Assert.Equal(
+            match.Candidate.ListingState,
+            prefixMatch.Candidate.ListingState);
+        Assert.Same(
+            match.Candidate.Source,
+            prefixMatch.Candidate.Source);
         PackageVersionResult versions = Succeeded(
             await runtime.GetVersionsAsync(
                 "Contoso",
@@ -1903,10 +1900,14 @@ public sealed class PackageSourceClientTests
                 "Contoso",
                 "1.0",
                 TestContext.Current.CancellationToken));
-        Assert.Equal("<package />", Encoding.UTF8.GetString(manifest.Content.Span));
+        Assert.Equal(
+            "<package />",
+            Encoding.UTF8.GetString(manifest.Content.ToArray()));
         Assert.Equal(match.Candidate.Coordinate, manifest.Coordinate);
-        Assert.Equal(runtime.Identity, manifest.Producer);
-        Assert.Equal(PackageSourceKind.NuGetGallery, manifest.TransportKind);
+        Assert.Same(runtime.Source, manifest.Source);
+        Assert.Equal(
+            PackageSourceKind.NuGetGallery,
+            manifest.Source.TransportKind);
         PackageSourcePayload packagePayload = Succeeded(
             await runtime.GetPackageAsync(
                 "Contoso",
@@ -1930,15 +1931,15 @@ public sealed class PackageSourceClientTests
             symbolPayload.Kind);
         Assert.Equal(
             PackageSourceKind.NuGetGallery,
-            packagePayload.TransportKind);
+            packagePayload.Source.TransportKind);
         Assert.Equal(
             PackageSourceKind.NuGetGallery,
-            symbolPayload.TransportKind);
+            symbolPayload.Source.TransportKind);
         Assert.Equal("package bytes".Length, packagePayload.AdvertisedLength);
         Assert.Equal("symbol bytes".Length, symbolPayload.AdvertisedLength);
         Assert.Equal(packagePayload.Coordinate, symbolPayload.Coordinate);
-        Assert.Equal(runtime.Identity, packagePayload.Producer);
-        Assert.Equal(runtime.Identity, symbolPayload.Producer);
+        Assert.Same(runtime.Source, packagePayload.Source);
+        Assert.Same(runtime.Source, symbolPayload.Source);
         Assert.DoesNotContain(
             handler.Requested,
             url => url.Contains(
@@ -3025,12 +3026,12 @@ public sealed class PackageSourceClientTests
         var budget = new NuGetGalleryRegistrationBudget(
             candidateCount: 1,
             maximumBytes: 1);
+        PackageSourceResultFactory results =
+            CreateResultFactory(descriptor);
 
         PackageSourceFailure failure = Failed(
-            await PackageSourceOperation.CaptureAsync(
-                descriptor.Identity,
-                descriptor.Kind,
-                PackageSourceCapabilities.VersionEnumeration,
+            await PackageSourceOperation.CaptureVersionsAsync(
+                results,
                 () =>
                 {
                     if (pageLimit)
@@ -3050,7 +3051,10 @@ public sealed class PackageSourceClientTests
                         }
                     }
 
-                    return Task.FromResult(0);
+                    return Task.FromResult(
+                        results.Versions(
+                            [],
+                            hasAuthoritativeListingState: false));
                 },
                 TestContext.Current.CancellationToken));
 
@@ -3172,15 +3176,6 @@ public sealed class PackageSourceClientTests
                 operationContext: context));
 
         Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
-        Assert.Equal(
-            new PackageSourceTimeout(
-                operationExpires
-                    ? PackageSourceTimeoutKind.Operation
-                    : PackageSourceTimeoutKind.Request,
-                operationExpires
-                    ? options.OperationTimeout
-                    : options.RequestTimeout),
-            failure.Timeout);
         Assert.True(handler.FastTransportRequests > 0);
         Assert.True(handler.StallingRequests > 0);
     }
@@ -3204,7 +3199,6 @@ public sealed class PackageSourceClientTests
                 TestContext.Current.CancellationToken));
 
         Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
-        Assert.Null(failure.Timeout);
         Assert.True(handler.FastTransportRequests > 0);
         Assert.True(handler.StallingRequests > 0);
     }
@@ -3228,7 +3222,6 @@ public sealed class PackageSourceClientTests
                 TestContext.Current.CancellationToken));
 
         Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
-        Assert.Null(failure.Timeout);
         Assert.True(handler.FastTransportRequests > 0);
         Assert.True(handler.StallingRequests > 0);
     }
@@ -3252,11 +3245,6 @@ public sealed class PackageSourceClientTests
                 TestContext.Current.CancellationToken));
 
         Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
-        Assert.Equal(
-            new PackageSourceTimeout(
-                PackageSourceTimeoutKind.Operation,
-                options.OperationTimeout),
-            failure.Timeout);
     }
 
     [Fact]
@@ -3279,11 +3267,6 @@ public sealed class PackageSourceClientTests
                 TestContext.Current.CancellationToken));
 
         Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
-        Assert.Equal(
-            new PackageSourceTimeout(
-                PackageSourceTimeoutKind.MetadataBody,
-                options.MetadataBodyTimeout),
-            failure.Timeout);
     }
 
     [Fact]
@@ -3305,11 +3288,6 @@ public sealed class PackageSourceClientTests
                 TestContext.Current.CancellationToken));
 
         Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
-        Assert.Equal(
-            new PackageSourceTimeout(
-                PackageSourceTimeoutKind.Request,
-                options.RequestTimeout),
-            failure.Timeout);
     }
 
     [Theory]
@@ -3343,27 +3321,18 @@ public sealed class PackageSourceClientTests
                 TestContext.Current.CancellationToken));
 
         Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
-        Assert.Equal(
-            new PackageSourceTimeout(
-                operationExpires
-                    ? PackageSourceTimeoutKind.Operation
-                    : PackageSourceTimeoutKind.Request,
-                operationExpires
-                    ? options.OperationTimeout
-                    : options.RequestTimeout),
-            failure.Timeout);
     }
 
     [Fact]
     public void GalleryFinalListingProjectionPreservesOperationTimeout()
     {
-        var candidate = new PackageCandidateObservation(
+        PackageSourceResultFactory results = CreateResultFactory();
+        PackageCandidateObservation candidate = results.Candidate(
             PackageSourceCoordinate.Create("contoso", "1.0.0"),
-            PackageSourceIdentity.NuGetOrg,
             PackageDiscoveryContract.CompleteVersionEnumeration,
             PackageListingState.Unknown);
-        var partial = new PackageVersionResult(
-            new DelayedList<PackageCandidateObservation>(candidate),
+        PackageVersionResult partial = results.Versions(
+            [candidate],
             hasAuthoritativeListingState: false);
         var listings =
             new Dictionary<string, PackageListingState>(
@@ -3379,11 +3348,13 @@ public sealed class PackageSourceClientTests
             },
             Timeout.InfiniteTimeSpan,
             TestContext.Current.CancellationToken);
+        Thread.Sleep(100);
 
         NuGetOperationTimeoutException error =
             Assert.Throws<NuGetOperationTimeoutException>(
                 () => NuGetGalleryPackageSourceClient
                     .ApplyRegistrationListingsOrPartial(
+                        results,
                         partial,
                         listings,
                         operation,
@@ -3410,7 +3381,7 @@ public sealed class PackageSourceClientTests
             failure.Coordinate);
         Assert.Equal(
             PackageSourceKind.NuGetGallery,
-            failure.TransportKind);
+            failure.Source.TransportKind);
         Assert.Equal(
             PackageSourceCapabilities.SymbolPayload,
             failure.Capability);
@@ -3637,7 +3608,7 @@ public sealed class PackageSourceClientTests
     public void RuntimeFactoriesDoNotAcceptSharedHttpClient()
     {
         Assert.DoesNotContain(
-            typeof(PackageSourceClientFactory).GetMethods(),
+            typeof(NuGetFetch.PackageSourceClientFactory).GetMethods(),
             method => method.IsPublic
                 && method.GetParameters().Any(
                     parameter => parameter.ParameterType
@@ -3740,12 +3711,10 @@ public sealed class PackageSourceClientTests
         targetCancellation.Cancel();
         await sourceServer;
         bool targetReached = await targetServer;
-        var failure = Assert.IsType<
-            PackageSourceOperationResult<PackageSearchResult>.Failed>(
-                result);
+        PackageSourceFailure failure = Failed(result);
         Assert.Equal(
             PackageSourceFailureKind.Transport,
-            failure.Failure.Kind);
+            failure.Kind);
         Assert.False(targetReached);
     }
 
@@ -4099,12 +4068,15 @@ public sealed class PackageSourceClientTests
         using var client = new HttpClient(
             new NuGetCredentialRedirectHandler(
                 new RedirectChainHandler(redirects: 6)));
+        PackageSourceResultFactory results = CreateResultFactory(
+            PackageSourceDescriptor.NuGetV3(
+                "feed",
+                "Feed",
+                new Uri(ServiceIndex)));
 
         PackageSourceFailure failure = Failed(
-            await PackageSourceOperation.CaptureAsync(
-                PackageSourceIdentity.NuGetOrg,
-                PackageSourceKind.NuGetV3,
-                PackageSourceCapabilities.VersionEnumeration,
+            await PackageSourceOperation.CaptureVersionsAsync(
+                results,
                 async () =>
                 {
                     using var request = new HttpRequestMessage(
@@ -4114,7 +4086,9 @@ public sealed class PackageSourceClientTests
                         await client.SendAsync(
                             request,
                             TestContext.Current.CancellationToken);
-                    return response.StatusCode;
+                    return results.Versions(
+                        [],
+                        hasAuthoritativeListingState: false);
                 },
                 TestContext.Current.CancellationToken));
 
@@ -4135,12 +4109,15 @@ public sealed class PackageSourceClientTests
             redirectTarget);
         using var client = new HttpClient(
             new NuGetCredentialRedirectHandler(transport));
+        PackageSourceResultFactory results = CreateResultFactory(
+            PackageSourceDescriptor.NuGetV3(
+                "feed",
+                "Feed",
+                new Uri(ServiceIndex)));
 
         PackageSourceFailure failure = Failed(
-            await PackageSourceOperation.CaptureAsync(
-                PackageSourceIdentity.NuGetOrg,
-                PackageSourceKind.NuGetV3,
-                PackageSourceCapabilities.VersionEnumeration,
+            await PackageSourceOperation.CaptureVersionsAsync(
+                results,
                 async () =>
                 {
                     using var request = new HttpRequestMessage(
@@ -4150,7 +4127,9 @@ public sealed class PackageSourceClientTests
                         await client.SendAsync(
                             request,
                             TestContext.Current.CancellationToken);
-                    return response.StatusCode;
+                    return results.Versions(
+                        [],
+                        hasAuthoritativeListingState: false);
                 },
                 TestContext.Current.CancellationToken));
 
@@ -4213,6 +4192,7 @@ public sealed class PackageSourceClientTests
             options,
             Timeout.InfiniteTimeSpan,
             CancellationToken.None);
+        PackageSourceResultFactory results = CreateResultFactory();
 
         Assert.Throws<NuGetOperationTimeoutException>(
             () =>
@@ -4220,23 +4200,141 @@ public sealed class PackageSourceClientTests
                 if (search)
                 {
                     PackageSourceProjection.ProjectSearch(
+                        results,
                         new DelayedList<SearchResult>(
                             new SearchResult("contoso", "1.0.0")),
-                        PackageSourceIdentity.NuGetOrg,
                         operation);
                 }
                 else
                 {
                     PackageSourceProjection.ProjectVersions(
+                        results,
                         "contoso",
                         new DelayedList<string>("1.0.0"),
-                        PackageSourceIdentity.NuGetOrg,
                         PackageDiscoveryContract.CompleteVersionEnumeration,
                         PackageListingState.Unknown,
                         hasAuthoritativeListingState: false,
                         operation);
                 }
             });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NestedSearchSnapshotRemainsInsideOperationDeadline(
+        bool versions)
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromSeconds(1),
+            OperationTimeout = TimeSpan.FromMilliseconds(20),
+        };
+        using var operation = new NuGetOperationDeadline(
+            options,
+            Timeout.InfiniteTimeSpan,
+            CancellationToken.None);
+        PackageSourceResultFactory results = CreateResultFactory();
+        IReadOnlyList<SearchVersion>? nestedVersions = versions
+            ? new DelayedList<SearchVersion>(
+                new SearchVersion("1.0.0", 1))
+            : null;
+        IReadOnlyList<string>? nestedOwners = versions
+            ? null
+            : new DelayedList<string>("contoso");
+        var result = new SearchResult(
+            "contoso",
+            "1.0.0",
+            Versions: nestedVersions,
+            Owners: nestedOwners);
+
+        Assert.Throws<NuGetOperationTimeoutException>(
+            () => PackageSourceProjection.ProjectSearch(
+                results,
+                [result],
+                operation));
+    }
+
+    [Fact]
+    public void VersionResultSnapshotRemainsInsideOperationDeadline()
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromSeconds(1),
+            OperationTimeout = TimeSpan.FromMilliseconds(20),
+        };
+        using var operation = new NuGetOperationDeadline(
+            options,
+            Timeout.InfiniteTimeSpan,
+            CancellationToken.None);
+        PackageSourceResultFactory results = CreateResultFactory();
+        PackageCandidateObservation candidate = results.Candidate(
+            PackageSourceCoordinate.Create("contoso", "1.0.0"),
+            PackageDiscoveryContract.CompleteVersionEnumeration,
+            PackageListingState.Unknown);
+
+        Assert.Throws<NuGetOperationTimeoutException>(
+            () => results.Versions(
+                new DelayedList<PackageCandidateObservation>(candidate),
+                hasAuthoritativeListingState: false,
+                operation));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SuccessPublicationRemainsInsideOperationDeadline(
+        bool versions)
+    {
+        PackageSourceResultFactory results = CreateResultFactory();
+        PackageSearchResult searchResult =
+            results.Search([new SearchResult("contoso", "1.0.0")]);
+        PackageCandidateObservation candidate = results.Candidate(
+            PackageSourceCoordinate.Create("contoso", "1.0.0"),
+            PackageDiscoveryContract.CompleteVersionEnumeration,
+            PackageListingState.Unknown);
+        PackageVersionResult versionResult = results.Versions(
+            [candidate],
+            hasAuthoritativeListingState: false);
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromSeconds(1),
+            OperationTimeout = TimeSpan.FromMilliseconds(20),
+        };
+        using var operation = new NuGetOperationDeadline(
+            options,
+            Timeout.InfiniteTimeSpan,
+            CancellationToken.None);
+        await Task.Delay(
+            TimeSpan.FromMilliseconds(100),
+            TestContext.Current.CancellationToken);
+
+        PackageSourceFailure failure;
+        if (versions)
+        {
+            failure = Failed(
+                await PackageSourceOperation.CaptureVersionsAsync(
+                    results,
+                    () => Task.FromResult(versionResult),
+                    TestContext.Current.CancellationToken,
+                    operationDeadline: operation));
+        }
+        else
+        {
+            failure = Failed(
+                await PackageSourceOperation.CaptureSearchAsync(
+                    results,
+                    () => Task.FromResult(searchResult),
+                    TestContext.Current.CancellationToken,
+                    operationDeadline: operation));
+        }
+
+        Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
+        Assert.Equal(
+            versions
+                ? PackageSourceCapabilities.VersionEnumeration
+                : PackageSourceCapabilities.Search,
+            failure.Capability);
     }
 
     [Fact]
@@ -4380,11 +4478,6 @@ public sealed class PackageSourceClientTests
                 ? PackageSourceCapabilities.PackagePayload
                 : PackageSourceCapabilities.VersionEnumeration,
             failure.Capability);
-        Assert.Equal(
-            new PackageSourceTimeout(
-                PackageSourceTimeoutKind.Request,
-                TimeSpan.FromMilliseconds(50)),
-            failure.Timeout);
     }
 
     [Theory]
@@ -4515,7 +4608,7 @@ public sealed class PackageSourceClientTests
                 TestContext.Current.CancellationToken));
 
         Assert.Equal(expected, failure.Kind);
-        Assert.Equal(runtime.Identity, failure.Producer);
+        Assert.Same(runtime.Source, failure.Source);
         Assert.DoesNotContain(
             GalleryPackage,
             failure.Message,
@@ -4548,8 +4641,10 @@ public sealed class PackageSourceClientTests
                     new byte[1],
                     TestContext.Current.CancellationToken).AsTask());
 
-        Assert.Equal(runtime.Identity, error.Producer);
-        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Same(runtime.Source, error.ResultSource);
+        Assert.Equal(
+            runtime.Source.TransportKind,
+            error.ResultSource.TransportKind);
         Assert.Equal(PackageSourceFailureKind.Transport, error.Kind);
         Assert.Null(error.Timeout);
         Assert.Null(error.InnerException);
@@ -4665,8 +4760,10 @@ public sealed class PackageSourceClientTests
                 () => content.ReadByte());
         }
 
-        Assert.Equal(runtime.Identity, error.Producer);
-        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Same(runtime.Source, error.ResultSource);
+        Assert.Equal(
+            runtime.Source.TransportKind,
+            error.ResultSource.TransportKind);
         Assert.Equal(PackageSourceFailureKind.Timeout, error.Kind);
         Assert.False(error.CleanupFailed);
         Assert.Null(error.Timeout);
@@ -4711,8 +4808,10 @@ public sealed class PackageSourceClientTests
                 payload.Content.Dispose);
         }
 
-        Assert.Equal(runtime.Identity, error.Producer);
-        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Same(runtime.Source, error.ResultSource);
+        Assert.Equal(
+            runtime.Source.TransportKind,
+            error.ResultSource.TransportKind);
         Assert.Equal(PackageSourceFailureKind.Timeout, error.Kind);
         Assert.True(error.CleanupFailed);
         Assert.Null(error.Timeout);
@@ -4746,8 +4845,10 @@ public sealed class PackageSourceClientTests
             Assert.Throws<PackageSourceStreamException>(
                 payload.Content.Dispose);
 
-        Assert.Equal(runtime.Identity, error.Producer);
-        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Same(runtime.Source, error.ResultSource);
+        Assert.Equal(
+            runtime.Source.TransportKind,
+            error.ResultSource.TransportKind);
         Assert.Equal(PackageSourceFailureKind.Transport, error.Kind);
         Assert.True(error.CleanupFailed);
         Assert.Null(error.Timeout);
@@ -4781,8 +4882,10 @@ public sealed class PackageSourceClientTests
             await Assert.ThrowsAsync<PackageSourceStreamException>(
                 () => payload.Content.DisposeAsync().AsTask());
 
-        Assert.Equal(runtime.Identity, error.Producer);
-        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Same(runtime.Source, error.ResultSource);
+        Assert.Equal(
+            runtime.Source.TransportKind,
+            error.ResultSource.TransportKind);
         Assert.Equal(PackageSourceFailureKind.Transport, error.Kind);
         Assert.True(error.CleanupFailed);
         Assert.Null(error.Timeout);
@@ -4830,8 +4933,10 @@ public sealed class PackageSourceClientTests
         PackageSourceStreamException error =
             await Assert.ThrowsAsync<PackageSourceStreamException>(
                 () => read);
-        Assert.Equal(runtime.Identity, error.Producer);
-        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Same(runtime.Source, error.ResultSource);
+        Assert.Equal(
+            runtime.Source.TransportKind,
+            error.ResultSource.TransportKind);
         Assert.Equal(PackageSourceFailureKind.Transport, error.Kind);
         Assert.Null(error.Timeout);
         Assert.False(error.CleanupFailed);
@@ -4875,8 +4980,10 @@ public sealed class PackageSourceClientTests
         PackageSourceStreamException error =
             await Assert.ThrowsAsync<PackageSourceStreamException>(
                 () => read);
-        Assert.Equal(runtime.Identity, error.Producer);
-        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Same(runtime.Source, error.ResultSource);
+        Assert.Equal(
+            runtime.Source.TransportKind,
+            error.ResultSource.TransportKind);
         Assert.Equal(PackageSourceFailureKind.Transport, error.Kind);
         Assert.Null(error.Timeout);
         Assert.False(error.CleanupFailed);
@@ -4919,8 +5026,10 @@ public sealed class PackageSourceClientTests
         PackageSourceStreamException error =
             await Assert.ThrowsAsync<PackageSourceStreamException>(
                 () => read);
-        Assert.Equal(runtime.Identity, error.Producer);
-        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Same(runtime.Source, error.ResultSource);
+        Assert.Equal(
+            runtime.Source.TransportKind,
+            error.ResultSource.TransportKind);
         Assert.Equal(PackageSourceFailureKind.Transport, error.Kind);
         Assert.Null(error.Timeout);
         Assert.False(error.CleanupFailed);
@@ -4964,8 +5073,10 @@ public sealed class PackageSourceClientTests
                 () => content.ReadByte());
         }
 
-        Assert.Equal(runtime.Identity, error.Producer);
-        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Same(runtime.Source, error.ResultSource);
+        Assert.Equal(
+            runtime.Source.TransportKind,
+            error.ResultSource.TransportKind);
         Assert.Equal(PackageSourceFailureKind.Transport, error.Kind);
         Assert.Null(error.Timeout);
         Assert.False(error.CleanupFailed);
@@ -5007,8 +5118,10 @@ public sealed class PackageSourceClientTests
                     new byte[1],
                     TestContext.Current.CancellationToken).AsTask());
 
-        Assert.Equal(runtime.Identity, error.Producer);
-        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Same(runtime.Source, error.ResultSource);
+        Assert.Equal(
+            runtime.Source.TransportKind,
+            error.ResultSource.TransportKind);
         Assert.Equal(PackageSourceFailureKind.Timeout, error.Kind);
         Assert.Equal(
             new PackageSourceTimeout(
@@ -5060,8 +5173,10 @@ public sealed class PackageSourceClientTests
                 () => content.ReadByte());
         }
 
-        Assert.Equal(runtime.Identity, error.Producer);
-        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Same(runtime.Source, error.ResultSource);
+        Assert.Equal(
+            runtime.Source.TransportKind,
+            error.ResultSource.TransportKind);
         Assert.Equal(PackageSourceFailureKind.Transport, error.Kind);
         Assert.Null(error.Timeout);
         Assert.False(error.CleanupFailed);
@@ -5103,8 +5218,10 @@ public sealed class PackageSourceClientTests
                     new byte[1],
                     TestContext.Current.CancellationToken).AsTask());
 
-        Assert.Equal(runtime.Identity, error.Producer);
-        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Same(runtime.Source, error.ResultSource);
+        Assert.Equal(
+            runtime.Source.TransportKind,
+            error.ResultSource.TransportKind);
         Assert.Equal(PackageSourceFailureKind.Timeout, error.Kind);
         Assert.Equal(
             new PackageSourceTimeout(
@@ -5183,8 +5300,10 @@ public sealed class PackageSourceClientTests
                     new byte[1],
                     TestContext.Current.CancellationToken).AsTask());
 
-        Assert.Equal(runtime.Identity, error.Producer);
-        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Same(runtime.Source, error.ResultSource);
+        Assert.Equal(
+            runtime.Source.TransportKind,
+            error.ResultSource.TransportKind);
         Assert.Equal(PackageSourceFailureKind.Timeout, error.Kind);
         Assert.Equal(
             new PackageSourceTimeout(
@@ -5304,6 +5423,79 @@ public sealed class PackageSourceClientTests
         Assert.Equal(PackageSourceKind.LocalFolder, error.Kind);
     }
 
+    private static class PackageSourceClientFactory
+    {
+        public static IPackageSourceClient Create(
+            PackageSource source,
+            NuGetFetchOptions? options = null) =>
+            NuGetFetch.PackageSourceClientFactory.Create(
+                source,
+                PackageSourceAssociation.Create(),
+                options);
+
+        public static IPackageSourceClient Create(
+            PackageSource source,
+            HttpMessageHandler transport,
+            NuGetFetchOptions? options = null) =>
+            NuGetFetch.PackageSourceClientFactory.Create(
+                source,
+                PackageSourceAssociation.Create(),
+                transport,
+                options);
+
+        public static IPackageSourceClient Create(
+            PackageSourceDescriptor descriptor,
+            NuGetFetchOptions? options = null,
+            PackageSourceCredential? credential = null) =>
+            NuGetFetch.PackageSourceClientFactory.Create(
+                descriptor,
+                PackageSourceAssociation.Create(),
+                options,
+                credential);
+
+        public static IPackageSourceClient Create(
+            PackageSourceDescriptor descriptor,
+            HttpMessageHandler transport,
+            NuGetFetchOptions? options = null,
+            PackageSourceCredential? credential = null) =>
+            NuGetFetch.PackageSourceClientFactory.Create(
+                descriptor,
+                PackageSourceAssociation.Create(),
+                transport,
+                options,
+                credential);
+
+        public static IPackageSourceClient CreateGallery(
+            NuGetFetchOptions? options = null) =>
+            NuGetFetch.PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create(),
+                options);
+
+        public static IPackageSourceClient CreateGallery(
+            HttpMessageHandler transport,
+            NuGetFetchOptions? options = null) =>
+            NuGetFetch.PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create(),
+                transport,
+                options);
+
+        public static HttpClientHandler CreateGalleryTransportHandler(
+            bool isBrowser) =>
+            NuGetFetch.PackageSourceClientFactory
+                .CreateGalleryTransportHandler(isBrowser);
+
+        public static HttpMessageHandler CreateV3TransportHandler(
+            Uri source,
+            bool isBrowser) =>
+            NuGetFetch.PackageSourceClientFactory
+                .CreateV3TransportHandler(source, isBrowser);
+
+        public static HttpClientHandler
+            CreateCredentialFreeTransportHandler(bool isBrowser) =>
+            NuGetFetch.PackageSourceClientFactory
+                .CreateCredentialFreeTransportHandler(isBrowser);
+    }
+
     private static string? DecodeBasic(string? parameter) =>
         parameter is null
             ? null
@@ -5323,14 +5515,99 @@ public sealed class PackageSourceClientTests
     }
 
     private static T Succeeded<T>(
-        PackageSourceOperationResult<T> result) =>
-        Assert.IsType<PackageSourceOperationResult<T>.Succeeded>(result)
-            .Value;
+        PackageSourceOperationResult<T> result)
+        where T : class
+    {
+        Assert.Null(result.Failure);
+        return Assert.IsType<T>(result.Value);
+    }
 
     private static PackageSourceFailure Failed<T>(
-        PackageSourceOperationResult<T> result) =>
-        Assert.IsType<PackageSourceOperationResult<T>.Failed>(result)
-            .Failure;
+        PackageSourceOperationResult<T> result)
+        where T : class
+    {
+        Assert.Null(result.Value);
+        return Assert.IsType<PackageSourceFailure>(result.Failure);
+    }
+
+    private static PackageSourceResultFactory CreateResultFactory(
+        PackageSourceDescriptor? descriptor = null,
+        PackageSourceAssociation? association = null)
+    {
+        PackageSourceResultFactory? captured = null;
+        using IPackageSourceClient client =
+            NuGetFetch.PackageSourceClientFactory.CreateCustom(
+                descriptor ?? PackageSourceDescriptor.NuGetGallery,
+                association ?? PackageSourceAssociation.Create(),
+                factory =>
+                {
+                    captured = factory;
+                    return new FactoryOnlyPackageSourceClient(factory.Source);
+                });
+        return Assert.IsType<PackageSourceResultFactory>(captured);
+    }
+
+    private sealed class FactoryOnlyPackageSourceClient(
+        PackageSourceResultIdentity source)
+        : IPackageSourceClient
+    {
+        public PackageSourceResultIdentity Source { get; } = source;
+        public PackageSourceCapabilities Capabilities =>
+            PackageSourceCapabilities.None;
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchAsync(
+                string query,
+                int take = 20,
+                bool prerelease = false,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchByPrefixAsync(
+                string prefix,
+                int take = 100,
+                bool prerelease = false,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageVersionResult>>
+            GetVersionsAsync(
+                string packageId,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourceManifest>>
+            GetManifestAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>>
+            GetPackageAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>>
+            TryGetSymbolsAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public void Dispose()
+        {
+        }
+    }
 
     private static TaskCanceledException CreateCanceledTransportTimeout() =>
         new(

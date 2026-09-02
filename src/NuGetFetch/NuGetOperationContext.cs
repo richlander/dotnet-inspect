@@ -132,8 +132,7 @@ public sealed class NuGetOperationContext : IDisposable
     internal NuGetOperationDeadline CreateDeadline(
         TimeSpan clientTimeout,
         CancellationToken invocationToken,
-        PackageSourceIdentity? producer = null,
-        PackageSourceKind transportKind = default)
+        PackageSourceResultIdentity? source = null)
     {
         ObjectDisposedException.ThrowIf(
             Volatile.Read(ref _disposeState) != 0,
@@ -142,8 +141,7 @@ public sealed class NuGetOperationContext : IDisposable
         return new NuGetOperationDeadline(
             this,
             clientTimeout,
-            producer,
-            transportKind);
+            source);
     }
 
     internal CancellationToken ResolveInvocationToken(
