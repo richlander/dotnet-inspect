@@ -9,6 +9,17 @@ static class AnalysisIndexCache
     static readonly object s_indexLock = new();
     static readonly List<PathCachedIndex> s_pathIndexes = [];
     static readonly List<AssemblyCachedIndex> s_assemblyIndexes = [];
+    // Tracks the last confirmed-stable fingerprint per normalized path,
+    // independent of feature/method-token scope and independent of
+    // s_pathIndexes' own eviction. A scoped cache entry answers "can I
+    // reuse a LibraryBodyIndex," which is the wrong question for "has this
+    // path's identity ever disagreed with an earlier observation" -- two
+    // different scopes over the same path are two different reuse
+    // candidates but one and the same path identity. See
+    // docs/design/analysis-index-cache.md's "Surfacing identity changes to
+    // callers".
+    static readonly Dictionary<string, PathFingerprint> s_lastPathFingerprints =
+        new(StringComparer.Ordinal);
 
     public static LibraryBodyIndex ForPath(string path)
         => ForPath(
@@ -76,10 +87,16 @@ static class AnalysisIndexCache
                 identityUnconfirmed = false;
                 return cached.Index;
             }
-            // A previously cached generation for this path existed but no
-            // longer matches (or could not be re-confirmed): whatever a
-            // caller was shown before is now definitely stale.
-            bool hadPriorGeneration = cached is not null;
+            // What this path's identity was last confirmed to be, tracked
+            // independently of feature/method-token scope and of
+            // s_pathIndexes' own eviction: two different scopes over the
+            // same path are two different reuse candidates, but one and the
+            // same path identity, and this history must survive a reusable
+            // entry being evicted or never having existed for this scope.
+            bool hadPriorFingerprint =
+                s_lastPathFingerprints.TryGetValue(
+                    fullPath,
+                    out PathFingerprint priorFingerprint);
             if (cached is not null)
                 s_pathIndexes.Remove(cached);
 
@@ -121,6 +138,12 @@ static class AnalysisIndexCache
                         scopedToken,
                         index,
                         fingerprintAfterOpen));
+                if (!s_lastPathFingerprints.ContainsKey(fullPath)
+                    && s_lastPathFingerprints.Count >= MaxCachedIndexes)
+                {
+                    s_lastPathFingerprints.Clear();
+                }
+                s_lastPathFingerprints[fullPath] = fingerprintAfterOpen;
             }
             // Otherwise, the freshly opened index is returned to this caller
             // but deliberately left uncached: a future request re-opens and
@@ -129,13 +152,18 @@ static class AnalysisIndexCache
             //
             // Report this result as identity-unconfirmed whenever a caller
             // should not treat it as continuous with anything already known
-            // about this path: a prior cached generation just turned out
-            // stale (hadPriorGeneration), or this open's own bytes could not
-            // be pinned to one stable generation (!openWasStable) -- in
-            // which case even a first-ever observation carries no confirmed
-            // identity. This cache only reports the fact; see
+            // about this path: this open's own bytes could not be pinned to
+            // one stable generation (!openWasStable), or a stable open
+            // disagrees with the last fingerprint this process confirmed for
+            // this path under *any* scope (hadPriorFingerprint and it
+            // differs). A first-ever observation of this path with a stable
+            // open reports no change, since there is nothing earlier to
+            // have disagreed with. This cache only reports the fact; see
             // docs/design/analysis-index-cache.md for who acts on it.
-            identityUnconfirmed = hadPriorGeneration || !openWasStable;
+            identityUnconfirmed =
+                !openWasStable
+                || (hadPriorFingerprint
+                    && priorFingerprint != fingerprintAfterOpen);
             return index;
         }
     }

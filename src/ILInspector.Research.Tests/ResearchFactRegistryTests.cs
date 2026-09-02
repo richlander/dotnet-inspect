@@ -7,6 +7,7 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Research.Tests;
 
+[Collection(AnalysisIndexCacheCollection.Name)]
 public class ResearchFactRegistryTests
 {
     [Fact]
@@ -331,6 +332,66 @@ public class ResearchFactRegistryTests
             AnalysisIndexCache.ForPath(
                 path, requirements, 0, out bool settledIdentityUnconfirmed);
             Assert.False(settledIdentityUnconfirmed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void AnalysisIndexCache_ForPath_ReportsIdentityUnconfirmedAcrossDifferentScopes()
+    {
+        // Round-3 review (both seats, independently) found that deriving
+        // identityUnconfirmed only from the scope-compatible cache entry is
+        // too narrow: a member-scoped observation and a later
+        // assembly-scoped request for the same path are two different
+        // reuse candidates, but one and the same path identity. A change
+        // must be reported even when no compatible cache entry for the new
+        // request's scope ever existed.
+        string firstSourcePath = typeof(ResearchFixture).Assembly.Location;
+        string secondSourcePath = typeof(LibraryBodyIndex).Assembly.Location;
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-research-identity-scope-{Guid.NewGuid():N}.dll");
+        File.Copy(firstSourcePath, path);
+        File.SetLastWriteTimeUtc(
+            path,
+            new DateTime(2005, 5, 5, 0, 0, 0, DateTimeKind.Utc));
+        try
+        {
+            int token = LibraryBodyIndex.Open(
+                    path,
+                    LibraryBodyAnalysisFeatures.MethodEvidence)
+                .Methods.First(method =>
+                    method.Name
+                        == nameof(
+                            ResearchFixture.CallsAllocInLoopCallee))
+                .MetadataToken;
+            ResearchFactRequirements member =
+                ResearchFactRequirements.ForMember(
+                    LibraryBodyAnalysisFeatures.MethodEvidence);
+            ResearchFactRequirements assembly =
+                ResearchFactRequirements.ForAssembly(
+                    LibraryBodyAnalysisFeatures.MethodEvidence);
+
+            // A first, member-scoped observation caches under that scope.
+            AnalysisIndexCache.ForPath(
+                path, member, token, out bool memberIdentityUnconfirmed);
+            Assert.False(memberIdentityUnconfirmed);
+
+            File.Copy(secondSourcePath, path, overwrite: true);
+            File.SetLastWriteTimeUtc(
+                path,
+                new DateTime(2006, 6, 6, 0, 0, 0, DateTimeKind.Utc));
+
+            // An assembly-scoped request never matches the member-scoped
+            // entry on the reuse predicate, so it always reopens -- but it
+            // must still report the identity change, because this same
+            // path already had a confirmed generation under this process.
+            AnalysisIndexCache.ForPath(
+                path, assembly, 0, out bool assemblyIdentityUnconfirmed);
+            Assert.True(assemblyIdentityUnconfirmed);
         }
         finally
         {

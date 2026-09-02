@@ -220,16 +220,42 @@ public static LibraryBodyIndex ForPath(
 treated as confirmed-continuous with any earlier observation of `path` in
 this process:
 
-- a previously cached generation for this path was found to no longer
-  match (a caller that saw the earlier generation is now looking at a
-  different one -- the stale-hit/stale-reopen scenarios above); or
+- a previously confirmed-stable generation for this path was found to no
+  longer match (a caller that saw the earlier generation is now looking at
+  a different one -- the stale-hit/stale-reopen scenarios above); or
 - this open's own bytes could not be confirmed stable for the whole
   duration of the open (so even a first-ever observation of this path
   carries no confirmed identity to begin with).
 
 It is `false` only when a cache hit's fingerprint matched, or a fresh,
-internally-stable open had no earlier cached generation for this path to
+internally-stable open had no earlier confirmed generation for this path to
 disagree with.
+
+The first bullet must be judged against *any* earlier observation of
+`path`, not merely one that happened to share the new request's reuse
+scope. `ForPath`'s reuse cache (`s_pathIndexes`) is keyed by `(path,
+requirements, methodToken)`, because that is the right key for deciding
+whether an existing `LibraryBodyIndex` can be returned as-is. It is the
+wrong key for the identity question: a member-scoped observation and a
+later assembly-scoped request for the same path are two different reuse
+candidates but one and the same path identity, and the second request
+must still learn that the first request's bytes are gone even though no
+compatible cache entry for its own scope ever existed. An initial version
+of this fix derived `identityUnconfirmed` from the reuse cache's own
+scope-compatible entry and missed exactly this case (and the equivalent
+case where the reuse cache's own bounded, all-or-nothing eviction clears a
+scope-compatible entry without the path's bytes changing). The fix is a
+second, scope-independent map, `s_lastPathFingerprints: Dictionary<string,
+PathFingerprint>`, recording the last confirmed-stable fingerprint per
+normalized path regardless of which scope confirmed it. `ForPath` consults
+this map -- not the reuse cache's own hit/miss outcome -- to decide
+`identityUnconfirmed`, and updates it whenever an open is confirmed
+stable. It is bounded independently of `s_pathIndexes`, using the same
+`MaxCachedIndexes` clear-all-on-overflow policy applied to a different
+key set: tying the two structures' evictions together would spuriously
+erase path-identity history whenever the reuse cache needed room for an
+unrelated `(path, scope)` tuple, even though the identity map itself had
+room to spare.
 
 This is deliberately *only* a fact the cache reports -- the two existing
 overloads without the parameter still discard it (`out _`), and no existing
@@ -263,4 +289,9 @@ This document does not define or change:
 - a guarantee that `identityUnconfirmed` detects every case where a user's
   expectation of `P` could be violated -- it reports exactly what this
   cache's own fingerprinting can observe, not an independent audit of every
-  consumer's assumptions about path identity.
+  consumer's assumptions about path identity; or
+- a guarantee that `s_lastPathFingerprints` retains a path's identity
+  history indefinitely -- like `s_pathIndexes`, it is bounded and clears
+  entirely on overflow, so a path's prior generation can still be
+  forgotten (and a later change at that path go unreported) once enough
+  other distinct paths have been observed since.
