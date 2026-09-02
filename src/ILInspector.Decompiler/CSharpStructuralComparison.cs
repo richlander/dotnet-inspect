@@ -749,8 +749,11 @@ public static partial class CSharpBodyDiff
         }
 
         var rows = ImmutableArray.CreateBuilder<CSharpStructuralDiffRow>();
-        rows.AddRange(RefineUsingResourceDeclarationRows(
-            SuppressSubsumedAncestorRows(matchedRows, input.Before, input.After),
+        rows.AddRange(RefineInvocationQualifierArgumentRows(
+            RefineUsingResourceDeclarationRows(
+                SuppressSubsumedAncestorRows(matchedRows, input.Before, input.After),
+                input.Before,
+                input.After),
             input.Before,
             input.After));
 
@@ -1213,6 +1216,140 @@ public static partial class CSharpBodyDiff
                 AfterRegion = EnclosingRegion(after, narrowed.AfterSpans),
             };
         }
+    }
+
+    // Issue #5486 (corpus follow-up to #5022's item 2): item 2's
+    // `NarrowToChangedHeader` only narrows a closed set of statement kinds
+    // with their own printer `Header` region (see `KindsWithOwnHeaderRegion`
+    // above); `InvocationExpression` was never in that set, so a matched
+    // invocation pair's row always carries the entire call's span as its
+    // caret -- even for the #4942 corpus example item 3's own
+    // `TryDescribeQualifierArgumentRoleTransition` caption already
+    // recognizes: a receiver identifier moving between call-qualifier
+    // position (`receiver.Values(...)`) and first-argument position
+    // (`Values(receiver, ...)`). This pass narrows exactly that one
+    // well-evidenced shape's caret to the `receiver` token itself, on each
+    // side, reusing the printer's own shape recognizer
+    // (`CSharpStructuralDiffPrinter.TryParseQualifiedCall`/
+    // `TryFindInsertedArgumentIndex`) so the caret and the caption can never
+    // disagree about what shape they are describing. It does not attempt
+    // any other expression-level narrowing; an unrecognized shape keeps the
+    // full-node-span caret as before.
+    //
+    // Runs after `RefineUsingResourceDeclarationRows` (order does not matter
+    // in practice, since the two passes target disjoint node kinds) and only
+    // touches rows still carrying their original, unnarrowed full-node
+    // spans -- nothing else narrows an `InvocationExpression` row today, but
+    // the guard keeps this pass honestly scoped to its own precondition
+    // rather than assuming it.
+    static IEnumerable<CSharpStructuralDiffRow> RefineInvocationQualifierArgumentRows(
+        IEnumerable<CSharpStructuralDiffRow> rows,
+        AnnotatedSourceDocument before,
+        AnnotatedSourceDocument after)
+    {
+        foreach (var row in rows)
+        {
+            if (row.Change != CSharpStructuralChangeKind.Changed
+                || row.BeforeNodeId is not int beforeNodeId
+                || row.AfterNodeId is not int afterNodeId
+                || !string.Equals(row.BeforeKind, "InvocationExpression", StringComparison.Ordinal)
+                || !string.Equals(row.AfterKind, "InvocationExpression", StringComparison.Ordinal)
+                || row.BeforeSpans.Length != 1
+                || row.AfterSpans.Length != 1)
+            {
+                yield return row;
+                continue;
+            }
+
+            var beforeNode = before.Nodes[beforeNodeId];
+            var afterNode = after.Nodes[afterNodeId];
+
+            // Only narrow when the printer's own caption/detail derivation
+            // will later be able to recognize and render the full call
+            // shape (same length/inline-renderability gate as
+            // CSharpStructuralDiffPrinter.FullNodeText). Otherwise the
+            // caption logic falls back to comparing the narrowed, now
+            // textually-identical-on-both-sides caret spans and produces a
+            // misleading self-transition such as "changed to receiver".
+            if (beforeNode.Spans.Count != 1 || afterNode.Spans.Count != 1
+                || row.BeforeSpans[0] != beforeNode.Spans[0]
+                || row.AfterSpans[0] != afterNode.Spans[0]
+                || CSharpStructuralDiffPrinter.FullNodeText(before, beforeNodeId) is null
+                || CSharpStructuralDiffPrinter.FullNodeText(after, afterNodeId) is null
+                || NarrowInvocationQualifierArgumentSpan(
+                    before, beforeNode.Spans[0],
+                    after, afterNode.Spans[0]) is not { } narrowed)
+            {
+                yield return row;
+                continue;
+            }
+
+            yield return row with
+            {
+                BeforeSpans = narrowed.BeforeSpans,
+                AfterSpans = narrowed.AfterSpans,
+                BeforeRegion = EnclosingRegion(before, narrowed.BeforeSpans),
+                AfterRegion = EnclosingRegion(after, narrowed.AfterSpans),
+            };
+        }
+    }
+
+    static (ImmutableArray<AnnotatedSourceSpan> BeforeSpans, ImmutableArray<AnnotatedSourceSpan> AfterSpans)?
+        NarrowInvocationQualifierArgumentSpan(
+            AnnotatedSourceDocument beforeDocument,
+            AnnotatedSourceSpan beforeNodeSpan,
+            AnnotatedSourceDocument afterDocument,
+            AnnotatedSourceSpan afterNodeSpan)
+    {
+        string beforeText = beforeDocument.Text.Substring(beforeNodeSpan.Start, beforeNodeSpan.Length);
+        string afterText = afterDocument.Text.Substring(afterNodeSpan.Start, afterNodeSpan.Length);
+
+        if (!CSharpStructuralDiffPrinter.TryParseQualifiedCall(
+                beforeText, out string? beforeQualifier, out string beforeCallee, out var beforeArgs)
+            || !CSharpStructuralDiffPrinter.TryParseQualifiedCall(
+                afterText, out string? afterQualifier, out string afterCallee, out var afterArgs))
+        {
+            return null;
+        }
+
+        if (beforeCallee.Length == 0
+            || !string.Equals(beforeCallee, afterCallee, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        // The qualifier candidate is always parsed as an exact prefix of its
+        // own side's text (`text[..dotIndex]`), so its absolute span is
+        // simply the node's own start, spanning the qualifier's length.
+        if (beforeQualifier is { } qualifier && afterQualifier is null)
+        {
+            if (!CSharpStructuralDiffPrinter.TryFindInsertedArgumentIndex(
+                    beforeArgs, afterArgs, qualifier, out int argIndex)
+                || !CSharpStructuralDiffPrinter.TryFindArgumentSpan(afterText, argIndex, out int argStart, out int argLength))
+            {
+                return null;
+            }
+
+            AnnotatedSourceSpan beforeQualifierSpan = new(beforeNodeSpan.Start, qualifier.Length);
+            AnnotatedSourceSpan afterArgumentSpan = new(afterNodeSpan.Start + argStart, argLength);
+            return ([beforeQualifierSpan], [afterArgumentSpan]);
+        }
+
+        if (afterQualifier is { } movedQualifier && beforeQualifier is null)
+        {
+            if (!CSharpStructuralDiffPrinter.TryFindInsertedArgumentIndex(
+                    afterArgs, beforeArgs, movedQualifier, out int argIndex)
+                || !CSharpStructuralDiffPrinter.TryFindArgumentSpan(beforeText, argIndex, out int argStart, out int argLength))
+            {
+                return null;
+            }
+
+            AnnotatedSourceSpan beforeArgumentSpan = new(beforeNodeSpan.Start + argStart, argLength);
+            AnnotatedSourceSpan afterQualifierSpan = new(afterNodeSpan.Start, movedQualifier.Length);
+            return ([beforeArgumentSpan], [afterQualifierSpan]);
+        }
+
+        return null;
     }
 
     // Item 10 (issue #5022): the header-narrowing above (items 2/7) still
