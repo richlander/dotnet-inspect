@@ -296,6 +296,7 @@ internal static class RenderAbSensor
             context.TypeName,
             context.MethodName,
             context.Constraints,
+            context.RequiresUnsafeContext,
             context.ProductParameterList,
             references,
             parseOptions,
@@ -324,16 +325,27 @@ internal static class RenderAbSensor
             if (!StringComparer.Ordinal.Equals(key, sample.Key))
                 continue;
 
+            DecompilerResult projection;
             try
             {
-                _ = Render(source, function);
+                projection = CSharpPrinter.PrintRaised(
+                    function,
+                    method => IrImporter.Import(source, method));
+                if (projection.Output is null)
+                    return null;
             }
             catch
             {
                 return null;
             }
 
-            return new SemanticContext(item.TypeName, item.MethodName, function, constraints, productParameterList);
+            return new SemanticContext(
+                item.TypeName,
+                item.MethodName,
+                function,
+                constraints,
+                projection.RequiresUnsafeBodyModifier,
+                productParameterList);
         }
 
         return null;
@@ -390,5 +402,6 @@ internal static class RenderAbSensor
         string MethodName,
         IrFunction Function,
         IReadOnlyDictionary<string, Dictionary<string, string>> Constraints,
+        bool RequiresUnsafeContext,
         string? ProductParameterList);
 }

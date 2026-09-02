@@ -212,9 +212,10 @@ static class ValidityCheck
                     Func<MethodRef, IrFunction?>? importMethodBody = importSiblingBodies
                         ? method => IrImporter.Import(source, method)
                         : null;
-                    var rendered = (lowered
+                    var projection = lowered
                         ? CSharpPrinter.PrintLowered(function, importMethodBody)
-                        : CSharpPrinter.PrintRaised(function, importMethodBody)).Output;
+                        : CSharpPrinter.PrintRaised(function, importMethodBody);
+                    var rendered = projection.Output;
                     if (rendered is null)
                         return;
                     bool full = function.Fidelity == DecompilationFidelity.Full;
@@ -225,6 +226,7 @@ static class ValidityCheck
                         typeName,
                         methodName,
                         constraints,
+                        projection.RequiresUnsafeBodyModifier,
                         productParameterList,
                         references,
                         parseOptions,
@@ -279,9 +281,10 @@ static class ValidityCheck
                     Func<MethodRef, IrFunction?>? importMethodBody = importSiblingBodies
                         ? method => IrImporter.Import(source, method)
                         : null;
-                    var rendered = (lowered
+                    var projection = lowered
                         ? CSharpPrinter.PrintLowered(function, importMethodBody)
-                        : CSharpPrinter.PrintRaised(function, importMethodBody)).Output;
+                        : CSharpPrinter.PrintRaised(function, importMethodBody);
+                    var rendered = projection.Output;
                     if (rendered is null)
                         return;
 
@@ -292,6 +295,7 @@ static class ValidityCheck
                         typeName,
                         methodName,
                         constraints,
+                        projection.RequiresUnsafeBodyModifier,
                         productParameterList,
                         references,
                         parseOptions,
@@ -365,13 +369,21 @@ static class ValidityCheck
         string typeName,
         string methodName,
         IReadOnlyDictionary<string, Dictionary<string, string>> constraints,
+        bool requiresUnsafeContext,
         string? productParameterList,
         ImmutableArray<MetadataReference> references,
         CSharpParseOptions parseOptions,
         CSharpCompilationOptions compileOptions,
         bool bindSemantics)
     {
-        string shell = Shell(function, body, typeName, methodName, constraints, productParameterList);
+        string shell = Shell(
+            function,
+            body,
+            typeName,
+            methodName,
+            constraints,
+            requiresUnsafeContext,
+            productParameterList);
         var tree = CSharpSyntaxTree.ParseText(shell, parseOptions);
         var malformed = ImmutableArray.CreateBuilder<ValidityDiagnostic>();
         malformed.AddRange(SignatureDefaultDiagnostics(function, productParameterList));
@@ -665,7 +677,9 @@ static class ValidityCheck
 
     /// <summary>Wraps a body in a generic instance method on a class so locals, params, type params, and `this` all bind; member access on `this` becomes filtered binding noise.</summary>
     internal static string Shell(IrFunction function, string body, string typeName, string methodName,
-        IReadOnlyDictionary<string, Dictionary<string, string>> constraints, string? productParameterList = null)
+        IReadOnlyDictionary<string, Dictionary<string, string>> constraints,
+        bool requiresUnsafeContext,
+        string? productParameterList = null)
     {
         var generics = GenericParameterNames(function);
         string genericList = generics.Count > 0 ? "<" + string.Join(", ", generics) + ">" : "";
@@ -682,12 +696,14 @@ static class ValidityCheck
         // body requiring an async context. The signature return type is already the
         // awaitable (Task/Task<T>/ValueTask, or void for async void), so `async`
         // binds cleanly.
-        // `unsafe` and `async` are mutually exclusive here: the blanket `unsafe`
-        // modifier puts the whole body in an unsafe context, where `await` is illegal
-        // (CS4004) — so an awaiting body takes `async` INSTEAD of `unsafe`. Async
-        // method bodies do not carry pointer operations across awaits, so dropping the
-        // unsafe context costs nothing.
-        string modifier = function.RequiresAsyncMethodContext ? "async" : "unsafe";
+        // A method-wide unsafe context forbids await syntax (CS4004), but async
+        // methods without emitted await syntax can require both modifiers. Route the
+        // printer-owned unsafe fact rather than rediscovering pointer syntax here.
+        string modifier = function.RequiresAsyncMethodContext
+            ? requiresUnsafeContext && !HasAwaitSyntax(function)
+                ? "async unsafe"
+                : "async"
+            : "unsafe";
         return $$"""
             #pragma warning disable
             using System;
@@ -713,6 +729,12 @@ static class ValidityCheck
             }
             """;
     }
+
+    static bool HasAwaitSyntax(IrFunction function)
+        => function.Descendants.Any(static node =>
+            node is AwaitExpression
+                or UsingStatement { IsAwait: true }
+                or ForeachStatement { IsAwait: true });
 
     static string ParameterText(Parameter parameter)
         => parameter.Type.Kind == TypeRefKind.ByRef

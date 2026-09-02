@@ -47,6 +47,7 @@ public class RenderAbSensorTests
                     "M",
                     function,
                     new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal),
+                    RequiresUnsafeContext: false,
                     ProductParameterList: null)),
         };
 
