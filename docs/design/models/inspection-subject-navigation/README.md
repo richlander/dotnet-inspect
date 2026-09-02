@@ -38,15 +38,20 @@ read that way:
   replacement snapshot, from a failed Registry or policy evaluation. It does
   not distinguish Registry failure from policy failure.
 - **UI accessibility.** Focus, roving `tabindex`, menu and tablist semantics,
-  history, and rendering belong to [Inspect Web UI](../../inspect-web-ui.md)
-  and appear here only as an abstract "consumer installs the complete current
-  snapshot under authority and executes a visible effect" step.
+  and rendering belong to [Inspect Web Navigation
+  Presentation](../../inspect-web-navigation-presentation.md); focus movement
+  and history belong to [Inspect Web Navigation
+  Consumer](../../inspect-web-navigation-consumer.md). Both appear here only
+  as an abstract "consumer installs the complete current snapshot under
+  authority and executes a visible effect" step.
 - **Implementation correctness.** Nothing here proves that a future C# or
   TypeScript implementation conforms to these specifications. Conformance is
   the job of the named implementation gates in the owning document.
 - **Complete restoration coordination.** `AtomicRestoration.tla` covers only
   the navigation participant's subject+lens preparation. Other participants,
-  transaction commit, and installation belong to issue #4787.
+  transaction commit, and installation belong to
+  [Workspace Definitions](../../workspace-definitions.md), with implementation
+  tracked by [#4787](https://github.com/richlander/dotnet-inspect/issues/4787).
 - **Acquisition, security, or performance.** Coordinate realization appears
   only as an external prerequisite that may abort.
 

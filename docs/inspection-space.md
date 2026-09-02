@@ -587,6 +587,49 @@ artifact acquisition lifetime, query-specific participant release policy, or
 the implementation of
 [#4960](https://github.com/richlander/dotnet-inspect/issues/4960).
 
+#### Retained package-realization caller
+
+**Status:** no approved product caller.
+
+The `inspect-web` prototype is the only current multi-operation consumer of
+package roles. Its `BrowserPackageWorkspace` retains a bounded registry of
+complete `BrowserInspectionScope` instances keyed by an exact
+package-coordinate set; the prototype's README owns that retention and eviction
+policy. Each scope owns one `InspectionWorkspace` and one package-role
+realization. The registry returns the already-open scope for a later exact
+request, so the workspace never receives a second independent package-role
+demand and cannot exercise workspace-local exact-request admission.
+
+Moving reuse below that boundary would be a product-topology migration, not a
+narrow caller adoption. A Browser-session owner would need to adopt the landed
+demand-projection and coordinated-release contracts across the prototype:
+replace retained whole scopes with independently returned demand projections,
+migrate every scope query to projection-safe access, attach package-archive
+retention to the shared completion instead of one demand, and define awaited
+session reset or shutdown so retained entries eventually close.
+
+A one-request workspace beneath each existing registry key cannot receive a
+second independent exact demand because the outer registry returns the retained
+scope first. An Integrations-only workspace would duplicate the ordinary
+realization solely to resubmit a demand that Integrations already answers from
+the retained scope. Neither topology adds an independently useful product
+lifetime.
+
+The retained Browser platform path is not a package-role caller: each cumulative
+rebuild creates a fresh `InspectionWorkspace` through `WorkspaceContextLoader`
+instead of submitting repeated package-role demands. The CLI, the only shipped
+host, remains operation-scoped. Therefore no existing component justifies the
+lower-level retained cache, and
+[#4960](https://github.com/richlander/dotnet-inspect/issues/4960) remains
+deferred. A future caller proposal must establish its product lifetime first,
+including explicit bounds for retained or in-flight exact requests, concurrent
+physical operations, and aggregate retained-byte reservation, and must name one
+real repeated exact-demand scenario plus one neighboring distinct-demand
+scenario. Once that caller is approved, the admission implementation owns the
+observable ready-reuse, non-hit, capacity-rejection, and terminal-cleanup gates
+through that caller. Admission must not be implemented or a caller lifetime
+manufactured solely to make those gates pass.
+
 `WorkspaceContextLoader` now realizes package, platform, and embedded
 coordinates without requiring a filesystem. A platform coordinate maps the
 `runtime` or `aspnetcore` family to its product-owned implementation-pack

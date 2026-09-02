@@ -141,6 +141,38 @@ public class SourceResolverTests : IDisposable
     }
 
     [Fact]
+    public void MergeConfigFiles_OverrideSkipsUnusableInheritedSource()
+    {
+        string parentDirectory = Path.Combine(_tempDir, "override-parent");
+        string childDirectory = Path.Combine(parentDirectory, "child");
+        Directory.CreateDirectory(childDirectory);
+        string parentConfig = WriteConfigAt(parentDirectory, """
+            <configuration>
+              <packageSources>
+                <add key="feed" value="file:relative" />
+              </packageSources>
+            </configuration>
+            """);
+        string childConfig = WriteConfigAt(childDirectory, """
+            <configuration>
+              <packageSources>
+                <add key="FEED" value="current-feed" />
+              </packageSources>
+            </configuration>
+            """);
+
+        PackageSource source = Assert.Single(
+            SourceResolver.MergeConfigFiles(
+                [childConfig, parentConfig],
+                PackageSources.Empty));
+
+        Assert.Equal("FEED", source.Name);
+        Assert.Equal(
+            Path.Combine(childDirectory, "current-feed"),
+            source.Url);
+    }
+
+    [Fact]
     public void MergeConfigFiles_CaseVariantCredentialName_MatchesSource()
     {
         var configPath = WriteConfig("""
@@ -278,7 +310,7 @@ public class SourceResolverTests : IDisposable
             <configuration>
               <packageSources>
                 <add key="EnabledFeed" value="https://enabled.example.com/v3/index.json" />
-                <add key="DisabledFeed" value="https://disabled.example.com/v3/index.json" />
+                <add key="DisabledFeed" value="file:relative" />
               </packageSources>
               <disabledPackageSources>
                 <add key="DisabledFeed" value="true" />
@@ -290,6 +322,18 @@ public class SourceResolverTests : IDisposable
 
         Assert.Single(sources);
         Assert.Equal("EnabledFeed", sources[0].Name);
+        IReadOnlyList<PackageSourceDeclaration> declarations =
+            SourceResolver.GetConfiguredSourceAliasDeclarations(
+                configPath);
+        Assert.Equal(2, declarations.Count);
+        PackageSourceDeclaration disabled = Assert.Single(
+            declarations,
+            declaration => declaration.Name == "DisabledFeed");
+        Assert.Throws<UnsupportedSourceException>(
+            () => disabled.Resolve());
+        Assert.Throws<UnsupportedSourceException>(
+            () => SourceResolver.ResolveConfiguredSourceAliases(
+                configPath));
     }
 
     [Fact]
@@ -311,6 +355,130 @@ public class SourceResolverTests : IDisposable
         Assert.Equal(2, sources.Count);
         Assert.Equal("ConfigFeed", sources[0].Name);
         Assert.Contains("extra.example.com", sources[1].Url);
+    }
+
+    [Fact]
+    public void ResolveSources_ConfigRelativePathsUseEachDeclaringDirectory()
+    {
+        string parentDirectory = Path.Combine(_tempDir, "parent");
+        string childDirectory = Path.Combine(parentDirectory, "child");
+        Directory.CreateDirectory(childDirectory);
+        string parentConfig = WriteConfigAt(
+            parentDirectory,
+            """
+            <configuration>
+              <packageSources>
+                <add key="parent" value="feed" />
+              </packageSources>
+            </configuration>
+            """);
+        string childConfig = WriteConfigAt(
+            childDirectory,
+            """
+            <configuration>
+              <packageSources>
+                <add key="child" value="feed" />
+              </packageSources>
+            </configuration>
+            """);
+
+        IReadOnlyList<PackageSource> sources = SourceResolver.MergeConfigFiles(
+            [childConfig, parentConfig],
+            PackageSources.Empty);
+
+        Assert.Equal(
+            [
+                Path.Combine(parentDirectory, "feed"),
+                Path.Combine(childDirectory, "feed"),
+            ],
+            sources.Select(source => source.Url));
+    }
+
+    [Fact]
+    public void ResolveSources_CommandRelativePathUsesWorkingDirectory()
+    {
+        string workingDirectory = Path.Combine(_tempDir, "working");
+        Directory.CreateDirectory(workingDirectory);
+
+        PackageSource source = Assert.Single(
+            SourceResolver.ResolveSources(
+                explicitSource: Path.Combine("feeds", "."),
+                workingDirectory: workingDirectory));
+
+        Assert.Equal(
+            Path.Combine(workingDirectory, "feeds"),
+            source.Url);
+    }
+
+    [Fact]
+    public void ResolveSources_ConfigPathAndFileUriShareCanonicalSpelling()
+    {
+        string feed = Path.Combine(_tempDir, "feed");
+        string configPath = WriteConfig($"""
+            <configuration>
+              <packageSources>
+                <add key="path" value="{feed}" />
+                <add key="uri" value="{new Uri(feed).AbsoluteUri}" />
+              </packageSources>
+            </configuration>
+            """);
+
+        IReadOnlyList<PackageSource> sources =
+            SourceResolver.ResolveSources(configPath: configPath);
+
+        Assert.Equal(2, sources.Count);
+        Assert.All(sources, source => Assert.Equal(feed, source.Url));
+    }
+
+    [Fact]
+    public void ResolveSources_ConfigExpandsPercentEnvironmentVariables()
+    {
+        string variableName = $"DOTNET_INSPECT_FEED_{Guid.NewGuid():N}";
+        Environment.SetEnvironmentVariable(variableName, _tempDir);
+        try
+        {
+            string configPath = WriteConfig($"""
+                <configuration>
+                  <packageSources>
+                    <add key="local" value="%{variableName}%/feed" />
+                  </packageSources>
+                </configuration>
+                """);
+
+            PackageSource source = Assert.Single(
+                SourceResolver.ResolveSources(configPath: configPath));
+
+            Assert.Equal(Path.Combine(_tempDir, "feed"), source.Url);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variableName, null);
+        }
+    }
+
+    [Fact]
+    public void ResolveSources_UnsupportedSchemeFailsBeforeClientCreation()
+    {
+        string configPath = WriteConfig("""
+            <configuration>
+              <packageSources>
+                <add key="ftp" value="ftp://feed.example/packages" />
+              </packageSources>
+            </configuration>
+            """);
+
+        Assert.Throws<UnsupportedSourceException>(
+            () => SourceResolver.ResolveSources(configPath: configPath));
+    }
+
+    [Fact]
+    public void ResolveSources_MalformedFileUriFailsBeforeClientCreation()
+    {
+        const string Source = "file://user@server/share";
+
+        Assert.False(SourceResolver.IsSupportedSource(Source));
+        Assert.Throws<UnsupportedSourceException>(
+            () => SourceResolver.ResolveSources(explicitSource: Source));
     }
 
     [Fact]
@@ -468,7 +636,7 @@ public class SourceResolverTests : IDisposable
             <?xml version="1.0" encoding="utf-8"?>
             <configuration>
               <packageSources>
-                <add key="ParentFeed" value="https://parent.example.com/v3/index.json" />
+                <add key="ParentFeed" value="file:relative" />
               </packageSources>
             </configuration>
             """);
@@ -708,6 +876,13 @@ public class SourceResolverTests : IDisposable
     private string WriteConfig(string xml)
     {
         var path = Path.Combine(_tempDir, $"nuget-{Guid.NewGuid():N}.config");
+        File.WriteAllText(path, xml);
+        return path;
+    }
+
+    private static string WriteConfigAt(string directory, string xml)
+    {
+        string path = Path.Combine(directory, "NuGet.Config");
         File.WriteAllText(path, xml);
         return path;
     }

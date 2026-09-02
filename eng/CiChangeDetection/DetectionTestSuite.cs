@@ -1045,6 +1045,48 @@ internal static class DetectionTestSuite
                 FormatValues(tlaConfig));
         }
 
+        Dictionary<string, string> baseRenamedIntoModel = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "prototypes/X.tla",
+            outputs,
+            tlaCandidateFiles: "docs/models/x/X.tla");
+        if (baseRenamedIntoModel["tla"] != "true")
+        {
+            throw new InvalidOperationException(
+                "A base rename into a model path hid the candidate TLA+ change: " +
+                FormatValues(baseRenamedIntoModel));
+        }
+
+        Dictionary<string, string> baseRenamedOutOfModel = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "docs/models/x/X.tla",
+            outputs,
+            tlaCandidateFiles: "prototypes/X.tla");
+        if (baseRenamedOutOfModel["tla"] != "false")
+        {
+            throw new InvalidOperationException(
+                "A base rename out of a model path selected unchanged model content: " +
+                FormatValues(baseRenamedOutOfModel));
+        }
+
+        Dictionary<string, string> unresolvedTlaCandidate = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "README.md",
+            outputs,
+            tlaCandidateResolutionSucceeds: false);
+        if (unresolvedTlaCandidate["tla"] != "true")
+        {
+            throw new InvalidOperationException(
+                "An unresolved TLA+ candidate diff did not fail closed: " +
+                FormatValues(unresolvedTlaCandidate));
+        }
+
         Dictionary<string, string> tlaRunner = RunDetection(
             repository,
             body,
@@ -1058,6 +1100,20 @@ internal static class DetectionTestSuite
                 FormatValues(tlaRunner));
         }
 
+        Dictionary<string, string> tlaRunnerTest = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/test-tla-checks.sh",
+            outputs);
+        if (tlaRunnerTest["tla"] != "true"
+            || tlaRunnerTest["code"] != "false")
+        {
+            throw new InvalidOperationException(
+                "TLA+ runner test canary did not select only tla: " +
+                FormatValues(tlaRunnerTest));
+        }
+
         Dictionary<string, string> tlaOverrides = RunDetection(
             repository,
             body,
@@ -1069,6 +1125,20 @@ internal static class DetectionTestSuite
             throw new InvalidOperationException(
                 "TLA+ module overrides canary did not select only tla: " +
                 FormatValues(tlaOverrides));
+        }
+
+        Dictionary<string, string> tlaExpectedExitCodes = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/tla-expected-exit-codes.txt",
+            outputs);
+        if (tlaExpectedExitCodes["tla"] != "true"
+            || tlaExpectedExitCodes["code"] != "false")
+        {
+            throw new InvalidOperationException(
+                "TLA+ expected exit codes canary did not select only tla: " +
+                FormatValues(tlaExpectedExitCodes));
         }
 
         // eng/run-tla-checks.sh discovers .tla/.cfg files case-insensitively
@@ -1260,7 +1330,9 @@ internal static class DetectionTestSuite
         int failDecodeAt = 0,
         bool truncateRecordStream = false,
         bool truncatePushStream = false,
-        bool emptyPushRecord = false) =>
+        bool emptyPushRecord = false,
+        string? tlaCandidateFiles = null,
+        bool tlaCandidateResolutionSucceeds = true) =>
         new DetectionHarness(repository, body, expectedOutputs).Run(
             new DetectionScenario(
                 eventName,
@@ -1277,5 +1349,7 @@ internal static class DetectionTestSuite
                 failDecodeAt,
                 truncateRecordStream,
                 truncatePushStream,
-                emptyPushRecord));
+                emptyPushRecord,
+                tlaCandidateFiles,
+                tlaCandidateResolutionSucceeds));
 }

@@ -881,6 +881,11 @@ public sealed class IntegrationCensusTests
             participant,
             IntegrationConceptCatalog.AI,
             PolicyTargetPeer("Peer", TypeName("Peer", "Client")));
+        var fulfillmentSourceLookup =
+            Assert.IsType<IntegrationCandidatePeerIdentity.NamedType>(
+                NamedPeer(
+                    new MetadataTypeReferenceScope.CurrentAssembly(),
+                    opportunity.Source.SourceType));
         IntegrationCandidateIdentity observedEquivalent =
             IndependentEquivalentCandidate(observed);
         Assert.Equal(observed, observedEquivalent);
@@ -926,9 +931,19 @@ public sealed class IntegrationCensusTests
                             suppressedCandidate,
                             PeerTerminal(fulfillerCandidate)))));
             attempts.Add(
-                ClassifiedOut(
-                    classifiedCandidate,
-                    classifiedContext));
+                new IntegrationCandidateAttempt.Classified(
+                    new IntegrationCandidateAttemptAddress(
+                        classifiedCandidate,
+                        classifiedContext),
+                    new IntegrationCandidateDisposition.Out(
+                        Resolved(
+                            classifiedCandidate,
+                            PeerTerminal(classifiedCandidate))),
+                    [
+                        Resolved(
+                            fulfillmentSourceLookup,
+                            SourceType(suppressedCandidate)),
+                    ]));
         }
         attempts.Reverse();
 
@@ -937,11 +952,15 @@ public sealed class IntegrationCensusTests
             participants,
             producerAttempts: Producers(
                 participants,
-                Completed(
+                CompletedWithEvidence(
                     participant,
                     Ecosystem,
-                    observed,
-                    IndependentEquivalentCandidate(observed)),
+                    new IntegrationCandidateEvidence(
+                        observed,
+                        [fulfillmentSourceLookup]),
+                    new IntegrationCandidateEvidence(
+                        IndependentEquivalentCandidate(observed),
+                        [fulfillmentSourceLookup])),
                 Completed(
                     participant,
                     Opportunity,
@@ -1719,6 +1738,19 @@ public sealed class IntegrationCensusTests
         SuppressionFixture fixture = new(this);
         IntegrationSourceParticipantIdentity participant = Portable();
 
+        // Every declared fulfillment-source lookup requires one exact
+        // resolution before the observation can suppress an opportunity.
+        Assert.Throws<ArgumentException>(() =>
+            fixture.Snapshot(
+                fixture.Suppressed(fixture.ObservedAttemptAddress),
+                observedAttempt:
+                    new IntegrationCandidateAttempt.Classified(
+                        fixture.ObservedAttemptAddress,
+                        new IntegrationCandidateDisposition.In(
+                            Resolved(
+                                fixture.ObservedCandidate,
+                                fixture.ObservedTerminal)))));
+
         // Proof source must equal the opportunity source, not some other Type.
         IntegrationOpportunityFulfillment wrongSource =
             new IntegrationOpportunityFulfillment(
@@ -1942,6 +1974,11 @@ public sealed class IntegrationCensusTests
         IntegrationTypeIdentity terminal) =>
         new(candidate.Peer, [terminal]);
 
+    static IntegrationResolvedPeer Resolved(
+        IntegrationCandidatePeerIdentity lookup,
+        IntegrationTypeIdentity terminal) =>
+        new(lookup, [terminal]);
+
     static IntegrationSourceParticipantAttempt Available(
         IntegrationSourceParticipantIdentity participant) =>
         new IntegrationSourceParticipantAttempt.Available(participant);
@@ -1953,6 +1990,14 @@ public sealed class IntegrationCensusTests
         new IntegrationProducerPolicyAttempt.Completed(
             new IntegrationProducerPolicyAttemptAddress(participant, policy),
             candidates);
+
+    static IntegrationProducerPolicyAttempt CompletedWithEvidence(
+        IntegrationSourceParticipantIdentity participant,
+        IntegrationProducerPolicyBinding policy,
+        params IntegrationCandidateEvidence[] evidence) =>
+        IntegrationProducerPolicyAttempt.Completed.WithEvidence(
+            new IntegrationProducerPolicyAttemptAddress(participant, policy),
+            evidence);
 
     static IntegrationProducerPolicyAttempt Unavailable(
         IntegrationSourceParticipantIdentity participant,
@@ -2173,6 +2218,9 @@ public sealed class IntegrationCensusTests
                     AssemblyContextIntegrationsQuery.Definition,
                     _ => new AssemblyContextIntegrationsResult([]))
                 .Add(
+                    ExtensionMethodsQuery.Definition,
+                    _ => new ExtensionMethodsResult.Available([]))
+                .Add(
                     AssemblyContextIntegrationOpportunitiesQuery.Definition,
                     (_, _) => new AssemblyContextIntegrationOpportunitiesResult([]),
                     AssemblyContextIntegrationsQuery.Definition)
@@ -2229,6 +2277,9 @@ public sealed class IntegrationCensusTests
     {
         readonly IntegrationSourceParticipantIdentity _participant;
         readonly IntegrationTypeIdentity _observedTerminal;
+        readonly IntegrationCandidatePeerIdentity.NamedType
+            _fulfillmentSourceLookup;
+        readonly IntegrationResolvedPeer _fulfillmentSourceResolution;
 
         public SuppressionFixture(IntegrationCensusTests _)
         {
@@ -2249,6 +2300,14 @@ public sealed class IntegrationCensusTests
                     TypeName("Adapters", "ChatClientAdapter"),
                     Anchor("Adapters.ChatClientAdapter")));
             _observedTerminal = PeerTerminal(ObservedCandidate);
+            _fulfillmentSourceLookup =
+                Assert.IsType<IntegrationCandidatePeerIdentity.NamedType>(
+                    NamedPeer(
+                        new MetadataTypeReferenceScope.CurrentAssembly(),
+                        OpportunityCandidateId.Source.SourceType));
+            _fulfillmentSourceResolution = Resolved(
+                _fulfillmentSourceLookup,
+                SourceType(OpportunityCandidateId));
             Fulfillment = new IntegrationOpportunityFulfillment(
                 SourceType(OpportunityCandidateId),
                 Resolved(OpportunityCandidateId, _observedTerminal));
@@ -2286,7 +2345,12 @@ public sealed class IntegrationCensusTests
                 producerAttempts: Producers(
                     participants,
                     Completed(_participant, Opportunity, OpportunityCandidateId),
-                    Completed(_participant, Ecosystem, ObservedCandidate)),
+                    CompletedWithEvidence(
+                        _participant,
+                        Ecosystem,
+                        new IntegrationCandidateEvidence(
+                            ObservedCandidate,
+                            [_fulfillmentSourceLookup]))),
                 selectedTypes: [_observedTerminal],
                 contexts: [Context],
                 candidateAttempts:
@@ -2297,7 +2361,8 @@ public sealed class IntegrationCensusTests
                             new IntegrationCandidateDisposition.In(
                                 Resolved(
                                     ObservedCandidate,
-                                    _observedTerminal))),
+                                    _observedTerminal)),
+                            [_fulfillmentSourceResolution]),
                     opportunityAttempt,
                 ]);
         }

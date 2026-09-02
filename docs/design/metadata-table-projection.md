@@ -262,8 +262,7 @@ category, `@Metadata`, registered the same way `@Performance` is:
 The lens therefore adds **no new shape flags**. Metadata tables introduce no new
 currency — they are sections, addressed by name — so they are reached with the
 existing selection vocabulary rather than a focused flag. It rides the `library`
-command (the assembly-oriented surface; note the deprecated `package X
---metadata` alias already redirects there):
+command, the assembly-oriented surface:
 
 ```bash
 # Document: every projected table
@@ -278,7 +277,7 @@ dotnet-inspect library My.dll -S "Metadata: TypeRef" --columns Name --tsv
 # Scalar: collapse to a row count
 dotnet-inspect library My.dll -S "Metadata: TypeDef" --count
 
-# Released count syntax; the item-limit implementation changes this to -n 20.
+# Released count syntax; the historical #4677 target proposed -n 20.
 dotnet-inspect library My.dll -S "Metadata: MethodDef" --rows 20
 
 # structured, for tooling
