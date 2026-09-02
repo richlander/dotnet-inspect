@@ -327,6 +327,95 @@ test("SlideStrip slides one uniform window without stealing external focus", asy
   await expect(inspector).toHaveAttribute("data-fallback", "false");
 });
 
+test("width-only changes retain the initially applied window", async ({
+  page,
+}) => {
+  await page.goto("/browser/workspace-titlebar.html");
+
+  const state = await page.evaluate(async () => {
+    const { SlideStripDomController } = await import(
+      "../src/slide-strip-dom.ts");
+    document.head.insertAdjacentHTML(
+      "beforeend",
+      `<style>
+        .resize-continuity-probe .slide-strip-items {
+          display: flex;
+          gap: 0;
+        }
+        .resize-continuity-probe button {
+          padding: 0;
+          border: 0;
+        }
+        .resize-continuity-probe [data-slide-strip-id="a"] {
+          width: 60px;
+        }
+        .resize-continuity-probe [data-slide-strip-id="b"] {
+          width: 40px;
+        }
+        .resize-continuity-probe [data-slide-strip-id="c"] {
+          width: 70px;
+        }
+      </style>`);
+    const element = document.createElement("div");
+    element.className = "slide-strip resize-continuity-probe";
+    element.innerHTML = `
+      <div class="slide-strip-items">
+        <button data-slide-strip-id="a">
+          <span data-slide-strip-representation="label">A</span>
+        </button>
+        <button data-slide-strip-id="b">
+          <span data-slide-strip-representation="label">B</span>
+        </button>
+        <button data-slide-strip-id="c">
+          <span data-slide-strip-representation="label">C</span>
+        </button>
+      </div>
+      <span data-slide-strip-before></span>
+      <span data-slide-strip-after></span>`;
+    document.body.append(element);
+    const continuity: { key: string; leadingId?: string } = {
+      key: "resize-continuity",
+    };
+    const controller = new SlideStripDomController(
+      element,
+      [
+        { id: "a", label: "A" },
+        { id: "b", label: "B" },
+        { id: "c", label: "C" },
+      ],
+      {
+        modes: [{ kind: "label", minimumVisible: 1, gap: 0 }],
+        initialAnchor: "b",
+        preferredDirection: "after",
+        continuityKey: "resize-continuity",
+        fallbackVisibilityFloor: 20,
+        oversizedAlignment: "start",
+      },
+      continuity);
+    const snapshot = () => ({
+      visible: [...element.querySelectorAll<HTMLElement>(
+        "[data-slide-strip-id]:not([hidden])")]
+        .map(item => item.dataset.slideStripId),
+      leading: continuity.leadingId,
+    });
+
+    controller.apply(controller.resolve(100));
+    const initial = snapshot();
+    controller.apply(controller.resolve(110));
+    const wider = snapshot();
+    controller.apply(controller.resolve(170));
+    const complete = snapshot();
+
+    return { initial, wider, complete };
+  });
+
+  expect(state).toEqual({
+    initial: { visible: ["a", "b"], leading: "a" },
+    wider: { visible: ["a", "b"], leading: "a" },
+    complete: { visible: ["a", "b", "c"], leading: "a" },
+  });
+});
+
 test("allocation controls move between adjacent stable result pairs", async ({
   page,
 }) => {
@@ -484,7 +573,7 @@ test("removing a focused allocation control transfers focus before removal", asy
   const moreSubjects = page.locator("[data-more-subjects]");
   await moreSubjects.focus();
   await expect(moreSubjects).toBeFocused();
-  await page.setViewportSize({ width: 400, height: 900 });
+  await page.setViewportSize({ width: 360, height: 900 });
 
   await expect(page.locator("[data-slide-strip-allocation]")).toBeHidden();
   await expect(page.locator('[data-scope="member"]')).toBeFocused();
@@ -499,6 +588,100 @@ test("removing a focused allocation control transfers focus before removal", asy
   await expect(page.locator('[data-scope="member"]')).toBeFocused();
   await expect(page.locator(".slide-strip-subject [tabindex='0']"))
     .toHaveCount(1);
+});
+
+test("allocation focus transfer participates in pressure selection", async ({
+  page,
+}) => {
+  await page.goto("/browser/workspace-titlebar.html");
+
+  const state = await page.evaluate(async () => {
+    const scopeBar = await import("../src/scope-bar.ts");
+    document.head.insertAdjacentHTML(
+      "beforeend",
+      `<style>
+        .focus-pressure-probe .lensbar {
+          width: 400px;
+          flex: none;
+        }
+        .focus-pressure-probe
+          [data-slide-strip="subject"] .slide-strip-item {
+          width: 40px;
+          padding: 0;
+        }
+        .focus-pressure-probe
+          [data-slide-strip="inspector"] .slide-strip-item {
+          width: 30px;
+          padding: 0;
+        }
+        .focus-pressure-probe
+          [data-slide-strip="inspector"]
+          [data-slide-strip-id="a"] {
+          width: 220px;
+        }
+      </style>`);
+    document.body.innerHTML = `
+      <div class="focus-pressure-probe">
+        ${scopeBar.renderScopeBar({
+          scope: "member",
+          strip: [
+            ["a", "Alpha", "A", "x"],
+            ["b", "Beta", "B", "x"],
+            ["c", "Charlie", "C", "x"],
+            ["d", "Delta", "D", "x"],
+            ["e", "Echo", "E", "x"],
+          ],
+          activeStripId: "a",
+          stripAttribute: "data-member-section",
+          showMemberScope: true,
+          escapeHtml: String,
+        })}
+      </div>`;
+    const binding = scopeBar.bindScopeBar(
+      document,
+      {
+        onMemberSectionSelect() {},
+        onPackageLensSelect() {},
+        onScopeSelect() {},
+        onTypeLensSelect() {},
+      },
+      scopeBar.createScopeBarState());
+    await new Promise(resolve => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    });
+
+    const navigation = document.querySelector<HTMLElement>(".lensbar")!;
+    const inspector = document.querySelector<HTMLElement>(
+      '[data-slide-strip="inspector"]')!;
+    const allocation = document.querySelector<HTMLElement>(
+      "[data-slide-strip-allocation]")!;
+    const moreInspectors = document.querySelector<HTMLElement>(
+      "[data-more-inspectors]")!;
+    inspector.dispatchEvent(new WheelEvent("wheel", {
+      deltaY: 100,
+      bubbles: true,
+      cancelable: true,
+    }));
+    moreInspectors.focus();
+    navigation.style.width = "150px";
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    const result = {
+      pressure: navigation.dataset.pressure,
+      inspectorFallback: inspector.dataset.fallback,
+      focused: document.activeElement instanceof HTMLElement
+        ? document.activeElement.dataset.slideStripId
+        : undefined,
+      controlsHidden: allocation.hidden,
+    };
+    binding.disconnect();
+    return result;
+  });
+
+  expect(state.pressure).toBe("terminal");
+  expect(state.controlsHidden).toBe(true);
+  expect(state.focused).toBe("a");
+  expect(state.inspectorFallback).toBe("true");
 });
 
 test("edge indicators do not replace an item hit target", async ({ page }) => {

@@ -12,6 +12,7 @@ import {
   SlideStripDomController,
   type SlideStripAppliedResult,
   type SlideStripContinuityState,
+  type SlideStripResolveIntent,
 } from "./slide-strip-dom.ts";
 import type {
   SlideStripItem,
@@ -71,6 +72,15 @@ interface AllocationPair {
 interface AllocationFocusTransfer {
   strip: "subject" | "inspector";
   id: string;
+}
+
+function focusTransferIntent(
+  transfer: AllocationFocusTransfer | null,
+  strip: AllocationFocusTransfer["strip"],
+): SlideStripResolveIntent {
+  return transfer?.strip === strip
+    ? { pendingFocusId: transfer.id }
+    : {};
 }
 
 const EMPTY_BINDING: ScopeBarBinding = {
@@ -474,6 +484,14 @@ function inspectorAtLeastAsRich(
       && left.visibleCount >= right.visibleCount);
 }
 
+function inspectorStrictlyRicher(
+  left: SlideStripResult,
+  right: SlideStripResult,
+): boolean {
+  return inspectorAtLeastAsRich(left, right)
+    && !inspectorAtLeastAsRich(right, left);
+}
+
 function pairDominates(left: AllocationPair, right: AllocationPair): boolean {
   const subjectAtLeast = left.subject.result.visibleCount
     >= right.subject.result.visibleCount;
@@ -618,14 +636,36 @@ class ScopeBarController implements ScopeBarBinding {
       }, { passive: false }));
     this.moreSubjects?.addEventListener("click", () => {
       if (this.moreSubjects?.getAttribute("aria-disabled") === "true") return;
-      this.state.allocationOrdinal = this.renderedAllocationOrdinal + 1;
-      this.layout();
+      this.moveAllocation(1);
     });
     this.moreInspectors?.addEventListener("click", () => {
       if (this.moreInspectors?.getAttribute("aria-disabled") === "true") return;
-      this.state.allocationOrdinal = this.renderedAllocationOrdinal - 1;
-      this.layout();
+      this.moveAllocation(-1);
     });
+  }
+
+  private moveAllocation(delta: -1 | 1): void {
+    const candidate = this.allocationCandidate(delta);
+    if (!candidate) return;
+    this.state.allocationOrdinal = candidate.ordinal;
+    this.renderedAllocationOrdinal = candidate.ordinal;
+    this.applyPair(candidate.pair, "ladder", true);
+    this.updateAllocationButtons();
+  }
+
+  private allocationCandidate(
+    delta: -1 | 1,
+  ): { pair: AllocationPair; ordinal: number } | null {
+    const subject = this.subject.current?.result;
+    const inspector = this.inspector?.current?.result;
+    if (!subject || !inspector) return null;
+    const candidates = this.ladder.map((pair, ordinal) => ({ pair, ordinal }));
+    if (delta < 0) candidates.reverse();
+    return candidates.find(({ pair }) => delta > 0
+      ? pair.subject.result.visibleCount > subject.visibleCount
+        && inspectorStrictlyRicher(inspector, pair.inspector.result)
+      : pair.subject.result.visibleCount < subject.visibleCount
+        && inspectorStrictlyRicher(pair.inspector.result, inspector)) ?? null;
   }
 
   private controllerFor(
@@ -706,19 +746,8 @@ class ScopeBarController implements ScopeBarBinding {
   ): void {
     this.navigation.dataset.pressure = pressure;
     if (controls) this.setControlsVisible(true);
-    const transfer = this.allocationFocusTransfer(controls);
-    const subject = transfer?.strip === "subject"
-      ? this.subject.resolveRequired(
-          pair.subject.outerWidth,
-          { pendingFocusId: transfer.id })
-      : pair.subject;
-    const inspector = transfer?.strip === "inspector"
-      ? this.inspector?.resolveRequired(
-          pair.inspector.outerWidth,
-          { pendingFocusId: transfer.id }) ?? pair.inspector
-      : pair.inspector;
-    this.subject.apply(subject);
-    this.inspector?.apply(inspector);
+    this.subject.apply(pair.subject);
+    this.inspector?.apply(pair.inspector);
     this.setControlsVisible(controls);
   }
 
@@ -738,12 +767,18 @@ class ScopeBarController implements ScopeBarBinding {
     const subjectMinimum = this.subject.minimumOuterWidth;
     const inspectorMinimum = this.inspector.minimumOuterWidth;
     const noControlsWidth = Math.max(0, available - this.overhead(false));
+    const transfer = this.allocationFocusTransfer(false);
+    const subjectIntent = focusTransferIntent(transfer, "subject");
+    const inspectorIntent = focusTransferIntent(transfer, "inspector");
     if (noControlsWidth
       >= this.subject.preferredOuterWidth + this.inspector.preferredOuterWidth) {
       this.applyPair({
-        subject: this.subject.resolveRequired(this.subject.preferredOuterWidth),
+        subject: this.subject.resolveRequired(
+          this.subject.preferredOuterWidth,
+          subjectIntent),
         inspector: this.inspector.resolveRequired(
-          this.inspector.preferredOuterWidth),
+          this.inspector.preferredOuterWidth,
+          inspectorIntent),
       }, "all-preferred", false);
       return;
     }
@@ -769,25 +804,33 @@ class ScopeBarController implements ScopeBarBinding {
       }
     }
 
+    const noControlsSubjectMinimum = this.subject.minimumOuterWidthFor(
+      subjectIntent.pendingFocusId);
+    const noControlsInspectorMinimum = this.inspector.minimumOuterWidthFor(
+      inspectorIntent.pendingFocusId);
     if (noControlsWidth
-      >= subjectMinimum + inspectorMinimum) {
+      >= noControlsSubjectMinimum + noControlsInspectorMinimum) {
       const provisionalInspectorWidth = noControlsWidth
-        - subjectMinimum;
+        - noControlsSubjectMinimum;
       const inspector = this.inspector.resolveRequired(
-        provisionalInspectorWidth);
+        provisionalInspectorWidth,
+        inspectorIntent);
       const exactInspectorWidth = Math.min(
         provisionalInspectorWidth,
         inspector.result.requiredWidth + this.inspector.chromeWidth);
       this.applyPair({
         subject: this.subject.resolveRequired(
-          noControlsWidth - exactInspectorWidth),
-        inspector: this.inspector.resolveRequired(exactInspectorWidth),
+          noControlsWidth - exactInspectorWidth,
+          subjectIntent),
+        inspector: this.inspector.resolveRequired(
+          exactInspectorWidth,
+          inspectorIntent),
       }, "control-free", false);
       return;
     }
 
     this.applyPair(
-      this.terminalPair(noControlsWidth),
+      this.terminalPair(noControlsWidth, subjectIntent, inspectorIntent),
       "terminal",
       false);
   }
@@ -864,7 +907,11 @@ class ScopeBarController implements ScopeBarBinding {
     });
   }
 
-  private terminalPair(stripWidth: number): AllocationPair {
+  private terminalPair(
+    stripWidth: number,
+    subjectIntent: SlideStripResolveIntent = {},
+    inspectorIntent: SlideStripResolveIntent = {},
+  ): AllocationPair {
     if (!this.inspector) {
       throw new Error("Terminal allocation requires an inspector strip.");
     }
@@ -873,9 +920,11 @@ class ScopeBarController implements ScopeBarBinding {
     if (stripWidth < minimumInternalWidth) {
       return {
         subject: this.subject.resolveRequired(
-          this.subject.fallbackOuterWidth),
+          this.subject.fallbackOuterWidth,
+          subjectIntent),
         inspector: this.inspector.resolveRequired(
-          this.inspector.fallbackOuterWidth),
+          this.inspector.fallbackOuterWidth,
+          inspectorIntent),
       };
     }
     const targetSubject = Math.floor(stripWidth / 3);
@@ -897,8 +946,12 @@ class ScopeBarController implements ScopeBarBinding {
         || inspectorWidth < this.inspector!.fallbackOuterWidth) {
         return [];
       }
-      const subject = this.subject.resolveRequired(subjectWidth);
-      const inspector = this.inspector!.resolveRequired(inspectorWidth);
+      const subject = this.subject.resolveRequired(
+        subjectWidth,
+        subjectIntent);
+      const inspector = this.inspector!.resolveRequired(
+        inspectorWidth,
+        inspectorIntent);
       const subjectUnused = subject.result.fallback
         ? 0
         : Math.max(
@@ -933,14 +986,11 @@ class ScopeBarController implements ScopeBarBinding {
 
   private updateAllocationButtons(): void {
     if (!this.moreSubjects || !this.moreInspectors) return;
-    const atInspectorBound = this.renderedAllocationOrdinal <= 0;
-    const atSubjectBound =
-      this.renderedAllocationOrdinal >= this.ladder.length - 1;
     this.moreInspectors.setAttribute(
       "aria-disabled",
-      String(atInspectorBound));
+      String(this.allocationCandidate(-1) === null));
     this.moreSubjects.setAttribute(
       "aria-disabled",
-      String(atSubjectBound));
+      String(this.allocationCandidate(1) === null));
   }
 }

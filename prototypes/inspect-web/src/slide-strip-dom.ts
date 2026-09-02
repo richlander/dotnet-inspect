@@ -154,8 +154,16 @@ export class SlideStripDomController {
   }
 
   get minimumOuterWidth(): number {
+    return this.minimumOuterWidthFor();
+  }
+
+  minimumOuterWidthFor(pendingFocusId?: string): number {
     const focusedId = this.focusedId();
-    const key = `${focusedId ?? ""}:${this.state.leadingId ?? ""}`;
+    const key = [
+      focusedId ?? "",
+      this.state.leadingId ?? "",
+      pendingFocusId ?? "",
+    ].join(":");
     if (this.minimumWidthCache?.key === key) {
       return this.minimumWidthCache.width;
     }
@@ -168,6 +176,7 @@ export class SlideStripDomController {
         ...(this.state.leadingId === undefined
           ? {}
           : { retainedLeadingId: this.state.leadingId }),
+        ...(pendingFocusId === undefined ? {} : { pendingFocusId }),
       }) + this.chromeWidth;
     this.minimumWidthCache = { key, width };
     return width;
@@ -254,6 +263,8 @@ export class SlideStripDomController {
     if (this.edgeAfter) this.edgeAfter.hidden = !result.trailingHidden;
     this.relocateHiddenTabStop();
     this.applied = applied;
+    const leading = result.visibleIds[0];
+    if (leading !== undefined) this.state.leadingId = leading;
   }
 
   revealForFocus(id: string): boolean {
@@ -263,7 +274,6 @@ export class SlideStripDomController {
     this.apply(this.resolveRequired(
       current.outerWidth,
       { pendingFocusId: id }));
-    this.retainAppliedLeading();
     return true;
   }
 
@@ -276,7 +286,6 @@ export class SlideStripDomController {
       direction);
     if (!windowTarget) return false;
     this.apply(this.resolveRequired(current.outerWidth, { windowTarget }));
-    this.retainAppliedLeading();
     return true;
   }
 
@@ -329,11 +338,6 @@ export class SlideStripDomController {
   private button(id: string): HTMLButtonElement | null {
     return this.buttons.find(
       button => button.dataset.slideStripId === id) ?? null;
-  }
-
-  private retainAppliedLeading(): void {
-    const leading = this.applied?.result?.visibleIds[0];
-    if (leading !== undefined) this.state.leadingId = leading;
   }
 
   private relocateHiddenTabStop(): void {
