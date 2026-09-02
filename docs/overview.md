@@ -37,6 +37,9 @@ substrates, and inspection producers that will extend that space.
   CLI-scoped boundary from host-authorized candidate collection through typed
   exact, glob, namespace-prefix, partial, and miss classification; Metadata
   retains candidate facts and the command retains presentation.
+  The [package index cache](design/package-index-cache.md) separately owns
+  whether a persistent filesystem-derived package result may replace cold
+  inspection of one exact authorized retained payload.
 - `src/DotnetInspector.Queries/` contains host-neutral typed query definitions,
   deterministic synchronous/asynchronous execution, prerequisite-aware cost,
   and content-shaped metadata, reference, package dependency-group,
@@ -148,6 +151,11 @@ substrates, and inspection producers that will extend that space.
   owns the user-scenario ordering and typed handoffs across operation
   authority, worker runtime, generated facades, managed bridging, and
   feature-owned work without redefining those owners.
+- [`docs/design/engine-browser-async-event-stream.md`](design/engine-browser-async-event-stream.md)
+  owns host-neutral, request-scoped engine event sequences: advisory progress,
+  durable partial items and item failures, one semantic completion, and
+  adapter-side pull, batching, and cancellation obligations before Browser
+  publication.
 - [`docs/design/custom-attribute-value-decoding.md`](design/custom-attribute-value-decoding.md)
   owns the safety contract for decoding custom-attribute values
   from untrusted metadata: the alignment, bounding, and guard-work invariants

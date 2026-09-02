@@ -100,6 +100,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Package Source Model](design/package-source-model.md) | Configured package authority, mapping, source-result adoption, aggregation, selection, and cache authorization. |
 | [Version Resolution](design/version-resolution.md) | Package/platform version and cache behavior. |
 | [Cache concurrency and publication](design/cache-concurrency.md) | Process-local single-flight, cross-process atomic publication, dependency overlap, and filesystem guarantees. |
+| [Package Index Cache](design/package-index-cache.md) | Persistent filesystem-derived package inspection identity, completeness, freshness, validation, and reuse. |
 | [Assembly Inspection Query Model](design/assembly-inspection-query.md) | Target boundary where the CLI forms a query and the metadata/service layer resolves, opens, and returns the typed inspection result (why the CLI should not hold a `PEReader`). |
 | [Find Type-Search Service](design/find-search-service.md) | CLI-scoped candidate collection and exact, glob, namespace-prefix, partial, and miss classification into typed results. |
 | [Skill Guidance Taste](../taste/skill-guidance.md) | Good and bad examples for maintaining the embedded skill. |
@@ -109,6 +110,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Inspect-web Managed Operation Bridge](design/inspect-web-managed-operation-bridge.md) | Dynamic managed-operation admission, keyed cancellation, progress callback release, typed outcomes, shared-waiter detachment, and epoch-work leases. |
 | [Inspect-web Worker Runtime](design/inspect-web-worker-runtime.md) | Long-lived worker epochs, bootstrap readiness, held starts, closed protocol and replay validation, liveness, draining, restart, and hard realm release. |
 | [Inspect-web Async Composition](design/inspect-web-async-composition.md) | Cross-owner scenarios, typed handoff order, runtime-semantics comparison, gate ownership, and focused migration dependencies. |
+| [Engine-to-browser Async Event Streams](design/engine-browser-async-event-stream.md) | Host-neutral ordered progress, durable partial outcomes, one semantic completion, adapter backpressure, batching, and cancellation for engine streams consumed by Browser hosts. |
 | [Inspect Web UI](design/inspect-web-ui.md) | Composition map for the website redesign: redesign summary, product dependencies, document map, cross-document relationships, and reference-product boundary. |
 | [Inspect Web Presentation Language](design/inspect-web-presentation-language.md) | Reusable visual and accessibility language: selector-control states, progressive filter disclosure, shared subject-heading rules, and compact source-provenance presentation. |
 | [Inspect Web SlideStrip](design/inspect-web-slide-strip.md) | Reusable single-region ordered-item control with Label, optional Short Label and Icon, derived Index, whole-strip modes, contiguous windows, edge disclosure, and focus preservation. |
