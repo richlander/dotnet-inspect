@@ -329,7 +329,7 @@ One information hierarchy adapts across viewport sizes:
 - wide layouts retain Type or Member navigation beside a full working surface;
 - narrow layouts replace the navigation pane with a visible
   `Types` or `Members` button that opens the shared modal navigation drawer;
-- the title line and full-width subject/inspector zone each remain one line;
+- the title line and second-line shell navigation band each remain one line;
 - the subject zone remains outside and above the navigation/content grid;
 - the product and inspected-target root marks retain bounded icon slots in the
   title line;
