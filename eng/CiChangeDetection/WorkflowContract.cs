@@ -36,6 +36,7 @@ internal static partial class WorkflowContract
         ValidateWorkflowTriggers(root);
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "workflow");
         ValidateAggregateStructuralCheck(jobs);
+        ValidateConsumerStepContracts(jobs);
         YamlMappingNode changes = GetRequiredMapping(jobs, "changes", "jobs");
         RequireAbsent(changes, "if", "jobs.changes");
         RequireAbsent(changes, "continue-on-error", "jobs.changes");
