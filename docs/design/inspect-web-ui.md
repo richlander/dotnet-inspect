@@ -63,8 +63,9 @@ This document composes four adjacent owner contracts without defining them:
   outcomes.
 - [Workspace Definitions](workspace-definitions.md) owns stable portable
   fields, versioning, migration, valid combinations, per-coordinate view
-  state, canonical packet projection, and restoration, tracked by
-  [#4787](https://github.com/richlander/dotnet-inspect/issues/4787).
+  state, canonical packet projection, and restoration. #4787 established the
+  current version-2 shape; #5525 tracks adoption of explicit Workspace and
+  Package subjects plus an optional active occurrence.
 - [Browser package sources](browser-package-sources.md#default-feed-decision)
   owns browser source selection and the decision that first-run Gallery
   bootstrap does not become default-feed or acquisition-preference semantics.

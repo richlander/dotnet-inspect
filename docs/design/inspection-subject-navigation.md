@@ -37,7 +37,8 @@ identity, descriptor composition, subject activation, snapshot installation,
 reconciliation, revision behavior, retained sessions, synchronization, and
 restoration remain unverified until their implementation gates in
 [Verification](#verification) land. The workspace-owned identity prerequisite
-is tracked by #5508 and Registry adoption by #5509.
+is tracked by #5508, Registry adoption by #5509, and portable
+Workspace/Package subject projection by #5525.
 
 The concurrency claims are specified separately as executable TLA+ models under
 [`models/inspection-subject-navigation/`](models/inspection-subject-navigation/).
@@ -62,7 +63,8 @@ The end-to-end tracker is #5512. The concrete consumers are:
   adoption by #5511; and
 - the agent-inspectable CLI Workspace navigation surface tracked by #5513.
 
-The first host-neutral implementation slice is #5518.
+The first host-neutral implementation slice is #5518. Workspace Definitions
+adoption for portable Workspace and Package subjects is #5525.
 
 This is shared product substrate; no single-consumer or single-host exception
 applies. The simplest sufficient boundary is one Navigation session bound to
@@ -238,8 +240,9 @@ Navigation Consumer](inspect-web-navigation-consumer.md) owns post-result
 effect-authority validation, snapshot/history commitment, and
 result-authorized focus/announcement ordering.
 [Workspace Definitions](workspace-definitions.md) owns portable projection and
-complete restoration composition, tracked by
-[#4787](https://github.com/richlander/dotnet-inspect/issues/4787).
+complete restoration composition. #4787 established the current version-2
+shape; #5525 tracks adoption of explicit Workspace and Package subjects plus an
+optional active occurrence independent from the active subject.
 
 ### Non-claims
 
@@ -549,13 +552,14 @@ The generation-free classification follows this table:
 Projection truncation never proves that an omitted Library is empty. A returned
 Type without exact `MetadataTypeDefinitionName` is retained as identity-failure
 evidence and is not reconstructed from display text, metadata token, or list
-position. A Member projected onto another Type currently carries canonical
-declaring text but not the typed declaring-Type definition identity required by
-`StructuralSubjectIdentity.MemberSubject`; classification retains that complete
-producer row as typed identity-failure evidence rather than rewriting it as a
-declaration on the containing Type. The typed producer identity is tracked by
-issue #5437. Returned exact rows remain trustworthy when another row or
-participant fails; failure does not erase positive evidence.
+position. #5437 added the exact typed declaring-Type definition identity to a
+Member projected onto another Type. The current Navigation classifier has not
+yet adopted that field and still retains the complete producer row as typed
+identity-failure evidence rather than rewriting it as a declaration on the
+containing Type. The Workspace-rooted implementation consumes the typed
+identity and never reconstructs it from canonical declaring text. Returned
+exact rows remain trustworthy when another row or participant fails; failure
+does not erase positive evidence.
 
 Every admitted Library remains an available Library candidate for initial
 subject recommendation. Only exact returned Type rows become Type candidates.
@@ -867,8 +871,8 @@ with host-local counters. The authoritative state machine is
 
 The model establishes these design guarantees:
 
-- every explicit subject, lens, retained-coordinate, or restoration request
-  receives a product-issued monotonic intent token;
+- every admitted explicit subject, lens, retained-coordinate, or restoration
+  request receives a product-issued monotonic intent token;
 - a newer admitted explicit intent supersedes older explicit results and in-flight
   maintenance results, while each same queued maintenance request survives,
   rebuilds from the replacement revision, re-gathers its facts, and remains in
@@ -989,9 +993,11 @@ participant state machine is
 This owner does not install the prepared snapshot or coordinate other
 restoration participants. Complete Workspace restoration composition and
 atomic commit belong to [Workspace Definitions](workspace-definitions.md),
-tracked by
-[#4787](https://github.com/richlander/dotnet-inspect/issues/4787). Section,
-body, source-target, and other portable state remain outside this owner.
+whose current version-2 shape was established by #4787. That shape cannot yet
+represent an explicitly selected Workspace, distinguish Package from
+non-package Root, or carry an optional active occurrence independently from the
+active subject. #5525 owns that focused adoption. Section, body, source-target,
+and other portable state remain outside this owner.
 
 ## Consumer contract
 
