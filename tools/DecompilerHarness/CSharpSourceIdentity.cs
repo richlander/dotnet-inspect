@@ -106,19 +106,10 @@ internal sealed class CSharpSourceIdentityContext
 
     public IReadOnlyList<CSharpSourceMemberIdentity> ConversionOperatorMembers(ConversionOperatorDeclarationSyntax conversion)
     {
-        bool isImplicit = conversion.ImplicitOrExplicitKeyword.IsKind(SyntaxKind.ImplicitKeyword);
-        bool isChecked = conversion.CheckedKeyword.IsKind(SyntaxKind.CheckedKeyword);
-        string methodName = (isImplicit, isChecked) switch
-        {
-            (true, true) => "op_CheckedImplicit",
-            (true, false) => "op_Implicit",
-            (false, true) => "op_CheckedExplicit",
-            (false, false) => "op_Explicit",
-        };
         return
         [
             new CSharpSourceMemberIdentity(
-                methodName,
+                ConversionOperatorMetadataName(conversion),
                 SourceShape(conversion, SourceMemberSignatureKind.ConversionOperator),
                 BodyText(conversion),
                 ["conversion-operator"]),
@@ -446,7 +437,7 @@ internal sealed class CSharpSourceIdentityContext
             ? $"{expression};"
             : $"return {expression};";
 
-    static string OperatorMetadataName(OperatorDeclarationSyntax op)
+    internal static string OperatorMetadataName(OperatorDeclarationSyntax op)
     {
         string methodName = op.OperatorToken.Kind() switch
         {
@@ -478,5 +469,21 @@ internal sealed class CSharpSourceIdentityContext
         return op.CheckedKeyword.IsKind(SyntaxKind.CheckedKeyword)
             ? $"op_Checked{methodName["op_".Length..]}"
             : methodName;
+    }
+
+    internal static string ConversionOperatorMetadataName(
+        ConversionOperatorDeclarationSyntax conversion)
+    {
+        bool isImplicit = conversion.ImplicitOrExplicitKeyword.IsKind(
+            SyntaxKind.ImplicitKeyword);
+        bool isChecked = conversion.CheckedKeyword.IsKind(
+            SyntaxKind.CheckedKeyword);
+        return (isImplicit, isChecked) switch
+        {
+            (true, true) => "op_CheckedImplicit",
+            (true, false) => "op_Implicit",
+            (false, true) => "op_CheckedExplicit",
+            (false, false) => "op_Explicit",
+        };
     }
 }

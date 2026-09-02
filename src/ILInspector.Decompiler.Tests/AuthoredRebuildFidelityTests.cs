@@ -1,4 +1,5 @@
 using DotnetInspector.Fixtures;
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using ILInspector.Decompiler.Tests;
 using ILInspector.Findings;
@@ -140,6 +141,8 @@ public sealed class AuthoredRebuildFidelityTests
     [InlineData("public int M() { return 3; }", "M", "return 3;")]
     [InlineData("int IFoo.Value { get { return 4; } }", "Sample.IFoo.get_Value", "return 4;")]
     [InlineData("int IFoo.M() { return 5; }", "Sample.IFoo.M", "return 5;")]
+    [InlineData("public static bool operator ==(__AuthoredSourceHost left, __AuthoredSourceHost right) => true;", "op_Equality", "return true;")]
+    [InlineData("public static implicit operator int(__AuthoredSourceHost value) => 6;", "op_Implicit", "return 6;")]
     public void AuthoredMemberSource_ExtractsRtsTargetBody(
         string memberSource,
         string methodName,
@@ -331,6 +334,26 @@ public sealed class AuthoredRebuildFidelityTests
             expectedParameterCount: 0,
             out _,
             out _));
+        Assert.True(AuthoredRebuildFidelity.IsBodylessTarget(
+            "public int Value { get; }",
+            "get_Value",
+            expectedParameterCount: 0));
+    }
+
+    [Fact]
+    public void AuthoredMemberSource_EmptyBlockIsARealBody()
+    {
+        Assert.True(AuthoredRebuildFidelity.TryExtractTargetBodies(
+            "public void M() { }",
+            "M",
+            expectedParameterCount: 0,
+            out string body,
+            out _));
+        Assert.Equal("", body);
+        Assert.False(AuthoredRebuildFidelity.IsBodylessTarget(
+            "public void M() { }",
+            "M",
+            expectedParameterCount: 0));
     }
 
     [Fact]
@@ -397,6 +420,60 @@ public sealed class AuthoredRebuildFidelityTests
 
         Assert.NotEmpty(body);
         Assert.Null(printerBody);
+    }
+
+    [Fact]
+    public void SourceCorrespondenceAcquisition_PreservesAbsentAndFailedOutcomes()
+    {
+        var target = new ReturnToSenderSourceProbe.ProbeTarget(
+            new ReturnToSender.RequestedTarget("Sample.Widget", "M", 0),
+            ExpectedFragments: [],
+            MetadataToken: 0x06000001,
+            ParameterCount: 0);
+        var absent = new PdbMemberSourceInspection(
+            new FindingInspection<string>(
+                new FindingInspection<string>.Absent(
+                    FindingInspectionAbsenceKind.NoApplicableInput,
+                    "no source mapping")),
+            Text: null,
+            Mapping: null,
+            Document: null,
+            ChecksumVerification: null);
+        var failed = PdbSourceAcquisition.MemberPdbAcquisitionFailed(
+            Subject,
+            new IOException("source fetch failed"));
+
+        ReturnToSenderSourceProbe.SourceAcquisitionAttempt absentAttempt =
+            ReturnToSenderSourceProbe.CreateSourceAcquisition(target, absent);
+        ReturnToSenderSourceProbe.SourceAcquisitionAttempt failedAttempt =
+            ReturnToSenderSourceProbe.CreateSourceAcquisition(target, failed);
+
+        Assert.Equal(SourceAcquisitionOutcome.Absent, absentAttempt.Outcome);
+        Assert.Equal("no source mapping", absentAttempt.Detail);
+        Assert.Equal(SourceAcquisitionOutcome.Failed, failedAttempt.Outcome);
+        Assert.Contains("source fetch failed", failedAttempt.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SourceCorrespondenceAcquisition_InfersGlobalPackageCoordinate()
+    {
+        string packageRoot = NuGetCache.GetNuGetCachePath();
+        string assemblyPath = Path.Combine(
+            packageRoot,
+            "example.package",
+            "1.2.3",
+            "lib",
+            "net10.0",
+            "Example.Package.dll");
+
+        ReturnToSenderSourceProbe.NuGetPackageCoordinate? package =
+            ReturnToSenderSourceProbe.TryGetNuGetPackageCoordinate(assemblyPath);
+
+        Assert.NotNull(package);
+        Assert.Equal("example.package", package.Id);
+        Assert.Equal("1.2.3", package.Version);
+        Assert.Null(ReturnToSenderSourceProbe.TryGetNuGetPackageCoordinate(
+            Path.Combine(Path.GetTempPath(), "Example.Package.dll")));
     }
 
     [Theory]

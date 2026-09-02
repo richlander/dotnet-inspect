@@ -5,9 +5,13 @@ using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
+using DotnetInspector.Core;
 using DotnetInspector.Fixtures;
 using DotnetInspector.HarnessReports;
+using DotnetInspector.Packages;
+using DotnetInspector.Services;
 using ILInspector.Decompiler;
+using ILInspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -34,6 +38,14 @@ enum PrinterExactOutcome
     Different,
 }
 
+enum SourceAcquisitionOutcome
+{
+    NotAttempted,
+    Complete,
+    Absent,
+    Failed,
+}
+
 sealed record ReturnToSenderSourceProbeResult(
     ReturnToSender.RequestedTarget Target,
     ReturnToSenderSourceOutcome Outcome,
@@ -52,12 +64,15 @@ sealed record ReturnToSenderSourceProbeResult(
     bool UsedCompileBackFloor = false,
     ReturnToSender.FaultIsolationKind? SupersededFaultIsolationKind = null,
     ReturnToSender.FaultIsolationMethod? SupersededFaultIsolationMethod = null,
-    PrinterExactOutcome PrinterExact = PrinterExactOutcome.NotRecorded)
+    PrinterExactOutcome PrinterExact = PrinterExactOutcome.NotRecorded,
+    SourceAcquisitionOutcome SourceAcquisition = SourceAcquisitionOutcome.NotAttempted,
+    string? SourceAcquisitionDetail = null)
 {
     public bool Passed => Outcome == ReturnToSenderSourceOutcome.ValidMatch;
     public bool Different => Outcome == ReturnToSenderSourceOutcome.ValidDifferent;
     public bool Failed => Outcome == ReturnToSenderSourceOutcome.Invalid;
-    public bool Skipped => Outcome is ReturnToSenderSourceOutcome.SourceUnavailable or ReturnToSenderSourceOutcome.UnsupportedTarget;
+    public bool Skipped => Outcome is ReturnToSenderSourceOutcome.SourceUnavailable
+        or ReturnToSenderSourceOutcome.UnsupportedTarget;
 }
 
 enum ReturnToSenderInvalidKind
@@ -112,9 +127,13 @@ sealed record SourceCorrespondenceFinding(
 
 static partial class ReturnToSenderSourceProbe
 {
-    internal static readonly HarnessReportDescriptor Descriptor = new("return-to-sender.source-correspondence", 1);
+    internal static readonly HarnessReportDescriptor Descriptor = new("return-to-sender.source-correspondence", 2);
 
-    internal sealed record ProbeTarget(ReturnToSender.RequestedTarget Target, IReadOnlyList<string> ExpectedFragments);
+    internal sealed record ProbeTarget(
+        ReturnToSender.RequestedTarget Target,
+        IReadOnlyList<string> ExpectedFragments,
+        int MetadataToken,
+        int ParameterCount);
 
     public static int Run(
         IReadOnlyList<string> assemblies,
@@ -122,8 +141,67 @@ static partial class ReturnToSenderSourceProbe
         int maxExamples,
         bool json,
         string? emitHarnessReport = null)
+        => WriteResults(
+            Evaluate(assemblies, cap),
+            maxExamples,
+            json,
+            emitHarnessReport,
+            "RETURNTOSENDER SOURCE PROBE");
+
+    public static int RunSourceCorrespondenceCensus(
+        IReadOnlyList<string> assemblies,
+        int cap,
+        int maxExamples,
+        bool json,
+        IReadOnlyList<string>? repositoryPaths = null,
+        IReadOnlyDictionary<string, NuGetPackageCoordinate>? packageCoordinates = null,
+        string? emitHarnessReport = null)
+        => RunSourceCorrespondenceCensusAsync(
+            assemblies,
+            cap,
+            maxExamples,
+            json,
+            repositoryPaths,
+            packageCoordinates,
+            emitHarnessReport).GetAwaiter().GetResult();
+
+    static async Task<int> RunSourceCorrespondenceCensusAsync(
+        IReadOnlyList<string> assemblies,
+        int cap,
+        int maxExamples,
+        bool json,
+        IReadOnlyList<string>? repositoryPaths,
+        IReadOnlyDictionary<string, NuGetPackageCoordinate>? packageCoordinates,
+        string? emitHarnessReport)
     {
-        var results = Evaluate(assemblies, cap);
+        HttpClientFactory.Initialize(new HttpClientFactoryOptions());
+        NuGetCache.Initialize("dotnet-inspect");
+        using var httpClient = HttpClientFactory.CreateClient();
+        var fetcher = new SourceFetcher(HttpClientFactory.SharedUntrustedFetch);
+        var results = await EvaluateSourceCorrespondenceAsync(
+            assemblies,
+            cap,
+            httpClient,
+            fetcher,
+            repositoryPaths,
+            packageCoordinates);
+        return WriteResults(
+            results,
+            maxExamples,
+            json,
+            emitHarnessReport,
+            "SOURCE CORRESPONDENCE CENSUS",
+            failOnInvalid: false);
+    }
+
+    static int WriteResults(
+        IReadOnlyList<ReturnToSenderSourceProbeResult> results,
+        int maxExamples,
+        bool json,
+        string? emitHarnessReport,
+        string title,
+        bool failOnInvalid = true)
+    {
         var report = BuildReport(results);
         int passed = results.Count(result => result.Passed);
         int different = results.Count(result => result.Different);
@@ -145,16 +223,24 @@ static partial class ReturnToSenderSourceProbe
         if (json)
         {
             WriteJson(results, buckets, findings, passed, different, failed, skipped);
-            return failed == 0 ? 0 : 1;
+            return HasCommandFailure(results, failOnInvalid) ? 1 : 0;
         }
 
-        Console.WriteLine($"RETURNTOSENDER SOURCE PROBE over {results.Count} target(s)");
+        Console.WriteLine($"{title} over {results.Count} target(s)");
         Console.WriteLine();
         Console.WriteLine($"  ValidMatch       : {results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.ValidMatch)}");
         Console.WriteLine($"  ValidDifferent   : {results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.ValidDifferent)}");
         Console.WriteLine($"  Invalid          : {results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.Invalid)}");
         Console.WriteLine($"  SourceUnavailable: {results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.SourceUnavailable)}");
         Console.WriteLine($"  UnsupportedTarget: {results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.UnsupportedTarget)}");
+        if (results.Any(result => result.SourceAcquisition != SourceAcquisitionOutcome.NotAttempted))
+        {
+            Console.WriteLine();
+            Console.WriteLine("Source acquisition:");
+            Console.WriteLine($"  Complete         : {results.Count(result => result.SourceAcquisition == SourceAcquisitionOutcome.Complete)}");
+            Console.WriteLine($"  Absent           : {results.Count(result => result.SourceAcquisition == SourceAcquisitionOutcome.Absent)}");
+            Console.WriteLine($"  Failed           : {results.Count(result => result.SourceAcquisition == SourceAcquisitionOutcome.Failed)}");
+        }
         Console.WriteLine();
         Console.WriteLine($"  Passed   : {passed}");
         Console.WriteLine($"  Different: {different}");
@@ -192,6 +278,13 @@ static partial class ReturnToSenderSourceProbe
                 Console.WriteLine($"  {example.Target.Type}::{example.Target.Method}#{example.Target.Overload}  outcome={OutcomeId(example.Outcome)}  rts={example.CompileBackStatus?.ToString() ?? "missing"}  bucket={example.Reason}");
                 if (!string.IsNullOrWhiteSpace(example.Detail))
                     Console.WriteLine($"      detail: {example.Detail}");
+                if (example.SourceAcquisition != SourceAcquisitionOutcome.NotAttempted)
+                    Console.WriteLine($"      source-acquisition: {SourceAcquisitionId(example.SourceAcquisition)}");
+                if (!string.IsNullOrWhiteSpace(example.SourceAcquisitionDetail)
+                    && !string.Equals(example.SourceAcquisitionDetail, example.Detail, StringComparison.Ordinal))
+                {
+                    Console.WriteLine($"      source-acquisition-detail: {example.SourceAcquisitionDetail}");
+                }
                 if (!string.IsNullOrWhiteSpace(example.SourcePath))
                     Console.WriteLine($"      source: {example.SourcePath}");
                 if (example.CompileBackStatus is
@@ -213,17 +306,32 @@ static partial class ReturnToSenderSourceProbe
             }
         }
 
-        return failed == 0 ? 0 : 1;
+        return HasCommandFailure(results, failOnInvalid) ? 1 : 0;
     }
+
+    internal static bool HasCommandFailure(
+        IReadOnlyList<ReturnToSenderSourceProbeResult> results,
+        bool failOnInvalid)
+        => results.Any(result =>
+            result.SourceAcquisition == SourceAcquisitionOutcome.Failed
+            || (failOnInvalid
+                && result.Outcome == ReturnToSenderSourceOutcome.Invalid));
 
     internal static DecompilerHarnessReport<IReadOnlyList<ReturnToSenderSourceProbeResult>> BuildReport(
         IReadOnlyList<ReturnToSenderSourceProbeResult> results)
     {
+        string sourceRegime = results.Any(result =>
+            result.SourceAcquisition != SourceAcquisitionOutcome.NotAttempted)
+                ? "pdb-acquired"
+                : "provided";
         string population = HarnessPopulationKey.Create(
-            "return-to-sender.source-correspondence",
+            $"return-to-sender.source-correspondence.{sourceRegime}",
             results.Select(result =>
                 $"{result.Target.Type}|{result.Target.Method}|{result.Target.Overload}|{result.Target.Signature}"));
         int total = results.Count;
+        int bodyless = results.Count(result =>
+            result.Reason is "valid_match.source_bodyless"
+                or "invalid.source_bodyless_non_exact");
 
         return new DecompilerHarnessReport<IReadOnlyList<ReturnToSenderSourceProbeResult>>(
             Descriptor,
@@ -232,11 +340,15 @@ static partial class ReturnToSenderSourceProbe
                 "RTS compile-back and authored-source correspondence remain independent outcome lanes.",
                 population,
                 [
-                    new("valid-match", "Valid match", MetricGoal.Higher, new MetricValue(results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.ValidMatch), total), population),
+                    new("valid-match", "Valid authored-body match", MetricGoal.Higher, new MetricValue(results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.ValidMatch && result.ExpectedBody is not null), total), population),
                     new("valid-different", "Valid different", MetricGoal.Context, new MetricValue(results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.ValidDifferent), total), population),
                     new("invalid", "Invalid / RTS compile-back failed", MetricGoal.Lower, new MetricValue(results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.Invalid), total), population),
                     new("source-unavailable", "Source unavailable", MetricGoal.Context, new MetricValue(results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.SourceUnavailable), total), population),
+                    new("source-bodyless", "Authored declaration has no body", MetricGoal.Context, new MetricValue(bodyless, total), population),
                     new("unsupported-target", "Unsupported target", MetricGoal.Lower, new MetricValue(results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.UnsupportedTarget), total), population),
+                    new("source-acquisition-complete", "Source acquisition complete", MetricGoal.Higher, new MetricValue(results.Count(result => result.SourceAcquisition == SourceAcquisitionOutcome.Complete), total), population),
+                    new("source-acquisition-absent", "Source acquisition absent", MetricGoal.Context, new MetricValue(results.Count(result => result.SourceAcquisition == SourceAcquisitionOutcome.Absent), total), population),
+                    new("source-acquisition-failed", "Source acquisition failed", MetricGoal.Lower, new MetricValue(results.Count(result => result.SourceAcquisition == SourceAcquisitionOutcome.Failed), total), population),
                 ]));
     }
 
@@ -254,6 +366,243 @@ static partial class ReturnToSenderSourceProbe
 
         return results.Count > cap ? results.Take(cap).ToArray() : results;
     }
+
+    internal static async Task<IReadOnlyList<ReturnToSenderSourceProbeResult>>
+        EvaluateSourceCorrespondenceAsync(
+            IReadOnlyList<string> assemblies,
+            int cap,
+            HttpClient httpClient,
+            SourceFetcher fetcher,
+            IReadOnlyList<string>? repositoryPaths = null,
+            IReadOnlyDictionary<string, NuGetPackageCoordinate>? packageCoordinates = null)
+    {
+        ArgumentNullException.ThrowIfNull(assemblies);
+        ArgumentNullException.ThrowIfNull(httpClient);
+        ArgumentNullException.ThrowIfNull(fetcher);
+
+        var results = new List<ReturnToSenderSourceProbeResult>();
+        foreach (string assemblyPath in assemblies)
+        {
+            if (results.Count >= cap)
+                break;
+
+            var targets = DiscoverTargets(assemblyPath, cap - results.Count);
+            if (targets.Count == 0)
+                continue;
+
+            using var source = SourceLinkService.Open(assemblyPath);
+            var acquisitions = new Dictionary<string, SourceAcquisitionAttempt>(StringComparer.Ordinal);
+            var sourceMembers = new List<ReturnToSenderSourceMember>();
+            NuGetPackageCoordinate? package =
+                packageCoordinates?.TryGetValue(assemblyPath, out var suppliedPackage) == true
+                    ? suppliedPackage
+                    : TryGetNuGetPackageCoordinate(assemblyPath);
+
+            SourceAcquisitionAttempt? assemblyAcquisition = null;
+            try
+            {
+                await AuthoredRebuildFidelity.AcquirePdbAsync(
+                    source,
+                    httpClient,
+                    package?.Id,
+                    package?.Version);
+            }
+            catch (Exception ex) when (ex is IOException
+                or InvalidOperationException
+                or HttpRequestException
+                or TaskCanceledException)
+            {
+                assemblyAcquisition = new SourceAcquisitionAttempt(
+                    SourceAcquisitionOutcome.Failed,
+                    $"Portable PDB acquisition failed: {ex.Message}",
+                    SourcePath: null,
+                    Member: null);
+            }
+
+            if (assemblyAcquisition is null && source.Context.NeedsPdb)
+            {
+                assemblyAcquisition = new SourceAcquisitionAttempt(
+                    SourceAcquisitionOutcome.Absent,
+                    source.Context.WindowsPdbDetected
+                        ? "A Windows PDB was found, but portable-PDB source mapping is unavailable."
+                        : "No matching portable PDB is available.",
+                    SourcePath: null,
+                    Member: null);
+            }
+
+            foreach (var target in targets)
+            {
+                SourceAcquisitionAttempt acquisition = assemblyAcquisition
+                    ?? await AcquireSourceAsync(
+                        source,
+                        fetcher,
+                        target,
+                        repositoryPaths);
+                acquisitions.Add(Key(target.Target), acquisition);
+                if (acquisition.Member is { } member)
+                    sourceMembers.Add(member);
+            }
+
+            ReturnToSenderSourceIndex sourceIndex =
+                ReturnToSenderSourceIndex.FromPdbMappedMembers(sourceMembers);
+            IReadOnlyList<ReturnToSenderSourceProbeResult> evaluated = EvaluateTargets(
+                assemblyPath,
+                targets.Select(target => target.Target).ToArray(),
+                sourceIndex,
+                "checksum-verified PDB source is unavailable for the target");
+            results.AddRange(evaluated.Select(result =>
+                AddSourceAcquisition(result, acquisitions[Key(result.Target)])));
+        }
+
+        return results.Count > cap ? results.Take(cap).ToArray() : results;
+    }
+
+    internal static async Task<SourceAcquisitionAttempt> AcquireSourceAsync(
+        SourceLinkService source,
+        SourceFetcher fetcher,
+        ProbeTarget target,
+        IReadOnlyList<string>? repositoryPaths = null)
+    {
+        var subject = new FindingSubject(
+            TargetId(target.Target),
+            TargetDisplay(target.Target));
+        PdbMemberSourceInspection authored = await PdbSourceAcquisition.AcquireMemberAsync(
+            source,
+            target.MetadataToken,
+            target.Target.Method,
+            subject,
+            fetcher,
+            repositoryPaths);
+        return CreateSourceAcquisition(target, authored);
+    }
+
+    internal static SourceAcquisitionAttempt CreateSourceAcquisition(
+        ProbeTarget target,
+        PdbMemberSourceInspection authored)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(authored);
+
+        string? sourcePath = authored.Document?.ResolvedUrl
+            ?? authored.Document?.CanonicalPath
+            ?? authored.Mapping?.CanonicalPath;
+
+        if (authored.Lines.Value is FindingInspection<string>.Absent absent)
+        {
+            return new SourceAcquisitionAttempt(
+                SourceAcquisitionOutcome.Absent,
+                absent.Detail,
+                sourcePath,
+                Member: null);
+        }
+        if (authored.Lines.Value is FindingInspection<string>.Failed failed)
+        {
+            return new SourceAcquisitionAttempt(
+                SourceAcquisitionOutcome.Failed,
+                failed.Error.Reason,
+                sourcePath,
+                Member: null);
+        }
+        if (authored.Text is not { Length: > 0 } memberSource)
+        {
+            return new SourceAcquisitionAttempt(
+                SourceAcquisitionOutcome.Failed,
+                "Authored-source acquisition completed without member text.",
+                sourcePath,
+                Member: null);
+        }
+        bool extracted = AuthoredRebuildFidelity.TryExtractTargetBodies(
+                memberSource,
+                target.Target.Method,
+                target.ParameterCount,
+                out string body,
+                out string? printerBody);
+        if (!extracted
+            && !AuthoredRebuildFidelity.IsBodylessTarget(
+                memberSource,
+                target.Target.Method,
+                target.ParameterCount))
+        {
+            return new SourceAcquisitionAttempt(
+                SourceAcquisitionOutcome.Failed,
+                "Checksum-verified authored member source did not contain the target body.",
+                sourcePath,
+                Member: null);
+        }
+
+        return new SourceAcquisitionAttempt(
+            SourceAcquisitionOutcome.Complete,
+            authored.ChecksumVerification?.ToString(),
+            sourcePath,
+            new ReturnToSenderSourceMember(
+                target.Target.Type,
+                target.Target.Method,
+                target.Target.Overload,
+                target.Target.Signature ?? "",
+                sourcePath ?? authored.Mapping?.OriginalPath ?? "",
+                extracted ? body : null,
+                MetadataToken: target.MetadataToken,
+                PrinterBody: extracted ? printerBody : null));
+    }
+
+    internal static ReturnToSenderSourceProbeResult AddSourceAcquisition(
+        ReturnToSenderSourceProbeResult result,
+        SourceAcquisitionAttempt acquisition)
+    {
+        bool sourceUnavailable = string.Equals(
+            result.Reason,
+            "source-slice-unavailable",
+            StringComparison.Ordinal);
+        return result with
+        {
+            Reason = sourceUnavailable
+                ? acquisition.Outcome switch
+                {
+                    SourceAcquisitionOutcome.Absent => "source_absent",
+                    SourceAcquisitionOutcome.Failed => "source_failed",
+                    _ => result.Reason,
+                }
+                : result.Reason,
+            Detail = sourceUnavailable
+                && acquisition.Outcome is SourceAcquisitionOutcome.Absent
+                    or SourceAcquisitionOutcome.Failed
+                        ? acquisition.Detail ?? result.Detail
+                        : result.Detail,
+            SourcePath = result.SourcePath ?? acquisition.SourcePath,
+            SourceAcquisition = acquisition.Outcome,
+            SourceAcquisitionDetail = acquisition.Detail,
+        };
+    }
+
+    internal sealed record SourceAcquisitionAttempt(
+        SourceAcquisitionOutcome Outcome,
+        string? Detail,
+        string? SourcePath,
+        ReturnToSenderSourceMember? Member);
+
+    internal static NuGetPackageCoordinate? TryGetNuGetPackageCoordinate(
+        string assemblyPath)
+    {
+        string packageRoot = Path.GetFullPath(NuGetCache.GetNuGetCachePath());
+        string relative = Path.GetRelativePath(
+            packageRoot,
+            Path.GetFullPath(assemblyPath));
+        if (Path.IsPathRooted(relative))
+            return null;
+        string[] segments = relative.Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length < 3
+            || segments[0] == ".."
+            || segments[1] == "..")
+        {
+            return null;
+        }
+
+        return new NuGetPackageCoordinate(segments[0], segments[1]);
+    }
+
+    internal sealed record NuGetPackageCoordinate(string Id, string Version);
 
     public static IReadOnlyList<ReturnToSenderSourceProbeResult> EvaluateTargets(
         string assemblyPath,
@@ -515,6 +864,8 @@ static partial class ReturnToSenderSourceProbe
             return "ignorable";
         if (reason.StartsWith("valid_different.semantic_opcode_diff", StringComparison.Ordinal))
             return "semantic-opcode-diff";
+        if (reason.StartsWith("valid_different.semantic_operand_diff", StringComparison.Ordinal))
+            return "semantic-operand-diff";
         if (reason.Contains(".compiler_lowering.", StringComparison.Ordinal))
             return "not-yet-raised-sugar";
         if (reason.StartsWith("valid_different.source_shape_frontier", StringComparison.Ordinal)
@@ -579,11 +930,21 @@ static partial class ReturnToSenderSourceProbe
                 valid_different = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.ValidDifferent),
                 invalid = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.Invalid),
                 source_unavailable = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.SourceUnavailable),
+                source_bodyless = results.Count(result =>
+                    result.Reason is "valid_match.source_bodyless"
+                        or "invalid.source_bodyless_non_exact"),
                 unsupported_target = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.UnsupportedTarget),
                 passed,
                 different,
                 failed,
                 skipped,
+            },
+            source_acquisition = new
+            {
+                not_attempted = results.Count(result => result.SourceAcquisition == SourceAcquisitionOutcome.NotAttempted),
+                complete = results.Count(result => result.SourceAcquisition == SourceAcquisitionOutcome.Complete),
+                absent = results.Count(result => result.SourceAcquisition == SourceAcquisitionOutcome.Absent),
+                failed = results.Count(result => result.SourceAcquisition == SourceAcquisitionOutcome.Failed),
             },
             source_correspondence = new
             {
@@ -637,6 +998,8 @@ static partial class ReturnToSenderSourceProbe
                 used_compile_back_floor = result.UsedCompileBackFloor,
                 superseded_fault_isolation = result.SupersededFaultIsolationKind?.ToString(),
                 superseded_fault_isolation_method = result.SupersededFaultIsolationMethod?.ToString(),
+                source_acquisition = SourceAcquisitionId(result.SourceAcquisition),
+                source_acquisition_detail = result.SourceAcquisitionDetail,
                 original_opcodes = result.OriginalOpcodes,
                 recompiled_opcodes = result.RecompiledOpcodes,
                 il_diff = result.IlDiffLines,
@@ -826,6 +1189,33 @@ internal sealed class ReturnToSenderSourceIndex
             members,
             new Dictionary<string, RecordSourceInfo>(StringComparer.Ordinal),
             correlatedMembersByToken);
+    }
+
+    /// <summary>
+    /// Builds a comparison-only index from checksum-verified PDB source members.
+    /// </summary>
+    /// <remarks>
+    /// PDB sequence points locate source for correspondence, but do not establish
+    /// the complete-source provenance required for RTS fault attribution. This
+    /// factory therefore never populates the metadata-token attribution map.
+    /// <c>PdbMappedSourceIndex_IsIneligibleForFaultAttribution</c> gates that boundary.
+    /// </remarks>
+    public static ReturnToSenderSourceIndex FromPdbMappedMembers(
+        IEnumerable<ReturnToSenderSourceMember> sourceMembers)
+    {
+        var members = new Dictionary<string, ReturnToSenderSourceMember>(StringComparer.Ordinal);
+        foreach (var member in sourceMembers)
+        {
+            if (!members.TryAdd(Key(member.Type, member.Method, member.Overload), member))
+            {
+                throw new InvalidDataException(
+                    $"Duplicate PDB-mapped target {member.Type}::{member.Method}#{member.Overload}.");
+            }
+        }
+
+        return new ReturnToSenderSourceIndex(
+            members,
+            new Dictionary<string, RecordSourceInfo>(StringComparer.Ordinal));
     }
 
     static void ValidateCorrelatedMember(
@@ -1214,7 +1604,11 @@ static partial class ReturnToSenderSourceProbe
                 fragments.AddRange(AttributeReader.RenderAttributes(reader, method.GetCustomAttributes(), qualifyNames: true)
                     .Select(attribute => $"[{attribute}]"));
                 AddReturnAndParameterFragments(reader, method.GetParameters(), fragments);
-                targets.Add(new ProbeTarget(new ReturnToSender.RequestedTarget(fullType, methodName, overload, signature), fragments.Distinct(StringComparer.Ordinal).ToArray()));
+                targets.Add(new ProbeTarget(
+                    new ReturnToSender.RequestedTarget(fullType, methodName, overload, signature),
+                    fragments.Distinct(StringComparer.Ordinal).ToArray(),
+                    MetadataTokens.GetToken(methodHandle),
+                    RealMethodTargetEnumerator.ParameterCount(reader, type, method)));
             }
 
             foreach (var propertyHandle in type.GetProperties())
@@ -1242,7 +1636,11 @@ static partial class ReturnToSenderSourceProbe
                 fragments.AddRange(AttributeReader.RenderAttributes(reader, property.GetCustomAttributes(), qualifyNames: true)
                     .Select(attribute => $"[{attribute}]"));
                 AddReturnAndParameterFragments(reader, getter.GetParameters(), fragments);
-                targets.Add(new ProbeTarget(new ReturnToSender.RequestedTarget(fullType, methodName, overload, signature), fragments.Distinct(StringComparer.Ordinal).ToArray()));
+                targets.Add(new ProbeTarget(
+                    new ReturnToSender.RequestedTarget(fullType, methodName, overload, signature),
+                    fragments.Distinct(StringComparer.Ordinal).ToArray(),
+                    MetadataTokens.GetToken(accessors.Getter),
+                    RealMethodTargetEnumerator.ParameterCount(reader, type, getter)));
             }
         }
 
@@ -1275,6 +1673,9 @@ static partial class ReturnToSenderSourceProbe
 
     static string Key(string type, string method, int overload) => $"{type}::{method}#{overload}";
 
+    static string Key(ReturnToSender.RequestedTarget target)
+        => Key(target.Type, target.Method, target.Overload);
+
     // Only carry a shape that unambiguously round-trips to this exact metadata member.
     internal static string? UniqueTargetSignature(
         MetadataReader reader,
@@ -1306,6 +1707,16 @@ static partial class ReturnToSenderSourceProbe
             ReturnToSenderSourceOutcome.Invalid => "invalid",
             ReturnToSenderSourceOutcome.SourceUnavailable => "source_unavailable",
             ReturnToSenderSourceOutcome.UnsupportedTarget => "unsupported_target",
+            _ => outcome.ToString(),
+        };
+
+    static string SourceAcquisitionId(SourceAcquisitionOutcome outcome)
+        => outcome switch
+        {
+            SourceAcquisitionOutcome.NotAttempted => "not_attempted",
+            SourceAcquisitionOutcome.Complete => "complete",
+            SourceAcquisitionOutcome.Absent => "absent",
+            SourceAcquisitionOutcome.Failed => "failed",
             _ => outcome.ToString(),
         };
 

@@ -263,6 +263,35 @@ static class AuthoredRebuildFidelity
         int? expectedParameterCount,
         out string body,
         out string? printerBody)
+        => TryMatchTargetBodies(
+            memberSource,
+            metadataMethodName,
+            expectedParameterCount,
+            out body,
+            out printerBody,
+            out bool hasBody)
+            && hasBody;
+
+    internal static bool IsBodylessTarget(
+        string memberSource,
+        string metadataMethodName,
+        int expectedParameterCount)
+        => TryMatchTargetBodies(
+            memberSource,
+            metadataMethodName,
+            expectedParameterCount,
+            out string body,
+            out _,
+            out bool hasBody)
+            && !hasBody;
+
+    static bool TryMatchTargetBodies(
+        string memberSource,
+        string metadataMethodName,
+        int? expectedParameterCount,
+        out string body,
+        out string? printerBody,
+        out bool hasBody)
     {
         ArgumentNullException.ThrowIfNull(memberSource);
         ArgumentException.ThrowIfNullOrWhiteSpace(metadataMethodName);
@@ -275,6 +304,7 @@ static class AuthoredRebuildFidelity
         bool ambiguous = false;
         body = "";
         printerBody = null;
+        hasBody = false;
         foreach (var member in root.DescendantNodes()
             .OfType<MemberDeclarationSyntax>()
             .Where(candidate => candidate.Parent is ClassDeclarationSyntax))
@@ -292,15 +322,22 @@ static class AuthoredRebuildFidelity
             bestScore = candidate.Score;
             body = candidate.Body.Legacy;
             printerBody = candidate.Body.Printer;
+            hasBody = candidate.Body.HasBody;
             ambiguous = false;
         }
 
-        return bestScore >= 0 && !ambiguous && body.Length > 0;
+        return bestScore >= 0 && !ambiguous;
     }
 
-    readonly record struct ExtractedBody(string Legacy, string? Printer)
+    readonly record struct ExtractedBody(
+        string Legacy,
+        string? Printer,
+        bool HasBody = true)
     {
-        public static ExtractedBody None => new("", Printer: null);
+        public static ExtractedBody None => new(
+            "",
+            Printer: null,
+            HasBody: false);
     }
 
     static (int Score, ExtractedBody Body) MemberBody(
@@ -380,6 +417,31 @@ static class AuthoredRebuildFidelity
                     eventDeclaration.ExplicitInterfaceSpecifier,
                     identity,
                     AccessorBodyText(eventDeclaration, SyntaxKind.RemoveAccessorDeclaration)),
+            OperatorDeclarationSyntax op
+                when string.Equals(
+                    CSharpSourceIdentityContext.OperatorMetadataName(op),
+                    identity.SimpleName,
+                    StringComparison.Ordinal)
+                    && ParameterCountMatches(
+                        op.ParameterList.Parameters.Count,
+                        expectedParameterCount)
+                => (2, BodyText(
+                    op.Body,
+                    op.ExpressionBody,
+                    ReturnsVoid(op.ReturnType))),
+            ConversionOperatorDeclarationSyntax conversion
+                when string.Equals(
+                    CSharpSourceIdentityContext.ConversionOperatorMetadataName(
+                        conversion),
+                    identity.SimpleName,
+                    StringComparison.Ordinal)
+                    && ParameterCountMatches(
+                        conversion.ParameterList.Parameters.Count,
+                        expectedParameterCount)
+                => (2, BodyText(
+                    conversion.Body,
+                    conversion.ExpressionBody,
+                    returnsVoid: false)),
             _ => (-1, ExtractedBody.None),
         };
 
@@ -899,7 +961,9 @@ static class AuthoredRebuildFidelity
 
     internal static async Task AcquirePdbAsync(
         SourceLinkService source,
-        HttpClient httpClient)
+        HttpClient httpClient,
+        string? packageName = null,
+        string? packageVersion = null)
     {
         if (!source.Context.NeedsPdb || source.Context.PdbId is not { } pdb)
             return;
@@ -910,6 +974,8 @@ static class AuthoredRebuildFidelity
             pdb.PdbFileName,
             pdb.IsPortable,
             source.Context.AssemblyPath,
+            packageName,
+            packageVersion,
             portablePdbStamp: pdb.Stamp);
         if (result.PdbFilePath is not null)
             source.LoadPdb(result.PdbFilePath, "Symbol Package", result.SymbolServer);

@@ -6506,6 +6506,35 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    [Fact]
+    public void PdbMappedSourceIndex_IsIneligibleForFaultAttribution()
+    {
+        var target = new ReturnToSender.RequestedTarget(
+            "Sample.Widget",
+            "M",
+            0,
+            "mss1:synthetic");
+        var member = new ReturnToSenderSourceMember(
+            target.Type,
+            target.Method,
+            target.Overload,
+            target.Signature!,
+            "Widget.cs",
+            "return 42;",
+            MetadataToken: 0x06000001,
+            ModuleVersionId: Guid.NewGuid());
+
+        ReturnToSenderSourceIndex index =
+            ReturnToSenderSourceIndex.FromPdbMappedMembers([member]);
+
+        Assert.True(index.TryFind(target, out var found));
+        Assert.Equal(member, found);
+        Assert.False(index.TryFindForAttribution(
+            target,
+            member.MetadataToken!.Value,
+            out _));
+    }
+
     /// <summary>
     /// Raw source declaration order can differ from metadata order. Without an
     /// exact token correlation, fault attribution must fail closed (#3804).

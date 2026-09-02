@@ -785,14 +785,37 @@ unavailable while #4931 is absent. On closure root or iteration budget exits,
 while the decompiled body did not; it may still point at a harness closure
 budget limit rather than a semantic product-body bug.
 
-The same sidecar lane also produces a source-correspondence census for
-fixture-source coverage. The census projects source-probe rows into
-Finding-style evidence keyed by member stable selector when available, but it
-does not change the RTS status. Descriptor IDs remain the structural source
-reason (`source.correspondence.<reason>`), while a coarse category separates
-ignorable taste/options, not-yet-raised source sugar, structuring residue,
-semantic opcode deltas, invalid rows, and unclassified frontiers. Shared JSON
-uses source file names, not absolute local paths, in the finding projection.
+The same sidecar lane also produces a source-correspondence census. The fixture
+probe indexes checked-in source, while the live census uses each MethodDef's
+portable-PDB mapping to acquire the complete authored file from its recorded
+local path, caller-supplied Git clones, or SourceLink. PDB checksums authenticate
+the bytes, and the body slicer declines unsafe or ambiguous declaration
+boundaries. Acquisition remains typed as complete, absent, or failed beside the
+correspondence and RTS outcomes; a failed acquisition fails the census rather
+than becoming a success-shaped missing row.
+
+The PDB-acquired member enters a comparison-only source index. It does not enter
+the metadata-token map that authorizes authored-body controls for fault
+attribution, because a PDB mapping does not prove complete-source identity. The
+Release gates
+`Harness_SourceCorrespondenceCensusPopulatesPdbSource` and
+`PdbMappedSourceIndex_IsIneligibleForFaultAttribution` respectively prove live
+population and that this index cannot refine an RTS verdict.
+`SourceCorrespondenceAcquisition_PreservesAbsentAndFailedOutcomes` preserves
+the typed unavailable states, and
+`SourceAcquisitionFailure_FailsOnlyTheLiveCensusLane` proves that acquisition
+failure and RTS-invalid correspondence remain independent exit decisions.
+
+The census projects source-probe rows into Finding-style evidence keyed by
+member stable selector when available, but it does not change the RTS status.
+Descriptor IDs remain the structural source reason
+(`source.correspondence.<reason>`), while a coarse category separates ignorable
+taste/options, not-yet-raised source sugar, structuring residue, semantic opcode
+deltas, invalid rows, and unclassified frontiers. Shared JSON uses source file
+names, not absolute local paths, in the finding projection. Stored
+higher-is-better correspondence metrics count only rows with an authored body;
+bodyless declarations remain a separate context metric. The Release gate
+`SourceCorrespondenceReport_TracksBodylessRowsAsContext` enforces that split.
 
 The existing corpus sensor gates on `Exact`, `OpcodeDiff`, `OperandDiff`,
 `NotFull`, `FidelityUnavailable`, `RecompileFail`, and `ContextFail`.
