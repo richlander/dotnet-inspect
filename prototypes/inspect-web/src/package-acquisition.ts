@@ -11,6 +11,7 @@ import type {
   BrowserMemberBodySelector,
   BrowserMemberSurface,
   BrowserPackageDocument,
+  BrowserPackageIcon,
   BrowserPackageSurface,
   BrowserParameterSurface,
   BrowserTypeSurface,
@@ -62,6 +63,7 @@ export interface AppPackage {
   totalTypes: number;
   totalMembers: number;
   documents: BrowserPackageDocument[];
+  icon: BrowserPackageIcon | null;
   inspectionErrors?: string[];
   inspectionError?: string;
   isRuntimePack: boolean;
@@ -232,6 +234,7 @@ export function createNuGetPackageModel(
       .reduce((count, candidate) => count + (candidate.publicTypes ?? 0), 0),
     totalMembers: result.totalMembers,
     documents: [...(result.documents ?? [])],
+    icon: result.icon,
     inspectionErrors,
     inspectionError: renderInspectionErrors(inspectionErrors),
     isRuntimePack: false,
@@ -287,6 +290,7 @@ function createRuntimePackageModelForAssembly(
     totalTypes: types.length,
     totalMembers: result.totalMembers,
     documents: [...(result.documents ?? [])],
+    icon: null,
     inspectionErrors,
     inspectionError: renderInspectionErrors(inspectionErrors),
     isRuntimePack: true,

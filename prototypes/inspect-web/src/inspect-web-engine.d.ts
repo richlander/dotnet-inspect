@@ -429,6 +429,10 @@ export interface BrowserPackageDocumentContent {
     readonly path: string;
     readonly text: string;
 }
+export interface BrowserPackageIcon {
+    readonly mediaType: string;
+    readonly base64: string;
+}
 export interface BrowserPackageIntegrations {
     readonly package: string;
     readonly version: string;
@@ -513,6 +517,7 @@ export interface BrowserPackageSurface {
     readonly version: string;
     readonly frameworks: ReadonlyArray<string>;
     readonly activeFramework: string;
+    readonly icon: BrowserPackageIcon | null;
     readonly defaultAssemblyId: string | null;
     readonly compileLibrary: BrowserCompileLibraryAvailability;
     readonly assemblies: ReadonlyArray<BrowserAssemblySurface>;

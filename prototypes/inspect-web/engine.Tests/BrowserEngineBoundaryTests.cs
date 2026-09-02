@@ -2708,6 +2708,65 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void PackageIcon_ProjectsOnlyTheBoundedEmbeddedAsset()
+    {
+        const string packageId = "Icon.Package";
+        byte[] png = Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+        var package = new BrowserPackage(
+            packageId,
+            "1.0.0",
+            PackageEntries(
+                ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
+                    $"""
+                    <package>
+                      <metadata>
+                        <id>{packageId}</id>
+                        <version>1.0.0</version>
+                        <authors>Example</authors>
+                        <description>Example</description>
+                        <icon>images\icon.png</icon>
+                        <iconUrl>https://example.test/legacy.png</iconUrl>
+                      </metadata>
+                    </package>
+                    """)),
+                ("images/icon.png", png)),
+            fromCache: false);
+
+        Assert.NotNull(package.Icon);
+        BrowserPackageIconPayload icon = package.Icon;
+
+        Assert.Equal("image/png", icon.MediaType);
+        Assert.Equal(png, Convert.FromBase64String(icon.Base64));
+        Assert.DoesNotContain("example.test", icon.Base64, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PackageIcon_UsesNoRemoteManifestFallback()
+    {
+        const string packageId = "Legacy.Icon.Package";
+        var package = new BrowserPackage(
+            packageId,
+            "1.0.0",
+            PackageEntries(
+                ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
+                    $"""
+                    <package>
+                      <metadata>
+                        <id>{packageId}</id>
+                        <version>1.0.0</version>
+                        <authors>Example</authors>
+                        <description>Example</description>
+                        <iconUrl>https://example.test/legacy.png</iconUrl>
+                      </metadata>
+                    </package>
+                    """))),
+            fromCache: false);
+
+        Assert.Null(package.Icon);
+    }
+
+    [Fact]
     public void PackageWireProjection_PreservesCoreValues()
     {
         var stats = new BrowserPackageCacheSnapshot(1, 2, 3, 4);
@@ -2721,6 +2780,9 @@ public sealed class BrowserEngineBoundaryTests
             entry.Name,
             entry.Path,
             "# Inspect");
+        var icon = new BrowserPackageIconPayload(
+            "image/png",
+            "cG5n");
 
         Assert.Equal(
             new BrowserPackageCacheStats(1, 2, 3, 4),
@@ -2741,6 +2803,13 @@ public sealed class BrowserEngineBoundaryTests
                 payload.Path,
                 payload.Text),
             BrowserPackageWireProjection.Project(payload));
+        Assert.Equal(
+            new BrowserPackageIcon(
+                icon.MediaType,
+                icon.Base64),
+            BrowserPackageWireProjection.Project(icon));
+        Assert.Null(BrowserPackageWireProjection.Project(
+            (BrowserPackageIconPayload?)null));
     }
 
     [Fact]

@@ -2,13 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   bindScopeBar,
+  captureScopeBarFocus,
   renderScopeBar,
+  restoreScopeBarFocus,
   type ScopeBarBindingActions,
 } from "../src/scope-bar.ts";
 import { fakeDom } from "./fake-dom.ts";
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
+  focused = false;
+  tabIndex = 0;
   private readonly listeners = new Map<string, EventListener[]>();
 
   constructor(dataset: Record<string, string | undefined> = {}) {
@@ -21,10 +25,19 @@ class FakeElement {
     this.listeners.set(type, listeners);
   }
 
-  dispatch(type: string) {
+  focus() {
+    this.focused = true;
+  }
+
+  dispatch(type: string, values: Record<string, unknown> = {}) {
+    let prevented = false;
     for (const listener of this.listeners.get(type) ?? []) {
-      listener(fakeDom.event());
+      listener(fakeDom.event({
+        ...values,
+        preventDefault: () => prevented = true,
+      }));
     }
+    return prevented;
   }
 }
 
@@ -64,27 +77,66 @@ const typeLenses = [
   ["source", "Source"],
 ] as const;
 
+test("typed tab focus survives element replacement", () => {
+  const original = new FakeElement({ lens: "metadata" });
+  const target = captureScopeBarFocus(fakeDom.htmlElement(original));
+  assert.deepEqual(target, { kind: "type-lens", value: "metadata" });
+  assert.ok(target);
+
+  const selected = new FakeElement({ lens: "api" });
+  selected.tabIndex = 0;
+  const replacement = new FakeElement({ lens: "metadata" });
+  replacement.tabIndex = -1;
+  const root = new FakeRoot();
+  root.add("[data-lens]", selected, replacement);
+
+  assert.equal(
+    restoreScopeBarFocus(fakeDom.parentNode(root), target),
+    true);
+  assert.equal(replacement.focused, true);
+  assert.equal(replacement.tabIndex, 0);
+  assert.equal(selected.tabIndex, -1);
+});
+
 test("package scope bindings dispatch only scope and package-lens controls", () => {
   const root = new FakeRoot();
+  const workspaceScope = new FakeElement({ scope: "workspace" });
   const packageScope = new FakeElement({ scope: "package" });
   const typeScope = new FakeElement({ scope: "type" });
   const dependencies = new FakeElement({ packageLens: "dependencies" });
-  root.add("[data-scope]", packageScope, typeScope);
+  root.add("[data-scope]", workspaceScope, packageScope, typeScope);
   root.add("[data-package-lens]", dependencies);
   const calls: string[] = [];
   bindScopeBar(
     fakeDom.parentNode(root),
     recordingActions(calls));
 
+  workspaceScope.dispatch("click");
   packageScope.dispatch("click");
   typeScope.dispatch("click");
   dependencies.dispatch("click");
 
   assert.deepEqual(calls, [
+    "scope:workspace",
     "scope:package",
     "scope:type",
     "package:dependencies",
   ]);
+});
+
+test("workspace scope leads the subject ladder without an inspector", () => {
+  const html = renderScopeBar({
+    scope: "workspace",
+    strip: [],
+    activeStripId: null,
+    stripAttribute: "data-workspace-lens",
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /data-scope="workspace" role="tab" aria-selected="true" tabindex="0" id="active-subject-tab" data-subject-tab aria-controls="subject-panel"[\s\S]*data-scope="package"[\s\S]*data-scope="type"/);
+  assert.doesNotMatch(html, /package-coordinate-controls|class="lens /);
 });
 
 test("type scope bindings dispatch only scope and type-lens controls", () => {
@@ -128,6 +180,25 @@ test("scope bar binding tolerates an empty strip", () => {
     recordingActions([])));
 });
 
+test("subject tabs use manual roving keyboard focus", () => {
+  const root = new FakeRoot();
+  const workspace = new FakeElement();
+  const packageSubject = new FakeElement();
+  const type = new FakeElement();
+  workspace.tabIndex = -1;
+  packageSubject.tabIndex = 0;
+  type.tabIndex = -1;
+  root.add("[data-subject-tab]", workspace, packageSubject, type);
+
+  bindScopeBar(fakeDom.parentNode(root), recordingActions([]));
+
+  assert.equal(packageSubject.dispatch("keydown", { key: "ArrowRight" }), true);
+  assert.equal(type.focused, true);
+  assert.deepEqual(
+    [workspace.tabIndex, packageSubject.tabIndex, type.tabIndex],
+    [-1, -1, 0]);
+});
+
 test("scope bar bindings ignore missing and unknown dataset values", () => {
   const root = new FakeRoot();
   root.add(
@@ -165,6 +236,22 @@ test("scope bar bindings ignore missing and unknown dataset values", () => {
   assert.deepEqual(calls, []);
 });
 
+test("subject and inspector strips omit package coordinate selectors", () => {
+  const html = renderScopeBar({
+    scope: "type",
+    strip: typeLenses,
+    activeStripId: "api",
+    stripAttribute: "data-lens",
+    panelId: "inspector-panel",
+    escapeHtml,
+  });
+
+  assert.match(html, /class="scope-switch"[\s\S]*class="lens-separator"[\s\S]*data-lens="api"/);
+  assert.doesNotMatch(
+    html,
+    /package-coordinate-controls|package-version|framework-select/);
+});
+
 test("package scope marks only the package segment and the active package lens", () => {
   const html = renderScopeBar({
     scope: "package",
@@ -187,12 +274,19 @@ test("type scope marks the type segment and renders the fixed type lenses", () =
     strip: typeLenses,
     activeStripId: "api",
     stripAttribute: "data-lens",
+    panelId: "inspector-panel",
     escapeHtml,
   });
 
   assert.match(html, /data-scope="type" role="tab" aria-selected="true"/);
   assert.doesNotMatch(html, /data-scope="member"/);
   assert.match(html, /class="lens active" data-lens="api"/);
+  assert.match(
+    html,
+    /role="tab" aria-selected="true" tabindex="0" id="active-inspector-tab" aria-controls="inspector-panel"[\s\S]*aria-label="API" title="API"><span class="lens-label">API<\/span><kbd aria-hidden="true">1<\/kbd>/);
+  assert.match(
+    html,
+    /class="inspector-strip" role="tablist" aria-label="Type lenses"/);
   assert.match(html, /data-lens="metadata"/);
   assert.match(html, /data-lens="source"/);
 });
@@ -236,7 +330,7 @@ test("member scope names an empty filtered strip", () => {
   assert.match(html, /<span class="lens-context">Filtered member list<\/span>/);
 });
 
-test("lens button labels carry their keyboard shortcut index", () => {
+test("lens buttons separate accessible labels from compact order symbols", () => {
   const html = renderScopeBar({
     scope: "type",
     strip: typeLenses,
@@ -245,9 +339,15 @@ test("lens button labels carry their keyboard shortcut index", () => {
     escapeHtml,
   });
 
-  assert.match(html, /API<kbd>1<\/kbd>/);
-  assert.match(html, /Metadata<kbd>2<\/kbd>/);
-  assert.match(html, /Source<kbd>3<\/kbd>/);
+  assert.match(
+    html,
+    /role="tab" aria-selected="true" tabindex="0" id="active-inspector-tab"[\s\S]*aria-label="API" title="API"><span class="lens-label">API<\/span><kbd aria-hidden="true">1<\/kbd>/);
+  assert.match(
+    html,
+    /role="tab" aria-selected="false" tabindex="-1"[\s\S]*aria-label="Metadata" title="Metadata"><span class="lens-label">Metadata<\/span><kbd aria-hidden="true">2<\/kbd>/);
+  assert.match(
+    html,
+    /aria-label="Source" title="Source"><span class="lens-label">Source<\/span><kbd aria-hidden="true">3<\/kbd>/);
 });
 
 test("lens button labels are escaped", () => {
@@ -273,4 +373,10 @@ test("no strip entry is marked active when nothing matches activeStripId", () =>
   });
 
   assert.doesNotMatch(html, /class="lens active"/);
+  assert.match(
+    html,
+    /data-package-lens="overview" data-inspector-tab role="tab" aria-selected="false" tabindex="0"/);
+  assert.doesNotMatch(
+    html,
+    /data-package-lens="overview"[^>]*aria-controls=/);
 });
