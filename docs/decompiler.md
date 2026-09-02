@@ -116,7 +116,12 @@ the variable stays in scope.
 Await reconstruction stands down when either the awaited operand or an implicit
 await-pattern member requires unsafe context because C# forbids `await` inside
 an unsafe context. A temporary whose unsafe evaluation precedes an already
-reconstructed await is retained rather than inlined into the awaited expression.
+reconstructed await is retained rather than inlined into the awaited expression;
+symmetrically, an await-valued temporary is retained rather than inlined into a
+consumer that requires unsafe context. When runtime-async lowering has already
+embedded the await helper in such a consumer and preserved no source evaluation
+boundary, reconstruction declines visibly at Partial fidelity rather than
+inventing a potentially reordered spill.
 
 The stackalloc→`Span<T>` case is first raised from the compiler's lowering — a
 `localloc` fed to the `Span<T>(void*, int)` constructor — back into a source-level
