@@ -297,6 +297,24 @@ inspection must not introduce `Assembly.Load`, `AssemblyLoadContext`, reflection
 over inspected binaries, module initializers, or dependency resolution that
 executes target code.
 
+That prohibition is mitigation by absence, and is recorded as
+[the rule requires](../evidence-and-validation.md#mitigation-by-absence).
+Measured 2026-09-01 across the 1,081 non-test C# sources under `src/`:
+
+```console
+$ git ls-files 'src/**/*.cs' | grep -viE '\.tests?/|fixtures?/|testdata' \
+    | xargs grep -nE 'Assembly\.Load|AssemblyLoadContext|Reflection\.Emit|AppDomain|Activator\.CreateInstance'
+(no matches)
+```
+
+The only non-test occurrences repo-wide are three in `tools/DecompilerHarness`,
+outside the product boundary. The prohibition above is the standing policy that
+keeps that true. No gate enforces the absence itself, so the claim is
+**`unverified`**: `BannedApiAnalyzers` runs on every `.csproj`, but its
+`eng/BannedSymbols.txt` wiring is scoped to the stderr-containment concern and
+is opted out wholesale by `OwnsItsOwnStderr`, so it cannot carry this policy
+without separate design. Issue #5488 tracks gating it.
+
 Reader-backed values remain inside their owning session. Values that cross a
 session boundary are copied or reduced to immutable tokens and shapes. This
 prevents use-after-dispose and avoids lending privileged readers to higher
