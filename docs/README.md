@@ -82,6 +82,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Query Vocabulary](design/vocabulary.md) | Shared static catalogs for legal query values across CLI and browser hosts. |
 | [Hidden-Fact Annotations](design/hidden-fact-annotations.md) | Allocation/unsafety/lifetime annotation model and the static IL pair-agreement oracle strategy. |
 | [Annotated Source Viewer Interaction](design/annotated-source-viewer-interaction.md) | Embedded-reader and modal-viewer disclosure, actions, selection, annotations, media, Escape, and focus behavior. |
+| [Annotated Source Invocation Destinations](design/annotated-source-invocation-destinations.md) | Research composition of physical calls, Decompiler invocation provenance, and CallGraph-owned typed targets. |
 | [Caret Stacking](design/caret-stacking.md) | `--focus` display model: one caret per fact extent, packed onto as few rows as fit, with the numbered fact texts listed below. |
 | [Decompiler Inspection & Oracle](design/decompiler-inspection-oracle.md) | Unifies single-method inspection (dump/stages) with the corpus-wide fidelity check oracle; product-vs-tool scoping. |
 | [ReturnToSender: Fact-Planned Compile-Back Harness](design/fact-planned-compile-back-harness.md) | Spec for a fresh tools-side compile-back harness with fact-planned TypeProducer/TypePrinter shells. |

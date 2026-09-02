@@ -153,7 +153,7 @@ public sealed record BrowserMemberBodySelector(
 /// <c>MemberFacts_DistinguishesSurfaceAndBodyTokenResolution</c> gates this provenance.
 /// </summary>
 public sealed record BrowserGraphMemberSurface(
-    BrowserMemberSurface Member,
+    BrowserTypeSurface Type,
     BrowserMemberBodySelector SelectedBody);
 
 public sealed record BrowserParameterSurface(
@@ -215,6 +215,7 @@ public sealed record BrowserBuildIdentity(
 public enum BrowserPackageQueryFacetTier
 {
     Nuspec,
+    PackageContent,
 }
 
 public sealed record BrowserPackageQueryFacetDescriptor(
@@ -223,7 +224,9 @@ public sealed record BrowserPackageQueryFacetDescriptor(
     string Summary,
     int Weight,
     BrowserPackageQueryFacetTier Tier,
-    string? SelectionGroupId);
+    string? SelectionGroupId,
+    string? DisplayGroupId,
+    string? DisplayGroupLabel);
 
 public sealed record BrowserPackageQueryFacetCatalog(
     BrowserPackageQueryFacetDescriptor[] Facets);
@@ -249,6 +252,8 @@ public enum BrowserPackageQueryFailureKind
     ManifestAcquisition,
     ManifestContract,
     InvalidManifest,
+    PackageContentAcquisition,
+    PackageContentEvaluation,
 }
 
 public sealed record BrowserPackageQueryFailure(
@@ -682,6 +687,7 @@ public enum BrowserAnnotatedSourceMedium
 public enum BrowserAnnotatedSourceCapabilityUnavailableReason
 {
     NotProjected,
+    ContextUnavailable,
 }
 
 public sealed record BrowserAnnotatedSourceCapabilityAvailability
@@ -712,23 +718,34 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
     private readonly int[] _defaultFindingIds;
     private readonly BrowserAnnotatedSourceMedium[] _supportedMedia;
     private readonly string[] _invocationLikeNodeKinds;
+    private readonly BrowserAnnotatedSourceInvocationDestination[]
+        _invocationDestinations;
 
     public BrowserAnnotatedSourceViewerCatalog(
         int[] DefaultFindingIds,
         BrowserAnnotatedSourceMedium[] SupportedMedia,
         string[] InvocationLikeNodeKinds,
         BrowserAnnotatedSourceCapabilityAvailability FindingEvidence,
-        BrowserAnnotatedSourceCapabilityAvailability Destinations)
+        BrowserAnnotatedSourceCapabilityAvailability Destinations,
+        BrowserAnnotatedSourceInvocationDestination[] InvocationDestinations)
     {
         ArgumentNullException.ThrowIfNull(DefaultFindingIds);
         ArgumentNullException.ThrowIfNull(SupportedMedia);
         ArgumentNullException.ThrowIfNull(InvocationLikeNodeKinds);
         ArgumentNullException.ThrowIfNull(FindingEvidence);
         ArgumentNullException.ThrowIfNull(Destinations);
+        ArgumentNullException.ThrowIfNull(InvocationDestinations);
+        if (!Destinations.Available && InvocationDestinations.Length > 0)
+        {
+            throw new ArgumentException(
+                "Unavailable destinations cannot carry projected rows.",
+                nameof(InvocationDestinations));
+        }
 
         _defaultFindingIds = [.. DefaultFindingIds];
         _supportedMedia = [.. SupportedMedia];
         _invocationLikeNodeKinds = [.. InvocationLikeNodeKinds];
+        _invocationDestinations = [.. InvocationDestinations];
         this.FindingEvidence = FindingEvidence;
         this.Destinations = Destinations;
     }
@@ -736,9 +753,15 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
     public int[] DefaultFindingIds => [.. _defaultFindingIds];
     public BrowserAnnotatedSourceMedium[] SupportedMedia => [.. _supportedMedia];
     public string[] InvocationLikeNodeKinds => [.. _invocationLikeNodeKinds];
+    public BrowserAnnotatedSourceInvocationDestination[] InvocationDestinations =>
+        [.. _invocationDestinations];
     public BrowserAnnotatedSourceCapabilityAvailability FindingEvidence { get; }
     public BrowserAnnotatedSourceCapabilityAvailability Destinations { get; }
 }
+
+public sealed record BrowserAnnotatedSourceInvocationDestination(
+    int NodeId,
+    BrowserCallGraphTarget Target);
 
 /// <summary>
 /// The annotated-source envelope: the product's portable <c>AnnotatedSourceDocument</c> serialized
@@ -773,7 +796,12 @@ public sealed record BrowserAnnotatedSource
     internal static BrowserAnnotatedSource Create(
         AnnotatedSourceDocument document,
         string provenance,
-        string? contextLimitation)
+        string? contextLimitation,
+        BrowserAnnotatedSourceInvocationDestination[]?
+            invocationDestinations = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            destinationUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentException.ThrowIfNullOrWhiteSpace(provenance);
@@ -784,7 +812,10 @@ public sealed record BrowserAnnotatedSource
                 AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument));
         return new BrowserAnnotatedSource(
             serialized.RootElement.Clone(),
-            BrowserAnnotatedSourceViewerCatalogFactory.Create(document),
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                document,
+                invocationDestinations,
+                destinationUnavailableReason),
             provenance,
             contextLimitation);
     }
@@ -997,7 +1028,8 @@ public sealed record BrowserCallGraphTarget(
     int? MetadataToken,
     string SelectorKey,
     string Kind,
-    string? PlatformPack);
+    string? PlatformPack,
+    string? SurfaceAssemblyId);
 
 public sealed record BrowserCallGraphNode(
     string Label,
