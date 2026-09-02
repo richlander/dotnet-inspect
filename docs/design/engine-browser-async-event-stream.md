@@ -9,8 +9,12 @@ Package Query is the first named adopter through
 
 The contract is not yet implemented as a shared abstraction. Package Query
 already has an `IAsyncEnumerable<PackageQueryEvent>` and a Browser callback
-adapter, but its event vocabulary and terminal handoff do not yet satisfy this
-document. The gates named below remain required.
+adapter with a feature-owned generation guard, but its event vocabulary and
+terminal handoff do not yet satisfy this document. That direct callback is the
+first adopter's transitional path, not an operation-authority integration.
+Operation-authority adoption in any placement depends on
+[#5570](https://github.com/richlander/dotnet-inspect/issues/5570). The gates
+named below remain required.
 
 ## Decision
 
@@ -54,11 +58,14 @@ does not replace rows already admitted into the outcome.
 
 The same engine stream remains the feature contract before and after .NET
 moves to a Web Worker. Today an adapter may invoke a bounded synchronous
-JavaScript callback. After the separately owned durable-event handoffs in
-[Residual worker integration](#residual-worker-integration) land, a worker
-adapter can map nonterminal events to validated `postMessage` payloads and
-return the terminal result through the managed-operation result envelope.
-Neither transport changes the engine event meanings.
+JavaScript callback under the adopting feature's existing current-request
+guard. After the separately owned durable-event handoffs in
+[Residual operation-authority and worker
+integration](#residual-operation-authority-and-worker-integration) land, an
+authority-governed callback or worker adapter can carry the same nonterminal
+events. The worker maps them to validated `postMessage` payloads and returns
+the terminal result through the managed-operation result envelope. Neither
+transport changes the engine event meanings.
 
 ### CLI consumption
 
@@ -83,8 +90,10 @@ It consumes:
 
 - feature-owned inputs, item types, failure types, progress phases, completion
   kinds, bounds, and cancellation checkpoints;
+- an adopter-owned current-request guard for the first direct callback path;
 - current-view identity and publication authority from
-  [inspect-web operation authority](inspect-web-operation-authority.md);
+  [inspect-web operation authority](inspect-web-operation-authority.md) once
+  its durable-event residual is implemented;
 - callback lifetime and managed terminal envelopes from
   [the managed operation bridge](inspect-web-managed-operation-bridge.md);
 - worker placement, message validation, ordering, and realm lifetime from
@@ -178,12 +187,21 @@ the worker can process cancellation or another message.
 The engine adapter is the sole enumerator:
 
 ```text
+transitional Package Query callback:
 feature IAsyncEnumerable<TEvent>
   -> host adapter await foreach
      -> callback today
-        -> feature reducer and renderer
+        -> feature-owned current-request guard
+           -> feature reducer and renderer
 
-future worker path, after adjacent owners add a durable-event handoff:
+authority-governed callback, after operation authority adds durable handoff:
+feature IAsyncEnumerable<TEvent>
+  -> host adapter await foreach
+     -> callback
+        -> current-operation durable publication authority
+           -> feature reducer and renderer
+
+future worker path, after all adjacent durable-event handoffs:
 feature IAsyncEnumerable<TEvent>
   -> managed nonterminal event/batch handoff
      -> validated worker event/batch message
@@ -218,23 +236,29 @@ retains `Completed` and returns its value once through the operation's terminal
 result envelope. This avoids publishing the same semantic completion through
 both a callback and a fulfilled `Task`.
 
-The current-operation owner decides whether a transported event may update the
-view. A stale event can be consumed for protocol and release purposes without
-regaining publication authority. Durable means the feature and adapter do not
-coalesce or discard the event before that owner-issued handoff; it does not
-reserve publication authority after logical cancellation or replacement.
+The active current-request guard decides whether a transported event may
+update the view. Package Query's transitional direct callback uses its existing
+feature-owned generation guard. That exception is not a reusable alternative:
+another replaceable feature view waits for the operation-authority durable
+handoff rather than creating a parallel publication scheme. Once an adopter
+uses operation authority, a stale event can be consumed for protocol and
+release purposes without regaining publication authority. Durable means the
+feature and adapter do not coalesce or discard the event before the active
+guard's handoff; it does not reserve publication authority after logical
+cancellation or replacement.
 
-### Residual worker integration
+### Residual operation-authority and worker integration
 
-The current owners do not yet provide the future path in the second half of
-the diagram. Operation authority exposes advisory progress and one terminal
-result, the managed bridge exposes a progress callback, and the worker
-runtime's closed worker-to-main inventory contains `Progress` and `Settled`.
-Durable `Item` and `ItemFailure` events must not be tunneled through those
-progress shapes or buffered into settlement.
+The current owners do not yet provide either authority-governed path in the
+diagram. Operation authority exposes advisory progress and one terminal result,
+the managed bridge exposes a progress callback, and the worker runtime's closed
+worker-to-main inventory contains `Progress` and `Settled`. Durable `Item` and
+`ItemFailure` events must not be tunneled through those progress shapes or
+buffered into settlement.
 
-Moving an adopter behind the worker therefore depends on three separately
-owned residuals:
+Adopting operation authority for durable events in either callback or worker
+placement depends on the first residual. Moving the adopter behind the worker
+depends on all three separately owned residuals:
 
 - [#5570](https://github.com/richlander/dotnet-inspect/issues/5570) extends
   operation authority with typed durable nonterminal event or batch
@@ -262,12 +286,12 @@ was not already established. It hands off any nonempty established batch
 before reporting physical producer termination to its enclosing operation
 boundary.
 
-Logical cancellation and publication authority remain owned independently.
-An authority-initiated cancellation may already have published its reason and
-revoked publication before physical producer cancellation reaches the adapter.
-In that case, the adapter still performs its owner-issued handoff for the
-established batch in order, but the authority consumes it without updating the
-view.
+Logical cancellation and publication authority remain owned by the active
+current-request guard. Under operation authority, an authority-initiated
+cancellation may already have published its reason and revoked publication
+before physical producer cancellation reaches the adapter. In that case, the
+adapter still performs its owner-issued handoff for the established batch in
+order, but the authority consumes it without updating the view.
 
 Item failures are data only when the feature can continue and retain honest
 accounting. A source or boundary failure that prevents an honest completion
@@ -288,7 +312,9 @@ Each adopting owner specifies:
 - its feature-owned cancellation checkpoints, awaited-call propagation, and
   Release gate;
 - maximum durable events and adapter batch size;
-- mapping to its CLI and Browser hosts; and
+- mapping to its CLI and Browser hosts;
+- its current-request guard and whether operation-authority integration is
+  implemented or residual; and
 - neighboring no-progress and failure cases.
 
 Package Query is the first adopter. Its progress must distinguish bounded
@@ -336,7 +362,9 @@ adopter must prove:
    termination, while logical cancellation may independently suppress its view
    publication; the path cannot drop durable events or reorder completion, and
    a worker claim requires the residual owner work above;
-7. stale-operation events cannot update replacement feature state;
+7. the first adopter's feature-owned current-request guard prevents stale
+   events from updating replacement state; an operation-authority claim
+   requires #5570, and a worker claim additionally requires #5419 and #5418;
 8. a CLI consumer can enumerate the same host-neutral stream without Browser
    types; and
 9. a neighboring operation with no useful partial outcome remains a simple
