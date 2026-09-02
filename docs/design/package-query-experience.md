@@ -187,6 +187,14 @@ Because all Package Query work is bounded, the queue is structurally capped at
 durable events and coalesce same-phase progress under the shared owner without
 changing this feature vocabulary.
 
+This direct callback is the shared stream contract's transitional first-adopter
+path. The Package Query controller's feature-owned generation guard suppresses
+events after cancellation or supersession; it does not claim integration with
+shared operation authority. Operation-authority adoption in either callback or
+worker placement depends on #5570. Worker placement additionally depends on
+issues #5419 and #5418. Another replaceable feature must use that shared
+authority path rather than copy the Package Query generation guard.
+
 ## Sharing and URL shape
 
 The first production route stores no query request or outcome in the URL.

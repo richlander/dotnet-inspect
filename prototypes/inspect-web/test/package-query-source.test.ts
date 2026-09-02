@@ -29,6 +29,25 @@ const completionEvent: BrowserPackageQueryEvent = {
   },
 };
 
+const toolMatchEvent: BrowserPackageQueryEvent = {
+  kind: "Match",
+  failure: null,
+  progress: null,
+  completion: null,
+  row: {
+    packageId: "Contoso.Tool",
+    version: "2.0.0",
+    tier: "PackageContent",
+    evidence: [{
+      id: "package.query.dotnet-tool-v2",
+      text: "DotnetToolSettings.xml declares v2.",
+    }],
+    totalDownloads: 12,
+    verified: false,
+    producer: "nuget.org",
+  },
+};
+
 test("packageQueryFacets preserves product descriptors and producer ordering", () => {
   const catalog: BrowserPackageQueryFacetCatalog = {
     facets: [
@@ -106,24 +125,6 @@ test("packageQueryFacets preserves product descriptors and producer ordering", (
 });
 
 test("Browser data source maps package-content rows and visible failures", async () => {
-  const matchEvent: BrowserPackageQueryEvent = {
-    kind: "Match",
-    failure: null,
-    progress: null,
-    completion: null,
-    row: {
-      packageId: "Contoso.Tool",
-      version: "2.0.0",
-      tier: "PackageContent",
-      evidence: [{
-        id: "package.query.dotnet-tool-v2",
-        text: "DotnetToolSettings.xml declares v2.",
-      }],
-      totalDownloads: 12,
-      verified: false,
-      producer: "nuget.org",
-    },
-  };
   const failureEvent: BrowserPackageQueryEvent = {
     kind: "Failure",
     row: null,
@@ -143,7 +144,7 @@ test("Browser data source maps package-content rows and visible failures", async
     async run(_prefix, _facets, candidates, _matches, _prerelease, sink) {
       candidateLimit = candidates;
       assert.ok(typeof sink === "object" && sink !== null);
-      Reflect.set(sink, "event", JSON.stringify(matchEvent));
+      Reflect.set(sink, "event", JSON.stringify(toolMatchEvent));
       Reflect.set(sink, "event", JSON.stringify(failureEvent));
       return completionEvent;
     },
@@ -303,6 +304,85 @@ test("Browser progress is delivered while later engine work remains pending", as
   assert.deepEqual(received, ["manifest:4/20"]);
   releaseEngine();
   assert.deepEqual(await running, { kind: "exhausted" });
+});
+
+test("established durable events flush before producer failure is reported", async () => {
+  const engine: BrowserPackageQueryEngine = {
+    cancel() {},
+    async run(_prefix, _facets, _candidates, _matches, _prerelease, sink) {
+      assert.ok(typeof sink === "object" && sink !== null);
+      Reflect.set(sink, "event", JSON.stringify(toolMatchEvent));
+      throw new Error("producer failed");
+    },
+  };
+  const rows: string[] = [];
+
+  await assert.rejects(
+    createBrowserPackageQueryDataSource(engine).run(
+      createQueryRequest("Contoso."),
+      page => rows.push(...page.map(row => row.packageId)),
+      () => {},
+      () => {},
+      new AbortController().signal),
+    /producer failed/);
+
+  assert.deepEqual(rows, ["Contoso.Tool"]);
+});
+
+test("established durable events reach the generation guard before cancellation returns", async () => {
+  let releaseEngine!: () => void;
+  const engineGate = new Promise<void>(resolve => { releaseEngine = resolve; });
+  const engine: BrowserPackageQueryEngine = {
+    cancel() {
+      releaseEngine();
+    },
+    async run(_prefix, _facets, _candidates, _matches, _prerelease, sink) {
+      assert.ok(typeof sink === "object" && sink !== null);
+      Reflect.set(sink, "event", JSON.stringify(toolMatchEvent));
+      await engineGate;
+      return completionEvent;
+    },
+  };
+  const abort = new AbortController();
+  const rows: string[] = [];
+
+  const running = createBrowserPackageQueryDataSource(engine).run(
+    createQueryRequest("Contoso."),
+    page => rows.push(...page.map(row => row.packageId)),
+    () => {},
+    () => {},
+    abort.signal);
+  abort.abort();
+
+  assert.deepEqual(await running, { kind: "cancelled" });
+  assert.deepEqual(rows, ["Contoso.Tool"]);
+});
+
+test("durable-event delivery failure remains visible during cancellation", async () => {
+  let releaseEngine!: () => void;
+  const engineGate = new Promise<void>(resolve => { releaseEngine = resolve; });
+  const engine: BrowserPackageQueryEngine = {
+    cancel() {
+      releaseEngine();
+    },
+    async run(_prefix, _facets, _candidates, _matches, _prerelease, sink) {
+      assert.ok(typeof sink === "object" && sink !== null);
+      Reflect.set(sink, "event", JSON.stringify(toolMatchEvent));
+      await engineGate;
+      return completionEvent;
+    },
+  };
+  const abort = new AbortController();
+
+  const running = createBrowserPackageQueryDataSource(engine).run(
+    createQueryRequest("Contoso."),
+    () => { throw new Error("view delivery failed"); },
+    () => {},
+    () => {},
+    abort.signal);
+  abort.abort();
+
+  await assert.rejects(running, /view delivery failed/);
 });
 
 test("Browser data source maps product bounds without calling them exhaustive", async () => {

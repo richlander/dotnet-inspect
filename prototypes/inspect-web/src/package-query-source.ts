@@ -69,28 +69,26 @@ export function createBrowserPackageQueryDataSource(
       const flushEvents = () => {
         flushScheduled = false;
         const batch = pendingEvents.splice(0);
-        for (const queryEvent of batch) {
-          dispatchEvent(
-            queryEvent,
-            onPage,
-            onFailure,
-            onProgress,
-            terminal => { completion = terminal; });
+        try {
+          for (const queryEvent of batch) {
+            dispatchEvent(
+              queryEvent,
+              onPage,
+              onFailure,
+              onProgress,
+              terminal => { completion = terminal; });
+          }
+        } catch (error) {
+          flushState.failed = true;
+          flushState.error = error;
+          pendingEvents.length = 0;
+          engine.cancel();
         }
       };
       const scheduleFlush = () => {
         if (flushScheduled) return;
         flushScheduled = true;
-        queueMicrotask(() => {
-          try {
-            flushEvents();
-          } catch (error) {
-            flushState.failed = true;
-            flushState.error = error;
-            pendingEvents.length = 0;
-            engine.cancel();
-          }
-        });
+        queueMicrotask(flushEvents);
       };
       const eventSink: Record<string, unknown> = {};
       Object.defineProperty(eventSink, "event", {
@@ -119,9 +117,9 @@ export function createBrowserPackageQueryDataSource(
           request.requestedMatchLimit,
           false,
           eventSink);
-        if (abortSignal.aborted) return { kind: "cancelled" };
         flushEvents();
         if (flushState.failed) throw flushState.error;
+        if (abortSignal.aborted) return { kind: "cancelled" };
         if (finalEvent.kind !== "Completed") {
           throw new TypeError(
             "The Browser package-query result was not a terminal event.");
@@ -139,6 +137,7 @@ export function createBrowserPackageQueryDataSource(
               "The Browser package-query stream ended without a completion event.",
           };
       } catch (error) {
+        flushEvents();
         if (flushState.failed) throw flushState.error;
         if (abortSignal.aborted) return { kind: "cancelled" };
         throw error;
