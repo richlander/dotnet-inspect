@@ -98,8 +98,14 @@ boundary. Markout is the default host-neutral, multi-format substrate. A
 host-specific path that bypasses it must identify the host, rationale, typed
 input model, and lowering boundary. A broad information domain must document
 where structured typing lives and who owns each format lowering, whether it
-uses Markout or another approach. Do not demand these obligations from a change
-to which the frame explains they do not apply.
+uses Markout or another approach.
+
+Do not accept claimed non-applicability at face value. Verify from the
+normative owner, change intent, changed surfaces, and exact-head diff that the
+candidate does not add or expand a capability, substrate, host path, or broad
+rendering domain. When a design establishes that boundary, the explanation
+must name its exact section. If the supplied facts and exact-head evidence do
+not establish non-applicability, return a framing defect.
 
 Push on the named pathological or boundary case. When accepting or rejecting
 that case is part of the supported contract, require exact-head gate evidence.
