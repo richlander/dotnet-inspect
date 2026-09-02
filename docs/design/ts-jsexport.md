@@ -3,10 +3,10 @@
 Status: **single-assembly generation is implemented at the generator
 boundary**. The repository contains the `ts-jsexport` tool, typed facade
 emitter, canonical compiled fixture, and the compiler/runtime gates under
-[Acceptance](#acceptance). Metadata-rooted facade contexts are specified here
-under [#5462](https://github.com/richlander/dotnet-inspect/issues/5462) but
-remain unimplemented. Inspect-web adoption and browser deployment canaries
-remain separate work under #5003, #4792, issue #4842, and #4497.
+[Acceptance](#acceptance). Metadata-rooted facade contexts are implemented
+under [#5466](https://github.com/richlander/dotnet-inspect/issues/5466).
+Inspect-web adoption and browser deployment canaries remain separate work
+under #5003, #4792, issue #4842, and #4497.
 
 This is the owning document for the `ts-jsexport` TypeScript facade. It defines
 how one
@@ -524,6 +524,11 @@ The context assembly is a trusted build input; this check catches ordinary
 configuration drift and does not distinguish a malicious unsigned replacement
 with the same metadata identity.
 
+This implementation consumes the contract through an in-repository project
+reference. It does not make the contract a separately distributed package;
+external producer acquisition and versioning require coordinated package and
+release scope.
+
 ### Root meaning
 
 Each attribute's `System.Type` is the compiler-bound assembly anchor for one
@@ -547,13 +552,16 @@ The context's custom-attribute table is not an ordering or naming channel.
 `ts-jsexport` canonicalizes roots by exact assembly and type identity before
 generation. In context command mode, the exact assembly simple name determines
 the canonical `<assembly-name>.ts` artifact filename. Assembly simple names
-must be distinct under ordinal, case-insensitive comparison and valid as a
-single portable file stem; the tool does not repair or disambiguate an invalid
-set. The consumer chooses the output directory and continues to own public
-module specifiers, initialization order, entry-point selection, and any
-authored coordinator. In particular, the assembly containing the context is
-not implicitly the browser host, and attribute order does not make one root
-the host.
+must be distinct after Unicode Form C normalization under ordinal,
+case-insensitive comparison and valid as a single portable file stem.
+Normalization is comparison-only; the exact assembly simple name remains the
+artifact spelling. Including the `.ts` suffix, an artifact name may use at most
+255 UTF-16 code units and 255 UTF-8 bytes. The tool does not repair or
+disambiguate an invalid set. The consumer chooses the output directory and
+continues to own public module specifiers, initialization order, entry-point
+selection, and any authored coordinator. In particular, the assembly
+containing the context is not implicitly the browser host, and attribute order
+does not make one root the host.
 
 ### Resolution and closed-set failure
 
@@ -568,6 +576,8 @@ version, culture, and public-key token, when present, must equal the resolved
 type definition in that assembly. Display names and filenames are not identity.
 These checks detect ordinary build and resolution drift; unsigned metadata
 identity does not authenticate an assembly against a malicious replacement.
+The context assembly's directory is not an implicit search location; producers
+name every candidate file or directory explicitly.
 
 The context is authoritative even when the available file set is incomplete.
 An unresolved root, absent assembly, identity mismatch, duplicate assembly,
@@ -598,24 +608,23 @@ makes that state visible on retry. Consumers generate into a fresh scratch
 path for every attempt and own cleanup plus the final directory or deployment
 swap.
 
-`JsExportContextLoaderTests.ContextRootsResolveExactCompiledAssemblySet` will
-gate successful cross-assembly resolution from a real compiled context.
-`ContextMissingRootAssemblyFailsClosed` will gate the non-vacuous missing-file
+`JsExportContextLoaderTests.ContextRootsResolveExactCompiledAssemblySet` gates
+successful cross-assembly resolution from a real compiled context.
+`ContextMissingRootAssemblyFailsClosed` gates the non-vacuous missing-file
 case. `ContextRejectsDuplicateAssemblyRoots`,
 `ContextIncludesEveryExportAcrossRootedAssembly`,
 `ContextRejectsRootAttributeFromWrongContractIdentity`, and
-`ContextFailureReturnsNoFacadeSources` will gate the close negatives above.
-`TsJsExportCommandTests.ContextModeWritesCanonicalCompleteSet` will gate exact
-set materialization and the portable, collision-free artifact-name rule.
-`ContextModeRejectsExistingOutputDirectory` will gate the fresh-directory
+`ContextFailureReturnsNoFacadeSources` gate the close negatives above.
+`TsJsExportCommandTests.ContextModeWritesCanonicalCompleteSet` gates exact
+set materialization. `JsExportContextLoaderTests` gates non-portable artifact
+name rejection and ordinal case-insensitive collision detection.
+`ContextModeRejectsExistingOutputDirectory` gates the fresh-directory
 precondition, including an older successful directory whose context set was
 larger.
 `TsJsExportContractsTests.RootAttributeHasExactMetadataContract` and
-`ContractsProjectHasNoProjectOrPackageReferences` will gate the producer
+`ContractsProjectHasNoProjectOrPackageReferences` gate the producer
 contract's shape and dependency boundary. The existing NativeAOT publish lane
-will include context-mode command execution before this path is considered
-NativeAOT-compatible.
-These gates are unimplemented until context support lands.
+includes context-mode command execution.
 
 ### Single-assembly compatibility
 
@@ -625,7 +634,7 @@ produce byte-identical TypeScript for the same runtime-module option. Context
 membership changes orchestration evidence, not facade semantics.
 
 `TsJsExportCommandTests.ContextAndDirectModesProduceIdenticalSingleFacade`
-will gate this correspondence and is unimplemented until context support lands.
+gates this correspondence.
 
 ## Compiler handoff
 

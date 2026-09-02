@@ -250,7 +250,8 @@ internal sealed class ChangeRoutingPolicy
             "docs/data/nuget-top-packages.lock.json",
             "docs/data/nuget-top-packages.json",
             "eng/restore-iltools.sh",
-            "eng/activate-iltools.sh"))
+            "eng/activate-iltools.sh",
+            "eng/test-ts-jsexport-context-aot.sh"))
         {
             state.Code = true;
         }
