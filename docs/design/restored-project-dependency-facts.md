@@ -25,6 +25,27 @@ The **Restored Project Dependency Facts Query** in
 The query does not accept a path, read a file, evaluate MSBuild, initiate
 restore or build, inspect a package cache, log, or choose a renderer.
 
+## Consumer and delivery
+
+The immediate concrete consumer is the **Package Dependency Evidence Query**
+specified by `docs/design/package-dependency-evidence.md` and implemented under
+#5533. The end-to-end delivery tracker is #5532; it connects this capability
+issue (#5314) to planned CLI adoption in #5534 and inspect-web Browser/Wasm
+adoption in #5535.
+
+This query is shared host-neutral substrate, so no single-consumer or
+single-host exception applies. Its complexity is justified by the consumer's
+need to compare immutable package/nuspec declarations with restored-project
+declarations while retaining additive graph evidence, truthful completion,
+typed provenance, and `InertString` presentation currency.
+
+This owner does not render. The normalized consumer preserves typed evidence
+to its sink boundary. The CLI adoption uses Markout as the default
+host-neutral lowering and projects JSON-family formats from the same typed
+information. The browser adoption consumes the same typed/wire information
+through the Browser/Wasm boundary and owns only its interactive DOM
+presentation; it must not reconstruct dependency semantics.
+
 ## Inputs
 
 One execution receives:
@@ -366,10 +387,11 @@ The contract is gated by:
 
 ## Composition
 
-`docs/design/package-dependency-evidence.md` consumes these owner-issued facts.
-That later owner normalizes package-manifest and restored-project declarations,
-defines cross-input equivalence, admits optional package-owner observations,
-and chooses the resulting root-set completion algebra.
+`docs/design/package-dependency-evidence.md` and its implementation issue #5533
+consume these owner-issued facts. That later owner normalizes package-manifest
+and restored-project declarations, defines cross-input equivalence, admits
+optional package-owner observations, and chooses the resulting root-set
+completion algebra. #5532 tracks the full path through both product hosts.
 
 The existing path-taking `ProjectAssetsParser` remains authoritative for
 current CLI behavior until a parity-gated adoption replaces its assets
