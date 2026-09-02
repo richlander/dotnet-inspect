@@ -5137,6 +5137,98 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageQueryContent_AcquiresThroughBrowserPackagePolicy()
+    {
+        string packageId = $"gallery.query.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        byte[] archive = PackageWithSkill(packageId, version);
+        var handler = new GalleryPackageHandler(
+            packageId,
+            version,
+            archive);
+        using IPackageSourceClient source = Gallery(handler);
+        PackageManifestFacts manifest = Assert.IsType<
+            PackageManifestFactsResult.Available>(
+                PackageManifestFactsQuery.Execute(
+                    Encoding.UTF8.GetBytes(
+                        Nuspec(packageId, version)),
+                    PackageSourceCoordinate.Create(packageId, version))).Value;
+        var package = new PackageProfileMatch(
+            packageId,
+            version,
+            [],
+            TotalDownloads: 0,
+            Verified: false,
+            PackageSourceIdentity.NuGetOrg,
+            manifest);
+        using var deadline =
+            new BrowserPackageWorkspace.BrowserPackageOperationDeadline(
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        PackageQueryContentResult result =
+            await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
+                package,
+                source,
+                deadline);
+
+        IPackageContent content = Assert.IsType<
+            PackageQueryContentResult.Available>(result).Content;
+        Assert.Contains(
+            "skills/SKILL.md",
+            content.EnumerateEntries(),
+            StringComparer.Ordinal);
+        Assert.Equal(
+            [$"https://globalcdn.nuget.org/packages/{packageId}.{version}.nupkg"],
+            handler.Requested);
+    }
+
+    [Fact]
+    public async Task PackageQueryContent_PolicyRejectionRemainsVisible()
+    {
+        string packageId = $"gallery.query.no-length.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        var handler = new GalleryPackageHandler(
+            packageId,
+            version,
+            PackageWithSkill(packageId, version),
+            omitContentLength: true);
+        using IPackageSourceClient source = Gallery(handler);
+        PackageManifestFacts manifest = Assert.IsType<
+            PackageManifestFactsResult.Available>(
+                PackageManifestFactsQuery.Execute(
+                    Encoding.UTF8.GetBytes(
+                        Nuspec(packageId, version)),
+                    PackageSourceCoordinate.Create(packageId, version))).Value;
+        var package = new PackageProfileMatch(
+            packageId,
+            version,
+            [],
+            TotalDownloads: 0,
+            Verified: false,
+            PackageSourceIdentity.NuGetOrg,
+            manifest);
+        using var deadline =
+            new BrowserPackageWorkspace.BrowserPackageOperationDeadline(
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        PackageQueryContentResult result =
+            await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
+                package,
+                source,
+                deadline);
+
+        string message = Assert.IsType<
+            PackageQueryContentResult.Unavailable>(result).Message;
+        Assert.Contains(
+            "did not declare its byte length",
+            message,
+            StringComparison.Ordinal);
+        Assert.True(handler.PayloadDisposed);
+    }
+
+    [Fact]
     public async Task BrowserPackageRealization_ReceivesAcquisitionIssuedCoordinate()
     {
         string packageId = $"Gallery.Binding.{Guid.NewGuid():N}";
@@ -6126,6 +6218,41 @@ public sealed class BrowserEngineBoundaryTests
 
         return content.ToArray();
     }
+
+    static byte[] PackageWithSkill(string packageId, string version)
+    {
+        using var content = new MemoryStream();
+        using (var archive = new ZipArchive(
+            content,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using (StreamWriter manifest = new(
+                archive.CreateEntry(
+                    $"{packageId}.nuspec",
+                    CompressionLevel.NoCompression).Open(),
+                Encoding.UTF8,
+                leaveOpen: false))
+            {
+                manifest.Write(Nuspec(packageId, version));
+            }
+            archive.CreateEntry(
+                "skills/SKILL.md",
+                CompressionLevel.NoCompression);
+        }
+
+        return content.ToArray();
+    }
+
+    static string Nuspec(string packageId, string version) =>
+        $"""
+         <package>
+           <metadata>
+             <id>{packageId}</id>
+             <version>{version}</version>
+           </metadata>
+         </package>
+         """;
 
     static IPackageSourceClient Gallery(HttpMessageHandler handler) =>
         PackageSourceClientFactory.CreateGallery(
