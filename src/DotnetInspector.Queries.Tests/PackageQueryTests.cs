@@ -1,4 +1,6 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
+using DotnetInspector.Packages;
 using InertText;
 using NuGetFetch;
 
@@ -13,18 +15,29 @@ public sealed class PackageQueryTests
             [
                 ("package.query.source-verified", 100),
                 ("package.query.dotnet-tool", 200),
+                ("package.query.dotnet-tool-v1", 210),
+                ("package.query.dotnet-tool-v2", 220),
                 ("package.query.has-dependencies", 300),
                 ("package.query.no-dependencies", 400),
                 ("package.query.downloads-1m", 500),
                 ("package.query.embedded-readme", 600),
+                ("package.query.embedded-skill", 700),
             ],
             PackageQuery.Facets.Select(facet =>
                 (facet.Id, facet.Weight)));
-        Assert.All(
-            PackageQuery.Facets,
-            facet => Assert.Equal(
+        Assert.Equal(
+            [
                 PackageQueryFacetTier.Nuspec,
-                facet.Tier));
+                PackageQueryFacetTier.Nuspec,
+                PackageQueryFacetTier.PackageContent,
+                PackageQueryFacetTier.PackageContent,
+                PackageQueryFacetTier.Nuspec,
+                PackageQueryFacetTier.Nuspec,
+                PackageQueryFacetTier.Nuspec,
+                PackageQueryFacetTier.Nuspec,
+                PackageQueryFacetTier.PackageContent,
+            ],
+            PackageQuery.Facets.Select(facet => facet.Tier));
         Assert.Equal(
             PackageQuery.DependencySelectionGroupId,
             PackageQuery.Facets.Single(facet =>
@@ -35,6 +48,29 @@ public sealed class PackageQueryTests
             PackageQuery.Facets.Single(facet =>
                 facet.Id == PackageQuery.NoDependenciesFacetId)
                 .SelectionGroupId);
+        Assert.Equal(
+            ".NET Tool",
+            PackageQuery.Facets.Single(facet =>
+                facet.Id == PackageQuery.ToolFacetId).Label);
+        Assert.Equal(
+            "embedded SKILL.md",
+            PackageQuery.Facets.Single(facet =>
+                facet.Id == PackageQuery.EmbeddedSkillFacetId).Label);
+        Assert.All(
+            PackageQuery.Facets.Where(facet =>
+                facet.Id is PackageQuery.ToolFacetId
+                    or PackageQuery.ToolV1FacetId
+                    or PackageQuery.ToolV2FacetId),
+            facet =>
+            {
+                Assert.Equal(
+                    PackageQuery.ToolSelectionGroupId,
+                    facet.SelectionGroupId);
+                Assert.Equal(
+                    PackageQuery.ToolDisplayGroupId,
+                    facet.DisplayGroupId);
+                Assert.Equal(".NET tool format", facet.DisplayGroupLabel);
+            });
     }
 
     [Theory]
@@ -104,6 +140,37 @@ public sealed class PackageQueryTests
         Assert.Equal(
             PackageProfileQuery.MaximumPackageLimit,
             plan.MaximumMatches);
+    }
+
+    [Fact]
+    public void Plan_RequiresThePackageContentCandidateBound()
+    {
+        PackageQueryRequestFailure rejected = Rejected(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    [PackageQuery.EmbeddedSkillFacetId],
+                    MaximumCandidates:
+                        PackageQuery.MaximumPackageContentCandidates + 1)));
+
+        Assert.Equal(
+            PackageQueryRequestFailureReason
+                .PackageContentCandidateLimitExceeded,
+            rejected.Reason);
+        Assert.Equal(
+            PackageQuery.MaximumPackageContentCandidates + 1,
+            rejected.Value);
+
+        PackageQueryPlan accepted = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    [PackageQuery.EmbeddedSkillFacetId],
+                    MaximumCandidates:
+                        PackageQuery.MaximumPackageContentCandidates)));
+        Assert.Equal(
+            PackageQueryFacetTier.PackageContent,
+            Assert.Single(accepted.Facets).Tier);
     }
 
     [Fact]
@@ -384,6 +451,169 @@ public sealed class PackageQueryTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_PackageContentFacetsMatchSkillsAndToolFormats()
+    {
+        PackageSearchMatch[] candidates =
+        [
+            Match("Contoso.V1"),
+            Match("Contoso.V2"),
+            Match("Contoso.Library"),
+        ];
+        var source = new FakePackageSource(
+            candidates,
+            candidates.ToDictionary(
+                candidate =>
+                    $"{candidate.Metadata.Id.ToLowerInvariant()}@1.0.0",
+                candidate => Manifest(
+                    candidate.Metadata.Id,
+                    packageTypes: candidate.Metadata.Id == "Contoso.Library"
+                        ? ""
+                        : """
+                          <packageTypes>
+                            <packageType name="DotnetTool" />
+                          </packageTypes>
+                          """)));
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Contoso.V1"] = new FakePackageContent(
+                    ("tools/net8.0/any/DotnetToolSettings.xml",
+                        "<DotNetCliTool><Commands /></DotNetCliTool>"),
+                    ("SKILLS/demo/skill.MD", "# Demo")),
+                ["Contoso.V2"] = new FakePackageContent(
+                    ("tools/any/any/DotnetToolSettings.xml",
+                        "<DotNetCliTool Version=\"2\"><Commands /></DotNetCliTool>")),
+                ["Contoso.Library"] = new FakePackageContent(
+                    ("skills/SKILL.md", "# Library")),
+            });
+
+        PackageQueryPlan v1Plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    [PackageQuery.ToolV1FacetId],
+                    MaximumCandidates: 3,
+                    MaximumMatches: 3)));
+        List<PackageQueryEvent> v1Events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                v1Plan,
+                content,
+                TestContext.Current.CancellationToken));
+        PackageQueryMatch v1 = Assert.Single(
+            v1Events.OfType<PackageQueryEvent.Match>()).Value;
+        Assert.Equal("Contoso.V1", v1.Package.PackageId);
+        Assert.Equal(PackageQueryFacetTier.PackageContent, v1.Tier);
+        Assert.Equal(
+            [PackageQuery.PrefixEvidenceId, PackageQuery.ToolV1FacetId],
+            v1.Evidence.Select(evidence => evidence.Id));
+        Assert.Equal(
+            ["Contoso.V1", "Contoso.V2"],
+            content.Requests);
+
+        content.Requests.Clear();
+        PackageQueryPlan v2Plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    [PackageQuery.ToolV2FacetId],
+                    MaximumCandidates: 3,
+                    MaximumMatches: 3)));
+        List<PackageQueryEvent> v2Events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                v2Plan,
+                content,
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            "Contoso.V2",
+            Assert.Single(v2Events.OfType<PackageQueryEvent.Match>())
+                .Value.Package.PackageId);
+        Assert.Equal(
+            ["Contoso.V1", "Contoso.V2"],
+            content.Requests);
+
+        content.Requests.Clear();
+        PackageQueryPlan skillPlan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    [PackageQuery.EmbeddedSkillFacetId],
+                    MaximumCandidates: 3,
+                    MaximumMatches: 3)));
+        List<PackageQueryEvent> skillEvents = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                skillPlan,
+                content,
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            ["Contoso.V1", "Contoso.Library"],
+            skillEvents.OfType<PackageQueryEvent.Match>()
+                .Select(item => item.Value.Package.PackageId));
+        Assert.Equal(
+            ["Contoso.V1", "Contoso.V2", "Contoso.Library"],
+            content.Requests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_PackageContentAcquisitionFailureRemainsVisible()
+    {
+        var source = SourceFor(Manifest("Contoso.Package"));
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>(),
+            "package payload unavailable");
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    [PackageQuery.EmbeddedSkillFacetId],
+                    MaximumCandidates: 1,
+                    MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        PackageQueryFailure failure =
+            Assert.IsType<PackageQueryEvent.Failure>(events[0]).Value;
+        Assert.Equal(
+            PackageQueryFailureKind.PackageContentAcquisition,
+            failure.Kind);
+        Assert.Equal("package payload unavailable", failure.Message);
+        PackageQuerySummary summary =
+            Assert.IsType<PackageQueryEvent.Completed>(events[^1]).Value;
+        Assert.Equal(1, summary.Failures);
+        Assert.Equal(0, summary.Matches);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_PackageContentFacetRequiresProviderBeforeSourceWork()
+    {
+        var source = SourceFor(Manifest("Contoso.Package"));
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    [PackageQuery.EmbeddedSkillFacetId],
+                    MaximumCandidates: 1,
+                    MaximumMatches: 1)));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => CollectAsync(
+                PackageQuery.ExecuteAsync(
+                    source,
+                    plan,
+                    TestContext.Current.CancellationToken)));
+
+        Assert.Empty(source.ManifestRequests);
+        Assert.Equal(0, source.LastSearchTake);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_RejectsCloseFacetNegatives()
     {
         await AssertNoMatchesAsync(
@@ -621,9 +851,9 @@ public sealed class PackageQueryTests
                 plan,
                 TestContext.Current.CancellationToken));
 
-        PackageProfileFailure failure =
+        PackageQueryFailure failure =
             Assert.IsType<PackageQueryEvent.Failure>(events[0]).Value;
-        Assert.Equal(PackageProfileFailureKind.SearchContract, failure.Kind);
+        Assert.Equal(PackageQueryFailureKind.SearchContract, failure.Kind);
         PackageQuerySummary summary =
             Assert.IsType<PackageQueryEvent.Completed>(events[^1]).Value;
         Assert.Equal(PackageQueryCompletionKind.Failed, summary.Completion);
@@ -1043,5 +1273,83 @@ public sealed class PackageQueryTests
         public void Dispose()
         {
         }
+    }
+
+    private sealed class FakePackageQueryContentProvider(
+        IReadOnlyDictionary<string, IPackageContent> content,
+        string unavailableMessage = "package content unavailable")
+        : IPackageQueryContentProvider
+    {
+        public List<string> Requests { get; } = [];
+
+        public ValueTask<PackageQueryContentResult> GetContentAsync(
+            PackageProfileMatch package,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Requests.Add(package.PackageId);
+            return ValueTask.FromResult<PackageQueryContentResult>(
+                content.TryGetValue(
+                    package.PackageId,
+                    out IPackageContent? packageContent)
+                    ? new PackageQueryContentResult.Available(packageContent)
+                    : new PackageQueryContentResult.Unavailable(
+                        unavailableMessage));
+        }
+    }
+
+    private sealed class FakePackageContent(
+        params (string Path, string Content)[] entries)
+        : IPackageContent
+    {
+        readonly IReadOnlyDictionary<string, byte[]> _entries =
+            entries.ToDictionary(
+                entry => entry.Path,
+                entry => Encoding.UTF8.GetBytes(entry.Content),
+                StringComparer.Ordinal);
+
+        public string? RootPath => null;
+        public string? NupkgPath => null;
+        public bool FromCache => false;
+        public string ProducerKey => "nuget.org";
+        public bool RequiresArchiveTreeMatch => false;
+
+        public bool TryOpenArchive([NotNullWhen(true)] out Stream? stream)
+        {
+            stream = null;
+            return false;
+        }
+
+        public bool TryOpenEntry(
+            string relativePath,
+            [NotNullWhen(true)] out Stream? stream)
+        {
+            if (_entries.TryGetValue(relativePath, out byte[]? content))
+            {
+                stream = new MemoryStream(content, writable: false);
+                return true;
+            }
+
+            stream = null;
+            return false;
+        }
+
+        public bool TryOpenEntry(
+            string relativePath,
+            long maxExpandedBytes,
+            [NotNullWhen(true)] out Stream? stream)
+        {
+            if (!_entries.TryGetValue(relativePath, out byte[]? content)
+                || content.LongLength > maxExpandedBytes)
+            {
+                stream = null;
+                return false;
+            }
+
+            stream = new MemoryStream(content, writable: false);
+            return true;
+        }
+
+        public IEnumerable<string> EnumerateEntries() => _entries.Keys;
     }
 }

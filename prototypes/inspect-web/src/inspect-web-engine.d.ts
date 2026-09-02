@@ -5,8 +5,8 @@ export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Am
 export type BrowserDependencyCoordinateProvenance = "NuGetPackage" | "PlatformRuntime" | number;
 export type BrowserPackageQueryCompletionKind = "Exhausted" | "MatchLimitReached" | "CandidateLimitReached" | "SourcePageLimitReached" | "ClientPageLimitReached" | "Failed" | number;
 export type BrowserPackageQueryEventKind = "Match" | "Failure" | "Completed" | number;
-export type BrowserPackageQueryFacetTier = "Nuspec" | number;
-export type BrowserPackageQueryFailureKind = "Search" | "SearchContract" | "ManifestAcquisition" | "ManifestContract" | "InvalidManifest" | number;
+export type BrowserPackageQueryFacetTier = "Nuspec" | "PackageContent" | number;
+export type BrowserPackageQueryFailureKind = "Search" | "SearchContract" | "ManifestAcquisition" | "ManifestContract" | "InvalidManifest" | "PackageContentAcquisition" | "PackageContentEvaluation" | number;
 export interface BrowserAccessibilityDescriptor {
     readonly id: string;
     readonly label: string;
@@ -485,6 +485,8 @@ export interface BrowserPackageQueryFacetDescriptor {
     readonly weight: number;
     readonly tier: BrowserPackageQueryFacetTier;
     readonly selectionGroupId: string | null;
+    readonly displayGroupId: string | null;
+    readonly displayGroupLabel: string | null;
 }
 export interface BrowserPackageQueryFailure {
     readonly packageId: string | null;

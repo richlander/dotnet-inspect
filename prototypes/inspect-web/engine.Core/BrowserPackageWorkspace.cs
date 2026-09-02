@@ -633,6 +633,44 @@ internal static class BrowserPackageWorkspace
         };
     }
 
+    internal static async ValueTask<PackageQueryContentResult>
+        AcquirePackageQueryContentAsync(
+            PackageProfileMatch package,
+            IPackageSourceClient source,
+            BrowserPackageOperationDeadline deadline)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(deadline);
+        PackageSourceCoordinate coordinate = PackageSourceCoordinate.Create(
+            package.PackageId,
+            package.Version);
+        PackageSourcePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                source,
+                coordinate,
+                Store,
+                limits: PayloadLimits,
+                cancellationToken: deadline.Token,
+                transferPolicy: new BrowserPackageOperationTransferPolicy(
+                    Store,
+                    deadline)).ConfigureAwait(false);
+        return result switch
+        {
+            PackageSourcePayloadResult.Acquired acquired =>
+                new PackageQueryContentResult.Available(
+                    acquired.Payload.Content),
+            PackageSourcePayloadResult.Unavailable unavailable =>
+                new PackageQueryContentResult.Unavailable(
+                    unavailable.Message),
+            PackageSourcePayloadResult.Failed failed =>
+                new PackageQueryContentResult.Unavailable(
+                    failed.Failure.Message),
+            _ => throw new InvalidOperationException(
+                "Package payload acquisition returned an unknown outcome."),
+        };
+    }
+
     internal static Task<T> WaitForSharedAcquisitionAsync<T>(
         Task<T> acquisition,
         CancellationToken cancellationToken)

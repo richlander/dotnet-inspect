@@ -20,9 +20,9 @@ export type BrowserPackageQueryCompletionKind = "Exhausted" | "MatchLimitReached
 
 export type BrowserPackageQueryEventKind = "Match" | "Failure" | "Completed" | number;
 
-export type BrowserPackageQueryFacetTier = "Nuspec" | number;
+export type BrowserPackageQueryFacetTier = "Nuspec" | "PackageContent" | number;
 
-export type BrowserPackageQueryFailureKind = "Search" | "SearchContract" | "ManifestAcquisition" | "ManifestContract" | "InvalidManifest" | number;
+export type BrowserPackageQueryFailureKind = "Search" | "SearchContract" | "ManifestAcquisition" | "ManifestContract" | "InvalidManifest" | "PackageContentAcquisition" | "PackageContentEvaluation" | number;
 
 export interface BrowserAccessibilityDescriptor {
   readonly id: string;
@@ -564,6 +564,8 @@ export interface BrowserPackageQueryFacetDescriptor {
   readonly weight: number;
   readonly tier: BrowserPackageQueryFacetTier;
   readonly selectionGroupId: string | null;
+  readonly displayGroupId: string | null;
+  readonly displayGroupLabel: string | null;
 }
 
 export interface BrowserPackageQueryFailure {

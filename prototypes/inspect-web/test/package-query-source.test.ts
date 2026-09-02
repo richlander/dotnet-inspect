@@ -38,6 +38,8 @@ test("packageQueryFacets preserves product descriptors and producer ordering", (
         weight: 20,
         tier: "Nuspec",
         selectionGroupId: "package.query.dependencies",
+        displayGroupId: null,
+        displayGroupLabel: null,
       },
       {
         id: "package.query.source-verified",
@@ -46,6 +48,18 @@ test("packageQueryFacets preserves product descriptors and producer ordering", (
         weight: 10,
         tier: "Nuspec",
         selectionGroupId: null,
+        displayGroupId: null,
+        displayGroupLabel: null,
+      },
+      {
+        id: "package.query.dotnet-tool-v2",
+        label: "v2",
+        summary: "RID-specific .NET tool format.",
+        weight: 30,
+        tier: "PackageContent",
+        selectionGroupId: "package.query.dotnet-tool-format",
+        displayGroupId: "package.query.display.dotnet-tool",
+        displayGroupLabel: ".NET tool format",
       },
     ],
   };
@@ -58,6 +72,8 @@ test("packageQueryFacets preserves product descriptors and producer ordering", (
       weight: 20,
       tier: "nuspec",
       selectionGroupId: "package.query.dependencies",
+      displayGroupId: null,
+      displayGroupLabel: null,
     },
     {
       key: "package.query.source-verified",
@@ -66,8 +82,88 @@ test("packageQueryFacets preserves product descriptors and producer ordering", (
       weight: 10,
       tier: "nuspec",
       selectionGroupId: null,
+      displayGroupId: null,
+      displayGroupLabel: null,
+    },
+    {
+      key: "package.query.dotnet-tool-v2",
+      label: "v2",
+      summary: "RID-specific .NET tool format.",
+      weight: 30,
+      tier: "package-content",
+      selectionGroupId: "package.query.dotnet-tool-format",
+      displayGroupId: "package.query.display.dotnet-tool",
+      displayGroupLabel: ".NET tool format",
     },
   ]);
+});
+
+test("Browser data source maps package-content rows and visible failures", async () => {
+  const matchEvent: BrowserPackageQueryEvent = {
+    kind: "Match",
+    failure: null,
+    completion: null,
+    row: {
+      packageId: "Contoso.Tool",
+      version: "2.0.0",
+      tier: "PackageContent",
+      evidence: [{
+        id: "package.query.dotnet-tool-v2",
+        text: "DotnetToolSettings.xml declares v2.",
+      }],
+      totalDownloads: 12,
+      verified: false,
+      producer: "nuget.org",
+    },
+  };
+  const failureEvent: BrowserPackageQueryEvent = {
+    kind: "Failure",
+    row: null,
+    completion: null,
+    failure: {
+      packageId: "Contoso.Bad",
+      version: "1.0.0",
+      producer: "nuget.org",
+      kind: "PackageContentEvaluation",
+      message: "package content could not be evaluated",
+    },
+  };
+  let candidateLimit = 0;
+  const engine: BrowserPackageQueryEngine = {
+    cancel() {},
+    async run(_prefix, _facets, candidates, _matches, _prerelease, sink) {
+      candidateLimit = candidates;
+      assert.ok(typeof sink === "object" && sink !== null);
+      Reflect.set(sink, "event", JSON.stringify(matchEvent));
+      Reflect.set(sink, "event", JSON.stringify(failureEvent));
+      return completionEvent;
+    },
+  };
+  const rows: { packageId: string; tier: string }[] = [];
+  const failures: string[] = [];
+  const request = withFacet(createQueryRequest("Contoso."), {
+    key: "package.query.dotnet-tool-v2",
+    label: "v2",
+    tier: "package-content",
+  });
+
+  await createBrowserPackageQueryDataSource(engine).run(
+    request,
+    page => rows.push(...page.map(row => ({
+      packageId: row.packageId,
+      tier: row.tier,
+    }))),
+    failure => failures.push(failure),
+    new AbortController().signal);
+
+  assert.equal(candidateLimit, 20);
+  assert.deepEqual(rows, [{
+    packageId: "Contoso.Tool",
+    tier: "package-content",
+  }]);
+  assert.deepEqual(
+    failures,
+    ["Contoso.Bad@1.0.0: package content could not be evaluated"]);
 });
 
 test("Browser data source streams matches and failures before terminal completion", async () => {
