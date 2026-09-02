@@ -466,9 +466,10 @@ merge, confirm live GitHub readiness — see [Merge preflight](docs/round-orches
 ### Clean reviews are not spent by main moving
 
 When a `main`-targeting PR (or the bottom open stack slice) has a review-clean
-head or an approved trivial-interaction waiver and `origin/main` moves while it
-stays open, classify the landed range before any agent-driven merge or
-mutation: do not integrate blindly and do not start another round by default.
+head or a pending or approved trivial-interaction waiver and `origin/main`
+moves while it stays open, classify the landed range before any agent-driven
+merge or mutation: do not integrate blindly and do not start another round by
+default.
 An upper stack slice instead follows its parent, whose movement is a restack
 requiring review at the new head. Report the classification as normal session
 output before changing labels or dispatching reviewers, re-classifying only

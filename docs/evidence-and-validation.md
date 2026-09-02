@@ -107,15 +107,24 @@ Each field is load-bearing:
   filters. An over-narrow exclusion yields a zero that is true and worthless,
   and the reader cannot see that from the command alone. State the denominator
   so the number can be disputed.
-- **Command** searches tracked files. `grep -r` reaches into build output and
+- **Command** searches tracked files, and its pattern covers every construct
+  the **Policy** names. A pattern narrower than the policy certifies a
+  different, smaller claim than the one stated, while still reading as though
+  it covered all of it. `grep -r` additionally reaches into build output and
   `node_modules`, which inflates or deflates the count unpredictably; prefer
   `git ls-files` or `git grep`.
-- **Finding** is the raw result, not an interpretation of it. If the count is
-  not zero, mitigation by absence does not apply and the record should not be
-  written.
+- **Finding** is the raw result, then its reading — in that order, and visibly
+  separated. A lexical scan matches comments, strings, and names that merely
+  resemble the construct, so a non-zero count is not automatically a defect;
+  what disqualifies mitigation by absence is a real occurrence, not a match.
+  Report the count, cite where the matches are, and say which ones are
+  occurrences. Never fold the interpretation into the number.
 - **Gate** is where the record is most likely to flatter itself. Name the rule
   only if it actually fires on this construct in this configuration; otherwise
-  write `unverified` and the reason, and link the issue tracking the gate.
+  write `unverified` and the reason, and link the issue tracking the gate. A
+  textual scan is not a candidate: it cannot decide what a name binds to, so an
+  alias or an unlisted spelling walks past it. The command is evidence that the
+  policy holds today; a gate is what keeps it holding.
 
 Re-measuring replaces the whole block, including the date. Do not leave an old
 date beside a new finding.
@@ -125,27 +134,40 @@ earns a sentence, not an essay. Prose describing a hazard that does not exist
 here dilutes the material that does and implies a threat the reader then has to
 rule out. Do not build a bespoke check for a construct with no instances.
 
-Worked example, measured against `prototypes/inspect-web` on 2026-09-01 across
-the 123 tracked `.ts`, `.js`, and `.html` files outside `node_modules`:
+Worked example of the survey form. The shared fields are stated once and the
+per-construct fields go in the table.
 
-| Construct | Instances | Gate |
-| --- | --- | --- |
-| `eval(...)` | 0 | `eslint(no-eval)` |
-| `new Function(...)` | 0 | `typescript(no-implied-eval)` |
-| `document.write(...)` | 0 | none — `unverified` |
-| inline HTML event handler attributes | 0 | none — `unverified` |
+- **Date:** 2026-09-01
+- **Scope:** the 123 tracked `.ts`, `.js`, and `.html` files in
+  `prototypes/inspect-web` outside `node_modules`
+- **Policy:** none of these constructs is introduced into the front end; a
+  change that needs one is a design decision, not a refactor
+
+| Construct | Command (within Scope) | Finding | Gate |
+| --- | --- | --- | --- |
+| `eval(...)` | `grep -nE '\beval[[:space:]]*\('` | 0 | `eslint(no-eval)` |
+| `new Function(...)` | `grep -nE 'new[[:space:]]+Function[[:space:]]*\('` | 0 | `typescript(no-implied-eval)` |
+| `document.write(...)` | `grep -nE 'document\.write[[:space:]]*\('` | 0 | none — `unverified` |
+| inline HTML event handler attributes | `grep -nE '<[^>]*[[:space:]]on[a-z]+='` | 2, both `<img src=x onerror=...>` payloads inside escaping assertions in `test/spotlight-identity.test.ts`; no handler in shipped markup | none — `unverified` |
 
 Two of the four were already gated by rules the repository turned on for other
 reasons, which is the point: the check for an existing gate came before the
 prose, and replaced it.
 
+The fourth row shows why **Finding** is the raw count and not a verdict. The
+honest result within the stated scope is 2, and both matches are XSS payloads
+a test feeds through the escaper on purpose. Writing `0` there would have been
+a defensible reading and an unreproducible number: the next person to run the
+command would get 2 and have no way to tell whether the construct had appeared
+since or had never been counted.
+
 The construct that is *not* in that table matters more than the ones that are.
-`.innerHTML =` has 24 instances and is the front end's primary rendering
-mechanism, so mitigation by absence does not apply to it at all; its safety
-rests on escaping at each interpolation, which is a different argument
-requiring different evidence. The first draft of this table asserted it was
-absent. Measuring is what caught that, which is why measurement is leg one and
-not a formality.
+`.innerHTML =` has 26 instances in the same corpus, 24 of them outside tests,
+and is the front end's primary rendering mechanism, so mitigation by absence
+does not apply to it at all; its safety rests on escaping at each
+interpolation, which is a different argument requiring different evidence. The
+first draft of this table asserted it was absent. Measuring is what caught
+that, which is why measurement is leg one and not a formality.
 
 The record itself belongs with the claim it supports, not here. The
 repository's filled-in instance of the certification block is
@@ -154,9 +176,11 @@ whose **Gate** field reads `unverified` because the analyzer that could enforce
 it is scoped to a different concern (#5488). Stating why a claim is not yet
 gated is what keeps it from reading as a control that exists.
 
-A survey of several constructs at once, like the table above, is the other
-legitimate shape; use the block for a single claim in its owning document, and
-a table when comparing constructs. Both carry the same fields.
+A survey of several constructs at once is the other legitimate shape: state
+`Date`, `Scope`, and `Policy` once for the whole survey, then give each row its
+own `Command`, `Finding`, and `Gate`, as the worked example above does. Use the
+block for a single claim in its owning document and the survey when comparing
+constructs. Neither form may drop a field.
 
 ## Harness boundary
 
