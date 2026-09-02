@@ -87,6 +87,36 @@ test("keyboard source activation selects the same invocation node", async ({ pag
   await expect(page.locator("#annotated-node-1")).toBeFocused();
 });
 
+test("selected invocation offers explicit destinations and hands off the modal", async ({
+  page,
+}) => {
+  await page.locator("#explore-annotated").click();
+  const invocation = page.locator(
+    '#annotated-source-modal .annotated-source-segment.invocation:has-text("object")',
+  ).first();
+  await invocation.click({ position: { x: 8, y: 8 } });
+
+  const member = page.locator(
+    '[data-annotated-action="destination-open"][data-destination="member"]',
+  );
+  const source = page.locator(
+    '[data-annotated-action="destination-open"][data-destination="source"]',
+  );
+  await expect(member).toHaveText("Member");
+  await expect(source).toHaveText("Source");
+  await expect(member).toHaveAttribute(
+    "aria-label",
+    "Open member overview for System.Object..ctor",
+  );
+
+  await source.click();
+  await expect(page.locator("#annotated-source-modal")).toHaveCount(0);
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-destination",
+    "source:0",
+  );
+});
+
 test("native pointer drag selects text without activating a node", async ({ page }) => {
   await page.locator("#explore-annotated").click();
   const source = page.locator(

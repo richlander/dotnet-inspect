@@ -1,4 +1,4 @@
-export type BrowserAnnotatedSourceCapabilityUnavailableReason = "NotProjected" | number;
+export type BrowserAnnotatedSourceCapabilityUnavailableReason = "NotProjected" | "ContextUnavailable" | number;
 export type BrowserAnnotatedSourceMedium = "CSharp" | "Il" | number;
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Ambiguous" | number;
@@ -37,10 +37,15 @@ export interface BrowserAnnotatedSourceCapabilityAvailability {
     readonly available: boolean;
     readonly unavailableReason: BrowserAnnotatedSourceCapabilityUnavailableReason | null;
 }
+export interface BrowserAnnotatedSourceInvocationDestination {
+    readonly nodeId: number;
+    readonly target: BrowserCallGraphTarget;
+}
 export interface BrowserAnnotatedSourceViewerCatalog {
     readonly defaultFindingIds: ReadonlyArray<number>;
     readonly supportedMedia: ReadonlyArray<BrowserAnnotatedSourceMedium>;
     readonly invocationLikeNodeKinds: ReadonlyArray<string>;
+    readonly invocationDestinations: ReadonlyArray<BrowserAnnotatedSourceInvocationDestination>;
     readonly findingEvidence: BrowserAnnotatedSourceCapabilityAvailability;
     readonly destinations: BrowserAnnotatedSourceCapabilityAvailability;
 }
@@ -137,6 +142,7 @@ export interface BrowserCallGraphTarget {
     readonly selectorKey: string;
     readonly kind: string;
     readonly platformPack: string | null;
+    readonly surfaceAssemblyId: string | null;
 }
 export interface BrowserCompileLibraryAvailability {
     readonly status: BrowserCompileLibraryStatus;
@@ -167,7 +173,7 @@ export interface BrowserExceptionSurface {
     readonly description: string;
 }
 export interface BrowserGraphMemberSurface {
-    readonly member: BrowserMemberSurface;
+    readonly type: BrowserTypeSurface;
     readonly selectedBody: BrowserMemberBodySelector;
 }
 export interface BrowserHeapEntry {
