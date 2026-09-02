@@ -189,6 +189,7 @@ test("subject and inspector strips omit package coordinate selectors", () => {
     strip: typeLenses,
     activeStripId: "api",
     stripAttribute: "data-lens",
+    panelId: "inspector-panel",
     escapeHtml,
   });
 
@@ -220,6 +221,7 @@ test("type scope marks the type segment and renders the fixed type lenses", () =
     strip: typeLenses,
     activeStripId: "api",
     stripAttribute: "data-lens",
+    panelId: "inspector-panel",
     escapeHtml,
   });
 
@@ -228,7 +230,10 @@ test("type scope marks the type segment and renders the fixed type lenses", () =
   assert.match(html, /class="lens active" data-lens="api"/);
   assert.match(
     html,
-    /aria-label="API" title="API"><span class="lens-label">API<\/span><kbd aria-hidden="true">1<\/kbd>/);
+    /role="tab" aria-selected="true" tabindex="0" id="active-inspector-tab" aria-controls="inspector-panel"[\s\S]*aria-label="API" title="API"><span class="lens-label">API<\/span><kbd aria-hidden="true">1<\/kbd>/);
+  assert.match(
+    html,
+    /class="inspector-strip" role="tablist" aria-label="Type lenses"/);
   assert.match(html, /data-lens="metadata"/);
   assert.match(html, /data-lens="source"/);
 });
@@ -283,10 +288,10 @@ test("lens buttons separate accessible labels from compact order symbols", () =>
 
   assert.match(
     html,
-    /aria-label="API" title="API"><span class="lens-label">API<\/span><kbd aria-hidden="true">1<\/kbd>/);
+    /role="tab" aria-selected="true" tabindex="0" id="active-inspector-tab"[\s\S]*aria-label="API" title="API"><span class="lens-label">API<\/span><kbd aria-hidden="true">1<\/kbd>/);
   assert.match(
     html,
-    /aria-label="Metadata" title="Metadata"><span class="lens-label">Metadata<\/span><kbd aria-hidden="true">2<\/kbd>/);
+    /role="tab" aria-selected="false" tabindex="-1"[\s\S]*aria-label="Metadata" title="Metadata"><span class="lens-label">Metadata<\/span><kbd aria-hidden="true">2<\/kbd>/);
   assert.match(
     html,
     /aria-label="Source" title="Source"><span class="lens-label">Source<\/span><kbd aria-hidden="true">3<\/kbd>/);
@@ -315,4 +320,8 @@ test("no strip entry is marked active when nothing matches activeStripId", () =>
   });
 
   assert.doesNotMatch(html, /class="lens active"/);
+  assert.match(
+    html,
+    /data-package-lens="overview" data-inspector-tab role="tab" aria-selected="false" tabindex="0"/);
+  assert.doesNotMatch(html, /aria-controls=/);
 });

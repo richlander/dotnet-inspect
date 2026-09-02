@@ -97,13 +97,20 @@ test("right-side actions yield from labels to arrows to nothing", async ({
   await expect(page.locator("#open-search")).toBeHidden();
   await expect(page.locator(".title-navigation .nav-history")).toBeVisible();
 
+  for (const width of [800, 761]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/browser/workspace-titlebar.html?member=1");
+    await expect(page.locator(".lensbar .lens-label").first()).toBeVisible();
+    expect(await page.evaluate(() =>
+      document.documentElement.scrollWidth
+      - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+  }
+
   await page.setViewportSize({ width: 760, height: 900 });
   await page.goto("/browser/workspace-titlebar.html?member=1");
 
   const titlebar = await box(page, ".titlebar");
   const subjectZone = await box(page, ".subject-zone");
-  const namespacePicker = await box(page, ".namespace-picker");
-  const typeList = await box(page, ".type-list");
 
   await expect(page.locator("#package-version")).toHaveCount(0);
   await expect(page.locator("#framework")).toHaveCount(0);
@@ -125,7 +132,20 @@ test("right-side actions yield from labels to arrows to nothing", async ({
     "4",
     "5",
   ]);
-  await expect(page.getByRole("button", { name: "Call graph" })).toBeVisible();
+  const callGraph = page.getByRole("tab", { name: "Call graph" });
+  await expect(callGraph).toBeVisible();
+  await expect(callGraph).toHaveAttribute("aria-selected", "false");
+  const overview = page.getByRole("tab", { name: "Overview" });
+  await expect(overview).toHaveAttribute("aria-selected", "true");
+  await expect(overview).toHaveAttribute("aria-controls", "inspector-panel");
+  await expect(page.locator("#inspector-panel")).toHaveAttribute(
+    "aria-labelledby",
+    "active-inspector-tab");
+  await overview.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(callGraph).toBeFocused();
+  await expect(callGraph).toHaveAttribute("aria-selected", "false");
+  await expect(overview).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#go-home")).toHaveCount(0);
   await expect(page.locator(".subject-path-segment")).toHaveText([
     "System.Text.Json",
@@ -164,7 +184,10 @@ test("right-side actions yield from labels to arrows to nothing", async ({
   const horizontalOverflow = await page.evaluate(() =>
     document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(horizontalOverflow).toBeLessThanOrEqual(0);
-  expect(namespacePicker.y + namespacePicker.height).toBeLessThanOrEqual(typeList.y);
+  const narrowNamespacePicker = await box(page, ".namespace-picker");
+  const narrowTypeList = await box(page, ".type-list");
+  expect(narrowNamespacePicker.y + narrowNamespacePicker.height)
+    .toBeLessThanOrEqual(narrowTypeList.y);
 });
 
 test("the title line advertises the typed Package, Type, and Member path", async ({

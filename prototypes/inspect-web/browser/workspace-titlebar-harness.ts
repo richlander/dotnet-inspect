@@ -1,4 +1,4 @@
-import { renderScopeBar } from "../src/scope-bar.ts";
+import { bindScopeBar, renderScopeBar } from "../src/scope-bar.ts";
 import { workbenchShellHtml } from "../src/shell-controls.ts";
 import { renderWorkspaceSubject } from "../src/workspace-subject.ts";
 
@@ -178,6 +178,7 @@ app.innerHTML = `
           : memberMode
             ? "data-member-section"
             : "data-lens",
+        panelId: "inspector-panel",
         showMemberScope: memberMode,
         escapeHtml,
       })}
@@ -191,7 +192,7 @@ app.innerHTML = `
     <main class="workspace">
       ${navigationHtml}
       <section class="detail-pane">
-        <article class="detail-scroll">
+        <article id="inspector-panel" class="detail-scroll"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
           <h1>${subjectPath.at(-1)?.label}</h1>
           ${packageMode ? `
             <section class="document-section package-coordinate-editor">
@@ -211,3 +212,10 @@ document.querySelectorAll<HTMLElement>("[data-subject-copy]").forEach(button =>
     const index = Number(button.dataset.subjectCopy);
     document.body.dataset.copiedSubject = subjectPath[index]?.label ?? "";
   }));
+
+bindScopeBar(document, {
+  onMemberSectionSelect: () => {},
+  onPackageLensSelect: () => {},
+  onScopeSelect: () => {},
+  onTypeLensSelect: () => {},
+});

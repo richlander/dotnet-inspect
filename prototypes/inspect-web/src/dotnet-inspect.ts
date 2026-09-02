@@ -2679,6 +2679,9 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     annotatedWorkingSurface;
   const subjectPath = currentInspectedSubjectPath();
   const subjectPathLabel = subjectPath.map(segment => segment.label).join(" > ");
+  const inspectorPanelSemantics = hasEffectiveInspector()
+    ? ' role="tabpanel" aria-labelledby="active-inspector-tab"'
+    : "";
 
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal ? " inert" : ""}>
@@ -2741,7 +2744,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
         ${renderNavPane(current, visible)}
 
         <section class="detail-pane">
-          <article class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}">
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -2978,6 +2981,22 @@ function renderMemberNavPane(type: AppTypeSurface) {
 //   package → package lenses   type → type lenses   member → member sections
 // Keeping all three families of buttons on one strip means the member modes (Overview,
 // Call graph, …) live here too instead of inside the detail pane.
+function hasEffectiveInspector(): boolean {
+  const sc = scope();
+  if (sc === "workspace") return false;
+  if (sc === "package") {
+    return packageLensesFor(state.package)
+      .some(([id]) => id === state.packageLens);
+  }
+  if (sc === "member") {
+    const selected = selectedType();
+    const member = selected && selectedMember(selected);
+    return Boolean(member && memberSectionsFor(member)
+      .some(([id]) => id === state.memberSection));
+  }
+  return typeLensesFor(state.package).some(([id]) => id === state.lens);
+}
+
 function renderScopeBar() {
   const sc = scope();
   const selected = selectedType();
@@ -2989,6 +3008,7 @@ function renderScopeBar() {
       strip: [],
       activeStripId: null,
       stripAttribute: "data-workspace-lens",
+      panelId: "inspector-panel",
       showMemberScope,
       escapeHtml,
     });
@@ -2999,6 +3019,7 @@ function renderScopeBar() {
       strip: packageLensesFor(state.package),
       activeStripId: state.packageLens,
       stripAttribute: "data-package-lens",
+      panelId: "inspector-panel",
       showMemberScope,
       escapeHtml,
     });
@@ -3010,6 +3031,7 @@ function renderScopeBar() {
       strip: member ? memberSectionsFor(member) : [],
       activeStripId: state.memberSection,
       stripAttribute: "data-member-section",
+      panelId: "inspector-panel",
       showMemberScope,
       emptyStripLabel: "Filtered member list",
       escapeHtml,
@@ -3023,6 +3045,7 @@ function renderScopeBar() {
       strip: typeLensesFor(state.package),
       activeStripId: state.lens,
       stripAttribute: "data-lens",
+      panelId: "inspector-panel",
       showMemberScope,
       escapeHtml,
     });

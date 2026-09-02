@@ -87,7 +87,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focu
 }
 
 body {
-  min-width: 880px;
+  min-width: 0;
   background:
     radial-gradient(circle at 63% -20%, rgba(229, 102, 63, .07), transparent 36rem),
     var(--bg);
@@ -218,6 +218,7 @@ body {
 }
 .lensbar button:hover { color: var(--text); background: rgba(255,255,255,.015); }
 .lensbar button.active { color: var(--text); border-bottom-color: var(--accent); }
+.inspector-strip { display: flex; align-items: center; gap: 2px; }
 .home-lens { color: var(--text) !important; font-weight: 600; cursor: pointer; }
 .home-lens.active { border-bottom-color: var(--accent); }
 .home-lens span { color: var(--accent); margin-right: 6px; }
@@ -1276,7 +1277,6 @@ kbd {
 }
 
 @media (max-width: 760px) {
-  body { min-width: 0; }
   .brand { width: 48px; padding: 0 14px; }
   .brand span:last-child { display: none; }
   .inspected-target { gap: 6px; padding: 0 10px; }
