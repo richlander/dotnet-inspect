@@ -82,8 +82,9 @@ This is an explicit outcome, not missing package data.
 
 A real reference-assembly group at the exactly selected target wins over a
 compatible empty group. A compatible real `ref` group at another target
-framework is not a compile candidate. Files such as `lib/net8.0/_._`,
-`ref/net8.0/_`, and `ref/net8.0/_._.dll` are not empty-group markers.
+framework is not a compile candidate. A library empty group such as
+`lib/net8.0/_._` says nothing about compile assets. Files such as
+`ref/net8.0/_` and `ref/net8.0/_._.dll` are not empty-group markers.
 
 ## Product boundaries
 
