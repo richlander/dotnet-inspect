@@ -1112,6 +1112,91 @@ public class CSharpStructuralComparisonTests
         Assert.Equal("", overlongDisplay.Detail);
     }
 
+    [Theory]
+    // Issue #5494: `SplitTopLevelArguments` must not mistake a comma nested
+    // inside a generic type-argument list for a top-level argument
+    // separator. The outer call always has exactly one top-level argument
+    // in these repros; a naive scan (no `<`/`>` tracking) would wrongly
+    // split it into two or three.
+    [InlineData("Bar<A,B>()", new[] { "Bar<A,B>()" })]
+    [InlineData("Bar<A,receiver,B>()", new[] { "Bar<A,receiver,B>()" })]
+    [InlineData("Dictionary<string, List<int>>.Empty", new[] { "Dictionary<string, List<int>>.Empty" })]
+    public void SplitTopLevelArguments_DoesNotSplitInsideGenericTypeArgumentList(
+        string argsText,
+        string[] expectedArguments)
+    {
+        var arguments = CSharpStructuralDiffPrinter.SplitTopLevelArguments(argsText);
+        Assert.Equal(expectedArguments, arguments);
+    }
+
+    [Fact]
+    public void SplitTopLevelArguments_StillSplitsPlainLessThanComparisonArguments()
+    {
+        // Guard against over-correcting #5494: a lone `<` with no matching
+        // `>` before the argument list ends is not a generic type-argument
+        // list -- it is an ordinary less-than comparison -- so the comma
+        // that follows it must still split as a top-level argument
+        // separator, exactly as before this fix.
+        var arguments = CSharpStructuralDiffPrinter.SplitTopLevelArguments("a < b, c");
+        Assert.Equal(["a < b", "c"], arguments);
+    }
+
+    [Fact]
+    public void TryFindArgumentSpan_LocatesArgumentPastNestedGenericTypeArgumentList()
+    {
+        // Companion to SplitTopLevelArguments_DoesNotSplitInsideGenericTypeArgumentList,
+        // exercised through the narrowing helper (#5486) directly: the sole
+        // top-level argument `Bar<A,B>()` must be found as argument 0, not
+        // split at the comma nested inside `<A,B>`.
+        const string text = "Foo(Bar<A,B>())";
+        Assert.True(CSharpStructuralDiffPrinter.TryFindArgumentSpan(text, 0, out int start, out int length));
+        Assert.Equal("Bar<A,B>()", text.Substring(start, length));
+
+        // And a genuinely inserted second top-level argument after the
+        // generic call must still be found correctly.
+        const string textWithSecondArgument = "Foo(Bar<A,B>(), receiver)";
+        Assert.True(CSharpStructuralDiffPrinter.TryFindArgumentSpan(textWithSecondArgument, 1, out int start2, out int length2));
+        Assert.Equal("receiver", textWithSecondArgument.Substring(start2, length2));
+    }
+
+    [Fact]
+    public void CompareStructure_DoesNotMistakeGenericTypeArgumentForQualifierMovedIntoArgument()
+    {
+        // Issue #5494 end-to-end: `receiver` never appears as a top-level
+        // call argument in either version -- it only ever appears nested
+        // inside a generic type-argument list (`Bar<A,receiver,B>`). The
+        // qualifier/argument shape must not be recognized here at all (the
+        // outer call's argument count is unchanged, 1 -> 1), so this must
+        // fall back to the honest text dump rather than claiming `receiver`
+        // "moved to argument N".
+        const string beforeText = "receiver.Foo(Bar<A,B>())";
+        const string afterText = "Foo(Bar<A,receiver,B>())";
+
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            Document(beforeText, "InvocationExpression", beforeText),
+            Document(afterText, "InvocationExpression", afterText),
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        var row = Assert.Single(comparison.Rows);
+        var beforeSpan = Assert.Single(row.BeforeSpans);
+        var afterSpan = Assert.Single(row.AfterSpans);
+
+        // No false narrowing to a generic-argument `receiver` token: the row
+        // must keep its full, un-narrowed call span on both sides.
+        Assert.Equal(0, beforeSpan.Start);
+        Assert.Equal(beforeText.Length, beforeSpan.Length);
+        Assert.Equal(0, afterSpan.Start);
+        Assert.Equal(afterText.Length, afterSpan.Length);
+
+        string beforeBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(comparison, CSharpStructuralSide.Before);
+        string afterBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(comparison, CSharpStructuralSide.After);
+        Assert.DoesNotContain("qualifier", beforeBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("moved to argument", afterBody, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void RenderAnnotatedBody_FallsBackToTextDumpWhenQualifierRoleShapeIsNotRecognized()
     {
