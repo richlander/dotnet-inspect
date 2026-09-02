@@ -348,8 +348,10 @@ with the absence of a synthesized `Default feed` control.
    dialog name, initial focus, focus containment, Escape dismissal, and focus
    return.
 4. Confirm that the title-line inspected target and second-row
-   subject/inspector strip retain their single-line contiguous windows and edge
-   disclosure rather than wrapping.
+   subject/inspector strip remain single-line rather than wrapping. Confirm
+   that the title-line target elides while preserving its complete accessible
+   path, and that only the Slideable Subject Strip uses contiguous windows and
+   edge disclosure.
 5. With focus in the wide navigation pane, narrow the viewport and confirm that
    focus moves to the new drawer button without opening it.
 6. Open the drawer, restore the wide viewport, and confirm that the drawer

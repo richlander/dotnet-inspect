@@ -168,7 +168,11 @@ The composite, rather than either `SlideStrip`, owns width allocation between
 the regions. A strip's **policy minimum width** is the normal inline size
 required by its least-capacity policy outcome at the current anchor: one Label
 for subjects and two Index controls for inspectors, clamped to the installed
-inspector count.
+inspector count. One fixed non-interactive separator remains between non-empty
+strips in every allocation state. Every fit calculation below uses the
+composite width remaining after that measured separator; the allocation
+controls are adjacent controls whose width is reserved only while they are
+mounted.
 
 1. When both complete inventories fit in Label mode, they consume natural width
    and the allocation controls are absent.

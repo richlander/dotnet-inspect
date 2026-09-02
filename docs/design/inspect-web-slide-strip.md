@@ -84,16 +84,17 @@ Each mode contains:
 - a positive minimum visible-item count; and
 - the normal interactive sizing and between-item decoration for that mode.
 
-Each representation kind occurs at most once. Label must occur exactly once
-and is always viable. Index is viable whenever the adopter includes it. A
-Short Label or Icon mode is viable only when every installed item supplies
-that value. If even one item omits it, the control skips the whole mode instead
-of mixing representations within one window. A mode's requested count is
-clamped to the installed inventory count.
+Each representation kind occurs at most once. Label must be the first,
+most-preferred mode, must occur exactly once, and is always viable. Index is
+viable whenever the adopter includes it. A Short Label or Icon mode is viable
+only when every installed item supplies that value. If even one item omits it,
+the control skips the whole mode instead of mixing representations within one
+window. A mode's requested count is clamped to the installed inventory count.
 
-The control rejects policy construction when Label is absent or duplicated, a
-kind is duplicated, a requested count is not positive, or an item fails to
-return its required Label. It does not silently invent a usable policy.
+The control rejects policy construction when Label is absent, duplicated, or
+not first; a kind is duplicated; a requested count is not positive; or an item
+fails to return its required Label. It does not silently invent a usable
+policy.
 
 The minimum visible-item count expresses the adopter's density preference. A
 subject policy can require only one Label item, preserving a complete label as
@@ -347,8 +348,9 @@ normal Inspect Web frontend and production Browser/Wasm suites.
    from one item and confirm that the whole mode is skipped without inventing
    content or mixing fallback forms. Confirm that Label remains the accessible
    name in every mode and Index changes with owner order without changing
-   opaque identity. Reject absent or duplicate Label modes, duplicate kinds,
-   non-positive requested counts, and an item whose resolver omits Label.
+   opaque identity. Reject absent, duplicate, or non-leading Label modes,
+   duplicate kinds, non-positive requested counts, and an item whose resolver
+   omits Label.
 3. Configure one policy with Label minimum count one and another with Label
    minimum count two followed by Short Label and Index minimum counts two.
    Narrow both. Confirm that the first reaches one full label while the second
