@@ -61,6 +61,15 @@ of promised behavior. The fact that an artificial mutation survives a gate
 does not by itself justify another gate. Prefer evidence from public product
 outcomes over tests that inspect seams introduced only for the test.
 
+Require the smallest set of claims and gates sufficient for the stated user
+goal and owned boundaries. Do not demand a feature-specific platform,
+portability, safety, or composition claim merely because the repository values
+that property. When the exact head uses only supported dependencies and
+mechanisms, inherit the existing contract without another claim or gate.
+Require additional claims and evidence only when a new dependency, API, or
+design creates a concrete reason to question that contract, and name that
+trigger. Existing repository-required gates remain applicable.
+
 Treat conventions, best practices, and analogous implementations as
 comparative evidence, not authority. A deliberate divergence is not a defect
 merely because it is unusual; connect it to an owned-claim violation and
