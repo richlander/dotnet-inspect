@@ -38,7 +38,11 @@ const widenings = [
     find: '  ["source", "Source"]\n] as const;\n\nexport type TypeLens',
     replace: '  ["source", "Source"],\n  ["probe-type-lens", "Probe"]\n] as const;\n\nexport type TypeLens',
     token: "probe-type-lens",
-    dispatches: ["renderLens", "loadSelectedTypeLensData"],
+    dispatches: [
+      "typeLensPresentation",
+      "renderLens",
+      "loadSelectedTypeLensData",
+    ],
   },
   {
     vocabulary: "PackageLens",
@@ -46,7 +50,7 @@ const widenings = [
     find: '  ["metadata", "Metadata"]\n] as const;',
     replace: '  ["metadata", "Metadata"],\n  ["probe-package-lens", "Probe"]\n] as const;',
     token: "probe-package-lens",
-    dispatches: ["packageLensBody"],
+    dispatches: ["packageLensBody", "packageLensPresentation"],
   },
   {
     vocabulary: "MemberSection",
@@ -54,7 +58,13 @@ const widenings = [
     find: '  ["annotated", "Annotated source"],\n] as const;',
     replace: '  ["annotated", "Annotated source"],\n  ["probe-member-section", "Probe"],\n] as const;',
     token: "probe-member-section",
-    dispatches: ["loadMemberSectionContent", "applyView", "renderMember", "loadSelectionData"],
+    dispatches: [
+      "memberSectionPresentation",
+      "loadMemberSectionContent",
+      "applyView",
+      "renderMember",
+      "loadSelectionData",
+    ],
   },
   {
     vocabulary: "WorkspaceScope",
