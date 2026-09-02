@@ -670,12 +670,16 @@ jobs:
           dotnet run --project tests/ILInspector.JsExportSurface.Tests \
             -c Release --no-build -- \
             -class 'ILInspector.JsExportSurface.Tests.JsonNamingPoliciesTests' \
+            -class 'ILInspector.JsExportSurface.Tests.JsExportContextLoaderTests' \
             -class 'ILInspector.JsExportSurface.Tests.TypeScriptFacadeEmitterTests' \
+            -class 'ILInspector.JsExportSurface.Tests.TsJsExportContractsTests' \
             -class 'ILInspector.JsExportSurface.Tests.TsJsExportCommandTests' \
             -xml "$results"
           for class in \
             ILInspector.JsExportSurface.Tests.JsonNamingPoliciesTests \
+            ILInspector.JsExportSurface.Tests.JsExportContextLoaderTests \
             ILInspector.JsExportSurface.Tests.TypeScriptFacadeEmitterTests \
+            ILInspector.JsExportSurface.Tests.TsJsExportContractsTests \
             ILInspector.JsExportSurface.Tests.TsJsExportCommandTests
           do
             if ! grep -Fq "type=\"$class\"" "$results"; then
@@ -700,6 +704,9 @@ jobs:
               exit 1
             fi
           done
+
+      - name: Run ts-jsexport context NativeAOT gate
+        run: eng/test-ts-jsexport-context-aot.sh "${{ matrix.rid }}"
 
       - name: Run runfaster tests
         run: dotnet run --project src/runfaster.Tests -c Release
