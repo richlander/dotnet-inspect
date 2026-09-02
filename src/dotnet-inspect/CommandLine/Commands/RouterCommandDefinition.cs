@@ -101,6 +101,24 @@ public static class RouterCommandDefinition
                     || token.StartsWith(
                         "--schema=",
                         StringComparison.Ordinal));
+            if (structuralDiscovery
+                && RouterTokenRewriter.TryRewriteAcquisitionFree(
+                    tokens,
+                    rootCommand,
+                    out string[] structuralRewrite))
+            {
+                structuralRewrite =
+                    CommandLineBuilder.PreprocessArgs(
+                        structuralRewrite,
+                        rootCommand);
+                RequestTelemetry.Breadcrumb(
+                    "router-structural",
+                    $"syntax: {string.Join(' ', structuralRewrite)}");
+                return await CommandLineBuilder.InvokeWithLineWindowAsync(
+                    rootCommand.Parse(structuralRewrite),
+                    structuralRewrite);
+            }
+
             if (StructuralViewRegistry.TryClassifyCommandless(
                     tokens,
                     structuralDiscovery,
@@ -121,6 +139,23 @@ public static class RouterCommandDefinition
 
             if (structuralDiscovery)
             {
+                ParseResult analysisParseResult =
+                    rootCommand.Parse(
+                        [MemberCommand.Name, .. tokens]);
+                OptionError? analysisError =
+                    SharedParsers.ParseAnalysisQueryOptions(
+                        analysisParseResult,
+                        opts,
+                        typeScoped: false,
+                        typeName: null,
+                        out _,
+                        out _);
+                if (analysisError is not null)
+                {
+                    CommandError.Write(analysisError.Value);
+                    return 1;
+                }
+
                 StructuralDiscoveryRequest request =
                     StructuralDiscoveryRequest.From(
                         sourceParseResult,
@@ -259,16 +294,12 @@ public static class RouterCommandDefinition
             var target = tokens[0];
             var tail = tokens[1..];
 
-            if (CommandLineHelpers.TryClassifyAsFilePath(target, out var dllPath, out var nupkgPath))
-            {
-                if (dllPath != null)
-                    return ["library", target, .. tail];
-                if (nupkgPath != null)
-                    return ["package", target, .. tail];
-            }
+            if (TryRewriteAcquisitionFree(
+                    tokens,
+                    rootCommand,
+                    out string[] rewritten))
+                return rewritten;
 
-            var hasExplicitGenericNotation =
-                TypeMatcher.HasExplicitGenericNotation(target);
             var trailingSegmentStart =
                 FqnParser.LastTopLevelDot(target) + 1;
             var trailingSegmentHasGenericNotation =
@@ -281,117 +312,12 @@ public static class RouterCommandDefinition
             var hasLibraryValue = TryGetLibraryValue(
                 tail,
                 rootCommand,
-                out var libraryValue);
+                out _);
             var hasExplicitApiSource =
                 ContainsOption(tail, "--package")
                 || ContainsOption(tail, "--platform")
                 || ContainsOption(tail, "--project")
                 || hasLibraryValue;
-            var hasVersionQuery = ContainsOption(tokens, "--version")
-                || ContainsOption(tokens, "--latest-version")
-                || ContainsOption(tokens, "--versions")
-                || ContainsOption(tokens, "--versions-with-feed");
-            if (TryRouteExplicitSourceTarget(
-                    target,
-                    tail,
-                    "--package",
-                    hasTypeOption,
-                    hasMemberOption,
-                    rootCommand,
-                    out var explicitSourceRoute)
-                || TryRouteExplicitSourceTarget(
-                    target,
-                    tail,
-                    "--platform",
-                    hasTypeOption,
-                    hasMemberOption,
-                    rootCommand,
-                    out explicitSourceRoute))
-            {
-                return explicitSourceRoute;
-            }
-
-            if (hasTypeOption && hasExplicitApiSource)
-            {
-                return ["type", target, .. tail];
-            }
-
-            if (hasMemberOption
-                && (!hasExplicitGenericNotation
-                    || (hasExplicitApiSource
-                        && trailingSegmentHasGenericNotation
-                        && trailingSegmentStart == 0)))
-                return ["member", target, .. tail];
-
-            if (hasExplicitApiSource
-                && TrySplitOperatorMemberTarget(
-                    target,
-                    out var operatorType,
-                    out var operatorMember))
-            {
-                return
-                [
-                    "member",
-                    operatorType,
-                    "-m",
-                    operatorMember,
-                    .. tail
-                ];
-            }
-
-            if (IsExplicitSourceIdentity(target, tail, "--package"))
-            {
-                return
-                [
-                    "package",
-                    target,
-                    .. RemoveOptionWithValue(
-                        tail,
-                        "--package",
-                        target)
-                ];
-            }
-
-            if (IsExplicitSourceIdentity(target, tail, "--platform"))
-                return ["library", target, .. tail];
-
-            if (hasLibraryValue
-                && !hasExplicitGenericNotation
-                && !ContainsOption(tail, "--package")
-                && !ContainsOption(tail, "--platform")
-                && !ContainsOption(tail, "--project")
-                && IsPackageRelativeLibraryValue(libraryValue))
-            {
-                return ["package", .. tokens];
-            }
-
-            if (hasExplicitApiSource)
-            {
-                return target.Contains('.')
-                    ? RouteDeferredTypeOrMember(target, tail)
-                    : ["type", target, .. tail];
-            }
-
-            if (ContainsOption(tokens, "--library"))
-                return ["package", .. tokens];
-
-            if (tokens.Length >= 2
-                && !tokens[1].StartsWith('-')
-                && !CommandLineHelpers.LooksLikeVersionNumber(tokens[1]))
-            {
-                return ["type", tokens[1], "--package", target, .. tokens[2..]];
-            }
-
-            if (hasVersionQuery || target.Contains('@'))
-                return ["package", .. tokens];
-
-            if (hasExplicitGenericNotation
-                && IsStaticSchemaDiscovery(tokens))
-            {
-                return target.Contains('.')
-                    ? RouteDeferredTypeOrMember(target, tail)
-                    : ["type", target, .. tail];
-            }
 
             var context = new CommandContext(verbose: false);
             if (PlatformResolver.IsPlatformCandidate(target))
@@ -584,6 +510,240 @@ public static class RouterCommandDefinition
             }
 
             return ["package", .. tokens];
+        }
+
+        public static bool TryRewriteAcquisitionFree(
+            string[] tokens,
+            RootCommand rootCommand,
+            out string[] rewritten)
+        {
+            rewritten = [];
+            if (tokens.Length == 0)
+                return false;
+
+            string target = tokens[0];
+            string[] tail = tokens[1..];
+            if (ContainsOption(tokens, "--all-libraries"))
+            {
+                rewritten = [PackageCommand.Name, .. tokens];
+                return true;
+            }
+
+            if (CommandLineHelpers.TryClassifyAsFilePath(
+                    target,
+                    out string? dllPath,
+                    out string? nupkgPath))
+            {
+                if (dllPath is not null)
+                {
+                    rewritten = ["library", target, .. tail];
+                    return true;
+                }
+
+                if (nupkgPath is not null)
+                {
+                    rewritten = [PackageCommand.Name, target, .. tail];
+                    return true;
+                }
+            }
+
+            bool hasExplicitGenericNotation =
+                TypeMatcher.HasExplicitGenericNotation(target);
+            int trailingSegmentStart =
+                FqnParser.LastTopLevelDot(target) + 1;
+            bool trailingSegmentHasGenericNotation =
+                TypeMatcher.HasExplicitGenericNotation(
+                    target[trailingSegmentStart..]);
+            bool hasTypeOption =
+                ContainsOption(tokens, "--type")
+                || ContainsOption(tokens, "-t");
+            bool hasMemberOption =
+                ContainsOption(tokens, "--member")
+                || ContainsOption(tokens, "-m");
+            bool hasLibraryValue = TryGetLibraryValue(
+                tail,
+                rootCommand,
+                out string libraryValue);
+            bool hasExplicitApiSource =
+                ContainsOption(tail, "--package")
+                || ContainsOption(tail, "--platform")
+                || ContainsOption(tail, "--project")
+                || hasLibraryValue;
+            bool hasVersionQuery =
+                ContainsOption(tokens, "--version")
+                || ContainsOption(tokens, "--latest-version")
+                || ContainsOption(tokens, "--versions")
+                || ContainsOption(
+                    tokens,
+                    "--versions-with-feed");
+            bool structuralSchema =
+                IsStaticSchemaDiscovery(tokens);
+            bool hasStructuralPackageAssetPath =
+                hasLibraryValue
+                && IsPackageRelativeLibraryPath(libraryValue)
+                && (libraryValue.Contains('/')
+                    || libraryValue.Contains('\\'));
+
+            if (TryRouteExplicitSourceTarget(
+                    target,
+                    tail,
+                    "--package",
+                    hasTypeOption,
+                    hasMemberOption,
+                    rootCommand,
+                    structuralSchema,
+                    out rewritten)
+                || TryRouteExplicitSourceTarget(
+                    target,
+                    tail,
+                    "--platform",
+                    hasTypeOption,
+                    hasMemberOption,
+                    rootCommand,
+                    structuralSchema,
+                    out rewritten))
+            {
+                return true;
+            }
+
+            if (hasTypeOption && hasExplicitApiSource)
+            {
+                rewritten = ["type", target, .. tail];
+                return true;
+            }
+
+            if (hasMemberOption
+                && (!hasExplicitGenericNotation
+                    || (hasExplicitApiSource
+                        && trailingSegmentHasGenericNotation
+                        && trailingSegmentStart == 0)))
+            {
+                rewritten = [MemberCommand.Name, target, .. tail];
+                return true;
+            }
+
+            if (hasExplicitApiSource
+                && TrySplitOperatorMemberTarget(
+                    target,
+                    out string operatorType,
+                    out string operatorMember))
+            {
+                rewritten =
+                [
+                    MemberCommand.Name,
+                    operatorType,
+                    "-m",
+                    operatorMember,
+                    .. tail,
+                ];
+                return true;
+            }
+
+            if (IsExplicitSourceIdentity(
+                    target,
+                    tail,
+                    "--package"))
+            {
+                rewritten =
+                [
+                    PackageCommand.Name,
+                    target,
+                    .. RemoveOptionWithValue(
+                        tail,
+                        "--package",
+                        target),
+                ];
+                return true;
+            }
+
+            if (IsExplicitSourceIdentity(
+                    target,
+                    tail,
+                    "--platform"))
+            {
+                rewritten = ["library", target, .. tail];
+                return true;
+            }
+
+            if (hasLibraryValue
+                && !hasExplicitGenericNotation
+                && !ContainsOption(tail, "--package")
+                && !ContainsOption(tail, "--platform")
+                && !ContainsOption(tail, "--project")
+                && IsPackageRelativeLibraryValue(libraryValue)
+                && (!structuralSchema
+                    || hasStructuralPackageAssetPath))
+            {
+                rewritten = [PackageCommand.Name, .. tokens];
+                return true;
+            }
+
+            if (structuralSchema
+                && hasLibraryValue)
+            {
+                return false;
+            }
+
+            if (hasExplicitApiSource)
+            {
+                rewritten = target.Contains('.')
+                    ? RouteDeferredTypeOrMember(target, tail)
+                    : ["type", target, .. tail];
+                return true;
+            }
+
+            if (ContainsOption(tokens, "--library"))
+            {
+                rewritten = [PackageCommand.Name, .. tokens];
+                return true;
+            }
+
+            if (tokens.Length >= 2
+                && !tokens[1].StartsWith(
+                    "-",
+                    StringComparison.Ordinal)
+                && !CommandLineHelpers.LooksLikeVersionNumber(
+                    tokens[1]))
+            {
+                rewritten =
+                [
+                    "type",
+                    tokens[1],
+                    "--package",
+                    target,
+                    .. tokens[2..],
+                ];
+                return true;
+            }
+
+            if (hasVersionQuery || target.Contains('@'))
+            {
+                rewritten = [PackageCommand.Name, .. tokens];
+                return true;
+            }
+
+            if (hasExplicitGenericNotation
+                && IsStaticSchemaDiscovery(tokens))
+            {
+                if (StructuralViewRegistry
+                    .HasUnambiguousMemberTail(target))
+                {
+                    rewritten =
+                        [MemberCommand.Name, target, .. tail];
+                    return true;
+                }
+
+                rewritten =
+                    StructuralViewRegistry
+                        .HasExplicitGenericTypeTail(target)
+                    ? ["type", target, .. tail]
+                    : target.Contains('.')
+                    ? RouteDeferredTypeOrMember(target, tail)
+                    : ["type", target, .. tail];
+                return true;
+            }
+
+            return false;
         }
 
         private static bool ContainsOption(string[] tokens, string option)
@@ -1031,6 +1191,7 @@ public static class RouterCommandDefinition
             bool hasTypeOption,
             bool hasMemberOption,
             RootCommand rootCommand,
+            bool structuralSchema,
             out string[] rewritten)
         {
             rewritten = [];
@@ -1111,7 +1272,9 @@ public static class RouterCommandDefinition
                 return true;
             }
 
-            rewritten = targetToken.Contains('.')
+            rewritten = structuralSchema
+                ? ["type", targetToken, .. sourceTail]
+                : targetToken.Contains('.')
                 ? RouteDeferredTypeOrMember(targetToken, sourceTail)
                 : ["type", targetToken, .. sourceTail];
             return true;

@@ -246,6 +246,8 @@ public static class StructuralViewRegistry
                 "all-libraries",
                 [InspectionCatalogIdentity.LibraryAggregate],
                 SharedProjectionCapabilities
+                & ~StructuralParserCapabilities.Fields
+                & ~StructuralParserCapabilities.Columns
                 | StructuralParserCapabilities.TypeFilter),
             new(
                 StructuralViewIdentity.DirectLibrary,
@@ -373,6 +375,71 @@ public static class StructuralViewRegistry
             }
         }
 
+        bool hasExplicitGenericNotation =
+            TypeMatcher.HasExplicitGenericNotation(target);
+        int trailingSegmentStart =
+            CSharpText.FqnParser.LastTopLevelDot(target) + 1;
+        bool trailingSegmentHasGenericNotation =
+            TypeMatcher.HasExplicitGenericNotation(
+                target[trailingSegmentStart..]);
+        bool hasMemberOption =
+            ContainsOption(tokens, "--member")
+            || ContainsOption(tokens, "-m");
+        bool hasTypeOption =
+            ContainsOption(tokens, "--type")
+            || ContainsOption(tokens, "-t");
+        bool hasExplicitApiSource =
+            ContainsOption(tokens, "--package")
+            || ContainsOption(tokens, "--platform")
+            || ContainsOption(tokens, "--project")
+            || ContainsOption(tokens, "--library");
+        if (hasTypeOption && hasExplicitApiSource)
+        {
+            classification = new CommandlessStructuralRoute(
+                Route(
+                    StructuralViewIdentity.Type,
+                    InspectionCatalogIdentity.ApiType),
+                [TypeCommand.Name, .. tokens]);
+            return true;
+        }
+
+        if (hasMemberOption
+            && (!hasExplicitGenericNotation
+                || (hasExplicitApiSource
+                    && trailingSegmentHasGenericNotation
+                    && trailingSegmentStart == 0)))
+        {
+            classification = new CommandlessStructuralRoute(
+                Route(
+                    StructuralViewIdentity.MemberTarget,
+                    GetCommandlessMemberCatalog(tokens)),
+                [MemberCommand.Name, .. tokens]);
+            return true;
+        }
+
+        if (tokens.Length >= 2
+            && !tokens[1].StartsWith(
+                "-",
+                StringComparison.Ordinal)
+            && !CommandLineHelpers.LooksLikeVersionNumber(
+                tokens[1]))
+        {
+            classification = new CommandlessStructuralRoute(
+                Route(
+                    StructuralViewIdentity.Type,
+                    TypeMatcher.IsTypeGlobPattern(tokens[1])
+                        ? InspectionCatalogIdentity.ApiType
+                        : InspectionCatalogIdentity.ApiMember),
+                [
+                    TypeCommand.Name,
+                    tokens[1],
+                    "--package",
+                    target,
+                    .. tokens[2..],
+                ]);
+            return true;
+        }
+
         if (ContainsOption(tokens, "--index")
             || HasUnambiguousMemberTail(target))
         {
@@ -473,15 +540,15 @@ public static class StructuralViewRegistry
                     InspectionCatalogIdentity.ApiMember));
         }
 
-        int tailStart = CSharpText.FqnParser.LastTopLevelDot(target);
+        var (_, impliedMemberName) =
+            SharedParsers.SplitTrailingMember(target);
         bool tailCanBeMember =
-            tailStart > 0
-            && !target[(tailStart + 1)..].Contains('<');
+            impliedMemberName is not null;
         if (memberSelectors.Length > 0
             || (!hasTypeMarker && tailCanBeMember))
         {
             string impliedMember = memberSelectors.FirstOrDefault()
-                ?? target[(tailStart + 1)..];
+                ?? impliedMemberName!;
             MemberTargetSelector selector =
                 MemberTargetSelector.Parse(impliedMember);
             string[] sectionSelectors =
@@ -509,11 +576,7 @@ public static class StructuralViewRegistry
                     memberCatalog));
         }
 
-        string[]? selectors =
-            request.Discover is { Length: > 0 }
-                ? request.Discover
-                : request.Select;
-        return CreateAlternatives(routes, selectors);
+        return CreateAlternatives(routes, request);
     }
 
     public static StructuralDiscoveryPlan CreateApiPlan(
@@ -575,7 +638,7 @@ public static class StructuralViewRegistry
                             StructuralViewIdentity.MemberTarget,
                             peeledCatalog),
                     ],
-                    selectors));
+                    StructuralDiscoveryRequest.From(options)));
         }
 
         StructuralViewIdentity view =
@@ -677,9 +740,14 @@ public static class StructuralViewRegistry
                         .Get(route.Catalog)
                         .SectionNames;
                 defaultSections =
-                    ApiInspectionCatalogRegistry
-                        .Get(route.Catalog)
-                        .DefaultSectionNames;
+                    route.View.Identity
+                        == StructuralViewIdentity.Type
+                    && route.Catalog
+                        == InspectionCatalogIdentity.ApiMember
+                        ? pipeline.FixedOverviewSectionNames
+                        : ApiInspectionCatalogRegistry
+                            .Get(route.Catalog)
+                            .DefaultSectionNames;
                 annotations = pipeline.GetCostAnnotations();
                 categories = pipeline.GetCategoryMap();
                 break;
@@ -803,6 +871,12 @@ public static class StructuralViewRegistry
         StructuralDiscoveryRequest request)
     {
         var schema = new DocumentSchema();
+        var annotations =
+            new Dictionary<string, string>(
+                StringComparer.OrdinalIgnoreCase);
+        var categories =
+            new Dictionary<string, string[]>(
+                StringComparer.OrdinalIgnoreCase);
         foreach (StructuralAlternativeSelection alternative in
                  alternatives.Alternatives)
         {
@@ -820,12 +894,40 @@ public static class StructuralViewRegistry
 
                 string labeledName =
                     $"[{alternative.Route.Label}] {name}";
+                if (projection.SectionCostAnnotations.TryGetValue(
+                        name,
+                        out string? annotation))
+                {
+                    annotations[labeledName] = annotation;
+                }
                 string[] items =
                     [.. section.Items.Select(item => item.Name)];
                 if (items.Length == 0)
                     schema.AddSection(labeledName);
                 else
                     schema.Add(labeledName, section.ItemKind, items);
+            }
+
+            foreach (var (category, categorySections) in
+                     projection.SectionCategories)
+            {
+                var includedSections =
+                    new HashSet<string>(
+                        sections,
+                        StringComparer.OrdinalIgnoreCase);
+                string[] labeledSections =
+                [
+                    .. categorySections
+                        .Where(includedSections.Contains)
+                        .Select(name =>
+                            $"[{alternative.Route.Label}] {name}"),
+                ];
+                if (labeledSections.Length > 0)
+                {
+                    categories[
+                        $"[{alternative.Route.Label}] {category}"] =
+                        labeledSections;
+                }
             }
 
             foreach (SectionSelectorDiagnostic diagnostic in
@@ -854,13 +956,21 @@ public static class StructuralViewRegistry
             markdown: request.Markdown,
             plainText: request.PlainText,
             verbosity: (int)request.Verbosity,
+            sectionCostAnnotations: annotations,
+            sectionCategories: categories,
             projection: request.Projection);
     }
 
     public static StructuralCatalogAlternatives CreateAlternatives(
         IEnumerable<StructuralRoute> routes,
-        string[]? selectors)
+        StructuralDiscoveryRequest request)
     {
+        string[]? selectors =
+            request.Discover is { Length: > 0 }
+                ? request.Discover
+                : request.Select;
+        bool hasExplicitSelection =
+            selectors is { Length: > 0 };
         var alternatives =
             ImmutableArray.CreateBuilder<StructuralAlternativeSelection>();
         foreach (StructuralRoute route in routes)
@@ -869,13 +979,15 @@ public static class StructuralViewRegistry
             SelectResult result = SelectResolver.ResolveSelectAsSections(
                 selectors,
                 projection.SelectableSectionNames,
-                infoSections: null,
+                projection.DefaultSectionNames,
                 projection.SectionCategories,
-                selectDefault: false);
+                request.SelectDefault
+                && !hasExplicitSelection);
             alternatives.Add(
                 new StructuralAlternativeSelection(
                     route,
-                    selectors is not { Length: > 0 },
+                    !hasExplicitSelection
+                    && !request.SelectDefault,
                     [.. result.Sections ?? []],
                     [.. result.Unresolved.Select(miss =>
                         new SectionSelectorDiagnostic(
@@ -995,28 +1107,27 @@ public static class StructuralViewRegistry
     internal static bool HasUnambiguousMemberTail(
         string target)
     {
-        int operatorStart =
-            target.LastIndexOf(
-                ".operator",
-                StringComparison.Ordinal);
-        int tailStart = operatorStart > 0
-            ? operatorStart
-            : CSharpText.FqnParser.LastTopLevelDot(target);
-        if (tailStart <= 0
-            || tailStart == target.Length - 1)
-        {
+        var (typeName, memberName) =
+            SharedParsers.SplitTrailingMember(target);
+        if (memberName is null
+            || typeName.Length == target.Length)
             return false;
-        }
 
-        string tail = target[(tailStart + 1)..];
         MemberTargetSelector selector =
-            MemberTargetSelector.Parse(tail);
+            MemberTargetSelector.Parse(memberName);
         return selector.OverloadIndex is not null
             || !string.IsNullOrWhiteSpace(
                 selector.DigestPrefix)
-            || tail.StartsWith(
-                "operator",
-                StringComparison.Ordinal);
+            || memberName is ".ctor" or ".cctor"
+            || selector.Name.StartsWith(
+                "op_",
+                StringComparison.Ordinal)
+            || memberName.StartsWith(
+                "explicit:",
+                StringComparison.OrdinalIgnoreCase)
+            || memberName.StartsWith(
+                "extension:",
+                StringComparison.OrdinalIgnoreCase);
     }
 
     internal static bool HasExplicitGenericTypeTail(
@@ -1026,6 +1137,57 @@ public static class StructuralViewRegistry
             CSharpText.FqnParser.LastTopLevelDot(target) + 1;
         return TypeMatcher.HasExplicitGenericNotation(
             target[trailingSegmentStart..]);
+    }
+
+    private static InspectionCatalogIdentity
+        GetCommandlessMemberCatalog(
+            IReadOnlyList<string> tokens)
+    {
+        string[] members =
+            GetOptionValues(tokens, "-m", "--member");
+        bool exactMember =
+            ContainsOption(tokens, "--index")
+            || members.Any(member =>
+            {
+                MemberTargetSelector selector =
+                    MemberTargetSelector.Parse(member);
+                return selector.OverloadIndex is not null
+                    || !string.IsNullOrWhiteSpace(
+                        selector.DigestPrefix);
+            });
+        if (BodyKindQueryOptions.TryExtract(
+                GetOptionValues(tokens, "--where"),
+                out BodyKindQueryOptions bodyKindQuery,
+                out _,
+                out _)
+            && bodyKindQuery.HasFilter)
+        {
+            exactMember = true;
+        }
+
+        string[] sectionSelectors =
+        [
+            .. GetOptionValues(
+                tokens,
+                "-D",
+                "--discover",
+                "-S",
+                "--select"),
+        ];
+        if (ApiSectionDemandIndex.Classify(
+                InspectionSurface.Member,
+                [.. sectionSelectors],
+                selectDefault: false,
+                InspectionTargetRequirement.MemberSet)
+            .RequiredTarget
+            == InspectionTargetRequirement.ExactMember)
+        {
+            exactMember = true;
+        }
+
+        return exactMember
+            ? InspectionCatalogIdentity.ApiMemberDetail
+            : InspectionCatalogIdentity.ApiMemberOverload;
     }
 
     private static string[] GetOptionValues(

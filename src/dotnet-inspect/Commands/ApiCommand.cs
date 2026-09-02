@@ -119,11 +119,14 @@ public class ApiCommand
     internal static bool RejectUniversallyInvalidMemberSelect(
         MemberOptions options)
     {
+        string[]? selectors =
+            options.Discover is { Length: > 0 }
+                ? options.Discover
+                : options.Select;
         if (!(options.RouterDeferredTypeOrMember
                 || RequiresMemberPipelineLookup(options))
-            || options.Discover is not null
             || options.IncludeSections is not null
-            || options.Select is not { Length: > 0 })
+            || selectors is not { Length: > 0 })
         {
             return false;
         }
@@ -145,7 +148,7 @@ public class ApiCommand
             AddCategories(pipeline.GetCategoryMap());
 
         var result = SelectResolver.ResolveSelectAsSections(
-            options.Select,
+            selectors,
             knownSections,
             infoSections: [],
             categories,
@@ -154,14 +157,16 @@ public class ApiCommand
             && result.Sections is null or { Count: 0 };
         if (totalFailure
             && options.RouterDeferredTypeOrMember
-            && ResolvesAgainstListingPipeline(options.Select))
+            && ResolvesAgainstListingPipeline(selectors))
         {
             return false;
         }
 
-        return totalFailure && SelectOutput.WriteUnresolved(result);
+        return totalFailure
+            && SelectOutput.WriteUnresolved(result);
 
-        static bool ResolvesAgainstListingPipeline(string[] selectors)
+        static bool ResolvesAgainstListingPipeline(
+            string[] selectors)
         {
             var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
             var listingResult = SelectResolver.ResolveSelectAsSections(

@@ -118,6 +118,21 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
+    public void PackageAllLibraries_DoesNotDeclareFieldOrColumnProjection()
+    {
+        StructuralViewDescriptor view =
+            StructuralViewRegistry.Get(
+                StructuralViewIdentity.PackageAllLibraries);
+
+        Assert.False(
+            view.ParserCapabilities.HasFlag(
+                StructuralParserCapabilities.Fields));
+        Assert.False(
+            view.ParserCapabilities.HasFlag(
+                StructuralParserCapabilities.Columns));
+    }
+
+    [Fact]
     public void PackageAllLibrariesRowSchema_MatchesRendererDeclarations()
     {
         StructuralSchemaProjection projection =
@@ -279,6 +294,146 @@ public sealed class InspectionPlanningTests
             StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData("package-type")]
+    [InlineData("member-option")]
+    [InlineData("source-identity")]
+    [InlineData("package-library")]
+    public async Task CommandlessStructuralSchema_MatchesNormalSyntaxPrecedence(
+        string scenario)
+    {
+        string[] commandless = scenario switch
+        {
+            "package-type" =>
+                ["Missing.Package", "Missing.Type"],
+            "member-option" =>
+                ["Missing.Type", "-m", "Run"],
+            "source-identity" =>
+                [
+                    "Missing.Package",
+                    "--package",
+                    "Missing.Package",
+                    "Missing.Type",
+                ],
+            "package-library" =>
+                [
+                    "Missing.Package",
+                    "--library",
+                    "ref/net8.0/Missing.dll",
+                ],
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(scenario),
+                scenario,
+                "Unknown precedence scenario."),
+        };
+        string[] explicitCommand = scenario switch
+        {
+            "package-type" =>
+                ["type", "Missing.Type", "--package", "Missing.Package"],
+            "member-option" =>
+                ["member", "Missing.Type", "-m", "Run"],
+            "source-identity" =>
+                ["type", "Missing.Type", "--package", "Missing.Package"],
+            "package-library" =>
+                [
+                    "package",
+                    "Missing.Package",
+                    "--library",
+                    "ref/net8.0/Missing.dll",
+                ],
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(scenario),
+                scenario,
+                "Unknown precedence scenario."),
+        };
+        string[] projection =
+            ["-D", "--schema", "--count", "--tips", "q"];
+
+        var routed = await RunAppAsync(
+            [.. commandless, .. projection]);
+        var direct = await RunAppAsync(
+            [.. explicitCommand, .. projection]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+    }
+
+    [Fact]
+    public async Task StaticTypeSchema_PositionalNupkgTypeFilterUsesListingCatalog()
+    {
+        var result = await RunAppAsync(
+            "type",
+            "missing-for-schema.nupkg",
+            "-t",
+            "*",
+            "-D",
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(SectionNames.ApiInfo, result.Output);
+        Assert.DoesNotContain(SectionNames.TypeInfo, result.Output);
+        Assert.DoesNotContain(
+            "not found",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task StaticMemberSchema_PositionalNupkgMatchesExplicitSource()
+    {
+        string[] projection =
+            ["-D", "--schema", "--count", "--tips", "q"];
+        var positional = await RunAppAsync(
+            [
+                "member",
+                "missing-for-schema.nupkg",
+                "Missing.Type",
+                "Run",
+                .. projection,
+            ]);
+        var explicitSource = await RunAppAsync(
+            [
+                "member",
+                "Missing.Type",
+                "Run",
+                "--package",
+                "missing-for-schema.nupkg",
+                .. projection,
+            ]);
+
+        Assert.Equal(explicitSource, positional);
+        Assert.Equal(0, positional.Exit);
+        Assert.DoesNotContain(
+            "not found",
+            positional.Error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void CommandlessTypeFilterWithSource_RecordsListingCatalog()
+    {
+        bool classified =
+            StructuralViewRegistry.TryClassifyCommandless(
+                [
+                    "Missing.Type",
+                    "--package",
+                    "Missing.Package",
+                    "-t",
+                    "*",
+                ],
+                structuralDiscovery: true,
+                out CommandlessStructuralRoute? route);
+
+        Assert.True(classified);
+        Assert.NotNull(route);
+        Assert.Equal(
+            InspectionCatalogIdentity.ApiType,
+            route.Route.Catalog);
+    }
+
     [Fact]
     public async Task StructuralAlternatives_CannotSatisfyFinalShapeValidation()
     {
@@ -437,6 +592,82 @@ public sealed class InspectionPlanningTests
         Assert.Empty(result.Error);
     }
 
+    [Theory]
+    [InlineData("System.String..ctor")]
+    [InlineData("System.Type..cctor")]
+    [InlineData("System.Type.operator:op_Equality")]
+    [InlineData("System.Decimal.operator<")]
+    [InlineData("System.Decimal.operator>")]
+    [InlineData("System.Decimal.operator+")]
+    [InlineData("System.Decimal.op_Addition")]
+    [InlineData("System.Type.explicit:System.IConvertible.ToType")]
+    [InlineData("System.Type.extension:AsType")]
+    public async Task CommandlessSpecialMemberSchema_IsMemberDetail(
+        string target)
+    {
+        var result = await RunAppAsync(
+            target,
+            "-D",
+            "Signature",
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(SectionNames.Signature, result.Output);
+        Assert.DoesNotContain(
+            "[type/",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Empty(result.Error);
+    }
+
+    [Theory]
+    [InlineData(
+        "Microsoft.VisualBasic.CompilerServices.Operators.AddObject",
+        "Microsoft.VisualBasic.CompilerServices.Operators",
+        "AddObject")]
+    [InlineData(
+        "Newtonsoft.Json.Linq.Op_Helpers.JValue",
+        "Newtonsoft.Json.Linq.Op_Helpers",
+        "JValue")]
+    public void OperatorLikeIdentifiers_UseTheOrdinaryMemberBoundary(
+        string target,
+        string expectedType,
+        string expectedMember)
+    {
+        var (typeName, memberName) =
+            SharedParsers.SplitTrailingMember(target);
+
+        Assert.Equal(expectedType, typeName);
+        Assert.Equal(expectedMember, memberName);
+        Assert.False(
+            StructuralViewRegistry
+                .HasUnambiguousMemberTail(target));
+    }
+
+    [Fact]
+    public async Task OperatorLikeTypeName_RemainsStructurallyAmbiguous()
+    {
+        var result = await RunAppAsync(
+            "Microsoft.CodeAnalysis.CSharp.Syntax.OperatorDeclarationSyntax",
+            "-D",
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(
+            "[type/type/ApiMember]",
+            result.Output);
+        Assert.Contains(
+            "[member/member-target/ApiMemberOverload]",
+            result.Output);
+        Assert.Empty(result.Error);
+    }
+
     [Fact]
     public async Task MultiArgumentDottedMemberSchema_MatchesExplicitMember()
     {
@@ -480,6 +711,9 @@ public sealed class InspectionPlanningTests
     [InlineData("member-mermaid", "--mermaid is standalone")]
     [InlineData("type-order", "Field 'bogus' is not sortable")]
     [InlineData("package-multi", "Multiple package inspection cannot be combined")]
+    [InlineData("commandless-member-kind", "Unknown C# body kind 'loop'.")]
+    [InlineData("commandless-order", "Field 'bogus' is not sortable")]
+    [InlineData("type-version", "Use 'Newtonsoft.Json@13.0.3' to specify a version.")]
     public async Task StaticSchema_PreservesTargetIndependentValidation(
         string scenario,
         string expectedError)
@@ -498,6 +732,12 @@ public sealed class InspectionPlanningTests
                 ["type", "System.String", "--order-by", "bogus", "-D", "--schema"],
             "package-multi" =>
                 ["package", "Newtonsoft.Json", "Serilog", "-D", "--schema"],
+            "commandless-member-kind" =>
+                ["Missing.Type.Run", "--where", "Kind=loop", "-D", "--schema"],
+            "commandless-order" =>
+                ["Missing.Type.Run", "--order-by", "bogus", "-D", "--schema"],
+            "type-version" =>
+                ["type", "Newtonsoft.Json", "13.0.3", "-D", "--schema"],
             _ => throw new ArgumentOutOfRangeException(
                 nameof(scenario),
                 scenario,
@@ -564,6 +804,229 @@ public sealed class InspectionPlanningTests
         Assert.Contains("@Audit", result.Output);
         Assert.Contains("(verbose)", result.Output);
         Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task CommandlessStaticSchema_PreservesAlternativeMetadata()
+    {
+        var result = await RunAppAsync(
+            "Missing.Type.Run",
+            "-D",
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(
+            "[member/member-target/ApiMemberOverload] @All",
+            result.Output);
+        Assert.Contains(
+            "section (verbose)",
+            result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task CommandlessStaticSchema_BareSelectNarrowsEveryAlternative()
+    {
+        var complete = await RunAppAsync(
+            "Missing.Type.Run",
+            "-D",
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+        var selected = await RunAppAsync(
+            "Missing.Type.Run",
+            "-D",
+            "--schema",
+            "-S",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, complete.Exit);
+        Assert.Equal(0, selected.Exit);
+        Assert.True(
+            selected.Output.Split('\n').Length
+            < complete.Output.Split('\n').Length);
+        Assert.DoesNotContain(
+            "section (verbose)",
+            selected.Output);
+        Assert.Contains(
+            "[type/type/ApiMember]",
+            selected.Output);
+        Assert.Empty(complete.Error);
+        Assert.Empty(selected.Error);
+    }
+
+    [Fact]
+    public async Task StaticSchema_BareSelectUsesRouteSpecificApiMemberDefaults()
+    {
+        string[] common =
+        [
+            "Missing.Generic<T>",
+            "--package",
+            "Missing.Package",
+            "-D",
+            "--schema",
+            "-S",
+            "--table",
+            "--tips",
+            "q",
+        ];
+
+        var type = await RunAppAsync(["type", .. common]);
+        var member = await RunAppAsync(["member", .. common]);
+        var commandless = await RunAppAsync(
+            [
+                "Missing.Generic<T>",
+                "-D",
+                "--schema",
+                "-S",
+                "--table",
+                "--tips",
+                "q",
+            ]);
+
+        Assert.Equal(0, type.Exit);
+        Assert.Equal(0, member.Exit);
+        Assert.Equal(type, commandless);
+        Assert.Contains(SectionNames.TypeInfo, type.Output);
+        Assert.DoesNotContain(SectionNames.MethodGroups, type.Output);
+        Assert.Contains(SectionNames.MethodGroups, member.Output);
+        Assert.DoesNotContain(SectionNames.TypeInfo, member.Output);
+        Assert.Empty(type.Error);
+        Assert.Empty(member.Error);
+    }
+
+    [Fact]
+    public async Task StaticMemberBodyShapes_RequiresExactMemberCatalog()
+    {
+        var result = await RunAppAsync(
+            "member",
+            "Missing.Type",
+            "-m",
+            "Run",
+            "--where",
+            "Kind=InvocationExpression",
+            "-D",
+            SectionNames.BodyShapes,
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains("Start Line", result.Output);
+        Assert.DoesNotContain(
+            "[member/",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task EffectiveBodyShapes_AutoSelectedOverloadUsesDetailCatalog()
+    {
+        string fixture =
+            typeof(Fixtures.BodyShapeFixture)
+                .Assembly.Location;
+        string[] common =
+        [
+            "member",
+            typeof(Fixtures.BodyShapeFixture).FullName!,
+            "-m",
+            nameof(Fixtures.BodyShapeFixture.PublicCreation),
+            "--library",
+            fixture,
+            "--where",
+            "Kind=ObjectCreationExpression",
+            "-D",
+            "--table",
+            "--tips",
+            "q",
+        ];
+
+        var implicitOverload =
+            await RunAppAsync(common);
+        var explicitOverload =
+            await RunAppAsync(
+                [
+                    .. common[..4],
+                    "--index",
+                    "1",
+                    .. common[4..],
+                ]);
+
+        Assert.Equal(explicitOverload, implicitOverload);
+        Assert.Equal(0, implicitOverload.Exit);
+        Assert.Contains(
+            SectionNames.BodyShapes,
+            implicitOverload.Output);
+        Assert.DoesNotContain(
+            SectionNames.Methods,
+            implicitOverload.Output);
+    }
+
+    [Fact]
+    public async Task EffectiveDiscovery_RejectsUniversalMemberMissBeforeAcquisition()
+    {
+        string missing =
+            Path.Combine(
+                Path.GetTempPath(),
+                $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+
+        var result = await RunAppAsync(
+            "member",
+            "Missing.Type.Member",
+            "--library",
+            missing,
+            "-D",
+            "DefinitelyNotASection",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Select value 'DefinitelyNotASection' not found.",
+            result.Error);
+        Assert.DoesNotContain(
+            "File not found",
+            result.Error);
+    }
+
+    [Theory]
+    [InlineData("--fields")]
+    [InlineData("--columns")]
+    public async Task PackageAllLibraries_StaticSchemaRejectsUnsupportedProjection(
+        string projection)
+    {
+        string target =
+            $"Missing.Package.{Guid.NewGuid():N}";
+
+        var result = await RunAppAsync(
+            "package",
+            target,
+            "--all-libraries",
+            "-D",
+            "Library Info",
+            "--schema",
+            projection,
+            "NoSuchValue",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"--all-libraries cannot be combined with {projection}",
+            result.Error);
+        Assert.DoesNotContain(
+            target,
+            result.Error);
     }
 
     private static Task<(int Exit, string Output, string Error)>

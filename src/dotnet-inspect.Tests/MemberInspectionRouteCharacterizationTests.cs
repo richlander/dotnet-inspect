@@ -333,7 +333,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "hidden-router",
                 "schema-static-alternatives-before-router-rewrite",
-                "ApiType[schema:146:4C6E5427583E]",
+                "ApiType[schema:296:27D317605491]",
                 "focus=none;discovery=none",
                 "focus:none"),
         ];

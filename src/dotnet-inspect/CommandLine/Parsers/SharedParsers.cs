@@ -55,6 +55,46 @@ public static class SharedParsers
             hasExplicitSource);
     }
 
+    public static OptionError? GetStructuralPositionalVersionError(
+        SourceSelectionInputs inputs,
+        bool hasProjectSource)
+    {
+        if (!inputs.HasExplicitSource
+            && !hasProjectSource
+            && inputs.Args.Length >= 2
+            && CommandLineHelpers.LooksLikeVersionNumber(
+                inputs.Args[1]))
+        {
+            return new OptionError(
+                $"'{inputs.Args[1]}' looks like a version number. "
+                + $"Use '{inputs.Args[0]}@{inputs.Args[1]}' to specify a version.");
+        }
+
+        return null;
+    }
+
+    public static int GetStructuralTypeArgumentIndex(
+        SourceSelectionInputs inputs,
+        bool hasProjectSource)
+    {
+        if (inputs.HasExplicitSource || hasProjectSource)
+            return 0;
+
+        if (inputs.Args.Length == 0)
+            return -1;
+
+        if (CommandLineHelpers.TryClassifyAsFilePath(
+                inputs.Args[0],
+                out string? dllPath,
+                out string? nupkgPath)
+            && (dllPath is not null || nupkgPath is not null))
+        {
+            return 1;
+        }
+
+        return inputs.Args.Length >= 2 ? 1 : 0;
+    }
+
     public static async Task<SourceSelection> ResolveSourceSelectionAsync(
         SourceSelectionInputs inputs,
         NuGetSourceOptions? sourceOptions,
@@ -80,16 +120,38 @@ public static class SharedParsers
         var (digestHead, _) = ParseDigestShorthand(typeName);
         var (overloadHead, _) = ParseOverloadShorthand(digestHead);
         var suffixLength = typeName.Length - overloadHead.Length;
-        if (overloadHead.EndsWith("..ctor", StringComparison.Ordinal))
-            return (overloadHead[..^6], ".ctor" + typeName[^suffixLength..]);
-        if (overloadHead.EndsWith("..cctor", StringComparison.Ordinal))
-            return (overloadHead[..^7], ".cctor" + typeName[^suffixLength..]);
-
-        foreach (var marker in (ReadOnlySpan<string>)[".operator:", ".explicit:", ".extension:"])
+        foreach (var marker in
+                 (ReadOnlySpan<string>)
+                 [
+                     "..cctor",
+                     "..ctor",
+                     ".operator",
+                     ".op_",
+                     ".explicit:",
+                     ".extension:",
+                 ])
         {
-            var markerIndex = typeName.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            int markerIndex = FindLastTopLevelMarker(
+                overloadHead,
+                marker);
             if (markerIndex > 0)
-                return (typeName[..markerIndex], typeName[(markerIndex + 1)..]);
+            {
+                string memberName =
+                    overloadHead[(markerIndex + 1)..]
+                    + typeName[^suffixLength..];
+                if ((marker is ".operator" or ".op_")
+                    && !MemberTargetSelector.Parse(memberName)
+                        .Name.StartsWith(
+                            "op_",
+                            StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                return (
+                    overloadHead[..markerIndex],
+                    memberName);
+            }
         }
 
         var lastDot = FqnParser.LastTopLevelDot(typeName);
@@ -100,6 +162,31 @@ public static class SharedParsers
         return rightPart.Contains('<') && !HasGenericMemberSelectorSuffix(rightPart)
             ? (typeName, null)
             : (typeName[..lastDot], rightPart);
+    }
+
+    private static int FindLastTopLevelMarker(
+        string value,
+        string marker)
+    {
+        var genericDepth = 0;
+        var match = -1;
+        for (var i = 0; i <= value.Length - marker.Length; i++)
+        {
+            if (genericDepth == 0
+                && value.AsSpan(i).StartsWith(
+                    marker,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                match = i;
+            }
+
+            if (value[i] == '<')
+                genericDepth++;
+            else if (value[i] == '>' && genericDepth > 0)
+                genericDepth--;
+        }
+
+        return match;
     }
 
     internal static (SourceResolver.LocalProbeResult Probe, string MemberName)? TrySplitQualifiedTypeMember(

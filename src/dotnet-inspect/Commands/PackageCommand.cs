@@ -64,6 +64,14 @@ public class PackageCommand
             && options.Discover is not null
             && options.Schema)
         {
+            if (options.AllLibraries
+                && !ValidatePackageAllLibrariesMode(
+                    options,
+                    allowStaticDiscovery: true))
+            {
+                return 1;
+            }
+
             StructuralRoute route = options.AllLibraries
                 ? StructuralViewRegistry.Route(
                     StructuralViewIdentity.PackageAllLibraries,
@@ -4383,7 +4391,9 @@ public class PackageCommand
         return false;
     }
 
-    private static bool ValidatePackageAllLibrariesMode(InspectionOptions options)
+    private static bool ValidatePackageAllLibrariesMode(
+        InspectionOptions options,
+        bool allowStaticDiscovery = false)
     {
         List<string> conflicts = [];
         if (options.PackageLibrary != null) conflicts.Add("--library");
@@ -4393,7 +4403,11 @@ public class PackageCommand
         if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
         if (options.Print) conflicts.Add("--print");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
-        if (options.Discover != null) conflicts.Add("-D/--discover");
+        if (options.Discover != null
+            && !allowStaticDiscovery)
+        {
+            conflicts.Add("-D/--discover");
+        }
         if (options.Tree && options.Discover == null && !options.Count) conflicts.Add("--tree");
         if (options.Columns != null) conflicts.Add("--columns");
         if (options.Fields != null) conflicts.Add("--fields");

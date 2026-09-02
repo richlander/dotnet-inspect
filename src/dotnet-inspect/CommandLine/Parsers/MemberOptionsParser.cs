@@ -46,11 +46,21 @@ public static class MemberOptionsParser
         bool hasProjectSource =
             (parseResult.GetValue(args.ProjectOption) ?? []).Length > 0
             && !sourceInputs.HasExplicitSource;
+        error =
+            SharedParsers.GetStructuralPositionalVersionError(
+                sourceInputs,
+                hasProjectSource);
+        if (error is not null)
+            return true;
+
         int typeIndex =
-            sourceInputs.HasExplicitSource || hasProjectSource ? 0 : 1;
-        string? typeName = sourceInputs.Args.Length > typeIndex
+            SharedParsers.GetStructuralTypeArgumentIndex(
+                sourceInputs,
+                hasProjectSource);
+        string? typeName = typeIndex >= 0
+            && typeIndex < sourceInputs.Args.Length
             ? sourceInputs.Args[typeIndex]
-            : sourceInputs.Args.FirstOrDefault();
+            : null;
         List<string> positionalMembers =
             sourceInputs.Args.Length > typeIndex + 1
                 ? [.. sourceInputs.Args[(typeIndex + 1)..]]
@@ -100,7 +110,7 @@ public static class MemberOptionsParser
             options,
             typeScoped: false,
             typeName: null,
-            out _,
+            out BodyKindQueryOptions bodyKindQuery,
             out _);
         if (error is not null)
             return true;
@@ -129,6 +139,7 @@ public static class MemberOptionsParser
                 baseRequirement);
         bool exactMember =
             index is not null
+            || bodyKindQuery.HasFilter
             || members.Any(member =>
             {
                 MemberTargetSelector selector =
@@ -188,14 +199,11 @@ public static class MemberOptionsParser
         InspectionCatalogIdentity peeledCatalog =
             impliedSelector.OverloadIndex is not null
             || !string.IsNullOrWhiteSpace(impliedSelector.DigestPrefix)
+            || bodyKindQuery.HasFilter
             || demand.RequiredTarget
                 == InspectionTargetRequirement.ExactMember
                 ? InspectionCatalogIdentity.ApiMemberDetail
                 : InspectionCatalogIdentity.ApiMemberOverload;
-        string[]? alternativeSelectors =
-            options.ParseDiscover(parseResult) is { Length: > 0 } discover
-                ? discover
-                : options.ParseSelect(parseResult);
         plan = new StructuralDiscoveryPlan.Alternatives(
             StructuralViewRegistry.CreateAlternatives(
                 [
@@ -206,7 +214,9 @@ public static class MemberOptionsParser
                         StructuralViewIdentity.MemberTarget,
                         peeledCatalog),
                 ],
-                alternativeSelectors));
+                StructuralDiscoveryRequest.From(
+                    parseResult,
+                    options)));
         return true;
     }
 

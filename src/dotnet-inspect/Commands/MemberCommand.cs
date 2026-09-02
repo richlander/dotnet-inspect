@@ -551,6 +551,10 @@ public static class MemberCommand
                         + "\"Kind=<C# Body Kinds ID>\".");
                     return 1;
                 }
+                executionPlan =
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(
+                            effectiveOptions);
                 return ApiCommand.ExecuteEffectiveDiscovery(
                     apiType,
                     ApiInspectionCatalogRegistry.CreateMemberPipeline(

@@ -41,12 +41,22 @@ public static class TypeOptionsParser
         bool hasProjectSource =
             !string.IsNullOrWhiteSpace(
                 parseResult.GetValue(args.ProjectOption));
+        error =
+            SharedParsers.GetStructuralPositionalVersionError(
+                sourceInputs,
+                hasProjectSource);
+        if (error is not null)
+            return true;
+
+        int typeIndex =
+            SharedParsers.GetStructuralTypeArgumentIndex(
+                sourceInputs,
+                hasProjectSource);
         string? typeName =
-            sourceInputs.HasExplicitSource || hasProjectSource
-                ? sourceInputs.Args.FirstOrDefault()
-                : sourceInputs.Args.Length >= 2
-                    ? sourceInputs.Args[1]
-                    : sourceInputs.Args.FirstOrDefault();
+            typeIndex >= 0
+            && typeIndex < sourceInputs.Args.Length
+                ? sourceInputs.Args[typeIndex]
+                : null;
         if (hasProjectSource && sourceInputs.HasExplicitSource)
         {
             error = new OptionError(
@@ -75,8 +85,12 @@ public static class TypeOptionsParser
         if (error is not null)
             return true;
 
+        bool hasTypeFilter =
+            parseResult.GetResult(args.TypeFilterOption)
+                is { Implicit: false };
         InspectionCatalogIdentity catalog =
-            string.IsNullOrWhiteSpace(typeName)
+            hasTypeFilter
+            || string.IsNullOrWhiteSpace(typeName)
             || TypeMatcher.IsTypeGlobPattern(typeName)
                 ? InspectionCatalogIdentity.ApiType
                 : InspectionCatalogIdentity.ApiMember;
