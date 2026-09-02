@@ -31,6 +31,28 @@ Producers own:
 Consumers own statistics, equivalence policy, prioritization, querying,
 projection, and presentation.
 
+### Consumers and delivery
+
+[#5526](https://github.com/richlander/dotnet-inspect/issues/5526) is the
+end-to-end delivery tracker for the structured diff pipeline. It composes this
+format with the separately owned `ComparisonDocument<T>` envelope and Markout
+presentation contract without making any of them co-owners.
+
+The concrete initial consumers are:
+
+- [CLI Source Diff](https://github.com/richlander/dotnet-inspect/issues/5527),
+  which will consume a producer-owned source-text analysis diff for factual
+  statistics and lower the complete detailed text view to Markout; and
+- [Inspect Web](https://github.com/richlander/dotnet-inspect/issues/5528),
+  which will consume the same typed relations and portable subject composition
+  in browser/Wasm while keeping interaction state host-owned.
+
+Both host efforts remain focused adoption slices. They do not move matching,
+statistics, subject identity, browser interaction, or rendering policy into
+`AnalysisDiff<T>`. The shared path preserves typed information until an
+explicit lowering boundary; neither host reconstructs correspondence from
+Markdown, display strings, or rendered hunks.
+
 The format is implemented by `AnalysisDiff<T>`, `AnalysisDiffRelation`, and the
 correspondence classification enums. The Release gates under
 [Required gates](#required-gates) verify the Finding-owned construction and
@@ -41,8 +63,8 @@ presentation types named `DiffSections.AnalysisDiff`, `AnalysisDiffView`, and
 `AnalysisDiffRow` for Analysis-producer signal deltas. Those presentation
 surfaces and this generic Findings format occupy different layers but
 intentionally share the analysis-oriented term: the section is a prospective
-consumer, not the owner or current implementation of `AnalysisDiff<T>`.
-Renaming or adopting those surfaces is outside this effort.
+consumer, not the owner, current implementation, or initial adopter of
+`AnalysisDiff<T>`. Renaming or adopting those surfaces is outside this effort.
 
 ## Purpose
 
@@ -149,9 +171,10 @@ explicit changes. Lowering may therefore discard identity, classification,
 non-text payload, movement, and N:M grouping. The reverse conversion cannot
 recover those facts and is not a supported inference.
 
-Neither foundational library references the other. A composition layer that
-already references both owns any shared adapter until more than one host
-demonstrates an identical contract.
+Neither foundational library references the other. A host-neutral composition
+layer that references both owns the shared lowering used by the planned CLI and
+browser consumers. Host-specific selection, operation lifetime, and interaction
+remain at each host boundary.
 
 ## Conceptual model
 
