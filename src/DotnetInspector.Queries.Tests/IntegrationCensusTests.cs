@@ -1813,6 +1813,570 @@ public sealed class IntegrationCensusTests
             snapshot.CatalogRevision);
     }
 
+    // ---- Inventory projection ------------------------------------------
+
+    [Fact]
+    public void IntegrationInventory_RowsRetainTypedSourcePeerAndProvenance()
+    {
+        RealizedMemberCoordinate.Package sourceCoordinate = new(
+            "contoso.adapters",
+            "1.0.0",
+            "fixture",
+            "net11.0",
+            null);
+        IntegrationSourceParticipantIdentity participant =
+            IntegrationSourceParticipantIdentity.Portable(
+                sourceCoordinate,
+                Assembly("Adapters"));
+        MetadataTypeDefinitionName sourceType =
+            TypeName("Adapters", "ClientAdapter");
+        IntegrationCandidateSourceElement.Member sourceMember = new(
+            sourceType,
+            Anchor(sourceType.ToMetadataFullName()));
+        IntegrationCandidatePeerIdentity peer = AssemblyPeer(
+            Assembly("Peer.Contracts"),
+            TypeName("Peer", "Client"));
+        IntegrationCandidateIdentity candidate = ObservedCandidate(
+            participant,
+            IntegrationConceptCatalog.AI,
+            peer,
+            sourceMember);
+        RealizedMemberCoordinate.Platform terminalCoordinate = new(
+            "runtime",
+            "11.0.0",
+            "fixture",
+            "net11.0",
+            assembly: null);
+        IntegrationTypeIdentity terminal = new(
+            IntegrationSourceParticipantIdentity.Portable(
+                terminalCoordinate,
+                Assembly("Peer.Runtime")),
+            peer.Type);
+        var context = new Context();
+        IntegrationCandidateAttemptAddress address = new(candidate, context);
+        AnalysisRequestPlan plan = Plan();
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [participant],
+            producerAttempts: Producers(
+                [participant],
+                Completed(
+                    participant,
+                    Ecosystem,
+                    candidate,
+                    candidate)),
+            selectedTypes: [terminal],
+            contexts: [context],
+            candidateAttempts:
+            [
+                new IntegrationCandidateAttempt.Classified(
+                    address,
+                    new IntegrationCandidateDisposition.In(
+                        Resolved(candidate, terminal))),
+            ],
+            plan: plan);
+
+        IntegrationInventoryProjectionResult result =
+            IntegrationInventoryProjection.Project(plan, snapshot);
+        IntegrationInventoryRow row = Assert.Single(result.Rows);
+
+        Assert.Same(plan, result.Plan);
+        Assert.Same(snapshot, result.Snapshot);
+        Assert.Same(candidate.Relationship, row.Relationship);
+        Assert.Same(candidate.Concept, row.Concept);
+        Assert.Same(candidate.Source, row.Source);
+        Assert.Same(sourceMember, row.Source.Element);
+        Assert.Same(sourceCoordinate, row.SourceProvenance);
+        Assert.Same(sourceCoordinate, row.SourceParent);
+        Assert.Same(peer, row.PeerLookup.Identity);
+        Assert.Same(
+            Assert.IsType<
+                IntegrationCandidatePeerIdentity.NamedType>(peer)
+                .Reference.Scope,
+            row.PeerLookup.Scope);
+        Assert.Equal("Peer.Client", row.PeerLookup.FindPattern);
+        Assert.Same(
+            terminalCoordinate,
+            row.PeerLookup.AuthoritativeProvenance);
+        Assert.Same(
+            terminalCoordinate,
+            row.PeerLookup.AuthoritativeParent);
+        Assert.Same(terminal, row.TerminalDefinition);
+        Assert.Same(terminalCoordinate, row.TerminalProvenance);
+        Assert.Same(terminalCoordinate, row.TerminalParent);
+        Assert.Same(context, row.BindingContext);
+        Assert.Equal(address, row.AdmittedRelationshipIdentity);
+        Assert.Null(row.OutReason);
+        Assert.Same(
+            Ecosystem,
+            Assert.Single(row.ProducerPolicyAttempts).Policy);
+    }
+
+    [Fact]
+    public void IntegrationInventory_PeerLookupRetainsEveryTypeReferenceScopeArm()
+    {
+        MetadataTypeDefinitionName type = TypeName("Peer", "Client");
+        MetadataTypeReferenceScope[] scopes =
+        [
+            new MetadataTypeReferenceScope.CurrentAssembly(),
+            new MetadataTypeReferenceScope.IntrinsicCoreLibrary(),
+            new MetadataTypeReferenceScope.AssemblyReference(
+                Assembly("Peer.Contracts")),
+            new MetadataTypeReferenceScope.ModuleReference(
+                "peer.contracts.netmodule"),
+        ];
+
+        foreach (MetadataTypeReferenceScope scope in scopes)
+        {
+            IntegrationCandidatePeerIdentity identity =
+                NamedPeer(scope, type);
+            var lookup = new IntegrationPeerLookup(identity);
+
+            Assert.Same(identity, lookup.Identity);
+            Assert.Same(scope, lookup.Scope);
+            Assert.Same(type, lookup.Type);
+            Assert.Null(lookup.PolicyTarget);
+            Assert.Null(lookup.AuthoritativeProvenance);
+            Assert.Null(lookup.AuthoritativeParent);
+        }
+
+        IntegrationOpportunityTarget target = new(
+            "Peer.Contracts",
+            type);
+        var policyLookup = new IntegrationPeerLookup(
+            new IntegrationCandidatePeerIdentity.PolicyTarget(target));
+        Assert.Same(target, policyLookup.PolicyTarget);
+        Assert.Null(policyLookup.Scope);
+        Assert.Null(policyLookup.AuthoritativeProvenance);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void
+        IntegrationInventory_ForwardedInAndOutRetainTerminalDefinitionProvenanceAndHops(
+            bool inside)
+    {
+        IntegrationSourceParticipantIdentity participant = Portable();
+        IntegrationCandidateIdentity candidate = ObservedCandidate(
+            participant,
+            IntegrationConceptCatalog.AI,
+            AssemblyPeer(
+                Assembly("Peer.Facade"),
+                TypeName("Peer", "Client")));
+        IntegrationTypeIdentity facade = new(
+            ParticipantForAssembly(Assembly("Peer.Facade")),
+            candidate.Peer.Type);
+        RealizedMemberCoordinate.Package terminalCoordinate = new(
+            "contoso.peer.runtime",
+            "2.0.0",
+            "fixture",
+            "net11.0",
+            null);
+        IntegrationTypeIdentity terminal = new(
+            IntegrationSourceParticipantIdentity.Portable(
+                terminalCoordinate,
+                Assembly("Peer.Runtime")),
+            candidate.Peer.Type);
+        IntegrationResolvedPeer resolved = new(
+            candidate.Peer,
+            [facade, terminal]);
+        IntegrationCandidateDisposition disposition = inside
+            ? new IntegrationCandidateDisposition.In(resolved)
+            : new IntegrationCandidateDisposition.Out(resolved);
+        var context = new Context();
+        AnalysisRequestPlan plan = Plan();
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [participant],
+            producerAttempts: Producers(
+                [participant],
+                Completed(participant, Ecosystem, candidate)),
+            selectedTypes: inside ? [terminal] : [],
+            contexts: [context],
+            candidateAttempts:
+            [
+                new IntegrationCandidateAttempt.Classified(
+                    new IntegrationCandidateAttemptAddress(
+                        candidate,
+                        context),
+                    disposition),
+            ],
+            plan: plan);
+
+        IntegrationInventoryRow row = Assert.Single(
+            IntegrationInventoryProjection.Project(plan, snapshot).Rows);
+
+        Assert.Equal([facade, terminal], row.ResolutionPath);
+        Assert.Equal([facade], row.ForwardingHops);
+        Assert.Same(terminal, row.TerminalDefinition);
+        Assert.Same(terminalCoordinate, row.TerminalProvenance);
+        Assert.Same(terminalCoordinate, row.TerminalParent);
+        if (inside)
+        {
+            Assert.NotNull(row.AdmittedRelationshipIdentity);
+            Assert.Null(row.OutReason);
+        }
+        else
+        {
+            Assert.Null(row.AdmittedRelationshipIdentity);
+            Assert.Equal(
+                IntegrationCandidateOutReason.PeerOutsideUniverse,
+                row.OutReason);
+        }
+    }
+
+    [Fact]
+    public void IntegrationInventory_ForwardedOutUsesTerminalParentForHandoff()
+    {
+        IntegrationSourceParticipantIdentity participant = Portable();
+        IntegrationCandidateIdentity candidate = ObservedCandidate(
+            participant,
+            IntegrationConceptCatalog.AI,
+            AssemblyPeer(
+                Assembly("Peer.Facade"),
+                TypeName("Peer", "Client")));
+        RealizedMemberCoordinate.Package facadeCoordinate = new(
+            "contoso.peer.facade",
+            "1.0.0",
+            "fixture",
+            "net11.0",
+            null);
+        RealizedMemberCoordinate.Package terminalCoordinate = new(
+            "contoso.peer.runtime",
+            "2.0.0",
+            "fixture",
+            "net11.0",
+            null);
+        IntegrationTypeIdentity facade = new(
+            IntegrationSourceParticipantIdentity.Portable(
+                facadeCoordinate,
+                Assembly("Peer.Facade")),
+            candidate.Peer.Type);
+        IntegrationTypeIdentity terminal = new(
+            IntegrationSourceParticipantIdentity.Portable(
+                terminalCoordinate,
+                Assembly("Peer.Runtime")),
+            candidate.Peer.Type);
+        var context = new Context();
+        AnalysisRequestPlan plan = Plan();
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [participant],
+            producerAttempts: Producers(
+                [participant],
+                Completed(participant, Ecosystem, candidate)),
+            contexts: [context],
+            candidateAttempts:
+            [
+                new IntegrationCandidateAttempt.Classified(
+                    new IntegrationCandidateAttemptAddress(
+                        candidate,
+                        context),
+                    new IntegrationCandidateDisposition.Out(
+                        new IntegrationResolvedPeer(
+                            candidate.Peer,
+                            [facade, terminal]))),
+            ],
+            plan: plan);
+
+        IntegrationInventoryRow row = Assert.Single(
+            IntegrationInventoryProjection.Project(plan, snapshot).Rows);
+
+        Assert.Same(terminalCoordinate, row.TerminalParent);
+        Assert.Same(
+            terminalCoordinate,
+            row.PeerLookup.AuthoritativeParent);
+        Assert.NotSame(facadeCoordinate, row.TerminalParent);
+    }
+
+    [Fact]
+    public void IntegrationInventory_KnownParentUsesAuthoritativeCoordinate()
+    {
+        RealizedMemberCoordinate.Platform sourceCoordinate = new(
+            "runtime",
+            "11.0.0",
+            "fixture",
+            "net11.0",
+            assembly: "Adapters");
+        IntegrationSourceParticipantIdentity participant =
+            IntegrationSourceParticipantIdentity.Portable(
+                sourceCoordinate,
+                Assembly("Adapters"));
+        IntegrationCandidateIdentity candidate = ObservedCandidate(
+            participant,
+            IntegrationConceptCatalog.AI,
+            AssemblyPeer(
+                Assembly("Peer.Contracts"),
+                TypeName("Peer", "Client")));
+        RealizedMemberCoordinate.Package terminalCoordinate = new(
+            "contoso.peer",
+            "3.0.0",
+            "fixture",
+            "net11.0",
+            null);
+        IntegrationTypeIdentity terminal = new(
+            IntegrationSourceParticipantIdentity.Portable(
+                terminalCoordinate,
+                Assembly("Peer.Contracts")),
+            candidate.Peer.Type);
+        var context = new Context();
+        AnalysisRequestPlan plan = Plan();
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [participant],
+            producerAttempts: Producers(
+                [participant],
+                Completed(participant, Ecosystem, candidate)),
+            selectedTypes: [terminal],
+            contexts: [context],
+            candidateAttempts:
+            [
+                new IntegrationCandidateAttempt.Classified(
+                    new IntegrationCandidateAttemptAddress(
+                        candidate,
+                        context),
+                    new IntegrationCandidateDisposition.In(
+                        Resolved(candidate, terminal))),
+            ],
+            plan: plan);
+
+        IntegrationInventoryRow row = Assert.Single(
+            IntegrationInventoryProjection.Project(plan, snapshot).Rows);
+
+        Assert.Same(sourceCoordinate, row.SourceParent);
+        Assert.Same(terminalCoordinate, row.TerminalParent);
+    }
+
+    [Fact]
+    public void IntegrationInventory_UnknownParentNeverGuessesFromAssemblyName()
+    {
+        IntegrationSourceParticipantIdentity participant = Portable();
+        AssemblyReferenceIdentity terminalAssembly =
+            Assembly("Looks.Like.A.Package");
+        IntegrationCandidateIdentity candidate = ObservedCandidate(
+            participant,
+            IntegrationConceptCatalog.AI,
+            AssemblyPeer(
+                terminalAssembly,
+                TypeName("Peer", "Client")));
+        IntegrationTypeIdentity terminal = new(
+            IntegrationSourceParticipantIdentity.Workspace(
+                Registration(),
+                terminalAssembly),
+            candidate.Peer.Type);
+        var context = new Context();
+        AnalysisRequestPlan plan = Plan();
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [participant],
+            producerAttempts: Producers(
+                [participant],
+                Completed(participant, Ecosystem, candidate)),
+            selectedTypes: [terminal],
+            contexts: [context],
+            candidateAttempts:
+            [
+                new IntegrationCandidateAttempt.Classified(
+                    new IntegrationCandidateAttemptAddress(
+                        candidate,
+                        context),
+                    new IntegrationCandidateDisposition.In(
+                        Resolved(candidate, terminal))),
+            ],
+            plan: plan);
+
+        IntegrationInventoryRow row = Assert.Single(
+            IntegrationInventoryProjection.Project(plan, snapshot).Rows);
+
+        Assert.Same(terminalAssembly, row.TerminalAssembly);
+        Assert.Null(row.TerminalProvenance);
+        Assert.Null(row.TerminalParent);
+        Assert.Null(row.PeerLookup.AuthoritativeProvenance);
+        Assert.Null(row.PeerLookup.AuthoritativeParent);
+        Assert.Same(
+            terminalAssembly,
+            Assert.IsType<MetadataTypeReferenceScope.AssemblyReference>(
+                row.PeerLookup.Scope).Assembly);
+    }
+
+    [Fact]
+    public void IntegrationInventory_FindPatternUsesTypeLookupGrammarUnchanged()
+    {
+        MetadataTypeDefinitionName type =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Peer.Namespace",
+                    ["Outer", "Inner"])).Name;
+        var lookup = new IntegrationPeerLookup(
+            AssemblyPeer(Assembly("Peer.Contracts"), type));
+
+        Assert.Equal(type.ToMetadataFullName(), lookup.FindPattern);
+        Assert.Equal("Peer.Namespace.Outer.Inner", lookup.FindPattern);
+    }
+
+    [Fact]
+    public void IntegrationInventory_SameCandidateAcrossContextsProducesDistinctRows()
+    {
+        IntegrationSourceParticipantIdentity participant = Portable();
+        IntegrationCandidateIdentity candidate = ObservedCandidate(
+            participant,
+            IntegrationConceptCatalog.AI,
+            DefaultPeer);
+        var first = new Context();
+        var second = new Context();
+        AnalysisRequestPlan plan = Plan();
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [participant],
+            producerAttempts: Producers(
+                [participant],
+                Completed(participant, Ecosystem, candidate)),
+            contexts: [first, second],
+            candidateAttempts:
+            [
+                ClassifiedOut(candidate, second),
+                ClassifiedOut(candidate, first),
+            ],
+            plan: plan);
+
+        IntegrationInventoryProjectionResult result =
+            IntegrationInventoryProjection.Project(plan, snapshot);
+
+        Assert.Equal(2, result.Rows.Length);
+        Assert.Same(candidate, result.Rows[0].Candidate);
+        Assert.Same(candidate, result.Rows[1].Candidate);
+        Assert.Same(first, result.Rows[0].BindingContext);
+        Assert.Same(second, result.Rows[1].BindingContext);
+        Assert.NotEqual(
+            result.Rows[0].Attempt,
+            result.Rows[1].Attempt);
+    }
+
+    [Fact]
+    public void
+        IntegrationInventory_IncompleteCensusRetainsHealthyRowsWithoutManufacturingFailureRows()
+    {
+        IntegrationSourceParticipantIdentity participant = Portable();
+        IntegrationCandidateIdentity healthy = ObservedCandidate(
+            participant,
+            IntegrationConceptCatalog.AI,
+            AssemblyPeer(
+                Assembly("Healthy.Peer"),
+                TypeName("Peer", "Healthy")));
+        IntegrationCandidateIdentity failed = ObservedCandidate(
+            participant,
+            IntegrationConceptCatalog.AI,
+            AssemblyPeer(
+                Assembly("Failed.Peer"),
+                TypeName("Peer", "Failed")));
+        var context = new Context();
+        AnalysisRequestPlan plan = Plan();
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [participant],
+            producerAttempts: Producers(
+                [participant],
+                Completed(
+                    participant,
+                    Ecosystem,
+                    healthy,
+                    failed)),
+            contexts: [context],
+            candidateAttempts:
+            [
+                ClassifiedOut(healthy, context),
+                new IntegrationCandidateAttempt.Failed(
+                    new IntegrationCandidateAttemptAddress(
+                        failed,
+                        context),
+                    new CandidateFailure()),
+            ],
+            plan: plan);
+
+        IntegrationInventoryProjectionResult result =
+            IntegrationInventoryProjection.Project(plan, snapshot);
+        IntegrationInventoryRow row = Assert.Single(result.Rows);
+
+        Assert.False(result.IsComplete);
+        Assert.Same(healthy, row.Candidate);
+        Assert.DoesNotContain(
+            result.Rows,
+            candidate => candidate.Candidate.Equals(failed));
+        Assert.Single(result.Snapshot.FailedCandidateAttempts);
+    }
+
+    [Fact]
+    public void IntegrationProjection_EachResponseRetainsItsExactValidatedRequest()
+    {
+        AnalysisReportSurface surface = Surface();
+        AnalysisUniverseDescription universe = FullUniverse();
+        AnalysisRequestPlan rows =
+            Plan(surface, universe, IntegrationAnalysisCatalog.Rows);
+        IntegrationCensusSnapshot snapshot = Snapshot([], plan: rows);
+
+        IntegrationInventoryProjectionResult result =
+            IntegrationInventoryProjection.Project(rows, snapshot);
+
+        Assert.Same(rows, result.Plan);
+        Assert.Same(snapshot, result.Snapshot);
+        Assert.Same(rows.Analysis, result.Analysis);
+        Assert.Same(rows.ReportSurface, result.ReportSurface);
+        Assert.Same(rows.Universe, result.Universe);
+        Assert.Equal(rows.Mode, result.Mode);
+        Assert.Same(rows.Projection, result.Projection);
+        Assert.True(result.IsComplete);
+        Assert.Empty(result.Rows);
+    }
+
+    [Fact]
+    public void IntegrationProjection_ReuseRequiresCompatibleCensusSnapshot()
+    {
+        AnalysisReportSurface surface = Surface();
+        AnalysisUniverseDescription universe = FullUniverse();
+        AnalysisRequestPlan graph =
+            Plan(surface, universe, IntegrationAnalysisCatalog.Graph);
+        AnalysisRequestPlan rows =
+            Plan(surface, universe, IntegrationAnalysisCatalog.Rows);
+        IntegrationCensusSnapshot snapshot = Snapshot([], plan: graph);
+
+        IntegrationInventoryProjectionResult result =
+            IntegrationInventoryProjection.Project(rows, snapshot);
+
+        Assert.Same(rows, result.Plan);
+        Assert.Same(snapshot, result.Snapshot);
+        Assert.Throws<ArgumentException>(() =>
+            IntegrationInventoryProjection.Project(
+                Plan(surface, universe, IntegrationAnalysisCatalog.Matrix),
+                snapshot));
+        Assert.Throws<ArgumentException>(() =>
+            IntegrationInventoryProjection.Project(
+                Plan(surface, FullUniverse(), IntegrationAnalysisCatalog.Rows),
+                snapshot));
+    }
+
+    [Fact]
+    public void IntegrationInventory_IncompleteEmptyCensusRetainsFailureState()
+    {
+        IntegrationSourceParticipantIdentity participant = Portable();
+        AnalysisRequestPlan plan = Plan();
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            [participant],
+            sourceAttempts:
+            [
+                new IntegrationSourceParticipantAttempt.Failed(
+                    participant,
+                    new ParticipantFailure()),
+            ],
+            producerAttempts:
+            [
+                Unavailable(participant, Ecosystem),
+                Unavailable(participant, OpenTelemetry),
+                Unavailable(participant, Opportunity),
+            ],
+            plan: plan);
+
+        IntegrationInventoryProjectionResult result =
+            IntegrationInventoryProjection.Project(plan, snapshot);
+
+        Assert.False(result.IsComplete);
+        Assert.Empty(result.Rows);
+        Assert.Same(snapshot, result.Snapshot);
+    }
+
     // =====================================================================
     // Fixture / helper layer
     // =====================================================================

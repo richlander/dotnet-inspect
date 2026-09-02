@@ -39,4 +39,9 @@ internal static class BrowserPackageWireProjection
             document.Path,
             document.Text);
     }
+
+    internal static BrowserPackageIcon? Project(BrowserPackageIconPayload? icon) =>
+        icon is null
+            ? null
+            : new BrowserPackageIcon(icon.MediaType, icon.Base64);
 }

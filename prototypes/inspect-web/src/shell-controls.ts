@@ -1,25 +1,26 @@
 import {
   parsePackageQuery,
   type ParsedPackageQuery,
-} from "./package-bar.ts";
+} from "./package-controls.ts";
 import {
   isProductHomeDemoId,
   type ProductHomeDemoId,
 } from "./product-home-demos.ts";
+import { renderBrand } from "./brand.ts";
 
 /** Product home-demo ids (`ProductInspectionDemos` / CLI `demo <id>`). */
 export type HomeDemo = ProductHomeDemoId;
 
 export interface WorkbenchShellBindingActions {
+  onCopySubjectSegment: (index: number) => void;
   onDismissNotice: () => void;
   onDismissPackageNotice: () => void;
-  onGoHome: () => void;
   onHelp: () => void;
   onNavigateBack: () => void;
   onNavigateForward: () => void;
   onRetryNotice: () => void;
+  onSearch: () => void;
   onShare: () => void;
-  onToggleTheme: () => void;
 }
 
 export interface HomeShellBindingActions {
@@ -34,10 +35,32 @@ export interface LoadErrorShellBindingActions {
   onRetry: () => void;
 }
 
+export interface WorkbenchShellHtmlOptions {
+  inspectedTargetHtml: string;
+  titleNavigationHtml: string;
+}
+
+export function workbenchShellHtml(
+  options: WorkbenchShellHtmlOptions,
+): string {
+  return `
+      <header class="titlebar">
+        ${renderBrand()}
+        ${options.inspectedTargetHtml}
+        ${options.titleNavigationHtml}
+      </header>`;
+}
+
 export function bindWorkbenchShell(
   root: ParentNode,
   actions: WorkbenchShellBindingActions,
 ) {
+  root.querySelectorAll<HTMLElement>("[data-subject-copy]").forEach(button =>
+    button.addEventListener("click", () => {
+      const index = Number(button.dataset.subjectCopy);
+      if (Number.isInteger(index) && index >= 0)
+        actions.onCopySubjectSegment(index);
+    }));
   root.querySelector("#share")
     ?.addEventListener("click", actions.onShare);
   root.querySelector("#dismiss-notice")
@@ -50,12 +73,17 @@ export function bindWorkbenchShell(
     ?.addEventListener("click", actions.onNavigateBack);
   root.querySelector("#nav-forward")
     ?.addEventListener("click", actions.onNavigateForward);
-  root.querySelector("#go-home")
-    ?.addEventListener("click", actions.onGoHome);
-  root.querySelector("#theme-toggle")
-    ?.addEventListener("click", actions.onToggleTheme);
+  root.querySelector("#open-search")
+    ?.addEventListener("click", () => actions.onSearch());
   root.querySelector("#help")
     ?.addEventListener("click", actions.onHelp);
+}
+
+export function focusWorkbenchSearch(root: ParentNode): boolean {
+  const search = root.querySelector<HTMLElement>("#open-search");
+  if (!search || search.getClientRects().length === 0) return false;
+  search.focus();
+  return true;
 }
 
 export function bindHomeShell(
