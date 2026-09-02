@@ -141,8 +141,11 @@ The Release `dotnet-inspect.Tests` suite enforces the contract:
 - `SearchScopeResolutionTests.NoExplicitSource_UsesOnlyPlatformFrameworks`
   gates the exact default and framework order;
 - `SearchScopeResolutionTests.EachExplicitSourceKind_SuppressesTheDefault`
-  gates package, library, platform-library, project/directory, and
-  package-prefix presence;
+  gates package, library, package-prefix, and the generic additional-source
+  signal consumed by the normalizer;
+- `SearchScopeResolutionTests.EachCommandDirectSource_DoesNotFallBackToPlatform`
+  gates library, platform-library, and project wiring on every participating
+  command, plus binary-directory wiring on `find`;
 - `SearchScopeResolutionTests.ExplicitGroups_ComposeInOrderWithoutDuplicatePackages`
   gates additive composition, order, and case-insensitive set semantics;
 - `SearchScopeResolutionTests.ExplicitMissingDirectory_DoesNotFallBackToPlatform`

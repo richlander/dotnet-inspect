@@ -142,10 +142,13 @@ Search commands support scope flags to control where to search:
 
 | Flag | What it searches |
 | ---- | ---------------- |
-| *(no flags)* | Default scope (all platform frameworks + Microsoft.Extensions.AI) |
+| *(no flags)* | Implicit platform scope (runtime, aspnetcore, netstandard) |
 | `--platform` | All platform frameworks (runtime, aspnetcore, netstandard) |
 | `--extensions` | Curated Microsoft.Extensions.* NuGet packages |
 | `--aspnetcore` | Curated Microsoft.AspNetCore.* NuGet packages |
+
+[Search scope resolution](design/search-scope-resolution.md) defines when the
+implicit scope activates and how explicit source selectors compose.
 
 ```bash
 # Search all platform frameworks

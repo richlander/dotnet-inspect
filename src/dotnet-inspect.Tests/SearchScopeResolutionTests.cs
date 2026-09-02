@@ -70,6 +70,68 @@ public class SearchScopeResolutionTests
         Assert.Equal(duplicate, scope.Packages[1]);
     }
 
+    [Theory]
+    [InlineData("find", "System.String", "library")]
+    [InlineData("find", "System.String", "platform-library")]
+    [InlineData("find", "System.String", "project")]
+    [InlineData("find", "System.String", "binary-directory")]
+    [InlineData("implements", "IDisposable", "library")]
+    [InlineData("implements", "IDisposable", "platform-library")]
+    [InlineData("implements", "IDisposable", "project")]
+    [InlineData("extensions", "IEnumerable<T>", "library")]
+    [InlineData("extensions", "IEnumerable<T>", "platform-library")]
+    [InlineData("extensions", "IEnumerable<T>", "project")]
+    [InlineData("depends", "System.String", "library")]
+    [InlineData("depends", "System.String", "platform-library")]
+    [InlineData("depends", "System.String", "project")]
+    public async Task EachCommandDirectSource_DoesNotFallBackToPlatform(
+        string command,
+        string target,
+        string sourceKind)
+    {
+        var (defaultExit, defaultOutput, defaultError) = await RunAppAsync(
+            command,
+            target,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, defaultExit);
+        Assert.Empty(defaultError);
+        Assert.True(
+            int.Parse(defaultOutput.Trim()) > 0,
+            $"The default scope produced no witness for {command} {target}.");
+
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-search-scope-{Guid.NewGuid():N}");
+        (string Option, string Value) source = sourceKind switch
+        {
+            "library" => ("--library", $"{missingPath}.dll"),
+            "platform-library" => ("--platform", $"Missing.Scope.{Guid.NewGuid():N}"),
+            "project" => ("--project", $"{missingPath}.csproj"),
+            "binary-directory" => ("--bin", missingPath),
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(sourceKind),
+                sourceKind,
+                "Unknown direct source kind.")
+        };
+
+        var (_, output, error) = await RunAppAsync(
+            command,
+            target,
+            source.Option,
+            source.Value,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.True(
+            string.IsNullOrWhiteSpace(output) || output.Trim() == "0",
+            $"Unexpected fallback output: {output}");
+        Assert.Contains("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task ExplicitMissingDirectory_DoesNotFallBackToPlatform()
     {
