@@ -184,8 +184,10 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
             File.WriteAllText(
                 Path.Combine(sourceRoot, "GlobalAlias.cs"),
                 $$"""
+                #if CONDITIONAL_GLOBAL_ALIAS
                 global using LegacyIdentity =
                     NuGetFetch.{{LegacyTypeName}};
+                #endif
                 """);
             File.WriteAllText(
                 Path.Combine(sourceRoot, "GlobalAliasConsumer.cs"),
@@ -199,8 +201,10 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
             File.WriteAllText(
                 Path.Combine(sourceRoot, "LocalAliasConsumer.cs"),
                 $$"""
+                #if CONDITIONAL_LOCAL_ALIAS
                 using LocalIdentity =
                     NuGetFetch.{{LegacyTypeName}};
+                #endif
                 namespace Probe;
                 sealed class LocalAliasConsumer
                 {
@@ -369,6 +373,14 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
                 legacyAliases);
         }
 
+        foreach (SyntaxTree tree in baseline)
+        {
+            references[tree.FilePath].Explicit.UnionWith(
+                ConservativeAliasReferenceLocations(
+                    tree.GetRoot(),
+                    legacyAliases));
+        }
+
         for (int mask = 0; mask < configurationCount; mask++)
         {
             string[] definedSymbols =
@@ -445,6 +457,17 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
             }
         }
     }
+
+    static IEnumerable<int> ConservativeAliasReferenceLocations(
+        SyntaxNode syntax,
+        IReadOnlySet<string> legacyAliases) =>
+        syntax.DescendantNodes()
+            .OfType<SimpleNameSyntax>()
+            .Where(name =>
+                name.Parent is not NameEqualsSyntax
+                && name.Identifier.ValueText != LegacyTypeName
+                && legacyAliases.Contains(name.Identifier.ValueText))
+            .Select(name => name.SpanStart);
 
     static HashSet<int> ActiveSyntaxLocations(SyntaxNode syntax) =>
         [
