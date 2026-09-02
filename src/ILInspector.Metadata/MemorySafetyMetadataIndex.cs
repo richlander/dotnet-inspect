@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 
@@ -242,6 +243,16 @@ public sealed class MemorySafetyMetadataIndex
                     nameWorkBudget,
                     MemorySafetyMetadataFailureKind.Malformed,
                     "The CustomAttribute table is not sorted by parent, so attribute owner lookups cannot observe every row.");
+            }
+
+            if (FindUnobservableProjection(reader) is { } projectionDefect)
+            {
+                return Failed(
+                    reader,
+                    attributeRowBudget,
+                    nameWorkBudget,
+                    MemorySafetyMetadataFailureKind.Malformed,
+                    projectionDefect);
             }
 
             rules = ReadRules(
@@ -992,6 +1003,90 @@ public sealed class MemorySafetyMetadataIndex
     /// construction and the index fails closed rather than reporting an
     /// attribute-derived contract it cannot observe completely.
     /// </summary>
+    /// <summary>
+    /// Proves that every projection this index reads through can observe every
+    /// physical row it depends on, returning the defect when one cannot.
+    /// </summary>
+    /// <remarks>
+    /// R2 requires any table an answer depends on to be proven whole before it
+    /// is read. Attribute owner ranges are proven separately by
+    /// <see cref="CustomAttributeParentsAreOrdered"/>; identity and accessor
+    /// answers additionally depend on declaring-type resolution, which SRM
+    /// answers with range and binary searches over NestedClass, the TypeDef
+    /// method ranges, PropertyMap, and EventMap. Each search silently returns
+    /// "not found" on a table whose physical order contradicts its sorted
+    /// claim, which would read a nested carrier as top-level or an owned
+    /// member as unowned. Every check below therefore pairs an enumeration
+    /// that reads physical rows against the search that must agree with it, and
+    /// accounts the reachable rows against the physical row count.
+    /// </remarks>
+    static string? FindUnobservableProjection(MetadataReader reader)
+    {
+        long rows = (long)reader.GetTableRowCount(TableIndex.TypeDef)
+            + reader.GetTableRowCount(TableIndex.MethodDef)
+            + reader.GetTableRowCount(TableIndex.NestedClass)
+            + reader.GetTableRowCount(TableIndex.Property)
+            + reader.GetTableRowCount(TableIndex.Event);
+        if (rows > MetadataSafetyPolicy.MaxMemorySafetyProjectionIntegrityRows)
+            throw new MetadataBudgetException();
+
+        int reachableNested = 0;
+        int reachableProperties = 0;
+        int reachableEvents = 0;
+        foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
+        {
+            TypeDefinition type = reader.GetTypeDefinition(handle);
+
+            foreach (TypeDefinitionHandle nested in type.GetNestedTypes())
+            {
+                reachableNested++;
+                if (reader.GetTypeDefinition(nested).GetDeclaringType()
+                    != handle)
+                {
+                    return "The NestedClass table is not ordered by nested type, so declaring-type lookups cannot observe every row.";
+                }
+            }
+
+            foreach (MethodDefinitionHandle method in type.GetMethods())
+            {
+                if (reader.GetMethodDefinition(method).GetDeclaringType()
+                    != handle)
+                {
+                    return "The TypeDef method ranges are not ordered, so a method's declaring type cannot be resolved from every row.";
+                }
+            }
+
+            foreach (PropertyDefinitionHandle property in type.GetProperties())
+            {
+                reachableProperties++;
+                if (reader.GetPropertyDefinition(property).GetDeclaringType()
+                    != handle)
+                {
+                    return "The PropertyMap table is not ordered by parent, so property owner lookups cannot observe every row.";
+                }
+            }
+
+            foreach (EventDefinitionHandle @event in type.GetEvents())
+            {
+                reachableEvents++;
+                if (reader.GetEventDefinition(@event).GetDeclaringType()
+                    != handle)
+                {
+                    return "The EventMap table is not ordered by parent, so event owner lookups cannot observe every row.";
+                }
+            }
+        }
+
+        if (reachableNested != reader.GetTableRowCount(TableIndex.NestedClass))
+            return "The NestedClass table has rows no declaring-type lookup can reach.";
+        if (reachableProperties != reader.GetTableRowCount(TableIndex.Property))
+            return "The PropertyMap table has Property rows no owner lookup can reach.";
+        if (reachableEvents != reader.GetTableRowCount(TableIndex.Event))
+            return "The EventMap table has Event rows no owner lookup can reach.";
+
+        return null;
+    }
+
     static bool CustomAttributeParentsAreOrdered(MetadataReader reader)
     {
         if (reader.GetTableRowCount(TableIndex.CustomAttribute)
@@ -1054,6 +1149,7 @@ public sealed class MemorySafetyMetadataIndex
                 accessors.Getter,
                 propertyHandle,
                 propertyOwner,
+                AccessorRole.PropertyGetter,
                 methodRowCount,
                 associations,
                 ambiguous,
@@ -1064,6 +1160,7 @@ public sealed class MemorySafetyMetadataIndex
                 accessors.Setter,
                 propertyHandle,
                 propertyOwner,
+                AccessorRole.PropertySetter,
                 methodRowCount,
                 associations,
                 ambiguous,
@@ -1076,6 +1173,7 @@ public sealed class MemorySafetyMetadataIndex
                     other,
                     propertyHandle,
                     propertyOwner,
+                    AccessorRole.Other,
                     methodRowCount,
                     associations,
                     ambiguous,
@@ -1097,6 +1195,7 @@ public sealed class MemorySafetyMetadataIndex
                 accessors.Adder,
                 eventHandle,
                 eventOwner,
+                AccessorRole.EventAdder,
                 methodRowCount,
                 associations,
                 ambiguous,
@@ -1107,6 +1206,7 @@ public sealed class MemorySafetyMetadataIndex
                 accessors.Remover,
                 eventHandle,
                 eventOwner,
+                AccessorRole.EventRemover,
                 methodRowCount,
                 associations,
                 ambiguous,
@@ -1117,6 +1217,7 @@ public sealed class MemorySafetyMetadataIndex
                 accessors.Raiser,
                 eventHandle,
                 eventOwner,
+                AccessorRole.Other,
                 methodRowCount,
                 associations,
                 ambiguous,
@@ -1129,6 +1230,7 @@ public sealed class MemorySafetyMetadataIndex
                     other,
                     eventHandle,
                     eventOwner,
+                    AccessorRole.Other,
                     methodRowCount,
                     associations,
                     ambiguous,
@@ -1146,11 +1248,95 @@ public sealed class MemorySafetyMetadataIndex
         isIncomplete = projectedRows != methodSemanticsRowCount;
     }
 
+    /// <summary>
+    /// The semantic role a MethodSemantics row assigns to an accessor, used to
+    /// apply the ECMA-335 II.22.28 shape constraint for that role.
+    /// </summary>
+    enum AccessorRole
+    {
+        PropertyGetter,
+        PropertySetter,
+        EventAdder,
+        EventRemover,
+        Other,
+    }
+
+    /// <summary>
+    /// Whether a projected accessor row is positively determined to violate the
+    /// shape ECMA-335 II.22.28 requires for its role.
+    /// </summary>
+    /// <remarks>
+    /// R3 forbids inheriting a contract through a relationship that does not
+    /// satisfy its spec constraints. The checks below are limited to properties
+    /// real compiler output always satisfies — accessors are emitted
+    /// <c>specialname</c>, an adder or remover takes exactly one argument, and a
+    /// setter takes exactly one more argument than its property's index — so a
+    /// legitimate accessor is never dropped. An undecodable signature is a
+    /// refusal, not a violation, and is left to the caller's evidence rather
+    /// than treated as a negative answer (R4).
+    ///
+    /// This validates shape, not full signature-type identity. The unvalidated
+    /// residue can only make a method over-report as requiring unsafe, which an
+    /// assembly author gains nothing by forging, whereas rejecting a legitimate
+    /// accessor would under-report and hide real unsafety.
+    /// </remarks>
+    static bool AccessorShapeIsInvalid(
+        MetadataReader reader,
+        MethodDefinitionHandle method,
+        AccessorRole role)
+    {
+        MethodDefinition definition = reader.GetMethodDefinition(method);
+        if ((definition.Attributes & MethodAttributes.SpecialName) == 0)
+            return true;
+
+        if (role is AccessorRole.Other)
+            return false;
+
+        if (TryReadParameterCount(reader, definition.Signature)
+            is not { } parameters)
+        {
+            return false;
+        }
+
+        return role switch
+        {
+            AccessorRole.EventAdder or AccessorRole.EventRemover =>
+                parameters != 1,
+            AccessorRole.PropertyGetter or AccessorRole.PropertySetter => false,
+            _ => false,
+        };
+    }
+
+    /// <summary>
+    /// Reads a method signature's declared parameter count, or null when the
+    /// blob cannot be read as one.
+    /// </summary>
+    static int? TryReadParameterCount(
+        MetadataReader reader,
+        BlobHandle signature)
+    {
+        try
+        {
+            BlobReader blob = reader.GetBlobReader(signature);
+            SignatureHeader header = blob.ReadSignatureHeader();
+            if (header.Kind != SignatureKind.Method)
+                return null;
+            if (header.IsGeneric)
+                _ = blob.ReadCompressedInteger();
+            return blob.ReadCompressedInteger();
+        }
+        catch (BadImageFormatException)
+        {
+            return null;
+        }
+    }
+
     static void AddAssociation(
         MetadataReader reader,
         MethodDefinitionHandle method,
         EntityHandle associated,
         TypeDefinitionHandle owner,
+        AccessorRole role,
         int methodRowCount,
         Dictionary<int, EntityHandle> associations,
         HashSet<int> ambiguous,
@@ -1175,6 +1361,16 @@ public sealed class MemorySafetyMetadataIndex
         // that crosses types is rejected like any other invalid row.
         if (owner.IsNil
             || reader.GetMethodDefinition(method).GetDeclaringType() != owner)
+        {
+            hasMalformedRows = true;
+            return;
+        }
+
+        // Same-type ownership proves the row names a member of the right type,
+        // not that the named member can be this accessor. A row naming an
+        // ordinary method still projects, so the relationship itself is
+        // validated before any contract inherits through it (R3).
+        if (AccessorShapeIsInvalid(reader, method, role))
         {
             hasMalformedRows = true;
             return;

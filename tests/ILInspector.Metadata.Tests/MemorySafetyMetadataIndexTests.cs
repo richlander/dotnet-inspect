@@ -496,6 +496,55 @@ public sealed class MemorySafetyMetadataIndexTests
             result.Evidence.AssociatedMemberToken);
     }
 
+    /// <summary>
+    /// R2: identity resolution binary-searches NestedClass, so a physical order
+    /// contradicting the sorted claim hides the row that proves a carrier is
+    /// nested. The spoofed carrier then reads as the top-level marker and flips
+    /// the module to Updated, under which an unmarked member reports "no
+    /// unsafety" from evidence that was never observed. Proving the projection
+    /// makes the image fail closed instead.
+    /// </summary>
+    [Fact]
+    public void UnorderedNestedClassRowsFailClosed()
+    {
+        using OpenedMetadata opened = Open(
+            BuildSyntheticImage(
+                [2],
+                nestedRulesCarrierSpoof: true,
+                localRulesMemberRefConstructor: true));
+        MemorySafetyMetadataIndex index =
+            MemorySafetyMetadataIndex.Create(opened.Reader);
+
+        var rules =
+            Assert.IsType<MemorySafetyRulesResult.Unavailable>(index.Rules);
+        Assert.Equal(
+            MemorySafetyMetadataFailureKind.Malformed,
+            rules.Failure.Kind);
+    }
+
+    /// <summary>
+    /// The control for <see cref="UnorderedNestedClassRowsFailClosed"/>: the
+    /// same spoofed carrier with the rows in order stays readable, and
+    /// structured identity rejects it on its own terms, so the module reads
+    /// Legacy rather than failing.
+    /// </summary>
+    [Fact]
+    public void OrderedNestedClassRowsRejectASpoofedNestedCarrier()
+    {
+        using OpenedMetadata opened = Open(
+            BuildSyntheticImage(
+                [2],
+                nestedRulesCarrierSpoof: true,
+                nestedClassOrdered: true,
+                localRulesMemberRefConstructor: true));
+        MemorySafetyMetadataIndex index =
+            MemorySafetyMetadataIndex.Create(opened.Reader);
+
+        var rules =
+            Assert.IsType<MemorySafetyRulesResult.Available>(index.Rules);
+        Assert.Equal(MemorySafetyRulesState.Legacy, rules.State);
+    }
+
     [Fact]
     public void CrossTypeAccessorSemanticsDoesNotCarryAnAssociatedCarrier()
     {
@@ -952,6 +1001,9 @@ public sealed class MemorySafetyMetadataIndexTests
         bool nestedRequiresUnsafeTypeReference = false,
         bool localRulesMemberRefConstructor = false,
         bool crossTypeAccessorSemantics = false,
+        bool nestedRulesCarrierSpoof = false,
+        bool eventAdderIsOrdinaryMethod = false,
+        bool nestedClassOrdered = false,
         bool duplicatePropertySemantics = false)
     {
         var metadata = new MetadataBuilder();
@@ -1144,7 +1196,54 @@ public sealed class MemorySafetyMetadataIndexTests
             MetadataTokens.FieldDefinitionHandle(1),
             rulesConstructor);
         TypeDefinitionHandle localRulesType;
-        if (nestedRulesTypeDefinition)
+        if (nestedRulesCarrierSpoof)
+        {
+            // A genuinely nested carrier that spells the top-level marker in
+            // its OWN namespace and name. Structured identity rejects it while
+            // NestedClass is readable. A second nested pair lets the rows be
+            // written out of order while the sorted claim stands, which is what
+            // makes SRM's binary search miss the spoof's row.
+            TypeDefinitionHandle outerA = metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                metadata.GetOrAddString("Spoof"),
+                metadata.GetOrAddString("OuterA"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                rulesConstructor);
+            TypeDefinitionHandle spoof = metadata.AddTypeDefinition(
+                TypeAttributes.NestedPublic,
+                metadata.GetOrAddString("System.Runtime.CompilerServices"),
+                metadata.GetOrAddString("MemorySafetyRulesAttribute"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                rulesConstructor);
+            TypeDefinitionHandle outerB = metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                metadata.GetOrAddString("Spoof"),
+                metadata.GetOrAddString("OuterB"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                rulesConstructor);
+            TypeDefinitionHandle other = metadata.AddTypeDefinition(
+                TypeAttributes.NestedPublic,
+                default,
+                metadata.GetOrAddString("Other"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                rulesConstructor);
+            if (nestedClassOrdered)
+            {
+                metadata.AddNestedType(spoof, outerA);
+                metadata.AddNestedType(other, outerB);
+            }
+            else
+            {
+                metadata.AddNestedType(other, outerB);
+                metadata.AddNestedType(spoof, outerA);
+            }
+            localRulesType = spoof;
+        }
+        else if (nestedRulesTypeDefinition)
         {
             TypeDefinitionHandle outer = metadata.AddTypeDefinition(
                 TypeAttributes.NotPublic,
@@ -1255,7 +1354,7 @@ public sealed class MemorySafetyMetadataIndexTests
         metadata.AddMethodSemantics(
             @event,
             MethodSemanticsAttributes.Adder,
-            eventAdder);
+            eventAdderIsOrdinaryMethod ? pointerOnly : eventAdder);
         metadata.AddMethodSemantics(
             @event,
             MethodSemanticsAttributes.Remover,
@@ -1632,4 +1731,48 @@ public sealed class MemorySafetyMetadataIndexTests
             _stream.Dispose();
         }
     }
+
+    /// <summary>
+    /// R3: same-type ownership proves a semantics row names a member of the
+    /// right type, not that the member can be that accessor. A row naming an
+    /// ordinary method still projects, so without validating the relationship
+    /// the event's carrier would inherit to a method that is not an accessor
+    /// and report Explicit.
+    /// </summary>
+    [Fact]
+    public void OrdinaryMethodNamedAsEventAdderInheritsNoCarrier()
+    {
+        using OpenedMetadata opened = Open(
+            BuildSyntheticImage([2], eventAdderIsOrdinaryMethod: true));
+        MemorySafetyMetadataIndex index =
+            MemorySafetyMetadataIndex.Create(opened.Reader);
+
+        MethodDefinitionHandle pointerOnly = FindMethod(
+            opened.Reader,
+            "PointerOnly");
+        var result =
+            Assert.IsType<MemorySafetyMemberContractResult.None>(
+                index.GetMemberContract(pointerOnly));
+
+        Assert.Null(result.Evidence.AssociatedMemberToken);
+        Assert.NotNull(index.AssociationFailure);
+    }
+
+    static MethodDefinitionHandle FindMethod(
+        MetadataReader reader,
+        string name)
+    {
+        foreach (MethodDefinitionHandle handle in reader.MethodDefinitions)
+        {
+            if (reader.GetString(reader.GetMethodDefinition(handle).Name)
+                == name)
+            {
+                return handle;
+            }
+        }
+
+        throw new InvalidOperationException($"{name} not found.");
+    }
+
+
 }

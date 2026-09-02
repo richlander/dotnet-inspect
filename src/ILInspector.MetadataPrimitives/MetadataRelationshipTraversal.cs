@@ -104,6 +104,13 @@ public static class MetadataSafetyPolicy
     public const int MaxMemorySafetyCustomAttributeOrderRows = 1024 * 1024;
 
     /// <summary>
+    /// Maximum TypeDef, MethodDef, NestedClass, Property, and Event rows walked
+    /// once while proving that the range and binary-search projections backing
+    /// declaring-type and accessor lookups observe every physical row.
+    /// </summary>
+    public const int MaxMemorySafetyProjectionIntegrityRows = 1024 * 1024;
+
+    /// <summary>
     /// Maximum <see cref="BadImageFormatException"/> failures while decoding
     /// method anchors during one classified-method scan. Each failure is
     /// already bounded per anchor, but catch-and-continue would otherwise

@@ -1061,6 +1061,28 @@ These rules are candidates for the shared substrate pattern tracked by
 [#5273](https://github.com/richlander/dotnet-inspect/issues/5273); this section
 binds only `MemorySafetyMetadataIndex`.
 
+R2 and R3 are discharged by construction rather than one site at a time, because
+each was otherwise satisfied only where a reviewer had already found an instance.
+Every projection an answer reads through is proven before any answer is derived:
+attribute owner ranges by verifying `CustomAttribute` parent ordering, and
+declaring-type resolution by pairing each enumeration that reads physical rows
+against the search that must agree with it — `NestedClass` against
+`GetDeclaringType`, the TypeDef method ranges against a method's declaring type,
+and `PropertyMap`/`EventMap` against their owners — then accounting the reachable
+rows against the physical row counts. A projection that cannot observe every row
+makes the module result `Unavailable`, because the defect invalidates the whole
+map rather than one identifiable row.
+
+Accessor relationships are validated for their ECMA-335 II.22.28 role shape
+before a contract inherits through them. The validation is limited to properties
+real compiler output always satisfies — accessors are `specialname`, and an
+adder or remover takes exactly one argument — so a legitimate accessor is never
+dropped, and an undecodable signature is treated as a refusal rather than a
+violation. This validates shape, not full signature-type identity: the
+unvalidated residue can only make a member over-report as requiring unsafe,
+which an assembly author gains nothing by forging, whereas rejecting a
+legitimate accessor would under-report and hide real unsafety.
+
 The module result is based only on
 `System.Runtime.CompilerServices.MemorySafetyRulesAttribute` rows attached to the
 ModuleDef. AssemblyDef, TypeDef, and member rows with the same attribute name do
@@ -1180,7 +1202,10 @@ row that contributes accessor relationships.
 `FixedBufferExemptionRequiresACoreContractCarrier`,
 `LocalRulesCarrierAuthenticatesThroughEitherConstructorSpelling`,
 `NestedLocalRulesCarrierStaysRejectedThroughAMemberReference`,
-`CrossTypeAccessorSemanticsDoesNotCarryAnAssociatedCarrier`, and
+`CrossTypeAccessorSemanticsDoesNotCarryAnAssociatedCarrier`,
+`UnorderedNestedClassRowsFailClosed`,
+`OrderedNestedClassRowsRejectASpoofedNestedCarrier`,
+`OrdinaryMethodNamedAsEventAdderInheritsNoCarrier`, and
 `MemorySafetyMetadataIndex_InvalidHandlesAreUnavailable` gate the shared
 contract.
 
