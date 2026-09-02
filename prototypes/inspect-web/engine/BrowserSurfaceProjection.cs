@@ -176,7 +176,8 @@ internal static class BrowserSurfaceProjection
         string assemblyName,
         BrowserSurfaceTextBudget? textBudget = null,
         bool qualifyId = false,
-        string? platformPack = null)
+        string? platformPack = null,
+        IEnumerable<ApiMember>? selectedMembers = null)
     {
         textBudget?.EnsureCanProject(
             type,
@@ -199,7 +200,8 @@ internal static class BrowserSurfaceProjection
 
         BrowserMemberSurface[] members =
         [
-            .. type.Members.Select(member => Member(type, member, textBudget)),
+            .. (selectedMembers ?? type.Members)
+                .Select(member => Member(type, member, textBudget)),
         ];
         string metadataId = MetadataId(type);
         string definitionId = type.DefinitionName?.ToEscapedFullName() ?? metadataId;

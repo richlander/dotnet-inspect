@@ -40,6 +40,7 @@ export interface AppMemberSurface
 
 export interface AppTypeSurface extends Omit<BrowserTypeSurface, "api"> {
   api: AppMemberSurface[];
+  graphOnly?: boolean;
 }
 
 export interface AppPackage {
@@ -99,6 +100,15 @@ export function createAppMemberSurface(
   };
 }
 
+export function createAppTypeSurface(
+  surface: BrowserTypeSurface,
+): AppTypeSurface {
+  return {
+    ...surface,
+    api: (surface.api ?? []).map(createAppMemberSurface),
+  };
+}
+
 export function retainGraphOnlyImplementationBody<
   TTarget extends BodyTarget,
 >(
@@ -135,10 +145,7 @@ export function graphOnlyImplementationBody(
 }
 
 function packageTypes(result: BrowserPackageSurface): AppTypeSurface[] {
-  return (result.types ?? []).map(type => ({
-    ...type,
-    api: (type.api ?? []).map(createAppMemberSurface),
-  }));
+  return (result.types ?? []).map(createAppTypeSurface);
 }
 
 function surfaceInspectionErrors(result: BrowserPackageSurface): string[] {

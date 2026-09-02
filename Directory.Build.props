@@ -15,6 +15,40 @@
     <EnablePreviewFeatures>true</EnablePreviewFeatures>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <!--
+      Audit the full transitive package closure, not just direct references.
+      The SDK derives NuGetAuditMode from the target framework: "all" at net10.0
+      and above, "direct" below it. That made the audit posture a side effect of
+      whichever framework a project happened to target rather than a repository
+      decision. Two projects sat below the threshold and audited only their
+      direct references: msdl-proxy, pinned to net8.0 because Azure Static Web
+      Apps managed functions do not yet support .NET 10 (issue #5364), and
+      ILInspector.Analysis.FacadeFixtures, which targets netstandard2.0 and
+      resolves packages implicitly rather than by declared PackageReference.
+
+      NuGetAuditLevel is stated for the same reason. "low" reports every
+      severity, and leaving it unstated would let a future SDK default silently
+      narrow what counts as reportable.
+
+      Audit findings are NU1901-NU1904. Directory.Build.targets escalates those
+      to errors directly rather than relying on TreatWarningsAsErrors above,
+      because four fixture projects opt out of that default.
+
+      The boundary is projects that import this file, which is narrower than
+      every file matching a project glob. A bare <Project> with no Sdk
+      attribute does not import it, and
+      eng/classic-async-artifact-matrix.proj is one. That file declares no
+      Restore target and resolves nothing of its own: it has no
+      PackageReference, and restoring it produces no assets file. What it
+      does is drive a child SDK project, building it in-process and invoking
+      `dotnet restore` and `dotnet publish` on it. Those restores are the
+      child's, and the child is an ordinary SDK project covered by this
+      policy, so the packages that actually get resolved are audited.
+      Importing this file, not restoring packages, is what confers coverage.
+    -->
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <NuGetAuditLevel>low</NuGetAuditLevel>
+    <!--
       Only tools are packable or publishable, and those are project properties
       rather than consequences of whichever SDK command was run (issue #3330).
       Internal libraries have no versioning story, no API stability commitment,

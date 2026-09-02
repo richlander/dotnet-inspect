@@ -77,6 +77,14 @@ public class DotnetToolSettingsParserTests
     }
 
     [Fact]
+    public void ParseContent_UnrelatedRoot_ReturnsNull()
+    {
+        Assert.Null(
+            DotnetToolSettingsParser.ParseContent(
+                """<NotDotNetTool Version="2" />"""));
+    }
+
+    [Fact]
     public void ParseContent_MalformedXml_ReturnsNullWithoutThrowing()
     {
         Assert.Null(DotnetToolSettingsParser.ParseContent("<DotNetCliTool Version=\"2\"><Commands>"));
