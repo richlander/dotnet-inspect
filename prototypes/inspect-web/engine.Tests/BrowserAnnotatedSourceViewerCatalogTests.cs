@@ -122,7 +122,8 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
             supportedMedia,
             invocationLikeNodeKinds,
             unavailable,
-            unavailable);
+            unavailable,
+            []);
 
         defaultFindingIds[0] = 99;
         supportedMedia[0] = BrowserAnnotatedSourceMedium.Il;
@@ -138,6 +139,82 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
         Assert.Equal(
             ["InvocationExpression"],
             catalog.InvocationLikeNodeKinds);
+        Assert.Empty(catalog.InvocationDestinations);
+    }
+
+    [Fact]
+    public void Create_ProjectedEmptyDestinationsAreAvailable()
+    {
+        BrowserAnnotatedSourceViewerCatalog catalog =
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                new AnnotatedSourceDocument("", [], [], [], []),
+                []);
+
+        Assert.True(catalog.Destinations.Available);
+        Assert.Null(catalog.Destinations.UnavailableReason);
+        Assert.Empty(catalog.InvocationDestinations);
+    }
+
+    [Fact]
+    public void Create_ContextFailureKeepsDestinationUnavailabilityVisible()
+    {
+        BrowserAnnotatedSourceViewerCatalog catalog =
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                new AnnotatedSourceDocument("", [], [], [], []),
+                invocationDestinations: null,
+                destinationUnavailableReason:
+                    BrowserAnnotatedSourceCapabilityUnavailableReason.ContextUnavailable);
+
+        Assert.False(catalog.Destinations.Available);
+        Assert.Equal(
+            BrowserAnnotatedSourceCapabilityUnavailableReason.ContextUnavailable,
+            catalog.Destinations.UnavailableReason);
+        Assert.Empty(catalog.InvocationDestinations);
+    }
+
+    [Fact]
+    public void Create_ProjectsAndCopiesTypedInvocationDestinations()
+    {
+        AnnotatedSourceDocument document = CreateMixedDocument();
+        BrowserAnnotatedSourceInvocationDestination[] destinations =
+        [
+            new(1, Target("n1", "Call")),
+        ];
+
+        BrowserAnnotatedSourceViewerCatalog catalog =
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                document,
+                destinations);
+
+        destinations[0] = new(1, Target("n2", "Other"));
+        BrowserAnnotatedSourceInvocationDestination projected =
+            Assert.Single(catalog.InvocationDestinations);
+        Assert.True(catalog.Destinations.Available);
+        Assert.Equal(1, projected.NodeId);
+        Assert.Equal("n1", projected.Target.Id);
+        Assert.Equal("Call", projected.Target.MemberName);
+    }
+
+    [Fact]
+    public void Create_RejectsInvalidInvocationDestinationNodes()
+    {
+        AnnotatedSourceDocument document = CreateMixedDocument();
+
+        Assert.Throws<ArgumentException>(() =>
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                document,
+                [new(99, Target("n1", "Call"))]));
+        Assert.Throws<ArgumentException>(() =>
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                document,
+                [new(2, Target("n1", "Call"))]));
+        Assert.Throws<ArgumentException>(() =>
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                document,
+                [
+                    new(1, Target("n1", "Call")),
+                    new(1, Target("n2", "Other")),
+                ]));
     }
 
     [Fact]
@@ -265,7 +342,60 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
             catalog.GetProperty("destinations")
                 .GetProperty("unavailableReason")
                 .GetString());
+        Assert.Empty(
+            catalog.GetProperty("invocationDestinations")
+                .EnumerateArray());
     }
+
+    [Fact]
+    public void EnvelopeSerializationCarriesTypedInvocationDestinationRows()
+    {
+        AnnotatedSourceDocument document = CreateMixedDocument();
+        string envelopeJson = JsonSerializer.Serialize(
+            BrowserAnnotatedSource.Create(
+                document,
+                "test provenance",
+                contextLimitation: null,
+                [new(1, Target("n1", "Call"))]),
+            BrowserJsonContext.Default.BrowserAnnotatedSource);
+        using JsonDocument envelope = JsonDocument.Parse(envelopeJson);
+        JsonElement catalog =
+            envelope.RootElement.GetProperty("viewerCatalog");
+
+        Assert.True(
+            catalog.GetProperty("destinations")
+                .GetProperty("available")
+                .GetBoolean());
+        JsonElement destination = Assert.Single(
+            catalog.GetProperty("invocationDestinations")
+                .EnumerateArray());
+        Assert.Equal(1, destination.GetProperty("nodeId").GetInt32());
+        Assert.Equal(
+            "method:Call",
+            destination.GetProperty("target")
+                .GetProperty("selectorKey")
+                .GetString());
+    }
+
+    private static BrowserCallGraphTarget Target(string id, string memberName) =>
+        new(
+            id,
+            "Example",
+            "1.0.0.0",
+            AssemblyCulture: null,
+            AssemblyPublicKeyToken: null,
+            "Example.Type",
+            TypeMetadataId: "Example.Type",
+            TypeDefinitionId: "Example.Type",
+            memberName,
+            ParameterTypes: [],
+            ReturnType: "System.Void",
+            GenericArity: 0,
+            MetadataToken: null,
+            SelectorKey: $"method:{memberName}",
+            "definition",
+            PlatformPack: null,
+            SurfaceAssemblyId: null);
 
     private static AnnotatedSourceDocument CreateMixedDocument()
     {
