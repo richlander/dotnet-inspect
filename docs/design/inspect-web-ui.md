@@ -75,24 +75,30 @@ independent cosmetic changes.
 
 | Area | Direction |
 | ---- | --------- |
-| Subject navigation | Use one single-line Workspace, coordinate, and current-subject command |
-| Workspace selection | Replace package tabs with a Workspace surface |
-| Package coordinate | Keep a compact package, version, and TFM argument beside `dotnet-inspect` |
+| Persistent hierarchy | Use one title line for product, inspected target, and Search/history; use one full-width subject/inspector and application-action zone before content |
+| Workspace title bar | Follow `dotnet-inspect` with the icon-backed typed Package > Library > Type > Member target path, then responsive Back/Forward and flush-right Search |
+| Subject navigation | Establish Workspace, Package, Type, and Member in the second row now; add Library when product descriptors are ready |
+| Subject zone | Render the subject and active-inspector strip, then responsive Share, contextual actions, Settings, and trailing Help |
+| Workspace selection | Keep ordinary single-workspace use free of tabs; manage retained coordinates inside the Workspace subject |
+| Package coordinate | Render version and TFM selectors in Package content; platform is workspace content, not a workspace |
 | Library inspection | Select all libraries or one library within Library |
-| Type headings | Let the inspection command identify API and Source; retain detail in Metadata |
+| Type headings | Use a compact exact-target heading in API and Source; retain detail in Metadata |
 | Filters | Collapse selector rows by default and summarize hidden restrictions |
 | Selected controls | Use one accent selected-state treatment across selector families |
 | Source provenance | Use a compact status/action row without validation prose or link glyphs |
-| Search and opening | Use Spotlight for search and a separate local-artifact Open flow |
+| Search and opening | Open Spotlight from a responsive flush-right title-line control immediately after Back/Forward; use a separate local-artifact Open flow |
 | Settings | Use one Settings experience with contextual entry points |
 | Data bar | Show build identity, acquired source, CLI, and skill links on one line |
 
-Together, these decisions move subject-specific controls and detail into the
-view that owns them. Persistent chrome carries the `dotnet-inspect` Workspace
-root control, shell actions, and one data line. Inspection surfaces add the
-compact coordinate/subject command and lens navigation. Content views spend
-their vertical space on the package, library, type, member, API, metadata, or
-source material the user selected.
+Together, these decisions make the web shell read like the CLI without
+rendering a command string. The title line progresses from `dotnet-inspect` to
+the icon-backed ordered target path, then a responsive Search/history cluster.
+The full-width zone below owns the subject and active-inspector strip plus
+Share, contextual actions, Settings, and trailing Help. Both right-side action
+regions yield space down to nothing rather than crowding the primary identity
+and inspection controls. Segment-level copy remains on the typed title-line
+target. Package coordinate editing, target inventories, and other navigation
+remain inside the working surface rather than consuming persistent chrome.
 
 ## Cross-document relationships
 
@@ -132,12 +138,30 @@ rendering, interaction, or placement rules does not require reopening the
 others unless it changes the opaque descriptor, action ID, or typed outcome
 they exchange.
 
-## Reference-product boundary
+## Reference-experience boundary
 
-[npmx.dev](https://npmx.dev/) is an interaction reference for density,
-shareable state, code-first working surfaces, keyboard access, and persistent
-package context. It is not the website's information architecture.
+No external application is the overall Inspect Web UX target. The product's
+Workspace -> Package -> Library -> Type -> Member model and its lenses remain
+normative. Reference applications supply evidence for individual capabilities:
 
+| Capability | Reference evidence |
+| ---------- | ------------------ |
+| Product-to-subject-to-inspector grammar | the `dotnet-inspect` CLI |
+| Spotlight, command palette, keyboard navigation, and focus | Visual Studio Code |
+| Dense web-native package exploration and shareable state | npmx.dev |
+| Assembly, Type, and Member hierarchy | ILSpy and Visual Studio Object Browser |
+| Read-only inspection posture and evidence panes | Chrome DevTools |
+| URLs, browser history, and familiar web conventions | GitHub |
+
+These references are neither architectural owners nor templates to copy. The
+CLI correspondence does not turn the title line into editable command text;
+Visual Studio Code does not imply an editor workbench, command center, Activity
+Bar, file Explorer, editor tabs, movable regions, or desktop-window
+assumptions; and Chrome DevTools does not imply a browser-debugging information
+architecture.
+
+[npmx.dev](https://npmx.dev/) contributes fast package exploration, density,
+code-first working surfaces, keyboard access, and persistent package context.
 Inspect Web does not copy:
 
 - npm-style `main`, `docs`, `code`, `diff`, `changelog`, and `stats` hierarchy;
@@ -150,8 +174,8 @@ Inspect Web does not copy:
 - npmx branding and component styling.
 
 Package, Library, Type, and Member ownership and their local lenses remain the
-dotnet-inspect model. Npmx influences interaction quality without redefining
-the product domain.
+dotnet-inspect model. Every reference is bounded to the capability named above
+and none redefines the product domain.
 
 ## Implementation gates
 

@@ -21,8 +21,10 @@ redefines:
 - complete C# declaration text from the CSharp layer;
 - a future producer-issued Finding census identity from
   [#4986](https://github.com/richlander/dotnet-inspect/issues/4986); and
-- future Facts/member projection and destination capabilities from
-  [#4717](https://github.com/richlander/dotnet-inspect/issues/4717).
+- future Facts/member projection from
+  [#4717](https://github.com/richlander/dotnet-inspect/issues/4717); and
+- product-issued invocation destinations from
+  [Annotated Source invocation destinations](annotated-source-invocation-destinations.md).
 
 The modal's open state, local selection, annotation choices, presentation
 choices, and detail are transient viewer state. This document does not add
@@ -368,8 +370,10 @@ construction:
   producer-issued census receipt and Finding instance key needed for
   identity-preserving Facts integration.
 - [#4717](https://github.com/richlander/dotnet-inspect/issues/4717) owns
-  Research composition of member/Facts projections and destination
-  capabilities.
+  Research composition of member/Facts projections.
+- [Annotated Source invocation destinations](annotated-source-invocation-destinations.md)
+  owns the Research join from physical calls and C# provenance to typed member
+  targets.
 - [Workspace Definitions](workspace-definitions.md) owns canonical workspace
   restoration and any future portable view fields, with implementation tracked
   by [#4787](https://github.com/richlander/dotnet-inspect/issues/4787).

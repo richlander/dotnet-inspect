@@ -274,6 +274,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Annotated Source viewer interaction](design/annotated-source-viewer-interaction.md):
   viewer-local disclosure, actions, selection, annotations, media, Escape, and
   focus inside the embedded reader and modal viewer.
+- [Annotated Source invocation destinations](design/annotated-source-invocation-destinations.md):
+  Research composition of physical direct calls, Decompiler-issued invocation
+  nodes, and CallGraph-owned typed targets.
 - [Analysis UX scopes](design/analysis-ux-scopes.md): shared analysis vocabulary across offset, member, type, and library scopes.
 - [Memory-safety models and evidence](design/memory-safety-models.md):
   v1/v2 vocabulary and composition of project policy, binary contracts,

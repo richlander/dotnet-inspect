@@ -861,11 +861,25 @@ candidate attempt and retains:
 - `In` or `Out` plus the typed `Out` reason; and
 - admitted relationship identity when `In`.
 
+The admitted relationship identity is the exact context-addressed candidate
+attempt. It is not a graph-local occurrence or edge id. A later graph
+projection must retain correspondence from this identity to the graph-owned
+occurrence and logical edge it admits.
+
+`IntegrationCensusProjectionResult` retains the independently validated plan
+and the exact compatible snapshot. `IntegrationInventoryProjectionResult`
+adds the immutable rows in the snapshot's canonical classified-attempt order.
+An incomplete snapshot may therefore retain healthy rows beside its original
+typed failures without projecting failed attempts as `Out` or successful empty
+rows.
+
 The Section is `Verbose`, `NetworkFree`, and `ExplicitOnly`. It does not enter
 the existing Library `@Integrations` catalog, so selecting that category keeps
 its current focused-section meaning and bounded output. A workspace host may
 assign the Section to an authored workspace category under the
 [Section model](section-model.md) contract.
+The reusable L2 catalog and schema exist independently of host registration;
+this slice does not add a CLI route or Library pipeline binding.
 Those declarations describe the Integration-produced row set;
 [Section model](section-model.md) remains authoritative for discovery,
 selection, effectiveness, category expansion, count, and empty-section
@@ -920,6 +934,36 @@ candidate inventory is produced before
 `InspectionGraphInducedSetProjection` removes non-admitted occurrences; it is
 never reconstructed from the projection's surviving edges or filtered
 `BindingMissing` details.
+
+`IntegrationGraphProjectionResult` retains the exact Graph plan, compatible
+snapshot, explicit induced-set request, projected graph document, and candidate
+inventory in canonical classified-attempt order. An `Out` inventory entry has
+no admitted occurrence. Every `In` entry retains its pre-induction edge and
+occurrence subjects plus a closed projection state: `Retained` names the final
+dense occurrence and logical-edge ids, while `FilteredByRequest` records that
+the existing induced-set projection removed it. A missing `In` occurrence is
+therefore not representable as an ordinary result.
+
+Census graph occurrence evidence retains the exact classified attempt, and its
+relationship-specific occurrence identity is the
+`IntegrationCandidateAttemptAddress`. Distinct context attempts can therefore
+remain distinct occurrences while normal graph collapse maps them to one
+logical edge. `integration.observed` admits the candidate's source member or
+Type; this widens the descriptor's admitted source currency without changing
+the legacy workspace query's existing member occurrences. Opportunity
+projection preserves its existing assembly-to-Type logical edge and
+Type-to-Type occurrence semantics.
+
+Graph subjects wrap the exact Integration-issued candidate source, resolved
+Type, or participant identity. They never invent an acquisition registration
+or derive identity from display text. Coordinate-backed package participants
+join their realized package group on both source and terminal sides.
+Integration-backed member, Type, and assembly subjects remain graph
+session-bound because `IIntegrationBindingContextIdentity` has no portable
+contract. An incomplete snapshot retains healthy admitted occurrences beside a
+global graph failure containing the exact unhealthy source, producer-policy,
+and candidate receipts; the graph document cannot look successfully complete
+when the projection result is incomplete.
 
 ### Peer lookup and parent provenance
 
@@ -980,8 +1024,11 @@ Implementation should land as focused slices:
    and the projection-neutral Census snapshot (implemented core model);
 3. sequential Workspace-backed execution over exact typed capability bindings
    (implemented);
-4. `Integration Inventory` row Section and structured row output;
-5. graph correspondence from `In` candidates without changing graph semantics;
+4. `Integration Inventory` row Section and structured row output
+   (implemented as a host-neutral row projection plus an unregistered reusable
+   L2 catalog and schema);
+5. graph correspondence from `In` candidates without changing graph semantics
+   (implemented);
 6. sparse matrix projection and WASM demo; and
 7. separately owned #4979 `find` prerequisite or optional enrichment for
    discovering an unknown parent.
@@ -1115,6 +1162,35 @@ The projection-neutral core-model slice is verified by:
 - `IntegrationCensusExecutor_ResolvedFulfillmentSourcesExactlyCoverDeclaredLookups`
 - `IntegrationCensusExecutor_FulfillmentResolutionCannotRepeatLookup`
 
+The Integration Inventory row-projection slice is verified by:
+
+- `IntegrationInventory_RowsRetainTypedSourcePeerAndProvenance`
+- `IntegrationInventory_PeerLookupRetainsEveryTypeReferenceScopeArm`
+- `IntegrationInventory_ForwardedInAndOutRetainTerminalDefinitionProvenanceAndHops`
+- `IntegrationInventory_ForwardedOutUsesTerminalParentForHandoff`
+- `IntegrationInventory_KnownParentUsesAuthoritativeCoordinate`
+- `IntegrationInventory_UnknownParentNeverGuessesFromAssemblyName`
+- `IntegrationInventory_FindPatternUsesTypeLookupGrammarUnchanged`
+- `IntegrationInventory_SameCandidateAcrossContextsProducesDistinctRows`
+- `IntegrationInventory_IncompleteCensusRetainsHealthyRowsWithoutManufacturingFailureRows`
+- `IntegrationInventory_IncompleteEmptyCensusRetainsFailureState`
+- `IntegrationInventory_IsExplicitNetworkFreeVerboseSection`
+- `IntegrationInventory_DoesNotWidenLibraryIntegrationsCategory`
+- `IntegrationProjection_EachResponseRetainsItsExactValidatedRequest`
+- `IntegrationProjection_ReuseRequiresCompatibleCensusSnapshot`
+
+The Integration graph-correspondence slice is verified by:
+
+- `IntegrationGraph_OnlyInCandidatesContributeOccurrences`
+- `IntegrationGraph_OutCandidatesAreNeitherEdgesNorFailures`
+- `IntegrationGraph_CandidateInventoryPrecedesInducedSetProjection`
+- `IntegrationGraph_RetainsCandidateAttemptOccurrenceAndEdgeCorrespondence`
+- `IntegrationGraph_MultipleCandidatesMayCorrespondToOneLogicalEdge`
+- `IntegrationGraph_OpportunityPreservesAssemblyEdgeAndTypeOccurrence`
+- `IntegrationGraph_IncompleteCensusRetainsHealthyGraphAndFailure`
+- `IntegrationGraph_RequiresGraphPlanAndCensusBackedRequest`
+- `IntegrationProjection_RowsAndGraphShareOneAnalysisAndSnapshot`
+
 The remaining target implementation is unverified until these named gates
 land:
 
@@ -1125,15 +1201,6 @@ land:
 - `IntegrationCandidate_UnavailableAmbiguousOrMissingSelectedPeerIsFailure`
 - `IntegrationCandidate_UnresolvedForwardingIsFailure`
 - `IntegrationCandidate_RemovingSoleSourceRemovesCandidate`
-- `IntegrationInventory_RowsRetainTypedSourcePeerAndProvenance`
-- `IntegrationInventory_PeerLookupRetainsEveryTypeReferenceScopeArm`
-- `IntegrationInventory_ForwardedInAndOutRetainTerminalDefinitionProvenanceAndHops`
-- `IntegrationInventory_ForwardedOutUsesTerminalParentForHandoff`
-- `IntegrationInventory_KnownParentUsesAuthoritativeCoordinate`
-- `IntegrationInventory_UnknownParentNeverGuessesFromAssemblyName`
-- `IntegrationInventory_FindPatternUsesTypeLookupGrammarUnchanged`
-- `IntegrationInventory_IsExplicitNetworkFreeVerboseSection`
-- `IntegrationInventory_DoesNotWidenLibraryIntegrationsCategory`
 - `IntegrationMatrix_RetainsCandidateIdentityAndDispositionCounts`
 - `IntegrationMatrix_RepeatedLibraryAcrossContextsRemainsDistinct`
 - `IntegrationMatrix_IncompleteLibraryDoesNotRenderAsZero`
@@ -1141,13 +1208,6 @@ land:
 - `IntegrationMatrix_ProducerPolicyFailureIncompletesEveryBindingContextForItsConcept`
 - `IntegrationMatrix_CandidateFailureDoesNotContaminateOtherBindingContexts`
 - `IntegrationMatrix_OrdersByDeclaredParticipantContextAndConceptOrder`
-- `IntegrationGraph_OnlyInCandidatesContributeOccurrences`
-- `IntegrationGraph_OutCandidatesAreNeitherEdgesNorFailures`
-- `IntegrationGraph_CandidateInventoryPrecedesInducedSetProjection`
-- `IntegrationGraph_RetainsCandidateAttemptOccurrenceAndEdgeCorrespondence`
-- `IntegrationGraph_MultipleCandidatesMayCorrespondToOneLogicalEdge`
-- `IntegrationProjection_EachResponseRetainsItsExactValidatedRequest`
-- `IntegrationProjection_ReuseRequiresCompatibleCensusSnapshot`
 - `IntegrationProjection_RowsMatrixAndGraphShareOneAnalysisAndSnapshot`
 - `IntegrationWasmDemo_RendersSharedProjectionWithoutDetectionPolicy`
 

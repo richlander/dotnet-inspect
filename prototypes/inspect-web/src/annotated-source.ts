@@ -8,6 +8,7 @@ import {
   capabilityReason,
   createAnnotatedSourceViewerModel,
   factForId,
+  invocationDestinationForNode,
   nodesForPrimary,
   renderedFindingTargets,
   renderedStructuralTargets,
@@ -56,6 +57,11 @@ export type AnnotatedSourceAction =
   | { kind: "medium-toggle"; medium: SourceMedium }
   | { kind: "coordinate-toggle" }
   | { kind: "node-select"; nodeId: number }
+  | {
+      kind: "destination-open";
+      destinationIndex: number;
+      destination: "member" | "source";
+    }
   | { kind: "source-select"; offset: number; medium: SourceMedium };
 
 export interface AnnotatedSourceBindingActions {
@@ -453,6 +459,9 @@ function renderAnnotationTarget(
 function renderPrimary(context: SourceRenderContext): string {
   const { model, session, escapeHtml } = context;
   const nodes = nodesForPrimary(model, session.primary);
+  const destination = session.primary?.kind === "node"
+    ? invocationDestinationForNode(model, session.primary.id)
+    : null;
   return `
     <section class="annotated-inspector-section">
       <p class="section-eyebrow">Selection</p>
@@ -464,12 +473,44 @@ function renderPrimary(context: SourceRenderContext): string {
             ? `<div class="annotated-node-list">
                 ${nodes.map(node => renderNode(node, session, escapeHtml)).join("")}
               </div>`
-            : `<p class="annotated-empty">This Finding has no product-issued source target.</p>`}`
+            : `<p class="annotated-empty">This Finding has no product-issued source target.</p>`}
+          ${destination
+            ? renderInvocationDestinations(
+                destination.index,
+                destination.destination.target,
+                escapeHtml)
+            : ""}`
         : `<div class="annotated-selection-empty">
             <strong>Nothing selected</strong>
             <span>Select addressable source or inspect a Finding.</span>
           </div>`}
     </section>`;
+}
+
+function renderInvocationDestinations(
+  destinationIndex: number,
+  target: AnnotatedSourceViewerModel["invocationDestinations"][number]["target"],
+  escapeHtml: (value: unknown) => string,
+): string {
+  const label = `${target.typeFullName}.${target.memberName}`;
+  return `
+    <div class="annotated-destinations">
+      <span>Open selected invocation</span>
+      <div>
+        <button type="button"
+          data-annotated-action="destination-open"
+          data-destination-index="${destinationIndex}"
+          data-destination="member"
+          aria-label="Open member overview for ${escapeHtml(label)}"
+          title="Open member overview for ${escapeHtml(label)}">Member</button>
+        <button type="button"
+          data-annotated-action="destination-open"
+          data-destination-index="${destinationIndex}"
+          data-destination="source"
+          aria-label="Open source for ${escapeHtml(label)}"
+          title="Open source for ${escapeHtml(label)}">Source</button>
+      </div>
+    </div>`;
 }
 
 function renderNode(
@@ -634,6 +675,18 @@ function actionForElement(element: HTMLElement): AnnotatedSourceAction | null {
     case "node-select": {
       const nodeId = dataInteger(element, "nodeId");
       return nodeId === null ? null : { kind: "node-select", nodeId };
+    }
+    case "destination-open": {
+      const destinationIndex = dataInteger(element, "destinationIndex");
+      const destination = element.dataset.destination;
+      return destinationIndex === null
+        || (destination !== "member" && destination !== "source")
+        ? null
+        : {
+            kind: "destination-open",
+            destinationIndex,
+            destination,
+          };
     }
     default:
       return null;
