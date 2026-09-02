@@ -83,6 +83,22 @@ matches the provenance case. It must not silently replace a required relation
 with a merge-base comparison, parent comparison, PR-head comparison, API path
 set, tracked-file inventory, or another approximation.
 
+Each endpoint is named by a full canonical Git object ID: lowercase
+hexadecimal at either supported hash width (40 characters for SHA-1, 64 for
+SHA-256). An abbreviation, a revision expression, an uppercase spelling, and
+the all-zero identifier are refusals rather than inputs to resolve. Both
+endpoints must resolve to themselves as commits, so a tag or tree object is
+refused rather than peeled.
+
+A push event without a usable before-tree endpoint therefore refuses instead
+of preserving the legacy classifier's conservative over-run. The aggregate
+gate keeps that refusal visible and blocking until a separately designed
+provenance case supplies an exact replacement endpoint.
+
+"The checked candidate" is a checked condition, not an assumption: the
+repository's `HEAD^{commit}` object ID must equal the candidate endpoint. A
+worktree that is not the candidate is a refusal.
+
 The pull-request relation is deliberately current-base-to-synthetic-candidate,
 not GitHub's documented three-dot workflow path-filter relation. Default
 pull-request checkout validates `refs/pull/<number>/merge`; routing must describe
@@ -109,12 +125,30 @@ Rename detection is not part of routing. The endpoint trees expose an old-path
 deletion and new-path addition, so rename-into and rename-out cases are
 deterministic.
 
+The canonical changed-input record stream is exactly one
+`status-byte NUL path-bytes NUL` record per change, in the acquisition order
+the endpoint comparison reports, with `A`, `M`, `D`, and `T` the only accepted
+status bytes. The plan's input digest is the lowercase hexadecimal SHA-256 of
+that stream exactly as acquired. A truncated record, a multi-byte status
+token, an unsupported status, a duplicate path, an empty path, and a
+non-canonical relative path are refusals rather than skipped records.
+
 Exact path corpora do not travel through GitHub's textual job-output channel.
 When a domain job needs scoped paths, the planner produces a bounded evidence
-file. The file is a NUL-terminated sequence of exact path-byte records. A path
-need not exist in the candidate tree: deletion evidence remains meaningful.
-Change status is not part of a scoped record unless the consuming contract
-separately requires it.
+file. The file is a NUL-terminated sequence of exact path-byte records, in
+plan input order. A path need not exist in the candidate tree: deletion
+evidence remains meaningful. Change status is not part of a scoped record
+unless the consuming contract separately requires it. A scope file is bounded
+to at most 16 MiB; an overflow is a refusal, never a truncated corpus.
+
+Scoped evidence carries the content a consumer validates, not the triggers
+that made the validation relevant. The TLA+ scope therefore contains only
+changed paths matching the planner's TLA+ model-content rules — `.tla` and
+`.cfg` files under `docs/models/` or `docs/design/models/`, matched with
+ASCII case-insensitive extensions — and never the TLA+ infrastructure paths
+that also select the lane. An infrastructure-only selection consequently
+produces a true selection with a valid zero-record scope file, which the
+planner still writes.
 
 The plan descriptor binds the file to:
 
@@ -147,6 +181,22 @@ planner owns their input contract, validation, and routing effect. An invalid
 policy input cannot silently remove validation. A deliberately conservative
 selection must be represented in a valid plan and tested as policy, not
 reached through an accidental parsing fallback.
+
+Two conservative inventory policies are current and named. When
+`eng/inspect-web-gate-projects.txt` is missing or malformed, every `src`
+change broadens to the Browser/Wasm lane. When
+`eng/decompiler-gate-skip-projects.txt` is missing or malformed, no source,
+test, or tool project is exempted from the decompiler gates. Each choice
+appears in the resulting valid plan as a bounded diagnostic code —
+`inspectWebInventoryUnavailable` and `decompilerSkipInventoryUnavailable` — so
+a broadened run is visible rather than inferred. The planner and the
+repository's project-graph self-tests share one validated typed inventory
+reader; the self-tests remain the stronger gate, because they additionally
+hold each manifest to the evaluated Release project closure.
+
+Inventory roots are unique canonical repository-relative lines. A duplicate
+root makes the inventory malformed even though the legacy shell reader would
+tolerate it; the conservative policy above then applies.
 
 Jobs and named in-job validation units consume selections, not paths.
 Domain-specific interpretation begins only after routing. For example, the
@@ -206,6 +256,19 @@ plan contains only ASCII and is bounded to at most 16 KiB, leaving margin under
 the repository-observed 21,000-character workflow-expression scalar boundary.
 Path corpora and refusal diagnostics remain outside the plan.
 
+Concretely, the serialized plan is one compact UTF-8 JSON object containing
+only printable ASCII, with deterministic property order, lower camel member
+names, no newline, and lowercase digests. Its `validations` member always
+carries every field — `test`, `csharpDiffSmoke`, `decompilerGates`,
+`markdownlint`, `ilDiffSmoke`, `ilRoundTrip`, `pack`, `buildNet10`,
+`inspectWeb`, `skillGate`, and `tla` — so a consumer never distinguishes
+"false" from "absent". `ilRoundTrip` implies `test` as a construction
+invariant. A scope descriptor names its artifact, record framing, record
+count, and digest; the TLA+ artifact is `ci-plan-tla-paths0`. The plan
+publisher writes scoped evidence and then the single plan line only after the
+serialized bytes have been re-parsed and revalidated by the strict plan
+reader, so a plan a consumer would reject never reaches one.
+
 Consumers reject an unsupported schema version or malformed plan. Because all
 workflow and planner changes land together in this repository, this design
 does not require compatibility shims for obsolete plan versions.
@@ -219,6 +282,12 @@ jobs must not erase the planner failure.
 The planner emits no plan after refusal. It may emit a small diagnostic through
 a distinct channel before failing. Diagnostics identify categories, record
 positions, and digests; they do not embed arbitrary path bytes.
+
+A refusal exits nonzero, writes a bounded printable-ASCII category diagnostic
+to standard error, leaves standard output absolutely empty, and removes any
+scope file this invocation would have owned in its evidence directory. Only
+the planner's own refusal type is converted into that result: an unexpected
+exception fails normally rather than being caught into a success shape.
 
 This contract depends on an aggregate-gate precondition: a planner job result
 other than success, including skipped, cancelled, or never started, blocks the
@@ -330,9 +399,23 @@ paths; the TLA+ consumer still owns model-directory validation. The neighboring
 inverse fixture produces `tla: false`. A provenance failure produces a visible
 refusal rather than an empty or all-false plan.
 
-This design is **unverified** until an implementation gate constructs the plan
-through the production planner, validates its serialized boundary, and proves
-workflow consumption from that exact object.
+### Staged verification
+
+The planner types, Git evidence reader, routing policy, canonical
+serialization, plan publisher, and command boundary are implemented behind
+`eng/ci-plan.cs` and verified by `dotnet run eng/test-ci-change-detection.cs`,
+which constructs plans through the production planner rather than a
+harness-built substitute. That gate covers the routing canaries and
+first-match exclusions, event semantics, the `ilRoundTrip` implication,
+effective-selection parity against the legacy shell classifier for every
+scenario where both receive the same event and changed-path corpus, real
+temporary Git repository fixtures including the #5347 rename fixtures, raw
+parser fixtures with invalidly encoded path bytes, the refusal contract, and
+deterministic serialization with strict deserialization rejection.
+
+Workflow consumption remains **unverified**. The workflow still runs the legacy
+Bash classifier, so no gate yet proves a job consuming this exact plan object
+or its scoped evidence. Adoption slice 2 owns that proof.
 
 ## Adoption sequence
 
@@ -340,7 +423,12 @@ Adoption proceeds in focused slices:
 
 1. Implement the planner types, path-evidence reader, routing policy, canonical
    serialization, and effective-selection parity harness without making it
-   authoritative in CI.
+   authoritative in CI. The planner ships as the file-based entrypoint
+   `eng/ci-plan.cs`, which takes the event kind, both endpoint object IDs, and
+   an explicit evidence directory, and whose gate is
+   `dotnet run eng/test-ci-change-detection.cs`. Because the legacy classifier
+   does not yet route `eng/ci-plan.cs`, that gate pins the entrypoint shim to
+   the planner façade; slice 2 enrolls the file directly.
 2. Make the workflow's change-planning job consume the planner and replace
    candidate-relevance conditions with mechanical plan projections. Existing
    event gates and named in-job selectors become planner validation fields;
