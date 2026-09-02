@@ -1,19 +1,22 @@
 # Inspect Web Shell Interaction
 
 This document owns the persistent `dotnet-inspect` shell and the shared
-transient and routed surfaces it launches: shell actions, shared menu/modal
-semantics, Spotlight Search, Open, Settings entry, the command palette, and
-the routed-versus-modal classification that governs focus return and
-history interaction. It does not own which subject or lens is active, or the
-consumer effect lifecycle that resolves focus after a navigation result
-installs; those are separately owned.
+transient and routed surfaces it launches: the workspace title bar and shell
+actions, shared menu/modal semantics, Spotlight Search, Open, Settings entry,
+the command palette, and the routed-versus-modal classification that governs
+focus return and history interaction. It does not own which subject, target,
+or lens is active, the contents of coordinate selectors, or the consumer
+effect lifecycle that resolves focus after a navigation result installs; those
+are separately owned.
 
 ## Ownership and boundaries
 
 This owner defines:
 
-- the persistent shell's visible text actions (`Home`, `Search`, `Open`,
-  `Settings`);
+- the persistent shell's visible text actions (`Search`, `Open`, `Help`,
+  `Settings`) and the `dotnet-inspect` Home control;
+- the title line's allocation among the product root, the navigation-
+  presentation-owned inspected target, and trailing Search/history cluster;
 - the generic modal-dialog contract (accessible name, initial focus, inert
   background, tab containment, Escape, one-modal-at-a-time, and
   ordinary-dismissal focus return) shared by Spotlight, Open, Settings, the
@@ -23,7 +26,7 @@ This owner defines:
 - Spotlight Search's input and package-scope behavior;
 - the local-artifact Open overlay; and
 - the command palette's keyboard-driven counterpart to the visible
-  inspection command.
+  workspace, subject, inspector, and target controls.
 
 It does not own:
 
@@ -65,15 +68,83 @@ This document consumes, without redefining:
   [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) that
   govern what a modal's committed navigation action actually focuses.
 
-## Shell actions
+## Workspace title bar and shell actions
 
-The global shell uses visible text actions:
+The first persistent row is one non-wrapping title line:
 
 ```text
-Home   Search   Open   Settings
+dotnet-inspect  [package icon] Package > Type > Member  Back Forward  Search
 ```
 
-An optional decorative glyph does not replace any visible label.
+It follows the product's CLI grammar without becoming an editable command:
+
+1. `dotnet-inspect` is the stable product and Home control.
+2. Navigation Presentation renders the icon-backed typed inspected target
+   immediately after the product root. Package coordinate controls belong to
+   the Package working surface.
+3. Compact Back and Forward controls followed by flush-right Search occupy a
+   trailing cluster that yields space before the target path. The product Home
+   control remains.
+
+The title line contains no workspace tabs, indexed workspace selectors, or
+separate Platform workspace, active-package title, or package coordinate
+selector. Most sessions contain one workspace, so retained coordinate
+management belongs to the Workspace subject rather than permanent
+high-distraction chrome. Platform libraries are capabilities or content of the
+current workspace.
+
+The title line shows the applicable Package, Library, Type, and Member identity
+as one typed path.
+
+The second persistent row begins with the Workspace, Package, Type, and Member
+subject ladder and the active subject's inspectors. Share, Settings, contextual
+actions, and Help occupy its trailing side, with Help last. That action region
+may collapse completely under pressure rather than reducing the subject and
+inspector strip to permanent tab-like chrome.
+
+Search is an input-like control in the title line that opens Spotlight. It is
+not editable in place and does not become a dominant centered command control.
+Back and Forward sit immediately to its left, following VS Code's bounded
+ordering, and Search is flush with the right edge. As target identity consumes
+width, the cluster progresses from full Search, to a `Search` button after the
+arrows, to flush-right arrows alone, and finally to no visible controls. The
+global title line exposes:
+
+```text
+dotnet-inspect (Home)   inspected target   Back   Forward   Search
+```
+
+The subject zone exposes:
+
+```text
+Workspace Package Type Member   inspectors   Share   Settings   Help
+```
+
+The dotnet-bot image is the product mark. The visible `dotnet-inspect` label
+remains; the image does not replace it. The inspected target owns a separate
+fixed-width root-mark slot immediately after the product control.
+
+For a NuGet package, that root mark is the bounded embedded JPEG or PNG declared
+by the package nuspec, with NuGet Gallery's default package icon as the
+fallback. Legacy remote nuspec icon URLs are not fetched.
+
+### Incremental adoption
+
+The shell may land before adjacent redesign owners. During that transition:
+
+- currently supported Settings may occupy the second-row action region before
+  local-artifact Open is available;
+- Open remains absent rather than appearing disabled or committing a
+  success-shaped placeholder action;
+- the `dotnet-inspect` root control is the sole persistent Home affordance;
+- Share, Settings, and keyboard Help occupy the subject zone, with Help last;
+  and
+- retained packages may provisionally supply Workspace entries and Package
+  version/framework controls in Package content before product-issued
+  descriptors replace that data.
+
+This sequencing changes no package-selection or acquisition semantics and does
+not claim completion of the redesign.
 
 ## Shared menu and modal semantics
 
@@ -142,6 +213,11 @@ Spotlight as the one search experience for:
 - platform inputs; and
 - commands.
 
+The title-line Search control advertises the search scope in its expanded label
+and transfers focus to Spotlight's editable input when activated. Its compact
+`Search` label and hidden responsive states do not change the keyboard shortcut
+or Spotlight behavior.
+
 Coordinate activation always opens the coordinate menu. That menu contains an
 explicit `Search packages` action that closes the menu and opens Spotlight in
 package scope. Search and coordinate selection use the same result identities
@@ -187,8 +263,8 @@ removed.
 ## Command palette
 
 The existing command palette is the keyboard counterpart to the visible
-inspection command. It uses the same product-issued coordinates, subjects, and
-lenses:
+workspace, subject, inspector, and target controls. It uses the same
+product-issued coordinates, subjects, and lenses:
 
 ```text
 package System.Text.Json
@@ -205,10 +281,10 @@ Command execution uses the same state transitions as pointer interaction and
 applies the same projectable, non-projectable, or failed canonical-state
 classification after commit.
 
-The persistent inspection command is navigation context, not an always-editable
-text input. The site does not introduce a broad set of single-letter page
-shortcuts. One discoverable palette shortcut plus ordinary control-specific
-keyboard behavior is sufficient.
+Persistent navigation controls are not an always-editable command input. The
+site does not introduce a broad set of single-letter page shortcuts. One
+discoverable palette shortcut plus ordinary control-specific keyboard behavior
+is sufficient.
 
 ## Non-claims
 
@@ -221,6 +297,32 @@ or responsive composition.
 
 An implementation claiming this redesign is complete must satisfy these
 outcomes.
+
+### Workspace title bar
+
+1. Confirm that the icon-backed typed Package, Type, and Member path follows
+   `dotnet-inspect` in the title line, with no Package coordinate controls.
+2. Confirm that the line contains no workspace tabs, numeric workspace
+   selectors, or separate Platform workspace.
+3. Open Workspace and confirm that retained coordinates move into its working
+   surface with activation and Close actions.
+4. Select a Type or Member and confirm that the title line advertises the
+   Package, Type, and Member path in order while the full-width row below
+   contains the subject and inspector strip.
+5. Select Package and confirm that Version and Framework appear in its working
+   surface. Confirm that every product-issued subject-path segment copies its
+   own typed canonical name, there is no separate Copy name action, and Share
+   remains with the exact identity. `dotnet-inspect` is the sole Home
+   affordance.
+6. Narrow the viewport or lengthen the inspected target and confirm that the
+   title-line action cluster progresses from full Search, to `Search`, to
+   arrows, to nothing. Confirm that the second-row actions may also disappear
+   and that Help is their final element.
+7. Confirm that the product bot and inspected-target root mark retain distinct
+   bounded icon slots and the current target leaf uses the shared accent.
+8. Confirm that no persistent package-query input or centered command-center
+   control appears, and that Back and Forward sit immediately left of the
+   visible flush-right Search control, which opens Spotlight.
 
 ### Search input
 

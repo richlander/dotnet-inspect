@@ -4,6 +4,8 @@ import {
   bindHomeShell,
   bindLoadErrorShell,
   bindWorkbenchShell,
+  focusWorkbenchSearch,
+  workbenchShellHtml,
 } from "../src/shell-controls.ts";
 import { setProductHomeDemoCatalog } from "../src/product-home-demos.ts";
 import { fakeDom } from "./fake-dom.ts";
@@ -22,6 +24,8 @@ setProductHomeDemoCatalog([
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
   hidden = true;
+  focused = false;
+  rendered = true;
   value = "";
   private readonly listeners = new Map<string, EventListener[]>();
 
@@ -33,6 +37,14 @@ class FakeElement {
     const listeners = this.listeners.get(type) ?? [];
     listeners.push(listener);
     this.listeners.set(type, listeners);
+  }
+
+  focus() {
+    this.focused = true;
+  }
+
+  getClientRects() {
+    return this.rendered ? [{}] : [];
   }
 
   dispatch(type: string, values: Record<string, unknown> = {}) {
@@ -79,25 +91,31 @@ test("workbench shell binds every rendered control without eager work", () => {
     ["#dismiss-package-notice", "dismiss-package-notice"],
     ["#nav-back", "navigate-back"],
     ["#nav-forward", "navigate-forward"],
-    ["#go-home", "go-home"],
-    ["#theme-toggle", "toggle-theme"],
+    ["#open-search", "search"],
     ["#help", "help"],
   ]);
   for (const selector of controls.keys()) {
     root.add(selector, new FakeElement());
   }
+  const packageSubject = new FakeElement({ subjectCopy: "0" });
+  const typeSubject = new FakeElement({ subjectCopy: "1" });
+  root.addAll("[data-subject-copy]", packageSubject, typeSubject);
   const calls: string[] = [];
+  let searchArgumentCount = -1;
 
   bindWorkbenchShell(fakeDom.parentNode(root), {
+    onCopySubjectSegment: index => calls.push(`copy-subject:${index}`),
     onDismissNotice: () => calls.push("dismiss-notice"),
     onDismissPackageNotice: () => calls.push("dismiss-package-notice"),
-    onGoHome: () => calls.push("go-home"),
     onHelp: () => calls.push("help"),
     onNavigateBack: () => calls.push("navigate-back"),
     onNavigateForward: () => calls.push("navigate-forward"),
     onRetryNotice: () => calls.push("retry-notice"),
+    onSearch: (...args: unknown[]) => {
+      searchArgumentCount = args.length;
+      calls.push("search");
+    },
     onShare: () => calls.push("share"),
-    onToggleTheme: () => calls.push("toggle-theme"),
   });
 
   assert.deepEqual(calls, []);
@@ -105,7 +123,52 @@ test("workbench shell binds every rendered control without eager work", () => {
     root.querySelector(selector)?.dispatch("click");
     assert.equal(calls.at(-1), call);
   }
-  assert.equal(calls.length, controls.size);
+  packageSubject.dispatch("click");
+  typeSubject.dispatch("click");
+  assert.deepEqual(calls.slice(-2), ["copy-subject:0", "copy-subject:1"]);
+  assert.equal(calls.length, controls.size + 2);
+  assert.equal(searchArgumentCount, 0);
+});
+
+test("workbench shell renders the inspected target after the product root", () => {
+  const html = workbenchShellHtml({
+    inspectedTargetHtml: '<div class="inspected-target" data-test="target">System.Text.Json</div>',
+    titleNavigationHtml: '<nav class="title-navigation"><button id="open-search">Search</button></nav>',
+  });
+
+  assert.match(
+    html,
+    /class="titlebar"[\s\S]*class="brand"[\s\S]*data-test="target"[\s\S]*class="title-navigation"/);
+  assert.doesNotMatch(html, /class="lensbar"/);
+  assert.doesNotMatch(html, /workspace-window|workspace-strip/);
+  assert.doesNotMatch(
+    html,
+    /workspace-title|coordinate-selectors|package-version|framework-select/);
+  assert.match(html, /class="brand-icon"[\s\S]*dotnet-inspect-bot\.png/);
+  assert.match(html, /id="open-search"/);
+  assert.doesNotMatch(html, /id="go-home"|>Home<\/button>/);
+  assert.doesNotMatch(html, /id="open-settings"/);
+  assert.doesNotMatch(html, /id="share"/);
+  assert.doesNotMatch(html, /id="help"/);
+  assert.doesNotMatch(
+    html,
+    /Package or Package@version|theme-toggle|shell-command-center/);
+});
+
+test("workbench search focus stays with the shell selector owner", () => {
+  const root = new FakeRoot();
+  const search = new FakeElement();
+  root.add("#open-search", search);
+
+  assert.equal(focusWorkbenchSearch(fakeDom.parentNode(root)), true);
+  assert.equal(search.focused, true);
+  search.rendered = false;
+  search.focused = false;
+  assert.equal(focusWorkbenchSearch(fakeDom.parentNode(root)), false);
+  assert.equal(search.focused, false);
+  assert.equal(
+    focusWorkbenchSearch(fakeDom.parentNode(new FakeRoot())),
+    false);
 });
 
 test("home shell accepts only known demos", () => {
@@ -204,15 +267,15 @@ test("load error shell parses replacement packages and owns local detail state",
 test("shell bindings tolerate inactive surfaces", () => {
   const root = fakeDom.parentNode(new FakeRoot());
   assert.doesNotThrow(() => bindWorkbenchShell(root, {
+    onCopySubjectSegment() {},
     onDismissNotice() {},
     onDismissPackageNotice() {},
-    onGoHome() {},
     onHelp() {},
     onNavigateBack() {},
     onNavigateForward() {},
     onRetryNotice() {},
+    onSearch() {},
     onShare() {},
-    onToggleTheme() {},
   }));
   assert.doesNotThrow(() => bindHomeShell(root, {
     onDemo() {},
