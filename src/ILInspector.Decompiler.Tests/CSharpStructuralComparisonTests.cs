@@ -979,6 +979,81 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void CompareStructure_NarrowsInvocationQualifierArgumentCaretToMovedToken()
+    {
+        // Issue #5486 (corpus follow-up to #5022's item 2): once item 1
+        // collapses #4942's stacked rows to the single most-specific
+        // InvocationExpression row, the caret should narrow to just the
+        // `receiver` token that moved between qualifier and argument
+        // position, not the entire `receiver.Values(typeof(Attribute),
+        // true)` call -- matching the #4952 agreed mockup exactly. Item 2's
+        // `NarrowToChangedHeader` never covered `InvocationExpression` (it
+        // only narrows a closed set of statement kinds with their own
+        // printer `Header` region), so this is a distinct narrowing pass.
+        const string beforeText =
+            "return receiver.Values(typeof(Attribute), true).FirstOrDefault<Attribute>();";
+        const string afterText =
+            "return Values(receiver, typeof(Attribute), true).FirstOrDefault<Attribute>();";
+
+        var before = Document(
+            beforeText,
+            ("Return", beforeText),
+            ("InvocationExpression", "receiver.Values(typeof(Attribute), true).FirstOrDefault<Attribute>()"),
+            ("InvocationExpression", "receiver.Values(typeof(Attribute), true)"));
+        var after = Document(
+            afterText,
+            ("Return", afterText),
+            ("InvocationExpression", "Values(receiver, typeof(Attribute), true).FirstOrDefault<Attribute>()"),
+            ("InvocationExpression", "Values(receiver, typeof(Attribute), true)"));
+
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0, 1, 2],
+            [0, 1, 2],
+            [
+                new CSharpNodeCorrespondence(0, 0),
+                new CSharpNodeCorrespondence(1, 1),
+                new CSharpNodeCorrespondence(2, 2),
+            ]));
+
+        var row = Assert.Single(comparison.Rows);
+        Assert.Equal(2, row.BeforeNodeId);
+        Assert.Equal(2, row.AfterNodeId);
+
+        var beforeSpan = Assert.Single(row.BeforeSpans);
+        var afterSpan = Assert.Single(row.AfterSpans);
+        Assert.Equal("receiver", beforeText.Substring(beforeSpan.Start, beforeSpan.Length));
+        Assert.Equal("receiver", afterText.Substring(afterSpan.Start, afterSpan.Length));
+        Assert.Equal(beforeText.IndexOf("receiver", StringComparison.Ordinal), beforeSpan.Start);
+        Assert.Equal(afterText.IndexOf("receiver", StringComparison.Ordinal), afterSpan.Start);
+
+        // The caption still recognizes the shape -- and stays honest -- even
+        // though the caret text itself ("receiver" on both sides) no longer
+        // carries the "changed" signal that item 3's caption logic used to
+        // rely on; the caption must be derived from the full matched node
+        // text, not the narrowed caret spans.
+        string beforeBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(comparison, CSharpStructuralSide.Before);
+        string afterBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(comparison, CSharpStructuralSide.After);
+        Assert.Contains(
+            "raise: InvocationExpression; receiver: used as extension-call qualifier",
+            beforeBody,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "raise: InvocationExpression; receiver: moved to argument 1 (static call)",
+            afterBody,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("changed to", beforeBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("changed from", afterBody, StringComparison.Ordinal);
+
+        var display = Assert.Single(CSharpStructuralDiffPrinter.ToDisplayRows(comparison));
+        Assert.Equal(
+            "receiver: qualifier -> argument 1 (extension -> static call)",
+            display.Detail);
+    }
+
+    [Fact]
     public void RenderAnnotatedBody_FallsBackToTextDumpWhenQualifierRoleShapeIsNotRecognized()
     {
         // A callee rename is not the narrow "receiver becomes an argument"
