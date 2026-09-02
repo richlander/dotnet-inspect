@@ -91,7 +91,6 @@ export interface TypePanelBindingActions {
     anchor: "selector" | "digest" | "canonical" | undefined,
   ) => void;
   onCopyMemberSource: () => void;
-  onCopyName: () => void;
   onCopySignature: () => void;
   onCopyTypeSource: () => void;
   onKindSelect: (kind: string) => void;
@@ -198,9 +197,6 @@ export function bindTypePanel(
   root.querySelector("#member-back")?.addEventListener(
     "click",
     actions.onMemberBack);
-  root.querySelector("#copy-name")?.addEventListener(
-    "click",
-    actions.onCopyName);
   root.querySelector("#copy-signature")?.addEventListener(
     "click",
     actions.onCopySignature);

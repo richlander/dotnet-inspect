@@ -1867,9 +1867,8 @@ retains:
   `InvalidImplementationAssets`.
 
 Here, a compile asset is a package assembly selected as a compile-time
-reference; a focused description of
-[NuGet package structure and asset roles](https://github.com/richlander/dotnet-inspect/issues/5294)
-is tracked separately.
+reference; [NuGet package structure and asset roles](../nuget-package-structure.md)
+describes the relevant package layouts and implementation counterparts.
 When no real reference group supplies the selected framework, compile fallback
 uses that framework's neutral `lib` assets. RID-specific
 `runtimes/<rid>/lib/<tfm>` replacement applies only to the independently

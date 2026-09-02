@@ -28,6 +28,10 @@ internal sealed record BrowserPackageDocumentPayload(
     string Path,
     string Text);
 
+internal sealed record BrowserPackageIconPayload(
+    string MediaType,
+    string Base64);
+
 /// <summary>
 /// Browser acquisition adapter: shared package owners resolve and admit payloads, while this host
 /// owns the bounded session cache and registry of open workspaces.
@@ -1411,6 +1415,7 @@ internal sealed class BrowserPackage
 {
     const long MaxTextEntryBytes = 16L * 1024 * 1024;
     readonly AcquiredPackageSourcePayload? _acquiredPayload;
+    readonly Lazy<BrowserPackageIconPayload?> _icon;
 
     public BrowserPackage(
         string packageId,
@@ -1432,6 +1437,7 @@ internal sealed class BrowserPackage
             retainedBytes,
             fromCache,
             producerKey);
+        _icon = new(ProjectIcon);
     }
 
     internal BrowserPackage(
@@ -1463,6 +1469,7 @@ internal sealed class BrowserPackage
         RetainedBytes = retainedBytes;
         Content = content;
         _acquiredPayload = acquiredPayload;
+        _icon = new(ProjectIcon);
     }
 
     public string PackageId { get; }
@@ -1472,6 +1479,8 @@ internal sealed class BrowserPackage
     public InMemoryPackageContent Content { get; }
 
     internal byte[] RetainedBytes { get; }
+
+    public BrowserPackageIconPayload? Icon => _icon.Value;
 
     internal PackageRootBinding CreateRootBinding(string? targetFramework) =>
         PackageRootBinding.CreateFromSource(
@@ -1588,6 +1597,18 @@ internal sealed class BrowserPackage
 
     internal bool TryReadText(string path, out byte[] bytes) =>
         TryRead(path, MaxTextEntryBytes, out bytes);
+
+    BrowserPackageIconPayload? ProjectIcon()
+    {
+        PackageIconResult result =
+            PackageIconQuery.Execute(Content, PackageId, Version);
+        if (result is not PackageIconResult.Available available)
+            return null;
+
+        return new BrowserPackageIconPayload(
+            available.Value.MediaType,
+            Convert.ToBase64String(available.Value.Bytes.AsSpan()));
+    }
 
     static bool IsUnderSkillsDirectory(string[] segments)
     {
