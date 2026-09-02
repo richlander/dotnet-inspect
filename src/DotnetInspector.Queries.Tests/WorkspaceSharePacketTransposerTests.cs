@@ -94,6 +94,40 @@ public sealed class WorkspaceSharePacketTransposerTests
     }
 
     [Fact]
+    public void ToDefinitions_ResolvedContextsUsePacketLocalAddresses()
+    {
+        WorkspaceSharePacketDefinitionSet definitions = Transpose(
+            CreatePacket(
+                [
+                    Package("P", framework: "net10.0"),
+                    Package("Q", framework: "net10.0"),
+                ],
+                [
+                    new WorkspaceShareContext([0]),
+                    new WorkspaceShareContext([1]),
+                ],
+                selectedContextIndex: 1));
+        var registry = new InspectionDefinitionRegistry();
+        foreach (InspectionDefinitionRecord record in definitions.Records)
+            registry.Add(record);
+
+        ResolvedScenario resolved =
+            registry.ResolveScenario(WorkspaceSharePacketTransposer.ScenarioId);
+
+        Assert.Equal(
+            [
+                new WorkspaceContextAddress(
+                    WorkspaceSharePacketTransposer.WorkspaceId,
+                    "g0"),
+                new WorkspaceContextAddress(
+                    WorkspaceSharePacketTransposer.WorkspaceId,
+                    "g1"),
+            ],
+            resolved.Contexts.Select(context => context.Address));
+        Assert.Same(resolved.Contexts[1], resolved.SelectedContext);
+    }
+
+    [Fact]
     public void ToPacket_UsesOnlyContextWhenScenarioSelectionIsImplicit()
     {
         WorkspaceSharePacket packet = CreatePacket(

@@ -29,6 +29,34 @@ can establish it. A genuine, Microsoft-signed .NET 6 `System.Runtime.dll` is
 authentic and, sitting beside a .NET 10 library, wrong. Authenticity is not
 coherence.
 
+## Compact platform-summary forwarding
+
+Compact API summaries may follow a platform type forwarder only through the
+structured type-resolution path. A neighboring file whose name matches the
+forwarder's assembly reference is a candidate, not proof that it supplies the
+target: its canonical assembly identity must satisfy that reference before any
+of its definitions contribute to the summary.
+
+Structured resolution first validates the neighboring candidate's canonical
+identity. When that candidate is the adjacent sibling of a platform root, the
+platform-summary owner mints one `ResolvedAssemblyReference` with platform
+provenance from the validated identity and opener. Summary extraction opens
+that descriptor, and every copied forwarded `ApiType` retains the same
+descriptor through the CLI inspection lifetime. Downstream consumers therefore
+receive the validated physical supplier rather than reconstructing one from
+`SourceAssemblyPath`.
+
+An unavailable, malformed, ambiguous, or identity-incompatible candidate
+contributes no forwarded type. Resolution remains bounded by the shared
+type-forwarding contract; this owner does not redefine hop semantics, general
+artifact acquisition, PDB policy, API rendering, platform precedence, or
+closure coherence.
+
+`PlatformSummary_RejectsFilenameMatchWithIncompatibleManifestIdentity` is the
+Release gate for the filename-match boundary.
+`PlatformSummary_RetainsValidatedForwardedSupplierDescriptor` is the neighboring
+positive and descriptor-retention gate.
+
 ## Installed implementation-platform realization
 
 Issue [#5139](https://github.com/richlander/dotnet-inspect/issues/5139)
