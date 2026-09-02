@@ -74,6 +74,39 @@ does not depend on that later work for correctness. Do report success-shaped
 unfinished behavior or a slice whose current correctness depends on a future
 change.
 
+When a candidate adds or expands a capability, substrate, host path, or broad
+rendering domain, review only design properties visible in the exact head and
+facts supplied in the candidate frame. The frame must state the complexity
+basis; named consumer, focused issue, overall end-to-end tracker, host
+enablement plan, and any applicable approval record and exact scope; and
+rendering strategy, or explain why each does not apply.
+
+Verify that the stated complexity basis identifies a specific reliability or
+correctness requirement or user-observable experience, and that the visible
+design's added complexity serves that basis. Do not independently judge whether
+an experience is compelling. Verify that the design matches its named consumer
+and host plan, keeps reusable concepts host-neutral and hosts reasonably thin,
+and does not depend on unplanned later work for the current slice's
+correctness. Shared substrate must plan benefit and enablement through both the
+CLI and browser/Wasm hosts; for substrate intentionally limited to one consumer
+or host, the frame must supply the recorded approval and exact approved scope.
+Treat that record as a candidate-formation fact: verify that the design
+conforms to it, but do not infer, grant, or broaden approval.
+
+For rendering, verify that structured information survives to the rendering
+boundary. Markout is the default host-neutral, multi-format substrate. A
+host-specific path that bypasses it must identify the host, rationale, typed
+input model, and lowering boundary. A broad information domain must document
+where structured typing lives and who owns each format lowering, whether it
+uses Markout or another approach.
+
+Do not accept claimed non-applicability at face value. Verify from the
+normative owner, change intent, changed surfaces, and exact-head diff that the
+candidate does not add or expand a capability, substrate, host path, or broad
+rendering domain. When a design establishes that boundary, the explanation
+must name its exact section. If the supplied facts and exact-head evidence do
+not establish non-applicability, return a framing defect.
+
 Push on the named pathological or boundary case. When accepting or rejecting
 that case is part of the supported contract, require exact-head gate evidence.
 A preserved non-CI fixture is design evidence, not the enforcing gate; the
@@ -97,8 +130,12 @@ owning claim defines a concrete observable requirement.
 
 Do not begin review if the candidate context contains unresolved placeholders,
 names multiple normative owners, or cannot connect the supported input to the
-claimed consequence. Return the framing defect instead of inventing a broader
-review property.
+claimed consequence. For an applicable capability, substrate, host, or
+rendering change, also stop when the required complexity basis; named consumer,
+focused issue, overall end-to-end tracker, or host enablement plan; applicable
+approval record or exact scope; or rendering strategy is incomplete or absent.
+Return the framing defect instead of inventing the missing plan, approval, or
+broader review property.
 
 Treat the assigned review worktree as read-only. Do not run `git reset`,
 `git add`, or `git commit`; do not rebase or checkout another revision. Put

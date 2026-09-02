@@ -106,7 +106,10 @@ internal sealed class DetectionHarness(
                     .ToString()
                     .ToLowerInvariant();
             startInfo.Environment["TLA_CANDIDATE_FILES"] =
-                scenario.TlaCandidateFiles ?? scenario.Files;
+                scenario.TlaCandidateFiles
+                    ?? JoinPathLists(
+                        scenario.PreviousFiles,
+                        scenario.Files);
             startInfo.Environment["TLA_CANDIDATE_RESOLUTION_SUCCEEDS"] =
                 scenario.TlaCandidateResolutionSucceeds
                     .ToString()
@@ -169,6 +172,18 @@ internal sealed class DetectionHarness(
         {
             Directory.Delete(temporary, recursive: true);
         }
+    }
+
+    private static string JoinPathLists(string first, string second)
+    {
+        if (first.Length == 0)
+        {
+            return second;
+        }
+
+        return second.Length == 0
+            ? first
+            : $"{first}\n{second}";
     }
 
     private static string ReadIfExists(string path) =>

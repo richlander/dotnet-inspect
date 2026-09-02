@@ -110,11 +110,10 @@ substrates, and inspection producers that will extend that space.
   owner-issued artifact, fragment, and correspondence evidence;
   `ILInspector.CSharp`, `ILInspector.Decompiler`, and `ILInspector.ILDiff`
   retain ownership of producing that evidence.
-- [Repository xUnit test host](design/xunit-test-host.md) owns explicit test
-  selection non-vacuity for the argument vector handed to xUnit after any
-  suite-owned expansion. xUnit retains command-line parsing, discovery,
-  filtering, execution, reporting, and Microsoft Testing Platform protocol
-  behavior.
+- [Repository xUnit test host](design/xunit-test-host.md) owns the repository's
+  use of Microsoft Testing Platform for aggregate non-vacuity of xUnit test
+  execution. MTP and xUnit retain runner semantics; suite owners retain
+  argument expansion and any stronger per-selection evidence receipts.
 - [Repository CI change plan](design/ci-change-plan.md) owns candidate
   provenance, exact changed-path interpretation, path and event routing
   implications, and one immutable validation plan with bounded scoped evidence.
@@ -180,10 +179,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   inputs](design/cli-change-classification.md): published surfaces, change
   disclosure, routing-collision analysis, invalid-input guards, and
   reservations.
-- [Repository xUnit test host](design/xunit-test-host.md): semantic
-  non-vacuity for explicit test selections after suite-owned argument
-  expansion, while preserving xUnit-owned discovery, execution, reporting, and
-  server dispatch.
+- [Repository xUnit test host](design/xunit-test-host.md): MTP-owned aggregate
+  non-vacuity for xUnit execution, with stronger per-selection evidence left
+  to the suite that makes that claim.
 - [Find type-search service](design/find-search-service.md): CLI-scoped
   candidate collection, classification precedence, source ordering, limits,
   failure visibility, and typed result boundary for `find`.

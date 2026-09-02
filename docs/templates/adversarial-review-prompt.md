@@ -74,6 +74,39 @@ does not depend on that later work for correctness. Do report success-shaped
 unfinished behavior or a slice whose current correctness depends on a future
 change.
 
+When a candidate adds or expands a capability, substrate, host path, or broad
+rendering domain, review only design properties visible in the exact head and
+facts supplied in the candidate frame. The frame must state the complexity
+basis; named consumer, focused issue, overall end-to-end tracker, host
+enablement plan, and any applicable approval record and exact scope; and
+rendering strategy, or explain why each does not apply.
+
+Verify that the stated complexity basis identifies a specific reliability or
+correctness requirement or user-observable experience, and that the visible
+design's added complexity serves that basis. Do not independently judge whether
+an experience is compelling. Verify that the design matches its named consumer
+and host plan, keeps reusable concepts host-neutral and hosts reasonably thin,
+and does not depend on unplanned later work for the current slice's
+correctness. Shared substrate must plan benefit and enablement through both the
+CLI and browser/Wasm hosts; for substrate intentionally limited to one consumer
+or host, the frame must supply the recorded approval and exact approved scope.
+Treat that record as a candidate-formation fact: verify that the design
+conforms to it, but do not infer, grant, or broaden approval.
+
+For rendering, verify that structured information survives to the rendering
+boundary. Markout is the default host-neutral, multi-format substrate. A
+host-specific path that bypasses it must identify the host, rationale, typed
+input model, and lowering boundary. A broad information domain must document
+where structured typing lives and who owns each format lowering, whether it
+uses Markout or another approach.
+
+Do not accept claimed non-applicability at face value. Verify from the
+normative owner, change intent, changed surfaces, and exact-head diff that the
+candidate does not add or expand a capability, substrate, host path, or broad
+rendering domain. When a design establishes that boundary, the explanation
+must name its exact section. If the supplied facts and exact-head evidence do
+not establish non-applicability, return a framing defect.
+
 Push on the named pathological or boundary case. When accepting or rejecting
 that case is part of the supported contract, require exact-head gate evidence.
 A preserved non-CI fixture is design evidence, not the enforcing gate; the
@@ -97,8 +130,12 @@ owning claim defines a concrete observable requirement.
 
 Do not begin review if the candidate context contains unresolved placeholders,
 names multiple normative owners, or cannot connect the supported input to the
-claimed consequence. Return the framing defect instead of inventing a broader
-review property.
+claimed consequence. For an applicable capability, substrate, host, or
+rendering change, also stop when the required complexity basis; named consumer,
+focused issue, overall end-to-end tracker, or host enablement plan; applicable
+approval record or exact scope; or rendering strategy is incomplete or absent.
+Return the framing defect instead of inventing the missing plan, approval, or
+broader review property.
 
 Treat the assigned review worktree as read-only. Do not run `git reset`,
 `git add`, or `git commit`; do not rebase or checkout another revision. Put
@@ -125,9 +162,10 @@ are no qualifying findings, write **CLEAN** and name the exact reviewed head.
 
 Replace every `{...}` placeholder below, then append domain-specific
 instructions where indicated. Do not remove, weaken, paraphrase, reorder, or
-put other instructions before the fixed prompt above. Fill every field; when a
-field genuinely does not apply, write `Not applicable — <reason>` rather than
-leaving a placeholder.
+put other instructions before the fixed prompt above. Fill every field. Use
+`Not applicable — <reason>` only when the reason identifies the relevant
+change classification and exact-head evidence; cite the owning design's exact
+section when it defines the boundary.
 
 ## Required review frame
 
@@ -143,6 +181,17 @@ leaving a placeholder.
   choice; its scope, rationale, and evidence, or state none}
 - **Analogous implementation evidence:** {observed behaviors, omissions, and
   boundaries; identify what assumptions transfer, or why none applies}
+- **Complexity basis:** {why this is the simplest sufficient design and which
+  reliability, correctness, or user-observable experience requires any added
+  complexity; or why this field does not apply}
+- **Consumer and host plan:** {consumer named by the specification, focused
+  issue, overall end-to-end tracker, and planned host enablement; for
+  single-consumer or single-host substrate, include the supplied approval
+  record and exact scope; or why this field does not apply}
+- **Rendering strategy:** {typed information model and Markout lowerings, or
+  the host-specific alternative with host, rationale, and lowering ownership;
+  for a broad domain, include every planned format boundary; or why this field
+  does not apply}
 - **Change intent:** {what behavior or contract this candidate changes}
 - **Supported actor or caller:** {ordinary caller, producer, user, or external
   actor relevant to the claim}
@@ -185,10 +234,11 @@ the exact owned claim.}
 
 {List concrete properties derived from the review frame. Describe properties,
 not attacks, and do not broaden the actor, input, boundary, or exclusions.
-Include the baseline or divergence, pathological case and gate, analogous
-evidence transfer, current-slice coherence, and demonstrated neighboring case
-when applicable. Do not turn subjective product purpose or taste into a
-property.}
+Include the baseline or divergence, complexity basis, consumer and host plan,
+rendering strategy, pathological case and gate, analogous evidence transfer,
+current-slice coherence, and demonstrated neighboring case when applicable.
+Do not turn subjective product purpose or taste into a property or ask the
+reviewer to grant an approval supplied by candidate formation.}
 
 ### Prior findings and carried-forward obligations
 
