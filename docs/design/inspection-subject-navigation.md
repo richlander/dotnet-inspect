@@ -470,8 +470,12 @@ replacement, or invalidation that can change retained membership or make an
 installed occurrence unusable. The Workspace owner begins the Navigation
 transition before publishing or performing the invalidating effect, then
 returns one correlated complete result with the effect disposition above. A
-status refresh that cannot change membership or invalidate the installed
-occurrence remains ordinary maintenance.
+begun protected transition must eventually settle with that exact result;
+Navigation consumes it, reconciles or retains state according to its effect
+disposition, and releases the explicit-admission barrier. Cancellation or
+failure uses `No effect` only after proving unchanged membership. A status
+refresh that cannot change membership or invalidate the installed occurrence
+remains ordinary maintenance.
 
 ## Product policy
 
@@ -807,14 +811,20 @@ resolution, correspondence, or fallback.
 | Type | Retain when available; otherwise highest-ranked trustworthy Type in its defining Library, then that Library, aggregate, then the exact Package or Root |
 | Member | Retain when available; otherwise containing Type; if that Type is unavailable, apply the Type rule |
 
-When Workspace is active, the `Workspace -> Workspace` row applies only to the
-active subject. Navigation independently reconciles the deepest retained
-descendant in the occurrence context by applying the corresponding row above,
-then rebuilds the contiguous ancestor path and Type-inventory Library context.
-For example, a missing retained Member falls back to its containing Type while
-Workspace remains active. If the retained Type is also unavailable, the Type
-row applies. Descendant-context reconciliation never activates its fallback
-subject or changes the Workspace lens.
+Navigation first reconciles the active subject through the table. If that
+changes the active subject, retained context is reduced to the valid ancestry
+of the replacement; invalid descendants are not carried across the fallback.
+If the active subject remains and is an ancestor of a deeper retained path,
+Navigation independently reconciles the deepest retained descendant through
+the same table, stopping at the active subject rather than falling back above
+it. It then rebuilds the contiguous path and derives Type-inventory Library
+context from that path and current realized facts.
+
+For example, with Package active and retained `Package -> Library -> Type ->
+Member`, a missing Member falls back the retained context to Type while Package
+remains active. With Workspace active, the same rule may fall back as far as the
+retained Package or Root. Retained-descendant reconciliation never activates
+its fallback subject or changes the active subject's lens.
 
 No arbitrary Member replaces a missing Member. Inventory refresh never promotes
 an explicitly selected Workspace, Package, Root, or Library to Type. Navigation
@@ -996,8 +1006,7 @@ contains:
 
 - the exact retained occurrence and its Package or non-package Root;
 - one contiguous optional exact retained Library, Type, and Member path beneath
-  that occurrence; and
-- the exact Type-inventory Library context, when established.
+  that occurrence.
 
 An explicitly selected Workspace may therefore retain one complete occurrence
 context without making any descendant the active subject. Two Workspace-selected
@@ -1009,16 +1018,17 @@ Inspection Subject Navigation independently retains that requested payload,
 requires every identity in the retained context to share one exact occurrence
 ancestry and form one contiguous path. An active Workspace may retain that
 independent path. Any requested non-Workspace subject must equal one exact node
-of the retained path, not merely share its occurrence, and the supplied
-Type-inventory Library context must equal the deterministic context defined by
-[Type-inventory Library context](#type-inventory-library-context) for that
-active subject and path. The lens identity's exact subject must equal the
-requested subject. A path/subject mismatch, Type-inventory-context mismatch,
-internally inconsistent context, or subject/lens mismatch fails before Registry
-resolution and aborts preparation. Navigation then resolves its subject and
-lens halves and publishes one complete prepared snapshot only when both halves
-succeed. Any half-failure likewise aborts, and supersession prevents an older
-preparation from being published. The focused participant state machine is
+of the retained path, not merely share its occurrence. Navigation derives the
+Type-inventory Library context from that path and current realized occurrence
+facts through [Type-inventory Library
+context](#type-inventory-library-context); it is not supplied independently by
+the canonical-state owner. The lens identity's exact subject must equal the
+requested subject. A path/subject mismatch, internally inconsistent context,
+or subject/lens mismatch fails before Registry resolution and aborts
+preparation. Navigation then resolves its subject and lens halves and publishes
+one complete prepared snapshot only when both halves succeed. Any half-failure
+likewise aborts, and supersession prevents an older preparation from being
+published. The focused participant state machine is
 [`AtomicRestoration.tla`](models/inspection-subject-navigation/AtomicRestoration.tla).
 
 This owner does not install the prepared snapshot or coordinate other
@@ -1105,6 +1115,7 @@ The eventual subject-navigation implementation must include named gates for:
 - `WorkspaceClose_IssuesCoordinateIntentBeforeOwnerEffect`
 - `WorkspaceClose_AcceptsOnlyCorrelatedOwnerResult`
 - `MembershipTransition_BlocksLaterExplicitAdmissionUntilCorrelatedResult`
+- `MembershipTransition_CorrelatedResultReleasesAdmissionBarrier`
 - `OwnerInitiatedMembershipChange_BeginsProtectedIntentBeforeEffect`
 - `MembershipResult_NoEffectFailureProvesUnchangedMembership`
 - `MembershipResult_EffectAppliedFailureReconcilesCompleteInventory`
@@ -1186,9 +1197,9 @@ The eventual subject-navigation implementation must include named gates for:
 - `CanonicalRestoration_RejectsSubjectFromAnotherOccurrence`
 - `CanonicalRestoration_RejectsInconsistentRetainedOccurrenceContext`
 - `CanonicalRestoration_RejectsSameOccurrenceSubjectOutsideRetainedPath`
-- `CanonicalRestoration_RejectsMismatchedTypeInventoryContext`
+- `CanonicalRestoration_DerivesTypeInventoryContextFromRetainedPathAndFacts`
 - `CanonicalRestoration_WorkspaceSubjectPreservesDistinctDescendantContexts`
-- `WorkspaceSubject_ReconcilesRetainedDescendantContextWithoutChangingActiveSubject`
+- `ActiveAncestor_ReconcilesRetainedDescendantContextWithoutChangingActiveSubject`
 - `CanonicalRestoration_FailedPreparationSettlesAsAbort`
 
 The closed-kind, component-binding, and construction gates are updated in
@@ -1244,14 +1255,16 @@ result identifies Navigation as the failure source.
 | Foreign-Workspace subject, action, or restoration payload | Rejected before Registry resolution, correspondence, or fallback |
 | Restoration occurrence and subject ancestry disagree inside one Workspace | Preparation aborts before Registry resolution |
 | Restoration active Type and retained path name different Types in one occurrence | Preparation aborts before Registry resolution |
-| Workspace restoration retains Type in Library L2 but supplies L1 as Type-inventory context | Preparation aborts before Registry resolution |
+| Workspace restoration retains Type in Library L2 | Type-inventory context is derived as L2; no independent Library context is decoded |
 | Two Workspace-selected restorations share an occurrence but retain different Type contexts | Distinct prepared snapshots preserve the exact independently supplied descendant context |
 | Retained Member disappears while Workspace is active | Retained context falls back to the containing Type while Workspace and its lens remain active |
+| Retained Member disappears while Package is active | Retained context falls back to the containing Type while Package and its lens remain active |
 | Package content or selection generation is replaced at the same portable coordinate | New exact Package subject; stale subject and actions are rejected |
 | Coordinate variation within one Workspace | Typed correspondence or independent recommendation confined to the requested occurrence |
 | Coordinate variation across Workspaces | No correspondence; separate retained session and independently restored state |
 | Active occurrence closes while a request is in flight | Close first issues a protected coordinate intent; stale work cannot install, later commands are rejected until settlement, and only the correlated owner result supplies inventory and successor |
 | Workspace owner removes or replaces an occurrence | The owner begins the protected Navigation intent before the effect and supplies the correlated complete inventory and optional successor |
+| Protected membership operation fails without changing membership | Correlated `No effect` result retains state and releases the explicit-admission barrier |
 | Ordinary package | Highest-ranked trustworthy Type with API lens |
 | Preferred role is not first | Preferred available role, not the earlier available descriptor |
 | Preferred lens unavailable | First available registry-ordered fallback with preferred evidence retained |

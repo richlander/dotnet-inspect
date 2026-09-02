@@ -67,10 +67,11 @@ read that way:
   the current version-2 shape; #5525 tracks Workspace/Package subject and
   retained-context adoption.
 - **Retained occurrence context.** `AtomicRestoration.tla` does not model the
-  exact retained occurrence, descendant Library/Type/Member path, or
-  Type-inventory Library context supplied independently from an active
-  Workspace subject. Implementation gates check internal context consistency
-  and reconciliation, active-subject/path compatibility, and distinct
+  exact retained occurrence or descendant Library/Type/Member path supplied
+  independently from an active Workspace subject. It also does not model the
+  Type-inventory Library context Navigation derives from that path and current
+  realized facts. Implementation gates check internal context consistency and
+  reconciliation, active-subject/path compatibility, and distinct
   same-occurrence Workspace restorations with different lower context.
 - **Acquisition, security, or performance.** Coordinate realization appears
   only as an external prerequisite that may abort.
