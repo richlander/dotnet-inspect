@@ -70,8 +70,8 @@ read that way:
   exact retained occurrence, descendant Library/Type/Member path, or
   Type-inventory Library context supplied independently from an active
   Workspace subject. Implementation gates check internal context consistency
-  and distinguish same-occurrence Workspace restorations with different lower
-  context.
+  and reconciliation, active-subject/path compatibility, and distinct
+  same-occurrence Workspace restorations with different lower context.
 - **Acquisition, security, or performance.** Coordinate realization appears
   only as an external prerequisite that may abort.
 
