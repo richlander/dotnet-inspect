@@ -1263,9 +1263,19 @@ public static partial class CSharpBodyDiff
 
             var beforeNode = before.Nodes[beforeNodeId];
             var afterNode = after.Nodes[afterNodeId];
+
+            // Only narrow when the printer's own caption/detail derivation
+            // will later be able to recognize and render the full call
+            // shape (same length/inline-renderability gate as
+            // CSharpStructuralDiffPrinter.FullNodeText). Otherwise the
+            // caption logic falls back to comparing the narrowed, now
+            // textually-identical-on-both-sides caret spans and produces a
+            // misleading self-transition such as "changed to receiver".
             if (beforeNode.Spans.Count != 1 || afterNode.Spans.Count != 1
                 || row.BeforeSpans[0] != beforeNode.Spans[0]
                 || row.AfterSpans[0] != afterNode.Spans[0]
+                || CSharpStructuralDiffPrinter.FullNodeText(before, beforeNodeId) is null
+                || CSharpStructuralDiffPrinter.FullNodeText(after, afterNodeId) is null
                 || NarrowInvocationQualifierArgumentSpan(
                     before, beforeNode.Spans[0],
                     after, afterNode.Spans[0]) is not { } narrowed)

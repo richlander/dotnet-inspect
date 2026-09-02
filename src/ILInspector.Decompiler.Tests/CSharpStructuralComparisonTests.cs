@@ -1054,6 +1054,65 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void CompareStructure_DoesNotNarrowInvocationQualifierArgumentCaretWhenCallExceedsInlineRenderLimit()
+    {
+        // Regression for round-1 review (GPT-5.6 Sol and Claude Opus 5,
+        // independently): the qualifier/argument shape is recognized, but
+        // the full call text exceeds the printer's inline-render length
+        // limit (MaximumInlineTransitionLength, 120 chars) on both sides. If
+        // the row's caret were narrowed anyway, the caption/detail logic's
+        // FullNodeText lookup would fail (same length gate), fall back to
+        // the row's own (narrowed, now textually-identical-on-both-sides,
+        // and therefore short enough to pass the length gate) spans, and
+        // print a misleading self-transition like "changed to receiver"
+        // instead of the honest, pre-existing "text changed" fallback that
+        // already applies to any row too long to render inline. Narrowing
+        // must stay gated on the same length/inline-renderability check the
+        // caption logic uses, so it never narrows a row the caption can't
+        // also describe.
+        const string beforeText =
+            "receiver.Values(argumentOne, argumentTwo, argumentThree, argumentFour, "
+            + "argumentFive, argumentSix, argumentSeven, argumentEight)";
+        const string afterText =
+            "Values(receiver, argumentOne, argumentTwo, argumentThree, argumentFour, "
+            + "argumentFive, argumentSix, argumentSeven, argumentEight)";
+        Assert.True(beforeText.Length > 120);
+        Assert.True(afterText.Length > 120);
+
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            Document(beforeText, "InvocationExpression", beforeText),
+            Document(afterText, "InvocationExpression", afterText),
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        var row = Assert.Single(comparison.Rows);
+        var narrowedBeforeSpan = Assert.Single(row.BeforeSpans);
+        var narrowedAfterSpan = Assert.Single(row.AfterSpans);
+
+        // The row must keep its original, un-narrowed full-call span.
+        Assert.Equal(0, narrowedBeforeSpan.Start);
+        Assert.Equal(beforeText.Length, narrowedBeforeSpan.Length);
+        Assert.Equal(0, narrowedAfterSpan.Start);
+        Assert.Equal(afterText.Length, narrowedAfterSpan.Length);
+
+        // And the fallback must be the honest, generic "text changed" (the
+        // same fallback already used for any overlong row, unrelated to this
+        // shape) -- never a self-referential "changed to receiver".
+        string overlongBeforeBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(comparison, CSharpStructuralSide.Before);
+        Assert.Contains(
+            "raise: InvocationExpression; text changed",
+            overlongBeforeBody,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("changed to receiver", overlongBeforeBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("changed from receiver", overlongBeforeBody, StringComparison.Ordinal);
+
+        var overlongDisplay = Assert.Single(CSharpStructuralDiffPrinter.ToDisplayRows(comparison));
+        Assert.Equal("", overlongDisplay.Detail);
+    }
+
+    [Fact]
     public void RenderAnnotatedBody_FallsBackToTextDumpWhenQualifierRoleShapeIsNotRecognized()
     {
         // A callee rename is not the narrow "receiver becomes an argument"

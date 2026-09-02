@@ -308,8 +308,15 @@ public static class CSharpStructuralDiffPrinter
     /// when the row's caret has been narrowed to just the moved sub-token
     /// (issue #5486) -- the caret position and the caption derivation are
     /// separate concerns.
+    ///
+    /// Also used (as <c>internal</c>) by <c>RefineInvocationQualifierArgumentRows</c>
+    /// to gate narrowing itself: a row must only be narrowed when this same
+    /// method would later be able to recognize and render its full call
+    /// shape, otherwise the caption/detail logic falls back to the (now
+    /// narrowed, textually-identical-on-both-sides) caret spans and produces
+    /// a misleading self-transition such as "changed to receiver".
     /// </summary>
-    static string? FullNodeText(AnnotatedSourceDocument document, int? nodeId)
+    internal static string? FullNodeText(AnnotatedSourceDocument document, int? nodeId)
     {
         if (nodeId is not int id)
             return null;
