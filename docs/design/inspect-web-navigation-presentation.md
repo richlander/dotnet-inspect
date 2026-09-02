@@ -380,28 +380,50 @@ finally the arrows disappear.
 
 ### Workspace surface
 
-Workspace is the first subject and the only persistent entry point for retained
-coordinate management. Its working surface consumes product-issued descriptors
-for every open coordinate and shows:
+Workspace is the first subject and the persistent entry point for workspace
+packet inspection and retained-coordinate management. The primary inventory is
+the set of product-issued packets, not the deduplicated runtime workspaces that
+realize them. A packet composes its Workspace, navigation, and initial view as
+defined by [Workspace Definitions](workspace-definitions.md); two packets remain
+separately selectable when they reuse the same underlying Workspace. The first
+browser adoption retains resolved product demo scenarios for the current
+session.
+
+Selecting a packet is observational: it changes the packet detail shown in the
+content pane and starts no acquisition or inspection work. The detail shows its
+owner-issued title and summary, declared workspace members, initial navigation
+target, and initial view. A separate, explicit `Open workspace` action executes
+the selected packet. The selected packet's title replaces the generic
+`Workspace` content heading and inspected-target label.
+
+Selection and runtime state remain separate. The selected packet title orients
+the packet viewer; it does not claim that the packet uniquely owns the loaded
+Workspace or that its initial view is active. The loaded Workspace section
+reports runtime state without inferring packet identity from matching
+coordinates. Packet selection preserves focus on the selected inventory entry.
+
+The same content pane separately lists the runtime Workspace's loaded
+coordinates with:
 
 - coordinate identity and acquisition kind;
 - optional owner-issued current-subject context;
-- loading, ready, or failed state;
-- an activation action; and
+- loading, ready, or failed state; and
 - an explicit Close action.
 
-Activating or closing an entry submits its opaque identity and renders the
-returned workspace outcome. The UI does not choose a subject, lens, successor,
-or fallback for the product. Separate coordinates remain separate even when
-their display package IDs match.
+Opening a packet or closing a coordinate submits its opaque identity and
+renders the returned workspace outcome. The UI does not choose a subject, lens,
+successor, or fallback for the product. Separate packets remain separate even
+when their display package IDs and complete coordinate sets match.
 
 Closing an inactive coordinate preserves the active coordinate's inspection
 state and keeps Workspace selected. Closing the active coordinate selects the
-returned successor while remaining in Workspace. Share and refresh preserve
-the Workspace subject and its retained coordinates.
+returned successor while remaining in Workspace. Share and refresh preserve the Workspace subject and its retained coordinates.
+The home-demo packet inventory is session-scoped until scenario identity is
+part of the share format; after refresh, the generic current Workspace remains
+viewable without reconstructing a demo identity from matching coordinates.
 
-Workspace renders stable focus targets for its heading and every coordinate
-entry, including the returned active entry. Post-result focus and failure
+Workspace renders stable focus targets for its heading, every packet entry, and
+every coordinate action. Post-result focus and failure
 handling are owned by
 [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md#workspace-result-focus).
 
