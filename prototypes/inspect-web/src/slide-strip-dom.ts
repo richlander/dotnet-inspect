@@ -29,6 +29,15 @@ export interface SlideStripAppliedResult {
   outerWidth: number;
 }
 
+interface SlideStripEmptyAppliedResult {
+  result: null;
+  outerWidth: number;
+}
+
+export type SlideStripResolvedResult =
+  | SlideStripAppliedResult
+  | SlideStripEmptyAppliedResult;
+
 function numericStyle(value: string): number {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -45,6 +54,13 @@ function elementChromeWidth(element: HTMLElement): number {
 function elementGap(element: HTMLElement): number {
   const style = getComputedStyle(element);
   return numericStyle(style.columnGap || style.gap);
+}
+
+function elementOuterWidth(element: HTMLElement): number {
+  const style = getComputedStyle(element);
+  return element.getBoundingClientRect().width
+    + numericStyle(style.marginLeft)
+    + numericStyle(style.marginRight);
 }
 
 function itemId(
@@ -84,7 +100,7 @@ export class SlideStripDomController {
   private readonly buttons: readonly HTMLButtonElement[];
   private readonly edgeBefore: HTMLElement | null;
   private readonly edgeAfter: HTMLElement | null;
-  private applied: SlideStripAppliedResult | null = null;
+  private applied: SlideStripResolvedResult | null = null;
   private minimumWidthCache:
     { key: string; width: number } | null = null;
 
@@ -128,11 +144,13 @@ export class SlideStripDomController {
   }
 
   get current(): SlideStripAppliedResult | null {
-    return this.applied;
+    return this.applied?.result ? this.applied : null;
   }
 
   get fallbackOuterWidth(): number {
-    return this.policy.fallbackVisibilityFloor + this.chromeWidth;
+    return (this.items.length === 0
+      ? 0
+      : this.policy.fallbackVisibilityFloor) + this.chromeWidth;
   }
 
   get minimumOuterWidth(): number {
@@ -167,7 +185,7 @@ export class SlideStripDomController {
   resolve(
     outerWidth: number,
     intent: SlideStripResolveIntent = {},
-  ): SlideStripAppliedResult {
+  ): SlideStripResolvedResult {
     const focusedId = this.focusedId();
     const options: ResolveSlideStripOptions = {
       items: this.items,
@@ -186,15 +204,33 @@ export class SlideStripDomController {
         : { windowTarget: intent.windowTarget }),
     };
     const result = resolveSlideStrip(options);
-    if (!result) {
-      throw new Error("A mounted SlideStrip cannot have an empty inventory.");
-    }
     return { result, outerWidth };
   }
 
-  apply(applied: SlideStripAppliedResult): void {
+  resolveRequired(
+    outerWidth: number,
+    intent: SlideStripResolveIntent = {},
+  ): SlideStripAppliedResult {
+    const applied = this.resolve(outerWidth, intent);
+    if (!applied.result) {
+      throw new Error("The composed SlideStrip requires a non-empty inventory.");
+    }
+    return applied;
+  }
+
+  apply(applied: SlideStripResolvedResult): void {
     const { result, outerWidth } = applied;
     this.element.style.width = `${Math.max(0, outerWidth)}px`;
+    if (!result) {
+      delete this.element.dataset.mode;
+      delete this.element.dataset.fallback;
+      delete this.element.dataset.oversizedAlignment;
+      this.buttons.forEach(button => button.hidden = true);
+      if (this.edgeBefore) this.edgeBefore.hidden = true;
+      if (this.edgeAfter) this.edgeAfter.hidden = true;
+      this.applied = applied;
+      return;
+    }
     this.element.dataset.mode = result.mode;
     this.element.dataset.fallback = String(result.fallback);
     this.element.dataset.oversizedAlignment = result.oversizedAlignment;
@@ -223,21 +259,23 @@ export class SlideStripDomController {
   revealForFocus(id: string): boolean {
     if (!this.items.some(item => item.id === id)) return false;
     const current = this.applied;
-    if (!current) return false;
-    this.apply(this.resolve(current.outerWidth, { pendingFocusId: id }));
+    if (!current?.result) return false;
+    this.apply(this.resolveRequired(
+      current.outerWidth,
+      { pendingFocusId: id }));
     this.retainAppliedLeading();
     return true;
   }
 
   slide(direction: SlideStripDirection): boolean {
     const current = this.applied;
-    if (!current) return false;
+    if (!current?.result) return false;
     const windowTarget = adjacentSlideTarget(
       this.items,
       current.result,
       direction);
     if (!windowTarget) return false;
-    this.apply(this.resolve(current.outerWidth, { windowTarget }));
+    this.apply(this.resolveRequired(current.outerWidth, { windowTarget }));
     this.retainAppliedLeading();
     return true;
   }
@@ -262,7 +300,7 @@ export class SlideStripDomController {
         const id = itemId(button);
         if (id === undefined) continue;
         const widths = measurements.get(id) ?? {};
-        widths[mode.kind] = button.getBoundingClientRect().width;
+        widths[mode.kind] = elementOuterWidth(button);
         measurements.set(id, widths);
       }
     }
@@ -294,7 +332,7 @@ export class SlideStripDomController {
   }
 
   private retainAppliedLeading(): void {
-    const leading = this.applied?.result.visibleIds[0];
+    const leading = this.applied?.result?.visibleIds[0];
     if (leading !== undefined) this.state.leadingId = leading;
   }
 

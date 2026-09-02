@@ -534,6 +534,70 @@ test("edge indicators do not replace an item hit target", async ({ page }) => {
   expect(triangles.height).toBe(18);
 });
 
+test("a mounted empty SlideStrip applies its empty state", async ({ page }) => {
+  await page.goto("/browser/workspace-titlebar.html");
+
+  const state = await page.evaluate(async () => {
+    const { SlideStripDomController } = await import(
+      "../src/slide-strip-dom.ts");
+    const outside = document.createElement("button");
+    outside.textContent = "Outside";
+    document.body.append(outside);
+    outside.focus();
+
+    const element = document.createElement("div");
+    element.className = "slide-strip";
+    element.innerHTML = `
+      <div class="slide-strip-items"></div>
+      <span data-slide-strip-before></span>
+      <span data-slide-strip-after></span>`;
+    document.body.append(element);
+    const controller = new SlideStripDomController(
+      element,
+      [],
+      {
+        modes: [{ kind: "label", minimumVisible: 1, gap: 0 }],
+        initialAnchor: "empty",
+        preferredDirection: "after",
+        continuityKey: "empty",
+        fallbackVisibilityFloor: 28,
+        oversizedAlignment: "start",
+      },
+      { key: "empty" });
+    const resolved = controller.resolve(100);
+    controller.apply(resolved);
+    return {
+      result: resolved.result,
+      current: controller.current,
+      width: element.style.width,
+      mode: element.dataset.mode,
+      minimumWidth: controller.minimumOuterWidth,
+      preferredWidth: controller.preferredOuterWidth,
+      fallbackWidth: controller.fallbackOuterWidth,
+      beforeHidden: element.querySelector<HTMLElement>(
+        "[data-slide-strip-before]")?.hidden,
+      afterHidden: element.querySelector<HTMLElement>(
+        "[data-slide-strip-after]")?.hidden,
+      slide: controller.slide("after"),
+      outsideFocused: document.activeElement === outside,
+    };
+  });
+
+  expect(state).toEqual({
+    result: null,
+    current: null,
+    width: "100px",
+    mode: undefined,
+    minimumWidth: 0,
+    preferredWidth: 0,
+    fallbackWidth: 0,
+    beforeHidden: true,
+    afterHidden: true,
+    slide: false,
+    outsideFocused: true,
+  });
+});
+
 test("representation-specific gaps participate in measured capacity", async ({
   page,
 }) => {
@@ -560,6 +624,31 @@ test("representation-specific gaps participate in measured capacity", async ({
     });
   expect(layout.fallback).toBe("false");
   expect(layout.mode).not.toBe("short-label");
+  expect(layout.itemsWidth).toBeLessThanOrEqual(layout.stripWidth + 0.5);
+});
+
+test("item margins participate in measured capacity", async ({ page }) => {
+  await page.setViewportSize({ width: 480, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+  await page.addStyleTag({
+    content: `
+      .slide-strip-inspector[data-mode="short-label"] .slide-strip-item {
+        margin-right: 12px;
+      }`,
+  });
+  await page.evaluate(() => window.rerenderScopeBarProbe());
+
+  const layout = await page.locator(".slide-strip-inspector").evaluate(
+    element => {
+      const items = element.querySelector<HTMLElement>(".slide-strip-items");
+      if (!items) throw new Error("Inspector items are unavailable.");
+      return {
+        fallback: element.dataset.fallback,
+        stripWidth: element.getBoundingClientRect().width,
+        itemsWidth: items.getBoundingClientRect().width,
+      };
+    });
+  expect(layout.fallback).toBe("false");
   expect(layout.itemsWidth).toBeLessThanOrEqual(layout.stripWidth + 0.5);
 });
 

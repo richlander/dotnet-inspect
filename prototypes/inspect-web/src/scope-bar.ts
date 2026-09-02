@@ -708,12 +708,12 @@ class ScopeBarController implements ScopeBarBinding {
     if (controls) this.setControlsVisible(true);
     const transfer = this.allocationFocusTransfer(controls);
     const subject = transfer?.strip === "subject"
-      ? this.subject.resolve(
+      ? this.subject.resolveRequired(
           pair.subject.outerWidth,
           { pendingFocusId: transfer.id })
       : pair.subject;
     const inspector = transfer?.strip === "inspector"
-      ? this.inspector?.resolve(
+      ? this.inspector?.resolveRequired(
           pair.inspector.outerWidth,
           { pendingFocusId: transfer.id }) ?? pair.inspector
       : pair.inspector;
@@ -729,7 +729,7 @@ class ScopeBarController implements ScopeBarBinding {
       const contextWidth = this.context
         ? outerWidth(this.context) + this.gap()
         : 0;
-      this.subject.apply(this.subject.resolve(
+      this.subject.apply(this.subject.resolveRequired(
         Math.max(
           available - contextWidth,
           this.subject.fallbackOuterWidth)));
@@ -741,8 +741,9 @@ class ScopeBarController implements ScopeBarBinding {
     if (noControlsWidth
       >= this.subject.preferredOuterWidth + this.inspector.preferredOuterWidth) {
       this.applyPair({
-        subject: this.subject.resolve(this.subject.preferredOuterWidth),
-        inspector: this.inspector.resolve(this.inspector.preferredOuterWidth),
+        subject: this.subject.resolveRequired(this.subject.preferredOuterWidth),
+        inspector: this.inspector.resolveRequired(
+          this.inspector.preferredOuterWidth),
       }, "all-preferred", false);
       return;
     }
@@ -772,14 +773,15 @@ class ScopeBarController implements ScopeBarBinding {
       >= subjectMinimum + inspectorMinimum) {
       const provisionalInspectorWidth = noControlsWidth
         - subjectMinimum;
-      const inspector = this.inspector.resolve(provisionalInspectorWidth);
+      const inspector = this.inspector.resolveRequired(
+        provisionalInspectorWidth);
       const exactInspectorWidth = Math.min(
         provisionalInspectorWidth,
         inspector.result.requiredWidth + this.inspector.chromeWidth);
       this.applyPair({
-        subject: this.subject.resolve(
+        subject: this.subject.resolveRequired(
           noControlsWidth - exactInspectorWidth),
-        inspector: this.inspector.resolve(exactInspectorWidth),
+        inspector: this.inspector.resolveRequired(exactInspectorWidth),
       }, "control-free", false);
       return;
     }
@@ -808,12 +810,13 @@ class ScopeBarController implements ScopeBarBinding {
         || candidate > stripWidth - subjectMinimum) {
         continue;
       }
-      const inspectorProbe = this.inspector.resolve(candidate);
+      const inspectorProbe = this.inspector.resolveRequired(candidate);
       if (!satisfiesPolicyMinimum(this.inspector, inspectorProbe)) continue;
       const exactInspectorWidth = inspectorProbe.result.requiredWidth
         + this.inspector.chromeWidth;
-      const subject = this.subject.resolve(stripWidth - exactInspectorWidth);
-      const inspector = this.inspector.resolve(exactInspectorWidth);
+      const subject = this.subject.resolveRequired(
+        stripWidth - exactInspectorWidth);
+      const inspector = this.inspector.resolveRequired(exactInspectorWidth);
       if (!satisfiesPolicyMinimum(this.subject, subject)
         || !satisfiesPolicyMinimum(this.inspector, inspector)) {
         continue;
@@ -869,8 +872,10 @@ class ScopeBarController implements ScopeBarBinding {
       + this.inspector.fallbackOuterWidth;
     if (stripWidth < minimumInternalWidth) {
       return {
-        subject: this.subject.resolve(this.subject.fallbackOuterWidth),
-        inspector: this.inspector.resolve(this.inspector.fallbackOuterWidth),
+        subject: this.subject.resolveRequired(
+          this.subject.fallbackOuterWidth),
+        inspector: this.inspector.resolveRequired(
+          this.inspector.fallbackOuterWidth),
       };
     }
     const targetSubject = Math.floor(stripWidth / 3);
@@ -892,8 +897,8 @@ class ScopeBarController implements ScopeBarBinding {
         || inspectorWidth < this.inspector!.fallbackOuterWidth) {
         return [];
       }
-      const subject = this.subject.resolve(subjectWidth);
-      const inspector = this.inspector!.resolve(inspectorWidth);
+      const subject = this.subject.resolveRequired(subjectWidth);
+      const inspector = this.inspector!.resolveRequired(inspectorWidth);
       const subjectUnused = subject.result.fallback
         ? 0
         : Math.max(
