@@ -20,6 +20,19 @@ a feature uniquely valuable; it does not excuse weak boundaries, evidence, or
 reliability. The strongest work combines dependable foundations with a
 capability or experience worth choosing.
 
+## Prefer the simplest sufficient design
+
+Bias toward the simplest design that satisfies the owning contract. Add
+states, layers, abstractions, protocols, or policy only when they are required
+for robust reliability or correctness, or when they enable a compelling
+user-observable experience. Name that requirement and the evidence that will
+show the added complexity earns its cost.
+
+Speculative generality, possible future reuse, and internal elegance alone do
+not justify complexity. Simplicity does not permit fragile behavior, hidden
+failure, or a diminished experience; it keeps the solution no more elaborate
+than the demonstrated need.
+
 ## Convention and best practice are the baseline
 
 Start from the applicable convention and best practice rather than inventing a
@@ -55,6 +68,26 @@ established oracle, a TLA+ model, a pathological fixture, or a specification
 developed closely with the user can reveal the actual boundary before code
 makes an accidental behavior expensive to undo. Much of the architecture is
 the act of bounding a contract and making its important properties invariant.
+
+## Start capabilities from consumers
+
+Every new capability or substrate must name a concrete consumer from the
+start. The consumer may land in a later slice, but the focused specification
+and implementation issue must identify it, and a single overall end-to-end
+tracking issue must link the substrate and consumer work.
+
+Shared product substrate must have a planned benefit in both current product
+hosts: the CLI and browser/Wasm. The end-to-end tracker records the planned
+enablement slices for both hosts from the outset. This keeps substrate tied to
+observable value and tests whether the boundary belongs in shared code rather
+than one host.
+
+Keep each host as thin as reasonably possible. Hosts own gestures, policy,
+operation lifetime, composition, and presentation; reusable concepts and
+algorithms belong in host-neutral code. When multiple hosts duplicate logic,
+look for a coherent shared concept that would also benefit a future host rather
+than preserving parallel implementations or extracting an abstraction solely
+to remove repeated lines.
 
 ## Demonstrate the pathological case
 
