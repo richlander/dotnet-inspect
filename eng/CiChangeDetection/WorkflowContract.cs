@@ -36,61 +36,11 @@ internal static partial class WorkflowContract
         ValidateWorkflowTriggers(root);
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "workflow");
         ValidateAggregateStructuralCheck(jobs);
-        ValidateOutputConsumers(jobs);
         YamlMappingNode changes = GetRequiredMapping(jobs, "changes", "jobs");
         RequireAbsent(changes, "if", "jobs.changes");
         RequireAbsent(changes, "continue-on-error", "jobs.changes");
         RequireAbsent(changes, "defaults", "jobs.changes");
         RequireAbsent(changes, "env", "jobs.changes");
-
-        YamlMappingNode outputMappings =
-            GetRequiredMapping(changes, "outputs", "jobs.changes");
-        List<string> declaredOutputs = [];
-        foreach ((YamlNode keyNode, YamlNode valueNode) in outputMappings.Children)
-        {
-            string name = RequireScalar(
-                keyNode,
-                "jobs.changes output name");
-            string binding = RequireScalar(
-                valueNode,
-                $"jobs.changes.outputs.{name} binding");
-            string expectedBinding =
-                "${{ steps.filter.outputs." + name + " }}";
-            if (binding != expectedBinding)
-            {
-                throw new InvalidOperationException(
-                    $"Invalid jobs.changes.outputs.{name} binding.");
-            }
-
-            declaredOutputs.Add(name);
-        }
-
-        if (declaredOutputs.Count == 0)
-        {
-            throw new InvalidOperationException(
-                "jobs.changes must declare at least one output.");
-        }
-        string[] requiredOutputs =
-        [
-            "code",
-            "csharpdiff",
-            "decompiler",
-            "docs",
-            "ildiff",
-            "ilroundtrip",
-            "packaging",
-            "shipped",
-            "web",
-            "skills",
-            "tla",
-        ];
-        if (!declaredOutputs.ToHashSet(StringComparer.Ordinal)
-            .SetEquals(requiredOutputs))
-        {
-            throw new InvalidOperationException(
-                $"jobs.changes must declare exactly: " +
-                $"{string.Join(", ", requiredOutputs)}.");
-        }
 
         ValidateInspectWebSdk(jobs);
         ValidatePackageManifestVerifierBuild(jobs);
@@ -104,54 +54,30 @@ internal static partial class WorkflowContract
         {
             throw new InvalidOperationException(
                 "jobs.changes must contain checkout, setup, self-test, " +
-                "provenance, and detection steps.");
+                "provenance, and planning steps.");
         }
 
         ValidateCheckoutStep(steps);
 
-        List<(int Index, YamlMappingNode Step)> detectionSteps = [];
         List<(int Index, YamlMappingNode Step)> selfTestSteps = [];
         for (int index = 0; index < steps.Children.Count; index++)
         {
             YamlMappingNode step = RequireMapping(
                 steps.Children[index],
                 "jobs.changes step");
-            if (GetOptionalScalar(step, "name") == "Detect changes")
-            {
-                detectionSteps.Add((index, step));
-            }
-            else if (GetOptionalScalar(step, "name") ==
+            if (GetOptionalScalar(step, "name") ==
                 "Self-test change detection")
             {
                 selfTestSteps.Add((index, step));
             }
         }
 
-        if (detectionSteps.Count != 1)
-        {
-            throw new InvalidOperationException(
-                $"Expected one jobs.changes Detect changes step, " +
-                $"found {detectionSteps.Count}.");
-        }
-
-        if (detectionSteps[0].Index != 4)
-        {
-            throw new InvalidOperationException(
-                "Detect changes must run after checkout, .NET setup, " +
-                "self-test, and EVIL provenance validation.");
-        }
-
         ValidateSetupStep(steps);
         (string provenanceRunSha256, string provenancePin) =
             ValidateProvenanceStep(steps, validateProvenancePin);
         ValidateSelfTestStep(selfTestSteps);
-        string body = ValidateDetectionStep(
-            repository,
-            detectionSteps[0].Step);
 
         return new WorkflowContractResult(
-            body,
-            declaredOutputs.AsReadOnly(),
             provenanceRunSha256,
             provenancePin);
     }
@@ -160,16 +86,6 @@ internal static partial class WorkflowContract
     {
         YamlMappingNode inspectWeb =
             GetRequiredMapping(jobs, "inspect-web", "jobs");
-        RequireScalarValue(
-            inspectWeb,
-            "needs",
-            "changes",
-            "jobs.inspect-web");
-        RequireScalarValue(
-            inspectWeb,
-            "if",
-            "needs.changes.outputs.web == 'true'",
-            "jobs.inspect-web");
         RequireAbsent(
             inspectWeb,
             "continue-on-error",
@@ -259,12 +175,6 @@ internal static partial class WorkflowContract
     private static void ValidateTlaJob(YamlMappingNode jobs)
     {
         YamlMappingNode tla = GetRequiredMapping(jobs, "tla-plus", "jobs");
-        RequireScalarValue(tla, "needs", "changes", "jobs.tla-plus");
-        RequireScalarValue(
-            tla,
-            "if",
-            "needs.changes.outputs.tla == 'true'",
-            "jobs.tla-plus");
         RequireAbsent(tla, "continue-on-error", "jobs.tla-plus");
         RequireAbsent(tla, "defaults", "jobs.tla-plus");
         RequireAbsent(tla, "env", "jobs.tla-plus");
@@ -602,73 +512,4 @@ internal static partial class WorkflowContract
             "Self-test change detection");
     }
 
-    private static string ValidateDetectionStep(
-        string repository,
-        YamlMappingNode detectionStep)
-    {
-        RequireScalarValue(
-            detectionStep,
-            "id",
-            "filter",
-            "Detect changes");
-        RequireScalarValue(
-            detectionStep,
-            "shell",
-            "bash",
-            "Detect changes");
-        RequireAbsent(detectionStep, "if", "Detect changes");
-        RequireAbsent(
-            detectionStep,
-            "continue-on-error",
-            "Detect changes");
-        YamlMappingNode detectionEnvironment =
-            GetRequiredMapping(detectionStep, "env", "Detect changes");
-        RequireExactScalarValues(
-            detectionEnvironment,
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["BASH_ENV"] = "",
-                ["CI_BEFORE_SHA"] =
-                    "${{ github.event.pull_request.base.sha || " +
-                    "github.event.merge_group.base_sha || " +
-                    "github.event.before }}",
-                ["CI_PR_NUMBER"] =
-                    "${{ github.event.pull_request.number }}",
-                ["GH_TOKEN"] = "${{ github.token }}",
-            },
-            "Detect changes.env");
-        const string DetectionScript = "eng/ci-detect-changes.sh";
-        RequireScalarValue(
-            detectionStep,
-            "run",
-            DetectionScript,
-            "Detect changes");
-        string detectionScriptPath = Path.Combine(
-            repository,
-            DetectionScript);
-        string body = File.ReadAllText(detectionScriptPath);
-        if (body.Length == 0)
-        {
-            throw new InvalidOperationException(
-                "Detect changes has an empty script.");
-        }
-        if (!OperatingSystem.IsWindows()
-            && (File.GetUnixFileMode(detectionScriptPath)
-                & UnixFileMode.UserExecute) == 0)
-        {
-            throw new InvalidOperationException(
-                "Detect changes script must be executable.");
-        }
-        if (!body.StartsWith(
-                "#!/usr/bin/env bash\nset -e -o pipefail\n",
-                StringComparison.Ordinal)
-            || body.Contains("${{", StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException(
-                "Detect changes script must own its Bash failure mode and " +
-                "contain no unevaluated workflow expressions.");
-        }
-
-        return body;
-    }
 }
