@@ -73,7 +73,14 @@ internal static class ForeachIteratorReconstruction
                 enumeratorField = f;
         if (enumeratorField is null)
             return false;
-        if (!HasSingleEnumeratorDisposalFinally(work, enumeratorField))
+        if (!TryGetEnumeratorDisposalFinally(work, enumeratorField, out var disposalFinally))
+            return false;
+        if (context.ImportMethodBody is null)
+            return false;
+        var disposalBody = context.ImportMethodBody(disposalFinally);
+        if (disposalBody is null
+            || !TryGetDisposalMethod(disposalBody, out var dispose)
+            || dispose.RequiresUnsafe)
             return false;
 
         // field name -> (local index, type): the enumerator, plus any hoisted loop fields.
@@ -164,7 +171,7 @@ internal static class ForeachIteratorReconstruction
         IrPasses.Run(work, IrPasses.Default, context);
 
         // Fold the hidden-enumerator loop into a foreach.
-        if (!RaiseForeach(work, context))
+        if (!RaiseForeach(work, dispose, context))
             return false;
 
         // Validate: fully structured, keeps a yield, recovers the foreach, and leaves no
@@ -190,7 +197,7 @@ internal static class ForeachIteratorReconstruction
     // — e a compiler-hidden enumerator local — into `foreach (item in collection) BODY`. The
     // copy-propagated single-use form (where `item = e.Current` folded into the body) is
     // recovered by introducing a fresh loop variable for the surviving `e.Current` reads.
-    static bool RaiseForeach(IrFunction work, PassContext context)
+    static bool RaiseForeach(IrFunction work, MethodRef dispose, PassContext context)
     {
         foreach (var block in work.Body.Descendants.OfType<Block>().ToList())
         {
@@ -213,13 +220,16 @@ internal static class ForeachIteratorReconstruction
 
                 int loopVariable;
                 TypeRef elementType;
+                MethodRef currentAccessor;
                 if (loopBody.Children.Count > 0
                     && loopBody.Children[0] is StoreLocal currentStore
-                    && IsCurrentOf(currentStore.Value, enumeratorIndex))
+                    && currentStore.Value is LoadProperty current
+                    && IsCurrentOf(current, enumeratorIndex))
                 {
                     // `item = e.Current` survived (multi-use) — adopt it as the loop variable.
                     loopVariable = currentStore.Index;
                     elementType = currentStore.Type;
+                    currentAccessor = current.Accessor;
                     currentStore.Detach();
                 }
                 else
@@ -230,10 +240,11 @@ internal static class ForeachIteratorReconstruction
                     if (read is null)
                         return false;
                     elementType = read.ResultType!;
+                    currentAccessor = read.Accessor;
                     loopVariable = work.AddLocal(elementType, "item");
-                    foreach (var current in loopBody.Descendants.OfType<LoadProperty>().ToList())
-                        if (IsCurrentOf(current, enumeratorIndex))
-                            current.ReplaceWith(new LoadLocal(loopVariable, elementType));
+                    foreach (var currentProperty in loopBody.Descendants.OfType<LoadProperty>().ToList())
+                        if (IsCurrentOf(currentProperty, enumeratorIndex))
+                            currentProperty.ReplaceWith(new LoadLocal(loopVariable, elementType));
                 }
 
                 // The enumerator local must not leak past its Current/MoveNext uses.
@@ -243,7 +254,12 @@ internal static class ForeachIteratorReconstruction
                 var collection = getEnumerator.Arguments[0];
                 collection.Detach();
                 loopBody.Detach();
-                var foreachStatement = new ForeachStatement(loopVariable, elementType, collection, loopBody);
+                var foreachStatement = new ForeachStatement(
+                    loopVariable,
+                    elementType,
+                    collection,
+                    loopBody,
+                    [getEnumerator.Callee, moveNext.Callee, currentAccessor, dispose]);
                 context.Stepper.StepOver("raise hidden-enumerator loop to foreach", loop);
                 loop.ReplaceWith(foreachStatement);
                 enumeratorStore.Detach();
@@ -257,8 +273,12 @@ internal static class ForeachIteratorReconstruction
         => expression is LoadProperty { PropertyName: "Current", Instance: LoadLocal receiver }
             && receiver.Index == enumeratorIndex;
 
-    static bool HasSingleEnumeratorDisposalFinally(IrFunction work, FieldRef enumeratorField)
+    static bool TryGetEnumeratorDisposalFinally(
+        IrFunction work,
+        FieldRef enumeratorField,
+        out MethodRef disposalFinally)
     {
+        disposalFinally = null!;
         if (work.Regions is not [{ Kind: HandlerKind.Fault }])
             return false;
 
@@ -270,14 +290,33 @@ internal static class ForeachIteratorReconstruction
         if (finallyCalls.Count != 1)
             return false;
 
-        var statement = (ExpressionStatement)finallyCalls[0].Parent!;
-        return statement.Parent is Block block
-            && block.Children.Any(child => child is StoreField
+        var call = finallyCalls[0];
+        var statement = (ExpressionStatement)call.Parent!;
+        if (statement.Parent is not Block block
+            || !block.Children.Any(child => child is StoreField
             {
                 Instance: LoadArgument { Index: 0 },
                 Field: var field,
                 Value: Constant { Value: null },
-            } && Equals(field, enumeratorField));
+            } && Equals(field, enumeratorField)))
+        {
+            return false;
+        }
+        disposalFinally = call.Callee;
+        return true;
+    }
+
+    static bool TryGetDisposalMethod(IrFunction disposalBody, out MethodRef dispose)
+    {
+        dispose = null!;
+        var calls = disposalBody.Descendants
+            .OfType<Call>()
+            .Where(call => call.Callee.Name == "Dispose")
+            .ToList();
+        if (calls is not [var call])
+            return false;
+        dispose = call.Callee;
+        return true;
     }
 
     static bool IsDefaultExit(Block block, int returnLocal)

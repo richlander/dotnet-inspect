@@ -126,10 +126,27 @@ public class RuntimeAsyncAwaiterPassTests
         new RuntimeAsyncAwaiterPass().Run(function, PassContext.None);
         function.CheckInvariant();
 
-        Assert.Single(function.Descendants.OfType<AwaitExpression>());
+        var awaitExpression = Assert.Single(function.Descendants.OfType<AwaitExpression>());
+        Assert.Equal(
+            ["GetAwaiter", "get_IsCompleted", "GetResult"],
+            awaitExpression.ConsumedMemberRefs.Select(method => method.Name));
         Assert.DoesNotContain(
             function.Descendants.OfType<Call>(),
             call => call.Callee.Name == helperName);
+    }
+
+    [Fact]
+    public void UnsafeAwaiterPatternMember_StandsDownBecauseAwaitCannotEnterUnsafeContext()
+    {
+        var function = Synthetic(requiresUnsafeAwaiterMember: true);
+
+        new RuntimeAsyncAwaiterPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<AwaitExpression>());
+        Assert.Contains(
+            function.Descendants.OfType<Call>(),
+            call => call.Callee.Name == "GetAwaiter");
     }
 
     [Theory]
@@ -159,7 +176,8 @@ public class RuntimeAsyncAwaiterPassTests
 
     static IrFunction Synthetic(
         string helperName = "UnsafeAwaitAwaiter",
-        SyntheticBreak broken = SyntheticBreak.None)
+        SyntheticBreak broken = SyntheticBreak.None,
+        bool requiresUnsafeAwaiterMember = false)
     {
         int helperLocal = broken == SyntheticBreak.DifferentHelperLocal ? 2 : 1;
         int completedLocal = broken == SyntheticBreak.DifferentIsCompletedLocal ? 2 : 1;
@@ -186,7 +204,10 @@ public class RuntimeAsyncAwaiterPassTests
                 isVirtual: false,
                 [new LoadLocal(0, Awaitable)])
             : new Call(
-                new MethodRef(Awaitable, "GetAwaiter", Awaiter, [], HasThis: true),
+                new MethodRef(Awaitable, "GetAwaiter", Awaiter, [], HasThis: true)
+                {
+                    RequiresUnsafe = requiresUnsafeAwaiterMember,
+                },
                 isVirtual: false,
                 [new LoadLocalAddress(0, Awaitable)]);
         head.Add(new StoreLocal(

@@ -300,14 +300,14 @@ public sealed record MethodRef(
     public MetadataFactState IsUnmanagedCallersOnly { get; init; } = MetadataFactState.Unknown;
 
     /// <summary>
-    /// True when a managed-pointer argument is passed to a by-ref parameter of
-    /// this callee while <see cref="ParameterRefKinds"/> is empty — the callee
-    /// resolved as a MemberReference (cross-assembly, or a same-assembly call on
-    /// a generic type instance), which carries no parameter rows, so the
-    /// call-site <c>out</c>/<c>in</c>/<c>ref</c> kind is unknown. The printer
-    /// then spells a default keyword it cannot verify (wrong for out/in:
-    /// CS1620/CS1615), so callers lower fidelity rather than claim a faithful
-    /// render. <paramref name="nonReceiverArguments"/> aligns 1:1 with
+    /// True when a managed-reference or unmanaged-pointer argument is passed to
+    /// a by-ref parameter of this callee while <see cref="ParameterRefKinds"/> is
+    /// empty — the callee resolved as a MemberReference (cross-assembly, or a
+    /// same-assembly call on a generic type instance), which carries no parameter
+    /// rows, so the call-site <c>out</c>/<c>in</c>/<c>ref</c> kind is unknown.
+    /// The printer then spells a default keyword it cannot verify (wrong for
+    /// out/in: CS1620/CS1615), so callers lower fidelity rather than claim a
+    /// faithful render. <paramref name="nonReceiverArguments"/> aligns 1:1 with
     /// <see cref="ParameterTypes"/> (the instance receiver dropped first).
     /// </summary>
     public bool HasUnverifiableByRefArgument(IReadOnlyList<IrExpression> nonReceiverArguments)
@@ -316,7 +316,8 @@ public sealed record MethodRef(
             return false;
         for (int i = 0; i < ParameterTypes.Length && i < nonReceiverArguments.Count; i++)
             if (ParameterTypes[i].Kind == TypeRefKind.ByRef
-                && nonReceiverArguments[i].ResultType is { Kind: TypeRefKind.ByRef })
+                && nonReceiverArguments[i].ResultType is
+                    { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer })
                 return true;
         return false;
     }
@@ -2032,16 +2033,19 @@ public sealed class AwaitExpression : IrExpression
     public AwaitExpression(
         IrExpression operand,
         TypeRef? resultType,
-        MetadataFactState resultIsDynamic = MetadataFactState.Unknown)
+        MetadataFactState resultIsDynamic = MetadataFactState.Unknown,
+        ImmutableArray<MethodRef> consumedMemberRefs = default)
     {
         AddChild(operand);
         ResultType = resultType;
         ResultIsDynamic = resultIsDynamic;
+        ConsumedMemberRefs = consumedMemberRefs.IsDefault ? [] : consumedMemberRefs;
     }
 
     public IrExpression Operand => (IrExpression)Children[0];
     public override TypeRef? ResultType { get; }
     public MetadataFactState ResultIsDynamic { get; }
+    public ImmutableArray<MethodRef> ConsumedMemberRefs { get; }
 
     public override string Describe() => "AwaitExpression";
 }
@@ -3314,7 +3318,8 @@ public sealed class LocalFunctionStatement : IrNode
         ImmutableArray<string?> localNames,
         bool usesUpdatedMemorySafetyRules,
         bool skipLocalsInit,
-        BlockContainer body)
+        BlockContainer body,
+        bool requiresUnsafe = false)
         : this(
             name,
             returnType,
@@ -3325,7 +3330,8 @@ public sealed class LocalFunctionStatement : IrNode
             localNames,
             usesUpdatedMemorySafetyRules,
             skipLocalsInit,
-            body)
+            body,
+            requiresUnsafe)
     {
     }
 
@@ -3339,7 +3345,8 @@ public sealed class LocalFunctionStatement : IrNode
         ImmutableArray<string?> localNames,
         bool usesUpdatedMemorySafetyRules,
         bool skipLocalsInit,
-        BlockContainer body)
+        BlockContainer body,
+        bool requiresUnsafe = false)
     {
         Name = name;
         ReturnType = returnType;
@@ -3350,6 +3357,7 @@ public sealed class LocalFunctionStatement : IrNode
         LocalNames = localNames;
         UsesUpdatedMemorySafetyRules = usesUpdatedMemorySafetyRules;
         SkipLocalsInit = skipLocalsInit;
+        RequiresUnsafe = requiresUnsafe;
         AddChild(body);
     }
 
@@ -3362,6 +3370,7 @@ public sealed class LocalFunctionStatement : IrNode
     public ImmutableArray<string?> LocalNames { get; }
     public bool UsesUpdatedMemorySafetyRules { get; }
     public bool SkipLocalsInit { get; }
+    public bool RequiresUnsafe { get; }
     public BlockContainer Body => (BlockContainer)Children[0];
 
     public override IEnumerable<TypeRef> DirectTypes => Parameters.Select(p => p.Type).Append(ReturnType);
@@ -3393,7 +3402,7 @@ public sealed class LocalFunctionStatement : IrNode
 public sealed class LocalFunctionInvocation : IrExpression
 {
     public LocalFunctionInvocation(string name, TypeRef returnType, IEnumerable<IrExpression> arguments)
-        : this(name, returnType, arguments, [], [])
+        : this(name, returnType, arguments, [], [], requiresUnsafe: false)
     {
     }
 
@@ -3402,12 +3411,14 @@ public sealed class LocalFunctionInvocation : IrExpression
         TypeRef returnType,
         IEnumerable<IrExpression> arguments,
         ImmutableArray<TypeRef> parameterTypes,
-        ImmutableArray<ArgumentRefKind> parameterRefKinds)
+        ImmutableArray<ArgumentRefKind> parameterRefKinds,
+        bool requiresUnsafe = false)
     {
         Name = name;
         ReturnType = returnType;
         ParameterTypes = parameterTypes;
         ParameterRefKinds = parameterRefKinds;
+        RequiresUnsafe = requiresUnsafe;
         foreach (var argument in arguments)
             AddChild(argument);
     }
@@ -3416,6 +3427,7 @@ public sealed class LocalFunctionInvocation : IrExpression
     public TypeRef ReturnType { get; }
     public ImmutableArray<TypeRef> ParameterTypes { get; }
     public ImmutableArray<ArgumentRefKind> ParameterRefKinds { get; }
+    public bool RequiresUnsafe { get; }
     public IReadOnlyList<IrExpression> Arguments => Children.Cast<IrExpression>().ToList();
     public override TypeRef? ResultType => ReturnType;
     public override IEnumerable<TypeRef> DirectTypes => ParameterTypes.Append(ReturnType);
@@ -3827,12 +3839,17 @@ public readonly record struct PositionalPatternSubpattern(ComparisonKind Kind);
     witness: "IdiomShapeScorecard pattern cases, corpus compile-back")]
 public sealed class PositionalPattern : IrExpression
 {
-    public PositionalPattern(IrExpression value, IReadOnlyList<PositionalPatternSubpattern> subpatterns, IReadOnlyList<Constant> constants)
+    public PositionalPattern(
+        IrExpression value,
+        IReadOnlyList<PositionalPatternSubpattern> subpatterns,
+        IReadOnlyList<Constant> constants,
+        MethodRef? consumedDeconstructMethod = null)
     {
         if (subpatterns.Count != constants.Count)
             throw new ArgumentException("A positional pattern needs one constant per sub-pattern.", nameof(constants));
 
         Subpatterns = [.. subpatterns];
+        ConsumedDeconstructMethod = consumedDeconstructMethod;
         AddChild(value);
         foreach (var constant in constants)
             AddChild(constant);
@@ -3843,6 +3860,8 @@ public sealed class PositionalPattern : IrExpression
 
     /// <summary>The element sub-pattern kinds, parallel to <see cref="Constants"/>.</summary>
     public ImmutableArray<PositionalPatternSubpattern> Subpatterns { get; }
+
+    public MethodRef? ConsumedDeconstructMethod { get; }
 
     /// <summary>The constants used by equality or relational element sub-patterns.</summary>
     public IReadOnlyList<Constant> Constants => Children.Skip(1).Cast<Constant>().ToList();

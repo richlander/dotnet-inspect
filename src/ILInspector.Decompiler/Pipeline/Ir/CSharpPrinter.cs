@@ -376,7 +376,7 @@ public sealed partial class CSharpPrinter
             ConstructorChain = _constructorChain,
             FieldInitializers = _fieldInitializers,
             RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
-            RequiresUnsafeBodyModifier = function.Descendants.Prepend(function).Any(NeedsUnsafeContext),
+            RequiresUnsafeBodyModifier = function.Descendants.Prepend(function).Any(NeedsUnsafeBodyModifier),
             ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
             BodyIsSingleExpressionBody = BodyIsSingleExpressionBody(function, output),
             BodyIsDestructor = function.IsDestructor,
@@ -2193,20 +2193,28 @@ public sealed partial class CSharpPrinter
         }
         if (node is LocalFunctionStatement localFunction)
         {
-            string modifier = localFunction.IsStatic ? "static " : "";
+            string modifier = $"{(localFunction.IsStatic ? "static " : "")}{(localFunction.RequiresUnsafe ? "unsafe " : "")}";
             string parameters = string.Join(
                 ", ",
                 localFunction.Parameters.Select((parameter, index) =>
                     $"{ParameterTypeText(parameter, index < localFunction.ParameterRefKinds.Length ? localFunction.ParameterRefKinds[index] : ArgumentRefKind.Value)} {CSharpNaming.ContainedIdentifier(parameter.Name)}"));
             string header = $"{modifier}{TypeText(localFunction.ReturnType)} {CSharpNaming.ContainedIdentifier(localFunction.Name)}({parameters})";
-            if (localFunction.ExpressionBody is { } body)
+            bool expressionNeedsUnsafeBlock = localFunction.ExpressionBody is { } expression
+                && _newMemorySafetyRules
+                && (NeedsUnsafeContext(expression)
+                    || (localFunction.ReturnType.Kind == TypeRefKind.ByRef && RendersAsPointerDeref(expression)));
+            if (localFunction.ExpressionBody is { } body && !expressionNeedsUnsafeBlock)
             {
                 if (_stackSlotTelemetry is not null
                     && NeedsNestedLocalFunctionScope(localFunction))
                 {
                     _ = NestedLocalFunctionBodyText(localFunction);
                 }
-                sb.Append(pad).Append(header).Append(" => ").Append(Expression(body)).AppendLf(";");
+                string expressionText = localFunction.ReturnType.Kind == TypeRefKind.ByRef
+                    && ArgumentLvalue(body) is { } place
+                        ? $"ref {place}"
+                        : Expression(body);
+                sb.Append(pad).Append(header).Append(" => ").Append(expressionText).AppendLf(";");
             }
             else
             {
@@ -2990,7 +2998,8 @@ public sealed partial class CSharpPrinter
         Lock l => HasUnsafeOperation(l.LockObject),
         Fixed { RequiresUnsafeContext: true } => true,
         Fixed fx => HasUnsafeOperation(fx.PinSource),
-        UsingStatement u => HasUnsafeOperation(u.Resource),
+        UsingStatement u => HasUnsafeOperation(u.Resource) || MethodsRequireUnsafe(u.ConsumedMemberRefs),
+        ForeachStatement f => HasUnsafeOperation(f.Collection) || MethodsRequireUnsafe(f.ConsumedMemberRefs),
         TryCatch t => t.Clauses.Any(c => HasUnsafeOperation(c.Filter)),
         TryFinally => false,
         StoreElement s when _inlineReceiverTempStores.TryGetValue(s, out var store)
@@ -3000,6 +3009,10 @@ public sealed partial class CSharpPrinter
 
     bool HasUnsafeOperation(IrNode? node)
         => node is not null && (IsUnsafeOperation(node) || node.Descendants.Any(IsUnsafeOperation));
+
+    bool NeedsUnsafeBodyModifier(IrNode node)
+        => NeedsUnsafeContext(node)
+            || !_newMemorySafetyRules && IsLegacyPointerOperation(node);
 
     /// <summary>
     /// A single IR operation that requires an unsafe context under the updated
@@ -3029,11 +3042,10 @@ public sealed partial class CSharpPrinter
         StackAllocArray sa => _skipLocalsInit || sa.ResultType?.Kind == TypeRefKind.Pointer,
         Call c => c.Callee.RequiresUnsafe
             || SignatureRequiresUnsafe(c.Callee)
-            || CallRendersPointerReceiver(c),
-        NewObject n => n.Constructor.RequiresUnsafe || SignatureRequiresUnsafe(n.Constructor),
-        Binary b => IsPointerArithmetic(b),
-        Comparison c => IsPointerComparison(c),
-        IncrementDecrement i => i.Target.ResultType is { Kind: TypeRefKind.Pointer },
+            || CallRendersPointerDereference(c),
+        NewObject n => MethodRequiresUnsafe(n.Constructor)
+            || ArgumentsRenderPointerDereference(n.Arguments, n.Constructor.ParameterTypes),
+        IncrementDecrement i => MethodRequiresUnsafe(i.ConsumedMethod),
         Convert c => IsUnboxPointerConversion(c),
         LoadField f => IsPointerReceiver(f.Instance),
         StoreField f => IsPointerReceiver(f.Instance),
@@ -3050,17 +3062,32 @@ public sealed partial class CSharpPrinter
         _ => IsRaisedUnsafeOperation(node),
     };
 
-    static bool IsRaisedUnsafeOperation(IrNode node) => node switch
+    bool IsRaisedUnsafeOperation(IrNode node) => node switch
     {
+        StoreLocal { Type.Kind: TypeRefKind.ByRef } s => RendersAsPointerDeref(s.Value),
+        StoreStackSlot s when StackSlotTargetType(s) is { Kind: TypeRefKind.ByRef }
+            => RendersAsPointerDeref(s.Value),
+        Return { Value: { } value } when CurrentReturnType.Kind == TypeRefKind.ByRef
+            => RendersAsPointerDeref(value),
+        LocalFunctionInvocation i => i.RequiresUnsafe
+            || SignatureRequiresUnsafe(i.ReturnType, i.ParameterTypes)
+            || ArgumentsRenderPointerDereference(i.Arguments, i.ParameterTypes),
+        PositionalPattern p => MethodRequiresUnsafe(p.ConsumedDeconstructMethod),
         NullCoalescingFieldAssignment f => IsPointerReceiver(f.Instance),
         NullCoalescingFieldAssignmentExpression f => IsPointerReceiver(f.Instance),
         NullCoalescingPropertyAssignment p => AccessorRequiresUnsafe(p.Setter, p.Instance),
         DeconstructionAssignment d => d.Targets.Any(DeconstructionTargetRequiresUnsafe)
             || d.ConsumedDeconstructMethod is { } method
-                && (method.RequiresUnsafe || SignatureRequiresUnsafe(method)),
-        DelegateCreation d => d.Method.RequiresUnsafe
-            || SignatureRequiresUnsafe(d.Method)
+                && MethodRequiresUnsafe(method),
+        DelegateCreation d => MethodRequiresUnsafe(d.Method)
             || IsPointerReceiver(d.Target),
+        AddressOfMethod a => MethodRequiresUnsafe(a.Method),
+        ChainedAssignment c => c.Targets.Any(t => MethodRequiresUnsafe(t.Accessor)),
+        ObjectInitializerExpression o => MethodsRequireUnsafe(o.ConsumedMethods),
+        WithExpression w => MethodsRequireUnsafe(w.ConsumedMethods),
+        InitializerBlock i => MethodsRequireUnsafe(i.ConsumedMethods),
+        RecursivePropertyDeclarationPattern p => MethodRequiresUnsafe(p.Accessor),
+        PatternSwitchExpressionArm { Subpattern: { } p } => MethodRequiresUnsafe(p.Accessor),
         _ => false,
     };
 
@@ -3068,9 +3095,15 @@ public sealed partial class CSharpPrinter
         => receiver?.ResultType is { Kind: TypeRefKind.Pointer };
 
     static bool AccessorRequiresUnsafe(MethodRef accessor, IrExpression? receiver)
-        => accessor.RequiresUnsafe
-            || SignatureRequiresUnsafe(accessor)
+        => MethodRequiresUnsafe(accessor)
             || IsPointerReceiver(receiver);
+
+    static bool MethodRequiresUnsafe(MethodRef? method)
+        => method is not null
+            && (method.RequiresUnsafe || SignatureRequiresUnsafe(method));
+
+    static bool MethodsRequireUnsafe(IEnumerable<MethodRef?> methods)
+        => methods.Any(MethodRequiresUnsafe);
 
     static bool DeconstructionTargetRequiresUnsafe(DeconstructionTarget target)
         => target is
@@ -3080,25 +3113,50 @@ public sealed partial class CSharpPrinter
             }
             && AccessorRequiresUnsafe(accessor, target.Instance);
 
-    bool CallRendersPointerReceiver(Call call)
+    bool CallRendersPointerDereference(Call call)
     {
-        if (call.Arguments is not [var receiver, ..] || !IsPointerReceiver(receiver))
-            return false;
-
         if (call.Callee.HasThis)
-            return true;
+        {
+            if (call.Arguments is not [var receiver, ..])
+                return false;
+            return IsPointerReceiver(receiver)
+                || ArgumentsRenderPointerDereference(
+                    [.. call.Arguments.Skip(1)],
+                    call.Callee.ParameterTypes);
+        }
 
-        return PointerRefExtensionReceiver(call.Callee, receiver) is not null;
+        return ArgumentsRenderPointerDereference(call.Arguments, call.Callee.ParameterTypes);
     }
 
-    static bool IsPointerArithmetic(Binary binary)
-        => binary.Kind is BinaryKind.Add or BinaryKind.Subtract
-            && (binary.Left.ResultType is { Kind: TypeRefKind.Pointer }
-                || binary.Right.ResultType is { Kind: TypeRefKind.Pointer });
+    static bool ArgumentsRenderPointerDereference(
+        IReadOnlyList<IrExpression> arguments,
+        IReadOnlyList<TypeRef> parameterTypes)
+        => arguments
+            .Select((argument, index) => (argument, index))
+            .Any(pair => IsPointerByRefArgument(parameterTypes, pair.index, pair.argument));
 
-    static bool IsPointerComparison(Comparison comparison)
-        => comparison.Left.ResultType is { Kind: TypeRefKind.Pointer }
-            || comparison.Right.ResultType is { Kind: TypeRefKind.Pointer };
+    bool IsLegacyPointerOperation(IrNode node) => node switch
+    {
+        StoreLocal store => ContainsPointer(store.Type),
+        StoreStackSlot store => ContainsPointer(StackSlotTargetType(store)),
+        LocalFunctionStatement localFunction => SignatureRequiresUnsafe(
+            localFunction.ReturnType,
+            localFunction.Parameters.Select(parameter => parameter.Type)),
+        ForeachStatement foreachStatement => ContainsPointer(foreachStatement.LocalType),
+        Convert
+        {
+            Operand: LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress
+                or FixedBufferElementAddress or LoadElementAddress,
+        } => true,
+        SizeOf sizeOf => ContainsPointer(sizeOf.Type),
+        Binary b => b.Kind is BinaryKind.Add or BinaryKind.Subtract
+            && (b.Left.ResultType is { Kind: TypeRefKind.Pointer }
+                || b.Right.ResultType is { Kind: TypeRefKind.Pointer }),
+        Comparison c => c.Left.ResultType is { Kind: TypeRefKind.Pointer }
+            || c.Right.ResultType is { Kind: TypeRefKind.Pointer },
+        IncrementDecrement i => i.Target.ResultType is { Kind: TypeRefKind.Pointer },
+        _ => false,
+    };
 
     /// <summary>
     /// Compat-mode requires-unsafe heuristic for a callee whose
@@ -3110,7 +3168,12 @@ public sealed partial class CSharpPrinter
     /// even for callers that haven't opted into the new rules.
     /// </summary>
     static bool SignatureRequiresUnsafe(MethodRef callee)
-        => ContainsPointer(callee.ReturnType) || callee.ParameterTypes.Any(ContainsPointer);
+        => SignatureRequiresUnsafe(callee.ReturnType, callee.ParameterTypes);
+
+    static bool SignatureRequiresUnsafe(
+        TypeRef returnType,
+        IEnumerable<TypeRef> parameterTypes)
+        => ContainsPointer(returnType) || parameterTypes.Any(ContainsPointer);
 
     static bool LambdaNeedsUnsafeContext(Lambda lambda)
         => !lambda.ParameterRefKinds.IsDefaultOrEmpty

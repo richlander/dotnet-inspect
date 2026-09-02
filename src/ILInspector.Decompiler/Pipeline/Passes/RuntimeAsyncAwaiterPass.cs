@@ -48,6 +48,8 @@ public sealed class RuntimeAsyncAwaiterPass : IIrPass
         StoreLocal AwaiterStore,
         ConditionalBranch Branch,
         ExpressionStatement HelperStatement,
+        Call GetAwaiter,
+        MethodRef IsCompletedAccessor,
         Call GetResult,
         IrExpression Awaited);
 
@@ -70,9 +72,17 @@ public sealed class RuntimeAsyncAwaiterPass : IIrPass
                 awaiterStore,
                 awaiterType,
                 out var awaitableStore,
+                out var getAwaiter,
                 out var awaited)
-            || !IsCompletedTest(branch.Condition, awaiterStore.Index, awaiterType)
+            || !TryGetIsCompletedAccessor(
+                branch.Condition,
+                awaiterStore.Index,
+                awaiterType,
+                out var isCompletedAccessor)
             || !TryGetResult(merge, awaiterStore.Index, awaiterType, out var getResult)
+            || getAwaiter.Callee.RequiresUnsafe
+            || isCompletedAccessor.RequiresUnsafe
+            || getResult.Callee.RequiresUnsafe
             || !HasExclusiveControlFlow(function, branch, helperBlock.StartOffset, merge.StartOffset)
             || awaitableStore is not null
                 && !LocalDefinitionRangeOwned(
@@ -94,6 +104,8 @@ public sealed class RuntimeAsyncAwaiterPass : IIrPass
             awaiterStore,
             branch,
             helperStatement,
+            getAwaiter,
+            isCompletedAccessor,
             getResult,
             awaited);
     }
@@ -103,9 +115,11 @@ public sealed class RuntimeAsyncAwaiterPass : IIrPass
         StoreLocal awaiterStore,
         TypeRef awaiterType,
         out StoreLocal? awaitableStore,
+        out Call getAwaiter,
         out IrExpression awaited)
     {
         awaitableStore = null;
+        getAwaiter = null!;
         awaited = null!;
         if (awaiterStore.Value is not Call
             {
@@ -115,12 +129,13 @@ public sealed class RuntimeAsyncAwaiterPass : IIrPass
                     TypeArguments.IsEmpty: true,
                     ReturnType: var returnType,
                 },
-            } getAwaiter
+            } candidate
             || !returnType.Equals(awaiterType)
-            || !TryGetAwaitableReceiver(getAwaiter, out var receiver))
+            || !TryGetAwaitableReceiver(candidate, out var receiver))
         {
             return false;
         }
+        getAwaiter = candidate;
 
         if (receiver is LoadLocalAddress local
             && head.Children.Count >= 3
@@ -184,8 +199,14 @@ public sealed class RuntimeAsyncAwaiterPass : IIrPass
         _ => receiver.ResultType,
     };
 
-    static bool IsCompletedTest(IrExpression condition, int awaiterIndex, TypeRef awaiterType)
-        => condition is LoadProperty
+    static bool TryGetIsCompletedAccessor(
+        IrExpression condition,
+        int awaiterIndex,
+        TypeRef awaiterType,
+        out MethodRef accessor)
+    {
+        accessor = null!;
+        if (condition is not LoadProperty
         {
             Accessor:
             {
@@ -195,14 +216,20 @@ public sealed class RuntimeAsyncAwaiterPass : IIrPass
                 ParameterTypes.IsEmpty: true,
                 ReturnType: var returnType,
                 DeclaringType: var declaringType,
-            },
+            } candidate,
             Instance: var receiver,
             IndexArguments.Count: 0,
         }
-        && receiver is not null
-        && IsAwaiterReceiver(receiver, awaiterIndex, awaiterType)
-        && declaringType.Equals(awaiterType)
-        && returnType.Equals(s_bool);
+            || receiver is null
+            || !IsAwaiterReceiver(receiver, awaiterIndex, awaiterType)
+            || !declaringType.Equals(awaiterType)
+            || !returnType.Equals(s_bool))
+        {
+            return false;
+        }
+        accessor = candidate;
+        return true;
+    }
 
     static bool TryGetResult(Block merge, int awaiterIndex, TypeRef awaiterType, out Call getResult)
     {
@@ -306,7 +333,12 @@ public sealed class RuntimeAsyncAwaiterPass : IIrPass
         var awaitExpression = new AwaitExpression(
             awaited,
             match.GetResult.Callee.ReturnType,
-            match.GetResult.Callee.ReturnIsDynamic);
+            match.GetResult.Callee.ReturnIsDynamic,
+            [
+                match.GetAwaiter.Callee,
+                match.IsCompletedAccessor,
+                match.GetResult.Callee,
+            ]);
         awaitExpression.InheritSourceOffset(match.GetResult);
         match.GetResult.ReplaceWith(awaitExpression);
 

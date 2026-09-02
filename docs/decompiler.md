@@ -105,10 +105,14 @@ An operation needs a block when it is:
 - a `stackalloc` converted to a `Span<T>`/`ReadOnlySpan<T>` with no initializer in
   a `[SkipLocalsInit]` body (the stack space is uninitialized).
 
-Taking an address (`&x`), declaring pointer locals, the `fixed` statement, and
-`sizeof` are safe under the new rules and stay outside the blocks. When the unsafe
-operation initializes a local used later, the declaration is hoisted above the
-block so the variable stays in scope.
+Taking an address (`&x`), declaring pointer locals, pointer arithmetic and
+comparison (`p++`, `p + 1`, `p < q`), the `fixed` statement, and `sizeof` are
+safe under the new rules and stay outside the blocks. When the unsafe operation
+initializes a local used later, the declaration is hoisted above the block so
+the variable stays in scope.
+
+Await reconstruction stands down when an implicit await-pattern member requires
+unsafe context because C# forbids `await` inside an unsafe context.
 
 The stackalloc→`Span<T>` case is first raised from the compiler's lowering — a
 `localloc` fed to the `Span<T>(void*, int)` constructor — back into a source-level

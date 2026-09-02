@@ -722,8 +722,15 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             .ToList();
         if (accumulatorStores is not [var accumulatorStore])
             return false;
-        var awaitedOperand = AwaitedOperandForGetResult(moveNext, getResult);
+        var awaitedOperand = AwaitedOperandForGetResult(
+            moveNext,
+            getResult,
+            out var loopGetAwaiter,
+            out var loopIsCompleted);
         if (awaitedOperand is null
+            || loopGetAwaiter.RequiresUnsafe
+            || loopIsCompleted.RequiresUnsafe
+            || getResult.Callee.RequiresUnsafe
             || !IsCurrentLoopElement(moveNext, awaitedOperand))
         {
             hasUnconsumedStore = true;
@@ -772,7 +779,8 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         var awaited = new AwaitExpression(
             new LoadLocal(taskIndex, taskType),
             getResult.Callee.ReturnType,
-            getResult.Callee.ReturnIsDynamic);
+            getResult.Callee.ReturnIsDynamic,
+            [loopGetAwaiter, loopIsCompleted, getResult.Callee]);
         body.Add(new StoreLocal(
             sumIndex,
             sumType,
@@ -917,8 +925,15 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
     static AwaitExpression? AwaitForGetResult(IrFunction moveNext, IrFunction kickoff, Call getResult)
     {
-        var awaitedOperand = AwaitedOperandForGetResult(moveNext, getResult);
-        if (awaitedOperand is null)
+        var awaitedOperand = AwaitedOperandForGetResult(
+            moveNext,
+            getResult,
+            out var getAwaiter,
+            out var isCompleted);
+        if (awaitedOperand is null
+            || getAwaiter.RequiresUnsafe
+            || isCompleted.RequiresUnsafe
+            || getResult.Callee.RequiresUnsafe)
             return null;
 
         var operand = CloneAndRemap(awaitedOperand, kickoff);
@@ -927,13 +942,18 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             : new AwaitExpression(
                 operand,
                 getResult.Callee.ReturnType,
-                getResult.Callee.ReturnIsDynamic);
+                getResult.Callee.ReturnIsDynamic,
+                [getAwaiter, isCompleted, getResult.Callee]);
     }
 
     static IrExpression? AwaitedOperandForGetResult(
         IrFunction moveNext,
-        Call getResult)
+        Call getResult,
+        out MethodRef getAwaiter,
+        out MethodRef isCompleted)
     {
+        getAwaiter = null!;
+        isCompleted = null!;
         if (getResult.Arguments is not [LoadLocalAddress awaiterAddress])
             return null;
 
@@ -943,6 +963,8 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             return null;
 
         StoreLocal? awaiterStore = null;
+        MethodRef? getAwaiterCandidate = null;
+        MethodRef? isCompletedCandidate = null;
         for (var i = 0; i < getResultPosition; i++)
         {
             if (nodes[i] is StoreLocal { Index: var index, Value: Call { Callee.Name: "GetAwaiter" } call } store
@@ -955,13 +977,40 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                     continue;
                 }
                 awaiterStore = store;
+                getAwaiterCandidate = call.Callee;
+                isCompletedCandidate = null;
+                continue;
+            }
+
+            if (awaiterStore is not null
+                && nodes[i] is LoadProperty
+                {
+                    Accessor.Name: "get_IsCompleted",
+                    Accessor: var accessor,
+                    Instance: var receiver,
+                }
+                && IsAwaiterReceiver(receiver, awaiterAddress.Index))
+            {
+                isCompletedCandidate = accessor;
             }
         }
 
-        if (awaiterStore?.Value is not Call { Arguments: [var awaitedOperand] })
+        if (awaiterStore?.Value is not Call { Arguments: [var awaitedOperand] }
+            || getAwaiterCandidate is null
+            || isCompletedCandidate is null)
             return null;
+        getAwaiter = getAwaiterCandidate;
+        isCompleted = isCompletedCandidate;
         return awaitedOperand;
     }
+
+    static bool IsAwaiterReceiver(IrExpression? receiver, int awaiterIndex)
+        => receiver switch
+        {
+            LoadLocal load => load.Index == awaiterIndex,
+            LoadLocalAddress address => address.Index == awaiterIndex,
+            _ => false,
+        };
 
     static bool HasUnexpectedExpressionStatement(IrFunction moveNext, params ExpressionStatement[] allowed)
     {

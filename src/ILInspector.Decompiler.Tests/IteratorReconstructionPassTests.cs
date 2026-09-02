@@ -867,7 +867,10 @@ public class IteratorReconstructionPassTests
         // call). The transform-then-restructure path strips both the state scaffolding and
         // the disposal, then recovers the foreach — no acknowledgment marker.
         Assert.Single(function.Descendants.OfType<YieldReturn>());
-        Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        var foreachStatement = Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.Equal(
+            ["GetEnumerator", "MoveNext", "get_Current", "Dispose"],
+            foreachStatement.ConsumedMemberRefs.Select(method => method.Name));
         Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
     }

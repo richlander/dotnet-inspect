@@ -128,6 +128,21 @@ public class ClassicAsyncReconstructionHonestyTests
         Assert.DoesNotContain(
             function.Descendants.OfType<UnsupportedNode>(),
             node => node.Opcode == "classic async");
+        var awaits = function.Descendants.OfType<AwaitExpression>().ToList();
+        Assert.NotEmpty(awaits);
+        Assert.All(
+            awaits,
+            awaitExpression => Assert.Contains(
+                awaitExpression.ConsumedMemberRefs,
+                method => method.Name == "GetResult"));
+        if (methodName != "AwaitInLoop")
+        {
+            Assert.All(
+                awaits,
+                awaitExpression => Assert.Contains(
+                    awaitExpression.ConsumedMemberRefs,
+                    method => method.Name == "GetAwaiter"));
+        }
         Assert.Contains(
             expectedOutput,
             result.Output,

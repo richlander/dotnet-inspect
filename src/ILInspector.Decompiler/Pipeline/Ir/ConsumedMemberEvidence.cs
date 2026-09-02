@@ -92,6 +92,26 @@ public readonly record struct ConsumedMemberEvidence(
                         evidence.Add(new(Field: field));
                 }
                 break;
+            case AwaitExpression awaitExpression:
+                foreach (var method in awaitExpression.ConsumedMemberRefs)
+                    evidence.Add(new(Method: method));
+                break;
+            case PositionalPattern positionalPattern:
+                if (positionalPattern.ConsumedDeconstructMethod is { } positionalDeconstruct)
+                    evidence.Add(new(Method: positionalDeconstruct));
+                break;
+            case ChainedAssignment chainedAssignment:
+                foreach (var target in chainedAssignment.Targets)
+                {
+                    if (target.Accessor is { } accessor)
+                        evidence.Add(new(Method: accessor));
+                    if (target.Field is { } field)
+                        evidence.Add(new(Field: field));
+                }
+                break;
+            case PatternSwitchExpressionArm { Subpattern: { } subpattern }:
+                evidence.Add(new(Method: subpattern.Accessor));
+                break;
             case ForeachStatement foreachStatement:
                 foreach (var method in foreachStatement.ConsumedMemberRefs)
                     evidence.Add(new(Method: method));

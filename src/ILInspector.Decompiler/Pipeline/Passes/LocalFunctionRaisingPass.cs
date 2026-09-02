@@ -412,7 +412,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 body.LocalNames,
                 body.UsesUpdatedMemorySafetyRules,
                 body.SkipLocalsInit,
-                container));
+                container,
+                method.RequiresUnsafe));
             // Merge the raised body's resolved type info into the enclosing
             // function. The body was imported from a separate method, so the
             // host never materialized shapes/enum members/underlying types/
@@ -608,7 +609,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             method.ReturnType,
             arguments,
             parameterTypes,
-            VisibleParameterRefKinds(method, count));
+            VisibleParameterRefKinds(method, count),
+            method.RequiresUnsafe);
     }
 
     static ImmutableArray<ArgumentRefKind> VisibleParameterRefKinds(MethodRef method, int count)
