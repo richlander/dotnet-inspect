@@ -400,6 +400,87 @@ public class ResearchFactRegistryTests
     }
 
     [Fact]
+    public void AnalysisIndexCache_ForPath_ReportsIdentityUnconfirmedOnACacheHitStaleRelativeToAnotherScope()
+    {
+        // Round-4 review (both seats, independently) found that a
+        // fingerprint-matching cache *hit* returned identityUnconfirmed =
+        // false unconditionally, without consulting the scope-independent
+        // s_lastPathFingerprints history. That let an older, still
+        // fingerprint-valid entry from one scope mask a change already
+        // confirmed under a different scope: restore a path's earlier
+        // generation A after a differently scoped request has already
+        // observed and confirmed a later generation B, and a member-scoped
+        // hit against the still-valid A entry must still report a change,
+        // because the *last confirmed* generation for this path was B, not
+        // A.
+        string generationASourcePath = typeof(ResearchFixture).Assembly.Location;
+        string generationBSourcePath = typeof(LibraryBodyIndex).Assembly.Location;
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-research-identity-hit-{Guid.NewGuid():N}.dll");
+        DateTime generationATimestamp =
+            new(2007, 7, 7, 0, 0, 0, DateTimeKind.Utc);
+        File.Copy(generationASourcePath, path);
+        File.SetLastWriteTimeUtc(path, generationATimestamp);
+        try
+        {
+            int token = LibraryBodyIndex.Open(
+                    path,
+                    LibraryBodyAnalysisFeatures.MethodEvidence)
+                .Methods.First(method =>
+                    method.Name
+                        == nameof(
+                            ResearchFixture.CallsAllocInLoopCallee))
+                .MetadataToken;
+            ResearchFactRequirements member =
+                ResearchFactRequirements.ForMember(
+                    LibraryBodyAnalysisFeatures.MethodEvidence);
+            ResearchFactRequirements assembly =
+                ResearchFactRequirements.ForAssembly(
+                    LibraryBodyAnalysisFeatures.MethodEvidence);
+
+            // A first, member-scoped observation of generation A caches
+            // member/A and records A as the last confirmed fingerprint.
+            AnalysisIndexCache.ForPath(
+                path, member, token, out bool firstIdentityUnconfirmed);
+            Assert.False(firstIdentityUnconfirmed);
+
+            // Generation B is observed under a different (assembly) scope.
+            // The member/A entry is scope-incompatible, so it is left
+            // untouched in the reuse cache while the last confirmed
+            // fingerprint moves to B.
+            File.Copy(generationBSourcePath, path, overwrite: true);
+            File.SetLastWriteTimeUtc(
+                path,
+                new DateTime(2008, 8, 8, 0, 0, 0, DateTimeKind.Utc));
+            AnalysisIndexCache.ForPath(
+                path, assembly, 0, out bool secondIdentityUnconfirmed);
+            Assert.True(secondIdentityUnconfirmed);
+
+            // Generation A returns, with the exact bytes and timestamp the
+            // still-cached member/A entry recorded, so the member-scoped
+            // request below is a fingerprint-matching cache *hit* -- but
+            // this path's last confirmed generation was B, so this hit
+            // must still be reported as an identity change.
+            File.Copy(generationASourcePath, path, overwrite: true);
+            File.SetLastWriteTimeUtc(path, generationATimestamp);
+            AnalysisIndexCache.ForPath(
+                path, member, token, out bool hitIdentityUnconfirmed);
+            Assert.True(hitIdentityUnconfirmed);
+
+            // Having reconfirmed A, a further member-scoped hit against
+            // the now up-to-date history agrees again.
+            AnalysisIndexCache.ForPath(
+                path, member, token, out bool settledIdentityUnconfirmed);
+            Assert.False(settledIdentityUnconfirmed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Registry_OrdersProducersAfterTheirDependencies()
     {
         var registry = new ResearchFactRegistry(

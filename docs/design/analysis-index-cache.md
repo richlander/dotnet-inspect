@@ -247,15 +247,30 @@ case where the reuse cache's own bounded, all-or-nothing eviction clears a
 scope-compatible entry without the path's bytes changing). The fix is a
 second, scope-independent map, `s_lastPathFingerprints: Dictionary<string,
 PathFingerprint>`, recording the last confirmed-stable fingerprint per
-normalized path regardless of which scope confirmed it. `ForPath` consults
-this map -- not the reuse cache's own hit/miss outcome -- to decide
-`identityUnconfirmed`, and updates it whenever an open is confirmed
-stable. It is bounded independently of `s_pathIndexes`, using the same
-`MaxCachedIndexes` clear-all-on-overflow policy applied to a different
-key set: tying the two structures' evictions together would spuriously
-erase path-identity history whenever the reuse cache needed room for an
-unrelated `(path, scope)` tuple, even though the identity map itself had
-room to spare.
+normalized path regardless of which scope confirmed it. It is bounded
+independently of `s_pathIndexes`, using the same `MaxCachedIndexes`
+clear-all-on-overflow policy applied to a different key set: tying the two
+structures' evictions together would spuriously erase path-identity
+history whenever the reuse cache needed room for an unrelated `(path,
+scope)` tuple, even though the identity map itself had room to spare.
+
+`ForPath` consults `s_lastPathFingerprints` on *every* path that can set
+`identityUnconfirmed` to `false` -- not just the miss path that reopens the
+file. A cache *hit* (a scope-compatible entry whose fingerprint still
+matches the file) is not exempt: an older, still fingerprint-valid entry
+from one scope can coexist with a more recently confirmed generation from
+a different scope (member scope observes A; assembly scope later observes
+B and is scope-incompatible with the member entry, so the member entry is
+left untouched; the file returns to A with its original fingerprint; a
+member-scoped request now hits the still-valid A entry). Reporting
+`identityUnconfirmed = false` on that hit purely because it agrees with
+its *own* cached entry would miss that this path's last confirmed
+generation was actually B, not A. `ForPath` therefore checks every
+hit's fingerprint against `s_lastPathFingerprints` too, reports a change
+when they disagree, and reconfirms `s_lastPathFingerprints` to the hit's
+fingerprint either way. An earlier version of this round's own fix made
+exactly this mistake -- both reviewer seats independently found the same
+cache-hit gap in the same review round.
 
 This is deliberately *only* a fact the cache reports -- the two existing
 overloads without the parameter still discard it (`out _`), and no existing

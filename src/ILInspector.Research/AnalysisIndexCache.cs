@@ -84,7 +84,30 @@ static class AnalysisIndexCache
                 && TryGetFingerprint(fullPath, out var currentFingerprint)
                 && currentFingerprint == cached.Fingerprint)
             {
-                identityUnconfirmed = false;
+                // A scope-compatible hit still needs to be judged against
+                // the scope-independent identity history, not just its own
+                // entry: a different scope may have confirmed a different
+                // generation of this same path more recently (e.g. a
+                // member-scoped entry surviving from before the file
+                // changed and changed back), in which case this hit's
+                // fingerprint agreeing with *its own* cached entry says
+                // nothing about whether it agrees with the last generation
+                // any caller was actually shown. Treat this reconfirmation
+                // the same way a fresh stable open would: report a change
+                // whenever it disagrees with the last confirmed
+                // fingerprint, then record this fingerprint as the new
+                // last-confirmed one.
+                identityUnconfirmed =
+                    s_lastPathFingerprints.TryGetValue(
+                        fullPath,
+                        out PathFingerprint priorHitFingerprint)
+                    && priorHitFingerprint != currentFingerprint;
+                if (!s_lastPathFingerprints.ContainsKey(fullPath)
+                    && s_lastPathFingerprints.Count >= MaxCachedIndexes)
+                {
+                    s_lastPathFingerprints.Clear();
+                }
+                s_lastPathFingerprints[fullPath] = currentFingerprint;
                 return cached.Index;
             }
             // What this path's identity was last confirmed to be, tracked
