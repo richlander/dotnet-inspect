@@ -6,9 +6,9 @@ This document proposes the `ILInspector.Findings`-owned
 `ComparisonDocument<T>` composition format for
 [#5499](https://github.com/richlander/dotnet-inspect/issues/5499).
 
-It is the second design slice in a stack:
+It is the second design slice in the structured-comparison delivery sequence:
 
-1. [Analysis diff](analysis-diff.md), proposed by #5493, owns complete
+1. [Analysis diff](analysis-diff.md), landed by #5493, owns complete
    two-sequence analytical relation data.
 2. This document owns composition of identified subjects and opaque comparison
    payloads.
@@ -50,6 +50,58 @@ presentation.
 
 All behavior is unverified until the implementation effort adds the Release
 gates under [Required gates](#required-gates).
+
+### Consumers and delivery
+
+[#5526](https://github.com/richlander/dotnet-inspect/issues/5526) is the
+end-to-end delivery tracker for the structured comparison pipeline. It composes
+this format with the separately owned `AnalysisDiff<T>` information format and
+Markout presentation contract without making any of them co-owners.
+
+The concrete initial diff consumers are:
+
+- [CLI Source Diff](https://github.com/richlander/dotnet-inspect/issues/5527),
+  which will use portable type and member subjects when one source comparison
+  spans several payloads; and
+- [Inspect Web](https://github.com/richlander/dotnet-inspect/issues/5528),
+  which will consume the same root, subject, and exceptional-change topology in
+  browser/Wasm.
+
+Structural-clone composition is the second payload family. It uses a reference
+method as the root, candidate methods as subjects, and the existing pairwise
+clone document as `T`. It retains the clone payload's native Left/Right
+orientation rather than translating it into Before/After text-diff semantics.
+
+Both host efforts remain focused adoption slices. The CLI owns command
+selection and progressive disclosure. Inspect Web owns browser interaction,
+navigation, responsive layout, and virtualization. Neither host owns a parallel
+subject-topology model or recovers identity, rename, move, or payload
+correspondence from rendered text.
+
+### Complexity basis and rendering strategy
+
+The composition layer is necessary because an opaque payload cannot portably
+identify its root and sibling subjects or express rename and move endpoints
+without either format-specific baggage on every ordinary entry or
+consumer-side reconstruction. One root, one ordered subject population, and a
+referenced exceptional-description population provide that information once
+for diff and clone payloads while leaving each `T` intact.
+
+`ComparisonDocument<T>` is the host-neutral structured boundary. For textual
+diff presentation, the shared Markout paths are:
+
+- construct `ComparisonDocument<MappedTextDiff>` when the producer or adapter
+  already owns presentation-ready text mappings; or
+- retain `ComparisonDocument<AnalysisDiff<TItem>>` for analysis and explicitly
+  lower its textual payloads to `MappedTextDiff` at a host-neutral adapter
+  boundary.
+
+The envelope's identifiers, displays, subject order, change kinds, and
+exceptional descriptions remain typed alongside either rendering path. Markout
+renders the mapped-text payload and never infers or owns subject topology.
+Clone payloads remain clone-oriented; a later host-neutral clone projection may
+select an appropriate Markout table or other shared shape without changing this
+generic contract.
 
 ## Purpose
 
@@ -99,9 +151,12 @@ is supporting adopter evidence, not a donor of clone-analysis responsibility.
 A future clone composition may use it unchanged as `T`.
 
 Markout remains pure presentation. A consuming assembly may instantiate
-`ComparisonDocument<MappedTextDiff>` while referencing both libraries; neither
-foundational assembly references the other. Markout-specific source generation
-or formatting is a later adoption concern.
+`ComparisonDocument<MappedTextDiff>` while referencing both libraries, or a
+host-neutral adapter may lower textual
+`ComparisonDocument<AnalysisDiff<TItem>>` payloads into mapped text while
+retaining the envelope topology. The intended dependency direction keeps both
+foundational formats independent. Markout-specific source generation,
+formatting, and host interaction are later adoption concerns.
 
 ## Basis
 
@@ -941,7 +996,8 @@ This design does not define:
 - CLI or website selection, aggregation, navigation, or presentation; or
 - adoption by Source Diff, implementation diff, clones, or another producer.
 
-Each adoption remains a focused owner effort. A future composition requiring
+Each adoption remains a focused owner effort under #5526, beginning with the
+CLI and browser/Wasm slices #5527 and #5528. A future composition requiring
 several nested levels composes documents or establishes a separate hierarchy
 contract rather than recursively weakening this one.
 
@@ -996,7 +1052,8 @@ least:
 - rejection of malformed serialized forms through the same validation path; and
 - encoding of untrusted identifier and display values as JSON data.
 
-Later focused adopter efforts must prove:
+Later focused adopter efforts under #5527, #5528, and their producer-owned
+prerequisites must prove:
 
 - the authored fixture ledger's schema, inventory coverage, exact identifier
   projection, and expectation ownership;
