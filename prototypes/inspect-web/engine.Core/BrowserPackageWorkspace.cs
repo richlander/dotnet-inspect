@@ -645,16 +645,26 @@ internal static class BrowserPackageWorkspace
         PackageSourceCoordinate coordinate = PackageSourceCoordinate.Create(
             package.PackageId,
             package.Version);
-        PackageSourcePayloadResult result =
-            await PackagePayloadAcquisition.AcquireAsync(
-                source,
-                coordinate,
-                Store,
-                limits: PayloadLimits,
-                cancellationToken: deadline.Token,
-                transferPolicy: new BrowserPackageOperationTransferPolicy(
+        PackageSourcePayloadResult result;
+        try
+        {
+            result = await PackagePayloadAcquisition.AcquireAsync(
+                    source,
+                    coordinate,
                     Store,
-                    deadline)).ConfigureAwait(false);
+                    limits: PayloadLimits,
+                    cancellationToken: deadline.Token,
+                    transferPolicy: new BrowserPackageQueryTransferPolicy(
+                        new BrowserPackageOperationTransferPolicy(
+                            Store,
+                            deadline)))
+                .ConfigureAwait(false);
+        }
+        catch (BrowserPackagePayloadPolicyException exception)
+        {
+            return new PackageQueryContentResult.Unavailable(
+                exception.Message);
+        }
         return result switch
         {
             PackageSourcePayloadResult.Acquired acquired =>
@@ -1019,6 +1029,31 @@ internal static class BrowserPackageWorkspace
             public void Dispose() => inner.Dispose();
         }
     }
+
+    internal sealed class BrowserPackageQueryTransferPolicy(
+        IPackagePayloadTransferPolicy inner)
+        : IPackagePayloadTransferPolicy
+    {
+        public IPackagePayloadReservation Reserve(
+            PackagePayloadTransfer transfer)
+        {
+            try
+            {
+                return inner.Reserve(transfer);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new BrowserPackagePayloadPolicyException(
+                    exception.Message,
+                    exception);
+            }
+        }
+    }
+
+    internal sealed class BrowserPackagePayloadPolicyException(
+        string message,
+        Exception innerException)
+        : InvalidOperationException(message, innerException);
 
     internal static string? SelectDependencyVersion(
         string[] versions,

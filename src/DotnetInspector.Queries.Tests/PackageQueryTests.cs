@@ -482,7 +482,8 @@ public sealed class PackageQueryTests
                     ("SKILLS/demo/skill.MD", "# Demo")),
                 ["Contoso.V2"] = new FakePackageContent(
                     ("tools/any/any/DotnetToolSettings.xml",
-                        "<DotNetCliTool Version=\"2\"><Commands /></DotNetCliTool>")),
+                        "\uFEFF<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+                        + "<DotNetCliTool Version=\"2\"><Commands /></DotNetCliTool>")),
                 ["Contoso.Library"] = new FakePackageContent(
                     ("skills/SKILL.md", "# Library")),
             });
@@ -554,6 +555,52 @@ public sealed class PackageQueryTests
         Assert.Equal(
             ["Contoso.V1", "Contoso.V2", "Contoso.Library"],
             content.Requests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_InvalidToolSettingsRemainVisible()
+    {
+        var source = SourceFor(
+            Manifest(
+                "Contoso.Tool",
+                packageTypes:
+                """
+                <packageTypes>
+                  <packageType name="DotnetTool" />
+                </packageTypes>
+                """),
+            "Contoso.Tool");
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Contoso.Tool"] = new FakePackageContent(
+                    ("tools/net8.0/any/DotnetToolSettings.xml",
+                        "<DotNetCliTool Version=\"2\"><Commands>")),
+            });
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    [PackageQuery.ToolV2FacetId],
+                    MaximumCandidates: 1,
+                    MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        PackageQueryFailure failure =
+            Assert.IsType<PackageQueryEvent.Failure>(events[0]).Value;
+        Assert.Equal(
+            PackageQueryFailureKind.PackageContentEvaluation,
+            failure.Kind);
+        Assert.Equal(
+            1,
+            Assert.IsType<PackageQueryEvent.Completed>(events[^1])
+                .Value.Failures);
     }
 
     [Fact]

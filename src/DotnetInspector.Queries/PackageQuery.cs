@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Xml;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using InertText;
@@ -652,7 +653,8 @@ public static class PackageQuery
                                 or InvalidDataException
                                 or DecoderFallbackException
                                 or NotSupportedException
-                                or UnauthorizedAccessException)
+                                or UnauthorizedAccessException
+                                or XmlException)
                         {
                             // Iterator catch clauses cannot yield; null is
                             // projected below as a typed item failure.
@@ -847,8 +849,10 @@ public static class PackageQuery
                 string xml = new UTF8Encoding(
                     encoderShouldEmitUTF8Identifier: false,
                     throwOnInvalidBytes: true).GetString(bytes);
+                if (xml.Length > 0 && xml[0] == '\uFEFF')
+                    xml = xml[1..];
                 DotnetToolSettingsData? settings =
-                    DotnetToolSettingsParser.ParseContent(xml);
+                    DotnetToolSettingsParser.ParseContentOrThrow(xml);
                 if (settings is null)
                     return null;
                 string version = settings.Version ?? "1";

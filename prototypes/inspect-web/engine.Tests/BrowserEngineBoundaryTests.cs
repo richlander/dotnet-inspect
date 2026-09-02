@@ -4969,6 +4969,51 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageQueryContent_PolicyRejectionRemainsVisible()
+    {
+        string packageId = $"gallery.query.no-length.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        var handler = new GalleryPackageHandler(
+            packageId,
+            version,
+            PackageWithSkill(packageId, version),
+            omitContentLength: true);
+        using IPackageSourceClient source = Gallery(handler);
+        PackageManifestFacts manifest = Assert.IsType<
+            PackageManifestFactsResult.Available>(
+                PackageManifestFactsQuery.Execute(
+                    Encoding.UTF8.GetBytes(
+                        Nuspec(packageId, version)),
+                    PackageSourceCoordinate.Create(packageId, version))).Value;
+        var package = new PackageProfileMatch(
+            packageId,
+            version,
+            [],
+            TotalDownloads: 0,
+            Verified: false,
+            PackageSourceIdentity.NuGetOrg,
+            manifest);
+        using var deadline =
+            new BrowserPackageWorkspace.BrowserPackageOperationDeadline(
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        PackageQueryContentResult result =
+            await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
+                package,
+                source,
+                deadline);
+
+        string message = Assert.IsType<
+            PackageQueryContentResult.Unavailable>(result).Message;
+        Assert.Contains(
+            "did not declare its byte length",
+            message,
+            StringComparison.Ordinal);
+        Assert.True(handler.PayloadDisposed);
+    }
+
+    [Fact]
     public async Task BrowserPackageRealization_ReceivesAcquisitionIssuedCoordinate()
     {
         string packageId = $"Gallery.Binding.{Guid.NewGuid():N}";
