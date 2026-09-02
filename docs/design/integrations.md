@@ -918,6 +918,38 @@ and context order plus concept-catalog order, not discovery timing. The
 ordering gate uses discovery order that deliberately differs from all three
 declared orders and includes one participant repeated across binding contexts.
 
+### Matrix projection
+
+The sparse matrix adapter consumes an independently validated matrix request
+plus a compatible Census snapshot. Its row domain is exactly the
+owner-issued source-participant/context incidence relation; it never constructs
+the full participant-by-context cross product. Each incident row retains the
+canonical Census participant and context identities and carries one cell for
+every configured concept in catalog order.
+
+A cell retains every exact classified candidate attempt for its
+participant/context/concept coordinate and derives its `In` and `Out` counts
+from those attempts. Complete zero is therefore an explicit complete cell with
+no classified attempts. A suppressed candidate attempt contributes no count
+and no incompleteness; it remains accounted by the shared Census snapshot.
+An incomplete cell may retain healthy classified attempts and their partial
+counts, but also retains the exact causes that make the total
+non-authoritative:
+
+- a rejected or failed source participant affects every concept in each of its
+  incident contexts;
+- an unavailable or failed producer policy affects only its declared concepts
+  in every incident context for that participant; and
+- a failed candidate attempt affects only its exact
+  participant/context/concept coordinate.
+
+Participant and binding-context joins use their owner-defined semantic
+equality. Concept and producer-policy joins use catalog reference identity.
+Rows and cells retain the exact snapshot receipts rather than cloning
+identities or deriving correspondence from display text. Global universe
+completeness and failure evidence remains available beside the sparse rows
+through the projection result and its Census snapshot.
+
 ### Graph projection
 
 The graph adapter consumes an independently validated graph request plus a
@@ -1029,8 +1061,9 @@ Implementation should land as focused slices:
    L2 catalog and schema);
 5. graph correspondence from `In` candidates without changing graph semantics
    (implemented);
-6. sparse matrix projection and WASM demo; and
-7. separately owned #4979 `find` prerequisite or optional enrichment for
+6. sparse matrix projection (implemented);
+7. WASM demo; and
+8. separately owned #4979 `find` prerequisite or optional enrichment for
    discovering an unknown parent.
 
 Each slice must preserve current focused Library sections and explicit
@@ -1189,7 +1222,22 @@ The Integration graph-correspondence slice is verified by:
 - `IntegrationGraph_OpportunityPreservesAssemblyEdgeAndTypeOccurrence`
 - `IntegrationGraph_IncompleteCensusRetainsHealthyGraphAndFailure`
 - `IntegrationGraph_RequiresGraphPlanAndCensusBackedRequest`
-- `IntegrationProjection_RowsAndGraphShareOneAnalysisAndSnapshot`
+
+The Integration sparse-matrix slice is verified by:
+
+- `IntegrationMatrix_RetainsCandidateIdentityAndDispositionCounts`
+- `IntegrationMatrix_RepeatedLibraryAcrossContextsRemainsDistinct`
+- `IntegrationMatrix_IncompleteLibraryDoesNotRenderAsZero`
+- `IntegrationMatrix_PolicyFailureDoesNotContaminateUnrelatedCells`
+- `IntegrationMatrix_ProducerPolicyFailureIncompletesEveryBindingContextForItsConcept`
+- `IntegrationMatrix_CandidateFailureDoesNotContaminateOtherBindingContexts`
+- `IntegrationMatrix_IncompleteCellRetainsPartialCounts`
+- `IntegrationMatrix_SuppressedAttemptIsAccountedWithoutCountOrFailure`
+- `IntegrationMatrix_OrdersByDeclaredParticipantContextAndConceptOrder`
+- `IntegrationMatrix_OmitsNonincidentParticipantContextPairs`
+- `IntegrationMatrix_JoinsSemanticParticipantAndContextIdentities`
+- `IntegrationMatrix_RequiresMatrixPlanAndCompatibleSnapshot`
+- `IntegrationProjection_RowsMatrixAndGraphShareOneAnalysisAndSnapshot`
 
 The remaining target implementation is unverified until these named gates
 land:
@@ -1201,14 +1249,6 @@ land:
 - `IntegrationCandidate_UnavailableAmbiguousOrMissingSelectedPeerIsFailure`
 - `IntegrationCandidate_UnresolvedForwardingIsFailure`
 - `IntegrationCandidate_RemovingSoleSourceRemovesCandidate`
-- `IntegrationMatrix_RetainsCandidateIdentityAndDispositionCounts`
-- `IntegrationMatrix_RepeatedLibraryAcrossContextsRemainsDistinct`
-- `IntegrationMatrix_IncompleteLibraryDoesNotRenderAsZero`
-- `IntegrationMatrix_PolicyFailureDoesNotContaminateUnrelatedCells`
-- `IntegrationMatrix_ProducerPolicyFailureIncompletesEveryBindingContextForItsConcept`
-- `IntegrationMatrix_CandidateFailureDoesNotContaminateOtherBindingContexts`
-- `IntegrationMatrix_OrdersByDeclaredParticipantContextAndConceptOrder`
-- `IntegrationProjection_RowsMatrixAndGraphShareOneAnalysisAndSnapshot`
 - `IntegrationWasmDemo_RendersSharedProjectionWithoutDetectionPolicy`
 
 The configured concept set, universe-requirement set and per-requirement
