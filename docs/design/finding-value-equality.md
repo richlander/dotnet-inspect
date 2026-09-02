@@ -19,7 +19,7 @@ Finding-owned values compose four equality shapes:
 | Shape | Examples | Equality contract |
 | --- | --- | --- |
 | Structural composition | `FindingSubject`, `Finding<T>`, the cases of `PairFinding<T>`, and census validation values | Every equality-participating field composes its own contract. Generic payload fields use `EqualityComparer<T>.Default`. |
-| Ordered collection value | Complete censuses, match evidence, completed transition streams, and correlated occurrences | Sequence equality: order and multiplicity are significant. |
+| Ordered collection value | Complete censuses, match evidence, completed transition streams, analysis-diff endpoints and canonical relations, and correlated occurrences | Sequence equality: order and multiplicity are significant. |
 | Identity-set value | `FindingEquivalence` allow lists | Set equality: enumeration order and duplicate input are insignificant. |
 | Scoped identity value | `FindingCensusReceipt` and `FindingInstanceKey` | Value equality for each component; one instance identity is the receipt/key pair. |
 | Association object | `FindingCensusEntry<T>` | Reference identity. Its key and Finding retain their own contracts. |
@@ -37,6 +37,12 @@ prevented matching. `CorrelatedFinding<T>` is a durable value and composes its
 correlation key with its ordered occurrences; the operation object that
 produced it remains reference-identity state.
 
+`AnalysisDiff<T>` composes its ordered Before and After item sequences with its
+canonical relation population. Relation caller order is nonsemantic because
+construction canonicalizes it before equality. Relation coordinate order,
+membership, content classification, and placement classification remain
+value-significant.
+
 ## Ordered collections
 
 These public collections carry sequence semantics:
@@ -49,6 +55,8 @@ These public collections carry sequence semantics:
 | `FindingMatch.MoveCandidates` | Deferred move-candidate order |
 | `FindingMatch.SoftCandidates` | Deferred soft-correspondence order |
 | `FindingComparison<T>.Complete.Pairs` | Transition-stream order |
+| `AnalysisDiff<T>.Before` and `.After` | Producer-issued endpoint order |
+| `AnalysisDiff<T>.Relations` | Canonical Before-first, then Addition order |
 | `CorrelatedFinding<T>.Occurrences` | Version-position order |
 
 Independently allocated arrays with equal elements in equal positions are
@@ -81,7 +89,7 @@ produce equal hash codes.
 
 ## Payload boundary
 
-`Finding<T>` and `PairFinding<T>` compose the payload's
+`Finding<T>`, `PairFinding<T>`, and `AnalysisDiff<T>` compose the payload's
 `EqualityComparer<T>.Default` behavior; the Finding layer does not reinterpret
 opaque payloads. A collection-bearing producer payload that promises semantic
 value equality must define that equality itself or supply the producer
@@ -132,6 +140,12 @@ move candidates. Its non-empty value equality is covered by
 `FindingMatch_UsesOrderedSequenceEquality`; candidate construction and ordering
 are covered separately by
 `src/ILInspector.ILDiff.Tests/FindingPilotTests.cs`.
+
+The Release test
+`src/ILInspector.Instructions.Tests/AnalysisDiffTests.cs` verifies canonical
+relation equality and hashing, independently allocated equal endpoint and
+coordinate arrays, unequal membership and classifications, invalid collection
+state, and the boundary between payload equality and correspondence.
 
 ## Non-claims
 

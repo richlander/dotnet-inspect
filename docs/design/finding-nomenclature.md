@@ -19,6 +19,12 @@ A `Finding<T>` is one independently identifiable occurrence in one version. A
 observations. An unchanged pair is still a transition even though it carries no
 difference.
 
+`AnalysisDiff<T>` is the complete two-endpoint information document when
+relations may connect item populations rather than one old and one new
+observation. It composes singleton additions and removals with one-to-one,
+one-to-many, many-to-one, or many-to-many correspondences without turning that
+population relation into implied item pairs.
+
 The non-generic interfaces preserve heterogeneous collections without merging
 the concepts:
 
@@ -53,7 +59,7 @@ second semantic axis.
 | **Observation** | One independently identifiable occurrence about one subject at one version. | The semantic meaning of `Finding<T>`. |
 | **Change** / **transition** | The classified old/new relationship between observations. | The semantic meaning of `PairFinding<T>`. Prefer **transition** for topology and **change** in user-facing prose. |
 | **Difference** | A non-equivalence class or delta carried by a transition, such as moved or encoding-only. | Do not use it for every pair; an unchanged pair has no difference. |
-| **Diff** | A comparison operation, artifact, report, or presentation containing changes. | Appropriate for `ApiDiff`, `IlBodyDiff`, unified diff text, and CLI `diff`; not for one-version observations. |
+| **Diff** | A comparison operation, artifact, report, or presentation containing changes. | Appropriate for `AnalysisDiff<T>`, `ApiDiff`, `IlBodyDiff`, unified diff text, and CLI `diff`; not for one-version observations. |
 | **Evidence** | Information used to support a conclusion. | A Finding, transition, structural diff, failure, or provenance record may serve as evidence. Do not create a parallel `Evidence*` row hierarchy merely to rename the Finding model. |
 | **Detail** | Explanatory payload or rendered elaboration. | A field or presentation concept, not a model family. |
 | **Census** | The complete observation collection from a successful inspection. | Usually a semantic unit rather than a payload family. `FindingCensusCorrelation<T>` is the explicit N-address operation outcome when whole-census state, including `Complete([])`, must survive correlation. |
@@ -68,6 +74,7 @@ Information types are durable values:
 | --- | --- | --- |
 | `Finding<T>` | One | One observation with a typed payload. |
 | `PairFinding<T>` | Two | One classified transition composed from observations. |
+| `AnalysisDiff<T>` | Two | Complete ordered endpoint sequences partitioned into one-sided and corresponding relations. |
 | `CorrelatedFinding<T>` | More than two | Durable occurrences of one exact identity, labelled with their evaluated version addresses. |
 
 Operation outcomes describe one invocation:
