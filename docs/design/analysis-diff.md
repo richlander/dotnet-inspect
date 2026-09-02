@@ -32,11 +32,13 @@ projection, and presentation.
 All behavior in this document is unverified until the implementation effort
 names and adds the Release gates under [Required gates](#required-gates).
 
-The product already has a user-visible `Analysis Diff` section for
-Analysis-producer signal deltas. The section and this CLR format occupy
-different layers but intentionally share the analysis-oriented term: that
-section is a prospective consumer, not the owner or current implementation of
-`AnalysisDiff<T>`. Renaming or adopting the section is outside this effort.
+The product already has a user-visible `Analysis Diff` section and CLR
+presentation types named `DiffSections.AnalysisDiff`, `AnalysisDiffView`, and
+`AnalysisDiffRow` for Analysis-producer signal deltas. Those presentation
+surfaces and this generic Findings format occupy different layers but
+intentionally share the analysis-oriented term: the section is a prospective
+consumer, not the owner or current implementation of `AnalysisDiff<T>`.
+Renaming or adopting those surfaces is outside this effort.
 
 ## Purpose
 
@@ -161,8 +163,8 @@ determine its form:
 
 | Before items | After items | Form |
 | ---: | ---: | --- |
-| none | one or more | Addition |
-| one or more | none | Removal |
+| none | exactly one | Addition |
+| exactly one | none | Removal |
 | one or more | one or more | Correspondence |
 | none | none | Invalid |
 
@@ -170,6 +172,12 @@ A correspondence is a relation between item populations, not a collection of
 implied item pairs. It may be one-to-one, one-to-many, many-to-one, or
 many-to-many. Coordinates within one relation need not be contiguous, but they
 retain their owning sequence's order.
+
+Additions and removals are per-item facts. Multiple unmatched items produce
+multiple singleton relations; grouping them would add an undefined relationship
+between items that have no opposite-side correspondence. Consumers may group
+adjacent one-sided relations for analysis or presentation without changing the
+source value.
 
 Every endpoint item belongs to exactly one relation. The relation population is
 therefore a partition of the disjoint union of the two endpoint coordinate
@@ -260,8 +268,8 @@ A valid analysis diff satisfies all of the following:
 3. Every relation-side coordinate collection is initialized, strictly
    ascending, duplicate-free, and within its owning endpoint.
 4. A relation occupies at least one side.
-5. An addition occupies only After and contains at least one item.
-6. A removal occupies only Before and contains at least one item.
+5. An addition occupies only After and contains exactly one item.
+6. A removal occupies only Before and contains exactly one item.
 7. A correspondence occupies both sides and carries complete content and
    placement enum values, including an explicit `Unclassified` value when no
    claim is made.
@@ -453,7 +461,8 @@ producer that claims item-level correspondence across 10,000 unchanged items
 emits 10,000 one-to-one relations; one run-shaped relation would make only a
 group-level claim. Compact run encodings are a possible future storage
 optimization only if they preserve the same observable item-level relation
-contract.
+contract. Addition and removal populations likewise contain one singleton
+relation per item.
 
 ## Required gates
 
@@ -464,15 +473,13 @@ The implementation effort must add Release gates proving at least:
 - a moved-and-changed correspondence;
 - explicit unclassified content and placement;
 - rejection of default arrays, null items, empty relations, unsorted or
-  duplicate coordinates, out-of-range coordinates, overlap, and incomplete
-  endpoint coverage;
+  duplicate coordinates, multi-item additions or removals, out-of-range
+  coordinates, overlap, and incomplete endpoint coverage;
 - canonical relation order and equality across permuted relation input;
 - sequence value equality and hashing over independently allocated equal
   values;
-- unequal relation order or classification producing unequal values;
-- payload equality remaining independent of correspondence; and
-- failed or absent comparison outcomes never producing a success-shaped empty
-  analysis diff.
+- unequal relation membership or classification producing unequal values; and
+- payload equality remaining independent of correspondence.
 
 Producer adapters and consumer statistics name their own gates. These
 construction gates do not prove a producer's correspondence or classification

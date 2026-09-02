@@ -68,7 +68,6 @@ Information types are durable values:
 | --- | --- | --- |
 | `Finding<T>` | One | One observation with a typed payload. |
 | `PairFinding<T>` | Two | One classified transition composed from observations. |
-| `AnalysisDiff<T>` | Two complete sequences | An exhaustive immutable relation partition over two ordered item sequences, as defined by [Analysis diff](analysis-diff.md). |
 | `CorrelatedFinding<T>` | More than two | Durable occurrences of one exact identity, labelled with their evaluated version addresses. |
 
 Operation outcomes describe one invocation:
@@ -85,12 +84,6 @@ Outcome types carry information types; information types do not depend on
 outcome envelopes. Use the nominalized operation name instead of generic
 suffixes such as `Result`, `Engine`, or `Manager` when the operation supplies a
 precise noun.
-
-`AnalysisDiff<T>` is an information type, not the outcome of running a matcher.
-A completed Finding comparison may authorize one producer-owned projection,
-while a failed comparison cannot produce an empty or partial analysis diff.
-Native differs may construct the same format without using
-`FindingComparison<T>`.
 
 ## Inspection and comparison semantics
 
