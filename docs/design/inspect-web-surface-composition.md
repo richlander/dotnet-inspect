@@ -219,18 +219,19 @@ One information hierarchy adapts across viewport sizes:
   `Types` or `Members` button that opens the shared modal navigation drawer;
 - the title line and full-width subject/inspector zone each remain one line;
 - the subject zone remains outside and above the navigation/content grid;
-- the subject zone gives its complete width to Navigation Presentation's
-  Slideable Subject Strip and contains no application or contextual actions;
 - the product and inspected-target root marks retain bounded icon slots in the
   title line;
 - title-line Back and Forward sit immediately left of Search, which is flush
   right; the trailing cluster yields from full Search, to a `Search` button, to
   flush-right arrows, to nothing as the inspected target grows;
-- Navigation Presentation owns the strip's natural-width labels,
-  inspector-first subject and inspector compaction, reveal bias, readable-label
-  priority, and last-resort internal scrolling;
-- contextual actions remain inside their owning working surface, including
-  Annotated Source's required Explore return-focus target;
+- at the narrow shell breakpoint, inspector label-and-order pairs collapse to
+  their single boxed order symbols while retaining the complete accessible
+  labels;
+- second-row Share, Settings, optional contextual actions, and trailing Help
+  may collapse completely before the subject/inspector strip wraps, but a
+  subject-owned sole entry action that is also a required return-focus target
+  remains visible and takes priority over those optional actions;
+- subject and inspector navigation scroll horizontally instead of wrapping;
 - subject-path segments and optional advertisements elide visually without
   losing the complete accessible subject path or segment-level copy controls;
   the Search label may collapse from its scoped label to `Search` before the
@@ -256,11 +257,10 @@ navigation, not from making text or controls too small to use.
 ## Data bar and Diagnostics
 
 The bottom data bar is one compact product-information line. It does not wrap,
-expand, or host runtime diagnostics. A fixed trailing Application menu is
-separate from its horizontally scrollable information region:
+expand, or host runtime diagnostics:
 
 ```text
-dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · Package source: Corporate mirror (...) · CLI tool · Agent skill | ...
+dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · Package source: Corporate mirror (pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json) · CLI tool · Agent skill
 ```
 
 The data bar includes:
@@ -272,14 +272,8 @@ The data bar includes:
 - the same `CLI tool` link used on Home; and
 - the same `agent skill` link used on Home.
 
-The fixed trailing ellipsis opens Shell Interaction's Application menu for
-Share, Settings, and Help. It remains visible while the information region
-scrolls beneath its own clipping boundary. Contextual working-surface actions
-do not move into this menu.
-
-On a narrow viewport, the information region remains non-wrapping and
-horizontally scrollable. It does not discard the source or promotional actions
-to fit, and its overflow does not move or obscure the Application menu.
+On a narrow viewport, the line remains non-wrapping and horizontally scrollable.
+It does not discard the source or promotional actions to fit.
 
 The data bar does not contain:
 
@@ -353,9 +347,8 @@ with the absence of a synthesized `Default feed` control.
    dialog name, initial focus, focus containment, Escape dismissal, and focus
    return.
 4. Confirm that the title-line inspected target and second-row
-   Slideable Subject Strip remain single-line surfaces rather than wrapping.
-   Confirm that the subject zone contains no application actions and the
-   data-bar Application menu remains visible.
+   subject/inspector strip remain single-line scrolling or truncating surfaces
+   rather than wrapping.
 5. With focus in the wide navigation pane, narrow the viewport and confirm that
    focus moves to the new drawer button without opening it.
 6. Open the drawer, restore the wide viewport, and confirm that the drawer
@@ -392,12 +385,8 @@ with the absence of a synthesized `Default feed` control.
 1. Confirm that version, commit, UTC date, the complete owner-issued compact
    producer label, CLI tool, and agent skill occupy one non-expanding data-bar
    line.
-2. Overflow the information region and confirm that it scrolls independently
-   while the trailing Application menu remains fixed and keyboard reachable.
-3. Confirm that the Application menu contains Share, Settings, and Help while
-   contextual working-surface actions remain with their owning surfaces.
-4. Confirm that timings, cache counts, runtime readiness, assembly identity,
+2. Confirm that timings, cache counts, runtime readiness, assembly identity,
    and framework do not appear in that line.
-5. Open Diagnostics and confirm that detailed runtime, source, and cache
+3. Open Diagnostics and confirm that detailed runtime, source, and cache
    evidence and owner-authorized cache actions appear in the full-bleed
    surface.
