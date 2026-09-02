@@ -10,6 +10,24 @@ using NuGetFetch;
 
 namespace InspectWeb.Engine;
 
+internal sealed record BrowserPackageCacheSnapshot(
+    int Packages,
+    int Resident,
+    int Workspaces,
+    long ResidentBytes);
+
+internal sealed record BrowserPackageDocumentEntry(
+    string Kind,
+    string Name,
+    string Path,
+    int Size);
+
+internal sealed record BrowserPackageDocumentPayload(
+    string Kind,
+    string Name,
+    string Path,
+    string Text);
+
 /// <summary>
 /// Browser acquisition adapter: shared package owners resolve and admit payloads, while this host
 /// owns the bounded session cache and registry of open workspaces.
@@ -160,7 +178,7 @@ internal static class BrowserPackageWorkspace
         bool RemovalRequested,
         Action<IDisposable>? OnDisposed);
 
-    public static BrowserPackageCacheStats Stats() =>
+    public static BrowserPackageCacheSnapshot Stats() =>
         new(
             Downloaded.Count,
             Cache.Count,
@@ -1468,9 +1486,9 @@ internal sealed class BrowserPackage
     /// <see cref="ReadDocument"/>, which accepts only a path from this list, so no caller can
     /// coax an arbitrary entry — an assembly, a signature — out of the package.
     /// </summary>
-    public IReadOnlyList<BrowserPackageDocument> Documents()
+    public IReadOnlyList<BrowserPackageDocumentEntry> Documents()
     {
-        var documents = new List<BrowserPackageDocument>();
+        var documents = new List<BrowserPackageDocumentEntry>();
         foreach (PackageContentEntry entry in Content.EnumerateEntriesWithLengths())
         {
             string[] segments = entry.Path.Split('/');
@@ -1491,7 +1509,7 @@ internal sealed class BrowserPackage
                     + "limit.");
             }
 
-            documents.Add(new BrowserPackageDocument(
+            documents.Add(new BrowserPackageDocumentEntry(
                 kind,
                 kind == "skill" ? SkillDisplayName(segments) : fileName,
                 entry.Path,
@@ -1506,14 +1524,14 @@ internal sealed class BrowserPackage
         ];
     }
 
-    public BrowserPackageDocumentContent ReadDocument(string path)
+    public BrowserPackageDocumentPayload ReadDocument(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        BrowserPackageDocument document = Documents()
+        BrowserPackageDocumentEntry document = Documents()
             .FirstOrDefault(candidate => candidate.Path.Equals(path, StringComparison.Ordinal))
             ?? throw new InvalidOperationException(
                 $"'{path}' is not a browsable document in {PackageId} {Version}.");
-        return new BrowserPackageDocumentContent(
+        return new BrowserPackageDocumentPayload(
             document.Kind,
             document.Name,
             document.Path,

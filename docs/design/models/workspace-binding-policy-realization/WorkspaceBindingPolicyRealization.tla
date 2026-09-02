@@ -35,6 +35,7 @@ CONSTANTS
     EnforceFailureClassification,
     EnforcePolicyBeforeGroup,
     EnforceConstructedPolicyIdentity,
+    EnforceBindingVersionLifecycle,
     EnforcePublishVersion,
     EnforceAtomicPublication,
     EnforceAtomicRetirement,
@@ -64,6 +65,7 @@ ASSUME
     /\ EnforceFailureClassification \in BOOLEAN
     /\ EnforcePolicyBeforeGroup \in BOOLEAN
     /\ EnforceConstructedPolicyIdentity \in BOOLEAN
+    /\ EnforceBindingVersionLifecycle \in BOOLEAN
     /\ EnforcePublishVersion \in BOOLEAN
     /\ EnforceAtomicPublication \in BOOLEAN
     /\ EnforceAtomicRetirement \in BOOLEAN
@@ -152,6 +154,13 @@ VARIABLES
     driftObserved,
     publishVersionWitness,
     retirementAtomicWitness
+
+BindingVersion ==
+    INSTANCE AssemblyBindingPolicyVersionLifecycle WITH
+        InitialVersion <- VersionOne,
+        ReplacementVersion <- VersionTwo,
+        version <- liveVersion,
+        advanced <- versionAdvanced
 
 EffectiveMode(g) ==
     IF g = GenerationOne
@@ -264,8 +273,7 @@ Init ==
     /\ publishedGroup = NoValue
     /\ publishedPolicy = NoValue
     /\ everPublished = {}
-    /\ liveVersion = VersionOne
-    /\ versionAdvanced = FALSE
+    /\ BindingVersion!Init
     /\ currentAccessRequested = {}
     /\ driftObserved = {}
     /\ publishVersionWitness = TRUE
@@ -446,8 +454,11 @@ AdvanceComposedPolicyVersion ==
           [] advanceTiming = "AfterPublication" ->
                 phase[GenerationOne] = "Published"
           [] OTHER -> FALSE
-    /\ liveVersion' = VersionTwo
-    /\ versionAdvanced' = TRUE
+    /\ IF EnforceBindingVersionLifecycle
+       THEN BindingVersion!Advance
+       ELSE
+            /\ liveVersion' = liveVersion
+            /\ versionAdvanced' = TRUE
     /\ UNCHANGED
         <<phase, activeGeneration, capturedVersion, completionMode,
           advanceTiming, completionPreparation, completionParticipants,
@@ -555,8 +566,7 @@ TypeOK ==
     /\ publishedGroup \in Generations \union {NoValue}
     /\ publishedPolicy \in Generations \union {NoValue}
     /\ everPublished \subseteq Generations
-    /\ liveVersion \in Versions
-    /\ versionAdvanced \in BOOLEAN
+    /\ BindingVersion!TypeOK
     /\ currentAccessRequested \subseteq Generations
     /\ driftObserved \subseteq Generations
     /\ publishVersionWitness \in BOOLEAN
@@ -643,6 +653,12 @@ ReplacementStartsAfterRetirement ==
 
 PublicationObservedCurrentVersion ==
     publishVersionWitness
+
+BindingVersionAdvanceIsFresh ==
+    BindingVersion!AdvancedVersionIsFresh
+
+BindingVersionBehaviorRefinesOwner ==
+    BindingVersion!SafetySpec
 
 RetirementWasAtomic ==
     retirementAtomicWitness

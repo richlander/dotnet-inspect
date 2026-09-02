@@ -12,6 +12,7 @@
   -->
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
+    <Features>runtime-async=off</Features>
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <IsPackable>false</IsPackable>
