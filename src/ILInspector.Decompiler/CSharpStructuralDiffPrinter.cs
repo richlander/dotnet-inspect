@@ -1306,9 +1306,11 @@ public static class CSharpStructuralDiffPrinter
     ///
     /// This is a best-effort textual heuristic, not a parser: it accepts
     /// only characters that can appear in a type-argument list (identifier
-    /// characters, the <c>@</c> verbatim-identifier escape prefix (e.g.
-    /// <c>@event</c>), <c>.</c>, <c>,</c>, whitespace, nested <c>&lt;&gt;</c>,
-    /// and array-suffix <c>[]</c>) and bails (returns <c>false</c>) the
+    /// characters -- including supplementary-plane Unicode identifier
+    /// characters encoded as UTF-16 surrogate pairs -- the <c>@</c>
+    /// verbatim-identifier escape prefix (e.g. <c>@event</c>), <c>.</c>,
+    /// <c>,</c>, whitespace, nested <c>&lt;&gt;</c>, and array-suffix
+    /// <c>[]</c>) and bails (returns <c>false</c>) the
     /// moment it sees anything else -- a parenthesis, brace, quote,
     /// semicolon, or an arithmetic/comparison/logical operator -- treating
     /// the opening <c>&lt;</c> as an ordinary character (e.g. a
@@ -1337,12 +1339,30 @@ public static class CSharpStructuralDiffPrinter
                 }
                 continue;
             }
-            if (char.IsLetterOrDigit(character)
-                || character is '_' or '.' or ',' or '[' or ']' or '@'
+            if (character is '_' or '.' or ',' or '[' or ']' or '@'
                 || char.IsWhiteSpace(character))
             {
                 continue;
             }
+            if (char.IsHighSurrogate(character)
+                && index + 1 < text.Length
+                && char.IsLowSurrogate(text[index + 1]))
+            {
+                // A supplementary-plane identifier character (e.g. a
+                // mathematical alphanumeric symbol) is a single Unicode
+                // scalar value encoded as a UTF-16 surrogate pair; scan it
+                // as one Rune rather than rejecting on the lone high
+                // surrogate `char`.
+                var rune = new System.Text.Rune(character, text[index + 1]);
+                if (IsIdentifierPartRune(rune))
+                {
+                    index++;
+                    continue;
+                }
+                return false;
+            }
+            if (!char.IsSurrogate(character) && IsIdentifierPartRune(new System.Text.Rune(character)))
+                continue;
             return false;
         }
         return false;

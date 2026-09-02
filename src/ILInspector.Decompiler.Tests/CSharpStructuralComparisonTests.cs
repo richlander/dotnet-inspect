@@ -1127,6 +1127,12 @@ public class CSharpStructuralComparisonTests
     // character set, breaking recognition the same way an unescaped
     // identifier would if it were rejected.
     [InlineData("Bar<@event,B>()", new[] { "Bar<@event,B>()" })]
+    // Round-2 review (GPT-5.6 Sol, seat A): a supplementary-plane Unicode
+    // identifier character (encoded as a UTF-16 surrogate pair) is valid
+    // generic type-argument syntax, but the round-1 fix still classified
+    // each `char` independently via `char.IsLetterOrDigit`, which rejects
+    // both halves of the surrogate pair.
+    [InlineData("Bar<\U0001D4CD,B>()", new[] { "Bar<\U0001D4CD,B>()" })]
     public void SplitTopLevelArguments_DoesNotSplitInsideGenericTypeArgumentList(
         string argsText,
         string[] expectedArguments)
