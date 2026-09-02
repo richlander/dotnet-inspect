@@ -430,9 +430,10 @@ rather than accepting independent identity or issuer arguments.
 callback from the external client assembly. Its admitted kinds are
 `NuGetGallery` and `NuGetV3`. Gallery uses the canonical owner-issued NuGet.org
 producer; v3 uses the descriptor's admitted normalized endpoint projection.
-`LocalFolder` remains unsupported until #3759. Null arguments and unsupported
-descriptor kinds are rejected before any caller callback runs or any bound
-factory is made available.
+`LocalFolder` remains unsupported until the
+[local folder package source](local-folder-package-source.md) is implemented.
+Null arguments and unsupported descriptor kinds are rejected before any caller
+callback runs or any bound factory is made available.
 
 For an admitted descriptor, NuGetFetch constructs the complete source identity,
 private issuer, and bound public result factory before invoking the callback
@@ -1037,9 +1038,12 @@ Their shared NuGet.org producer label alone does not authorize cache sharing.
 
 ### Local-folder source
 
-Local-folder support remains a separate implementation because its candidate
-enumeration, payload access, identity, and platform availability differ from
-HTTP sources. It is not required for the initial browser registry.
+Canonical path and `file://` equivalence are owned by
+[Local package source identity](local-package-source-identity.md).
+[Local-folder client support](https://github.com/richlander/dotnet-inspect/issues/5399)
+remains a separate implementation because its candidate enumeration, payload
+access, and platform availability differ from HTTP sources. It is not required
+for the initial browser registry.
 
 ## Registration, selection, and eligibility
 
@@ -1051,7 +1055,8 @@ Registration and selection are different:
 - an **eligible source** is active and authorized for the package ID after
   package source mapping or an equivalent host policy.
 
-Inspect Web UI owns where package-source operations appear. The package-source
+[Inspect Web Surface Composition](inspect-web-surface-composition.md#package-source-presentation)
+owns where package-source operations appear. The package-source
 owner supplies descriptors and typed actions for:
 
 - viewing the built-in NuGet Gallery source;
@@ -1671,7 +1676,8 @@ never rendered.
 
 The website renders the owner-issued compact producer label on every
 source-bearing surface designated by
-[Inspect Web UI](inspect-web-ui.md#package-source-presentation), including
+[Inspect Web Surface Composition](inspect-web-surface-composition.md#package-source-presentation),
+including
 search results and version choices. A version advertised upstream but
 unavailable from a selected mirror is shown as a source-specific availability
 fact, not as a contradictory global package state.

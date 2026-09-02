@@ -100,7 +100,8 @@ public static class ResearchMemberIdentity
                 ? $"~{BodyTypeName(member.OpenSignatureReturn)}"
                 : "");
 
-    static BodyMemberIdentity BodyIdentityFromTarget(ResolvedMemberTarget target)
+    static BodyMemberIdentity BodyIdentityFromTarget(
+        ResolvedMemberTarget target)
     {
         var member = target.ApiMember.Member;
         var signature = member.SignatureModel;
@@ -108,15 +109,18 @@ public static class ResearchMemberIdentity
             ? "#ctor"
             : string.IsNullOrWhiteSpace(signature?.MemberName) ? member.Name : signature!.MemberName!;
         var generic = signature is { TypeParameters.Count: > 0 }
-            ? $"<{string.Join(",", signature.TypeParameters.Select(parameter => parameter.Name))}>"
+            ? $"<{string.Join(",", signature.TypeParameters.Select(
+                parameter => parameter.Name))}>"
             : "";
         var parameters = signature is null
             ? "()"
-            : $"({string.Join(",", signature.Parameters.Select(parameter => BodyParameterTypeName(parameter.TypeWithModifier)))})";
+            : $"({string.Join(",", signature.Parameters.Select(parameter =>
+                BodyParameterTypeName(parameter.TypeWithModifier)))})";
         var declaringType = target.Body?.DeclaringType
             ?? (member.IsExtension && !string.IsNullOrWhiteSpace(member.DeclaringType)
                 ? member.DeclaringType!
                 : target.Anchor.TypeFullName);
+
         var selectorName = target.Anchor.StableSelector.Split('~')[0];
         if (member.IsExtension && !selectorName.StartsWith("extension:", StringComparison.Ordinal))
             selectorName = $"extension:{selectorName}";

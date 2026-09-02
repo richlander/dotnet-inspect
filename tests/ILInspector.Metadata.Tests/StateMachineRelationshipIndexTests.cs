@@ -53,8 +53,11 @@ public sealed class StateMachineRelationshipIndexTests
         Assert.Equal(expectedKind, result.Relationship.Kind);
         Assert.Equal(
             expectedRoles,
-            result.Relationship.Methods
-                .Select(method => method.Role));
+            result.Relationship.Roles.Select(role => role.Role));
+        Assert.All(
+            result.Relationship.Roles,
+            role => Assert.IsType<
+                StateMachineRoleDisposition.Present>(role));
         Assert.Equal(
             MetadataTokens.GetToken(kickoff),
             result.Relationship.Kickoff.Token);
@@ -72,8 +75,9 @@ public sealed class StateMachineRelationshipIndexTests
             result.Relationship.StateMachineName);
         Assert.IsType<StateMachineRelationshipResult.Resolved>(
             index.GetByStateMachine(stateMachineType));
-        foreach (StateMachineMethodRelationship method
-            in result.Relationship.Methods)
+        foreach (StateMachineRoleDisposition.Present method
+            in result.Relationship.Roles.OfType<
+                StateMachineRoleDisposition.Present>())
         {
             Assert.IsType<StateMachineRelationshipResult.Resolved>(
                 index.GetByImplementation(method.Method.Handle));
@@ -106,12 +110,65 @@ public sealed class StateMachineRelationshipIndexTests
             reader.GetMethodDefinition(moveNext.Handle);
         Assert.NotEqual("MoveNext", reader.GetString(method.Name));
         Assert.DoesNotContain(
-            result.Relationship.Methods,
+            result.Relationship.Roles.OfType<
+                StateMachineRoleDisposition.Present>(),
             candidate =>
                 reader.StringComparer.Equals(
                     reader.GetMethodDefinition(
                         candidate.Method.Handle).Name,
                     "MoveNext"));
+    }
+
+    [Fact]
+    public void
+        StateMachineRelationshipIndex_ResolvesClassicAsyncWithAbsentSupportRole()
+    {
+        using var image = new LoadedImage(
+            BuildClassicRelationshipImage(
+                ClassicRelationshipMutation.MissingSetStateMachine));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        var result =
+            Assert.IsType<StateMachineRelationshipResult.Resolved>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+
+        Assert.Collection(
+            result.Relationship.Roles.OrderBy(role => role.Role),
+            role =>
+            {
+                var present = Assert.IsType<
+                    StateMachineRoleDisposition.Present>(role);
+                Assert.Equal(
+                    StateMachineMethodRole.MoveNext,
+                    present.Role);
+            },
+            role =>
+            {
+                var absent = Assert.IsType<
+                    StateMachineRoleDisposition.AbsentFromArtifact>(role);
+                Assert.Equal(
+                    StateMachineMethodRole.SetStateMachine,
+                    absent.Role);
+            });
+        Assert.True(
+            result.Relationship.TryGetMethod(
+                StateMachineMethodRole.MoveNext,
+                out var moveNext));
+        Assert.False(
+            result.Relationship.TryGetMethod(
+                StateMachineMethodRole.SetStateMachine,
+                out _));
+        Assert.IsType<
+            StateMachineRoleDisposition.AbsentFromArtifact>(
+                result.Relationship.GetRole(
+                    StateMachineMethodRole.SetStateMachine));
+        Assert.IsType<StateMachineRelationshipResult.Resolved>(
+            index.GetByImplementation(moveNext.Handle));
+        Assert.IsType<StateMachineRelationshipResult.Resolved>(
+            index.GetByStateMachine(
+                MetadataTokens.TypeDefinitionHandle(3)));
     }
 
     [Theory]
@@ -159,8 +216,7 @@ public sealed class StateMachineRelationshipIndexTests
                     StateMachineMethodRole.MoveNext,
                     StateMachineMethodRole.SetStateMachine,
                 ],
-            result.Relationship.Methods.Select(
-                method => method.Role));
+            result.Relationship.Roles.Select(role => role.Role));
     }
 
     [Fact]
@@ -918,6 +974,18 @@ public sealed class StateMachineRelationshipIndexTests
     [InlineData(
         ClassicRelationshipMutation.ValueTypeSetStateMachine,
         StateMachineRelationshipFailureKind.Unresolved)]
+    [InlineData(
+        ClassicRelationshipMutation.NonIlSetStateMachine,
+        StateMachineRelationshipFailureKind.Unresolved)]
+    [InlineData(
+        ClassicRelationshipMutation.ExplicitWrongSignatureSetStateMachine,
+        StateMachineRelationshipFailureKind.Unresolved)]
+    [InlineData(
+        ClassicRelationshipMutation.ExplicitMalformedInterfaceSetStateMachine,
+        StateMachineRelationshipFailureKind.Malformed)]
+    [InlineData(
+        ClassicRelationshipMutation.DuplicateSetStateMachine,
+        StateMachineRelationshipFailureKind.Ambiguous)]
     [InlineData(
         ClassicRelationshipMutation.StaticMoveNext,
         StateMachineRelationshipFailureKind.Unresolved)]
@@ -2884,6 +2952,18 @@ public sealed class StateMachineRelationshipIndexTests
                 metadata.GetOrAddString(
                     "System.Runtime.CompilerServices"),
                 metadata.GetOrAddString("IsReadOnlyAttribute"));
+        TypeReferenceHandle malformedAsyncStateMachine = default;
+        if (mutation
+            == ClassicRelationshipMutation
+                .ExplicitMalformedInterfaceSetStateMachine)
+        {
+            malformedAsyncStateMachine =
+                metadata.AddTypeReference(
+                    MetadataTokens.TypeReferenceHandle(5),
+                    metadata.GetOrAddString(
+                        "System.Runtime.CompilerServices"),
+                    metadata.GetOrAddString("IAsyncStateMachine"));
+        }
 
         var staticVoidSignature = new BlobBuilder();
         new BlobEncoder(staticVoidSignature)
@@ -2994,14 +3074,54 @@ public sealed class StateMachineRelationshipIndexTests
                             : instanceVoidSignature),
                 bodyOffset,
                 MetadataTokens.ParameterHandle(1));
-        metadata.AddMethodDefinition(
-            MethodAttributes.Public
-                | MethodAttributes.Virtual,
-            MethodImplAttributes.IL,
-            metadata.GetOrAddString("SetStateMachine"),
-            metadata.GetOrAddBlob(setStateMachineSignature),
-            bodyOffset,
-            MetadataTokens.ParameterHandle(1));
+        bool omitSetStateMachine =
+            mutation
+                == ClassicRelationshipMutation.MissingSetStateMachine;
+        bool explicitWrongSignature =
+            mutation
+                == ClassicRelationshipMutation
+                    .ExplicitWrongSignatureSetStateMachine;
+        bool explicitMalformedInterface =
+            mutation
+                == ClassicRelationshipMutation
+                    .ExplicitMalformedInterfaceSetStateMachine;
+        bool explicitSetStateMachine =
+            explicitWrongSignature || explicitMalformedInterface;
+        MethodDefinitionHandle setStateMachine = default;
+        if (!omitSetStateMachine)
+        {
+            setStateMachine =
+                metadata.AddMethodDefinition(
+                    MethodAttributes.Public
+                        | MethodAttributes.Virtual,
+                    mutation
+                        == ClassicRelationshipMutation
+                            .NonIlSetStateMachine
+                        ? MethodImplAttributes.Runtime
+                        : MethodImplAttributes.IL,
+                    metadata.GetOrAddString(
+                        explicitSetStateMachine
+                            ? "IAsyncStateMachine.SetStateMachine"
+                            : "SetStateMachine"),
+                    metadata.GetOrAddBlob(
+                        explicitWrongSignature
+                            ? instanceVoidSignature
+                            : setStateMachineSignature),
+                    bodyOffset,
+                    MetadataTokens.ParameterHandle(1));
+            if (mutation
+                == ClassicRelationshipMutation.DuplicateSetStateMachine)
+            {
+                metadata.AddMethodDefinition(
+                    MethodAttributes.Public
+                        | MethodAttributes.Virtual,
+                    MethodImplAttributes.IL,
+                    metadata.GetOrAddString("SetStateMachine"),
+                    metadata.GetOrAddBlob(setStateMachineSignature),
+                    bodyOffset,
+                    MetadataTokens.ParameterHandle(1));
+            }
+        }
         MethodDefinitionHandle damagedKickoff = default;
         if ((addMalformedConstructorRow
                 || rejectedConstructorTypeName
@@ -3033,6 +3153,23 @@ public sealed class StateMachineRelationshipIndexTests
             metadata.AddMethodImplementation(
                 machine,
                 moveNext,
+                declaration);
+        }
+        if (explicitSetStateMachine)
+        {
+            MemberReferenceHandle declaration =
+                metadata.AddMemberReference(
+                    explicitMalformedInterface
+                        ? malformedAsyncStateMachine
+                        : asyncStateMachine,
+                    metadata.GetOrAddString("SetStateMachine"),
+                    metadata.GetOrAddBlob(
+                        explicitWrongSignature
+                            ? instanceVoidSignature
+                            : setStateMachineSignature));
+            metadata.AddMethodImplementation(
+                machine,
+                setStateMachine,
                 declaration);
         }
 
@@ -3558,8 +3695,13 @@ public sealed class StateMachineRelationshipIndexTests
     public enum ClassicRelationshipMutation
     {
         None,
+        MissingSetStateMachine,
         CustomModifiedSetStateMachine,
         ValueTypeSetStateMachine,
+        NonIlSetStateMachine,
+        ExplicitWrongSignatureSetStateMachine,
+        ExplicitMalformedInterfaceSetStateMachine,
+        DuplicateSetStateMachine,
         StaticMoveNext,
         NonIlMoveNext,
         MethodImplBodyOnOtherType,

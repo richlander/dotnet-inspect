@@ -31,7 +31,9 @@ public sealed class IntegrationProducerPolicyBinding
         IntegrationProducerPolicyDescriptor policy,
         InspectionQueryDefinition query,
         InspectionGraphRelationshipDescriptor relationship,
-        IEnumerable<IntegrationConceptRequirementIdentity> affected)
+        IEnumerable<IntegrationConceptRequirementIdentity> affected,
+        IEnumerable<(string Id, InspectionQueryDefinition Query)>?
+            additionalQueries = null)
     {
         ArgumentNullException.ThrowIfNull(policy);
         ArgumentNullException.ThrowIfNull(query);
@@ -62,9 +64,36 @@ public sealed class IntegrationProducerPolicyBinding
 
         ProducerPrerequisite = new AnalysisProducerPrerequisiteDescriptor(
             Declaration($"{policy.Id.Value}.registration"));
-        QueryPrerequisite = new AnalysisQueryPrerequisiteDescriptor(
-            Declaration($"{policy.Id.Value}.query"),
-            query);
+        ImmutableArray<(string Id, InspectionQueryDefinition Query)> queries =
+        [
+            ("primary", query),
+            .. additionalQueries ?? [],
+        ];
+        if (queries.Any(candidate =>
+                string.IsNullOrWhiteSpace(candidate.Id)
+                || candidate.Query is null)
+            || queries.Select(candidate => candidate.Id)
+                .Distinct(StringComparer.Ordinal)
+                .Count() != queries.Length
+            || queries.Select(candidate => candidate.Query)
+                .Distinct()
+                .Count() != queries.Length)
+        {
+            throw new ArgumentException(
+                "Producer-policy queries require unique stable ids and query identities.",
+                nameof(additionalQueries));
+        }
+        QueryPrerequisites =
+        [
+            .. queries.Select(candidate =>
+                new AnalysisQueryPrerequisiteDescriptor(
+                    Declaration(
+                        candidate.Id == "primary"
+                            ? $"{policy.Id.Value}.query"
+                            : $"{policy.Id.Value}.query.{candidate.Id}"),
+                    candidate.Query)),
+        ];
+        QueryPrerequisite = QueryPrerequisites[0];
         EvidenceCapability = new AnalysisUniverseCapabilityDescriptor(
             Declaration($"{policy.Id.Value}.evidence"),
             $"Structured evidence for producer policy {policy.Id.Value}.");
@@ -81,6 +110,8 @@ public sealed class IntegrationProducerPolicyBinding
     public ImmutableArray<IntegrationConceptRequirementIdentity> Affected { get; }
     public AnalysisProducerPrerequisiteDescriptor ProducerPrerequisite { get; }
     public AnalysisQueryPrerequisiteDescriptor QueryPrerequisite { get; }
+    public ImmutableArray<AnalysisQueryPrerequisiteDescriptor>
+        QueryPrerequisites { get; }
     public AnalysisUniverseCapabilityDescriptor EvidenceCapability { get; }
     public AnalysisUniverseRequirementDescriptor UniverseRequirement { get; }
 
@@ -93,7 +124,7 @@ public sealed class IntegrationProducerPolicyBinding
 /// </summary>
 public static class IntegrationAnalysisCatalog
 {
-    const int AnalysisRevision = 2;
+    const int AnalysisRevision = 3;
 
     static readonly Dictionary<
         IntegrationConceptDescriptor,
@@ -120,7 +151,8 @@ public static class IntegrationAnalysisCatalog
         EcosystemObserved = Bind(
             IntegrationConceptCatalog.EcosystemObserved,
             AssemblyContextIntegrationsQuery.Definition,
-            InspectionGraphIntegrationsCatalog.IntegrationObserved);
+            InspectionGraphIntegrationsCatalog.IntegrationObserved,
+            [("extension-methods", ExtensionMethodsQuery.Definition)]);
         OpenTelemetryObserved = Bind(
             IntegrationConceptCatalog.OpenTelemetryObserved,
             AssemblyContextIntegrationsQuery.Definition,
@@ -161,22 +193,22 @@ public static class IntegrationAnalysisCatalog
 
         CommonUniverseRequirements =
         [
-            Requirement(
+            SelectedTypesRequirement = Requirement(
                 "requirement.integration.selected-types",
                 SelectedTypes),
-            Requirement(
+            OrderedParticipantsRequirement = Requirement(
                 "requirement.integration.ordered-participants",
                 OrderedParticipants),
             BindingContextsRequirement = Requirement(
                 "requirement.integration.binding-contexts",
                 BindingContexts),
-            Requirement(
+            PeerBindingRequirement = Requirement(
                 "requirement.integration.peer-binding",
                 PeerBinding),
-            Requirement(
+            ExactPeerResolutionRequirement = Requirement(
                 "requirement.integration.exact-peer-resolution",
                 ExactPeerResolution),
-            Requirement(
+            CompletenessRequirement = Requirement(
                 "requirement.integration.completeness",
                 Completeness),
         ];
@@ -216,8 +248,7 @@ public static class IntegrationAnalysisCatalog
                     new AnalysisStructuralPrerequisiteDescriptor[]
                     {
                         binding.ProducerPrerequisite,
-                        binding.QueryPrerequisite,
-                    }),
+                    }.Concat(binding.QueryPrerequisites)),
             ],
             [
                 new AnalysisHostRequirementDescriptor(
@@ -253,13 +284,23 @@ public static class IntegrationAnalysisCatalog
     public static IntegrationProducerPolicyBinding Opportunity { get; }
 
     public static AnalysisUniverseCapabilityDescriptor SelectedTypes { get; }
+    public static AnalysisUniverseRequirementDescriptor
+        SelectedTypesRequirement { get; }
     public static AnalysisUniverseCapabilityDescriptor OrderedParticipants { get; }
+    public static AnalysisUniverseRequirementDescriptor
+        OrderedParticipantsRequirement { get; }
     public static AnalysisUniverseCapabilityDescriptor BindingContexts { get; }
     public static AnalysisUniverseRequirementDescriptor
         BindingContextsRequirement { get; }
     public static AnalysisUniverseCapabilityDescriptor PeerBinding { get; }
+    public static AnalysisUniverseRequirementDescriptor
+        PeerBindingRequirement { get; }
     public static AnalysisUniverseCapabilityDescriptor ExactPeerResolution { get; }
+    public static AnalysisUniverseRequirementDescriptor
+        ExactPeerResolutionRequirement { get; }
     public static AnalysisUniverseCapabilityDescriptor Completeness { get; }
+    public static AnalysisUniverseRequirementDescriptor
+        CompletenessRequirement { get; }
 
     public static AnalysisTargetRoleDescriptor WorkspaceDomain { get; }
     public static AnalysisProjectionDescriptor Rows { get; }
@@ -303,13 +344,16 @@ public static class IntegrationAnalysisCatalog
     static IntegrationProducerPolicyBinding Bind(
         IntegrationProducerPolicyDescriptor policy,
         InspectionQueryDefinition query,
-        InspectionGraphRelationshipDescriptor relationship) =>
+        InspectionGraphRelationshipDescriptor relationship,
+        IEnumerable<(string Id, InspectionQueryDefinition Query)>?
+            additionalQueries = null) =>
         new(
             policy,
             query,
             relationship,
             policy.Concepts.Select(concept =>
-                AffectedByConcept[concept]));
+                AffectedByConcept[concept]),
+            additionalQueries);
 
     static AnalysisUniverseCapabilityDescriptor Capability(
         string id,

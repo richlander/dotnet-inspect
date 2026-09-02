@@ -30,6 +30,9 @@ substrates, and inspection producers that will extend that space.
 
 - `src/dotnet-inspect/` contains the CLI, command routing, parsers, options,
   output views, section descriptors, and inspectors. Its
+  [CLI row-selection grammar](design/cli-row-selection.md) owns item, Window,
+  Top, direction, rendered-line spelling, shorthand, capability, and typed
+  operation-intent lowering at the L3 boundary. Its
   [Find type-search service](design/find-search-service.md) owns the
   CLI-scoped boundary from host-authorized candidate collection through typed
   exact, glob, namespace-prefix, partial, and miss classification; Metadata
@@ -94,9 +97,11 @@ substrates, and inspection producers that will extend that space.
   resolves facts through targets to multi-span nodes, filters the stable node-kind
   vocabulary, and keeps unanchored facts visible without inventing coordinates.
 - `prototypes/inspect-web/` is the browser/Wasm product host. Its
-  [UI design](design/inspect-web-ui.md) owns the website's shared presentation
-  and interaction language while individual components retain rendering,
-  binding, and state-transition responsibilities.
+  [UI design](design/inspect-web-ui.md) composes the website's shared
+  presentation language, navigation rendering, navigation-result consumer,
+  shell interaction, and page-level composition across five focused owners
+  while individual components retain rendering, binding, and
+  state-transition responsibilities.
 - `tools/DecompilerHarness/` owns ReturnToSender closure discovery,
   type-cluster planning, compile-back reference selection and closure, and
   generated-artifact admission and receipt-gated verdict composition. RTS
@@ -109,12 +114,20 @@ substrates, and inspection producers that will extend that space.
   suite-owned expansion. xUnit retains command-line parsing, discovery,
   filtering, execution, reporting, and Microsoft Testing Platform protocol
   behavior.
+- [Repository CI change plan](design/ci-change-plan.md) owns candidate
+  provenance, exact changed-path interpretation, path and event routing
+  implications, and one immutable validation plan with bounded scoped evidence.
+  Workflow YAML transports and places selected validation, while jobs retain
+  validation semantics, execution, and results.
 - [`docs/design/ts-jsexport.md`](design/ts-jsexport.md) owns the `ts-jsexport`
   TypeScript facade projected at build time from an
-  `ILInspector.JsExportSurface`. The host-side tool consumes that evidence
-  without entering the inspected application's browser dependency closure,
-  emits one opinionated TypeScript module, and leaves compilation and
-  publication to the consumer.
+  `ILInspector.JsExportSurface`, plus the producer context that selects a
+  closed set of independent facade roots. The host-side tool consumes that
+  evidence without entering the inspected application's browser dependency
+  closure; only its dependency-free root-attribute contract may enter the
+  producer graph. It emits one opinionated TypeScript module per root and
+  leaves public module naming, compilation, composition, and publication to
+  the consumer.
 - [`docs/design/inspect-web-jsexport-partitioning.md`](design/inspect-web-jsexport-partitioning.md)
   owns the inspect-web production facade partition: exact assignment of
   browser-host exports to generated capability modules, one-runtime
@@ -131,6 +144,10 @@ substrates, and inspection producers that will extend that space.
   owns the long-lived inspect-web Web Worker epoch, bootstrap readiness, held
   starts, closed protocol, replay validation, liveness accounting, draining,
   hard termination, and worker-realm release.
+- [`docs/design/inspect-web-async-composition.md`](design/inspect-web-async-composition.md)
+  owns the user-scenario ordering and typed handoffs across operation
+  authority, worker runtime, generated facades, managed bridging, and
+  feature-owned work without redefining those owners.
 - [`docs/design/custom-attribute-value-decoding.md`](design/custom-attribute-value-decoding.md)
   owns the safety contract for decoding custom-attribute values
   from untrusted metadata: the alignment, bounding, and guard-work invariants
@@ -158,6 +175,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   logical layers, project regions, currencies, and code-navigation map.
 - [CLI host architecture](cli-architecture.md): command-host responsibilities,
   request lifetime, selection, and presentation composition.
+- [CLI change classification and obsolete
+  inputs](design/cli-change-classification.md): published surfaces, change
+  disclosure, routing-collision analysis, invalid-input guards, and
+  reservations.
 - [Repository xUnit test host](design/xunit-test-host.md): semantic
   non-vacuity for explicit test selections after suite-owned argument
   expansion, while preserving xUnit-owned discovery, execution, reporting, and
@@ -214,6 +235,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   worker epochs, bootstrap readiness, held operation dispatch, closed protocol
   validation, liveness and replay accounting, draining, restart, and hard
   worker-realm release.
+- [Inspect-web async composition](design/inspect-web-async-composition.md):
+  scenario-level sequencing, owner-issued handoffs, browser/.NET/Rust semantic
+  distinctions, gate ownership, and focused migration order.
 - [Bounded metadata traversal](design/bounded-metadata-traversal.md): cycle, depth, count, text-budget, failure, and verification rules for artifact-derived metadata graphs.
 - [Rendering model](design/rendering-model.md): output mode and verbosity design.
 - [Progressive disclosure](design/progressive-disclosure.md): base/domain scope,
@@ -240,8 +264,13 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   host-neutral root, Library, Type, and Member descriptors, availability,
   initial recommendations, transitions, reconciliation, and model-checked
   retained-session authority.
-- [Inspect Web UI](design/inspect-web-ui.md): shared website control states,
-  interaction grammar, and visual composition rules.
+- [Inspect Web UI](design/inspect-web-ui.md): composition map for the website
+  redesign, linking
+  [presentation language](design/inspect-web-presentation-language.md),
+  [navigation presentation](design/inspect-web-navigation-presentation.md),
+  [navigation consumer](design/inspect-web-navigation-consumer.md),
+  [shell interaction](design/inspect-web-shell-interaction.md), and
+  [surface composition](design/inspect-web-surface-composition.md).
 - [Annotated Source viewer interaction](design/annotated-source-viewer-interaction.md):
   viewer-local disclosure, actions, selection, annotations, media, Escape, and
   focus inside the embedded reader and modal viewer.
@@ -270,8 +299,17 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Member Index](design/member-index.md): overload selector and digest contract.
 - [Member target resolution](design/member-target-resolution.md): typed member selector, anchor, and body-target resolution.
 - [Member ordering](design/member-order.md): canonical type/member section order and member-kind mapping.
+- [Local package source identity](design/local-package-source-identity.md):
+  config- and command-relative path resolution, path and `file://`
+  canonicalization, host path equality, and the local identity consumed by
+  mapping and cache authorization.
+- [Local folder package source](design/local-folder-package-source.md):
+  recognized general folder-feed layouts, capability semantics, bounded
+  filesystem and archive observation, source outcomes, mutation handling, and
+  caller-owned local payload streams.
 - [Package source model](design/package-source-model.md): source eligibility,
-  mapping, local stores, source-bound caches, selection, and enrichment.
+  mapping, authority composition, source-bound caches, selection, and
+  enrichment.
 - [Package dependency evidence](design/package-dependency-evidence.md):
   normalized declared dependency observations across typed package-manifest
   and restored-project inputs, additive resolution and owner evidence,

@@ -162,7 +162,7 @@ public sealed class IntegrationAnalysisCatalogTests
         Assert.Same(
             IntegrationAnalysisCatalog.BindingContextsRequirement,
             bindingContexts);
-        Assert.Equal(2, IntegrationAnalysisCatalog.Analysis.Revision);
+        Assert.Equal(3, IntegrationAnalysisCatalog.Analysis.Revision);
         Assert.Contains(
             "incidence",
             IntegrationAnalysisCatalog.BindingContexts.Summary,
@@ -290,6 +290,26 @@ public sealed class IntegrationAnalysisCatalogTests
         Assert.Same(
             binding.Query,
             binding.QueryPrerequisite.Query);
+        Assert.Equal(
+            binding.QueryPrerequisites,
+            binding.QueryPrerequisites
+                .Where(prerequisite =>
+                    IntegrationAnalysisCatalog.Analysis
+                        .StructuralPrerequisites.Contains(
+                            prerequisite,
+                            ReferenceEqualityComparer.Instance)));
+        if (ReferenceEquals(
+                binding,
+                IntegrationAnalysisCatalog.EcosystemObserved))
+        {
+            Assert.Equal(
+                [
+                    AssemblyContextIntegrationsQuery.Definition,
+                    ExtensionMethodsQuery.Definition,
+                ],
+                binding.QueryPrerequisites.Select(
+                    prerequisite => prerequisite.Query));
+        }
     }
 
     static ImmutableArray<IntegrationConceptDescriptor> ConceptsAffectedBy(
@@ -345,6 +365,13 @@ public sealed class IntegrationAnalysisCatalogTests
                 {
                     executed?.Invoke();
                     return new AssemblyContextIntegrationsResult([]);
+                })
+            .Add(
+                ExtensionMethodsQuery.Definition,
+                _ =>
+                {
+                    executed?.Invoke();
+                    return new ExtensionMethodsResult.Available([]);
                 })
             .Add(
                 AssemblyContextIntegrationOpportunitiesQuery.Definition,
