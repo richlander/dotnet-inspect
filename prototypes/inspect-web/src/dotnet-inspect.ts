@@ -147,6 +147,10 @@ import {
   bindLoadErrorShell,
   bindWorkbenchShell,
   focusWorkbenchSearch,
+  renderApplicationMenu,
+  renderApplicationMenuButton,
+  renderKeyboardHelpDialog,
+  type ApplicationAction,
   type HomeShellBindingActions,
   type LoadErrorShellBindingActions,
   type WorkbenchShellBindingActions,
@@ -779,6 +783,7 @@ const initialState = {
   taste: loadStoredTaste(),
   settings: false,
   settingsReturn: "home",
+  keyboardHelp: false,
   typeCursor: 0,
   history: [],
   loading: true,
@@ -2622,14 +2627,6 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     : null;
   scopeBarBinding?.disconnect();
 
-  // The Settings page is a modal-style full view layered over whatever the user came from
-  // (home or a package). It owns no URL — it's a preferences panel, not shareable content —
-  // so it renders first and returns; closeSettings restores the underlying view.
-  if (state.settings) {
-    loadingBotSrc = null;
-    renderSettingsViewHtml();
-    return;
-  }
   // The Metadata Explorer is a full-bleed "browse the database" view layered over the
   // package workbench. Like Settings it owns no URL and renders first, returning to the
   // Metadata lens on close.
@@ -2729,8 +2726,6 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     && memberSourceHasConcreteOverload();
   const annotatedWorkingSurface =
     annotatedPageContext && state.memberAnnotatedEmbedded !== null;
-  const annotatedActionsEnabled =
-    annotatedWorkingSurface;
   const subjectPath = currentInspectedSubjectPath();
   const subjectPathLabel = subjectPath.map(segment => segment.label).join(" > ");
   const inspectorPanelSemantics = hasEffectiveInspector()
@@ -2741,8 +2736,9 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     app.tabIndex = -1;
     app.focus({ preventScroll: true });
   }
+  const applicationModalOpen = state.settings || state.keyboardHelp;
   app.innerHTML = `
-    <div class="workbench"${state.memberAnnotatedModal ? " inert" : ""}>
+    <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
         inspectedTargetHtml: `
           <div class="inspected-target" aria-label="Inspected target">
@@ -2767,12 +2763,12 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
       })}
 
       <header class="subject-zone" aria-label="Subjects and inspectors">
-        ${renderScopeBar()}
+        <div class="subject-inspector-region">${renderScopeBar()}</div>
         <div class="shell-actions${annotatedPageContext ? " annotated-page-actions" : ""}${sourcePageKind ? " source-page-actions" : ""}">
           ${annotatedPageContext || sourcePageKind
             ? `<div class="working-surface-actions" role="group" aria-label="${annotatedPageContext ? "Annotated Source actions" : "Source actions"}">
                 ${annotatedPageContext
-                  ? renderAnnotatedSourcePageActions(annotatedActionsEnabled)
+                  ? renderAnnotatedSourcePageActions(annotatedWorkingSurface)
                   : ""}
                 ${sourcePageKind
                   ? renderSourcePageActions({
@@ -2785,11 +2781,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
                   : ""}
               </div>`
             : ""}
-          <nav class="legacy-application-actions" aria-label="Application">
-            <button id="share" type="button">Share</button>
-            <button id="open-settings" type="button">Settings</button>
-            <button id="help" type="button" aria-label="Keyboard help">?</button>
-          </nav>
+          ${renderApplicationMenuButton()}
         </div>
       </header>
 
@@ -2836,6 +2828,11 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
       ${state.graphSourceOpen ? renderGraphSource() : ""}
       ${state.docViewerOpen ? renderDocViewer() : ""}
     </div>
+    ${renderApplicationMenu(true)}
+    ${state.settings ? renderSettingsViewHtml() : ""}
+    ${state.keyboardHelp
+      ? renderKeyboardHelpDialog(keybindings.bindingsFor())
+      : ""}
     ${renderAnnotatedSourceModal()}`;
 
   const packageIcon =
@@ -2847,6 +2844,13 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     };
   }
   bindEvents();
+  if (state.settings) {
+    document.querySelector<HTMLElement>("#settings-title")
+      ?.focus({ preventScroll: true });
+  } else if (state.keyboardHelp) {
+    document.querySelector<HTMLElement>("#keyboard-help-title")
+      ?.focus({ preventScroll: true });
+  }
   if (scopeBarOwnsFocus) {
     let restored = false;
     if (scopeBarFocus) {
@@ -4302,7 +4306,13 @@ function renderTypeSourceHtml(item: AppTypeSurface) {
     currentPackage(),
     state.taste,
     memberRequestKey);
-  return renderTypeSource({ item, currentSignature, sourceState: state, escapeHtml, highlightCSharp });
+  return renderTypeSource({
+    item,
+    currentSignature,
+    sourceState: state,
+    escapeHtml,
+    highlightCSharp,
+  });
 }
 
 function renderLens(item: AppTypeSurface | null | undefined) {
@@ -5486,6 +5496,7 @@ function bindAnnotatedSourceEvents() {
 }
 
 const workbenchShellActions: WorkbenchShellBindingActions = {
+  onApplicationAction: dispatchApplicationAction,
   onCopySubjectSegment: index => {
     const segment = currentInspectedSubjectPath()[index];
     if (segment?.copyable)
@@ -5498,10 +5509,6 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
     pkg.inspectionError = "";
     render();
   },
-  onHelp: () => showToast(
-    "⌘K command · ⌘P / type to find a type · ⌘F filter · "
-    + "1—5 lenses · ↑↓ types · Alt+←/→ or Shift+←/→ back/forward · "
-    + "graph: wheel zoom, click node to open, +/− zoom, 0 fit, arrows pan"),
   onNavigateBack: navBack,
   onNavigateForward: navForward,
   onRetryNotice: () => {
@@ -5509,7 +5516,6 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
     if (retryAction) observeAction(retryAction, "Retrying the inspection");
   },
   onSearch: () => openSpotlight(),
-  onShare: () => void share(),
 };
 
 const graphBackActions: GraphBackBindingActions = {
@@ -6634,7 +6640,11 @@ function executeCommand(
   } else if (verb === "find" || verb === "types") {
     state.typeFilter = argument.replace(/^public\s*/, "");
   } else if (verb === "share") {
-    operation = share();
+    dispatchApplicationAction("share");
+  } else if (verb === "settings") {
+    dispatchApplicationAction("settings");
+  } else if (value === "keyboard help") {
+    dispatchApplicationAction("keyboard-help");
   }
   state.history = [value, ...state.history.filter(item => item !== value)].slice(0, 5);
   return operation;
@@ -7253,6 +7263,10 @@ async function share() {
     state.queryNotice = errorMessage(error);
     state.queryNoticeRetryAction = null;
     render();
+  } finally {
+    requestAnimationFrame(() =>
+      document.querySelector<HTMLElement>("#application-menu-button")
+        ?.focus({ preventScroll: true }));
   }
 }
 
@@ -7260,6 +7274,8 @@ function showToast(message: string, duration = 2200) {
   document.querySelector(".toast")?.remove();
   const toast = document.createElement("div");
   toast.className = "toast";
+  toast.setAttribute("role", "status");
+  toast.setAttribute("aria-live", "polite");
   toast.textContent = message;
   document.body.append(toast);
   setTimeout(() => toast.remove(), duration);
@@ -7375,7 +7391,7 @@ function renderHomeView() {
     : -((performance.now() - homeBotAnimationStartedAt)
       % HOME_BOT_ANIMATION_DURATION_MS);
   app.innerHTML = `
-    <div class="home">
+    <div class="home"${state.settings ? " inert" : ""}>
       <header class="home-bar">
         ${renderBrand()}
         <div class="home-bar-actions">
@@ -7424,8 +7440,13 @@ function renderHomeView() {
         compactDiagnostics: true,
         expanded: state.statusBarExpanded,
       }, escapeHtml)}
-    </div>`;
+    </div>
+    ${state.settings ? renderSettingsViewHtml() : ""}`;
   bindHomeEvents();
+  if (state.settings) {
+    document.querySelector<HTMLElement>("#settings-title")
+      ?.focus({ preventScroll: true });
+  }
 }
 
 // The hero mascot: dotnet-bot inspecting through a magnifying glass (official dotnet/brand
@@ -8104,6 +8125,7 @@ async function loadSelectedTypeMetadata() {
       const currentType = selectedType();
       return !state.home
       && !state.settings
+      && !state.keyboardHelp
       && !state.explorer?.open
       && !state.loading
       && !state.error
@@ -9705,10 +9727,25 @@ function clearTaste() {
   render();
 }
 
-// Open the Settings page, remembering where to return (the home page vs. the workbench) so
-// closing restores that view without touching the URL.
+function dispatchApplicationAction(action: ApplicationAction) {
+  switch (action) {
+    case "share":
+      void share();
+      return;
+    case "settings":
+      openSettings("workbench");
+      return;
+    case "keyboard-help":
+      if (state.keyboardHelp) closeKeyboardHelp();
+      else openKeyboardHelp();
+      return;
+  }
+}
+
+// Open Settings, remembering the logical control that receives focus after dismissal.
 function openSettings(from: "home" | "workbench") {
   state.settingsReturn = from === "workbench" ? "workbench" : "home";
+  state.keyboardHelp = false;
   state.settings = true;
   render();
 }
@@ -9717,14 +9754,31 @@ function closeSettings() {
   state.settings = false;
   reloadVisibleSource();
   render();
+  requestAnimationFrame(() => {
+    const selector = state.settingsReturn === "workbench"
+      ? "#application-menu-button"
+      : "#home-settings";
+    document.querySelector<HTMLElement>(selector)
+      ?.focus({ preventScroll: true });
+  });
 }
 
-// The Settings page: a persistent preferences panel. Every control here writes straight to
-// localStorage (theme → inspect-theme, taste → inspect-taste) so choices survive a reload and
-// future sessions. Grouped into Appearance and Decompiler style; the latter reuses the same
-// style-option catalog the detail-view taste popover shows.
+function openKeyboardHelp() {
+  state.settings = false;
+  state.keyboardHelp = true;
+  render();
+}
+
+function closeKeyboardHelp() {
+  state.keyboardHelp = false;
+  render();
+  requestAnimationFrame(() =>
+    document.querySelector<HTMLElement>("#application-menu-button")
+      ?.focus({ preventScroll: true }));
+}
+
 function renderSettingsViewHtml() {
-  app.innerHTML = renderSettingsView({
+  return renderSettingsView({
     theme: state.theme,
     settingsReturn: state.settingsReturn,
     styleCatalog: {
@@ -9735,7 +9789,6 @@ function renderSettingsViewHtml() {
     },
     escapeHtml,
   });
-  bindSettingsPanelEvents();
 }
 
 function renderGraphSource() {
@@ -10831,6 +10884,7 @@ function registerContainedShortcuts(
 function workspaceKeyboardContextIsActive(): boolean {
   return !state.explorer?.open
     && !state.settings
+    && !state.keyboardHelp
     && !state.home
     && !state.packageQueryOpen
     && !state.loading
@@ -10905,6 +10959,22 @@ registerContainedShortcuts(
   "settings.contain-browser-shortcut",
   WORKBENCH_KEYBINDING_PRIORITY.settings,
   () => state.settings,
+);
+keybindings.register({
+  id: "keyboard-help.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.settings,
+  when: () => state.keyboardHelp,
+  run: () => {
+    closeKeyboardHelp();
+    return true;
+  },
+});
+registerContainedShortcuts(
+  "keyboard-help.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.settings,
+  () => state.keyboardHelp,
 );
 
 const unavailableWorkspaceContext = () =>
@@ -11233,6 +11303,7 @@ function clearNavigationError() {
 function dismissModalsForRoutedNavigation() {
   const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal(false);
   state.settings = false;
+  state.keyboardHelp = false;
   state.explorer = null;
   spotlight.reset();
   sourceInspection.clearGraphSource();

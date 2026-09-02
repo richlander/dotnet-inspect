@@ -865,7 +865,7 @@ test("type PDB source renders code above provenance once loaded", () => {
   assert.doesNotMatch(html, /copy-type-source|open source/);
 });
 
-test("source page actions render copy and open for the page-owned group", () => {
+test("source page actions render copy and open controls for a contextual row", () => {
   const html = renderSourcePageActions({
     source: {
       provider: "pdb",

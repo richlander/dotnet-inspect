@@ -5,6 +5,9 @@ import {
   bindLoadErrorShell,
   bindWorkbenchShell,
   focusWorkbenchSearch,
+  renderApplicationMenu,
+  renderApplicationMenuButton,
+  renderKeyboardHelpDialog,
   workbenchShellHtml,
 } from "../src/shell-controls.ts";
 import { setProductHomeDemoCatalog } from "../src/product-home-demos.ts";
@@ -23,13 +26,21 @@ setProductHomeDemoCatalog([
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
+  readonly ownerDocument: FakeRoot;
+  readonly style: Record<string, string> = {};
   hidden = true;
   focused = false;
   rendered = true;
   value = "";
+  private readonly attributes = new Map<string, string>();
+  private readonly multiple = new Map<string, FakeElement[]>();
   private readonly listeners = new Map<string, EventListener[]>();
 
-  constructor(dataset: Record<string, string | undefined> = {}) {
+  constructor(
+    ownerDocument: FakeRoot,
+    dataset: Record<string, string | undefined> = {},
+  ) {
+    this.ownerDocument = ownerDocument;
     this.dataset = dataset;
   }
 
@@ -41,10 +52,41 @@ class FakeElement {
 
   focus() {
     this.focused = true;
+    this.ownerDocument.activeElement = this;
   }
 
   getClientRects() {
     return this.rendered ? [{}] : [];
+  }
+
+  getBoundingClientRect() {
+    return { bottom: 72, right: 792 };
+  }
+
+  setAttribute(name: string, value: string) {
+    this.attributes.set(name, value);
+  }
+
+  getAttribute(name: string) {
+    return this.attributes.get(name) ?? null;
+  }
+
+  addAll(selector: string, ...elements: FakeElement[]) {
+    this.multiple.set(selector, elements);
+  }
+
+  querySelectorAll(selector: string) {
+    return this.multiple.get(selector) ?? [];
+  }
+
+  contains(target: unknown) {
+    return target === this
+      || [...this.multiple.values()].some(elements =>
+        elements.some(element => element === target));
+  }
+
+  closest() {
+    return null;
   }
 
   dispatch(type: string, values: Record<string, unknown> = {}) {
@@ -62,11 +104,19 @@ class FakeElement {
 }
 
 class FakeRoot {
+  activeElement: FakeElement | null = null;
+  readonly defaultView = { innerWidth: 800, innerHeight: 900 };
   private readonly single = new Map<string, FakeElement>();
   private readonly multiple = new Map<string, FakeElement[]>();
+  private readonly listeners = new Map<string, EventListener[]>();
 
-  add(selector: string, element: FakeElement) {
+  element(dataset: Record<string, string | undefined> = {}) {
+    return new FakeElement(this, dataset);
+  }
+
+  add(selector: string, element: FakeElement = this.element()) {
     this.single.set(selector, element);
+    return element;
   }
 
   addAll(selector: string, ...elements: FakeElement[]) {
@@ -80,42 +130,57 @@ class FakeRoot {
   querySelectorAll(selector: string) {
     return this.multiple.get(selector) ?? [];
   }
+
+  addEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  dispatch(type: string, values: Record<string, unknown> = {}) {
+    const event = fakeDom.event({ ...values });
+    for (const listener of this.listeners.get(type) ?? []) listener(event);
+  }
 }
 
-test("workbench shell binds every rendered control without eager work", () => {
+function applicationActions(calls: string[]) {
+  return {
+    onApplicationAction: (action: string) => calls.push(action),
+    onCopySubjectSegment: (index: number) => calls.push(`copy-subject:${index}`),
+    onDismissNotice: () => calls.push("dismiss-notice"),
+    onDismissPackageNotice: () => calls.push("dismiss-package-notice"),
+    onNavigateBack: () => calls.push("navigate-back"),
+    onNavigateForward: () => calls.push("navigate-forward"),
+    onRetryNotice: () => calls.push("retry-notice"),
+    onSearch: () => calls.push("search"),
+  };
+}
+
+test("workbench shell binds persistent controls without eager work", () => {
   const root = new FakeRoot();
   const controls = new Map([
-    ["#share", "share"],
     ["#dismiss-notice", "dismiss-notice"],
     ["#retry-notice", "retry-notice"],
     ["#dismiss-package-notice", "dismiss-package-notice"],
     ["#nav-back", "navigate-back"],
     ["#nav-forward", "navigate-forward"],
     ["#open-search", "search"],
-    ["#help", "help"],
   ]);
   for (const selector of controls.keys()) {
-    root.add(selector, new FakeElement());
+    root.add(selector);
   }
-  const packageSubject = new FakeElement({ subjectCopy: "0" });
-  const typeSubject = new FakeElement({ subjectCopy: "1" });
+  const packageSubject = root.element({ subjectCopy: "0" });
+  const typeSubject = root.element({ subjectCopy: "1" });
   root.addAll("[data-subject-copy]", packageSubject, typeSubject);
   const calls: string[] = [];
   let searchArgumentCount = -1;
 
   bindWorkbenchShell(fakeDom.parentNode(root), {
-    onCopySubjectSegment: index => calls.push(`copy-subject:${index}`),
-    onDismissNotice: () => calls.push("dismiss-notice"),
-    onDismissPackageNotice: () => calls.push("dismiss-package-notice"),
-    onHelp: () => calls.push("help"),
-    onNavigateBack: () => calls.push("navigate-back"),
-    onNavigateForward: () => calls.push("navigate-forward"),
-    onRetryNotice: () => calls.push("retry-notice"),
+    ...applicationActions(calls),
     onSearch: (...args: unknown[]) => {
       searchArgumentCount = args.length;
       calls.push("search");
     },
-    onShare: () => calls.push("share"),
   });
 
   assert.deepEqual(calls, []);
@@ -128,6 +193,87 @@ test("workbench shell binds every rendered control without eager work", () => {
   assert.deepEqual(calls.slice(-2), ["copy-subject:0", "copy-subject:1"]);
   assert.equal(calls.length, controls.size + 2);
   assert.equal(searchArgumentCount, 0);
+});
+
+test("application menu renders exact conditional inventory", () => {
+  const button = renderApplicationMenuButton();
+  const withShare = renderApplicationMenu(true);
+  const withoutShare = renderApplicationMenu(false);
+
+  assert.match(button, /id="application-menu-button"/);
+  assert.match(button, /aria-label="Application menu"/);
+  assert.match(button, /aria-haspopup="menu"/);
+  assert.match(
+    withShare,
+    /data-application-action="share"[\s\S]*role="separator"[\s\S]*data-application-action="settings"[\s\S]*data-application-action="keyboard-help"/);
+  assert.doesNotMatch(withoutShare, /data-application-action="share"|role="separator"/);
+  assert.match(
+    withoutShare,
+    /data-application-action="settings"[\s\S]*data-application-action="keyboard-help"/);
+});
+
+test("application menu follows menu-button keyboard and dismissal behavior", () => {
+  const root = new FakeRoot();
+  const button = root.add("#application-menu-button");
+  const menu = root.add("#application-menu");
+  menu.hidden = true;
+  const share = root.element({ applicationAction: "share" });
+  const settings = root.element({ applicationAction: "settings" });
+  const help = root.element({ applicationAction: "keyboard-help" });
+  share.hidden = false;
+  settings.hidden = false;
+  help.hidden = false;
+  menu.addAll('[role="menuitem"]', share, settings, help);
+  menu.addAll("[data-application-action]", share, settings, help);
+  root.addAll(
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    button);
+  const calls: string[] = [];
+
+  bindWorkbenchShell(
+    fakeDom.parentNode(root),
+    applicationActions(calls));
+
+  assert.equal(button.dispatch("keydown", { key: "ArrowDown" }), true);
+  assert.equal(menu.hidden, false);
+  assert.equal(button.getAttribute("aria-expanded"), "true");
+  assert.equal(share.focused, true);
+
+  menu.dispatch("keydown", { key: "ArrowDown" });
+  assert.equal(settings.focused, true);
+  menu.dispatch("keydown", { key: "End" });
+  assert.equal(help.focused, true);
+  menu.dispatch("keydown", { key: "ArrowDown" });
+  assert.equal(share.focused, true);
+  assert.equal(menu.dispatch("keydown", { key: "Escape" }), true);
+  assert.equal(menu.hidden, true);
+  assert.equal(button.focused, true);
+
+  button.dispatch("keydown", { key: "ArrowUp" });
+  assert.equal(help.focused, true);
+  settings.dispatch("click");
+  assert.equal(menu.hidden, true);
+  assert.deepEqual(calls, ["settings"]);
+
+  button.dispatch("click");
+  root.dispatch("pointerdown", { target: root.element() });
+  assert.equal(menu.hidden, true);
+});
+
+test("keyboard help is rendered from registered keybinding descriptions", () => {
+  const html = renderKeyboardHelpDialog([{
+    id: "workspace.open-all",
+    keys: ["p"],
+    modifiers: { commandOrControl: true },
+    allowExtraModifiers: true,
+    priority: 100,
+    preventDefault: true,
+  }]);
+
+  assert.match(html, /role="dialog"/);
+  assert.match(html, /Keyboard help/);
+  assert.match(html, /Search types, members, and packages/);
+  assert.match(html, /Ctrl\/Command\+P/);
 });
 
 test("workbench shell renders the inspected target after the product root", () => {
@@ -157,7 +303,7 @@ test("workbench shell renders the inspected target after the product root", () =
 
 test("workbench search focus stays with the shell selector owner", () => {
   const root = new FakeRoot();
-  const search = new FakeElement();
+  const search = root.element();
   root.add("#open-search", search);
 
   assert.equal(focusWorkbenchSearch(fakeDom.parentNode(root)), true);
@@ -173,14 +319,14 @@ test("workbench search focus stays with the shell selector owner", () => {
 
 test("home shell accepts only known demos", () => {
   const root = new FakeRoot();
-  const theme = new FakeElement();
-  const dismiss = new FakeElement();
-  const credits = new FakeElement();
-  const stj = new FakeElement({ homeDemo: "stj-serializer" });
-  const callgraph = new FakeElement({ homeDemo: "extensions-callgraph" });
-  const serializeGraph = new FakeElement({ homeDemo: "stj-serialize-callgraph" });
-  const unknown = new FakeElement({ homeDemo: "other" });
-  const absent = new FakeElement();
+  const theme = root.element();
+  const dismiss = root.element();
+  const credits = root.element();
+  const stj = root.element({ homeDemo: "stj-serializer" });
+  const callgraph = root.element({ homeDemo: "extensions-callgraph" });
+  const serializeGraph = root.element({ homeDemo: "stj-serialize-callgraph" });
+  const unknown = root.element({ homeDemo: "other" });
+  const absent = root.element();
   root.add("#home-theme", theme);
   root.add("#dismiss-notice", dismiss);
   root.add("#home-credits", credits);
@@ -225,11 +371,11 @@ test("home shell accepts only known demos", () => {
 
 test("load error shell parses replacement packages and owns local detail state", () => {
   const root = new FakeRoot();
-  const retry = new FakeElement();
-  const form = new FakeElement();
-  const input = new FakeElement();
-  const toggle = new FakeElement();
-  const detail = new FakeElement();
+  const retry = root.element();
+  const form = root.element();
+  const input = root.element();
+  const toggle = root.element();
+  const detail = root.element();
   root.add("#retry-load", retry);
   root.add("#error-package-query", form);
   root.add("#error-package-input", input);
@@ -267,15 +413,14 @@ test("load error shell parses replacement packages and owns local detail state",
 test("shell bindings tolerate inactive surfaces", () => {
   const root = fakeDom.parentNode(new FakeRoot());
   assert.doesNotThrow(() => bindWorkbenchShell(root, {
+    onApplicationAction() {},
     onCopySubjectSegment() {},
     onDismissNotice() {},
     onDismissPackageNotice() {},
-    onHelp() {},
     onNavigateBack() {},
     onNavigateForward() {},
     onRetryNotice() {},
     onSearch() {},
-    onShare() {},
   }));
   assert.doesNotThrow(() => bindHomeShell(root, {
     onDemo() {},

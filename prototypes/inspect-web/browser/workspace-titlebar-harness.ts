@@ -15,9 +15,18 @@ import type {
   WorkspaceScope,
 } from "../src/data.ts";
 import {
+  bindWorkbenchShell,
   focusWorkbenchSearch,
+  renderApplicationMenu,
+  renderApplicationMenuButton,
+  renderKeyboardHelpDialog,
+  type ApplicationAction,
   workbenchShellHtml,
 } from "../src/shell-controls.ts";
+import {
+  bindSettingsPanel,
+  renderSettingsView,
+} from "../src/settings-panel.ts";
 import {
   renderSourcePageActions,
   renderSourceResult,
@@ -45,6 +54,7 @@ if (!app) throw new Error("The workspace-titlebar harness root is unavailable.")
 const appRoot: HTMLElement = app;
 const scopeBarState = createScopeBarState();
 let scopeBarBinding: ScopeBarBinding | null = null;
+let applicationDialog: "settings" | "keyboard-help" | null = null;
 const params = new URL(location.href).searchParams;
 const workspaceMode = params.has("workspace");
 const packageMode = params.has("package");
@@ -260,7 +270,7 @@ app.innerHTML = `
         </nav>`,
     })}
     <header class="subject-zone" aria-label="Subjects and inspectors">
-      ${scopeBarHtml()}
+      <div class="subject-inspector-region">${scopeBarHtml()}</div>
       <div class="shell-actions${annotatedMode ? " annotated-page-actions" : ""}${sourceMode ? " source-page-actions" : ""}">
         ${annotatedMode || sourceMode
           ? `<div class="working-surface-actions" role="group" aria-label="${annotatedMode ? "Annotated Source actions" : "Source actions"}">
@@ -276,24 +286,20 @@ app.innerHTML = `
                 : ""}
             </div>`
           : ""}
-        <nav class="legacy-application-actions" aria-label="Application">
-          <button id="share">Share</button>
-          <button id="open-settings">Settings</button>
-          <button id="help" aria-label="Keyboard help">?</button>
-        </nav>
+        ${renderApplicationMenuButton()}
       </div>
     </header>
     <div class="notice-stack"></div>
     <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="active-subject-tab">
       ${navigationHtml}
       <section class="detail-pane">
-        <article id="inspector-panel" class="detail-scroll${sourceMode ? " source-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
-          ${sourceMode
-            ? renderSourceResult({
-                source,
-                escapeHtml,
-                highlightCSharp: escapeHtml,
-              })
+      <article id="inspector-panel" class="detail-scroll${annotatedMode ? " annotated-working-surface" : ""}${sourceMode ? " source-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
+        ${sourceMode
+          ? renderSourceResult({
+              source,
+              escapeHtml,
+              highlightCSharp: escapeHtml,
+            })
             : `<h1>${subjectPath.at(-1)?.label}</h1>
               ${packageMode ? `
                 <section class="document-section package-coordinate-editor">
@@ -306,13 +312,87 @@ app.innerHTML = `
         </article>
       </section>
     </main>
-  </div>`;
+  </div>
+  ${renderApplicationMenu(true)}
+  ${renderSettingsView({
+    theme: "dark",
+    settingsReturn: "workbench",
+    styleCatalog: {
+      styleTiers: [],
+      styleOptions: [],
+      styleCatalogError: "",
+      taste: [],
+    },
+    escapeHtml,
+  }).replace(
+    'id="settings-backdrop" class="modal-backdrop"',
+    'id="settings-backdrop" class="modal-backdrop" hidden',
+  )}
+  ${renderKeyboardHelpDialog([{
+    id: "workspace.open-all",
+    keys: ["p"],
+    modifiers: { commandOrControl: true },
+    allowExtraModifiers: true,
+    priority: 100,
+    preventDefault: true,
+  }]).replace(
+    'id="keyboard-help-backdrop" class="modal-backdrop"',
+    'id="keyboard-help-backdrop" class="modal-backdrop" hidden',
+  )}`;
 
-document.querySelectorAll<HTMLElement>("[data-subject-copy]").forEach(button =>
-  button.addEventListener("click", () => {
-    const index = Number(button.dataset.subjectCopy);
+function setApplicationDialog(
+  next: "settings" | "keyboard-help" | null,
+): void {
+  applicationDialog = next;
+  const workbench = document.querySelector<HTMLElement>(".workbench");
+  const settings = document.querySelector<HTMLElement>("#settings-backdrop");
+  const help =
+    document.querySelector<HTMLElement>("#keyboard-help-backdrop");
+  if (workbench) workbench.inert = next !== null;
+  if (settings) settings.hidden = next !== "settings";
+  if (help) help.hidden = next !== "keyboard-help";
+  if (next === "settings") {
+    document.querySelector<HTMLElement>("#settings-title")?.focus();
+  } else if (next === "keyboard-help") {
+    document.querySelector<HTMLElement>("#keyboard-help-title")?.focus();
+  } else {
+    document.querySelector<HTMLElement>("#application-menu-button")?.focus();
+  }
+}
+
+function handleApplicationAction(action: ApplicationAction): void {
+  if (action === "share") {
+    document.body.dataset.shared = "true";
+    return;
+  }
+  setApplicationDialog(applicationDialog === action ? null : action);
+}
+
+bindWorkbenchShell(document, {
+  onApplicationAction: handleApplicationAction,
+  onCopySubjectSegment: index => {
     document.body.dataset.copiedSubject = subjectPath[index]?.label ?? "";
-  }));
+  },
+  onDismissNotice() {},
+  onDismissPackageNotice() {},
+  onNavigateBack() {},
+  onNavigateForward() {},
+  onRetryNotice() {},
+  onSearch() {},
+});
+bindSettingsPanel(document, {
+  onClose: () => setApplicationDialog(null),
+  onOpen: () => setApplicationDialog("settings"),
+  onTasteClear() {},
+  onTasteToggle() {},
+  onThemeSelect() {},
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape" && applicationDialog !== null) {
+    event.preventDefault();
+    setApplicationDialog(null);
+  }
+});
 
 function renderHarnessScopeBar() {
   const focusedElement = document.activeElement instanceof HTMLElement
