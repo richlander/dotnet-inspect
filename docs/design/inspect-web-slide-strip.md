@@ -72,8 +72,8 @@ numbers, abbreviations, or icons.
 
 An adopter supplies one strip-level representation policy. The policy defines:
 
-- the preferred-to-minimum representation order, using any available subset
-  of full label, short label, and icon;
+- the preferred-to-minimum representation order, including the required full
+  label exactly once and any available subset of short label and icon;
 - a deterministic promotion order over each item's available
   representation-to-representation transitions;
 - the desired presentation state: minimum, maximum, or one retained finite
@@ -84,7 +84,9 @@ An adopter supplies one strip-level representation policy. The policy defines:
 A common policy is `label -> short label -> icon`, but the control does not
 make that sequence universal. A text-only strip may use
 `label -> short label`; an icon-free item may retain its short label as its
-minimum representation.
+minimum representation. Because every valid policy includes the required full
+label, filtering unavailable optional representations always leaves at least
+one representation for every item.
 
 Before constructing states, the control removes a dominated representation:
 one that is less preferred but no narrower than an available more-preferred
@@ -305,7 +307,8 @@ normal Inspect Web frontend and production Browser/Wasm suites.
 2. Omit different optional representations and confirm that the policy skips
    them without inventing content or changing identity. Make a less-preferred
    representation no narrower than a more-preferred one and confirm that the
-   dominated representation does not enter the promotion plan.
+   dominated representation does not enter the promotion plan. Reject a policy
+   that omits or duplicates the required full label.
 3. Retain a preferred desired state, narrow until it is clamped, and widen
    again. Confirm that the requested state returns unless the adopter changed
    it while clamped. Replace the promotion plan under the same continuity key
