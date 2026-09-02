@@ -899,8 +899,10 @@ public sealed class InspectionWorkspaceTests
             second.Session,
             second.QueryLease,
             [secondGroup]);
-        await firstWorkspace.CloseAsync();
+        InspectionWorkspaceCloseReport firstReport =
+            await firstWorkspace.CloseAsync();
         await secondWorkspace.CloseAsync();
+        Assert.Equal(3, firstReport.Groups.Length);
     }
 
     [Fact]
@@ -970,6 +972,57 @@ public sealed class InspectionWorkspaceTests
         Assert.Equal(
             "Synthetic coordinated close failure.",
             failure.Message);
+        Assert.Equal(1, artifact.AcquisitionLease.DisposeCount);
+        Assert.NotNull(workspace.CloseReport);
+    }
+
+    [Fact]
+    public async Task WorkspaceClose_ReleasesArtifactSessionWhenCoordinatedReleaseRequestThrows()
+    {
+        ArtifactAssembly artifact =
+            await CreateArtifactAssemblyAsync();
+        InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        var participation =
+            new FaultingWorkspaceParticipation(
+                throwOnReleaseRequest: true);
+        ImmutableArray<
+            InspectionWorkspace.WorkspaceCoordinatedGroupAdmission>
+            admissions =
+                workspace.BeginCoordinatedGroupAdmissions(
+                    [participation]);
+        AssemblyContextGroup group =
+            admissions[0].CreateGroup(
+                [
+                    new AssemblyContextParticipant(
+                        artifact.Assembly,
+                        MissingBindingPolicy.Instance),
+                ],
+                options: null);
+        participation.Group = group;
+        Assert.True(
+            workspace.CompleteCoordinatedGroupAdmissions(
+                admissions,
+                [group]));
+        workspace.RegisterArtifactSession(
+            artifact.Session,
+            artifact.QueryLease,
+            [group]);
+
+        Task<InspectionWorkspaceCloseReport> close =
+            workspace.CloseAsync();
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => close);
+        Task<InspectionWorkspaceCloseReport> second =
+            workspace.CloseAsync();
+
+        Assert.Equal(
+            "Synthetic synchronous coordinated release failure.",
+            failure.Message);
+        Assert.Same(close, second);
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => second);
         Assert.Equal(1, artifact.AcquisitionLease.DisposeCount);
         Assert.NotNull(workspace.CloseReport);
     }
@@ -1664,7 +1717,8 @@ public sealed class InspectionWorkspaceTests
         ResolvedAssemblyReference Assembly,
         TrackingArtifactAcquisitionLease AcquisitionLease);
 
-    sealed class FaultingWorkspaceParticipation
+    sealed class FaultingWorkspaceParticipation(
+        bool throwOnReleaseRequest = false)
         : IWorkspaceCoordinatedGroupParticipation
     {
         internal AssemblyContextGroup? Group { get; set; }
@@ -1676,6 +1730,12 @@ public sealed class InspectionWorkspaceTests
 
         public void RequestRelease()
         {
+            if (throwOnReleaseRequest)
+            {
+                throw new InvalidOperationException(
+                    "Synthetic synchronous coordinated release failure.");
+            }
+
             _ = (Group
                     ?? throw new InvalidOperationException(
                         "The coordinated group was not attached."))

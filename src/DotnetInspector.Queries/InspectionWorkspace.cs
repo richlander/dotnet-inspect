@@ -1096,7 +1096,10 @@ public sealed partial class InspectionWorkspace :
         if (published)
             return group;
 
-        admission?.Complete(registration);
+        admission?.Complete(
+            artifactOwnershipConflict
+                ? null
+                : registration);
         if (artifactOwnershipConflict)
         {
             group.Dispose();
@@ -1121,7 +1124,9 @@ public sealed partial class InspectionWorkspace :
     /// least one participant projected from this session, and no other group.
     /// A later group projected from a transferred session is rejected. The
     /// workspace disposes the query lease and session only after all stored
-    /// groups complete release.
+    /// groups complete release. These properties are gated by
+    /// <c>RegisterArtifactSession_RejectsForeignOrIncompleteGroupSet</c> and
+    /// <c>WorkspaceClose_ReleasesArtifactSessionAfterExactDependentGroupQuiesces</c>.
     /// </remarks>
     internal void RegisterArtifactSession(
         ArtifactSetSession session,
@@ -1299,15 +1304,7 @@ public sealed partial class InspectionWorkspace :
         }
 
         if (startClose)
-        {
-            foreach (WorkspaceGroupAdmission admission
-                in plan.GroupAdmissions)
-            {
-                admission.TryRequestRelease();
-            }
-
             _closeStart!.SetResult(plan);
-        }
 
         return _closeTask!;
     }

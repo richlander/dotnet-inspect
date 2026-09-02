@@ -310,8 +310,9 @@ group projected from that transferred session. It observes only those groups'
 owner-issued release receipts; an unrelated, foreign, or incomplete group set
 cannot authorize release. Cleanup failures compose with, and never replace,
 group cleanup results in the workspace close report. If coordinated group close
-faults, artifact cleanup still runs and its failures remain available from the
-terminal `CloseReport` before the original close failure is rethrown.
+or its synchronous release request faults, artifact cleanup still runs and its
+failures remain available from the terminal `CloseReport` before the original
+close failure is rethrown.
 
 ### Interaction model
 
@@ -2458,6 +2459,7 @@ The target is complete only when tests equivalent to these exist:
 - `RegisterArtifactSession_RejectsForeignOrIncompleteGroupSet`
 - `WorkspaceClose_ReportsArtifactSessionCleanupFailure`
 - `WorkspaceClose_ReleasesArtifactSessionWhenCoordinatedCloseFaults`
+- `WorkspaceClose_ReleasesArtifactSessionWhenCoordinatedReleaseRequestThrows`
 - `ArtifactSetSession_DisposalCancelsInFlightMaterialization`
 - `ArtifactSetSession_CancellationCallbackFailureDoesNotSkipLeaseCleanup`
 - `ArtifactSetSession_PreservesPrimaryFailureWhenCleanupFails`
