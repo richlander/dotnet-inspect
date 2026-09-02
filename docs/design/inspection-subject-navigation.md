@@ -212,8 +212,9 @@ artifacts, lifetime, and the operation contract for any membership effect that
 can invalidate Navigation state. That contract begins the protected
 Navigation transition before the owner effect and returns the complete ordered
 inventory, effect disposition, typed evidence, optional exact admitted
-occurrence, and optional exact successor in one correlated result. Navigation
-consumes those identities and results without
+occurrence for successful admission, and optional exact successor for an
+invalidated current occurrence in one correlated result. Navigation consumes
+those identities and results without
 defining identity construction, equality, membership policy, replacement
 policy, or successor choice. The missing runtime identity and ordered
 membership-transition projection is tracked by #5508.
@@ -438,6 +439,12 @@ Either descriptor may still carry Close when the Workspace owner says that
 exact occurrence is closable. Current available occurrences omit activation
 but retain Close independently.
 
+`Pending` is inventory status, not a settled structural-availability result.
+When the current retained occurrence is being re-realized without a membership
+or identity change, Navigation keeps its installed root and descendant context.
+It does not run root-first correspondence, fallback, or truncation until the
+owner supplies settled availability or a protected membership result.
+
 The Workspace owner defines and performs Close over the same exact occurrence
 identity, but a retained Navigation session is the sequencing entry point for a
 Close that can invalidate its snapshot. Navigation synchronously issues a new
@@ -459,17 +466,21 @@ The owner result separates effect disposition from diagnostic outcome:
 | Effect disposition | Required result |
 | --- | --- |
 | No effect | Exact transition identity, proof that membership is unchanged, complete ordered inventory, and typed success, rejection, or failure evidence |
-| Effect applied | Exact transition identity, complete resulting ordered inventory, typed success or failure evidence, optional exact admitted occurrence, and optional exact successor |
+| Effect applied | Exact transition identity, complete resulting ordered inventory, typed success or failure evidence, optional exact admitted occurrence for successful admission, and optional exact successor for an invalidated current occurrence |
 
 An admission request may have no pre-existing occurrence. Its correlated
 `No effect` rejection or failure therefore carries no invented occurrence. A
-successful admission supplies the exact admitted occurrence. An
-`Effect applied` result always reconciles Navigation from its complete
-inventory even when the owner also reports failure evidence; Navigation never
-retains a snapshot whose membership the owner changed. A `No effect` rejection
-or failure retains the prior snapshot and typed evidence only after the owner
-result establishes unchanged membership. A host never invokes Close around
-the retained session and later reports the result as maintenance.
+successful admission supplies the exact admitted occurrence. It establishes
+that occurrence before ordinary current-occurrence retention and runs an exact
+requested subject or independent initial recommendation inside it. Close,
+removal, or replacement may instead supply an exact successor when the current
+occurrence was invalidated. An `Effect applied` result always reconciles
+Navigation from its complete inventory even when the owner also reports failure
+evidence; Navigation never retains a snapshot whose membership the owner
+changed. A `No effect` rejection or failure retains the prior snapshot and
+typed evidence only after the owner result establishes unchanged membership. A
+host never invokes Close around the retained session and later reports the
+result as maintenance.
 
 The same protected handoff applies to owner-initiated admission, removal,
 replacement, or invalidation that can change retained membership or make an
@@ -479,9 +490,11 @@ returns one correlated complete result with the effect disposition above. A
 begun protected transition must eventually settle with that exact result;
 Navigation consumes it, reconciles or retains state according to its effect
 disposition, and releases the explicit-admission barrier. Cancellation or
-failure uses `No effect` only after proving unchanged membership. A status
-refresh that cannot change membership or invalidate the installed occurrence
-remains ordinary maintenance.
+failure uses `No effect` only after proving unchanged membership. At most one
+protected membership transition is in flight for one Navigation session. A
+second owner begin request receives the same typed pre-admission refusal before
+any owner effect. A status refresh that cannot change membership or invalidate
+the installed occurrence remains ordinary maintenance.
 
 ## Product policy
 
@@ -508,6 +521,14 @@ reconciles the returned inventory but establishes no active occurrence unless
 the owner supplies one exactly. The CLI consumer in #5513 and canonical
 restoration must supply an exact occurrence before expecting a lower initial
 subject.
+
+When another occurrence is already active, a successful explicit admission's
+exact admitted occurrence takes precedence and has no prior retained path.
+Other membership effects preserve the current occurrence and its reconciled
+context while it remains retained. Only when that current occurrence was
+invalidated may an exact owner-supplied successor replace it; without one,
+Navigation clears context and selects Workspace. Effect-applied failure never
+clears or replaces an unrelated still-retained current occurrence.
 
 Type candidates use these tiers:
 
@@ -823,8 +844,8 @@ resolution, correspondence, or fallback.
 | Current subject | Reconciled subject |
 | --- | --- |
 | Workspace | Workspace |
-| Package | Package while its occurrence remains retained; otherwise reconcile within the exact successor supplied by the Workspace transition, or Workspace when none is supplied |
-| Root | Root while its occurrence remains retained; otherwise reconcile within the exact successor supplied by the Workspace transition, or Workspace when none is supplied |
+| Package | Package at the exact occurrence returned by successful admission; otherwise retain the current Package while its occurrence remains retained; otherwise reconcile within the exact successor supplied for its invalidation, or select Workspace |
+| Root | Root at the exact occurrence returned by successful admission; otherwise retain the current Root while its occurrence remains retained; otherwise reconcile within the exact successor supplied for its invalidation, or select Workspace |
 | All Libraries | Retain when aggregate remains available; otherwise the exact Package or Root |
 | One Library | Retain when available; otherwise aggregate, then the exact Package or Root |
 | Type | Retain when available; otherwise highest-ranked trustworthy Type in its defining Library, then that Library, aggregate, then the exact Package or Root |
@@ -832,10 +853,13 @@ resolution, correspondence, or fallback.
 
 Navigation reconciles one retained context with one root-first algorithm:
 
-1. **Establish the retained root.** If the exact occurrence remains retained,
-   keep its Package or Root. If the Workspace owner supplies an exact successor,
-   establish that successor's Package or Root. If neither exists, clear retained
-   context and select Workspace.
+1. **Establish the retained root.** A successful admission's exact admitted
+   occurrence establishes its Package or Root first and discards the previous
+   occurrence's lower path. Otherwise, if the current exact occurrence remains
+   retained, keep its Package or Root. Otherwise, if its invalidating transition
+   supplies an exact successor, establish that successor's Package or Root. If
+   none applies, clear retained context and select Workspace. Navigation never
+   infers an admitted occurrence or successor from inventory order.
 2. **Resolve the retained path.** Starting at the established root, resolve each
    retained Library, Type, and Member in ancestry order. Same-occurrence refresh
    uses exact availability; successor movement uses typed correspondence. Each
@@ -917,8 +941,8 @@ replaces an occurrence while subject or lens work is in flight, that protected
 intent supersedes stale work. Later explicit commands are not admitted until
 the exact correlated owner result settles, so the external effect cannot occur
 while a newer Navigation intent owns the session. Reconciliation uses only
-that result's complete inventory and exact successor, if any. Non-invalidating
-status refresh remains ordinary maintenance.
+that result's complete inventory and exact admitted occurrence or successor,
+when applicable. Non-invalidating status refresh remains ordinary maintenance.
 
 ## Retained navigation session
 
@@ -1153,9 +1177,11 @@ The eventual subject-navigation implementation must include named gates for:
 - `SnapshotComposition_RejectsForeignOccurrenceEvidence`
 - `RetainedCoordinateDescriptor_FailureHasEvidenceAndNoActivation`
 - `RetainedCoordinateDescriptor_PendingHasEvidenceAndNoActivation`
+- `RetainedCoordinatePending_PreservesInstalledContextUntilSettled`
 - `RetainedCoordinateDescriptor_CloseActionIsIndependentOfActivation`
 - `WorkspaceClose_IssuesCoordinateIntentBeforeOwnerEffect`
 - `WorkspaceClose_AcceptsOnlyCorrelatedOwnerResult`
+- `MembershipTransition_AtMostOneProtectedTransitionIsInFlight`
 - `MembershipTransition_BlocksLaterExplicitAdmissionUntilCorrelatedResult`
 - `MembershipTransition_ConcurrentCommandReturnsPreAdmissionRefusalWithoutAuthority`
 - `MembershipTransition_CorrelatedResultReleasesAdmissionBarrier`
@@ -1165,6 +1191,7 @@ The eventual subject-navigation implementation must include named gates for:
 - `FailedAdmission_DoesNotInventOccurrence`
 - `RetainedMembershipChange_SupersedesStaleOccurrenceWork`
 - `RemovedOccurrence_UsesOnlyWorkspaceSuppliedSuccessor`
+- `AdmissionResult_ExactOccurrencePrecedesRetainedCurrentOccurrence`
 - `AdmissionResult_ExactOccurrenceBecomesActiveBeforeRecommendation`
 - `ZeroOneOrManyOccurrences_DoNotInventActiveOccurrence`
 - `RetainedContextReconciliation_ResolvesRootThenPathThenActiveSubject`
@@ -1286,15 +1313,16 @@ result identifies Navigation as the failure source.
 | --- | --- |
 | Workspace selected with an active occurrence | Exact Workspace subject and ordered retained-coordinate descriptors; the active occurrence and its Package-or-Root, Library, Type, and Member context remain available |
 | Workspace selected without an active occurrence, with zero, one, or many retained entries | Exact Workspace subject with no invented coordinate or lower context |
-| Successful coordinate admission | Its exact owner-returned admitted occurrence becomes active before lower-subject recommendation |
-| Coordinate admission fails or is rejected with no effect | Workspace remains selected with no invented occurrence and the exact typed evidence |
-| Membership effect is applied but the owner also reports failure | Navigation reconciles the complete resulting inventory and uses only an exact owner-supplied active occurrence or successor |
+| Successful coordinate admission while another occurrence is active | The exact owner-returned admitted occurrence becomes active before lower-subject recommendation; the previous occurrence's lower path is not carried |
+| Coordinate admission fails or is rejected with no effect | The current occurrence remains active when one existed; otherwise Workspace remains selected, with no invented occurrence and the exact typed evidence |
+| Membership effect is applied but the owner also reports failure | Navigation reconciles the complete resulting inventory, preserves a still-retained current occurrence, otherwise uses only an exact owner-supplied successor for the invalidated current occurrence, otherwise selects Workspace |
 | Package coordinate selected | Exact Workspace-bound Package ancestry; no tab or display identity participates |
 | Non-package coordinate selected | Exact Workspace-bound non-package Root ancestry; it is never labelled Package |
 | Package subject activated | Exact Package with Package Overview recommendation after #5509 |
 | Active coordinate disappears without a supplied successor | Workspace with no active occurrence |
 | Active coordinate disappears with an exact Workspace-supplied successor | Root-first correspondence and level-local fallback only inside that occurrence |
-| Pending or failed retained coordinate | Typed owner evidence and no Navigation activation action; Close remains available when the owner marks the occurrence closable |
+| Current retained coordinate is Pending during non-invalidating re-realization | Typed owner evidence and no Navigation activation action; installed root and descendant context remain without structural fallback until settled |
+| Failed retained coordinate | Typed owner evidence and no Navigation activation action; Close remains available when the owner marks the occurrence closable |
 | Foreign-Workspace subject, action, or restoration payload | Rejected before Registry resolution, correspondence, or fallback |
 | Restoration occurrence and subject ancestry disagree inside one Workspace | Preparation aborts before Registry resolution |
 | Restoration active Type and retained path name different Types in one occurrence | Preparation aborts before Registry resolution |
@@ -1308,9 +1336,10 @@ result identifies Navigation as the failure source.
 | Package content or selection generation is replaced at the same portable coordinate | New exact Package subject; stale subject and actions are rejected |
 | Coordinate variation within one Workspace | Typed correspondence or independent recommendation confined to the requested occurrence |
 | Coordinate variation across Workspaces | No correspondence; separate retained session and independently restored state |
-| Active occurrence closes while a request is in flight | Close first issues a protected coordinate intent; stale work cannot install, later commands are rejected until settlement, and only the correlated owner result supplies inventory and successor |
+| Active occurrence closes while a request is in flight | Close first issues a protected coordinate intent; stale work cannot install, later commands receive typed pre-admission refusal until settlement, and only the correlated owner result supplies inventory and any successor |
 | Workspace owner removes or replaces an occurrence | The owner begins the protected Navigation intent before the effect and supplies the correlated complete inventory and optional successor |
 | Protected membership operation fails without changing membership | Correlated `No effect` result retains state and releases the explicit-admission barrier |
+| A second protected transition begins while one is unresolved | Typed pre-admission refusal before any second owner effect |
 | Command arrives while protected membership operation is unresolved | Typed pre-admission refusal with no intent, snapshot, effect authority, history, focus, or acknowledgement change |
 | Ordinary package | Highest-ranked trustworthy Type with API lens |
 | Preferred role is not first | Preferred available role, not the earlier available descriptor |
