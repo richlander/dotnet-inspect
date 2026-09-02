@@ -28,4 +28,5 @@ src/ILInspector.TypeScriptGeneration
 src/InertText
 src/NuGetFetch
 src/SourceLinkFetch
+src/TsJsExport.Contracts
 src/ts-jsexport

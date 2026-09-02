@@ -66,7 +66,7 @@ substrates, and inspection producers that will extend that space.
 - `src/ILInspector.Analysis/` indexes IL method-body evidence such as direct call sites, allocation and unsafety occurrences, method signals, and whole-assembly leverage without decompiling to C#. `AnalysisFindings` exposes reusable typed censuses and comparisons for allocations, call sites, unsafe operations, and unsafe declaration/body evidence.
 - `src/ILInspector.Analysis.App/` is a temporary console harness for exercising Analysis queries until CLI wiring exists.
 - `src/ILInspector.ControlFlow/` contains shared block-edge, dominance, and dataflow kernels used below Analysis and Decompiler without depending on either.
-- `src/ILInspector.Findings/` contains the domain-free observation, inspection, matching, transition, comparison, whole-census correlation, and exact-identity correlation contracts shared by product producers. The `timeline` command composes Metadata and Analysis producers over those same correlation contracts.
+- `src/ILInspector.Findings/` contains the domain-free observation, inspection, matching, transition, comparison, complete analysis-diff, whole-census correlation, and exact-identity correlation contracts shared by product producers. The `timeline` command composes Metadata and Analysis producers over those same correlation contracts.
 - `src/ILInspector.ILDiff/` owns IL body and assembly comparison over decoded
   instruction streams: canonicalization, alignment, Finding projection, typed
   failures, and producer-owned diff presentation.
@@ -110,11 +110,10 @@ substrates, and inspection producers that will extend that space.
   owner-issued artifact, fragment, and correspondence evidence;
   `ILInspector.CSharp`, `ILInspector.Decompiler`, and `ILInspector.ILDiff`
   retain ownership of producing that evidence.
-- [Repository xUnit test host](design/xunit-test-host.md) owns explicit test
-  selection non-vacuity for the argument vector handed to xUnit after any
-  suite-owned expansion. xUnit retains command-line parsing, discovery,
-  filtering, execution, reporting, and Microsoft Testing Platform protocol
-  behavior.
+- [Repository xUnit test host](design/xunit-test-host.md) owns the repository's
+  use of Microsoft Testing Platform for aggregate non-vacuity of xUnit test
+  execution. MTP and xUnit retain runner semantics; suite owners retain
+  argument expansion and any stronger per-selection evidence receipts.
 - [Repository CI change plan](design/ci-change-plan.md) owns candidate
   provenance, exact changed-path interpretation, path and event routing
   implications, and one immutable validation plan with bounded scoped evidence.
@@ -180,10 +179,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   inputs](design/cli-change-classification.md): published surfaces, change
   disclosure, routing-collision analysis, invalid-input guards, and
   reservations.
-- [Repository xUnit test host](design/xunit-test-host.md): semantic
-  non-vacuity for explicit test selections after suite-owned argument
-  expansion, while preserving xUnit-owned discovery, execution, reporting, and
-  server dispatch.
+- [Repository xUnit test host](design/xunit-test-host.md): MTP-owned aggregate
+  non-vacuity for xUnit execution, with stronger per-selection evidence left
+  to the suite that makes that claim.
 - [Find type-search service](design/find-search-service.md): CLI-scoped
   candidate collection, classification precedence, source ordering, limits,
   failure visibility, and typed result boundary for `find`.
@@ -246,7 +244,7 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Item and line selection composition](design/item-and-line-limits.md):
   cross-component sequencing and typed handoffs for focused semantic
   selection, L2, source-execution, CLI, payload, and presentation designs.
-- [Semantic row selection](design/semantic-row-selection.md): dependency-free
+- [Semantic row selection](design/semantic-row-selection.md): typed
   ordered-stage, strict-window, reindexing, and all-or-failure sequence
   component.
 - [Command transitions](design/command-transition-model.md): when source, focus, operation arity, lens, traversal, or rendering changes should switch commands versus stay within one command.

@@ -112,6 +112,30 @@ public class ApiSurfaceRelationshipFailureTests
     }
 
     [Fact]
+    public void ExtractSummary_CyclicTypePreservesValidSiblingAndFailure()
+    {
+        using var stream = new MemoryStream(BuildImage(
+            cyclicTypeName: "Rejected",
+            validTypeNames: ["Sibling"]));
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface = ApiSurfaceExtractor.ExtractSummary(peReader);
+
+        ApiType sibling = Assert.Single(surface.Types);
+        Assert.Equal("Sibling", sibling.Name);
+        Assert.NotNull(sibling.DefinitionName);
+        Assert.Equal(1, surface.PublicTypeCount);
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Equal("type identity", failure.Operation);
+        Assert.Equal(0x02000002, failure.SubjectToken);
+        Assert.Equal(
+            MetadataTypeNameFailureMechanism.Relationship,
+            failure.Mechanism);
+        Assert.Equal("Cycle", failure.Kind);
+    }
+
+    [Fact]
     public void BoundedApiSurface_RejectedIdentityDoesNotSpendTheTypeBudget()
     {
         using var stream = new MemoryStream(BuildImage(

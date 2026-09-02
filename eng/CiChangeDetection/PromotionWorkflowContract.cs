@@ -6,13 +6,13 @@ namespace CiChangeDetection;
 internal static class PromotionWorkflowContract
 {
     private const string AzureAction =
-        "Azure/static-web-apps-deploy@4d27395796ac319302594769cfe812bd207490b1";
+        "Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9";
     private const string CheckoutAction =
         "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803";
     private const string DownloadArtifactAction =
         "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c";
     private const string SetupDotnetAction =
-        "actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1";
+        "actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68";
     private const string SetupNodeAction =
         "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020";
     private const string UploadArtifactAction =
@@ -222,7 +222,7 @@ internal static class PromotionWorkflowContract
 
         AssertMutationRejected(
             promotionWorkflow,
-            "      - name: Setup .NET\n        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5",
+            "      - name: Setup .NET\n        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0",
             "      - name: Setup .NET\n        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8",
             ValidatePromotion,
             "Promotion workflow contract accepted an alternate setup action.");
