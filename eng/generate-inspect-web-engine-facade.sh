@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Regenerates inspect-web's checked-in TypeScript facade from InspectWeb.Engine.dll,
-# then compiles that single source into the declaration consumed by Vite and the
-# JavaScript module published beside _framework/.
+# Executes inspect-web's compiled JsExportRoot recipe to regenerate its checked-in
+# TypeScript facade, then compiles that source into the declaration consumed by
+# Vite and the JavaScript module published beside _framework/.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 engine_csproj="$repo_root/prototypes/inspect-web/engine/InspectWeb.Engine.csproj"
 engine_dll="$repo_root/prototypes/inspect-web/engine/bin/Release/net11.0/InspectWeb.Engine.dll"
+context_type="InspectWeb.Engine.InspectWebJsExportContext"
+context_artifact_name="InspectWeb.Engine.ts"
 ts_output_file="$repo_root/prototypes/inspect-web/engine/inspect-web-engine.ts"
 dts_output_file="$repo_root/prototypes/inspect-web/src/inspect-web-engine.d.ts"
 js_output_file="$repo_root/prototypes/inspect-web/engine/wwwroot/inspect-web-engine.js"
@@ -89,16 +91,48 @@ cat > "$scratch/header" <<'EOF'
 
 EOF
 
+context_output="$scratch/context-facades"
+source_assembly_directory="$(dirname "$source_assembly")"
 "$dotnet" run \
   --project "$repo_root/src/ts-jsexport" \
   -c Release \
   -- \
   "$source_assembly" \
+  --context "$context_type" \
+  --assembly-search-path "$source_assembly_directory" \
   --runtime-module ./_framework/dotnet.js \
-  --output "$scratch/inspect-web-engine.body.ts"
+  --output "$context_output"
+
+shopt -s nullglob
+context_artifacts=("$context_output"/*)
+shopt -u nullglob
+if [[ "${#context_artifacts[@]}" != 1 \
+    || "${context_artifacts[0]##*/}" != "$context_artifact_name" ]]; then
+  printf \
+    'Expected the JsExportRoot recipe to produce only %s; found:' \
+    "$context_artifact_name" >&2
+  printf ' %s' "${context_artifacts[@]##*/}" >&2
+  printf '\n' >&2
+  exit 1
+fi
+context_artifact="${context_artifacts[0]}"
+
+"$dotnet" run \
+  --project "$repo_root/src/ts-jsexport" \
+  -c Release \
+  --no-build \
+  -- \
+  "$source_assembly" \
+  --runtime-module ./_framework/dotnet.js \
+  --output "$scratch/inspect-web-engine.direct.ts"
+if ! cmp "$context_artifact" "$scratch/inspect-web-engine.direct.ts"; then
+  echo "The one-root JsExportRoot recipe differs from direct generation." >&2
+  exit 1
+fi
+
 cat \
   "$scratch/header" \
-  "$scratch/inspect-web-engine.body.ts" \
+  "$context_artifact" \
   > "$scratch/inspect-web-engine.ts"
 
 mkdir -p "$scratch/_framework"

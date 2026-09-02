@@ -1026,6 +1026,18 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
     /ts_output_file="\$repo_root\/prototypes\/inspect-web\/engine\/inspect-web-engine\.ts"/);
   assert.match(
     engineGenerationScript,
+    /context_type="InspectWeb\.Engine\.InspectWebJsExportContext"/);
+  assert.match(
+    engineGenerationScript,
+    /--context "\$context_type"/);
+  assert.match(
+    engineGenerationScript,
+    /--assembly-search-path "\$source_assembly_directory"/);
+  assert.match(
+    engineGenerationScript,
+    /context_artifact_name="InspectWeb\.Engine\.ts"/);
+  assert.match(
+    engineGenerationScript,
     /Microsoft\.NETCore\.App\.Runtime\.Mono\.browser-wasm[\s\S]*dotnet\.d\.ts/);
   assert.match(
     engineGenerationScript,
