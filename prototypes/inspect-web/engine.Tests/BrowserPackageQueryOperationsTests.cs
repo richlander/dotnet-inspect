@@ -25,18 +25,24 @@ public sealed class BrowserPackageQueryOperationsTests
             Assert.Equal(expected.Summary, actual.Summary);
             Assert.Equal(expected.Weight, actual.Weight);
             Assert.Equal(expected.SelectionGroupId, actual.SelectionGroupId);
-            Assert.Equal(BrowserPackageQueryFacetTier.Nuspec, actual.Tier);
+            Assert.Equal(expected.DisplayGroupId, actual.DisplayGroupId);
+            Assert.Equal(expected.DisplayGroupLabel, actual.DisplayGroupLabel);
+            Assert.Equal(
+                expected.Tier == PackageQueryFacetTier.Nuspec
+                    ? BrowserPackageQueryFacetTier.Nuspec
+                    : BrowserPackageQueryFacetTier.PackageContent,
+                actual.Tier);
         }
     }
 
     [Fact]
     public void Project_PreservesFailureAndCompletionEvidence()
     {
-        var failure = new PackageProfileFailure(
+        var failure = new PackageQueryFailure(
             "Contoso.Bad",
             "1.0.0",
             PackageSourceIdentity.NuGetOrg,
-            PackageProfileFailureKind.ManifestAcquisition,
+            PackageQueryFailureKind.ManifestAcquisition,
             "manifest unavailable");
         var summary = new PackageQuerySummary(
             new InertString(TextPolicy.Field, "Contoso."),
@@ -68,6 +74,52 @@ public sealed class BrowserPackageQueryOperationsTests
             projectedCompletion.Completion!.Kind);
         Assert.Equal(200, projectedCompletion.Completion.CandidateLimit);
         Assert.Equal(100, projectedCompletion.Completion.MatchLimit);
+    }
+
+    [Fact]
+    public void Project_PreservesPackageContentTierAndFailure()
+    {
+        PackageProfileMatch package = new(
+            "Contoso.Tool",
+            "1.0.0",
+            [],
+            TotalDownloads: 42,
+            Verified: false,
+            PackageSourceIdentity.NuGetOrg,
+            Manifest(
+                "Contoso.Tool",
+                "1.0.0",
+                isToolPackage: true));
+        var match = new PackageQueryMatch(
+            package,
+            PackageQueryFacetTier.PackageContent,
+            [
+                new PackageQueryEvidence(
+                    PackageQuery.ToolV2FacetId,
+                    new InertString(
+                        TextPolicy.Prose,
+                        "DotnetToolSettings.xml declares v2.")),
+            ]);
+        var failure = new PackageQueryFailure(
+            "Contoso.Bad",
+            "1.0.0",
+            PackageSourceIdentity.NuGetOrg,
+            PackageQueryFailureKind.PackageContentAcquisition,
+            "package payload unavailable");
+
+        BrowserPackageQueryEvent projectedMatch =
+            BrowserPackageQueryOperations.Project(
+                new PackageQueryEvent.Match(match));
+        BrowserPackageQueryEvent projectedFailure =
+            BrowserPackageQueryOperations.Project(
+                new PackageQueryEvent.Failure(failure));
+
+        Assert.Equal(
+            BrowserPackageQueryFacetTier.PackageContent,
+            projectedMatch.Row!.Tier);
+        Assert.Equal(
+            BrowserPackageQueryFailureKind.PackageContentAcquisition,
+            projectedFailure.Failure!.Kind);
     }
 
     [Fact]
@@ -128,4 +180,23 @@ public sealed class BrowserPackageQueryOperationsTests
 
         Assert.Contains("facet IDs are unknown", error.Message);
     }
+
+    static PackageManifestFacts Manifest(
+        string packageId,
+        string version,
+        bool isToolPackage) =>
+        new(
+            PackageSourceCoordinate.Create(packageId, version),
+            "nuspec",
+            Description: null,
+            Authors: null,
+            Repository: null,
+            RepositoryType: null,
+            RepositoryCommit: null,
+            License: null,
+            LicenseUrl: null,
+            PackageTypes: isToolPackage ? ["DotnetTool"] : [],
+            IsToolPackage: isToolPackage,
+            ReadmeFile: null,
+            DependencyGroups: []);
 }

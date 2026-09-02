@@ -50,16 +50,20 @@ public sealed class ArtifactSetSessionTests
                         session.GetProvenance(
                             descriptor.Identity,
                             lease)).Source));
+            using Stream firstContent =
+                session.OpenRead(
+                    catalog[0].Identity,
+                    lease);
             Assert.Equal(
                 [1, 2],
-                ReadAll(session.OpenRead(
-                    catalog[0].Identity,
-                    lease)));
+                ReadAll(firstContent));
+            using Stream secondContent =
+                session.OpenRead(
+                    catalog[1].Identity,
+                    lease);
             Assert.Equal(
                 [3, 4],
-                ReadAll(session.OpenRead(
-                    catalog[1].Identity,
-                    lease)));
+                ReadAll(secondContent));
         }
         finally
         {
@@ -99,6 +103,143 @@ public sealed class ArtifactSetSessionTests
 
         Assert.Equal(1, first.DisposeCount);
         Assert.Equal(1, second.DisposeCount);
+    }
+
+    [Fact]
+    public async Task ArtifactSetSession_ReleasesLeasesOnlyAfterDependentGroupsQuiesce()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        var acquisitionLease = new TrackingLease();
+        var session = new ArtifactSetSession();
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) => Acquired(
+                scope,
+                new Provenance("query-stream"),
+                [1, 2],
+                acquisitionLease),
+            cancellationToken: cancellationToken);
+        Assert.IsType<ArtifactSetPublicationOutcome.Published>(
+            await session.SealAsync(cancellationToken));
+        ArtifactQueryAuthorization authorization =
+            session.CreateQueryAuthorization();
+        using ArtifactQueryLease lease =
+            session.IssueLease(authorization);
+        ArtifactIdentity identity =
+            Assert.Single(session.GetCatalog(lease)).Identity;
+        Stream opened = session.OpenRead(identity, lease);
+
+        Task disposal = session.DisposeAsync().AsTask();
+
+        Assert.False(disposal.IsCompleted);
+        Assert.Equal(0, acquisitionLease.DisposeCount);
+        Assert.Equal(1, opened.ReadByte());
+
+        opened.Dispose();
+        await disposal;
+        Assert.Equal(1, acquisitionLease.DisposeCount);
+    }
+
+    [Fact]
+    public async Task ArtifactSetSession_CancellationCallbackFailureDoesNotSkipLeaseCleanup()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        var entered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var acquisitionLease = new TrackingLease();
+        var session = new ArtifactSetSession();
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) =>
+            {
+                ArtifactContribution contribution = scope.Register(
+                    new Provenance("throwing-cancellation"),
+                    ownerCancellation =>
+                    {
+                        ownerCancellation.Register(
+                            static () =>
+                                throw new IOException(
+                                    "owner cancellation failed"));
+                        entered.TrySetResult();
+                        ownerCancellation.WaitHandle.WaitOne();
+                        ownerCancellation.ThrowIfCancellationRequested();
+                        throw new InvalidOperationException(
+                            "The owner did not cancel the opener.");
+                    });
+                return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [contribution],
+                        acquisitionLease));
+            },
+            cancellationToken: cancellationToken);
+
+        Task<ArtifactSetPublicationOutcome> publication =
+            Task.Run(
+                async () =>
+                    await session.SealAsync(cancellationToken),
+                cancellationToken);
+        await entered.Task.WaitAsync(cancellationToken);
+        Task firstDisposal = session.DisposeAsync().AsTask();
+
+        await firstDisposal;
+        Assert.Equal(1, acquisitionLease.DisposeCount);
+        AggregateException failure =
+            Assert.IsType<AggregateException>(
+                Assert.Single(session.CleanupFailures));
+        Assert.IsType<IOException>(
+            Assert.Single(
+                failure.Flatten().InnerExceptions));
+        ObjectDisposedException disposed =
+            await Assert.ThrowsAsync<ObjectDisposedException>(
+                async () => await publication);
+        IReadOnlyList<Exception> attached =
+            Assert.IsAssignableFrom<IReadOnlyList<Exception>>(
+                disposed.Data[
+                    "DotnetInspector.Artifacts.Workspaces.CleanupFailures"]);
+        Assert.Same(
+            failure,
+            Assert.Single(attached));
+
+        await session.DisposeAsync();
+        Assert.Equal(1, acquisitionLease.DisposeCount);
+    }
+
+    [Fact]
+    public async Task ArtifactSetSession_DisposalCancelsInFlightMaterialization()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        var entered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancellationObserved = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var acquisitionLease = new TrackingLease();
+        var session = new ArtifactSetSession();
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) =>
+            {
+                ArtifactContribution contribution = scope.Register(
+                    new Provenance("owner-cancelled-read"),
+                    _ => new OwnerCancellationReadStream(
+                        entered,
+                        cancellationObserved));
+                return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [contribution],
+                        acquisitionLease));
+            },
+            cancellationToken: cancellationToken);
+
+        Task<ArtifactSetPublicationOutcome> publication =
+            session.SealAsync(cancellationToken).AsTask();
+        await entered.Task.WaitAsync(cancellationToken);
+        Task disposal = session.DisposeAsync().AsTask();
+
+        await cancellationObserved.Task.WaitAsync(cancellationToken);
+        await disposal;
+        await Assert.ThrowsAsync<ObjectDisposedException>(
+            async () => await publication);
+        Assert.Equal(1, acquisitionLease.DisposeCount);
     }
 
     [Fact]
@@ -206,7 +347,7 @@ public sealed class ArtifactSetSessionTests
             {
                 ArtifactContribution contribution = scope.Register(
                     new Provenance("late"),
-                    () => new MemoryStream(
+                    _ => new MemoryStream(
                         [1],
                         writable: false));
                 entered.SetResult();
@@ -289,13 +430,13 @@ public sealed class ArtifactSetSessionTests
             {
                 ArtifactContribution gated = scope.Register(
                     new Provenance("gated"),
-                    () => new GatedReadStream(
+                    _ => new GatedReadStream(
                         [1],
                         entered,
                         release));
                 ArtifactContribution unopened = scope.Register(
                     new Provenance("unopened"),
-                    () => new MemoryStream(
+                    _ => new MemoryStream(
                         [2],
                         writable: false));
                 return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
@@ -393,7 +534,7 @@ public sealed class ArtifactSetSessionTests
             {
                 ArtifactContribution contribution = scope.Register(
                     new Provenance("disposed-source"),
-                    () => throw new ObjectDisposedException(
+                    _ => throw new ObjectDisposedException(
                         "source stream"));
                 return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
                     new ArtifactAcquisitionOutcome.Acquired(
@@ -492,10 +633,10 @@ public sealed class ArtifactSetSessionTests
             {
                 ArtifactContribution first = scope.Register(
                     new Provenance("first"),
-                    () => new MemoryStream([1], writable: false));
+                    _ => new MemoryStream([1], writable: false));
                 ArtifactContribution second = scope.Register(
                     new Provenance("second"),
-                    () => new MemoryStream([2], writable: false));
+                    _ => new MemoryStream([2], writable: false));
                 return new ArtifactAcquisitionOutcome.Acquired(
                     [first, second],
                     ArtifactAcquisitionLeases.None);
@@ -518,7 +659,7 @@ public sealed class ArtifactSetSessionTests
             {
                 ArtifactContribution duplicate = scope.Register(
                     new Provenance("duplicate"),
-                    () => new MemoryStream([1], writable: false));
+                    _ => new MemoryStream([1], writable: false));
                 return new ArtifactAcquisitionOutcome.Acquired(
                     [duplicate, duplicate],
                     ArtifactAcquisitionLeases.None);
@@ -634,7 +775,7 @@ public sealed class ArtifactSetSessionTests
             {
                 ArtifactContribution contribution = scope.Register(
                     new Provenance("required"),
-                    () =>
+                    _ =>
                     {
                         openCount++;
                         return new MemoryStream(
@@ -667,9 +808,11 @@ public sealed class ArtifactSetSessionTests
             session.IssueLease(authorization);
         ArtifactDescriptor artifact =
             Assert.Single(session.GetCatalog(lease));
+        using Stream opened =
+            session.OpenRead(artifact.Identity, lease);
         Assert.Equal(
             [1, 2, 3],
-            ReadAll(session.OpenRead(artifact.Identity, lease)));
+            ReadAll(opened));
     }
 
     [Fact]
@@ -791,14 +934,14 @@ public sealed class ArtifactSetSessionTests
                 Assert.Equal(1, capacity.MaxArtifacts);
                 ArtifactContribution first = scope.Register(
                     new Provenance("first"),
-                    () =>
+                    _ =>
                     {
                         opened++;
                         return new MemoryStream([2], writable: false);
                     });
                 ArtifactContribution second = scope.Register(
                     new Provenance("second"),
-                    () =>
+                    _ =>
                     {
                         opened++;
                         return new MemoryStream([3], writable: false);
@@ -853,10 +996,10 @@ public sealed class ArtifactSetSessionTests
             {
                 ArtifactContribution first = scope.Register(
                     new Provenance("first"),
-                    () => new MemoryStream([1, 2], writable: false));
+                    _ => new MemoryStream([1, 2], writable: false));
                 ArtifactContribution second = scope.Register(
                     new Provenance("second"),
-                    () => new MemoryStream([3, 4], writable: false));
+                    _ => new MemoryStream([3, 4], writable: false));
                 return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
                     new ArtifactAcquisitionOutcome.Acquired(
                         [first, second],
@@ -1009,7 +1152,7 @@ public sealed class ArtifactSetSessionTests
             {
                 foreign = scope.Register(
                     new Provenance("foreign"),
-                    () => new MemoryStream([4], writable: false));
+                    _ => new MemoryStream([4], writable: false));
                 return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
                     new ArtifactAcquisitionOutcome.Acquired(
                         [foreign],
@@ -1057,7 +1200,7 @@ public sealed class ArtifactSetSessionTests
                     ArtifactContribution contribution =
                         scope.Register(
                             new Provenance("first"),
-                            () => new MemoryStream(
+                            _ => new MemoryStream(
                                 [1],
                                 writable: false));
                     entered.SetResult();
@@ -1102,7 +1245,7 @@ public sealed class ArtifactSetSessionTests
             {
                 ArtifactContribution duplicate = scope.Register(
                     new Provenance("duplicate"),
-                    () =>
+                    _ =>
                     {
                         collisionOpens++;
                         return new MemoryStream([1], writable: false);
@@ -1131,14 +1274,14 @@ public sealed class ArtifactSetSessionTests
             {
                 ArtifactContribution first = scope.Register(
                     new Provenance("first"),
-                    () =>
+                    _ =>
                     {
                         firstOpens++;
                         return new MemoryStream([1], writable: false);
                     });
                 ArtifactContribution second = scope.Register(
                     new Provenance("second"),
-                    () => throw new IOException("read failed"));
+                    _ => throw new IOException("read failed"));
                 return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
                     new ArtifactAcquisitionOutcome.Acquired(
                         [first, second],
@@ -1169,7 +1312,7 @@ public sealed class ArtifactSetSessionTests
                                 ArtifactContribution contribution =
                                     scope.Register(
                                         new Provenance("unexpected"),
-                                        () => throw
+                                        _ => throw
                                             new FormatException(
                                                 "unexpected"));
                                 return ValueTask.FromResult<
@@ -1200,10 +1343,10 @@ public sealed class ArtifactSetSessionTests
             {
                 ArtifactContribution first = scope.Register(
                     new Provenance("first"),
-                    () => new MemoryStream([1], writable: false));
+                    _ => new MemoryStream([1], writable: false));
                 ArtifactContribution second = scope.Register(
                     new Provenance("second"),
-                    () => new MemoryStream([2], writable: false));
+                    _ => new MemoryStream([2], writable: false));
                 return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
                     new ArtifactAcquisitionOutcome.Acquired(
                         [first, second],
@@ -1248,7 +1391,7 @@ public sealed class ArtifactSetSessionTests
                     capacity.MaxArtifacts);
                 ArtifactContribution contribution = scope.Register(
                     new Provenance("late"),
-                    () => new MemoryStream([1], writable: false));
+                    _ => new MemoryStream([1], writable: false));
                 entered.SetResult();
                 await release.Task.WaitAsync(token);
                 return new ArtifactAcquisitionOutcome.Acquired(
@@ -1357,7 +1500,7 @@ public sealed class ArtifactSetSessionTests
             {
                 ArtifactContribution contribution = scope.Register(
                     new Provenance("supplemental"),
-                    () => new GatedReadStream(
+                    _ => new GatedReadStream(
                         [2],
                         entered,
                         never));
@@ -1390,7 +1533,7 @@ public sealed class ArtifactSetSessionTests
             {
                 ArtifactContribution contribution = scope.Register(
                     new Provenance("required"),
-                    () => new GatedReadStream(
+                    _ => new GatedReadStream(
                         [1],
                         checkpointEntered,
                         checkpointNever));
@@ -1502,7 +1645,7 @@ public sealed class ArtifactSetSessionTests
             {
                 ArtifactContribution contribution = scope.Register(
                     new Provenance("mutable"),
-                    () => new MemoryStream(
+                    _ => new MemoryStream(
                         source,
                         writable: false));
                 return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
@@ -1524,9 +1667,7 @@ public sealed class ArtifactSetSessionTests
         using Stream first = session.OpenRead(identity, lease);
 
         Assert.False(first.CanWrite);
-        Assert.False(
-            Assert.IsType<MemoryStream>(first)
-                .TryGetBuffer(out _));
+        Assert.IsNotType<MemoryStream>(first);
         Assert.Throws<NotSupportedException>(
             () => first.WriteByte(7));
         Assert.Equal([1, 2, 3], ReadAll(first));
@@ -1740,7 +1881,7 @@ public sealed class ArtifactSetSessionTests
     {
         ArtifactContribution contribution = scope.Register(
             provenance,
-            () => new MemoryStream(
+            _ => new MemoryStream(
                 content,
                 writable: false));
         return new ArtifactAcquisitionOutcome.Acquired(
@@ -1849,5 +1990,65 @@ public sealed class ArtifactSetSessionTests
                 buffer,
                 cancellationToken);
         }
+    }
+
+    private sealed class OwnerCancellationReadStream(
+        TaskCompletionSource entered,
+        TaskCompletionSource cancellationObserved) : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length =>
+            throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            entered.TrySetResult();
+            try
+            {
+                await Task.Delay(
+                    Timeout.InfiniteTimeSpan,
+                    cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                cancellationObserved.TrySetResult();
+                throw;
+            }
+
+            throw new InvalidOperationException(
+                "The owner did not cancel the materialization read.");
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+
+        public override void Flush() =>
+            throw new NotSupportedException();
+
+        public override long Seek(
+            long offset,
+            SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
     }
 }
