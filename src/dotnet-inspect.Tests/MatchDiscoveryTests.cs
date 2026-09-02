@@ -1907,6 +1907,7 @@ public sealed class MatchDiscoveryTests
                 "--tfm",
                 "net10.0",
                 "--all",
+                "--json",
             ];
             var (replayExit, replayOutput, replayError) =
                 await RunCliAsync(
@@ -1917,7 +1918,9 @@ public sealed class MatchDiscoveryTests
 
             Assert.Equal(0, replayExit);
             Assert.Empty(replayError);
-            Assert.Contains("Relation: Exact", replayOutput);
+            Assert.Equal(
+                "Exact",
+                Parse(replayOutput).GetProperty("relation").GetString());
             Assert.Equal(1, staleExit);
             Assert.Contains("not found", staleError);
         }
