@@ -135,8 +135,8 @@ test("workspace scope leads the subject ladder without an inspector", () => {
 
   assert.match(
     html,
-    /data-scope="workspace" role="tab" aria-selected="true" tabindex="0" id="active-subject-tab" data-subject-tab aria-controls="subject-panel"[\s\S]*data-scope="package"[\s\S]*data-scope="type"/);
-  assert.doesNotMatch(html, /package-coordinate-controls|class="lens /);
+    /data-scope="workspace"[^>]*role="tab" aria-selected="true" tabindex="0" id="active-subject-tab" data-subject-tab aria-controls="subject-panel"[\s\S]*data-scope="package"[\s\S]*data-scope="type"/);
+  assert.doesNotMatch(html, /package-coordinate-controls|class="[^"]* lens(?: |")/);
 });
 
 test("type scope bindings dispatch only scope and type-lens controls", () => {
@@ -246,7 +246,7 @@ test("subject and inspector strips omit package coordinate selectors", () => {
     escapeHtml,
   });
 
-  assert.match(html, /class="scope-switch"[\s\S]*class="lens-separator"[\s\S]*data-lens="api"/);
+  assert.match(html, /class="[^"]*scope-switch[^"]*"[\s\S]*class="lens-separator"[\s\S]*data-lens="api"/);
   assert.doesNotMatch(
     html,
     /package-coordinate-controls|package-version|framework-select/);
@@ -261,11 +261,11 @@ test("package scope marks only the package segment and the active package lens",
     escapeHtml,
   });
 
-  assert.match(html, /data-scope="package" role="tab" aria-selected="true"/);
-  assert.match(html, /data-scope="type" role="tab" aria-selected="false"/);
+  assert.match(html, /data-scope="package"[^>]*role="tab" aria-selected="true"/);
+  assert.match(html, /data-scope="type"[^>]*role="tab" aria-selected="false"/);
   assert.doesNotMatch(html, /data-scope="member"/);
-  assert.match(html, /class="lens active" data-package-lens="dependencies"/);
-  assert.doesNotMatch(html, /class="lens active" data-package-lens="overview"/);
+  assert.match(html, /class="[^"]*\blens active" data-package-lens="dependencies"/);
+  assert.doesNotMatch(html, /class="[^"]*\blens active" data-package-lens="overview"/);
 });
 
 test("type scope marks the type segment and renders the fixed type lenses", () => {
@@ -278,15 +278,15 @@ test("type scope marks the type segment and renders the fixed type lenses", () =
     escapeHtml,
   });
 
-  assert.match(html, /data-scope="type" role="tab" aria-selected="true"/);
+  assert.match(html, /data-scope="type"[^>]*role="tab" aria-selected="true"/);
   assert.doesNotMatch(html, /data-scope="member"/);
-  assert.match(html, /class="lens active" data-lens="api"/);
+  assert.match(html, /class="[^"]*\blens active" data-lens="api"/);
   assert.match(
     html,
-    /role="tab" aria-selected="true" tabindex="0" id="active-inspector-tab" aria-controls="inspector-panel"[\s\S]*aria-label="API" title="API"><span class="lens-label">API<\/span><kbd aria-hidden="true">1<\/kbd>/);
+    /role="tab" aria-selected="true" tabindex="0" id="active-inspector-tab" aria-controls="inspector-panel"[\s\S]*aria-label="API" title="API">[\s\S]*data-slide-strip-representation="label">API<\/span>[\s\S]*data-slide-strip-representation="index" aria-hidden="true">1<\/kbd>/);
   assert.match(
     html,
-    /class="inspector-strip" role="tablist" aria-label="Type lenses"/);
+    /class="[^"]*inspector-strip"[\s\S]*role="tablist"[\s\S]*aria-label="Type lenses"/);
   assert.match(html, /data-lens="metadata"/);
   assert.match(html, /data-lens="source"/);
 });
@@ -300,8 +300,8 @@ test("member scope adds a member segment alongside package and type", () => {
     escapeHtml,
   });
 
-  assert.match(html, /data-scope="member" role="tab" aria-selected="true"/);
-  assert.match(html, /class="lens active" data-member-section="facts"/);
+  assert.match(html, /data-scope="member"[^>]*role="tab" aria-selected="true"/);
+  assert.match(html, /class="[^"]*\blens active" data-member-section="facts"/);
 });
 
 test("type scope can expose the first-class member segment", () => {
@@ -314,7 +314,7 @@ test("type scope can expose the first-class member segment", () => {
     escapeHtml,
   });
 
-  assert.match(html, /data-scope="member" role="tab" aria-selected="false"/);
+  assert.match(html, /data-scope="member"[^>]*role="tab" aria-selected="false"/);
 });
 
 test("member scope names an empty filtered strip", () => {
@@ -341,13 +341,13 @@ test("lens buttons separate accessible labels from compact order symbols", () =>
 
   assert.match(
     html,
-    /role="tab" aria-selected="true" tabindex="0" id="active-inspector-tab"[\s\S]*aria-label="API" title="API"><span class="lens-label">API<\/span><kbd aria-hidden="true">1<\/kbd>/);
+    /role="tab" aria-selected="true" tabindex="0" id="active-inspector-tab"[\s\S]*aria-label="API" title="API">[\s\S]*data-slide-strip-representation="label">API<\/span>[\s\S]*data-slide-strip-representation="index" aria-hidden="true">1<\/kbd>/);
   assert.match(
     html,
-    /role="tab" aria-selected="false" tabindex="-1"[\s\S]*aria-label="Metadata" title="Metadata"><span class="lens-label">Metadata<\/span><kbd aria-hidden="true">2<\/kbd>/);
+    /role="tab" aria-selected="false" tabindex="-1"[\s\S]*aria-label="Metadata" title="Metadata">[\s\S]*data-slide-strip-representation="label">Metadata<\/span>[\s\S]*data-slide-strip-representation="index" aria-hidden="true">2<\/kbd>/);
   assert.match(
     html,
-    /aria-label="Source" title="Source"><span class="lens-label">Source<\/span><kbd aria-hidden="true">3<\/kbd>/);
+    /aria-label="Source" title="Source">[\s\S]*data-slide-strip-representation="label">Source<\/span>[\s\S]*data-slide-strip-representation="index" aria-hidden="true">3<\/kbd>/);
 });
 
 test("lens button labels are escaped", () => {
@@ -364,19 +364,35 @@ test("lens button labels are escaped", () => {
 });
 
 test("no strip entry is marked active when nothing matches activeStripId", () => {
-  const html = renderScopeBar({
+  const html = renderScopeBar<string>({
     scope: "package",
     strip: [["overview", "Overview"]],
-    activeStripId: null,
+    activeStripId: "dependencies",
     stripAttribute: "data-package-lens",
     escapeHtml,
   });
 
-  assert.doesNotMatch(html, /class="lens active"/);
+  assert.match(html, /data-slide-strip="inspector"[\s\S]*data-initial-anchor="overview"/);
+  assert.doesNotMatch(html, /class="[^"]*\blens active"/);
   assert.match(
     html,
-    /data-package-lens="overview" data-inspector-tab role="tab" aria-selected="false" tabindex="0"/);
+    /data-package-lens="overview"[^>]*data-inspector-tab role="tab" aria-selected="false" tabindex="0"/);
   assert.doesNotMatch(
     html,
     /data-package-lens="overview"[^>]*aria-controls=/);
+});
+
+test("a missing active subject anchors to the nearest installed subject", () => {
+  const html = renderScopeBar({
+    scope: "member",
+    strip: [],
+    activeStripId: null,
+    stripAttribute: "data-member-section",
+    showMemberScope: false,
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /data-slide-strip="subject"[\s\S]*data-initial-anchor="type"/);
 });

@@ -1,8 +1,10 @@
 import {
   bindScopeBar,
   captureScopeBarFocus,
+  createScopeBarState,
   renderScopeBar,
   restoreScopeBarFocus,
+  type ScopeBarBinding,
 } from "../src/scope-bar.ts";
 import { renderAnnotatedSourcePageActions } from "../src/annotated-source.ts";
 import type {
@@ -20,6 +22,7 @@ import { renderWorkspaceSubject } from "../src/workspace-subject.ts";
 declare global {
   interface Window {
     focusWorkbenchSearchProbe: () => boolean;
+    renderPackageScopeProbe: () => void;
     rerenderScopeBarProbe: () => void;
   }
 }
@@ -34,10 +37,14 @@ function escapeHtml(value: unknown): string {
 
 const app = document.querySelector<HTMLElement>("#app");
 if (!app) throw new Error("The workspace-titlebar harness root is unavailable.");
+const appRoot: HTMLElement = app;
+const scopeBarState = createScopeBarState();
+let scopeBarBinding: ScopeBarBinding | null = null;
 const params = new URL(location.href).searchParams;
 const workspaceMode = params.has("workspace");
 const packageMode = params.has("package");
 const memberMode = params.has("member");
+const emptyMode = params.has("empty");
 const annotatedMode = params.has("annotated");
 const longMode = params.has("long");
 const defaultPackageIcon =
@@ -117,21 +124,27 @@ let activeScope: WorkspaceScope = workspaceMode
 let activePackageLens: PackageLens = "overview";
 let activeTypeLens: TypeLens = "api";
 let activeMemberSection: MemberSection = "overview";
-const packageStrip: readonly (readonly [PackageLens, string])[] = [
-  ["overview", "Overview"],
-  ["dependencies", "Dependencies"],
+const packageStrip: readonly (
+  readonly [PackageLens, string, string, string]
+)[] = [
+  ["overview", "Overview", "OV", "◫"],
+  ["dependencies", "Dependencies", "DEP", "⇄"],
 ];
-const typeStrip: readonly (readonly [TypeLens, string])[] = [
-  ["api", "API"],
-  ["metadata", "Metadata"],
-  ["source", "Source"],
+const typeStrip: readonly (
+  readonly [TypeLens, string, string, string]
+)[] = [
+  ["api", "API", "API", "⌘"],
+  ["metadata", "Metadata", "META", "≡"],
+  ["source", "Source", "SRC", "⌑"],
 ];
-const memberStrip: readonly (readonly [MemberSection, string])[] = [
-  ["overview", "Overview"],
-  ["call-graph", "Call graph"],
-  ["facts", "Facts"],
-  ["source", "Source"],
-  ["annotated", "Annotated source"],
+const memberStrip: readonly (
+  readonly [MemberSection, string, string, string]
+)[] = [
+  ["overview", "Overview", "OV", "◫"],
+  ["call-graph", "Call graph", "CG", "⑂"],
+  ["facts", "Facts", "FX", "·"],
+  ["source", "Source", "SRC", "⌑"],
+  ["annotated", "Annotated source", "ANN", "✎"],
 ];
 
 function scopeBarHtml() {
@@ -140,12 +153,13 @@ function scopeBarHtml() {
     : activeScope === "package"
       ? packageStrip
       : activeScope === "member"
-        ? memberStrip
+        ? (emptyMode ? [] : memberStrip)
         : typeStrip;
   return renderScopeBar({
     scope: activeScope,
     strip,
     activeStripId: activeScope === "workspace"
+      || (activeScope === "member" && emptyMode)
       ? null
       : activeScope === "package"
         ? activePackageLens
@@ -159,6 +173,7 @@ function scopeBarHtml() {
         : "data-lens",
     panelId: "inspector-panel",
     showMemberScope: memberMode,
+    emptyStripLabel: emptyMode ? "Filtered member list" : "",
     escapeHtml,
   });
 }
@@ -258,18 +273,39 @@ document.querySelectorAll<HTMLElement>("[data-subject-copy]").forEach(button =>
   }));
 
 function renderHarnessScopeBar() {
-  const focusTarget = document.activeElement instanceof HTMLElement
-    ? captureScopeBarFocus(document.activeElement)
+  const focusedElement = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
+  const scopeBarOwnsFocus = focusedElement
+    ?.closest("[data-scope-bar]") !== null;
+  const focusTarget = focusedElement
+    ? captureScopeBarFocus(focusedElement)
     : null;
   const scopeBar = document.querySelector<HTMLElement>(".lensbar");
   if (!scopeBar) throw new Error("The scope bar is unavailable.");
+  if (scopeBarOwnsFocus) {
+    appRoot.tabIndex = -1;
+    appRoot.focus({ preventScroll: true });
+  }
+  scopeBarBinding?.disconnect();
   scopeBar.outerHTML = scopeBarHtml();
   bindHarnessScopeBar();
-  if (focusTarget) restoreScopeBarFocus(document, focusTarget);
+  if (scopeBarOwnsFocus) {
+    let restored = false;
+    if (focusTarget) {
+      scopeBarBinding?.revealFocusTarget(focusTarget);
+      restored = restoreScopeBarFocus(document, focusTarget);
+    }
+    if (!restored) {
+      document.querySelector<HTMLElement>(".brand")
+        ?.focus({ preventScroll: true });
+    }
+    appRoot.removeAttribute("tabindex");
+  }
 }
 
 function bindHarnessScopeBar() {
-  bindScopeBar(document, {
+  scopeBarBinding = bindScopeBar(document, {
     onMemberSectionSelect: section => {
       activeMemberSection = section;
       renderHarnessScopeBar();
@@ -286,10 +322,15 @@ function bindHarnessScopeBar() {
       activeTypeLens = lens;
       renderHarnessScopeBar();
     },
-  });
+  }, scopeBarState);
 }
 
 bindHarnessScopeBar();
 
 window.focusWorkbenchSearchProbe = () => focusWorkbenchSearch(document);
+window.renderPackageScopeProbe = () => {
+  activeScope = "package";
+  activePackageLens = "overview";
+  renderHarnessScopeBar();
+};
 window.rerenderScopeBarProbe = renderHarnessScopeBar;

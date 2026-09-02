@@ -228,8 +228,10 @@ import {
 import {
   bindScopeBar,
   captureScopeBarFocus,
+  createScopeBarState,
   renderScopeBar as renderScopeBarPure,
   restoreScopeBarFocus,
+  type ScopeBarBinding,
 } from "./scope-bar.ts";
 import {
   bindWorkspaceSubject,
@@ -852,6 +854,8 @@ interface StateOverrides {
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
 
 const state: AppState = initialState;
+const scopeBarState = createScopeBarState();
+let scopeBarBinding: ScopeBarBinding | null = null;
 type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
   | { kind: "canonical" }
   | {
@@ -2599,9 +2603,15 @@ function typeDisplayName(
 function render(options: { synchronizeUrl?: boolean } = {}) {
   sourceInspection.cancelHiddenRequest();
   document.body.classList.remove("package-query-route");
-  const scopeBarFocus = document.activeElement instanceof HTMLElement
-    ? captureScopeBarFocus(document.activeElement)
+  const focusedElement = document.activeElement instanceof HTMLElement
+    ? document.activeElement
     : null;
+  const scopeBarOwnsFocus = focusedElement
+    ?.closest("[data-scope-bar]") !== null;
+  const scopeBarFocus = focusedElement
+    ? captureScopeBarFocus(focusedElement)
+    : null;
+  scopeBarBinding?.disconnect();
 
   // The Settings page is a modal-style full view layered over whatever the user came from
   // (home or a package). It owns no URL — it's a preferences panel, not shareable content —
@@ -2693,6 +2703,10 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     ? ' role="tabpanel" aria-labelledby="active-inspector-tab"'
     : "";
 
+  if (scopeBarOwnsFocus) {
+    app.tabIndex = -1;
+    app.focus({ preventScroll: true });
+  }
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal ? " inert" : ""}>
       ${workbenchShellHtml({
@@ -2784,7 +2798,18 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     };
   }
   bindEvents();
-  if (scopeBarFocus) restoreScopeBarFocus(document, scopeBarFocus);
+  if (scopeBarOwnsFocus) {
+    let restored = false;
+    if (scopeBarFocus) {
+      scopeBarBinding?.revealFocusTarget(scopeBarFocus);
+      restored = restoreScopeBarFocus(document, scopeBarFocus);
+    }
+    if (!restored) {
+      document.querySelector<HTMLElement>(".brand")
+        ?.focus({ preventScroll: true });
+    }
+    app.removeAttribute("tabindex");
+  }
   restorePackageQueryReturnFocus();
   restorePackageQueryWorkspaceFocus();
   recordNav();
@@ -3008,6 +3033,56 @@ function hasEffectiveInspector(): boolean {
   return typeLensesFor(state.package).some(([id]) => id === state.lens);
 }
 
+function packageLensPresentation(
+  id: PackageLens,
+): readonly [shortLabel: string, icon: string] {
+  switch (id) {
+    case "overview": return ["OV", "◫"];
+    case "dependencies": return ["DEP", "⇄"];
+    case "integrations": return ["INT", "⌁"];
+    case "opportunities": return ["OPP", "◇"];
+    case "analysis": return ["AN", "∿"];
+    case "metadata": return ["META", "≡"];
+    default: return assertNever(id, "package lens presentation");
+  }
+}
+
+function typeLensPresentation(
+  id: TypeLens,
+): readonly [shortLabel: string, icon: string] {
+  switch (id) {
+    case "api": return ["API", "⌘"];
+    case "metadata": return ["META", "≡"];
+    case "source": return ["SRC", "⌑"];
+    default: return assertNever(id, "type lens presentation");
+  }
+}
+
+function memberSectionPresentation(
+  id: MemberSection,
+): readonly [shortLabel: string, icon: string] {
+  switch (id) {
+    case "overview": return ["OV", "◫"];
+    case "call-graph": return ["CG", "⑂"];
+    case "facts": return ["FX", "·"];
+    case "source": return ["SRC", "⌑"];
+    case "annotated": return ["ANN", "✎"];
+    default: return assertNever(id, "member section presentation");
+  }
+}
+
+function scopeBarInspectorDefinitions<TId extends string>(
+  definitions: readonly (readonly [TId, string])[],
+  presentation: (
+    id: TId,
+  ) => readonly [shortLabel: string, icon: string],
+): readonly (readonly [TId, string, string, string])[] {
+  return definitions.map(([id, label]) => {
+    const [shortLabel, icon] = presentation(id);
+    return [id, label, shortLabel, icon];
+  });
+}
+
 function renderScopeBar() {
   const sc = scope();
   const selected = selectedType();
@@ -3027,7 +3102,9 @@ function renderScopeBar() {
   if (sc === "package") {
     return renderScopeBarPure({
       scope: sc,
-      strip: packageLensesFor(state.package),
+      strip: scopeBarInspectorDefinitions(
+        packageLensesFor(state.package),
+        packageLensPresentation),
       activeStripId: state.packageLens,
       stripAttribute: "data-package-lens",
       panelId: "inspector-panel",
@@ -3039,7 +3116,9 @@ function renderScopeBar() {
     const member = selectedMember(selected);
     return renderScopeBarPure({
       scope: sc,
-      strip: member ? memberSectionsFor(member) : [],
+      strip: scopeBarInspectorDefinitions(
+        member ? memberSectionsFor(member) : [],
+        memberSectionPresentation),
       activeStripId: state.memberSection,
       stripAttribute: "data-member-section",
       panelId: "inspector-panel",
@@ -3053,7 +3132,9 @@ function renderScopeBar() {
       scope: sc,
       // `typeLensesFor` rather than the raw catalog: a runtime pack offers only the API
       // lens, and reading the catalog directly here would skip that restriction.
-      strip: typeLensesFor(state.package),
+      strip: scopeBarInspectorDefinitions(
+        typeLensesFor(state.package),
+        typeLensPresentation),
       activeStripId: state.lens,
       stripAttribute: "data-lens",
       panelId: "inspector-panel",
@@ -5079,7 +5160,7 @@ function bindTypePanelEvents() {
 }
 
 function bindScopeBarEvents() {
-  bindScopeBar(document, {
+  scopeBarBinding = bindScopeBar(document, {
     onMemberSectionSelect: section => {
       applyMemberSection(section);
     },
@@ -5124,7 +5205,7 @@ function bindScopeBarEvents() {
       state.memberBrowseTypeId = "";
       render();
     },
-  });
+  }, scopeBarState);
 }
 
 function bindSettingsPanelEvents() {
