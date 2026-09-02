@@ -13,8 +13,10 @@ The importer separates three roles and makes the metadata lifetime explicit, bec
   custom debug records require explicit typed consumers; their presence alone
   is not a Decompiler guarantee. The
   [name and symbol preservation contract](design/decompiler-symbol-preservation.md)
-  owns that adoption boundary. Symbol absence lowers fidelity; it never changes
-  the shape of the API.
+  owns that adoption boundary. Symbol absence changes naming and provenance,
+  not the shape of the API, and does not by itself lower decompilation fidelity.
+  `IrImporterTests.OpenWithoutSymbols_IgnoresPdb_RendersVSlotsNotSourceNames`
+  gates the supported no-symbol path.
 
 ## Type identity
 

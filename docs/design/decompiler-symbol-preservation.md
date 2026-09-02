@@ -44,7 +44,7 @@ Evidence is adopted in this order:
 | -------- | --------------------- | ------------------------ |
 | ECMA-335 metadata | Declared namespace, type, member, parameter, and generic-parameter identities; field and property identities used by supported generated forms | Pre-obfuscation names, local-variable names, labels, aliases used at a particular source occurrence |
 | Matching Portable PDB | A `LocalVariable` name bound to an exact IL local slot and its `LocalScope`; other typed debug records once a Decompiler consumer exists | Names for values that never occupy an IL local; source syntax or use-site binding not represented by a debug record |
-| Authenticated compiler-generated metadata | Source identifiers embedded in a recognized lowering, such as lambda/local-function names, captured fields, anonymous properties, and hoisted state-machine fields | Decoding an unauthenticated lookalike, or claiming a source name after the relevant raise declines |
+| Authenticated compiler-generated metadata | Source identifiers embedded in a recognized lowering, such as successful lambda/local-function raises and iterator state-machine fields | Decoding an unauthenticated lookalike, or claiming a source name after the relevant raise declines |
 | Decompiler analysis | Collision-free, readable presentation names derived from typed IR roles | Authored identity |
 | Checksum-verified source content | Exact text for the separate `PDB Source` view | Permission to inject source-only declarations into reconstructed `Decompiled Source` |
 
@@ -76,15 +76,16 @@ Neither case authorizes heuristic substitution in reconstructed source.
 
 Compiler-generated names are evidence only when both their metadata context and
 their recognized grammar establish the lowering. `GeneratedCodeIdentity` owns
-that authentication. `CSharpNaming` may decode the source portion only after
-authentication, and a raising pass may emit that source name only when it also
-reconstructs the binding.
+the shared authentication policy used by the lambda, local-function, and
+iterator consumers. An owner-specific consumer may decode a source portion
+only after equivalent typed authentication, and a raising pass may emit that
+source name only when it also reconstructs the binding.
 
 When a raise declines, the output must retain a visibly generated, legal
 fallback and lower fidelity as appropriate. It must not decode the embedded
 source substring into a name that would bind differently.
 
-Two current paths preserve useful names without yet satisfying this
+Several current paths produce useful names without yet satisfying this
 authentication boundary:
 
 - Anonymous-object import recognizes the same-assembly
@@ -98,8 +99,18 @@ authentication boundary:
   relationship requested by
   [#5277](https://github.com/richlander/dotnet-inspect/issues/5277) under
   [#4472](https://github.com/richlander/dotnet-inspect/issues/4472). Its
-  current name recovery is useful behavior, not proof that the target
-  authenticated inverse-core contract is complete.
+  current `alpha` spelling is an unauthenticated heuristic, not **Preserved**
+  identity. The relationship and hoisted field retain enough evidence to make
+  authenticated recovery a **Recoverable gap**.
+- Auto-property backing-field import decodes
+  `<Property>k__BackingField` from the name grammar plus a matching property
+  row, but does not require compiler-generated owner evidence.
+- Primary-constructor capture rendering decodes `<parameter>P` from the name
+  grammar alone rather than binding the field to authenticated generated
+  metadata and the exact constructor parameter.
+
+[#5595](https://github.com/richlander/dotnet-inspect/issues/5595) tracks the
+two generated-field authentication gaps.
 
 These are disclosed current limitations, not precedents for new generated-name
 consumers.
@@ -111,14 +122,14 @@ to runnable fixture commands under [Fixture probes](#fixture-probes).
 
 | Scenario | Current contract | Probe | Regression gate |
 | -------- | ---------------- | ----- | --------------- |
-| Metadata declarations | Preserve artifact type, method, parameter, and generic-parameter names. Escape C# keywords without changing identifier identity. | P1 | `KeywordIdentifierTests.KeywordParameter_IsEscaped`; the generic-name portion has a manual probe but no focused automated gate. |
+| Metadata declarations | Preserve artifact namespace, type, field, property, event, method, parameter, and generic-parameter names. Escape C# keywords without changing identifier identity. | P1 | `KeywordIdentifierTests.KeywordParameter_IsEscaped`; the generic-name portion has a manual probe but no focused automated gate. |
 | PDB local variables | Prefer a usable Portable PDB local name associated with the exact IL slot over every synthesized fallback. | P2 | `IrImporterTests.LocalNames_RecoveredFromPdb_RenderSourceNamesNotVSlots` |
 | Lambda parameters and captures | When an authenticated lambda raise succeeds, preserve generated-method parameter names and substitute authenticated captured-field names back to their source identifiers. | P3 | `LambdaRaisingPassTests.NonCapturingExpressionBody_RaisesSimpleLambda` and `CapturingExpressionBody_SubstitutesCaptureAndRaisesLambda` |
 | Local-function declarations and parameters | When an authenticated local-function raise succeeds, recover the source function name and generated-method parameter names, and bind calls to the raised declaration. | P4 | `LocalFunctionRaisingPassTests.StaticLocalFunction_RecoveredAsDeclarationAndUnqualifiedCall` |
 | Anonymous-object properties | Preserve property metadata names when the current same-assembly anonymous-type shape raises, and bind initializer values to those names. The current admission is name-pattern-based and has the #5585 authentication gap disclosed above. | P5 | `AnonymousObjectPassTests` gates the positive output, not generated-type authentication. |
 | Tuple elements in signatures | Preserve `TupleElementNamesAttribute` names on supported return and parameter signatures. | P6 | `TupleTypeViewTests` and `CSharpDeclarationWriterTests`; the whole-member composition is also manually probed. |
 | Iterator hoisted locals | Recover a source local name from authenticated iterator state-machine evidence when reconstruction owns the corresponding field and use. | P7 | `IteratorReconstructionPassTests.CountingLoopIterator_RendersLoopAndYield` |
-| Classic async hoisted locals | The current fixture-shaped pass recovers `alpha` from the hoisted field name and `beta` from the matching PDB local. Without symbols, `alpha` remains available but `beta` does not. | P8 | `ClassicAsyncReconstructionHonestyTests.SequentialAwaitLocalNameComesFromSymbols` is the positive gate. The no-symbol result is manually probed; #5587 tracks correcting the current vacuous negative test. |
+| Classic async local names | The current fixture-shaped pass heuristically decodes `alpha` from the hoisted field name without the required authentication; this is not **Preserved** identity. It preserves `beta` from the matching PDB local. Without symbols, current output still decodes `alpha` but falls back to `V_1` for `beta`. | P8 | `ClassicAsyncReconstructionHonestyTests.SequentialAwaitLocalNameComesFromSymbols` is the positive PDB-local gate. Both the no-symbol result and `alpha` authentication boundary are manually probed; #5587 tracks correcting the vacuous negative test, while #5277/#4472 track authenticated classic-async identity. |
 
 These guarantees are conditional on successful reconstruction. A method may
 carry a recoverable substring in a generated metadata name while the containing
@@ -136,7 +147,9 @@ output does not preserve it.
 | Declined capturing local functions | The generated local-function method embeds `AddSquare`; the display-class field embeds captured `n`. | Generated support identifiers such as `___c__DisplayClass...` and `__CapturingLocalFunctionWithLocal_g__AddSquare...` remain. | Raise the supported environment and function, or retain an honest valid fallback without losing the available source identity when binding can be proved. | [#3129](https://github.com/richlander/dotnet-inspect/issues/3129), P11 |
 | Same-named local functions in disjoint source scopes | Each authenticated generated method embeds `Pick`; local-function ordinals and distinct MethodDefs distinguish the two definitions. | Both calls retain generated fallback names because declarations are flattened into one scope. | Recover each declaration into its own source scope while preserving each call's binding. | [#3878](https://github.com/richlander/dotnet-inspect/issues/3878), P12 |
 | Tuple element names on locals | `TupleElementNames` custom debug information is attached to each exact Portable PDB `LocalVariable`. | Local variable names survive, but types render as `ValueTuple<int, int>` and uses as `Item1`/`Item2`. | Carry the names with the local type and use `(int Sum, int Product)` plus `.Sum`/`.Product` when structurally valid. | [#5578](https://github.com/richlander/dotnet-inspect/issues/5578), P13 |
-| Escapable keyword names on PDB locals | The exact slot-bound PDB name is `class`; C# can losslessly spell that identity as `@class`. | The current PDB-name admission rejects reserved keywords before escaping, so user-facing output synthesizes `iDisposable`. | Admit escapable PDB names, reserve the underlying identifier identity, and render the selected spelling through C# escaping. | [#5586](https://github.com/richlander/dotnet-inspect/issues/5586), P14 |
+| Classic-async hoisted local names | The Metadata-issued kickoff/state-machine relationship and generated field `<alpha>5__2` can authenticate `alpha`. | Current compiler-fixture output spells `alpha`, but derives it from a fixture-shaped name/IL heuristic rather than the typed relationship. | Consume the authenticated relationship before decoding and binding the hoisted field name. | [#5277](https://github.com/richlander/dotnet-inspect/issues/5277) under [#4472](https://github.com/richlander/dotnet-inspect/issues/4472), P8 |
+| Full C# identifier grammar on PDB locals | Exact slot-bound names include the keyword `class` and combining-mark identifier `A\u0301`; C# can losslessly spell them as `@class` and `A\u0301`. | PDB-name admission rejects keywords before escaping and accepts a narrower character grammar, so output synthesizes replacements. | Admit compiler-supported identifier identities, reserve the underlying identity for collisions, and apply position-appropriate escaping. | [#5586](https://github.com/richlander/dotnet-inspect/issues/5586), P14 |
+| Generated backing-field and primary-constructor names | Auto-property fields have matching property rows; primary-constructor captures can be bound to exact constructor parameters and compiler-generated owner evidence. | Current output decodes `<Property>k__BackingField` from grammar plus the property row and `<parameter>P` from grammar alone. | Authenticate each generated field and its exact source-symbol binding before decoding. | [#5595](https://github.com/richlander/dotnet-inspect/issues/5595), P22 |
 
 The current decline behavior is itself gated:
 
@@ -149,6 +162,10 @@ The current decline behavior is itself gated:
 - `UsingStatementPassTests.KeywordNamedDisposedOnlyResource_PreservesPdbVariableDeclaration`
   proves the keyword PDB name retains declaration identity while pinning the
   current fallback spelling until #5586.
+
+The combining-mark half of P14 and both P22 generated-field paths are manual
+fixture probes. Their issues own the missing focused positive and lookalike
+gates.
 
 Those tests are safety rails, not declarations that the gaps are complete.
 
@@ -168,7 +185,8 @@ awkward synthesized name is presentation work, not source-name recovery.
 [#3165](https://github.com/richlander/dotnet-inspect/issues/3165) tracks
 real-world readability improvements. P15 is the fixture boundary: `y` existed
 in source, but the Release artifact retained only the value flow, so any
-replacement for `S_256` would still be synthesized.
+replacement for `S_256` would still be synthesized. P15 is a manual fixture
+probe; no focused automated gate currently asserts that `y` is absent.
 
 ## Names that reconstructed source cannot promise
 
@@ -182,8 +200,8 @@ compiler and Decompiler evolve.
 | Runtime-async stack value | The runtime-async fixture PDB names only slot-backed `beta`; `alpha` remains on the lowered value path without a named local record. The classic lowering instead hoists `alpha` into the named state-machine field `<alpha>5__2`; `beta` is a slot-backed PDB local in both lowerings. | Preserve `beta`; synthesize or structure the other runtime-async value honestly. Do not copy `alpha` from fixture source or from the classic sibling. | P17 |
 | Source label | IL branches retain target offsets, not a source label such as `done`. | Structure the control flow or use an IL-derived label when a retained branch requires one. Do not claim the authored label. | P18 |
 | Local-constant use | The PDB retains `hugeCount` and its value, but IL does not associate a matching literal instruction with that declaration. | Do not replace matching literals with `hugeCount` unless a future evidence source proves use-site binding. A separate symbol inventory could expose the declaration without changing reconstructed expressions. | P19 |
-| Source alias or qualification choice | An import scope may retain `IrConvert = ...Convert`, but IL member/type references identify the target, not whether this occurrence used the alias, a short name, `global::`, or a fully qualified name. | Emit an unambiguous C# spelling of the target symbol. Do not claim the authored alias. | P20 |
-| `nameof` expression | Compilation stores the resulting string `"x"`; it does not retain provenance that distinguishes `nameof(x)` from an authored string literal. | Preserve the string value. Do not infer `nameof` from a matching in-scope identifier. | P21 |
+| Source alias or qualification choice | An import scope may retain `IrConvert = ...Convert`, but IL member/type references identify the target, not whether this occurrence used the alias, a short name, `global::`, or a fully qualified name. | Emit an unambiguous C# spelling of the target symbol. Do not claim the authored alias. | P20 (manual; no focused non-inference gate) |
+| `nameof` expression | Compilation stores the resulting string `"x"`; it does not retain provenance that distinguishes `nameof(x)` from an authored string literal. | Preserve the string value. Do not infer `nameof` from a matching in-scope identifier. | P21 (manual; no focused non-inference gate) |
 
 The same rule covers discards, compiler-elided temporaries, pre-obfuscation
 names, and other source-only identities: semantic resemblance is not identity
@@ -215,6 +233,7 @@ commands inspect the same optimized fixture shape used by the Decompiler suite:
 dotnet build dotnet-inspect.slnx -c Release
 
 CFG=artifacts/bin/ILInspector.Decompiler.Tests/release/ILInspector.Decompiler.Tests.dll
+CSHARP_TEXT=tests/CSharpText.Tests/bin/Release/net11.0/CSharpText.Tests.dll
 CLASSIC=artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicAsync/release/ILInspector.Decompiler.Fixtures.ClassicAsync.dll
 RUNTIME=artifacts/bin/ILInspector.Decompiler.Fixtures.RuntimeAsync/release/ILInspector.Decompiler.Fixtures.RuntimeAsync.dll
 
@@ -312,9 +331,18 @@ inspect_member \
   ILInspector.Decompiler.Fixtures.ClassicAsync.AsyncFixtures \
   TwoSequentialNamedAwaits \
   "$CLASSIC"
+
+dotnet run --project tools/DecompilerHarness -c Release --no-build -- \
+  "$CLASSIC" \
+  --dump 'ILInspector.Decompiler.Fixtures.ClassicAsync.AsyncFixtures::TwoSequentialNamedAwaits' \
+  --skip-pdb
 ```
 
-Expected: the reconstructed method declares and uses both `alpha` and `beta`.
+Expected with symbols: current output declares and uses both `alpha` and
+`beta`. `beta` is preserved from the PDB; `alpha` is the unauthenticated
+classic-async heuristic tracked by #5277/#4472, not **Preserved** identity.
+Without symbols, current output still uses `alpha` but falls back to `V_1` for
+`beta`. The no-symbol result is a manual probe; #5587 tracks its focused gate.
 
 ### P9: deterministic no-symbol local names
 
@@ -385,18 +413,26 @@ Current gap: `leftCopy` and `rightCopy` survive, but their local types and uses
 lose `Sum` and `Product` and render `ValueTuple<int, int>` plus
 `Item1`/`Item2`.
 
-### P14: escapable keyword name on a PDB local
+### P14: full C# identifier grammar on PDB locals
 
 ```bash
 inspect_member \
   ILInspector.Decompiler.Tests.CfgSampleClass \
   KeywordNamedDisposedOnlyUsingResource \
   "$CFG"
+
+inspect_member \
+  CSharpText.Tests.UnicodeIdentifierFixtures \
+  CombiningMarkLocal \
+  "$CSHARP_TEXT"
 ```
 
-Current gap: the PDB binds source `@class` to the resource local as `class`,
-but user-facing output synthesizes `iDisposable` instead of applying the
-lossless C# escape.
+Current gap: the first PDB binds source `@class` to the resource local as
+`class`, but user-facing output synthesizes `iDisposable` instead of applying
+the lossless C# escape. The second PDB binds the valid combining-mark identifier
+`A\u0301`, but the narrower local-name admission falls back instead of
+preserving it. The combining-mark result is a manual fixture probe; #5586 owns
+its missing focused gate.
 
 ### P15: erased local with an honest synthesized name
 
@@ -409,7 +445,8 @@ inspect_member \
 
 Expected boundary: the raised local function uses `S_256`, not the source name
 `y`. Release compilation retained the value flow but no slot-backed local-name
-evidence for `y`.
+evidence for `y`. This is a manual fixture probe; no focused automated gate
+currently asserts the absence of `y`.
 
 ### P16: optimized-away local and source-view contrast
 
@@ -446,9 +483,10 @@ inspect_member \
   "$RUNTIME"
 ```
 
-Expected boundary: classic async preserves `alpha` from the hoisted field name
-and `beta` from the PDB local. Runtime async preserves the same PDB-backed
-`beta` but currently renders its unnamed first value as `S_256`. Direct
+Expected boundary: classic async currently decodes `alpha` from the hoisted
+field name without the required authentication and preserves `beta` from the
+PDB local. Runtime async preserves the same PDB-backed `beta` but currently
+renders its unnamed first value as `S_256`. Direct
 Portable PDB inspection shows only the `beta` local row in the runtime artifact.
 This comparison is a manual probe rather than an automated cross-lowering name
 gate.
@@ -492,7 +530,8 @@ inspect_member \
 
 Expected boundary: the fixture source aliases the IR node as `IrConvert`, while
 decompiled output identifies the target type as `Convert`. The method-level
-render does not claim the file-level alias choice.
+render does not claim the file-level alias choice. This is a manual fixture
+probe; no focused automated gate currently asserts alias non-inference.
 
 ### P21: `nameof` without expression provenance
 
@@ -510,6 +549,28 @@ throw new ArgumentOutOfRangeException("x");
 ```
 
 The literal value survives; the fact that source wrote `nameof(x)` does not.
+This is a manual fixture probe; no focused automated gate currently asserts
+`nameof` non-inference.
+
+### P22: generated field names awaiting authentication
+
+```bash
+inspect_member \
+  ILInspector.Decompiler.Tests.BackingFieldSample \
+  Number \
+  "$CFG"
+
+dotnet run --project src/dotnet-inspect -c Release --no-build -- \
+  type ILInspector.Decompiler.Tests.PrimaryCtorSample \
+  --library "$CFG" \
+  -S "Decompiled Source" --bare --tips q
+```
+
+Current output maps `<Number>k__BackingField` to the property name `Number` and
+maps `<alpha>P` and `<beta>P` to `alpha` and `beta`. Those are useful
+compiler-fixture spellings, but the current decoders do not yet establish the
+authentication required for **Preserved** identity. These are manual fixture
+probes; #5595 owns the missing positive and lookalike gates.
 
 ## Change discipline
 
