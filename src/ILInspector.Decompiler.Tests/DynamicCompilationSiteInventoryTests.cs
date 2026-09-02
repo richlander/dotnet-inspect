@@ -65,7 +65,7 @@ public sealed class DynamicCompilationSiteInventoryTests
 
             // Cross-assembly reference seam.
             ["CrossAssemblyMethodFactsTests.cs"] = (1, "Cross-assembly seam: constructs referencing compilations to test cross-assembly facts."),
-            ["AuthoredRebuildFidelityTests.cs"] = (1, "Cross-assembly snapshot seam: replaces a same-identity dependency after RTS acquisition and proves authored replay uses the frozen closure."),
+            ["AuthoredRebuildFidelityTests.cs"] = (2, "Cross-assembly snapshot + portable-PDB seams: replaces a same-identity dependency after RTS acquisition, and emits checksum-bearing PDB fixtures for live source-acquisition outcomes."),
             ["ReferenceEqualityMetadataFactsTests.cs"] = (1, "Cross-assembly version-pair seam: builds same-name hierarchy assemblies with distinct versions to gate exact visited identity."),
 
             // Product-output validity under varying compilation options.
@@ -132,9 +132,12 @@ public sealed class DynamicCompilationSiteInventoryTests
     //   #4732 adds TypeRefDecoderRecursionTests.cs (1 site): compiles the
     //     Decompiler's bounded invalid-rank output and proves it cannot bind as
     //     another array shape.
-    //   Combined: 44 files, 54 sites.
+    //   #5473 adds a second site to AuthoredRebuildFidelityTests.cs (1 -> 2):
+    //     emits checksum-bearing portable-PDB fixtures for live source
+    //     acquisition, absence, and failure gates.
+    //   Combined: 44 files, 55 sites.
     const int ExpectedDynamicFiles = 44;
-    const int ExpectedDynamicSites = 54;
+    const int ExpectedDynamicSites = 55;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];
