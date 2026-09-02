@@ -192,6 +192,11 @@ without referencing the CLI assembly.
 Harnesses and fixtures may prove product behavior, but they do not manufacture
 or repair the product evidence they measure.
 
+Within the CLI host, `PackageIndexCache` is a focused derived-result owner. Its
+[package index cache](design/package-index-cache.md) contract defines when a
+persistent filesystem-derived package projection may replace cold inspection;
+`CoreCache` remains only its storage mechanism.
+
 ## Core currencies
 
 The architecture composes typed currencies rather than strings or

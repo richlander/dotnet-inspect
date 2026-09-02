@@ -37,6 +37,9 @@ substrates, and inspection producers that will extend that space.
   CLI-scoped boundary from host-authorized candidate collection through typed
   exact, glob, namespace-prefix, partial, and miss classification; Metadata
   retains candidate facts and the command retains presentation.
+  The [package index cache](design/package-index-cache.md) separately owns
+  whether a persistent filesystem-derived package result may replace cold
+  inspection of one exact authorized retained payload.
 - `src/DotnetInspector.Queries/` contains host-neutral typed query definitions,
   deterministic synchronous/asynchronous execution, prerequisite-aware cost,
   and content-shaped metadata, reference, package dependency-group,
