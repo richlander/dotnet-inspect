@@ -276,6 +276,19 @@ endpoint root is required. A moved-out subject is valid only when that grammar
 can express its complete relative path; otherwise the producer uses
 `OuterContext`.
 
+Construction enforces the root endpoint sides needed by `RootRelative`
+subjects without interpreting identifier grammar:
+
+| Root change | Available root sides | Allowed child changes |
+| --- | --- | --- |
+| Diff, Rename, Move, or Rename plus Move | Before and After | Diff, Addition, Deletion, Rename, Move, or Rename plus Move |
+| Addition | After only | Addition |
+| Deletion | Before only | Deletion |
+
+An empty subject population is valid with every root change. `OuterContext`
+does not apply this matrix because each subject endpoint is independently
+complete in the outer comparison context.
+
 The same root-relative child coordinate can identify one ordinary subject under
 both a renamed or moved Before root and its After root. When the root is only a
 reference point, as in clone composition, the producer normally selects
@@ -424,7 +437,9 @@ structured coordinates validates its assertion before projection.
 Root and child change kinds are independent producer assertions. Consumers do
 not infer every child's existence from the root kind. For example, a deleted
 root may contain a subject moved to a surviving root rather than a deleted
-subject.
+subject when the document uses `OuterContext`. `RootRelative` applies the
+endpoint-availability matrix under
+[Identifier and display](#identifier-and-display).
 
 For a hierarchical coordinate:
 
@@ -1082,6 +1097,14 @@ least:
   cross-assembly coordinates using an immutable test payload;
 - construction and value inequality for `OuterContext` and `RootRelative`
   subject-coordinate bases;
+- `RootRelative` acceptance of Addition roots with only Addition children,
+  Deletion roots with only Deletion children, and every root kind with an empty
+  subject population;
+- direct-construction and deserialization rejection of every `RootRelative`
+  child kind that requires a root endpoint side absent from an Addition or
+  Deletion root;
+- the same root Addition/Deletion plus independent child combinations remaining
+  valid under `OuterContext`;
 - package/comparison-set root construction for a payload item space spanning
   two assemblies;
 - explicit Present and NotApplicable root-comparison cases without null
