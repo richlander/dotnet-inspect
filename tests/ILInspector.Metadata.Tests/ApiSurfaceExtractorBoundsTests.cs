@@ -302,10 +302,16 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
-    public void ExtensionReceiverIdentityContributesItsOwnRetainedText()
+    public void ProjectedDeclaringTypeIdentityContributesItsOwnRetainedText()
     {
         const string receiver = "System.Collections.Generic.IEnumerable<T>";
         const string declaringType = "Samples.Extensions";
+        MetadataTypeDefinitionName declaringTypeDefinition = Assert.IsType<
+            MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Samples",
+                    ["Extensions"]))
+            .Name;
         var withoutReceiver = new ApiMember
         {
             Name = "M",
@@ -321,10 +327,15 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 ExtensionReceiverType = receiver,
             },
             DeclaringTypeCanonicalName = declaringType,
+            DeclaringTypeDefinitionName = declaringTypeDefinition,
         };
 
         Assert.Equal(
-            receiver.Length + declaringType.Length,
+            receiver.Length
+                + declaringType.Length
+                + declaringTypeDefinition.Namespace.Length
+                + declaringTypeDefinition.Segments.Sum(
+                    static segment => segment.Length),
             ApiSurfaceExtractor.CountRetainedText(withReceiver)
                 - ApiSurfaceExtractor.CountRetainedText(withoutReceiver));
     }

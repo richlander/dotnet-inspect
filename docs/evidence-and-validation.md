@@ -57,6 +57,37 @@ non-vacuity test that fails when the wiring is removed. A gate counts only when
 it runs in the suite's Release configuration; use runtime opt-ins, not
 `[Conditional("DEBUG")]`.
 
+### Absence claims choose their coverage
+
+An absence claim in this section is about product or repository composition:
+within a stated boundary, a dependency, runtime, API family, prohibited
+construct, or unsupported platform capability is not present or used. For
+example, "the product has no Python runtime or dependency" is an absence claim
+because the set of implementation dependencies and paths can change as the
+repository evolves.
+
+A product algorithm postcondition is not an absence claim merely because it is
+phrased negatively. "Classification does not emit a Member with the wrong
+declaring Type" is an ordinary correctness property over supported inputs and
+uses normal contract gates.
+
+An absence claim may have full, partial, or no gate coverage. Full coverage
+names a gate for the complete stated boundary. Partial coverage names what the
+gate establishes and marks the residual explicitly. No coverage marks the
+claim `unverified`. All three are legitimate when the user accepts that
+evidence posture.
+
+A compiler or semantic analyzer that rejects the prohibited use is an
+acceptable gate. NativeAOT analyzer diagnostics are gates for the exact uses
+they reject, and NativeAOT-executed tests are gates for prohibited behavior on
+the paths they exercise. A successful NativeAOT publication alone establishes
+publishability, not API absence. State the exact diagnostic or executed
+scenario rather than generalizing either into a syntactic absence scan.
+
+Before implementing or strengthening an absence claim, propose full, partial,
+and no-gate options to the user. Name the recommended option, its evidence, and
+any residual; proceed only after the user chooses the acceptable coverage.
+
 ## Harness boundary
 
 Harnesses own orchestration, fixtures, independent oracles, comparison, and
