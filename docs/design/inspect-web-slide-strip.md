@@ -131,9 +131,12 @@ viable modes, allocation, retained window, and focus:
    indicators overlay the corresponding viewport boundary and consume no
    additional allocation.
 3. During an adopter navigation transaction, candidate windows must contain
-   its pending destination identity. Otherwise, if an item owns focus, they
-   must contain it. On initial or reset placement with neither input, they must
-   contain the policy's initial anchor.
+   its pending destination identity. During a directional slide, that
+   destination is the adjacent hidden item and candidate windows pin it to the
+   trailing edge for slide-after or the leading edge for slide-before.
+   Otherwise, if an item owns focus, candidates must contain it. On initial or
+   reset placement with neither input, they must contain the policy's initial
+   anchor.
 4. Within each mode, the control first maximizes visible item count, then
    minimizes movement from the retained leading identity, then uses the
    policy's preferred direction as the final tie-break.
@@ -184,14 +187,20 @@ retained leading identity and any active anchor. When the focused item is wider
 than the viewport, the strip aligns the nearest edge needed to maximize its
 visible portion rather than shrinking it.
 
-A slide-before or slide-after request moves the contiguous window by one
-owner-order position when hidden inventory exists in that direction. Sliding
-does not select or activate an item. When the requested movement would hide the
-focused item, the newly revealed item at the movement edge becomes the pending
-destination and the atomic reveal-tab-stop-focus transaction applies. The
-adopter owns keyboard meaning and may issue slide requests after its existing
-arrow-key navigation resolves a destination; pointer, touch, trackpad, or wheel
-handling uses the same focus-preserving operation.
+A slide-after request targets the first hidden item after the current window
+and pins it to the new trailing edge. A slide-before request targets the first
+hidden item before the current window and pins it to the new leading edge. The
+resolver removes as many items from the opposite edge as unequal widths
+require; it never skips the adjacent hidden target or reveals an item beyond
+that pinned edge. If no multi-item window fits, the pinned item becomes the
+singleton and the normal fallback rule applies when it is oversized.
+
+Sliding does not select or activate an item. When the requested movement would
+hide the focused item, the pinned item becomes the pending destination and the
+atomic reveal-tab-stop-focus transaction applies. The adopter owns keyboard
+meaning and may issue slide requests after its existing arrow-key navigation
+resolves a destination; pointer, touch, trackpad, or wheel handling uses the
+same focus-preserving operation.
 
 The strip exposes leading and trailing edge-availability states. Their
 overlaid visual treatment may be a vertical highlight or fade, but the
@@ -326,6 +335,7 @@ The implementation PR must add focused tests that prove:
 - overlaid indicators that do not alter capacity or item hit targets;
 - slide-before and slide-after bounds;
 - focused one-item slide transactions in both directions;
+- unequal-width directional slides that pin the adjacent hidden item;
 - atomic reveal-then-focus navigation to an out-of-window identity;
 - invalid policy and missing required-Label rejection;
 - dynamic inventory replacement with retained and removed identities;
@@ -374,7 +384,10 @@ normal Inspect Web frontend and production Browser/Wasm suites.
 6. At a one-item window, focus the visible item and issue slide-after and
    slide-before requests. Confirm that the newly revealed boundary item becomes
    the pending destination and that window, sole tab stop, and focus move
-   atomically without selection or activation.
+   atomically without selection or activation. Repeat with unequal widths where
+   the prior leading identity cannot remain; confirm that the adjacent hidden
+   item is pinned to the requested edge, opposite-edge items are removed as
+   needed, and no farther item is revealed.
 7. Replace the installed inventory while focus and selection differ. Confirm
    that retained identities preserve focus and adopter-owned navigation state
    and that removed identities use the adopter's external focus rule. Install

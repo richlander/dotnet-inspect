@@ -200,14 +200,19 @@ mounted.
    receives its minimum, the inspector receives the rest, and inspector width
    beyond its complete preferred state returns to the subject.
 6. **Terminal deficit** begins only when the control-free width cannot fit both
-   policy minima. The width after the fixed separator is divided into one
-   subject share and two inspector shares, with any rounding remainder assigned
-   to the inspector. If one strip's complete preferred state is narrower than
-   its share, that surplus returns to the other strip. Each strip then
-   independently selects its mode and largest fitting contiguous window. A
-   share below the policy minimum uses SlideStrip's one-item floor and uses the
-   fallback singleton only when no normal-sized item fits. An item wider than
-   its viewport follows the focused-item alignment rule.
+   policy minima. One subject share and two inspector shares define the target,
+   with any rounding remainder assigned to the inspector. The composite then
+   chooses the allocation that first minimizes total assigned width left unused
+   by the two rendered windows, then minimizes distance from that target; a
+   remaining tie gives the larger share to the inspector. Unused width is
+   allocation beyond a normal-sized rendered window; a clipped fallback
+   singleton consumes its complete share. This treats the ratio as a bias
+   rather than a hard cap and returns compact-mode slack to a clipped peer.
+   Each strip independently selects its mode and largest fitting contiguous
+   window at the candidate allocation. A share below the policy minimum uses
+   SlideStrip's one-item floor and uses the fallback singleton only when no
+   normal-sized item fits. An item wider than its viewport follows the
+   focused-item alignment rule.
 
 An empty inspector inventory omits the inspector strip and both allocation
 controls. The subject strip then receives the composite's complete width and
@@ -787,15 +792,17 @@ are proved by the gates in
 9. Narrow until the controls plus both policy minima cannot fit but the minima
    fit after control removal. Confirm that the controls disappear, both minima
    remain satisfied, and unused inspector capacity returns to subjects.
-   Continue into terminal deficit and confirm the one-subject-share to
-   two-inspector-share allocation, including surplus return when one complete
-   inventory is narrower than its share. Confirm that each strip selects one
-   uniform mode and contiguous window, using a fallback singleton only when its
-   share cannot fit a normal item. Focus an item wider than its viewport and
-   confirm that its visible portion is maximized; with focus in one strip,
-   confirm that a distinct active anchor does not displace it. Confirm that
-   every compact control retains its full accessible name and title and neither
-   strip nor the page overflows its assigned boundary.
+   Continue into terminal deficit and confirm that the one-subject-share to
+   two-inspector-share target first minimizes unused rendered-window capacity
+   and then minimizes distance from the target, with ties favoring inspector
+   width. Confirm that compact-mode slack returns to a clipped peer. Confirm
+   that each strip selects one uniform mode and contiguous window, using a
+   fallback singleton only when its share cannot fit a normal item. Focus an
+   item wider than its viewport and confirm that its visible portion is
+   maximized; with focus in one strip, confirm that a distinct active anchor
+   does not displace it. Confirm that every compact control retains its full
+   accessible name and title and neither strip nor the page overflows its
+   assigned boundary.
 10. Repeat the allocation transitions with reduced motion enabled and confirm
     that modes, windows, edge indicators, and focus reach the same final states
     without sliding animation.
