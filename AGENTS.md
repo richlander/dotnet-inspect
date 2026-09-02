@@ -346,7 +346,7 @@ the `IsPackable`/`VersionPrefix` release rules live in
 Match evidence to the claim and use the smallest existing check that proves it.
 Detailed practices — matching evidence to claim types, the style-oracle
 consultation procedure, and the harness/product boundary — live in
-[`docs/evidence-and-validation.md`](docs/evidence-and-validation.md). Two rules
+[`docs/evidence-and-validation.md`](docs/evidence-and-validation.md). Three rules
 are load-bearing everywhere:
 
 - **Asserted properties name their gate.** A safety, soundness, or faithfulness

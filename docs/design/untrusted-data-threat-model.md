@@ -293,17 +293,20 @@ code is an attacker.
 
 Assembly, metadata, and method-body paths use
 `System.Reflection.PortableExecutable` and `System.Reflection.Metadata`.
-Product inspection contains no `Assembly.Load` call and never loads inspected
-assemblies into the process.
+Product inspection contains no `Assembly.Load` call for inspected assemblies.
 
 This is a user-approved partial-gate absence claim. Product projects set
-`IsAotCompatible`, so Release builds run NativeAOT compatibility analysis. The
-CI [`pack` job](../../.github/workflows/ci.yml) builds and installs the
+`IsAotCompatible`, so Release builds run NativeAOT compatibility analysis and
+fail on the dynamic-loading uses that its diagnostics cover. That is a partial
+gate, not a syntactic scan of every `Assembly.Load` overload.
+
+When packaging-affecting changes select it, the CI
+[`pack` job](../../.github/workflows/ci.yml) builds and installs the
 RID-specific NativeAOT tool, then executes canonical package, type, member, and
-platform-library inspections. NativeAOT prohibits dynamic assembly loading, so
-an `Assembly.Load` reached by those scenarios fails the smoke. The analysis is
-not a syntactic absence scan, and the smoke does not execute every inspection
-path; unexercised paths are the declared residual.
+platform-library inspections. Those runs are supporting execution evidence,
+not an ordinary product-source-change gate. Unannotated overloads, changes for
+which the smoke is skipped, and inspection paths the smoke does not execute are
+the declared residual.
 
 `AssemblyLoadContext`, reflection over inspected binaries, module initializers,
 and dependency resolution that executes target code remain prohibited design

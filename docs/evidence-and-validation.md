@@ -66,10 +66,11 @@ claim `unverified`. All three are legitimate when the user accepts that
 evidence posture.
 
 A compiler or semantic analyzer that rejects the prohibited use is an
-acceptable gate. Release NativeAOT analysis, publication, or NativeAOT-executed
-tests are also acceptable gates for behavior that NativeAOT prohibits. State
-what each one establishes: NativeAOT compatibility analysis is not a syntactic
-absence scan, and executed tests cover the paths they exercise.
+acceptable gate. NativeAOT analyzer diagnostics are gates for the exact uses
+they reject, and NativeAOT-executed tests are gates for prohibited behavior on
+the paths they exercise. A successful NativeAOT publication alone establishes
+publishability, not API absence. State the exact diagnostic or executed
+scenario rather than generalizing either into a syntactic absence scan.
 
 Before implementing or strengthening an absence claim, propose full, partial,
 and no-gate options to the user. Name the recommended option, its evidence, and
