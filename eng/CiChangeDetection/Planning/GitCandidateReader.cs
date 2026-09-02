@@ -92,6 +92,8 @@ internal static class GitCandidateReader
             repository,
             [
                 "diff",
+                "-O",
+                OperatingSystem.IsWindows() ? "NUL" : "/dev/null",
                 "--no-renames",
                 "--name-status",
                 "-z",

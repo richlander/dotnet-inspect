@@ -37,6 +37,7 @@ internal static class ChangePlanParity
         && scenario.TlaCandidateResolutionSucceeds
         && scenario.FileStatus is "added" or "removed" or "modified"
             or "copied" or "changed" or "unchanged"
+        && HasSharedRenameShape(scenario)
         && !(scenario.EventName == "pull_request"
             && scenario.Files.Length == 0);
 
@@ -159,6 +160,11 @@ internal static class ChangePlanParity
 
     private static IEnumerable<string> Split(string value) =>
         value.Split('\n').Where(part => part.Length != 0);
+
+    private static bool HasSharedRenameShape(DetectionScenario scenario) =>
+        scenario.PreviousFiles.Length == 0
+        || (Split(scenario.PreviousFiles).Take(2).Count() == 1
+            && Split(scenario.Files).Take(2).Count() == 1);
 
     private static bool Raw(
         IReadOnlyDictionary<string, string> values,

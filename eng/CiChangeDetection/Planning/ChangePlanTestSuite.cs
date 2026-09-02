@@ -1076,6 +1076,31 @@ internal static class ChangePlanTestSuite
                 "The published plan did not describe its scoped evidence.");
         }
 
+        string orderFile = Path.Combine(scratch, "diff-order");
+        File.WriteAllText(orderFile, "src/*\ndocs/*\n");
+        _ = fixture.Git("config", "diff.orderFile", orderFile);
+        StringWriter orderedOutput = new();
+        StringWriter orderedError = new();
+        int orderedStatus = ChangePlanCommand.Execute(
+            [
+                "pull-request",
+                "--base", baseCommit,
+                "--candidate", candidate,
+                "--evidence-directory", evidenceDirectory,
+                "--repository", fixture.Root,
+            ],
+            orderedOutput,
+            orderedError);
+        if (orderedStatus != 0
+            || orderedError.ToString().Length != 0
+            || orderedOutput.ToString() != emitted)
+        {
+            throw new InvalidOperationException(
+                "Ambient Git diff ordering changed the canonical plan: "
+                + $"status {orderedStatus}, stdout [{orderedOutput}], "
+                + $"stderr [{orderedError}].");
+        }
+
         // The public façade is the same boundary.
         TextWriter previousOut = Console.Out;
         TextWriter previousError = Console.Error;

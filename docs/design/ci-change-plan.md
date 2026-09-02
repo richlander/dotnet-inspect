@@ -128,10 +128,12 @@ deterministic.
 The canonical changed-input record stream is exactly one
 `status-byte NUL path-bytes NUL` record per change, in the acquisition order
 the endpoint comparison reports, with `A`, `M`, `D`, and `T` the only accepted
-status bytes. The plan's input digest is the lowercase hexadecimal SHA-256 of
-that stream exactly as acquired. A truncated record, a multi-byte status
-token, an unsupported status, a duplicate path, an empty path, and a
-non-canonical relative path are refusals rather than skipped records.
+status bytes. Acquisition cancels ambient Git diff-order configuration so that
+order is a function of the endpoint trees rather than host configuration. The
+plan's input digest is the lowercase hexadecimal SHA-256 of that stream exactly
+as acquired. A truncated record, a multi-byte status token, an unsupported
+status, a duplicate path, an empty path, and a non-canonical relative path are
+refusals rather than skipped records.
 
 Exact path corpora do not travel through GitHub's textual job-output channel.
 When a domain job needs scoped paths, the planner produces a bounded evidence
