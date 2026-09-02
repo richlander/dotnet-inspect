@@ -57,6 +57,24 @@ non-vacuity test that fails when the wiring is removed. A gate counts only when
 it runs in the suite's Release configuration; use runtime opt-ins, not
 `[Conditional("DEBUG")]`.
 
+### Absence claims choose their coverage
+
+An absence claim may have full, partial, or no gate coverage. Full coverage
+names a gate for the complete stated boundary. Partial coverage names what the
+gate establishes and marks the residual explicitly. No coverage marks the
+claim `unverified`. All three are legitimate when the user accepts that
+evidence posture.
+
+A compiler or semantic analyzer that rejects the prohibited use is an
+acceptable gate. Release NativeAOT analysis, publication, or NativeAOT-executed
+tests are also acceptable gates for behavior that NativeAOT prohibits. State
+what each one establishes: NativeAOT compatibility analysis is not a syntactic
+absence scan, and executed tests cover the paths they exercise.
+
+Before implementing or strengthening an absence claim, propose full, partial,
+and no-gate options to the user. Name the recommended option, its evidence, and
+any residual; proceed only after the user chooses the acceptable coverage.
+
 ## Harness boundary
 
 Harnesses own orchestration, fixtures, independent oracles, comparison, and

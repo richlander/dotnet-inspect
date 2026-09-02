@@ -292,10 +292,22 @@ code is an attacker.
 ### Assemblies are parsed, never loaded
 
 Assembly, metadata, and method-body paths use
-`System.Reflection.PortableExecutable` and `System.Reflection.Metadata`. Product
-inspection must not introduce `Assembly.Load`, `AssemblyLoadContext`, reflection
-over inspected binaries, module initializers, or dependency resolution that
-executes target code.
+`System.Reflection.PortableExecutable` and `System.Reflection.Metadata`.
+Product inspection contains no `Assembly.Load` call and never loads inspected
+assemblies into the process.
+
+This is a user-approved partial-gate absence claim. Product projects set
+`IsAotCompatible`, so Release builds run NativeAOT compatibility analysis. The
+CI [`pack` job](../../.github/workflows/ci.yml) builds and installs the
+RID-specific NativeAOT tool, then executes canonical package, type, member, and
+platform-library inspections. NativeAOT prohibits dynamic assembly loading, so
+an `Assembly.Load` reached by those scenarios fails the smoke. The analysis is
+not a syntactic absence scan, and the smoke does not execute every inspection
+path; unexercised paths are the declared residual.
+
+`AssemblyLoadContext`, reflection over inspected binaries, module initializers,
+and dependency resolution that executes target code remain prohibited design
+directions. Their absence is not asserted as verified here.
 
 Reader-backed values remain inside their owning session. Values that cross a
 session boundary are copied or reduced to immutable tokens and shapes. This
