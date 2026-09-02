@@ -46,6 +46,7 @@ function packageModel(
     totalTypes: 0,
     totalMembers: 0,
     documents: [],
+    icon: null,
     isRuntimePack: false,
     ...overrides,
   };
