@@ -28,6 +28,7 @@ internal static class MatchDiscovery
 {
     internal static async Task<int> ExecuteAsync(MatchOptions options)
     {
+        string replayWorkingDirectory = Directory.GetCurrentDirectory();
         if (string.IsNullOrEmpty(options.LeftSelector))
         {
             CommandError.Write("match --similar requires a seed method selector.");
@@ -76,7 +77,8 @@ internal static class MatchDiscovery
             && !TryGetReplaySources(
                 options.SourceOptions,
                 out _,
-                out string? replaySourceError))
+                out string? replaySourceError,
+                workingDirectory: replayWorkingDirectory))
         {
             CommandError.Write(replaySourceError!);
             return 1;
@@ -89,7 +91,11 @@ internal static class MatchDiscovery
             if (seedError.HasValue)
                 return seedError.Value;
 
-            return await ExecuteAsync(options, seed!, seed!);
+            return await ExecuteAsync(
+                options,
+                seed!,
+                seed!,
+                replayWorkingDirectory);
         }
         catch (Exception ex)
         {
@@ -105,7 +111,8 @@ internal static class MatchDiscovery
     static async Task<int> ExecuteAsync(
         MatchOptions options,
         LoadedSide seed,
-        LoadedSide candidate)
+        LoadedSide candidate,
+        string replayWorkingDirectory)
     {
         var resolvedSeed = ResolveSeed(seed, options.LeftSelector!);
         if (resolvedSeed.Error is not null)
@@ -226,7 +233,8 @@ internal static class MatchDiscovery
                     replaySourceOptions,
                     out replaySources,
                     out string? replaySourceError,
-                    selectedVersionSourceRestriction))
+                    selectedVersionSourceRestriction,
+                    replayWorkingDirectory))
             {
                 CommandError.Write(replaySourceError!);
                 return 1;
@@ -457,7 +465,8 @@ internal static class MatchDiscovery
         NuGetSourceOptions? sourceOptions,
         out MatchDiscoveryReplaySources? replaySources,
         out string? error,
-        bool selectedVersionSourceRestriction = false)
+        bool selectedVersionSourceRestriction = false,
+        string? workingDirectory = null)
     {
         if (sourceOptions is null
             || sourceOptions.Sources.Length == 0
@@ -469,15 +478,40 @@ internal static class MatchDiscovery
             return true;
         }
 
-        foreach ((string option, string[] values) in new[]
+        workingDirectory ??= Directory.GetCurrentDirectory();
+        List<string> replaySourcesValues = [];
+        List<string> replayAdditionalSourcesValues = [];
+        foreach ((string option, string[] values, List<string> replayValues) in new[]
         {
-            ("--source", sourceOptions.Sources),
-            ("--add-source", sourceOptions.AdditionalSources),
+            ("--source", sourceOptions.Sources, replaySourcesValues),
+            ("--add-source", sourceOptions.AdditionalSources, replayAdditionalSourcesValues),
         })
         {
             foreach (string value in values)
             {
-                if (!CanDiscloseSource(value))
+                string replayValue;
+                try
+                {
+                    replayValue = LocalPackageSourceIdentity.IsLocalSource(value)
+                        ? LocalPackageSourceIdentity.Create(
+                            value,
+                            workingDirectory).CanonicalPath
+                        : value;
+                }
+                catch (Exception ex) when (ex is
+                    ArgumentException
+                    or IOException
+                    or NotSupportedException)
+                {
+                    replaySources = null;
+                    error =
+                        "match --similar cannot disclose a replayable package command because "
+                            + $"{option} contains a local package source path that cannot be "
+                            + "resolved.";
+                    return false;
+                }
+
+                if (!CanDiscloseSource(replayValue))
                 {
                     replaySources = null;
                     error = selectedVersionSourceRestriction
@@ -491,6 +525,8 @@ internal static class MatchDiscovery
                             + "that source in a nuget.config file and pass --nugetconfig instead.";
                     return false;
                 }
+
+                replayValues.Add(replayValue);
             }
         }
 
@@ -509,8 +545,8 @@ internal static class MatchDiscovery
         }
 
         replaySources = new MatchDiscoveryReplaySources(
-            [.. sourceOptions.Sources],
-            [.. sourceOptions.AdditionalSources],
+            [.. replaySourcesValues],
+            [.. replayAdditionalSourcesValues],
             configFile);
         error = null;
         return true;

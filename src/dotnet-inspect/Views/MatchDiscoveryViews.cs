@@ -416,14 +416,18 @@ internal static class MatchDiscoveryFormatter
                 + "Ranked tokens index "
                 + Path.GetFileName(candidateAssembly)
                 + ", which defines them rather than the assembly named on the command line; run "
-                + "pairwise `match` on a candidate with `"
+                + "pairwise `match` in "
+                + ShellCommandText.CurrentDialectName
+                + " on a candidate with `"
                 + ReplayOptions(request, candidateAssembly)
                 + "` to obtain a checked relation."
             : request.CandidatePackage is string
                 && request.ReplayLibrary is string replayLibrary
                     ? DisclosurePrefix
                         + "Ranked tokens index the package image selected for this run; run "
-                        + "pairwise `match` on a candidate with `"
+                        + "pairwise `match` in "
+                        + ShellCommandText.CurrentDialectName
+                        + " on a candidate with `"
                         + ReplayOptions(request, replayLibrary)
                         + "` to obtain a checked relation against that same image."
                     : Disclosure;

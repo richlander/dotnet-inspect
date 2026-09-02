@@ -13,6 +13,7 @@ using DotnetInspector.CommandLine;
 using DotnetInspector.Commands;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Views;
 using ILInspector.Metadata;
@@ -190,6 +191,123 @@ public sealed class MatchDiscoveryTests
             Assert.True(
                 similarity.TryGetProperty(component, out _),
                 $"Similarity evidence must retain '{component}'.");
+        }
+    }
+
+    [Fact]
+    public async Task Similar_RelativeLocalSourceReplayIsIndependentOfTheNextWorkingDirectory()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"match-relative-source-replay-{Guid.NewGuid():N}");
+        string cacheDirectory = Path.Combine(root, "cache");
+        string discoveryDirectory = Path.Combine(root, "discovery");
+        string replayDirectory = Path.Combine(root, "replay");
+        string sourceDirectory = Path.Combine(discoveryDirectory, "feed");
+        string packageName = $"Match.Relative.Source.{Guid.NewGuid():N}";
+        const string version = "1.0.0";
+        string asset = $"lib/net10.0/{Path.GetFileName(TestAssembly)}";
+        string staged = Path.Combine(root, "staged");
+        string originalWorkingDirectory = Directory.GetCurrentDirectory();
+        bool wasOffline = Core.HttpClientFactory.IsOffline;
+        Directory.CreateDirectory(sourceDirectory);
+        Directory.CreateDirectory(replayDirectory);
+
+        try
+        {
+            string nupkg = CreatePackageArchive(
+                root,
+                "relative-source",
+                packageName,
+                version,
+                asset,
+                File.ReadAllBytes(TestAssembly));
+            ZipFile.ExtractToDirectory(nupkg, staged);
+            Directory.SetCurrentDirectory(discoveryDirectory);
+            string source = NuGetFetch.LocalPackageSourceIdentity.Create(
+                Path.Combine(".", "feed"),
+                Directory.GetCurrentDirectory()).CanonicalPath;
+            NuGetCache.Initialize(
+                "dotnet-inspect-match-relative-source-replay",
+                cacheDirectory,
+                skipNuGetCache: true);
+            NuGetCache.CommitPackage(
+                staged,
+                nupkg,
+                packageName,
+                version,
+                NuGetCache.GetSourceKey(source));
+            Core.HttpClientFactory.Initialize(
+                new Core.HttpClientFactoryOptions { Offline = true });
+            Core.HttpClientFactory.ResetSharedForTesting();
+
+            string[] discoveryArguments =
+            [
+                "match",
+                SampleSeed,
+                "--similar",
+                "--package",
+                $"{packageName}@{version}",
+                "--library",
+                asset,
+                "--source",
+                Path.Combine(".", "feed"),
+                "--all",
+                "--json",
+            ];
+            var (discoveryExit, discoveryOutput, discoveryError) =
+                await RunCliAsync(discoveryArguments);
+
+            Assert.True(
+                discoveryExit == 0,
+                $"Expected discovery success, got {discoveryExit}: {discoveryError}");
+            Assert.Empty(discoveryError);
+            string disclosure = Parse(discoveryOutput)
+                .GetProperty("disclosure")
+                .GetString()!;
+            Assert.Contains(
+                $"--source {ShellCommandText.Quote(source)}",
+                disclosure);
+
+            string[] replayArguments =
+            [
+                "match",
+                SampleSeed,
+                $"{typeof(MatchDiscoverySample).FullName}.ExactPeer",
+                "--package",
+                $"{packageName}@{version}",
+                "--library",
+                asset,
+                "--tfm",
+                "net10.0",
+                "--all",
+                "--json",
+            ];
+            Directory.SetCurrentDirectory(replayDirectory);
+            var (replayExit, replayOutput, replayError) =
+                await RunCliAsync(
+                    [.. replayArguments, "--source", source]);
+            var (staleExit, _, staleError) =
+                await RunCliAsync(
+                    [.. replayArguments, "--source", Path.Combine(".", "feed")]);
+
+            Assert.Equal(0, replayExit);
+            Assert.Empty(replayError);
+            Assert.Equal(
+                "Exact",
+                Parse(replayOutput).GetProperty("relation").GetString());
+            Assert.Equal(1, staleExit);
+            Assert.Contains("not available offline", staleError);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalWorkingDirectory);
+            Core.HttpClientFactory.Initialize(
+                new Core.HttpClientFactoryOptions { Offline = wasOffline });
+            Core.HttpClientFactory.ResetSharedForTesting();
+            NuGetCache.Initialize("dotnet-inspect");
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
         }
     }
 
@@ -2328,9 +2446,33 @@ public sealed class MatchDiscoveryTests
         string disclosure = MatchDiscoveryFormatter.DisclosureFor(request);
 
         Assert.Contains(
-            "--package '/packages/Fixture'\"'\"'s build.nupkg' "
-                + "--library 'lib/net10.0/Target'\"'\"'s build.dll' --tfm 'net10.0'",
+            "--package "
+                + ShellCommandText.Quote("/packages/Fixture's build.nupkg")
+                + " --library "
+                + ShellCommandText.Quote("lib/net10.0/Target's build.dll")
+                + " --tfm "
+                + ShellCommandText.Quote("net10.0"),
             disclosure);
+        Assert.Contains(
+            $"in {ShellCommandText.CurrentDialectName} on a candidate",
+            disclosure);
+    }
+
+    [Fact]
+    public void ShellCommandQuote_UsesTheDeclaredDialect()
+    {
+        const string value = "Target's build.dll";
+
+        Assert.Equal(
+            "'Target'\"'\"'s build.dll'",
+            ShellCommandText.Quote(
+                value,
+                ShellCommandDialect.Posix));
+        Assert.Equal(
+            "'Target''s build.dll'",
+            ShellCommandText.Quote(
+                value,
+                ShellCommandDialect.PowerShell));
     }
 
     [Fact]
@@ -2429,6 +2571,35 @@ public sealed class MatchDiscoveryTests
 
         Assert.True(accepted, error);
         Assert.Equal(Path.GetFullPath(relative), replaySources!.ConfigFile);
+    }
+
+    [Fact]
+    public void ReplaySources_MakesRelativeLocalSourcesIndependentOfTheNextWorkingDirectory()
+    {
+        string workingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            "match-relative-source",
+            "working");
+
+        bool accepted = MatchDiscovery.TryGetReplaySources(
+            new NuGetSourceOptions
+            {
+                Sources = [Path.Combine(".", "feed")],
+                AdditionalSources = [Path.Combine("..", "secondary")],
+            },
+            out MatchDiscoveryReplaySources? replaySources,
+            out string? error,
+            workingDirectory: workingDirectory);
+
+        Assert.True(accepted, error);
+        Assert.Equal(
+            Path.GetFullPath("feed", workingDirectory),
+            Assert.Single(replaySources!.Sources));
+        Assert.Equal(
+            Path.GetFullPath(
+                Path.Combine("..", "secondary"),
+                workingDirectory),
+            Assert.Single(replaySources.AdditionalSources));
     }
 
     [Fact]

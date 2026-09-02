@@ -465,7 +465,13 @@ survives package ranges and same-named assets in other TFMs. User-supplied
 `--source`, `--add-source`, and `--nugetconfig` selectors are part of that
 address because they authorize which cached producer may serve the package
 offline. Explicit config paths are made absolute so the next command does not
-reinterpret them against another working directory. A source value that the URL
+reinterpret them against another working directory. Relative local source paths
+are likewise disclosed as their canonical absolute paths from the discovery
+working directory
+(`ReplaySources_MakesRelativeLocalSourcesIndependentOfTheNextWorkingDirectory`).
+The disclosure names its shell dialect and uses POSIX-shell quoting on Unix or
+PowerShell quoting on Windows; it does not present one dialect as shell-neutral
+(`ShellCommandQuote_UsesTheDeclaredDialect`). A source value that the URL
 diagnostic policy would redact cannot be embedded in an executable disclosure;
 package-backed discovery rejects that transition and directs the caller to put
 the source in `nuget.config` instead of either omitting its authority or
