@@ -27,9 +27,20 @@ namespace ILInspector.Metadata;
 /// Both sides already share the rendering that produces the name, so the only
 /// thing that could diverge is this final comparison. It therefore exists
 /// exactly once.
-/// <c>SystemTypeArgumentNameIsSpelledOnce</c> in
-/// <c>SharedClassificationRuleTests</c> is the gate: it fails if the literal
-/// reappears anywhere else in the metadata assemblies' executable source.
+/// </para>
+/// <para>
+/// <c>SharedClassificationRuleTests</c> is the enforcing gate, and what it
+/// enforces is not uniform across the two sides. The provider's
+/// classification is pinned behaviorally:
+/// <c>ProviderClassifiesExactlyAsTheSharedRule</c> asks the provider what it
+/// answers for a corpus of rendered names and compares that to this rule, so
+/// it catches a divergence however it was written. The guard's site is pinned
+/// by source instead, because its entry point takes a handle rather than a
+/// rendered name and offers no seam to compare against. The source checks —
+/// <c>SystemTypeArgumentNameIsSpelledOnce</c> and the declared-site checks —
+/// notice a site that appears, disappears, or stops delegating; on their own
+/// they cannot see an independently written predicate, so do not read a clean
+/// census as evidence that the two sides agree.
 /// </para>
 /// </remarks>
 internal static class SystemTypeArgumentName
