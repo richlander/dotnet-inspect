@@ -91,8 +91,9 @@ The following gates enforce the boundary:
   uses the certified `MoveNext` address;
 - `RuntimeAsyncBudgetFailureSurvivesProductionImport` proves budget failure
   precedes runtime filtering on the production import path;
-- `InvalidModuleIdentityRemainsVisibleAcquisitionFailure` proves malformed
-  module identity cannot become absence or crash the ordinary import path;
+- `InvalidModuleIdentityRemainsVisibleAcquisitionFailure` proves nil,
+  out-of-range, and overflow-wrapping module identities cannot become absence
+  or crash the ordinary import path;
 - `IdenticalSource_ProducesClassicAndRuntimeAsyncPhysicalShapes` proves classic
   lowering forms a request while runtime lowering is filtered; and
 - `TrimmedArtifactWithoutRolePreservation_AuthenticatesAbsentSupport` proves

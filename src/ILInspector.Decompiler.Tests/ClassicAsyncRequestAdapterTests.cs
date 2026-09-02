@@ -76,11 +76,18 @@ public sealed class ClassicAsyncRequestAdapterTests
             rejected.Failure.Kind);
     }
 
-    [Fact]
-    public void InvalidModuleIdentityRemainsVisibleAcquisitionFailure()
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(ushort.MaxValue, false)]
+    [InlineData(0x10000001, true)]
+    public void InvalidModuleIdentityRemainsVisibleAcquisitionFailure(
+        int mvidIndex,
+        bool largeGuidHeap)
     {
-        byte[] image = BuildRuntimeAsyncImage(attributeCount: 1);
-        InvalidateModuleMvid(image);
+        byte[] image = BuildRuntimeAsyncImage(
+            attributeCount: 1,
+            largeGuidHeap);
+        SetModuleMvid(image, mvidIndex);
         using var source = MetadataSource.OpenFromPrefetchedImage(
             "RuntimeAsyncInvalidMvid.dll",
             ImmutableArray.CreateRange(image));
@@ -129,16 +136,26 @@ public sealed class ClassicAsyncRequestAdapterTests
             diagnostic => diagnostic.Id == DiagnosticIds.InternalError);
     }
 
-    static byte[] BuildRuntimeAsyncImage(int attributeCount)
+    static byte[] BuildRuntimeAsyncImage(
+        int attributeCount,
+        bool largeGuidHeap = false)
     {
         var metadata = new MetadataBuilder();
+        GuidHandle moduleVersionId =
+            metadata.GetOrAddGuid(Guid.NewGuid());
         metadata.AddModule(
             generation: 0,
             moduleName:
                 metadata.GetOrAddString("RuntimeAsyncBudget.dll"),
-            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            mvid: moduleVersionId,
             encId: default,
             encBaseId: default);
+        if (largeGuidHeap)
+        {
+            for (int i = 0; i < 4096; i++)
+                metadata.GetOrAddGuid(Guid.NewGuid());
+        }
+
         metadata.AddAssembly(
             metadata.GetOrAddString("RuntimeAsyncBudget"),
             new Version(1, 0, 0, 0),
@@ -325,7 +342,7 @@ public sealed class ClassicAsyncRequestAdapterTests
             (ushort)(implFlags | 0x2000));
     }
 
-    static void InvalidateModuleMvid(byte[] image)
+    static void SetModuleMvid(byte[] image, int mvidIndex)
     {
         int mvidOffset;
         int guidIndexSize;
@@ -354,13 +371,13 @@ public sealed class ClassicAsyncRequestAdapterTests
         {
             BinaryPrimitives.WriteUInt16LittleEndian(
                 image.AsSpan(mvidOffset, guidIndexSize),
-                ushort.MaxValue);
+                checked((ushort)mvidIndex));
         }
         else
         {
             BinaryPrimitives.WriteInt32LittleEndian(
                 image.AsSpan(mvidOffset, guidIndexSize),
-                int.MaxValue);
+                mvidIndex);
         }
     }
 }
