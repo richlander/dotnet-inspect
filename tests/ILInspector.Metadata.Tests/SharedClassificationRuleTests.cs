@@ -195,18 +195,36 @@ public class SharedClassificationRuleTests
         Assert.Single(SystemTypeLiterals(ParseRoot(defining)));
     }
 
+    /// <summary>
+    /// The rendered names both classification pins are driven with.
+    /// </summary>
+    /// <remarks>
+    /// One corpus, two consumers, because round 6 found the consequence of
+    /// letting them drift apart: the provider's corpus carried the whitespace
+    /// cases and the guard's did not, so a guard rewritten as
+    /// <c>Matches(name?.Trim())</c> passed the entire suite while classifying
+    /// <c>"System.Type "</c> differently from the provider — the exact
+    /// divergence this rule exists to prevent, hidden by an asymmetric test.
+    /// Add a case here and both pins take it.
+    /// </remarks>
+    public static TheoryData<string> ClassificationCorpus =>
+    [
+        "System.Type",
+        "system.type",
+        "SYSTEM.TYPE",
+        "System.type",
+        "System.Type ",
+        " System.Type",
+        "System.Type\t",
+        "System .Type",
+        "System.RuntimeType",
+        "System.Types",
+        "Type",
+        "object",
+    ];
+
     [Theory]
-    [InlineData("System.Type")]
-    [InlineData("system.type")]
-    [InlineData("SYSTEM.TYPE")]
-    [InlineData("System.type")]
-    [InlineData("System.Type ")]
-    [InlineData(" System.Type")]
-    [InlineData("System.RuntimeType")]
-    [InlineData("System.Types")]
-    [InlineData("Type")]
-    [InlineData("object")]
-    [InlineData("")]
+    [MemberData(nameof(ClassificationCorpus))]
     public void ProviderClassifiesExactlyAsTheSharedRule(string rendered)
     {
         // The behavioral half of the gate. The checks above read source and
@@ -218,6 +236,18 @@ public class SharedClassificationRuleTests
         Assert.Equal(
             SystemTypeArgumentName.Matches(rendered),
             CreateProvider().IsSystemType(rendered));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(null)]
+    public void ProviderRejectsUnnamedTypes(string? rendered)
+    {
+        // Kept apart from the corpus above: the guard pin builds a TypeRef per
+        // case and neither of these is expressible as one.
+        Assert.False(SystemTypeArgumentName.Matches(rendered));
+        if (rendered is not null)
+            Assert.False(CreateProvider().IsSystemType(rendered));
     }
 
     [Fact]
@@ -308,10 +338,11 @@ public class SharedClassificationRuleTests
             {
                 // Build output is not the component's source. A generated file
                 // holding the literal would fail the census for something no
-                // contributor wrote.
+                // contributor wrote. Check every segment: the root is now
+                // "src", so these directories are never the first one.
                 var relative = Path.GetRelativePath(dir, file);
                 if (relative.Split(Path.DirectorySeparatorChar)
-                    is [var top, ..] && top is "obj" or "bin")
+                    .Any(segment => segment is "obj" or "bin"))
                 {
                     continue;
                 }

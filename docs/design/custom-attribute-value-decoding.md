@@ -194,7 +194,7 @@ a fixture built for that purpose, which is the differential oracle's job
 
 | Invariant | Holds today? | Basis |
 | --- | --- | --- |
-| **I1 — Alignment** | Believed to hold on the resolver-supplied path; unverified | Pinned by example only. One example is now a captured real-world artifact: see the classification pair above. The resolver-less overload is explicitly out of scope. The `System.Type` classification precondition was removed by #5393: both sides now call one predicate, gated by `SharedClassificationRuleTests`. |
+| **I1 — Alignment** | Believed to hold on the resolver-supplied path; unverified | Pinned by example only. One example is now a captured real-world artifact: see the classification pair above. The resolver-less overload is explicitly out of scope. The `System.Type` classification precondition was removed by #5393: both sides now call one predicate, and both are pinned to it behaviorally -- the provider by `SharedClassificationRuleTests`, the guard by `GuardClassifiesExactlyAsTheSharedRule` in `CustomAttributeValueGuardTests`. Running only the former leaves the guard half unexercised. |
 | **I2 — Bounding the decoder** | **No.** Violated by #5098 | SRM's per-argument re-derivation of the generic context is not bounded by anything the guard checks. |
 | **I3 — Bounding ourselves** | **No.** Violated by #5091, #5047, #5130, and #5132 | Four independent amplifications on our own side, spanning one walk and the cross-row loop. |
 
@@ -825,8 +825,12 @@ guard through `IsSafeToDecode` over built images, reading the classification
 back out of the charge, since a `System.Type` argument is a length-prefixed
 `SerString` and anything else is read at the enum default width, so only the
 first leaves the cursor on the following array count. Neither cares how a
-divergence was written. A third test keeps the census from passing vacuously if
-the definition disappears.
+divergence was written. Both are driven from one declared corpus of rendered
+names, because round 6 found what letting the two corpora drift apart costs: a
+guard rewritten as `Matches(name?.Trim())` passed the entire suite while
+classifying `"System.Type "` differently from the provider, since only the
+provider's corpus carried the whitespace cases. A third test keeps the census
+from passing vacuously if the definition disappears.
 
 An earlier version of the declared-site check also analyzed what each site
 returned, so that a shared call made in a branch nobody takes, or handed a name

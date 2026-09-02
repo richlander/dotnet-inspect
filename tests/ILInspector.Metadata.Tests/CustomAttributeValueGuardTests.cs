@@ -1786,18 +1786,15 @@ public sealed class CustomAttributeValueGuardTests
     /// </para>
     /// </remarks>
     [Theory]
-    [InlineData("System", "Type")]
-    [InlineData("System", "TYPE")]
-    [InlineData("system", "type")]
-    [InlineData("System", "type")]
-    [InlineData("SYSTEM", "TYPE")]
-    [InlineData("System", "Types")]
-    [InlineData("System", "RuntimeType")]
-    [InlineData("", "Type")]
-    public void GuardClassifiesExactlyAsTheSharedRule(string ns, string name)
+    [MemberData(
+        nameof(SharedClassificationRuleTests.ClassificationCorpus),
+        MemberType = typeof(SharedClassificationRuleTests))]
+    public void GuardClassifiesExactlyAsTheSharedRule(string rendered)
     {
         const int ElementCount = 100_000_000;
-        string rendered = ns.Length == 0 ? name : ns + "." + name;
+        int split = rendered.LastIndexOf('.');
+        string ns = split < 0 ? string.Empty : rendered[..split];
+        string name = split < 0 ? rendered : rendered[(split + 1)..];
 
         using var image = Open(
             BuildClassificationProbeImage(ns, name, ElementCount));
