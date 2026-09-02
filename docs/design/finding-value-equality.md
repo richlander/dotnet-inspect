@@ -14,13 +14,14 @@ how consumers use these values.
 
 ## Contract
 
-Finding-owned values compose four equality shapes:
+Finding-owned values compose five equality shapes:
 
 | Shape | Examples | Equality contract |
 | --- | --- | --- |
 | Structural composition | `FindingSubject`, `Finding<T>`, and the cases of `PairFinding<T>` | Every equality-participating field composes its own contract. Generic payload fields use `EqualityComparer<T>.Default`. |
 | Ordered collection value | Complete censuses, match evidence, completed transition streams, and correlated occurrences | Sequence equality: order and multiplicity are significant. |
 | Identity-set value | `FindingEquivalence` allow lists | Set equality: enumeration order and duplicate input are insignificant. |
+| Canonicalized relation value | `AnalysisDiff<T>` relation populations | Input order is insignificant; validated relations are stored in owner-defined canonical order before sequence equality and hashing. |
 | Operation object | `FindingCensusCorrelation<T>` and `FindingCorrelation<T>` | Reference identity. Their durable inputs and projected values retain their own contracts. |
 
 Closed union wrappers compose the equality of their active case. Two
@@ -128,6 +129,13 @@ move candidates. Its non-empty value equality is covered by
 `FindingMatch_UsesOrderedSequenceEquality`; candidate construction and ordering
 are covered separately by
 `src/ILInspector.ILDiff.Tests/FindingPilotTests.cs`.
+
+`AnalysisDiff<T>` follows its
+[owning design](analysis-diff.md#ordering-and-value-semantics): endpoint
+sequences retain caller order, while relation input order is not semantic.
+Construction canonicalizes validated relations before the stored sequence
+participates in equality and hashing. Permuting the same relation population
+therefore does not change the value.
 
 ## Non-claims
 
