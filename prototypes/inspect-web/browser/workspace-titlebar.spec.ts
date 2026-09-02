@@ -516,22 +516,21 @@ test("edge indicators do not replace an item hit target", async ({ page }) => {
     });
 
   expect(target).toBe("call-graph");
-  const triangles = await page.locator(".slide-strip-inspector").evaluate(
+  const indicators = await page.locator(".slide-strip-inspector").evaluate(
     element => {
       const before = getComputedStyle(
         element.querySelector<HTMLElement>("[data-slide-strip-before]")!);
       const after = getComputedStyle(
         element.querySelector<HTMLElement>("[data-slide-strip-after]")!);
       return {
-        before: before.borderRightWidth,
-        after: after.borderLeftWidth,
-        height: Number.parseFloat(after.borderTopWidth)
-          + Number.parseFloat(after.borderBottomWidth),
+        before: before.borderLeftWidth,
+        after: after.borderRightWidth,
+        width: after.width,
       };
     });
-  expect(triangles.before).toBe("4px");
-  expect(triangles.after).toBe("4px");
-  expect(triangles.height).toBe(28);
+  expect(indicators.before).toBe("2px");
+  expect(indicators.after).toBe("2px");
+  expect(indicators.width).toBe("8px");
 });
 
 test("a mounted empty SlideStrip applies its empty state", async ({ page }) => {
