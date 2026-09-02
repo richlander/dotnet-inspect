@@ -3,13 +3,53 @@
 `AGENTS.md` owns the binding rules for adversarial review: what a candidate is,
 when a round may start, what makes a review review-clean, and when to stop. This
 document owns the operational side — how to find out where the round stands, how
-to dispatch and reconcile it, and what to do when the base moves under a clean
-result.
+to dispatch and reconcile it, how approved workflow adjustments apply, and what
+to do when the base moves under a clean result.
 
 Read [Adversarial review](../AGENTS.md#adversarial-review) first. This document
 owns operational transitions and reporting, not the rules that decide
 eligibility, recovery, completion, or carry-forward. Where it applies one of
 those rules, it cites the owner rather than restating it.
+
+## User-directed workflow adjustments
+
+[AGENTS.md](../AGENTS.md#user-directed-workflow-adjustments) states the binding
+boundary: a user adjustment changes only its named sequencing gate and cannot
+make failed evidence successful or transfer fixed-head evidence. The following
+standing adjustments define their exact scope and effect.
+
+### Standing adjustments
+
+- **Review ordinary non-Markdown changes in parallel with CI:** requires user
+  approval; conflict recovery is the explicit exception. A CI failure requiring
+  an author change still supersedes the attempt, and all findings carry forward.
+- **Pre-authorize merge for the final head:** after clean reviews or a waiver,
+  the user may authorize its exact head and base ref. Keep auto-merge unarmed
+  while gates are pending; after green preflight, use the [exact-head
+  precondition](github-api-operations.md#bind-merge-mutations-to-the-head).
+  Head/base-ref change or invalidated evidence expires authorization;
+  no-interaction tip movement within the same base ref preserves it.
+- **"CI is ready":** the user's statement that CI has no failures and the PR is
+  mergeable. Trust it without re-checking and move to the next task, such as
+  dispatching the next round's reviewers.
+- **Authorizing the next round before CI completes:** the agent does not need
+  to check CI status first; proceed with the authorized round.
+- **Skip re-review after a trivial base interaction:** requires the user's
+  approval for one exact integration head and its mechanically resolved
+  interaction at one exact analyzed base tip, offered only for a
+  `main`-targeting PR or bottom open stack slice whose waiver lineage starts at
+  one immutable review-clean head and recorded base (a renewal may only
+  integrate a further moved base from that same lineage).
+  Every overlap must resolve mechanically — analyzed base side verbatim, or
+  drop the PR's change to that file — and the cumulative diff against the
+  newest base must stay a subset of the original reviewed diff with no
+  surviving reviewed claim, contract, or behavior changed. `review-clean` stays
+  absent on the integration head. Later no-interaction base movement extends
+  the waiver and recorded merge authorization to the analyzed tip without
+  moving the head or asking again; head movement or any other interaction
+  expires both. Semantic conflict resolution or new authored change requires
+  ordinary re-review. Evidence to publish:
+  [Trivial-interaction re-review waiver](#trivial-interaction-re-review-waiver).
 
 ## Candidate lifecycle
 
@@ -518,7 +558,7 @@ not start or spend a replacement round.
 ### Trivial-interaction re-review waiver
 
 The binding criteria and evidentiary limits live in
-[Standing adjustments](../AGENTS.md#standing-adjustments). Approval covers one
+[Standing adjustments](#standing-adjustments). Approval covers one
 exact integration head and its mechanically resolved interaction at the named
 base tip; later no-interaction tips extend that lineage without changing the
 head. After the integration head is pushed, publish this evidence before

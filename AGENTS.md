@@ -25,8 +25,25 @@ development model and rationale. The binding summary:
 
 - **Start from convention and best practice.** Name and justify any deliberate
   divergence, whether stricter or looser, and document its scope.
+- **Prefer the simplest sufficient design.** Add complexity only when robust
+  reliability or correctness requires it, or when it enables a compelling
+  user-observable experience.
 - **Design first and state the basis.** Name one normative owner and exact
   claim, then supporting designs, models, constraints, and evidence by role.
+- **Start capabilities from named consumers.** Every new capability or
+  substrate identifies its consumer in the specification and issue, links an
+  overall end-to-end tracker, and may land its consumer in a later slice.
+  Shared substrate must benefit and plan enablement through both the CLI and
+  browser/Wasm hosts; a single-consumer or single-host substrate requires
+  explicit user approval from the start.
+- **Keep hosts thin.** Put reusable concepts and algorithms in host-neutral
+  code. Duplicated host logic triggers a review for a shared abstraction that
+  would also benefit another future host.
+- **Choose rendering strategy deliberately.** Use Markout as the default
+  host-neutral substrate for centralized, multi-format rendering, and call out
+  host-specific rendering that bypasses it. Broad information domains such as
+  call graphs and diffs require a documented structured-typing and format-
+  lowering strategy, whether it uses Markout or another approach.
 - **Demonstrate the pathological case.** Build boundary and failure fixtures;
   run contract-defining cases in CI and preserve valuable non-CI probes as
   reproducible design evidence.
@@ -64,20 +81,10 @@ development model and rationale. The binding summary:
 ## Session resume
 
 The transcript survives a resumed session; repository and PR state may not.
-Before continuing:
-
-1. Confirm the worktree, branch, and head from git. Fetch the effective base and
-   re-check the PR per [Canonical round flow](#canonical-round-flow). Do not pull
-   or rebase a pushed branch to catch up.
-2. Rename the window and re-announce the PR as described below.
-3. State which case applies:
-
-- **Mid-stream:** continue, but handle conflicts, failed gates, or moved bases
-  first. Do not revisit decisions already settled in the transcript.
-- **Waiting on the user:** restate the full question and options, then wait.
-- **Task complete:** state what landed and what proves it, then propose the next
-  task without starting it.
-- **Unclear:** explain what the transcript claims and what git shows, then wait.
+Follow [Resume a session](docs/agent-session-state.md#resume-a-session) to
+confirm the worktree and PR, refresh the effective base, restore window
+identity, and classify the session. Handle conflicts, failed gates, or moved
+bases first, and do not revisit decisions already settled in the transcript.
 
 ## Making your work findable
 
@@ -133,39 +140,8 @@ The user may adjust a sequencing gate for a specific task or PR. Follow that
 direction, record its scope and evidentiary consequence, and preserve every
 other requirement. An adjustment does not make failed validation successful,
 make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
-
-### Standing adjustments
-
-- **Review ordinary non-Markdown changes in parallel with CI:** requires user
-  approval; conflict recovery is the explicit exception. A CI failure requiring
-  an author change still supersedes the attempt, and all findings carry forward.
-- **Pre-authorize merge for the final head:** after clean reviews or a waiver,
-  the user may authorize its exact head and base ref. Keep auto-merge unarmed
-  while gates are pending; after green preflight, use the [exact-head
-  precondition](docs/github-api-operations.md#bind-merge-mutations-to-the-head).
-  Head/base-ref change or invalidated evidence expires authorization;
-  no-interaction tip movement within the same base ref preserves it.
-- **"CI is ready":** the user's statement that CI has no failures and the PR is
-  mergeable. Trust it without re-checking and move to the next task, such as
-  dispatching the next round's reviewers.
-- **Authorizing the next round before CI completes:** the agent does not need
-  to check CI status first; proceed with the authorized round.
-- **Skip re-review after a trivial base interaction:** requires the user's
-  approval for one exact integration head and its mechanically resolved
-  interaction at one exact analyzed base tip, offered only for a
-  `main`-targeting PR or bottom open stack slice whose waiver lineage starts at
-  one immutable review-clean head and recorded base (a renewal may only
-  integrate a further moved base from that same lineage).
-  Every overlap must resolve mechanically — analyzed base side verbatim, or
-  drop the PR's change to that file — and the cumulative diff against the
-  newest base must stay a subset of the original reviewed diff with no
-  surviving reviewed claim, contract, or behavior changed. `review-clean` stays
-  absent on the integration head. Later no-interaction base movement extends
-  the waiver and recorded merge authorization to the analyzed tip without
-  moving the head or asking again; head movement or any other interaction
-  expires both. Semantic conflict resolution or new authored change requires
-  ordinary re-review. Evidence to publish:
-  [Trivial-interaction re-review waiver](docs/round-orchestration.md#trivial-interaction-re-review-waiver).
+The standing adjustments and their exact evidence requirements live in
+[User-directed workflow adjustments](docs/round-orchestration.md#user-directed-workflow-adjustments).
 
 ## Before changing files
 
@@ -365,13 +341,6 @@ Test-tool activation (`ilasm`/`ildasm`/`mdv`), the IL round-trip commands, and
 the `IsPackable`/`VersionPrefix` release rules live in
 [`docs/dev-environment.md`](docs/dev-environment.md#test-tooling-activation).
 
-### Package acquisition and throwaway probes
-
-If nuget.org is disabled and restore reports `NU1603` for an uncached pin, or
-you need a throwaway probe, see
-[`docs/dev-environment.md`](docs/dev-environment.md) for the source-override
-and file-based-app commands.
-
 ## Evidence and validation
 
 Match evidence to the claim and use the smallest existing check that proves it.
@@ -422,8 +391,8 @@ section and [round orchestration](docs/round-orchestration.md) explain them.
    author change restarts the *same* round.
 7. **Six rounds, then stop** and ask for another block.
 8. **Never merge without explicit user authorization** for that specific PR.
-   A recorded exact-head merge authorization satisfies this rule; see
-   [Standing adjustments](#standing-adjustments).
+   A recorded exact-head merge authorization satisfies this rule; see the
+   [user-directed workflow adjustments](docs/round-orchestration.md#user-directed-workflow-adjustments).
 
 ### Canonical round flow
 
