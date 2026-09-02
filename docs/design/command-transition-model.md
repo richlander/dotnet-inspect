@@ -484,6 +484,11 @@ retains that selected producer set, not the wider source set that participated
 in discovery, while preserving the original config path for matching
 credentials and aliases
 (`Similar_SelectedVersionProducer_ReplayReopensTheSamePayload`).
+That restriction belongs to the package identity whose version was selected.
+If a tool wrapper redirects acquisition to another package, the wrapper's
+reporting sources do not transfer to the target; replay of the final package
+uses its own package-specific ambient source policy
+(`Similar_RangeToolWrapperReplayUsesFinalPackageSourcePolicy`).
 The exact package coordinate, library selector, and TFM must also survive the
 output channel's required rendering containment without changing spelling.
 Discovery refuses the transition when containment would rewrite any of those

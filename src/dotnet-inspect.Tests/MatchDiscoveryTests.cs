@@ -1812,6 +1812,127 @@ public sealed class MatchDiscoveryTests
     }
 
     [Fact]
+    public async Task Similar_RangeToolWrapperReplayUsesFinalPackageSourcePolicy()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"match-wrapper-source-replay-{Guid.NewGuid():N}");
+        string cacheRoot = Path.Combine(root, "cache");
+        string wrapperName = $"Match.Wrapper.Replay.{Guid.NewGuid():N}";
+        string targetName = $"Match.Target.Replay.{Guid.NewGuid():N}";
+        const string version = "1.0.0";
+        string asset = $"lib/net10.0/{Path.GetFileName(TestAssembly)}";
+        Directory.CreateDirectory(root);
+        using var feed = new RangeReplayFeed(wrapperName, version);
+        string sourceA = feed.SourceA;
+        string sourceB = feed.SourceB;
+        bool wasOffline = Core.HttpClientFactory.IsOffline;
+
+        try
+        {
+            Core.HttpClientFactory.Initialize(
+                new Core.HttpClientFactoryOptions { Offline = false });
+            Core.HttpClientFactory.ResetSharedForTesting();
+            NuGetCache.Initialize(
+                "dotnet-inspect-match-wrapper-source-replay",
+                cacheRoot,
+                skipNuGetCache: true);
+            string wrapperPackage = CreateToolWrapperArchive(
+                root,
+                wrapperName,
+                version,
+                targetName);
+            string targetPackage = CreatePackageArchive(
+                root,
+                "target",
+                targetName,
+                version,
+                asset,
+                File.ReadAllBytes(TestAssembly));
+            CommitCachedPackage(
+                root,
+                "staged-wrapper",
+                wrapperPackage,
+                wrapperName,
+                version,
+                sourceB);
+            CommitCachedPackage(
+                root,
+                "staged-target",
+                targetPackage,
+                targetName,
+                version,
+                sourceA);
+
+            var options = new MatchOptions
+            {
+                LeftSelector = SampleSeed,
+                PackagePath = $"{wrapperName}@{version}..{version}",
+                PackageRangeAddress = "last",
+                AssemblyPath = asset,
+                IncludeAll = true,
+                Similar = true,
+                JsonOutput = true,
+                SourceOptions = new NuGetSourceOptions
+                {
+                    Sources = [sourceA, sourceB],
+                },
+            };
+
+            var (discoveryExit, output, discoveryError) =
+                await RunAsync(options);
+
+            Assert.True(
+                discoveryExit == 0,
+                $"Expected discovery success, got {discoveryExit}: {discoveryError}");
+            Assert.Empty(discoveryError);
+            string disclosure =
+                Parse(output).GetProperty("disclosure").GetString()!;
+            Assert.Contains(
+                $"--package '{targetName}@{version}'",
+                disclosure,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.Contains($"--source '{sourceA}'", disclosure);
+            Assert.Contains($"--source '{sourceB}'", disclosure);
+
+            string[] exactArguments =
+            [
+                "match",
+                SampleSeed,
+                $"{typeof(MatchDiscoverySample).FullName}.ExactPeer",
+                "--package",
+                $"{targetName}@{version}",
+                "--library",
+                asset,
+                "--tfm",
+                "net10.0",
+                "--all",
+            ];
+            var (replayExit, replayOutput, replayError) =
+                await RunCliAsync(
+                    [.. exactArguments, "--source", sourceA, "--source", sourceB]);
+            var (staleExit, _, staleError) =
+                await RunCliAsync(
+                    [.. exactArguments, "--source", sourceB]);
+
+            Assert.Equal(0, replayExit);
+            Assert.Empty(replayError);
+            Assert.Contains("Relation: Exact", replayOutput);
+            Assert.Equal(1, staleExit);
+            Assert.Contains("not found", staleError);
+        }
+        finally
+        {
+            Core.HttpClientFactory.Initialize(
+                new Core.HttpClientFactoryOptions { Offline = wasOffline });
+            Core.HttpClientFactory.ResetSharedForTesting();
+            NuGetCache.Initialize("dotnet-inspect");
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Similar_PackageAssetThatCannotBeDisclosedLosslessly_IsRefused()
     {
         string root = Path.Combine(
@@ -2431,6 +2552,56 @@ public sealed class MatchDiscoveryTests
                     <description>range replay fixture</description>
                   </metadata>
                 </package>
+                """);
+        }
+
+        return path;
+    }
+
+    static string CreateToolWrapperArchive(
+        string root,
+        string packageName,
+        string version,
+        string redirectPackageName)
+    {
+        string path = Path.Combine(root, "wrapper.nupkg");
+        using ZipArchive archive = ZipFile.Open(
+            path,
+            ZipArchiveMode.Create);
+        ZipArchiveEntry nuspec =
+            archive.CreateEntry($"{packageName}.nuspec");
+        using (Stream stream = nuspec.Open())
+        using (var writer = new StreamWriter(stream))
+        {
+            writer.Write(
+                $"""
+                <?xml version="1.0"?>
+                <package>
+                  <metadata>
+                    <id>{packageName}</id>
+                    <version>{version}</version>
+                    <authors>dotnet-inspect tests</authors>
+                    <description>range wrapper replay fixture</description>
+                  </metadata>
+                </package>
+                """);
+        }
+
+        ZipArchiveEntry settings = archive.CreateEntry(
+            "tools/net10.0/any/DotnetToolSettings.xml");
+        using (Stream stream = settings.Open())
+        using (var writer = new StreamWriter(stream))
+        {
+            writer.Write(
+                $"""
+                <DotNetCliTool Version="2">
+                  <Commands>
+                    <Command Name="fixture" EntryPoint="fixture.dll" Runner="dotnet" />
+                  </Commands>
+                  <RuntimeIdentifierPackages>
+                    <RuntimeIdentifierPackage RuntimeIdentifier="any" Id="{redirectPackageName}" />
+                  </RuntimeIdentifierPackages>
+                </DotNetCliTool>
                 """);
         }
 

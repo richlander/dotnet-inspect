@@ -45,6 +45,7 @@ internal static class ApiSourceResolver
         string? projectAssetsPath = null;
         NuGetSourceOptions? acquisitionSourceOptions = options.SourceOptions;
         IReadOnlyList<string>? packageReplaySourceUrls = null;
+        string? packageReplaySourcePackageName = null;
         bool packageReplayUsesOriginalSources = false;
         var typeName = options.TypeName;
         var packagePath = options.PackagePath;
@@ -89,6 +90,8 @@ internal static class ApiSourceResolver
                             address.ReportingSourceUrls);
                     packageReplaySourceUrls =
                         [.. address.ReportingSourceUrls];
+                    packageReplaySourcePackageName =
+                        range!.PackageId;
                     packageReplayUsesOriginalSources =
                         NuGetSourceResolver.ResolveSourceKeysForPackage(
                             options.SourceOptions,
@@ -135,12 +138,24 @@ internal static class ApiSourceResolver
                 return (null!, 1);
             }
             var extracted = outcome.Result!;
-            packageReplaySourceUrls ??=
-                extracted.SelectedVersionSourceUrls;
             if (extracted.SelectedVersionSourceUrls is not null)
             {
+                packageReplaySourceUrls =
+                    extracted.SelectedVersionSourceUrls;
+                packageReplaySourcePackageName =
+                    extracted.PackageName;
                 packageReplayUsesOriginalSources =
                     extracted.SelectedVersionUsesOriginalSources;
+            }
+            else if (packageReplaySourceUrls is not null
+                && !string.Equals(
+                    packageReplaySourcePackageName,
+                    extracted.PackageName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                packageReplaySourceUrls = null;
+                packageReplaySourcePackageName = null;
+                packageReplayUsesOriginalSources = false;
             }
             (searchPath, tempDir, packageName, packageVersion) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
             packageExtractPath = extracted.ExtractPath;
