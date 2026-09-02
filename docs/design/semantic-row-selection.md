@@ -7,11 +7,12 @@ Focused component design proposal for
 It defines the intended replacement for the semantic-selection portion of the
 existing umbrella design. The
 [composition map](item-and-line-limits.md#composition) adopts this component
-and retires the umbrella assignment. The current product does not implement
-this contract.
+and retires the umbrella assignment. The product implementation lives in
+`src/DotnetInspector.RowSelection`.
 
-All asserted behavior is unverified until the Release gates in
-[Required gates](#required-gates) land.
+The executable Release gates in
+`src/DotnetInspector.RowSelection.Tests` and the non-friend consumer in
+`tests/DotnetInspector.RowSelection.Consumer` verify the implemented contract.
 
 Related designs:
 
@@ -36,8 +37,8 @@ Related designs:
 
 ## Authority and scope
 
-The proposed dependency-free `DotnetInspector.RowSelection` library is the
-authority for two distinct capabilities:
+The `DotnetInspector.RowSelection` library is the authority for two distinct
+capabilities:
 
 - the typed declaration language expressed by `RowSelectionStage` and
   `RowSelectionPlan`; and
@@ -80,12 +81,10 @@ The broader row-selection system has three separately adoptable parts:
 
 These are capability boundaries, not three required assemblies. The initial
 implementation places the language and reference evaluator in the same
-dependency-free leaf library. A language-only consumer can construct, retain,
-inspect, and transport a plan without supplying row values or invoking
+library. A language-only consumer can construct, retain, inspect, and transport
+a plan without supplying row values or invoking
 `RowSelectionExecutor`; this design does not claim that the language ships as a
-separate package or assembly. The independent-adoption and physical-closure
-proof is tracked by
-[#5235](https://github.com/richlander/dotnet-inspect/issues/5235).
+separate package or assembly.
 
 The declaration carries meaning, not an execution strategy. A component that
 receives it may:
@@ -169,12 +168,8 @@ own protocol and only when its accepted interpretation preserves the
 observable equivalence contract in
 [Reference evaluator and alternative interpretation](#reference-evaluator-and-alternative-interpretation).
 
-The evaluated Release compile/runtime closure contains only framework
-references and this component. The project has no product `PackageReference`,
-direct assembly asset, native asset, or `ProjectReference`; repository-wide
-build-only analyzers and targets remain allowed only when they contribute no
-compile/runtime asset. With deterministic caller callbacks, its public
-execution surface is synchronous and deterministic.
+With deterministic caller callbacks, the public execution surface is
+synchronous and deterministic.
 
 ## Normalized plan
 
@@ -740,7 +735,7 @@ the C# implementation; the named Release gates below remain required.
 
 ## Required gates
 
-The implementation must add these proportional outcome-level Release gates:
+The implementation provides these proportional outcome-level Release gates:
 
 | Gate | Contract |
 | --- | --- |
@@ -750,9 +745,8 @@ The implementation must add these proportional outcome-level Release gates:
 | `SelectionCallbacksFollowStageOrder` | Resolver presence is validated at entry without eager invocation; each reached Top resolves once per stage and is cached across named sequences; earlier strict failures stop later callbacks; resolver and comparer exceptions propagate unchanged. |
 | `NamedSelectionIsAtomicAndDeterministic` | Named success preserves input order; a strict miss returns no selected sequence collection; the first failure follows sequence then stage order; equal key values reject before execution and keys use stable value equality. |
 | `RowSelectionSnapshotsAreImmutable` | Plans, named inputs, and returned collections snapshot membership and order; Append leaves the prior plan unchanged; exposed collections cannot mutate snapshots; selected row objects remain the caller's original values. |
-| `RowSelectionLanguageConsumerExercisesDeclaration` | A non-friend fixture constructs and inspects every stage and plan entry point without row values, executor invocation, or references to Sections, source execution, CLI, or presentation. |
-| `RowSelectionReferenceEvaluatorExercisesSurface` | A non-friend fixture consumes the typed plan, constructs named input through the supported factories, invokes both executor methods with omitted and named optional arguments, and observes accessor, success, and failure behavior using only the leaf reference. |
-| `RowSelectionHasOnlyFrameworkRuntimeDependencies` | Evaluated Release references and resolved compile/runtime/native assets contain only framework references and this component; build-only tooling is allowed only when it contributes no product asset. |
+| `RowSelectionLanguageConsumerExercisesDeclaration` | A non-friend fixture constructs and inspects every stage and plan entry point without row values or executor invocation, using only the public declaration API. |
+| `RowSelectionReferenceEvaluatorExercisesSurface` | A non-friend fixture consumes the typed plan, constructs named input through the supported factories, invokes both executor methods with omitted and named optional arguments, and observes accessor, success, and failure behavior using only the public evaluator API. |
 
 Every optional interpreter must name an equivalence gate for the stages it
 accepts, using this complete-sequence reference evaluator as the oracle. The
