@@ -31,6 +31,40 @@ authorities may contain different bytes. It is also stricter than
 content-addressing alone: equal bytes do not grant a caller authority to use an
 entry derived under another configured package authority.
 
+## Change classification and complexity
+
+This design corrects an existing CLI-host optimization; it does not add or
+expand a product capability, shared substrate, host path, information domain,
+or rendering path. Its named consumer is the existing `PackageInspector`, and
+[#3738](https://github.com/richlander/dotnet-inspect/issues/3738) is the
+end-to-end tracker for that consumer's adoption. The browser/Wasm host does not
+participate in the changed surface: both the owner and consumer are existing
+types under `src/dotnet-inspect`, and the target changes that existing call
+path without introducing a shared API. No browser enablement plan or
+single-host substrate exception is therefore created here. Any shared
+acquisition capability proposed by #5484 must make its own consumer and host
+classification before implementation.
+
+Rendering is unchanged. The cache continues to return the existing typed
+`InspectionResult` data consumed by the existing Markout-backed package
+presentation; it neither formats data nor introduces another lowering.
+
+The design adds only complexity required by observed correctness failures:
+
+- authority plus retained-content identity prevents one authorized cold
+  subject from reusing another's result;
+- a production-success outcome prevents per-file scan failures from becoming
+  complete-looking warm entries;
+- a closed inventory and completion record prevent omitted or truncated fields
+  from becoming defaults; and
+- canonical projection rules prevent filesystem enumeration order from
+  selecting a durable winner.
+
+The pathological case and the reproduced `BuiltDate`, partial-scan, and
+`RuntimeDependencies` divergences are the evidence that requires those
+mechanisms. The four outcome-level gates below are the required evidence
+without restating inherited platform or `CoreCache` properties.
+
 ## Owner and boundaries
 
 The owner is `PackageIndexCache`, currently in
@@ -423,32 +457,21 @@ the current exception that target adoption must replace with nonpublication.
 
 The target remains unverified until Release tests establish:
 
-- `PackageIndexCache_DistinctAuthoritiesWithEqualProducerDoNotShare`,
-  using two authorities that deliberately share producer identity and publish
-  different bytes for one coordinate;
-- `PackageIndexCache_DifferentRetainedContentIdentityCannotHit`, presenting two
-  acquisition-issued content identities under one authority and coordinate and
-  proving the first entry cannot answer the second;
-- `PackageIndexCache_AuthorityWithoutDurableKeySkipsPersistentReuse`, proving
-  there is no producer-keyed fallback;
-- `PackageIndexCache_PublicationRequiresFrozenSubjectAndSuccessfulProduction`,
-  proving lookup and publication use one immutable subject and a missing,
-  incomplete, failed, or differently bound production outcome cannot publish;
-- `PackageIndexCache_ForeignTreeCannotSeedPersistentReuse`, covering
-  global-packages entries with and without retained archives;
-- `PackageIndexCache_RejectsNoncanonicalOrAmbiguousProjection`, covering
-  shuffled filesystem-derived lists and multiple distinct deps-file runtime
+- `PackageIndexCache_SubjectControlsPersistentReuse`, covering distinct
+  authorities with equal producer identity, distinct retained-content
+  identities at one coordinate, an authority without a durable key, and
+  global-packages trees with and without retained archives;
+- `PackageIndexCache_PublicationRequiresOneSuccessfulFrozenSubject`, covering
+  missing, incomplete, failed, or differently bound production outcomes,
+  shuffled filesystem-derived lists, and multiple distinct deps-file runtime
   targets;
-- `PackageIndexCache_CompleteProjectionRoundTripsOrMisses`, covering a complete
-  positive entry and missing, predecessor, malformed, truncated,
-  missing-completion, deleted-member, duplicate-member, unknown-member, and
-  semantically incomplete entries; and
-- `PackageIndexCache_ProjectionExcludesRequestCurrentFactsAndBuildDate`, proving
+- `PackageIndexCache_EntryIsCompleteAndCurrent`, covering complete round-trip
+  plus predecessor, malformed, truncated, missing-completion, deleted-member,
+  duplicate-member, unknown-member, and semantically incomplete entries; and
+- `PackageIndexCache_ProjectionContainsOnlyStableFacts`, covering exclusion of
   RID availability, metadata enrichment, wrapper routing, current
-  authorization, externally acquired symbol availability, and `BuiltDate`
-  cannot enter the persistent value; and
-- `PackageIndexCache_LocalBinaryAggregatesAreDerived`, proving reconstruction
-  derives aggregate symbol and SourceLink availability only from the four
+  authorization, externally acquired symbol availability, and `BuiltDate`,
+  plus derivation of aggregate symbol and SourceLink availability from the four
   persisted local-source counters.
 
 The existing inert-description and producer-separation tests remain evidence
@@ -458,10 +481,10 @@ under different names. Acquisition's
 its process-local generation owner; #5484 owns the durable identity and
 W-to-S-to-W retained-content evidence. End-to-end `PackageInspector` adoption
 and current-fact recomposition remain integration work under #3738 rather than
-gates assigned to this cache owner. That adoption must gate
-`PackageInspector_PartialProjectionCannotPublish`,
-`PackageInspector_WarmHitRecomputesBuildDate`, and
-`PackageInspector_ColdAndWarmRuntimeDependenciesAgree`.
+gates assigned to this cache owner. The outcome-level
+`PackageInspector_ColdAndWarmCacheableProjectionAgree` gate covers partial
+production refusal, warm `BuiltDate` recomputation, and cold/warm
+`RuntimeDependencies` agreement.
 
 ## Non-claims
 
