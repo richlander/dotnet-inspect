@@ -85,6 +85,13 @@ make that sequence universal. A text-only strip may use
 `label -> short label`; an icon-free item may retain its short label as its
 minimum representation.
 
+Before constructing states, the control removes a dominated representation:
+one that is less preferred but no narrower than an available more-preferred
+representation under the installed styling. The remaining representation
+chain grows monotonically in normal inline size toward the preferred form.
+This keeps a localized short label or unusually wide icon from creating a
+non-monotonic collapse sequence.
+
 The item-priority order may use adopter-owned state such as an active identity.
 It must be a complete deterministic order over the installed inventory. When
 an adopter has no active item, it supplies another explicit origin or complete
@@ -97,10 +104,12 @@ order rather than asking `SlideStrip` to infer selection from focus.
 1. State zero renders every item at its minimum available representation.
 2. Each subsequent state promotes exactly one item to its next preferred
    available representation.
-3. Promotions follow the adopter-supplied complete order over item and
-   representation-transition pairs. The policy therefore decides whether one
-   item reaches its preferred representation before another item promotes or
-   whether equivalent promotion rounds alternate among items.
+3. At each state, the control selects the highest-priority currently eligible
+   transition from the adopter-supplied complete order over item and
+   representation-transition pairs. A transition is eligible only after that
+   item's preceding transition has occurred. The policy therefore decides
+   whether one item reaches its preferred representation before another item
+   promotes or whether equivalent promotion rounds alternate among items.
 4. The final state renders every item at its preferred available
    representation.
 
@@ -240,6 +249,7 @@ The implementation PR must add focused tests that prove:
 
 - zero, one, and many finite items;
 - every available representation combination;
+- dominated short-label or icon representations under installed styling;
 - deterministic promotion order and finite bounds;
 - preferred, clamped, and restored desired states;
 - state-zero fit versus internal-scroll boundaries;

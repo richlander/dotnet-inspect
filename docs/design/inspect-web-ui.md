@@ -114,8 +114,10 @@ inspector replacement.
 Moving application and contextual actions out of the subject row remains
 required product direction, but it is not part of this focused pattern and
 first-adopter contract. Shell Interaction and Surface Composition retain their
-current contracts until separate focused follow-ups relocate those actions and
-their page-level placement.
+current contracts until [#5482](https://github.com/richlander/dotnet-inspect/issues/5482)
+defines the shell-owned application control and
+[#5483](https://github.com/richlander/dotnet-inspect/issues/5483) relocates it
+and the contextual actions at the page-composition layer.
 
 ## Cross-document relationships
 
