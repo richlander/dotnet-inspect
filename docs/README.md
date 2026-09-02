@@ -37,6 +37,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [CLI Host Architecture](cli-architecture.md) | CLI command-host responsibilities, request lifetime, selection, and presentation composition. |
 | [CLI Change Classification and Obsolete Inputs](design/cli-change-classification.md) | Published CLI surfaces, observable change classification, disclosure, invalid-input guards, and routing reservations. |
 | [Repository xUnit Test Host](design/xunit-test-host.md) | Explicit-selection non-vacuity for the delegated xUnit argument vector while preserving xUnit-owned discovery, execution, reporting, and server dispatch. |
+| [Repository CI Change Plan](design/ci-change-plan.md) | Typed candidate provenance, exact changed-path interpretation, immutable CI validation selection, scoped evidence, and visible planner refusal. |
 | [LLM Design](llm-design.md) | Current agent-facing output and workflow design. |
 | [Progressive Disclosure](design/progressive-disclosure.md) | Current model for base/domain scope, discovery budgets, `-D`/`-S`, capabilities, counts, and row limits. |
 | [Bare `-S` Default View](design/info-view.md) | Bullseye questions and section profiles for curated high-density default views. |

@@ -114,6 +114,11 @@ substrates, and inspection producers that will extend that space.
   suite-owned expansion. xUnit retains command-line parsing, discovery,
   filtering, execution, reporting, and Microsoft Testing Platform protocol
   behavior.
+- [Repository CI change plan](design/ci-change-plan.md) owns candidate
+  provenance, exact changed-path interpretation, path and event routing
+  implications, and one immutable validation plan with bounded scoped evidence.
+  Workflow YAML transports and places selected validation, while jobs retain
+  validation semantics, execution, and results.
 - [`docs/design/ts-jsexport.md`](design/ts-jsexport.md) owns the `ts-jsexport`
   TypeScript facade projected at build time from an
   `ILInspector.JsExportSurface`, plus the producer context that selects a
