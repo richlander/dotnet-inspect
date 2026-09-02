@@ -106,6 +106,18 @@ public sealed class AssemblyLoadingPolicyTests
             BannedSymbolIds(path).OrderBy(id => id, StringComparer.Ordinal));
     }
 
+    [Theory]
+    [InlineData("CS1591;RS0030")]
+    [InlineData("CS1591,RS0030")]
+    public void WarningListsRecognizeEverySupportedSeparator(
+        string warnings)
+    {
+        Assert.Contains(
+            BannedApiRule,
+            WarningCodes(warnings),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void CompiledShippedToolAssembliesReferenceNoForbiddenRuntimeRoute()
     {
@@ -195,10 +207,15 @@ public sealed class AssemblyLoadingPolicyTests
         Path.Combine(root, "src", "ts-jsexport", "ts-jsexport.csproj"),
     ];
 
-    private static string[] ListProperty(ProjectEvaluation evaluation, string name) =>
-        evaluation.Properties.GetValueOrDefault(name, string.Empty)
+    private static string[] ListProperty(
+        ProjectEvaluation evaluation,
+        string name) =>
+        WarningCodes(evaluation.Properties.GetValueOrDefault(name, string.Empty));
+
+    private static string[] WarningCodes(string value) =>
+        value
             .Split(
-                ';',
+                [';', ','],
                 StringSplitOptions.RemoveEmptyEntries
                     | StringSplitOptions.TrimEntries);
 
@@ -235,6 +252,9 @@ public sealed class AssemblyLoadingPolicyTests
 
         yield return RequiredFrameworkType("System.Activator").GetDocumentationCommentId()!;
         yield return RequiredFrameworkType("System.AppDomain").GetDocumentationCommentId()!;
+        yield return "T:System.Reflection.MetadataAssemblyResolver";
+        yield return "T:System.Reflection.MetadataLoadContext";
+        yield return "T:System.Reflection.PathAssemblyResolver";
         yield return RequiredFrameworkType("System.Runtime.Loader.AssemblyLoadContext").GetDocumentationCommentId()!;
         yield return RequiredFrameworkType("System.Reflection.Emit.DynamicMethod")
             .ContainingNamespace.GetDocumentationCommentId()!;
@@ -259,6 +279,10 @@ public sealed class AssemblyLoadingPolicyTests
             string typeName = reader.GetString(type.Name);
 
             if ((namespaceName == "System" && typeName is "Activator" or "AppDomain")
+                || (namespaceName == "System.Reflection"
+                    && typeName is "MetadataAssemblyResolver"
+                        or "MetadataLoadContext"
+                        or "PathAssemblyResolver")
                 || (namespaceName == "System.Runtime.Loader" && typeName == "AssemblyLoadContext")
                 || namespaceName == "System.Reflection.Emit"
                 || namespaceName.StartsWith("System.Reflection.Emit.", StringComparison.Ordinal))

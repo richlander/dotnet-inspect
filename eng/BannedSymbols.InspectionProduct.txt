@@ -28,6 +28,9 @@ M:System.Type.GetType(System.String,System.Boolean,System.Boolean);Do not resolv
 M:System.Type.GetType(System.String,System.Func{System.Reflection.AssemblyName,System.Reflection.Assembly},System.Func{System.Reflection.Assembly,System.String,System.Boolean,System.Type});Do not resolve inspected type names through the runtime loader.
 M:System.Type.GetType(System.String,System.Func{System.Reflection.AssemblyName,System.Reflection.Assembly},System.Func{System.Reflection.Assembly,System.String,System.Boolean,System.Type},System.Boolean);Do not resolve inspected type names through the runtime loader.
 M:System.Type.GetType(System.String,System.Func{System.Reflection.AssemblyName,System.Reflection.Assembly},System.Func{System.Reflection.Assembly,System.String,System.Boolean,System.Type},System.Boolean,System.Boolean);Do not resolve inspected type names through the runtime loader.
+T:System.Reflection.MetadataLoadContext;Use System.Reflection.Metadata directly; do not reflect over inspected assemblies.
+T:System.Reflection.MetadataAssemblyResolver;Do not introduce reflection-only assembly loading or resolution.
+T:System.Reflection.PathAssemblyResolver;Do not introduce path-based reflection-only assembly loading.
 T:System.Runtime.Loader.AssemblyLoadContext;Parse assembly bytes through System.Reflection.Metadata; never load inspected code into the runtime.
 N:System.Reflection.Emit;Product inspection must not generate or execute runtime code.
 T:System.AppDomain;Inspected assemblies must never be loaded or executed in an application domain.

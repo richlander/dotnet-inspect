@@ -16,9 +16,11 @@ namespace InspectWeb.Engine.Tests;
 /// <remarks>
 /// <para>
 /// The first is that the ban list is not vacuous: a banned identifier that no longer resolves
-/// bans nothing, and the analyzer reports no such entry. <see cref="EveryBannedSymbolStillExists"/>
-/// resolves each entry against the product assemblies so a rename fails here rather than silently
-/// reopening the door.
+/// bans nothing, and the analyzer reports no such entry.
+/// <see cref="EveryBannedSymbolExistsOrIsPinnedUnavailable"/> resolves each
+/// available entry against the product assemblies and separately pins the
+/// reflection-only loading package as unavailable, so a rename or new package
+/// reference fails here rather than silently reopening the door.
 /// </para>
 /// <para>
 /// The second is that package selection and participant realization stay in product code, so the
@@ -318,6 +320,9 @@ public sealed class BrowserEngineLayeringTests
                 "System.Reflection.MetadataLoadContext"));
         Assert.Null(
             ProductCompilation.GetTypeByMetadataName(
+                "System.Reflection.MetadataAssemblyResolver"));
+        Assert.Null(
+            ProductCompilation.GetTypeByMetadataName(
                 "System.Reflection.PathAssemblyResolver"));
     }
 
@@ -547,13 +552,19 @@ public sealed class BrowserEngineLayeringTests
     }
 
     [Fact]
-    public void EveryBannedSymbolStillExists()
+    public void EveryBannedSymbolExistsOrIsPinnedUnavailable()
     {
         foreach (string symbol in BannedSymbols())
         {
             ISymbol? resolved = DocumentationCommentId.GetFirstSymbolForDeclarationId(
                 symbol,
                 ProductCompilation);
+            if (UnavailableReflectionOnlySymbols.Contains(symbol))
+            {
+                Assert.Null(resolved);
+                continue;
+            }
+
             Assert.True(
                 resolved is not null,
                 $"Banned symbol '{symbol}' no longer resolves exactly, so the entry bans nothing.");
@@ -781,6 +792,10 @@ public sealed class BrowserEngineLayeringTests
 
             if ((namespaceName == "System"
                     && typeName is "Activator" or "AppDomain")
+                || (namespaceName == "System.Reflection"
+                    && typeName is "MetadataAssemblyResolver"
+                        or "MetadataLoadContext"
+                        or "PathAssemblyResolver")
                 || (namespaceName == "System.Runtime.Loader"
                     && typeName == "AssemblyLoadContext")
                 || namespaceName == "System.Reflection.Emit"
@@ -830,6 +845,14 @@ public sealed class BrowserEngineLayeringTests
             "LoadModule",
             "LoadWithPartialName",
             "UnsafeLoadFrom",
+        };
+
+    static readonly HashSet<string> UnavailableReflectionOnlySymbols =
+        new(StringComparer.Ordinal)
+        {
+            "T:System.Reflection.MetadataAssemblyResolver",
+            "T:System.Reflection.MetadataLoadContext",
+            "T:System.Reflection.PathAssemblyResolver",
         };
 
     static IReadOnlyList<Assembly> ProductReferenceClosure()

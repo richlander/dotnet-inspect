@@ -294,8 +294,8 @@ code is an attacker.
 Assembly, metadata, and method-body paths use
 `System.Reflection.PortableExecutable` and `System.Reflection.Metadata`. Product
 inspection must not introduce `Assembly.Load`, `AssemblyLoadContext`, reflection
-over inspected binaries, module initializers, or dependency resolution that
-executes target code.
+or `MetadataLoadContext` over inspected binaries, module initializers, or
+dependency resolution that executes target code.
 
 `AssemblyLoadingPolicyTests` and
 `BrowserEngineLayeringTests.CompiledBrowserProductAssembliesReferenceNoForbiddenRuntimeRoute`
