@@ -71,6 +71,9 @@ public sealed class JsExportContextLoaderTests
     [InlineData("")]
     [InlineData(".")]
     [InlineData("CON")]
+    [InlineData("COM¹")]
+    [InlineData("COM².txt")]
+    [InlineData("LPT³")]
     [InlineData("bad/name")]
     [InlineData("trailing.")]
     [InlineData("trailing ")]
@@ -81,6 +84,40 @@ public sealed class JsExportContextLoaderTests
                 assemblyName,
                 out string? artifactName));
         Assert.Null(artifactName);
+    }
+
+    [Theory]
+    [InlineData(252, true)]
+    [InlineData(253, false)]
+    public void ContextArtifactNamesEnforcePortableAsciiLength(
+        int assemblyNameLength,
+        bool expected)
+    {
+        bool success = JsExportContextLoader.TryGetArtifactName(
+            new string('a', assemblyNameLength),
+            out string? artifactName);
+
+        Assert.Equal(expected, success);
+        Assert.Equal(
+            expected ? new string('a', assemblyNameLength) + ".ts" : null,
+            artifactName);
+    }
+
+    [Theory]
+    [InlineData(126, true)]
+    [InlineData(127, false)]
+    public void ContextArtifactNamesEnforcePortableUtf8Length(
+        int assemblyNameLength,
+        bool expected)
+    {
+        bool success = JsExportContextLoader.TryGetArtifactName(
+            new string('é', assemblyNameLength),
+            out string? artifactName);
+
+        Assert.Equal(expected, success);
+        Assert.Equal(
+            expected ? new string('é', assemblyNameLength) + ".ts" : null,
+            artifactName);
     }
 
     [Fact]
@@ -284,6 +321,54 @@ public sealed class JsExportContextLoaderTests
             contextPath,
             typeof(MultiAssemblyContext).FullName!,
             [firstDirectory, secondDirectory],
+            "test",
+            error,
+            out var roots);
+
+        Assert.False(success);
+        Assert.Empty(roots);
+        Assert.Contains(
+            "rooted assembly resolution is ambiguous",
+            error.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ContextRejectsCaseDistinctCandidatePathsOnCaseSensitiveHost()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        using var directory = new TemporaryDirectory();
+        string upperDirectory = directory.CreateSubdirectory("A");
+        string lowerDirectory = System.IO.Path.Combine(directory.Path, "a");
+        if (Directory.Exists(lowerDirectory))
+            return;
+        Directory.CreateDirectory(lowerDirectory);
+
+        string contextPath = directory.CopyAssembly(
+            typeof(MultiAssemblyContext).Assembly.Location);
+        string alphaFileName = System.IO.Path.GetFileName(
+            typeof(AlphaExports).Assembly.Location);
+        string upperAlpha = System.IO.Path.Combine(
+            upperDirectory,
+            alphaFileName);
+        string lowerAlpha = System.IO.Path.Combine(
+            lowerDirectory,
+            alphaFileName);
+        File.Copy(typeof(AlphaExports).Assembly.Location, upperAlpha);
+        File.Copy(typeof(AlphaExports).Assembly.Location, lowerAlpha);
+        string betaPath = System.IO.Path.Combine(
+            directory.Path,
+            System.IO.Path.GetFileName(
+                typeof(BetaExports).Assembly.Location));
+        File.Copy(typeof(BetaExports).Assembly.Location, betaPath);
+        var error = new StringWriter();
+
+        bool success = JsExportContextLoader.TryResolve(
+            contextPath,
+            typeof(MultiAssemblyContext).FullName!,
+            [upperAlpha, lowerAlpha, betaPath],
             "test",
             error,
             out var roots);

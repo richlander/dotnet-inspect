@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text;
 using ILInspector.Metadata;
 using ILInspector.TypeScriptGeneration;
 
@@ -20,11 +21,20 @@ internal sealed record GeneratedJsExportFacade(
 
 internal static class JsExportContextLoader
 {
+    const int MaxPortableFileNameLength = 255;
     const string RootAttributeName = "JsExportRootAttribute";
     const string RootAttributeNamespace = "TsJsExport";
 
     static readonly AssemblyReferenceIdentity s_contractIdentity =
         ContractIdentity();
+    static readonly Encoding s_strictUtf8 =
+        new UTF8Encoding(
+            encoderShouldEmitUTF8Identifier: false,
+            throwOnInvalidBytes: true);
+    static readonly StringComparer s_pathComparer =
+        OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
 
     public static bool TryResolve(
         string contextAssemblyPath,
@@ -320,7 +330,7 @@ internal static class JsExportContextLoader
         TextWriter error,
         out ImmutableArray<AssemblyCandidate> candidates)
     {
-        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        var paths = new HashSet<string>(s_pathComparer)
         {
             Path.GetFullPath(contextAssemblyPath),
         };
@@ -603,14 +613,32 @@ internal static class JsExportContextLoader
             || deviceName.Length == 4
                 && (deviceName.StartsWith("COM", StringComparison.OrdinalIgnoreCase)
                     || deviceName.StartsWith("LPT", StringComparison.OrdinalIgnoreCase))
-                && deviceName[3] is >= '1' and <= '9')
+                && IsReservedDeviceNumber(deviceName[3]))
         {
             return false;
         }
 
-        artifactName = $"{assemblyName}.ts";
+        string candidate = $"{assemblyName}.ts";
+        try
+        {
+            if (candidate.Length > MaxPortableFileNameLength
+                || s_strictUtf8.GetByteCount(candidate)
+                    > MaxPortableFileNameLength)
+            {
+                return false;
+            }
+        }
+        catch (EncoderFallbackException)
+        {
+            return false;
+        }
+
+        artifactName = candidate;
         return true;
     }
+
+    static bool IsReservedDeviceNumber(char character) =>
+        character is >= '1' and <= '9' or '¹' or '²' or '³';
 
     static string FormatIdentity(AssemblyReferenceIdentity identity) =>
         $"{identity.Name}, Version={identity.Version?.ToString() ?? "<omitted>"}, "

@@ -553,12 +553,13 @@ The context's custom-attribute table is not an ordering or naming channel.
 generation. In context command mode, the exact assembly simple name determines
 the canonical `<assembly-name>.ts` artifact filename. Assembly simple names
 must be distinct under ordinal, case-insensitive comparison and valid as a
-single portable file stem; the tool does not repair or disambiguate an invalid
-set. The consumer chooses the output directory and continues to own public
-module specifiers, initialization order, entry-point selection, and any
-authored coordinator. In particular, the assembly containing the context is
-not implicitly the browser host, and attribute order does not make one root
-the host.
+single portable file stem. Including the `.ts` suffix, an artifact name may
+use at most 255 UTF-16 code units and 255 UTF-8 bytes. The tool does not repair
+or disambiguate an invalid set. The consumer chooses the output directory and
+continues to own public module specifiers, initialization order, entry-point
+selection, and any authored coordinator. In particular, the assembly
+containing the context is not implicitly the browser host, and attribute order
+does not make one root the host.
 
 ### Resolution and closed-set failure
 
