@@ -3047,6 +3047,20 @@ public sealed partial class CSharpPrinter
         LoadIndirect l => RendersAsPointerDeref(l.Address),
         StoreIndirect s => RendersAsPointerDeref(s.Address),
         InitObject o => RendersAsPointerDeref(o.Address),
+        _ => IsRaisedUnsafeOperation(node),
+    };
+
+    static bool IsRaisedUnsafeOperation(IrNode node) => node switch
+    {
+        NullCoalescingFieldAssignment f => IsPointerReceiver(f.Instance),
+        NullCoalescingFieldAssignmentExpression f => IsPointerReceiver(f.Instance),
+        NullCoalescingPropertyAssignment p => AccessorRequiresUnsafe(p.Setter, p.Instance),
+        DeconstructionAssignment d => d.Targets.Any(DeconstructionTargetRequiresUnsafe)
+            || d.ConsumedDeconstructMethod is { } method
+                && (method.RequiresUnsafe || SignatureRequiresUnsafe(method)),
+        DelegateCreation d => d.Method.RequiresUnsafe
+            || SignatureRequiresUnsafe(d.Method)
+            || IsPointerReceiver(d.Target),
         _ => false,
     };
 
@@ -3058,7 +3072,15 @@ public sealed partial class CSharpPrinter
             || SignatureRequiresUnsafe(accessor)
             || IsPointerReceiver(receiver);
 
-    static bool CallRendersPointerReceiver(Call call)
+    static bool DeconstructionTargetRequiresUnsafe(DeconstructionTarget target)
+        => target is
+            {
+                Kind: DeconstructionTargetKind.Property,
+                Accessor: { } accessor,
+            }
+            && AccessorRequiresUnsafe(accessor, target.Instance);
+
+    bool CallRendersPointerReceiver(Call call)
     {
         if (call.Arguments is not [var receiver, ..] || !IsPointerReceiver(receiver))
             return false;
@@ -3066,10 +3088,7 @@ public sealed partial class CSharpPrinter
         if (call.Callee.HasThis)
             return true;
 
-        return call.Callee.IsExtension == MetadataFactState.Yes
-            && call.Callee.ParameterTypes is
-            [{ Kind: TypeRefKind.ByRef, ElementType: { } target }, ..]
-            && receiver.ResultType?.ElementType?.Equals(target) == true;
+        return PointerRefExtensionReceiver(call.Callee, receiver) is not null;
     }
 
     static bool IsPointerArithmetic(Binary binary)

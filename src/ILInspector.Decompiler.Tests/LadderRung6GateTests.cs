@@ -570,6 +570,240 @@ public class LadderRung6GateTests
     }
 
     [Fact]
+    public void Rung6StaticPointerRefArguments_UseRuleSpecificUnsafeContexts()
+    {
+        var helpers = TypeRef.Definition("Synthetic", "", "Helpers");
+        var byRefInt = TypeRef.ByRef(Int32);
+        var takeRef = new MethodRef(helpers, "TakeRef", Void, [byRefInt], HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Ref],
+        };
+        var takeIn = new MethodRef(helpers, "TakeIn", Int32, [byRefInt], HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.In],
+        };
+
+        const string declarations = """
+            public static class Helpers
+            {
+                public static void TakeRef(ref int value) { }
+                public static int TakeIn(in int value) => value;
+            }
+            """;
+
+        AssertCall(takeRef, "Helpers.TakeRef(ref *p)");
+        AssertCall(takeIn, "Helpers.TakeIn(in *p)");
+
+        void AssertCall(MethodRef method, string expected)
+        {
+            IrFunction CreateFunction() => Function(
+                "StaticPointerRefArgument",
+                Void,
+                [new Parameter("p", IntPointer)],
+                [],
+                new ExpressionStatement(new Call(
+                    method,
+                    isVirtual: false,
+                    [new LoadArgument(0, "p", IntPointer)])),
+                new Return(null));
+
+            var (updated, legacy) = PrintRulePair(CreateFunction);
+
+            Assert.Contains(expected, updated);
+            Assert.Contains("unsafe", updated);
+            Assert.DoesNotContain("unsafe", legacy);
+            AssertNoErrors(RecompileNewRules("static unsafe void M(int* p)", updated, declarations), updated);
+            AssertNoErrors(RecompileLegacyRules("static unsafe void M(int* p)", legacy, declarations), legacy);
+        }
+    }
+
+    [Fact]
+    public void Rung6PointerNullCoalescingFieldStatement_UsesRuleSpecificUnsafeContexts()
+    {
+        var point = TypeRef.Definition("Synthetic", "LadderRung6", "Point", ValueTypeHint.ValueType);
+        var pointPointer = TypeRef.Pointer(point);
+        var nullableInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Nullable`1"),
+            [Int32]);
+        var field = new FieldRef(point, "Field", nullableInt);
+
+        IrFunction CreateFunction() => Function(
+            "PointerNullCoalescingField",
+            Void,
+            [new Parameter("p", pointPointer)],
+            [],
+            new NullCoalescingFieldAssignment(
+                field,
+                new LoadArgument(0, "p", pointPointer),
+                new Constant(1, Int32)),
+            new Return(null));
+
+        var (updated, legacy) = PrintRulePair(CreateFunction);
+
+        Assert.Contains("p->Field ??= 1;", updated);
+        Assert.Contains("unsafe", updated);
+        Assert.DoesNotContain("unsafe", legacy);
+        const string declarations = "public struct Point { public int? Field; }";
+        AssertNoErrors(RecompileNewRules("static unsafe void M(Point* p)", updated, declarations), updated);
+        AssertNoErrors(RecompileLegacyRules("static unsafe void M(Point* p)", legacy, declarations), legacy);
+    }
+
+    [Fact]
+    public void Rung6PointerNullCoalescingFieldExpression_UsesRuleSpecificUnsafeContexts()
+    {
+        var point = TypeRef.Definition("Synthetic", "LadderRung6", "Point", ValueTypeHint.ValueType);
+        var pointPointer = TypeRef.Pointer(point);
+        var nullableInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Nullable`1"),
+            [Int32]);
+        var field = new FieldRef(point, "Field", nullableInt);
+
+        IrFunction CreateFunction() => Function(
+            "PointerNullCoalescingFieldExpression",
+            nullableInt,
+            [new Parameter("p", pointPointer)],
+            [],
+            new Return(new NullCoalescingFieldAssignmentExpression(
+                field,
+                new LoadArgument(0, "p", pointPointer),
+                new Constant(1, Int32))));
+
+        var (updated, legacy) = PrintRulePair(CreateFunction);
+
+        Assert.Contains("return p->Field ??= 1;", updated);
+        Assert.Contains("unsafe", updated);
+        Assert.DoesNotContain("unsafe", legacy);
+        const string declarations = "public struct Point { public int? Field; }";
+        AssertNoErrors(RecompileNewRules("static unsafe int? M(Point* p)", updated, declarations), updated);
+        AssertNoErrors(RecompileLegacyRules("static unsafe int? M(Point* p)", legacy, declarations), legacy);
+    }
+
+    [Fact]
+    public void Rung6PointerNullCoalescingProperty_UsesRuleSpecificUnsafeContexts()
+    {
+        var point = TypeRef.Definition("Synthetic", "LadderRung6", "Point", ValueTypeHint.ValueType);
+        var pointPointer = TypeRef.Pointer(point);
+        var nullableInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Nullable`1"),
+            [Int32]);
+        var setter = new MethodRef(point, "set_Property", Void, [nullableInt], HasThis: true);
+
+        IrFunction CreateFunction() => Function(
+            "PointerNullCoalescingProperty",
+            Void,
+            [new Parameter("p", pointPointer)],
+            [],
+            new NullCoalescingPropertyAssignment(
+                setter,
+                new LoadArgument(0, "p", pointPointer),
+                [],
+                new Constant(2, Int32),
+                isVirtual: false),
+            new Return(null));
+
+        var (updated, legacy) = PrintRulePair(CreateFunction);
+
+        Assert.Contains("p->Property ??= 2;", updated);
+        Assert.Contains("unsafe", updated);
+        Assert.DoesNotContain("unsafe", legacy);
+        const string declarations = "public struct Point { public int? Property { get; set; } }";
+        AssertNoErrors(RecompileNewRules("static unsafe void M(Point* p)", updated, declarations), updated);
+        AssertNoErrors(RecompileLegacyRules("static unsafe void M(Point* p)", legacy, declarations), legacy);
+    }
+
+    [Fact]
+    public void Rung6PointerPropertyDeconstruction_UsesRuleSpecificUnsafeContexts()
+    {
+        var point = TypeRef.Definition("Synthetic", "LadderRung6", "Point", ValueTypeHint.ValueType);
+        var pointPointer = TypeRef.Pointer(point);
+        var nullableInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Nullable`1"),
+            [Int32]);
+        var tuple = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "ValueTuple`2"),
+            [nullableInt, Int32]);
+        var setter = new MethodRef(point, "set_Property", Void, [nullableInt], HasThis: true);
+
+        IrFunction CreateFunction() => Function(
+            "PointerPropertyDeconstruction",
+            Void,
+            [
+                new Parameter("p", pointPointer),
+                new Parameter("tuple", tuple),
+            ],
+            [Int32],
+            new DeconstructionAssignment(
+                [
+                    DeconstructionTarget.Property(
+                        setter,
+                        new LoadArgument(0, "p", pointPointer),
+                        [],
+                        isVirtual: false),
+                    DeconstructionTarget.Local(0, Int32, isDeclared: false),
+                ],
+                new LoadArgument(1, "tuple", tuple)),
+            new Return(null));
+
+        var (updated, legacy) = PrintRulePair(CreateFunction);
+
+        Assert.Contains("(p->Property,", updated);
+        Assert.Contains("unsafe", updated);
+        Assert.DoesNotContain("unsafe", legacy);
+        const string declarations = """
+            public struct Point
+            {
+                public int? Property { get; set; }
+            }
+            """;
+        AssertNoErrors(
+            RecompileNewRules("static unsafe void M(Point* p, (int?, int) tuple)", updated, declarations),
+            updated);
+        AssertNoErrors(
+            RecompileLegacyRules("static unsafe void M(Point* p, (int?, int) tuple)", legacy, declarations),
+            legacy);
+    }
+
+    [Fact]
+    public void Rung6RequiresUnsafeDelegateCreation_UsesRuleSpecificUnsafeContexts()
+    {
+        var action = TypeRef.CoreLib("System", "Action");
+        var helpers = TypeRef.Definition("Synthetic", "", "Helpers");
+        var risky = new MethodRef(helpers, "Risky", Void, [], HasThis: false)
+        {
+            RequiresUnsafe = true,
+        };
+
+        IrFunction CreateFunction() => Function(
+            "RequiresUnsafeDelegateCreation",
+            Void,
+            [],
+            [action],
+            new StoreLocal(
+                0,
+                action,
+                new DelegateCreation(
+                    action,
+                    risky,
+                    isVirtual: false,
+                    new Constant(null, TypeRef.CoreLib("System", "Object")))),
+            new Return(null));
+
+        var (updated, legacy) = PrintRulePair(CreateFunction);
+
+        Assert.Contains("new Action(Helpers.Risky)", updated);
+        Assert.Contains("unsafe", updated);
+        Assert.DoesNotContain("unsafe", legacy);
+        const string declarations = """
+            public static class Helpers
+            {
+                public static unsafe void Risky() { }
+            }
+            """;
+        AssertNoErrors(RecompileNewRules("static void M()", updated, declarations), updated);
+        AssertNoErrors(RecompileLegacyRules("static void M()", legacy, declarations), legacy);
+    }
+
+    [Fact]
     public void Rung6PointerReceiver_DoesNotRaiseNullConditional()
     {
         var point = TypeRef.Definition("Synthetic", "LadderRung6", "Point", ValueTypeHint.ValueType);
@@ -1244,6 +1478,13 @@ public class LadderRung6GateTests
         params MetadataReference[] extraReferences)
         => Recompile(methodHeader, body, "", useUpdatedMemorySafetyRules: false, extraReferences);
 
+    static ImmutableArray<Diagnostic> RecompileLegacyRules(
+        string methodHeader,
+        string body,
+        string extraDeclarations,
+        params MetadataReference[] extraReferences)
+        => Recompile(methodHeader, body, extraDeclarations, useUpdatedMemorySafetyRules: false, extraReferences);
+
     static ImmutableArray<Diagnostic> Recompile(
         string methodHeader,
         string body,
@@ -1300,6 +1541,17 @@ public class LadderRung6GateTests
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef IntPointer = TypeRef.Pointer(Int32);
     static readonly TypeRef PinnedRefInt = TypeRef.Pinned(TypeRef.ByRef(Int32));
+
+    static (string Updated, string Legacy) PrintRulePair(Func<IrFunction> createFunction)
+    {
+        var updatedFunction = createFunction();
+        updatedFunction.UsesUpdatedMemorySafetyRules = true;
+        var legacyFunction = createFunction();
+        legacyFunction.UsesUpdatedMemorySafetyRules = false;
+        return (
+            CSharpPrinter.Print(updatedFunction).Output!,
+            CSharpPrinter.Print(legacyFunction).Output!);
+    }
 
     static IrFunction VolatileIndirectRead(bool isVolatile)
     {
