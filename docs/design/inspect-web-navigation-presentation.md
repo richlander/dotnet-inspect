@@ -235,12 +235,14 @@ width is below the subject fallback-visibility floor, the subject-only
 composite retains the floor in an internally scrolling viewport inside its
 assigned page boundary.
 
-At the inspector-first allocation, when the inspector viewport can fit two
-Labels, the effective inspector and one adjacent inspector remain readable.
-When two Labels no longer fit, the inspector uses the first viable compact mode
-that exposes at least two controls. A user-requested subject-forward allocation
-may therefore change the complete inspector window uniformly from Label to
-Short Label, Icon, or Index.
+On initial or reset inspector-first placement, when the inspector viewport can
+fit two Labels, the window contains the effective inspector and one adjacent
+inspector. A later user-directed slide retains its own window and may move the
+effective inspector out of view without changing selection. When two Labels no
+longer fit, the inspector uses the first viable compact mode that exposes at
+least two controls. A user-requested subject-forward allocation may therefore
+change the complete inspector window uniformly from Label to Short Label, Icon,
+or Index.
 
 Both allocation buttons remain mounted between the all-preferred and
 control-free states and use `aria-disabled="true"` at their respective bounds.
