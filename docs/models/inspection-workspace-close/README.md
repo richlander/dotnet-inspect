@@ -24,6 +24,9 @@ owner-issued quiescence predicate, and rechecks the imported identity/result,
 progress, and behavior contracts. It does not import callback, image, or
 resource internals. Coordinated registrations retain their existing
 owner-issued release authority and are not moved into the direct lifecycle.
+The foreign-receipt control adds a second direct registration and second owner
+instance; ordinary actions request and complete that owner-issued receipt
+before the mutation associates it with the first registration.
 
 The modeled interactions are:
 
@@ -76,6 +79,8 @@ The model does not cover:
 | `DirectGroupReleaseCompletionMatchesRequest` | A terminal direct-group receipt implies a prior request for that exact group. |
 | `DirectGroupReleaseCompletionCarriesResult` | Exact direct-group completion and its terminal result become visible together. |
 | `DirectGroupReleaseBehaviorRefinesOwner` | The direct request/completion projection refines the reusable group-release lifecycle. |
+| `ForeignDirectGroupReleaseCompletionMatchesRequest` | The foreign control's second direct receipt is issued only after requesting that exact group. |
+| `ForeignDirectGroupReleaseCompletionCarriesResult` | The foreign control's second owner issues its terminal identity and result together. |
 | `ReleaseBeginsAtMostOnce` | Each group starts terminal release at most once. |
 | `ActiveLeasesPreventRelease` | A coordinated group is not released while an existing lease remains active. |
 | `RegistrationHistoryMatchesBuildOutcome` | Every group-producing admission remains in the immutable report domain. |
@@ -101,6 +106,7 @@ not independent evidence.
 | --- | --- |
 | `Safety.cfg` | Checks all safety properties with one direct group, one coordinated group, and up to two leases. |
 | `Liveness.cfg` | Checks construction, release, and workspace-close progress under weak fairness. |
+| `TwoDirectSafety.cfg` | Checks the unmutated two-direct topology and behavior refinement for both owner lifecycle instances. |
 | `ReachabilityDirectRelease.cfg` | Demonstrates workspace-owned direct release. |
 | `ReachabilityCoordinatedDrain.cfg` | Demonstrates close waiting for an existing coordinated lease before release. |
 | `ReachabilityOwnerFirstRelease.cfg` | Demonstrates adjacent-owner release while the workspace remains open. |
@@ -115,7 +121,7 @@ not independent evidence.
 | `BrokenReleaseWithLease.cfg` | Requests coordinated release with an active lease; TLC must violate `CoordinatedReleaseWaitsForLeases`. |
 | `BrokenReleaseBeforeQuiescence.cfg` | Completes group release while group work remains active; TLC must violate `ReleaseWaitsForGroupQuiescence`. |
 | `BrokenImportedDirectGroupReleaseLifecycle.cfg` | Lets direct completion use the quiescence mutation; TLC must violate owner behavior refinement. |
-| `BrokenForeignDirectReceipt.cfg` | Lets another direct group's receipt settle the registration; TLC must violate `DirectReceiptMatchesRegistration`. |
+| `BrokenForeignDirectReceipt.cfg` | Issues another direct group's valid terminal receipt, then lets it settle the first registration; TLC must violate `DirectReceiptMatchesRegistration`. |
 | `BrokenDirectReceiptResult.cfg` | Associates the exact direct receipt with the wrong result; TLC must violate `DirectReceiptResultMatchesReportSource`. |
 | `BrokenLatePublication.cfg` | Publishes a construction result after close; TLC must violate `LateCompletionRoutesToCleanup`. |
 | `BrokenEarlyWorkspaceCompletion.cfg` | Completes workspace close before group release; TLC must violate `WorkspaceCloseWaitsForQuiescence`. |
@@ -138,6 +144,10 @@ java -XX:+UseParallelGC "-DTLA-Library=$TLA_LIBRARY" \
 java -XX:+UseParallelGC "-DTLA-Library=$TLA_LIBRARY" \
   -cp /path/to/tla2tools.jar tlc2.TLC \
   -workers 1 -cleanup -config Liveness.cfg InspectionWorkspaceClose.tla
+java -XX:+UseParallelGC "-DTLA-Library=$TLA_LIBRARY" \
+  -cp /path/to/tla2tools.jar tlc2.TLC \
+  -workers 1 -cleanup -config TwoDirectSafety.cfg \
+  InspectionWorkspaceClose.tla
 for config in ReachabilityDirectRelease ReachabilityCoordinatedDrain \
   ReachabilityOwnerFirstRelease ReachabilityPostCloseLeaseWork \
   ReachabilityNoGroupCompletion ReachabilityLateCleanup \
@@ -177,6 +187,7 @@ SHA-256
 | --- | --- | ---: | ---: | ---: |
 | `Safety.cfg` | No error | 4,270 | 1,945 | 18 |
 | `Liveness.cfg` | No error | 4,270 | 1,945 | 18 |
+| `TwoDirectSafety.cfg` | No error | 87,986 | 30,821 | 23 |
 | `ReachabilityDirectRelease.cfg` | Direct release reached | 198 | 136 | 6 |
 | `ReachabilityCoordinatedDrain.cfg` | Coordinated post-lease drain reached | 394 | 255 | 7 |
 | `ReachabilityOwnerFirstRelease.cfg` | Owner-first release reached | 103 | 77 | 5 |
@@ -191,7 +202,7 @@ SHA-256
 | `BrokenReleaseWithLease.cfg` | `CoordinatedReleaseWaitsForLeases` violated | 216 | 145 | 6 |
 | `BrokenReleaseBeforeQuiescence.cfg` | `ReleaseWaitsForGroupQuiescence` violated | 418 | 248 | 7 |
 | `BrokenImportedDirectGroupReleaseLifecycle.cfg` | `DirectGroupReleaseBehaviorRefinesOwner` violated | 418 | 248 | 7 |
-| `BrokenForeignDirectReceipt.cfg` | `DirectReceiptMatchesRegistration` violated | 519 | 322 | 6 |
+| `BrokenForeignDirectReceipt.cfg` | `DirectReceiptMatchesRegistration` violated | 8,653 | 4,254 | 10 |
 | `BrokenDirectReceiptResult.cfg` | `DirectReceiptResultMatchesReportSource` violated | 200 | 138 | 6 |
 | `BrokenLatePublication.cfg` | `LateCompletionRoutesToCleanup` violated | 30 | 26 | 4 |
 | `BrokenEarlyWorkspaceCompletion.cfg` | `WorkspaceCloseWaitsForQuiescence` violated | 84 | 65 | 5 |
@@ -207,6 +218,9 @@ comparison retained every pre-existing action and transition count, including
 direct request `69:246`, coordinated request `168:392`, and terminal
 completion `468:660`; the imported actions execute on those existing direct
 transitions rather than pruning them.
+The unmutated two-direct configuration separately proves that both owner
+lifecycle instances satisfy their identity, result, and behavior contracts
+before the foreign-receipt mutation is introduced.
 
 Each reachability configuration stopped when its intended direct, coordinated,
 owner-first, post-close lease-work, no-group, late-result, or failure path
@@ -215,9 +229,9 @@ admission or lease creation crossed close, either release kind used the wrong
 owner, release preceded external or group quiescence, a late group published,
 the workspace closed early, a cleanup result disappeared, release began twice,
 or a failed construction stranded its admission. The foreign-receipt mutation
-also proves that another direct group cannot settle the exact registration,
-and the result mutation proves that the correct receipt cannot carry the wrong
-cleanup result. The refinement control proves that weakening the imported
-quiescence guard leaves the canonical owner behavior. The final two mutations
-prove that owner-first release cannot erase report history and no-group
-completion cannot invent cleanup data.
+also proves that a valid terminal receipt issued by another direct-group owner
+cannot settle the exact registration, and the result mutation proves that the
+correct receipt cannot carry the wrong cleanup result. The refinement control
+proves that weakening the imported quiescence guard leaves the canonical owner
+behavior. The final two mutations prove that owner-first release cannot erase
+report history and no-group completion cannot invent cleanup data.

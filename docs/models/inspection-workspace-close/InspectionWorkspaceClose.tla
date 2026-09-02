@@ -57,9 +57,17 @@ ComposedDirectGroup ==
     IF HasComposedDirectGroup
     THEN CHOOSE g \in DirectGroups : TRUE
     ELSE CHOOSE g \in Groups : TRUE
+HasForeignDirectGroup == Cardinality(DirectGroups) > 1
+\* The model tracks one composed direct group and at most one valid foreign
+\* owner receipt for the focused direct-vs-direct isolation control.
+ForeignDirectGroup ==
+    IF HasForeignDirectGroup
+    THEN CHOOSE g \in DirectGroups \ {ComposedDirectGroup} : TRUE
+    ELSE ComposedDirectGroup
 
 ASSUME
     /\ ComposedDirectGroup # NoGroupIdentity
+    /\ ForeignDirectGroup # NoGroupIdentity
     /\ {"Succeeded", "Failed"} # {}
     /\ "None" \notin {"Succeeded", "Failed"}
 
@@ -87,6 +95,9 @@ VARIABLES
     directRequestedGroup,
     directCompletedGroup,
     directCompletionResult,
+    foreignRequestedGroup,
+    foreignCompletedGroup,
+    foreignCompletionResult,
     reportEntry,
     lateGroup,
     disposedWithLease,
@@ -110,7 +121,8 @@ vars == <<
     workspaceState, buildState, buildOutcome, registeredGroup, groupState,
     leaseCount, ownerReleaseRequested, groupBusy, releaseOwner, releaseStarts,
     cleanupOutcome, directRequestedGroup, directCompletedGroup,
-    directCompletionResult, reportEntry, lateGroup,
+    directCompletionResult, foreignRequestedGroup, foreignCompletedGroup,
+    foreignCompletionResult, reportEntry, lateGroup,
     disposedWithLease, buildAdmissionWitness, leaseAdmissionWitness,
     authorityWitness, leaseDrainWitness, lateRoutingWitness,
     groupQuiescenceWitness, workspaceCompletionWitness,
@@ -122,6 +134,9 @@ vars == <<
 
 directGroupReleaseVars ==
     <<directRequestedGroup, directCompletedGroup, directCompletionResult>>
+
+foreignDirectGroupReleaseVars ==
+    <<foreignRequestedGroup, foreignCompletedGroup, foreignCompletionResult>>
 
 KnownGroups ==
     {g \in Groups : registeredGroup[g]}
@@ -150,6 +165,16 @@ DirectGroupRelease ==
              completedGroup <- directCompletedGroup,
              completionResult <- directCompletionResult
 
+ForeignDirectGroupRelease ==
+    INSTANCE AssemblyContextGroupReleaseLifecycle
+        WITH Group <- ForeignDirectGroup,
+             NoGroup <- NoGroupIdentity,
+             ReleaseResults <- {"Succeeded", "Failed"},
+             NoReleaseResult <- "None",
+             requestedGroup <- foreignRequestedGroup,
+             completedGroup <- foreignCompletedGroup,
+             completionResult <- foreignCompletionResult
+
 TypeOK ==
     /\ workspaceState \in WorkspaceStates
     /\ buildState \in [Groups -> BuildStates]
@@ -162,9 +187,12 @@ TypeOK ==
     /\ releaseOwner \in [Groups -> ReleaseOwners]
     /\ releaseStarts \in [Groups -> Nat]
     /\ cleanupOutcome \in [Groups -> CleanupOutcomes]
-    /\ directRequestedGroup \in DirectGroups \union {NoGroupIdentity}
+    /\ directRequestedGroup \in {ComposedDirectGroup, NoGroupIdentity}
     /\ directCompletedGroup \in Groups \union {NoGroupIdentity}
     /\ directCompletionResult \in CleanupOutcomes
+    /\ foreignRequestedGroup \in {ForeignDirectGroup, NoGroupIdentity}
+    /\ foreignCompletedGroup \in {ForeignDirectGroup, NoGroupIdentity}
+    /\ foreignCompletionResult \in CleanupOutcomes
     /\ reportEntry \in [Groups -> ReportEntries]
     /\ lateGroup \in [Groups -> BOOLEAN]
     /\ disposedWithLease \in [Groups -> BOOLEAN]
@@ -199,6 +227,9 @@ Init ==
     /\ directRequestedGroup = NoGroupIdentity
     /\ directCompletedGroup = NoGroupIdentity
     /\ directCompletionResult = "None"
+    /\ foreignRequestedGroup = NoGroupIdentity
+    /\ foreignCompletedGroup = NoGroupIdentity
+    /\ foreignCompletionResult = "None"
     /\ reportEntry = [g \in Groups |-> "None"]
     /\ lateGroup = [g \in Groups |-> FALSE]
     /\ disposedWithLease = [g \in Groups |-> FALSE]
@@ -218,6 +249,7 @@ Init ==
     /\ lateCleanupObserved = FALSE
     /\ cleanupFailureObserved = FALSE
     /\ DirectGroupRelease!Init
+    /\ ForeignDirectGroupRelease!Init
 
 StartBuild(g) ==
     /\ buildState[g] = "NotStarted"
@@ -230,7 +262,8 @@ StartBuild(g) ==
         workspaceState, buildOutcome, registeredGroup, groupState, leaseCount,
         ownerReleaseRequested, groupBusy, releaseOwner, releaseStarts,
         cleanupOutcome, directRequestedGroup, directCompletedGroup,
-        directCompletionResult, reportEntry, lateGroup,
+        directCompletionResult, foreignRequestedGroup, foreignCompletedGroup,
+        foreignCompletionResult, reportEntry, lateGroup,
         disposedWithLease, leaseAdmissionWitness, authorityWitness,
         leaseDrainWitness, lateRoutingWitness, groupQuiescenceWitness,
         workspaceCompletionWitness, cleanupVisibilityWitness,
@@ -259,7 +292,8 @@ CompleteBuild(g) ==
     /\ UNCHANGED <<
         workspaceState, leaseCount, ownerReleaseRequested, groupBusy,
         releaseOwner, releaseStarts, cleanupOutcome, directRequestedGroup,
-        directCompletedGroup, directCompletionResult, reportEntry,
+        directCompletedGroup, directCompletionResult, foreignRequestedGroup,
+        foreignCompletedGroup, foreignCompletionResult, reportEntry,
         disposedWithLease,
         buildAdmissionWitness, leaseAdmissionWitness, authorityWitness,
         leaseDrainWitness, groupQuiescenceWitness,
@@ -292,6 +326,7 @@ CompleteBuildWithoutGroup(g, outcome) ==
         workspaceState, registeredGroup, groupState, leaseCount,
         ownerReleaseRequested, groupBusy, releaseOwner, releaseStarts,
         directRequestedGroup, directCompletedGroup, directCompletionResult,
+        foreignRequestedGroup, foreignCompletedGroup, foreignCompletionResult,
         lateGroup,
         disposedWithLease, buildAdmissionWitness, leaseAdmissionWitness,
         authorityWitness, leaseDrainWitness, lateRoutingWitness,
@@ -316,7 +351,8 @@ AcquireLease(g) ==
         workspaceState, buildState, buildOutcome, registeredGroup, groupState,
         ownerReleaseRequested, groupBusy, releaseOwner, releaseStarts,
         cleanupOutcome, directRequestedGroup, directCompletedGroup,
-        directCompletionResult, reportEntry, lateGroup,
+        directCompletionResult, foreignRequestedGroup, foreignCompletedGroup,
+        foreignCompletionResult, reportEntry, lateGroup,
         disposedWithLease, buildAdmissionWitness, authorityWitness,
         leaseDrainWitness, lateRoutingWitness, groupQuiescenceWitness,
         workspaceCompletionWitness, cleanupVisibilityWitness,
@@ -333,7 +369,8 @@ ReturnLease(g) ==
         workspaceState, buildState, buildOutcome, registeredGroup, groupState,
         ownerReleaseRequested, groupBusy, releaseOwner, releaseStarts,
         cleanupOutcome, directRequestedGroup, directCompletedGroup,
-        directCompletionResult, reportEntry, lateGroup,
+        directCompletionResult, foreignRequestedGroup, foreignCompletedGroup,
+        foreignCompletionResult, reportEntry, lateGroup,
         disposedWithLease, buildAdmissionWitness, leaseAdmissionWitness,
         authorityWitness, leaseDrainWitness, lateRoutingWitness,
         groupQuiescenceWitness, workspaceCompletionWitness,
@@ -357,7 +394,8 @@ BeginGroupWork(g) ==
         workspaceState, buildState, buildOutcome, registeredGroup, groupState,
         leaseCount, ownerReleaseRequested, releaseOwner, releaseStarts,
         cleanupOutcome, directRequestedGroup, directCompletedGroup,
-        directCompletionResult, reportEntry, lateGroup,
+        directCompletionResult, foreignRequestedGroup, foreignCompletedGroup,
+        foreignCompletionResult, reportEntry, lateGroup,
         disposedWithLease, buildAdmissionWitness, leaseAdmissionWitness,
         authorityWitness, leaseDrainWitness, lateRoutingWitness,
         groupQuiescenceWitness, workspaceCompletionWitness,
@@ -374,7 +412,8 @@ EndGroupWork(g) ==
         workspaceState, buildState, buildOutcome, registeredGroup, groupState,
         leaseCount, ownerReleaseRequested, releaseOwner, releaseStarts,
         cleanupOutcome, directRequestedGroup, directCompletedGroup,
-        directCompletionResult, reportEntry, lateGroup,
+        directCompletionResult, foreignRequestedGroup, foreignCompletedGroup,
+        foreignCompletionResult, reportEntry, lateGroup,
         disposedWithLease, buildAdmissionWitness, leaseAdmissionWitness,
         authorityWitness, leaseDrainWitness, lateRoutingWitness,
         groupQuiescenceWitness, workspaceCompletionWitness,
@@ -393,7 +432,8 @@ CloseWorkspace ==
         buildState, buildOutcome, registeredGroup, groupState, leaseCount,
         ownerReleaseRequested, groupBusy, releaseOwner, releaseStarts,
         cleanupOutcome, directRequestedGroup, directCompletedGroup,
-        directCompletionResult, reportEntry, lateGroup,
+        directCompletionResult, foreignRequestedGroup, foreignCompletedGroup,
+        foreignCompletionResult, reportEntry, lateGroup,
         buildAdmissionWitness, leaseAdmissionWitness, authorityWitness,
         leaseDrainWitness, lateRoutingWitness, groupQuiescenceWitness,
         workspaceCompletionWitness, cleanupVisibilityWitness,
@@ -420,6 +460,9 @@ RequestDirectRelease(g) ==
     /\ IF HasComposedDirectGroup /\ g = ComposedDirectGroup
        THEN DirectGroupRelease!RequestRelease
        ELSE UNCHANGED directGroupReleaseVars
+    /\ IF HasForeignDirectGroup /\ g = ForeignDirectGroup
+       THEN ForeignDirectGroupRelease!RequestRelease
+       ELSE UNCHANGED foreignDirectGroupReleaseVars
     /\ UNCHANGED <<
         workspaceState, buildState, buildOutcome, registeredGroup, leaseCount,
         ownerReleaseRequested, groupBusy, cleanupOutcome, reportEntry,
@@ -445,6 +488,7 @@ RequestOwnerRelease(g) ==
         workspaceState, buildState, buildOutcome, registeredGroup, groupState,
         leaseCount, groupBusy, releaseOwner, releaseStarts, cleanupOutcome,
         directRequestedGroup, directCompletedGroup, directCompletionResult,
+        foreignRequestedGroup, foreignCompletedGroup, foreignCompletionResult,
         reportEntry, lateGroup, disposedWithLease, buildAdmissionWitness,
         leaseAdmissionWitness, authorityWitness, leaseDrainWitness,
         lateRoutingWitness, groupQuiescenceWitness,
@@ -490,6 +534,7 @@ ProcessCoordinatedRelease(g) ==
         workspaceState, buildState, buildOutcome, leaseCount,
         ownerReleaseRequested, groupBusy, cleanupOutcome,
         directRequestedGroup, directCompletedGroup, directCompletionResult,
+        foreignRequestedGroup, foreignCompletedGroup, foreignCompletionResult,
         reportEntry,
         lateGroup, disposedWithLease, buildAdmissionWitness,
         leaseAdmissionWitness, lateRoutingWitness, groupQuiescenceWitness,
@@ -533,19 +578,28 @@ CompleteRelease(g, outcome) ==
             ~groupBusy[ComposedDirectGroup]
                 \/ AllowReleaseBeforeGroupQuiescence)
        ELSE UNCHANGED directGroupReleaseVars
+    /\ IF HasForeignDirectGroup /\ g = ForeignDirectGroup
+       THEN ForeignDirectGroupRelease!CompleteRelease(
+            outcome,
+            ~groupBusy[ForeignDirectGroup]
+                \/ AllowReleaseBeforeGroupQuiescence)
+       ELSE UNCHANGED foreignDirectGroupReleaseVars
 
 CompleteAnyRelease(g) ==
     \/ CompleteRelease(g, "Succeeded")
     \/ CompleteRelease(g, "Failed")
 
 CompleteForeignDirectReceipt ==
-    /\ HasComposedDirectGroup
-    /\ \E receiptGroup \in DirectGroups \ {ComposedDirectGroup} :
-        \E outcome \in {"Succeeded", "Failed"} :
-            /\ CompleteReleaseCore(ComposedDirectGroup, outcome)
-            /\ directCompletedGroup' = receiptGroup
-            /\ directCompletionResult' = outcome
-            /\ UNCHANGED directRequestedGroup
+    /\ HasForeignDirectGroup
+    /\ foreignCompletedGroup = ForeignDirectGroup
+    /\ CompleteReleaseCore(
+        ComposedDirectGroup,
+        foreignCompletionResult)
+    /\ directCompletedGroup' = ForeignDirectGroup
+    /\ directCompletionResult' = foreignCompletionResult
+    /\ UNCHANGED
+        <<directRequestedGroup, foreignRequestedGroup,
+          foreignCompletedGroup, foreignCompletionResult>>
 
 CompleteMismatchedDirectResult ==
     /\ HasComposedDirectGroup
@@ -554,7 +608,9 @@ CompleteMismatchedDirectResult ==
         /\ directCompletedGroup' = ComposedDirectGroup
         /\ directCompletionResult' =
             IF outcome = "Succeeded" THEN "Failed" ELSE "Succeeded"
-        /\ UNCHANGED directRequestedGroup
+        /\ UNCHANGED
+            <<directRequestedGroup, foreignRequestedGroup,
+              foreignCompletedGroup, foreignCompletionResult>>
 
 RecordReport(g) ==
     /\ groupState[g] = "Released"
@@ -566,7 +622,8 @@ RecordReport(g) ==
         workspaceState, buildState, buildOutcome, registeredGroup, groupState,
         leaseCount, ownerReleaseRequested, groupBusy, releaseOwner,
         releaseStarts, cleanupOutcome, directRequestedGroup,
-        directCompletedGroup, directCompletionResult, lateGroup,
+        directCompletedGroup, directCompletionResult, foreignRequestedGroup,
+        foreignCompletedGroup, foreignCompletionResult, lateGroup,
         disposedWithLease, buildAdmissionWitness, leaseAdmissionWitness,
         authorityWitness, leaseDrainWitness, lateRoutingWitness,
         groupQuiescenceWitness, workspaceCompletionWitness,
@@ -592,7 +649,8 @@ FinalizeWorkspace ==
         buildState, buildOutcome, registeredGroup, groupState, leaseCount,
         ownerReleaseRequested, groupBusy, releaseOwner, releaseStarts,
         cleanupOutcome, directRequestedGroup, directCompletedGroup,
-        directCompletionResult, reportEntry, lateGroup,
+        directCompletionResult, foreignRequestedGroup, foreignCompletedGroup,
+        foreignCompletionResult, reportEntry, lateGroup,
         disposedWithLease, buildAdmissionWitness, leaseAdmissionWitness,
         authorityWitness, leaseDrainWitness, lateRoutingWitness,
         groupQuiescenceWitness, directReleaseObserved,
@@ -609,7 +667,8 @@ RepeatRelease(g) ==
         workspaceState, buildState, buildOutcome, registeredGroup, groupState,
         leaseCount, ownerReleaseRequested, groupBusy, releaseOwner,
         cleanupOutcome, directRequestedGroup, directCompletedGroup,
-        directCompletionResult, reportEntry, lateGroup,
+        directCompletionResult, foreignRequestedGroup, foreignCompletedGroup,
+        foreignCompletionResult, reportEntry, lateGroup,
         disposedWithLease, buildAdmissionWitness, leaseAdmissionWitness,
         authorityWitness, leaseDrainWitness, lateRoutingWitness,
         groupQuiescenceWitness, workspaceCompletionWitness,
@@ -702,6 +761,23 @@ DirectGroupReleaseCompletionCarriesResult ==
 
 DirectGroupReleaseCompletionMatchesRequest ==
     DirectGroupRelease!CompletionMatchesRequest
+
+ForeignDirectGroupReleaseCompletionMatchesRequest ==
+    ForeignDirectGroupRelease!CompletionMatchesRequest
+
+ForeignDirectGroupReleaseCompletionCarriesResult ==
+    ForeignDirectGroupRelease!CompletionCarriesResult
+
+ForeignDirectGroupReleaseNext ==
+    \/ ForeignDirectGroupRelease!RequestRelease
+    \/ \E outcome \in {"Succeeded", "Failed"} :
+        ForeignDirectGroupRelease!CompleteRelease(
+            outcome,
+            ~groupBusy[ForeignDirectGroup])
+
+ForeignDirectGroupReleaseBehaviorRefinesOwner ==
+    ForeignDirectGroupRelease!Init
+        /\ [][ForeignDirectGroupReleaseNext]_foreignDirectGroupReleaseVars
 
 ReleaseBeginsAtMostOnce ==
     \A g \in Groups : releaseStarts[g] <= 1

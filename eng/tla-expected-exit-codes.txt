@@ -22,3 +22,4 @@ docs/models/inspection-workspace-close/BrokenImportedDirectGroupReleaseLifecycle
 docs/models/inspection-workspace-close/BrokenReleaseBeforeQuiescence.cfg=12
 docs/models/inspection-workspace-close/Liveness.cfg=0
 docs/models/inspection-workspace-close/Safety.cfg=0
+docs/models/inspection-workspace-close/TwoDirectSafety.cfg=0
