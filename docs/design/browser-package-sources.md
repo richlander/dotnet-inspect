@@ -727,8 +727,9 @@ issue #4795, package authority and acquisition readers under #4797, and Browser
 pending-acquisition readers, including the direct `BrowserPackageWorkspace`
 read, under #4805. Query and CLI projection readers completed their #4806
 migration in this slice; the empty set must remain empty. The inventory uses
-C# syntax and property-symbol binding to exclude comments and literals while
-following ordinary descriptor aliases. It records explicit type-reference and
+C# syntax and property-symbol binding across every non-generated top-level C#
+source root to exclude comments and literals while following ordinary
+descriptor aliases and syntax forms. It records explicit type-reference and
 implicit descriptor-identity-reference counts per file, so it fails for an
 unlisted file, a stale entry, or reference-count drift within an enrolled file.
 A synthetic mutation gate proves all three comparisons are non-vacuous.

@@ -21,7 +21,7 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
                 "#4795",
                 "src/NuGetFetch/PackageSourceClients.cs",
                 ExplicitReferences: 14,
-                ImplicitReferences: 1),
+                ImplicitReferences: 2),
             new(
                 "#4795",
                 "src/NuGetFetch.Tests/PackageSourceClientTests.cs",
@@ -105,9 +105,8 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
         string root = Path.Combine(
             Path.GetTempPath(),
             $"legacy-source-inventory-{Guid.NewGuid():N}");
-        string sourceRoot = Path.Combine(root, "src");
+        string sourceRoot = Path.Combine(root, "tests");
         Directory.CreateDirectory(sourceRoot);
-        Directory.CreateDirectory(Path.Combine(root, "prototypes"));
         string descriptorType = DescriptorTypeName;
         string identityMember = "." + "Identity";
         string source = $$"""
@@ -129,6 +128,8 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
                         var alias = first;
                         _ = $"{alias{{identityMember}}}";
                         _ = alias{{identityMember}} == second{{identityMember}};
+                        _ = alias?{{identityMember}};
+                        _ = alias is { {{IdentityPropertyName}}: not null };
                         _ = "alias.Identity";
                         // alias.Identity is not an executable reader.
                     }
@@ -145,7 +146,7 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
             MigrationEntry reader =
                 Assert.Single(DiscoverReferences(new DirectoryInfo(root)));
             Assert.Equal(0, reader.ExplicitReferences);
-            Assert.Equal(3, reader.ImplicitReferences);
+            Assert.Equal(5, reader.ImplicitReferences);
             Assert.Contains(
                 "unlisted",
                 MigrationSetError([], [reader]),
@@ -161,11 +162,13 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
     {
         string[] paths =
         [
-            .. new[]
-            {
-                Path.Combine(root.FullName, "src"),
-                Path.Combine(root.FullName, "prototypes"),
-            }
+            .. Directory.EnumerateFiles(
+                root.FullName,
+                "*.cs",
+                SearchOption.TopDirectoryOnly),
+            .. Directory
+                .EnumerateDirectories(root.FullName)
+                .Where(path => !IsExcludedSourceRoot(path))
                 .SelectMany(path =>
                     Directory.EnumerateFiles(
                         path,
@@ -217,11 +220,11 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
         SyntaxNode syntax,
         SemanticModel semantics) =>
         syntax.DescendantNodes()
-            .OfType<MemberAccessExpressionSyntax>()
-            .Count(access =>
-                access.Name.Identifier.ValueText
+            .OfType<SimpleNameSyntax>()
+            .Count(name =>
+                name.Identifier.ValueText
                     == IdentityPropertyName
-                && semantics.GetSymbolInfo(access).Symbol
+                && semantics.GetSymbolInfo(name).Symbol
                     is IPropertySymbol
                     {
                         ContainingType.Name: DescriptorTypeName,
@@ -229,6 +232,13 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
                         ContainingNamespace.ContainingNamespace
                             .IsGlobalNamespace: true,
                     });
+
+    static bool IsExcludedSourceRoot(string path)
+    {
+        string name = Path.GetFileName(path);
+        return name.StartsWith(".", StringComparison.Ordinal)
+            || name is "artifacts" or "node_modules";
+    }
 
     static CSharpCompilation CreateCompilation(
         IReadOnlyList<SyntaxTree> trees)
