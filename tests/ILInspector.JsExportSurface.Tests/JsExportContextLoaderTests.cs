@@ -74,6 +74,9 @@ public sealed class JsExportContextLoaderTests
     [InlineData("CONIN$")]
     [InlineData("CONOUT$")]
     [InlineData("CONOUT$.Facade")]
+    [InlineData("CLOCK$")]
+    [InlineData("CLOCK$.Facade")]
+    [InlineData("CLOCK$ .Facade")]
     [InlineData("COM1 .Facade")]
     [InlineData("COM¹")]
     [InlineData("COM¹ .Facade")]
@@ -95,6 +98,7 @@ public sealed class JsExportContextLoaderTests
     [Theory]
     [InlineData("CONIN$Extra")]
     [InlineData("CONOUT$1")]
+    [InlineData("CLOCK$1")]
     [InlineData("COM10 .Facade")]
     [InlineData("XCOM1 .Facade")]
     public void ContextAcceptsPortableDeviceNameNeighbors(string assemblyName)
@@ -147,10 +151,18 @@ public sealed class JsExportContextLoaderTests
             JsExportContextLoader.ArtifactNamesCollide(
                 "Facade.ts",
                 "facade.ts"));
+        Assert.True(
+            JsExportContextLoader.ArtifactNamesCollide(
+                "Caf\u00e9.ts",
+                "Cafe\u0301.ts"));
         Assert.False(
             JsExportContextLoader.ArtifactNamesCollide(
                 "Facade.One.ts",
                 "Facade.Two.ts"));
+        Assert.False(
+            JsExportContextLoader.ArtifactNamesCollide(
+                "Caf\u00e9.ts",
+                "Cafe.ts"));
     }
 
     [Fact]

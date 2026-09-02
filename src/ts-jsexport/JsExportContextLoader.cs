@@ -577,7 +577,9 @@ internal static class JsExportContextLoader
     internal static bool ArtifactNamesCollide(
         string first,
         string second) =>
-        StringComparer.OrdinalIgnoreCase.Equals(first, second);
+        StringComparer.OrdinalIgnoreCase.Equals(
+            first.Normalize(NormalizationForm.FormC),
+            second.Normalize(NormalizationForm.FormC));
 
     internal static bool TryGetArtifactName(
         string assemblyName,
@@ -607,6 +609,7 @@ internal static class JsExportContextLoader
             || deviceName.Equals("PRN", StringComparison.OrdinalIgnoreCase)
             || deviceName.Equals("AUX", StringComparison.OrdinalIgnoreCase)
             || deviceName.Equals("NUL", StringComparison.OrdinalIgnoreCase)
+            || deviceName.Equals("CLOCK$", StringComparison.OrdinalIgnoreCase)
             || deviceName.Length == 4
                 && (deviceName.StartsWith("COM", StringComparison.OrdinalIgnoreCase)
                     || deviceName.StartsWith("LPT", StringComparison.OrdinalIgnoreCase))
