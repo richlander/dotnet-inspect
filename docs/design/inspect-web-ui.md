@@ -34,10 +34,10 @@ boundary. It does not own:
 | Document | Owns |
 | -------- | ---- |
 | [Inspect Web Presentation Language](inspect-web-presentation-language.md) | Reusable visual and accessibility language: selector-control states, progressive filter disclosure, shared subject-heading rules, and compact source-provenance presentation. |
-| [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md) | Rendering and interacting with product-issued coordinate, workspace, subject, hierarchy, Library, lens, and activation descriptors. |
+| [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md) | Rendering and interacting with product-issued coordinate, workspace, subject, hierarchy, Library, lens, and activation descriptors, including the Slideable Subject Strip. |
 | [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) | The browser-side navigation-result consumer model: canonical location and refresh, browser history, product transition lifecycle, effect authority, synchronization debt, and renderer/destination lifetimes. |
-| [Inspect Web Shell Interaction](inspect-web-shell-interaction.md) | The persistent shell and shared transient/routed surface interaction: shell actions, shared menu/modal semantics, Spotlight Search, Open, Settings entry, the command palette, and routed-versus-modal classification. |
-| [Inspect Web Surface Composition](inspect-web-surface-composition.md) | Browser host page-level composition and placement: working surfaces, Unified Settings, package-source presentation, responsive composition, and the data bar and Diagnostics. |
+| [Inspect Web Shell Interaction](inspect-web-shell-interaction.md) | The persistent shell and shared transient/routed surface interaction: shell actions, the data-bar Application menu, shared menu/modal semantics, Spotlight Search, Open, Settings entry, the command palette, and routed-versus-modal classification. |
+| [Inspect Web Surface Composition](inspect-web-surface-composition.md) | Browser host page-level composition and placement: the SSS-only second row, working surfaces, Unified Settings, package-source presentation, responsive composition, and the data bar and Diagnostics. |
 
 Each focused document states its own Ownership and boundaries, Inputs or
 consumed contracts, Non-claims, and (where applicable) implementation gates
@@ -75,10 +75,10 @@ independent cosmetic changes.
 
 | Area | Direction |
 | ---- | --------- |
-| Persistent hierarchy | Use one title line for product, inspected target, and Search/history; use one full-width subject/inspector and application-action zone before content |
+| Persistent hierarchy | Use one title line for product, inspected target, and Search/history; give the second row entirely to the Slideable Subject Strip |
 | Workspace title bar | Follow `dotnet-inspect` with the icon-backed typed Package > Library > Type > Member target path, then responsive Back/Forward and flush-right Search |
 | Subject navigation | Establish Workspace, Package, Type, and Member in the second row now; add Library when product descriptors are ready |
-| Subject zone | Render the subject and active-inspector strip, then responsive Share, contextual actions, Settings, and trailing Help |
+| Subject zone | Render an inspector-first composite whose subject and inspector labels compact independently and whose allocation slides left or right |
 | Workspace selection | Keep ordinary single-workspace use free of tabs; manage retained coordinates inside the Workspace subject |
 | Package coordinate | Render version and TFM selectors in Package content; platform is workspace content, not a workspace |
 | Library inspection | Select all libraries or one library within Library |
@@ -88,17 +88,33 @@ independent cosmetic changes.
 | Source provenance | Use a compact status/action row without validation prose or link glyphs |
 | Search and opening | Open Spotlight from a responsive flush-right title-line control immediately after Back/Forward; use a separate local-artifact Open flow |
 | Settings | Use one Settings experience with contextual entry points |
-| Data bar | Show build identity, acquired source, CLI, and skill links on one line |
+| Data bar | Show build identity, acquired source, CLI, and skill links, followed by the persistent Application menu |
 
 Together, these decisions make the web shell read like the CLI without
 rendering a command string. The title line progresses from `dotnet-inspect` to
 the icon-backed ordered target path, then a responsive Search/history cluster.
-The full-width zone below owns the subject and active-inspector strip plus
-Share, contextual actions, Settings, and trailing Help. Both right-side action
-regions yield space down to nothing rather than crowding the primary identity
-and inspection controls. Segment-level copy remains on the typed title-line
-target. Package coordinate editing, target inventories, and other navigation
-remain inside the working surface rather than consuming persistent chrome.
+The full-width zone below belongs entirely to the Slideable Subject Strip.
+Subjects compact before inspectors, the active inspector and an adjacent
+inspector remain readable whenever their normal controls fit, and explicit
+reveal buttons move allocation toward more subjects or more inspectors.
+Persistent Share, Settings, and Help move to one data-bar Application menu;
+contextual actions stay with their owning working surface. Segment-level copy
+remains on the typed title-line target. Package coordinate editing, target
+inventories, and other navigation remain inside the working surface rather
+than consuming persistent chrome.
+
+This coordinated SSS update changes three focused owners:
+
+- Navigation Presentation owns the composite's two tablists, semantic
+  compaction, inspector-first allocation, reveal state, and keyboard/focus
+  behavior.
+- Shell Interaction owns the persistent Application menu and its existing
+  Share, Settings, and Help actions.
+- Surface Composition gives the second row entirely to the SSS and places the
+  Application menu at the fixed trailing edge of the data bar.
+
+The composition map connects those contracts without transferring descriptor,
+navigation-result, modal, or working-surface semantics between owners.
 
 ## Cross-document relationships
 
@@ -147,13 +163,20 @@ normative. Reference applications supply evidence for individual capabilities:
 | Capability | Reference evidence |
 | ---------- | ------------------ |
 | Product-to-subject-to-inspector grammar | the `dotnet-inspect` CLI |
+| Elastic subject/inspector allocation and returned unused width | tmux window list and status line |
 | Spotlight, command palette, keyboard navigation, and focus | Visual Studio Code |
 | Dense web-native package exploration and shareable state | npmx.dev |
 | Assembly, Type, and Member hierarchy | ILSpy and Visual Studio Object Browser |
 | Read-only inspection posture and evidence panes | Chrome DevTools |
 | URLs, browser history, and familiar web conventions | GitHub |
 
-These references are neither architectural owners nor templates to copy. The
+These references are neither architectural owners nor templates to copy. tmux
+is the primary allocation evidence because its natural-width window entries
+return unused space to neighboring status content; ordinary browser, terminal,
+and editor tabs typically reserve a fixed tab region instead. Inspect Web
+diverges from tmux by preserving two semantic tablists, full accessible labels,
+manual tab activation, and explicit reveal buttons rather than exposing raw
+window indexes or clipping text without identity. The
 CLI correspondence does not turn the title line into editable command text;
 Visual Studio Code does not imply an editor workbench, command center, Activity
 Bar, file Explorer, editor tabs, movable regions, or desktop-window

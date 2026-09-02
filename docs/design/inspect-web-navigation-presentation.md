@@ -16,8 +16,8 @@ browser history; that model belongs to
 This owner defines:
 
 - the Workspace, Package, Library, Type, and Member subject hierarchy, the
-  title-line inspected-target region, and the second-row subject/inspector
-  strip;
+  title-line inspected-target region, and the second-row Slideable Subject
+  Strip;
 - the Workspace subject that owns retained-coordinate management;
 - lens-tab rendering, roving-tabindex interaction, and no-effective-lens
   status presentation;
@@ -96,43 +96,92 @@ An inspection workspace has two persistent lines before its primary content:
 
 1. The title line begins with `dotnet-inspect`, then renders the icon-backed
    ordered active subject path, Search, and browser-history actions.
-2. The full-width **subject zone** renders the subject ladder, active
-   inspectors, then lower-priority shell actions before the working-content
-   grid.
+2. The full-width **subject zone** renders only the Slideable Subject Strip
+   before the working-content grid.
 
 The two rows together follow the CLI's product-to-subject-to-inspector grammar
 but are not command text. Inventories, hierarchy menus, and other target
 navigation stay inside the working surface.
 
-### Subject and inspector strip
+### Slideable Subject Strip
 
-The subject strip begins with the presentation-owned Workspace entry into
+The Slideable Subject Strip is one full-width navigation composite containing
+two semantically separate tablists:
+
+```text
+Workspace Package Library Type Member | Overview Call graph Facts Source
+```
+
+The subject tablist begins with the presentation-owned Workspace entry into
 retained-coordinate management, then renders the ordered root, Library, Type,
 and Member subject descriptors supplied by Inspection Subject Navigation. The
 prototype establishes `Workspace`, `Package`, `Type`, and `Member` now;
 Library joins when its product descriptor and behavior are ready. The current
 subject is selected programmatically and is not conveyed by color alone.
-The named subject tablist uses one tab stop and manual activation. Left and
-Right Arrow move focus through the rendered subjects, Home and End move to the
-first and last subject, and focus movement does not select a subject until
-Enter or Space activates it. Every subject references the shared subject panel,
-which is labelled by the active subject.
 
-The inspector strip immediately follows the subject strip. It contains the
-active subject's owner-ordered lenses or, for Member, its applicable sections.
-Subject changes replace the inspector set; inspectors never become workspace
-coordinate switchers or inspected-subject identities.
+The inspector tablist follows the subjects and contains the active subject's
+owner-ordered lenses or, for Member, its applicable sections. Subject changes
+replace the inspector set; inspectors never become workspace coordinate
+switchers or inspected-subject identities. Application and contextual actions
+are not children of this composite and consume none of its row.
 
-At the narrow shell breakpoint, each inspector collapses from its visible
-label-and-order pair to the single boxed order symbol. The owner-issued label
-remains the control's accessible name and hover title, and the current
-inspector remains selected programmatically. Compact rendering does not change
-descriptor identity, order, activation, or keyboard behavior.
+The composite uses natural label width while every rendered subject and
+inspector label fits. Under pressure it becomes **inspector-first**:
 
-The combined subject/inspector region consumes only the width it needs and may
-scroll horizontally under pressure. Remaining second-row width stays available
-for Share, Settings, contextual actions, and the trailing Help action rather
-than carrying a tab-like active-package label.
+1. Subject labels compact to stable boxed symbols before inspector labels
+   compact: `[W]`, `[P]`, `[L]`, `[T]`, and `[M]`.
+2. The active inspector keeps its full owner-issued label whenever that label
+   fits.
+3. Remaining label capacity expands inspectors outward from the active
+   inspector in owner order, preferring the following inspector and then the
+   preceding inspector at each distance. Other inspectors use their stable
+   boxed one-based order symbols.
+4. When the container can fit compact subjects, the reveal controls, and two
+   inspector labels at normal control sizing, at least the active inspector
+   and one adjacent inspector remain readable as text.
+5. If even that boundary cannot fit, inspector labels compact to their order
+   symbols and the composite scrolls horizontally rather than wrapping or
+   shrinking controls below their normal interactive size.
+
+The owner-issued subject or inspector label remains each compact control's
+accessible name and hover title. Compaction does not change descriptor
+identity, order, availability, activation, selection, or keyboard behavior.
+The subject symbols are presentation vocabulary, not parsed identities.
+Inspector numbers express only stable owner order within the current subject;
+they are never submitted as action identity.
+
+Under pressure, two persistent reveal buttons at the subject/inspector seam
+move the allocation one discrete step toward **more subjects** or **more
+inspectors**. They do not reorder or hide tabs. A subject-forward step expands
+subject labels and compacts lower-priority inspector labels; an
+inspector-forward step restores inspector labels and compacts subjects. The
+inspector-first position is the default whenever a new subject installs a new
+inspector set. Both buttons remain mounted while pressure exists and use
+`aria-disabled="true"` at their respective allocation bounds so changing the
+allocation never destroys the focused invoker. The buttons have the accessible
+names `Show more subjects` and `Show more inspectors`; their arrows are only
+visual direction cues.
+
+Reveal bias is presentation-local state. It survives selection changes,
+asynchronous shell replacement, and resize while the current subject and
+inspector inventory remain installed. It is absent from workspace packets,
+Share URLs, browser history, and product navigation results. A new subject
+resets the default to inspector-first. A width at which all labels fit ignores
+the bias and omits the reveal controls; returning to pressure on the same
+subject restores the retained bias.
+
+The subject tablist uses one tab stop and manual activation. Left and Right
+Arrow move focus through rendered subjects, Home and End move to the first and
+last subject, and focus movement does not select a subject until Enter or Space
+activates it. Every subject references the shared subject panel, which is
+labelled by the active subject. The inspector tablist retains the equivalent
+lens semantics below. Reveal-button activation changes only allocation and
+focus remains on the button. Any sliding animation preserves the focused
+element and is omitted when reduced motion is requested.
+
+`Slideable` names this discrete reveal allocation, not a draggable splitter or
+continuous user-sized layout. The initial contract does not add pointer drag,
+pixel sizing, or persisted width.
 
 ### Inspected target
 
@@ -184,9 +233,9 @@ Search/history cluster. That cluster yields space before the target path and
 may not become another persistent tab strip, coordinate selector, or
 independently reconstructed identity.
 
-Second-row `Share` copies the canonical workspace link. A separate `Copy name`
-action is absent because copy belongs to the segment whose typed identity is
-being copied.
+The data-bar Application menu's `Share` action copies the canonical workspace
+link. A separate `Copy name` action is absent because copy belongs to the
+segment whose typed identity is being copied.
 
 Browser Back and Forward own navigation history. Compact Back and Forward
 buttons sit immediately to the left of the visible Spotlight Search control.
@@ -483,6 +532,8 @@ composition, effect-authority validation, synchronization debt, or
 destination-lifetime focus and announcement ordering. It does not define
 selector-pill visual states or progressive filter disclosure. It does not
 define shell actions, modal/routed classification, or page-level placement.
+It does not define continuous resizing or a draggable divider for the
+Slideable Subject Strip.
 It does not invent subject or lens recommendation, reconciliation, or
 fallback policy beyond what the product returns. It does not define
 aggregate-vs-single-library result semantics, capability-arity rules, or
@@ -535,6 +586,12 @@ add and pass these named Inspect Web tests:
   cancellation, synchronous focus parking, native-select replacement, tablist
   omission, result-authorized focus, and rejection of an outgoing-renderer menu
   invoker as a post-replacement focus target.
+- `scope-bar.test.ts` and `workspace-titlebar.spec.ts`:
+  `slideable subject strip preserves inspector-first allocation and focus`
+  cover natural-width expansion, subject and inspector symbol compaction,
+  two-readable-inspector capacity, both reveal bounds, presentation-local
+  reveal retention, reduced-motion behavior, and focus/tab-stop preservation
+  across allocation changes and asynchronous shell replacement.
 
 The implementation fixture supplies typed product results through the normal
 navigation boundary. It does not construct a parallel host catalog or bypass
@@ -577,8 +634,41 @@ are proved by the gates in
 7. Supply a typed transition failure and confirm that it is visible without the
    UI selecting another subject and that focus returns to the subject
    menu-button invoker.
-8. Confirm that the trailing `Copy target` button remains visible and copies
-   the product-issued canonical target rather than display text.
+8. Confirm that every copyable inspected-target segment copies its own
+   product-issued canonical identity rather than display text and that no
+   separate `Copy target` action occupies the subject zone.
+
+### Slideable strip allocation
+
+1. Render Workspace, Package, Library, Type, and Member with five Member
+   inspectors at a width where every label fits. Confirm that both tablists use
+   natural-width text, the reveal controls are absent, and no application
+   action occupies the row.
+2. Narrow to the first pressure boundary and confirm that subject labels become
+   `[W] [P] [L] [T] [M]` before inspector labels compact. Confirm that the
+   active inspector and the next owner-ordered inspector remain readable when
+   the stated two-label capacity fits.
+3. Move the active inspector to the final owner-ordered entry and confirm that
+   it and the nearest preceding inspector receive the readable-label priority
+   without reordering either control.
+4. Activate `Show more subjects` and confirm that subject labels expand,
+   lower-priority inspector labels compact to their one-based symbols, and no
+   subject, inspector, selection, or product navigation state changes.
+5. Activate `Show more inspectors` and confirm that inspector labels expand,
+   subjects return to their stable symbols, and focus remains on the reveal
+   button. At each bound, confirm that the corresponding mounted button is
+   `aria-disabled="true"` and activation has no effect.
+6. Rove focus to an inactive subject and inspector, replace the shell
+   asynchronously, resize across the all-label boundary, and operate both
+   reveal buttons. Confirm that the focused typed tab remains the sole tab
+   stop, reveal bias survives while its inventory remains installed, and a new
+   subject resets to inspector-first.
+7. Narrow below the symbol-capacity boundary and confirm that the composite
+   scrolls horizontally without wrapping, focused controls scroll into view,
+   every compact control retains its full accessible name and title, and the
+   page itself does not overflow.
+8. Repeat the allocation transitions with reduced motion enabled and confirm
+   that labels and focus reach the same final states without sliding animation.
 
 ### Lens inventory and outcomes
 

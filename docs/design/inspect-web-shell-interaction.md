@@ -13,8 +13,9 @@ are separately owned.
 
 This owner defines:
 
-- the persistent shell's visible text actions (`Search`, `Open`, `Help`,
-  `Settings`) and the `dotnet-inspect` Home control;
+- the persistent shell's visible `Search` and `Open` actions, the persistent
+  Application menu containing Share, Settings, and Help, and the
+  `dotnet-inspect` Home control;
 - the title line's allocation among the product root, the navigation-
   presentation-owned inspected target, and trailing Search/history cluster;
 - the generic modal-dialog contract (accessible name, initial focus, inert
@@ -96,11 +97,11 @@ current workspace.
 The title line shows the applicable Package, Library, Type, and Member identity
 as one typed path.
 
-The second persistent row begins with the Workspace, Package, Type, and Member
-subject ladder and the active subject's inspectors. Share, Settings, contextual
-actions, and Help occupy its trailing side, with Help last. That action region
-may collapse completely under pressure rather than reducing the subject and
-inspector strip to permanent tab-like chrome.
+The second persistent row contains only Navigation Presentation's Slideable
+Subject Strip. Share, Settings, Help, and contextual actions do not occupy that
+row. Contextual actions remain with their owning working surface. Persistent
+application actions move into one `Application` menu placed at the trailing
+edge of the data bar by Surface Composition.
 
 Search is an input-like control in the title line that opens Spotlight. It is
 not editable in place and does not become a dominant centered command control.
@@ -117,8 +118,25 @@ dotnet-inspect (Home)   inspected target   Back   Forward   Search
 The subject zone exposes:
 
 ```text
-Workspace Package Type Member   inspectors   Share   Settings   Help
+Workspace Package Type Member   inspectors
 ```
+
+The data bar ends with one persistent `Application` menu button. Its menu
+contains `Share`, `Settings`, and `Help` in that order. The button's visible
+ellipsis is labelled `Application menu`; it does not replace the
+`dotnet-inspect` Home action or join the title-line Search/history cluster.
+Share submits the same canonical workspace action as before. Settings and Help
+open the same shell-owned surfaces as their former direct buttons. The command
+palette retains equivalent entries.
+
+The button uses `aria-haspopup="menu"` and reports its expanded state. Enter,
+Space, or Down Arrow opens the menu on Share; Up Arrow opens it on Help. Within
+the menu, Up and Down Arrow move through items, Home and End move to the first
+and last item, Escape closes and returns focus to the button, and Tab closes
+without trapping focus. Share closes the menu, performs its existing copy
+action, and returns focus to the button. An item that opens Settings or Help
+closes the menu without returning focus before the destination applies its
+existing initial-focus rule.
 
 The dotnet-bot image is the product mark. The visible `dotnet-inspect` label
 remains; the image does not replace it. The inspected target owns a separate
@@ -132,13 +150,12 @@ fallback. Legacy remote nuspec icon URLs are not fetched.
 
 The shell may land before adjacent redesign owners. During that transition:
 
-- currently supported Settings may occupy the second-row action region before
-  local-artifact Open is available;
 - Open remains absent rather than appearing disabled or committing a
   success-shaped placeholder action;
 - the `dotnet-inspect` root control is the sole persistent Home affordance;
-- Share, Settings, and keyboard Help occupy the subject zone, with Help last;
-  and
+- the current direct Share, Settings, and keyboard Help buttons may occupy the
+  subject zone only until the Slideable Subject Strip and data-bar Application
+  menu land together; and
 - retained packages may provisionally supply Workspace entries and Package
   version/framework controls in Package content before product-issued
   descriptors replace that data.
@@ -316,13 +333,16 @@ outcomes.
    affordance.
 6. Narrow the viewport or lengthen the inspected target and confirm that the
    title-line action cluster progresses from full Search, to `Search`, to
-   arrows, to nothing. Confirm that the second-row actions may also disappear
-   and that Help is their final element.
+   arrows, to nothing. Confirm that the second row contains no application
+   actions at any width.
 7. Confirm that the product bot and inspected-target root mark retain distinct
    bounded icon slots and the current target leaf uses the shared accent.
 8. Confirm that no persistent package-query input or centered command-center
    control appears, and that Back and Forward sit immediately left of the
    visible flush-right Search control, which opens Spotlight.
+9. Open the data-bar `Application menu` and confirm that Share, Settings, and
+   Help invoke their existing typed actions and focus behavior. Dismiss the
+   menu and confirm that focus returns to its stable data-bar button.
 
 ### Search input
 
