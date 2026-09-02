@@ -1,6 +1,8 @@
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using CSharpText;
 using ILInspector.Metadata;
 
 namespace ILInspector.CSharp.Tests;
@@ -158,6 +160,41 @@ public sealed class TypeShellProducerTests
         Assert.Null(nestedRequest.Type.BaseType);
     }
 
+    [Theory]
+    [InlineData("A+B")]
+    [InlineData("A<B")]
+    [InlineData(" ")]
+    public void HostileMetadataSelfNameIsNotRendered(string metadataName)
+    {
+        byte[] image = BuildHostileMetadataFixture(metadataName);
+        using var stream = new MemoryStream(image);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinitionHandle hostile = MetadataTokens.TypeDefinitionHandle(2);
+        var spec = new CSharpTypeShellSpec(
+            hostile,
+            Namespace: "N",
+            MetadataName: reader.GetString(reader.GetTypeDefinition(hostile).Name),
+            Kind: CSharpTypeShellKind.Class,
+            InterfaceDisplayNames: [],
+            MemberPolicies: [],
+            PrimaryConstructorParameters: [],
+            NestedTypes: []);
+
+        CSharpTypePrintRequest request = TypeShellProducer.BuildPrintRequest(reader, spec);
+        var outcome = Assert.IsType<CSharpTypePrintOutcome.NotRendered>(
+            new CSharpTypePrinter().Print(request));
+        CSharpDeclaredTypeSelfNameFailure failure = Assert.Single(outcome.SelfNameFailures);
+        var refusal = Assert.IsType<
+            CSharpDeclaredTypeSelfNameFailureReason.IdentifierNotAdmitted>(
+                failure.Reason);
+
+        Assert.Equal([metadataName], failure.Identity.Segments);
+        Assert.Equal(
+            CSharpTypeDeclarationIdentifierRefusalReason.InvalidIdentifier,
+            refusal.Reason);
+    }
+
     [Fact]
     public void MemberShellProducer_ComposesInitPropertyPolicy()
     {
@@ -298,9 +335,10 @@ public sealed class TypeShellProducerTests
             Interfaces = ["Samples.IRunner"],
             Members = [policy.Member],
         };
-        var result = new CSharpTypePrinter().Print(new CSharpTypePrintRequest(
-            type,
-            memberPolicyOverrides: [policy]));
+        var result = Assert.IsType<CSharpTypePrintOutcome.Printed>(
+            new CSharpTypePrinter().Print(new CSharpTypePrintRequest(
+                type,
+                memberPolicyOverrides: [policy]))).Result;
 
         Assert.Contains(
             "T? Samples.IRunner.Run<T>(ref int value)",
@@ -333,9 +371,10 @@ public sealed class TypeShellProducerTests
             Interfaces = ["IValue"],
             Members = [policy.Member],
         };
-        var result = new CSharpTypePrinter().Print(new CSharpTypePrintRequest(
-            type,
-            memberPolicyOverrides: [policy]));
+        var result = Assert.IsType<CSharpTypePrintOutcome.Printed>(
+            new CSharpTypePrinter().Print(new CSharpTypePrintRequest(
+                type,
+                memberPolicyOverrides: [policy]))).Result;
 
         Assert.Contains(
             "int IValue.Value",
@@ -628,6 +667,47 @@ public sealed class TypeShellProducerTests
     static IEnumerable<int> IteratorFixture()
     {
         yield return 1;
+    }
+
+    static byte[] BuildHostileMetadataFixture(string metadataName)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("HostileSelfNameFixture.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("HostileSelfNameFixture"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(metadataName),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var peBuilder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        peBuilder.Serialize(image);
+        return image.ToArray();
     }
 
     static class StaticFixture
