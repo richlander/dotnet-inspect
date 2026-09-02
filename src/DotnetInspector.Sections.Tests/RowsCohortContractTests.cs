@@ -1,3 +1,4 @@
+using System.Collections;
 using DotnetInspector.RowSelection;
 
 namespace DotnetInspector.Sections.Tests;
@@ -220,17 +221,12 @@ public sealed class RowsCohortContractTests
         Assert.Equal(
             [1, 2],
             alpha.Values.Select(row => row.Value));
+        AssertReadOnly(alpha.Values);
 
-        var sequences =
-            new List<RowsCohortSequence<string, RankedRow>>
-            {
-                alpha
-            };
         RowsCohortResult<string, RankedRow> result =
             RowsCohortExecutor.Apply(
-                sequences,
+                [alpha],
                 RowSelectionPlan<string>.Empty);
-        sequences.Clear();
 
         Assert.True(result.IsSuccess);
         Assert.Single(result.RowSets);
@@ -240,6 +236,8 @@ public sealed class RowsCohortContractTests
             result.RowSets[0].Values.Select(row => row.Value));
         Assert.Same(first, result.RowSets[0].Values[0]);
         Assert.Same(second, result.RowSets[0].Values[1]);
+        AssertReadOnly(result.RowSets);
+        AssertReadOnly(result.RowSets[0].Values);
 
         first.Value = 10;
         Assert.Equal(10, result.RowSets[0].Values[0].Value);
@@ -248,6 +246,16 @@ public sealed class RowsCohortContractTests
     private static RowSelectionPlan<string> Plan(
         params RowSelectionStage<string>[] stages) =>
         RowSelectionPlan<string>.Create(stages);
+
+    private static void AssertReadOnly<T>(
+        IReadOnlyList<T> values)
+    {
+        IList list =
+            Assert.IsAssignableFrom<IList>(values);
+        Assert.True(list.IsReadOnly);
+        Assert.Throws<NotSupportedException>(
+            () => list[0] = values[0]);
+    }
 
     private sealed class RankedRow(int value)
     {
