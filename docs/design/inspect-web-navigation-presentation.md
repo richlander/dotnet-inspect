@@ -172,18 +172,20 @@ inspector count. One fixed non-interactive separator remains between non-empty
 strips in every allocation state. Every fit calculation below uses the
 composite width remaining after that measured separator; the allocation
 controls are adjacent controls whose width is reserved only while they are
-mounted.
+mounted. Each first-adopter policy also supplies a positive fallback-visibility
+floor that preserves its complete focus indicator and a recognizable portion
+of Label or Index content.
 
 1. When both complete inventories fit in Label mode, they consume natural width
    and the allocation controls are absent.
 2. While the controls and both policy minimum widths fit, the composite
    reserves those widths. The inspector-first allocation gives the subject
    strip exactly its policy minimum width and gives the inspector strip the
-   remainder, returning inspector width beyond its complete preferred inventory
-   to the subject strip. This begins with one complete subject Label while the
-   inspector strip selects the richest mode and largest contiguous window its
-   allocation admits; subjects use otherwise idle width without reducing
-   inspector content.
+   remainder long enough to select the inspector's mode and window. It then
+   reserves only the exact normal inline width required by that selected
+   inspector result and returns all remaining width to the subject strip. This
+   begins with at least one complete subject Label while subjects use otherwise
+   idle width without reducing inspector output.
 3. `Show more subjects` moves the boundary to the subject strip's next richer
    window threshold, adding one adjacent full subject Label.
    `Show more inspectors` returns it to the previous subject threshold. The
@@ -197,8 +199,9 @@ mounted.
 5. **Control-free pressure** begins when the composite cannot fit both
    allocation controls and both strips' policy minimum widths. The controls are
    omitted. When the remaining width can fit both policy minima, the subject
-   receives its minimum, the inspector receives the rest, and inspector width
-   beyond its complete preferred state returns to the subject.
+   receives its minimum and the inspector receives the rest long enough to
+   select its result. The inspector retains only the exact width required by
+   that mode and window; the subject receives all remaining width.
 6. **Terminal deficit** begins only when the control-free width cannot fit both
    policy minima. One subject share and two inspector shares define the target,
    with any rounding remainder assigned to the inspector. The composite then
@@ -213,6 +216,11 @@ mounted.
    SlideStrip's one-item floor and uses the fallback singleton only when no
    normal-sized item fits. An item wider than its viewport follows the
    focused-item alignment rule.
+7. A terminal candidate must give each non-empty strip at least its
+   fallback-visibility floor. If the composite viewport cannot fit both floors
+   and the separator, the composite retains that internal minimum width and
+   scrolls inside its assigned page boundary. It never assigns zero width to a
+   non-empty strip and never forces page-level horizontal overflow.
 
 An empty inspector inventory omits the inspector strip and both allocation
 controls. The subject strip then receives the composite's complete width and
@@ -791,7 +799,8 @@ are proved by the gates in
    under Navigation Consumer's current effect authority.
 9. Narrow until the controls plus both policy minima cannot fit but the minima
    fit after control removal. Confirm that the controls disappear, both minima
-   remain satisfied, and unused inspector capacity returns to subjects.
+   remain satisfied, and inspector width beyond its selected compact or Label
+   window returns to subjects.
    Continue into terminal deficit and confirm that the one-subject-share to
    two-inspector-share target first minimizes unused rendered-window capacity
    and then minimizes distance from the target, with ties favoring inspector
@@ -802,7 +811,9 @@ are proved by the gates in
    maximized; with focus in one strip, confirm that a distinct active anchor
    does not displace it. Confirm that every compact control retains its full
    accessible name and title and neither strip nor the page overflows its
-   assigned boundary.
+   assigned boundary. Narrow below both fallback-visibility floors plus the
+   separator and confirm that the composite scrolls internally at that minimum
+   rather than assigning either strip zero width.
 10. Repeat the allocation transitions with reduced motion enabled and confirm
     that modes, windows, edge indicators, and focus reach the same final states
     without sliding animation.

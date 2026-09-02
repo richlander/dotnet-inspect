@@ -93,8 +93,8 @@ window. A mode's requested count is clamped to the installed inventory count.
 
 The control rejects policy construction when Label is absent, duplicated, or
 not first; a kind is duplicated; a requested count is not positive; or an item
-fails to return its required Label. It does not silently invent a usable
-policy.
+fails to return its required Label. A non-positive fallback-visibility floor is
+also invalid. The control does not silently invent a usable policy.
 
 The minimum visible-item count expresses the adopter's density preference. A
 subject policy can require only one Label item, preserving a complete label as
@@ -113,6 +113,8 @@ The policy also supplies:
 - a deterministic initial window anchor;
 - the preferred owner-order direction for equal-ranked window placements;
 - a window-continuity key; and
+- a positive fallback-visibility floor that exposes the complete focus
+  indicator and a policy-chosen recognizable portion of an oversized item; and
 - the normal focused-item alignment when one item is wider than the viewport.
 
 The anchor may use adopter-owned state such as an active identity. When the
@@ -267,6 +269,7 @@ For discrete composition, a strip exposes the normal inline size required by:
 
 - the complete preferred-mode inventory;
 - each viable mode's minimum visible-item count at the current origin;
+- the fallback-visibility floor;
 - the current mode and window;
 - the adjacent width that adds or removes one item; and
 - the adjacent width at which policy changes the whole-strip mode.
@@ -329,6 +332,7 @@ The implementation PR must add focused tests that prove:
 - unequal item widths;
 - focused-item, retained-leading-identity, and active-anchor precedence;
 - viewports narrower than the focused item's normal size;
+- positive fallback-visibility-floor validation and measurement;
 - focus, accessible name, and adopter-owned navigation state across
   mode and window changes;
 - exact leading, trailing, and dual edge-indicator states;
@@ -360,7 +364,7 @@ normal Inspect Web frontend and production Browser/Wasm suites.
    name in every mode and Index changes with owner order without changing
    opaque identity. Reject absent, duplicate, or non-leading Label modes,
    duplicate kinds, non-positive requested counts, and an item whose resolver
-   omits Label.
+   omits Label. Reject a non-positive fallback-visibility floor.
 3. Configure one policy with Label minimum count one and another with Label
    minimum count two followed by Short Label and Index minimum counts two.
    Narrow both. Confirm that the first reaches one full label while the second
