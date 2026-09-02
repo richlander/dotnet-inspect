@@ -1,3 +1,5 @@
+using CiChangeDetection.Planning;
+
 namespace CiChangeDetection;
 
 internal static class InspectWebProjectGraphPolicy
@@ -22,17 +24,26 @@ internal static class InspectWebProjectGraphPolicy
 
     internal static void Validate(string repository)
     {
-        string manifestPath = Path.Combine(repository, Manifest);
-        string[] manifestLines = File.ReadAllLines(manifestPath);
+        // The planner's typed inventory is the single reader for this
+        // manifest, so the routing policy and this graph self-test cannot
+        // disagree about which lines are admissible.
+        if (!ProjectInventory.TryLoad(
+                repository,
+                Manifest,
+                ["src/"],
+                requireNonEmpty: true,
+                out ProjectInventory inventory))
+        {
+            throw new InvalidOperationException(
+                $"{Manifest} must contain unique, existing, canonical "
+                + "repository-relative src project roots.");
+        }
+
+        IReadOnlyList<string> manifestLines = inventory.Roots;
         var actual = manifestLines.ToHashSet(StringComparer.Ordinal);
-        if (actual.Count != manifestLines.Length
+        if (actual.Count != manifestLines.Count
             || manifestLines.Any(line =>
-                string.IsNullOrWhiteSpace(line)
-                || line != line.Trim()
-                || !line.StartsWith("src/", StringComparison.Ordinal)
-                || line.EndsWith('/')
-                || line.Split('/').Any(part => part is "" or "." or "..")
-                || !EvaluatedProjectGraph.IsProjectDirectory(
+                !EvaluatedProjectGraph.IsProjectDirectory(
                     repository,
                     line)))
         {
