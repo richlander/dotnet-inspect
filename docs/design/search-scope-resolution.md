@@ -159,6 +159,7 @@ The Release `dotnet-inspect.Tests` suite enforces the contract:
 This design does not:
 
 - define command token grammar or optional-value disambiguation;
+- define workspace identity, partitioning, or lifetime;
 - define package, platform, project, local-library, or prefix acquisition;
 - choose candidate or result order after source resolution;
 - promise that catalog membership is stable or backward compatible;
