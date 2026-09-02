@@ -6,7 +6,7 @@
 
 import { dotnet, type RuntimeAPI } from "./_framework/dotnet.js";
 
-export type BrowserAnnotatedSourceCapabilityUnavailableReason = "NotProjected" | number;
+export type BrowserAnnotatedSourceCapabilityUnavailableReason = "NotProjected" | "ContextUnavailable" | number;
 
 export type BrowserAnnotatedSourceMedium = "CSharp" | "Il" | number;
 
@@ -20,9 +20,9 @@ export type BrowserPackageQueryCompletionKind = "Exhausted" | "MatchLimitReached
 
 export type BrowserPackageQueryEventKind = "Match" | "Failure" | "Completed" | number;
 
-export type BrowserPackageQueryFacetTier = "Nuspec" | number;
+export type BrowserPackageQueryFacetTier = "Nuspec" | "PackageContent" | number;
 
-export type BrowserPackageQueryFailureKind = "Search" | "SearchContract" | "ManifestAcquisition" | "ManifestContract" | "InvalidManifest" | number;
+export type BrowserPackageQueryFailureKind = "Search" | "SearchContract" | "ManifestAcquisition" | "ManifestContract" | "InvalidManifest" | "PackageContentAcquisition" | "PackageContentEvaluation" | number;
 
 export interface BrowserAccessibilityDescriptor {
   readonly id: string;
@@ -58,10 +58,16 @@ export interface BrowserAnnotatedSourceCapabilityAvailability {
   readonly unavailableReason: BrowserAnnotatedSourceCapabilityUnavailableReason | null;
 }
 
+export interface BrowserAnnotatedSourceInvocationDestination {
+  readonly nodeId: number;
+  readonly target: BrowserCallGraphTarget;
+}
+
 export interface BrowserAnnotatedSourceViewerCatalog {
   readonly defaultFindingIds: ReadonlyArray<number>;
   readonly supportedMedia: ReadonlyArray<BrowserAnnotatedSourceMedium>;
   readonly invocationLikeNodeKinds: ReadonlyArray<string>;
+  readonly invocationDestinations: ReadonlyArray<BrowserAnnotatedSourceInvocationDestination>;
   readonly findingEvidence: BrowserAnnotatedSourceCapabilityAvailability;
   readonly destinations: BrowserAnnotatedSourceCapabilityAvailability;
 }
@@ -168,6 +174,7 @@ export interface BrowserCallGraphTarget {
   readonly selectorKey: string;
   readonly kind: string;
   readonly platformPack: string | null;
+  readonly surfaceAssemblyId: string | null;
 }
 
 export interface BrowserCompileLibraryAvailability {
@@ -204,7 +211,7 @@ export interface BrowserExceptionSurface {
 }
 
 export interface BrowserGraphMemberSurface {
-  readonly member: BrowserMemberSurface;
+  readonly type: BrowserTypeSurface;
   readonly selectedBody: BrowserMemberBodySelector;
 }
 
@@ -569,6 +576,8 @@ export interface BrowserPackageQueryFacetDescriptor {
   readonly weight: number;
   readonly tier: BrowserPackageQueryFacetTier;
   readonly selectionGroupId: string | null;
+  readonly displayGroupId: string | null;
+  readonly displayGroupLabel: string | null;
 }
 
 export interface BrowserPackageQueryFailure {

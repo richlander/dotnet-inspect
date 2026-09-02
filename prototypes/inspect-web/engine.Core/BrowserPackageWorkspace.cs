@@ -637,6 +637,54 @@ internal static class BrowserPackageWorkspace
         };
     }
 
+    internal static async ValueTask<PackageQueryContentResult>
+        AcquirePackageQueryContentAsync(
+            PackageProfileMatch package,
+            IPackageSourceClient source,
+            BrowserPackageOperationDeadline deadline)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(deadline);
+        PackageSourceCoordinate coordinate = PackageSourceCoordinate.Create(
+            package.PackageId,
+            package.Version);
+        PackageSourcePayloadResult result;
+        try
+        {
+            result = await PackagePayloadAcquisition.AcquireAsync(
+                    source,
+                    coordinate,
+                    Store,
+                    limits: PayloadLimits,
+                    cancellationToken: deadline.Token,
+                    transferPolicy: new BrowserPackageQueryTransferPolicy(
+                        new BrowserPackageOperationTransferPolicy(
+                            Store,
+                            deadline)))
+                .ConfigureAwait(false);
+        }
+        catch (BrowserPackagePayloadPolicyException exception)
+        {
+            return new PackageQueryContentResult.Unavailable(
+                exception.Message);
+        }
+        return result switch
+        {
+            PackageSourcePayloadResult.Acquired acquired =>
+                new PackageQueryContentResult.Available(
+                    acquired.Payload.Content),
+            PackageSourcePayloadResult.Unavailable unavailable =>
+                new PackageQueryContentResult.Unavailable(
+                    unavailable.Message),
+            PackageSourcePayloadResult.Failed failed =>
+                new PackageQueryContentResult.Unavailable(
+                    failed.Failure.Message),
+            _ => throw new InvalidOperationException(
+                "Package payload acquisition returned an unknown outcome."),
+        };
+    }
+
     internal static Task<T> WaitForSharedAcquisitionAsync<T>(
         Task<T> acquisition,
         CancellationToken cancellationToken)
@@ -985,6 +1033,31 @@ internal static class BrowserPackageWorkspace
             public void Dispose() => inner.Dispose();
         }
     }
+
+    internal sealed class BrowserPackageQueryTransferPolicy(
+        IPackagePayloadTransferPolicy inner)
+        : IPackagePayloadTransferPolicy
+    {
+        public IPackagePayloadReservation Reserve(
+            PackagePayloadTransfer transfer)
+        {
+            try
+            {
+                return inner.Reserve(transfer);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new BrowserPackagePayloadPolicyException(
+                    exception.Message,
+                    exception);
+            }
+        }
+    }
+
+    internal sealed class BrowserPackagePayloadPolicyException(
+        string message,
+        Exception innerException)
+        : InvalidOperationException(message, innerException);
 
     internal static string? SelectDependencyVersion(
         string[] versions,

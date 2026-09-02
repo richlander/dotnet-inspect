@@ -128,7 +128,7 @@ public static partial class LocalArtifactSource
                 observedLastWriteTimeUtc);
             ArtifactContribution contribution = scope.Register(
                 provenance,
-                () => OpenSnapshot(snapshot),
+                _ => OpenSnapshot(snapshot),
                 kind: "local-file");
             return new ArtifactAcquisitionOutcome.Acquired(
                 [contribution],
