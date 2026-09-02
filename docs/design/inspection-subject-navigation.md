@@ -198,6 +198,7 @@ The owner returns:
 - subject-scoped lens descriptors and one lens outcome;
 - scoped diagnostics and partial-result evidence;
 - typed transition or reconciliation outcomes;
+- typed synchronous pre-admission refusals for temporarily blocked commands;
 - opaque retained-session authority; and
 - a typed consumer-synchronization disposition plus a fresh-authority
   synchronization result for retained consumers.
@@ -442,11 +443,16 @@ identity, but a retained Navigation session is the sequencing entry point for a
 Close that can invalidate its snapshot. Navigation synchronously issues a new
 protected coordinate intent before invoking the descriptor's owner-issued Close
 operation. That intent supersedes older work, but no later explicit command is
-admitted until the correlated membership result settles; an attempted command
-is rejected as `membership transition in progress` without issuing a newer
-intent. The host submits the opaque Close action through Navigation rather than
-invoking the owner around it. Only the exact owner result correlated to that
-intent and requested occurrence may settle it.
+admitted until the correlated membership result settles. An attempted command
+receives a typed synchronous `membership transition in progress` pre-admission
+refusal without issuing a newer intent. That refusal identifies the attempted
+command and reason but carries no navigation snapshot, semantic outcome, state
+revision, synchronization disposition, or effect authority. It is not a
+Navigation result and cannot change history, focus, acknowledgement, or
+retained state. The host may present or announce the typed reason directly. The
+host submits the opaque Close action through Navigation rather than invoking
+the owner around it. Only the exact owner result correlated to that intent and
+requested occurrence may settle it.
 
 The owner result separates effect disposition from diagnostic outcome:
 
@@ -664,12 +670,11 @@ Type navigation has an explicit Library context:
 | --- | --- |
 | Library | The active Library |
 | Type or Member | The defining Library |
-| Package or Root | Available aggregate, then the highest-ranked trustworthy Type's Library, then primary or first available Library |
-| Workspace | Defining Library of the deepest retained Type or Member; otherwise the deepest retained Library; otherwise apply the Package-or-Root rule to the retained root; none without retained occurrence context |
+| Workspace, Package, or Root | Defining Library of the deepest retained Type or Member; otherwise the deepest retained Library; otherwise available aggregate, then the highest-ranked trustworthy Type's Library, then primary or first available Library; none for Workspace without retained occurrence context |
 
 If no context can be established, the context is unavailable or failed. The
 context does not activate Library or promote Package, Root, or Workspace.
-Workspace context is derived from the retained path and realized occurrence
+Ancestor context is derived from the retained path and realized occurrence
 facts; it is not an independently selectable or caller-authored Library.
 
 ### Aggregate and single-library capability
@@ -723,6 +728,10 @@ Subject and lens activation return one of these semantic outcomes:
 | Rejected | Retains state because the command is stale, foreign, or invalid |
 | Failed | A completed Registry or Navigation-policy lens evaluation installs its non-effective basis and evidence when either differs; Navigation preparation failure retains the prior snapshot |
 | Superseded | Produces no visible effect because a newer explicit intent owns the session |
+
+`Rejected` is an admitted Navigation result with ordinary result authority. A
+protected-membership pre-admission refusal is not `Rejected`: it has no intent,
+snapshot, semantic outcome, or effect authority.
 
 Standalone lens activation first requires the request's exact subject to equal
 the snapshot's active subject. A mismatch is `Rejected` with the complete
@@ -1073,6 +1082,9 @@ performs no subject or lens fallback after a non-applied outcome. It installs
 the complete result snapshot before acknowledging `Synchronization required`,
 may request fresh synchronization authority while its receipt lags, and
 abandons authority it can no longer consume so queued maintenance can proceed.
+It handles a typed pre-admission refusal synchronously without entering the
+snapshot, history, focus, or acknowledgement lifecycle. Browser adoption of
+that distinction is tracked by #5511.
 
 Inspect Web presentation and accessibility belong to
 [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md).
@@ -1122,7 +1134,7 @@ The eventual subject-navigation implementation must include named gates for:
 - `Construction_RejectsAbsentOwnerIssuedComponents`
 - `PortableCoordinateAlone_CannotIdentifyRetainedPackageSubject`
 - `WorkspaceSubject_PreservesActiveOccurrenceAndDescendantContext`
-- `WorkspaceTypeInventoryContext_DerivesFromDeepestRetainedNode`
+- `AncestorTypeInventoryContext_DerivesFromDeepestRetainedNode`
 - `WorkspaceSubject_ExposesCoordinatesWithoutNavigationAggregation`
 - `PackageAndNonPackageRoot_AreMutuallyExclusive`
 - `RetainedCoordinateActivation_UsesExactOccurrenceAction`
@@ -1135,6 +1147,7 @@ The eventual subject-navigation implementation must include named gates for:
 - `WorkspaceClose_IssuesCoordinateIntentBeforeOwnerEffect`
 - `WorkspaceClose_AcceptsOnlyCorrelatedOwnerResult`
 - `MembershipTransition_BlocksLaterExplicitAdmissionUntilCorrelatedResult`
+- `MembershipTransition_ConcurrentCommandReturnsPreAdmissionRefusalWithoutAuthority`
 - `MembershipTransition_CorrelatedResultReleasesAdmissionBarrier`
 - `OwnerInitiatedMembershipChange_BeginsProtectedIntentBeforeEffect`
 - `MembershipResult_NoEffectFailureProvesUnchangedMembership`
@@ -1270,13 +1283,14 @@ result identifies Navigation as the failure source.
 | Non-package coordinate selected | Exact Workspace-bound non-package Root ancestry; it is never labelled Package |
 | Package subject activated | Exact Package with Package Overview recommendation after #5509 |
 | Active coordinate disappears without a supplied successor | Workspace with no active occurrence |
-| Active coordinate disappears with an exact Workspace-supplied successor | Reconciliation or independent recommendation only inside that occurrence |
+| Active coordinate disappears with an exact Workspace-supplied successor | Root-first correspondence and level-local fallback only inside that occurrence |
 | Pending or failed retained coordinate | Typed owner evidence and no Navigation activation action; Close remains available when the owner marks the occurrence closable |
 | Foreign-Workspace subject, action, or restoration payload | Rejected before Registry resolution, correspondence, or fallback |
 | Restoration occurrence and subject ancestry disagree inside one Workspace | Preparation aborts before Registry resolution |
 | Restoration active Type and retained path name different Types in one occurrence | Preparation aborts before Registry resolution |
 | Restoration omits active subject but supplies retained Library/Type/Member context | Preparation aborts before initial recommendation |
 | Workspace restoration retains Type in Library L2 | Type-inventory context is derived as L2; no independent Library context is decoded |
+| Package remains active with retained Type in Library L2 | Type-inventory context is derived as L2 before any root-only fallback |
 | Two Workspace-selected restorations share an occurrence but retain different Type contexts | Distinct prepared snapshots preserve the exact independently supplied descendant context |
 | Retained Member disappears while Workspace is active | Retained context falls back to the containing Type while Workspace and its lens remain active |
 | Retained Member disappears while Package is active | Retained context falls back to the containing Type while Package and its lens remain active |
@@ -1287,6 +1301,7 @@ result identifies Navigation as the failure source.
 | Active occurrence closes while a request is in flight | Close first issues a protected coordinate intent; stale work cannot install, later commands are rejected until settlement, and only the correlated owner result supplies inventory and successor |
 | Workspace owner removes or replaces an occurrence | The owner begins the protected Navigation intent before the effect and supplies the correlated complete inventory and optional successor |
 | Protected membership operation fails without changing membership | Correlated `No effect` result retains state and releases the explicit-admission barrier |
+| Command arrives while protected membership operation is unresolved | Typed pre-admission refusal with no intent, snapshot, effect authority, history, focus, or acknowledgement change |
 | Ordinary package | Highest-ranked trustworthy Type with API lens |
 | Preferred role is not first | Preferred available role, not the earlier available descriptor |
 | Preferred lens unavailable | First available registry-ordered fallback with preferred evidence retained |
