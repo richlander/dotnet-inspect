@@ -244,7 +244,7 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Item and line selection composition](design/item-and-line-limits.md):
   cross-component sequencing and typed handoffs for focused semantic
   selection, L2, source-execution, CLI, payload, and presentation designs.
-- [Semantic row selection](design/semantic-row-selection.md): dependency-free
+- [Semantic row selection](design/semantic-row-selection.md): typed
   ordered-stage, strict-window, reindexing, and all-or-failure sequence
   component.
 - [Command transitions](design/command-transition-model.md): when source, focus, operation arity, lens, traversal, or rendering changes should switch commands versus stay within one command.
