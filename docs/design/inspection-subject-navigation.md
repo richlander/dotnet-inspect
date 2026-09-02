@@ -171,6 +171,8 @@ The owner consumes:
   occurrence descriptors;
 - zero or one active retained-coordinate occurrence and its realized
   coordinate-root facts;
+- zero or one explicitly supplied exact replacement occurrence plus typed
+  correspondence outcomes;
 - owner-issued retained-coordinate activation operations;
 - admitted Library identities, declaration order, and primary preference;
 - bounded Type and Member inventories in producer-issued navigation order;
@@ -430,12 +432,13 @@ status and evidence, and carries no activation action. A failed status maps to
 `Failed` activation and likewise carries no activation action. Current
 available occurrences omit activation.
 
-`Pending` is inventory status, not a settled structural-availability result.
-When the current retained occurrence is being re-realized without a membership
-or identity change, Navigation keeps its installed root and descendant context.
-It does not run root-first correspondence, fallback, or truncation until the
-owner supplies settled availability or an exact replacement inventory through
-the contracts tracked by #5583 and #5584.
+Activation status is independent of exact occurrence presence in the complete
+owner-issued inventory. When the current retained occurrence is being
+re-realized without a membership or identity change, `Pending` or `Failed`
+keeps its installed root and descendant context with the typed owner evidence.
+Neither status runs root-first correspondence, fallback, or truncation. Only
+absence of that exact occurrence from the complete inventory enters the
+replacement-or-Workspace branch.
 
 Admission, Close, removal, replacement, invalidation, effect disposition, and
 successor policy are outside this structural claim. #5583 defines those
@@ -779,8 +782,8 @@ resolution, correspondence, or fallback.
 | Current subject | Reconciled subject |
 | --- | --- |
 | Workspace | Workspace |
-| Package | Retain while its occurrence remains available; otherwise reconcile within an explicitly supplied exact replacement occurrence, or select Workspace |
-| Root | Retain while its occurrence remains available; otherwise reconcile within an explicitly supplied exact replacement occurrence, or select Workspace |
+| Package | Retain while the same exact occurrence remains present in the complete owner-issued inventory; otherwise reconcile within an explicitly supplied exact replacement occurrence, or select Workspace |
+| Root | Retain while the same exact occurrence remains present in the complete owner-issued inventory; otherwise reconcile within an explicitly supplied exact replacement occurrence, or select Workspace |
 | All Libraries | Retain when aggregate remains available; otherwise the exact Package or Root |
 | One Library | Retain when available; otherwise aggregate, then the exact Package or Root |
 | Type | Retain when available; otherwise highest-ranked trustworthy Type in its defining Library, then that Library, aggregate, then the exact Package or Root |
@@ -789,10 +792,12 @@ resolution, correspondence, or fallback.
 Navigation reconciles one retained context with one root-first algorithm:
 
 1. **Establish the retained root.** If the current exact occurrence remains
-   available, keep its Package or Root. Otherwise, if the evaluation input
-   supplies an exact replacement occurrence, establish that occurrence's
-   Package or Root. If neither applies, clear retained context and select
-   Workspace. Navigation never infers a replacement from inventory order.
+   present in the complete owner-issued inventory, keep its Package or Root
+   independent of `Pending` or `Failed` activation status. Otherwise, if the
+   evaluation input supplies an exact replacement occurrence, establish that
+   occurrence's Package or Root. If neither applies, clear retained context and
+   select Workspace. Navigation never infers a replacement from inventory
+   order.
 2. **Resolve the retained path.** Starting at the established root, resolve each
    retained Library, Type, and Member in ancestry order. Same-occurrence refresh
    uses exact availability; replacement movement uses typed correspondence. Each
@@ -1102,6 +1107,7 @@ The eventual subject-navigation implementation must include named gates for:
 - `RetainedCoordinateDescriptor_FailureHasEvidenceAndNoActivation`
 - `RetainedCoordinateDescriptor_PendingHasEvidenceAndNoActivation`
 - `RetainedCoordinatePending_PreservesInstalledContextUntilSettled`
+- `RetainedCoordinateFailure_PreservesInstalledContextWithEvidence`
 - `ZeroOneOrManyOccurrences_DoNotInventActiveOccurrence`
 - `RetainedContextReconciliation_ResolvesRootThenPathThenActiveSubject`
 - `CoordinateVariation_NeverCrossesWorkspaceBoundary`
@@ -1228,7 +1234,7 @@ result identifies Navigation as the failure source.
 | Active coordinate is absent without a supplied replacement | Workspace with no active occurrence |
 | Active coordinate is absent with an exact supplied replacement | Root-first correspondence and level-local fallback only inside that occurrence |
 | Current retained coordinate is Pending during non-invalidating re-realization | Typed owner evidence and no Navigation activation action; installed root and descendant context remain without structural fallback until settled |
-| Failed retained coordinate | Typed owner evidence and no Navigation activation action |
+| Current retained coordinate is Failed while its exact occurrence remains present | Typed owner evidence and no Navigation activation action; installed root and descendant context remain without structural fallback |
 | Foreign-Workspace subject, action, or restoration payload | Rejected before Registry resolution, correspondence, or fallback |
 | Restoration occurrence and subject ancestry disagree inside one Workspace | Preparation aborts before Registry resolution |
 | Restoration active Type and retained path name different Types in one occurrence | Preparation aborts before Registry resolution |
