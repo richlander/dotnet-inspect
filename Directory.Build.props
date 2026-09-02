@@ -34,8 +34,8 @@
       because four fixture projects opt out of that default.
 
       The boundary is projects that import this file, which is narrower than
-      every file matching a project glob. SDK projects import it
-      automatically; a bare <Project> with no Sdk attribute does not, and
+      every file matching a project glob. A bare <Project> with no Sdk
+      attribute does not import it, and
       eng/classic-async-artifact-matrix.proj is one. That file declares no
       Restore target and resolves nothing of its own: it has no
       PackageReference, and restoring it produces no assets file. What it

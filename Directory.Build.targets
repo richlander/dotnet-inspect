@@ -80,9 +80,7 @@
        restricted to .csproj: four fixture projects opt out of the repository-wide
        TreatWarningsAsErrors default, and one of them is a .vbproj.
        Without this, a vulnerability in those projects restores with a warning and
-       exit code 0. Package sweeps that intentionally restore untrusted packages
-       pass NuGetAudit=false, which suppresses the warnings before they reach
-       here. -->
+       exit code 0. -->
   <PropertyGroup>
     <WarningsAsErrors>$(WarningsAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsAsErrors>
   </PropertyGroup>
