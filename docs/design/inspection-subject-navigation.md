@@ -20,15 +20,17 @@ retained evaluation bases, and pure lens recommendation are implemented by
 `NavigationLensRecommendation` and gated at their claims below. Pure initial
 subject ranking over already trustworthy Type candidates and already available
 Library candidates is implemented by `NavigationInitialSubjectRecommendation`
-and gated at its claim below. Pure standalone exact-lens activation is
+and gated at its claim below. Generation-free classification of bounded Type
+and Member inventory evidence is implemented by
+`NavigationSubjectInventoryClassification` and gated at its claim below. Pure
+standalone exact-lens activation is
 implemented by `NavigationLensActivation` and gated by
 `StandaloneLensActivation_RejectsDifferentExactSubjectBeforeRegistryResolution`,
 `ExplicitLensResolution_MapsEveryRegistryOutcomeWithoutFallback`, and
-`ExplicitLensResolution_RetainsExactRegistryEvidence`. Candidate availability
-and failure classification, subject activation, snapshot installation,
-reconciliation, revision behavior, retained sessions, synchronization, and
-restoration remain unverified until their implementation gates in
-[Verification](#verification) land.
+`ExplicitLensResolution_RetainsExactRegistryEvidence`. Descriptor composition,
+subject activation, snapshot installation, reconciliation, revision behavior,
+retained sessions, synchronization, and restoration remain unverified until
+their implementation gates in [Verification](#verification) land.
 
 The concurrency claims are specified separately as executable TLA+ models under
 [`models/inspection-subject-navigation/`](models/inspection-subject-navigation/).
@@ -325,14 +327,60 @@ subject is selected.
 When no Library is available, Root is selected. This allows root-only package
 coordinates, including the tools-v2 pointer-package case tracked by #4829.
 
+### Bounded subject inventory classification
+
+Navigation classifies one bounded API-surface result over the admitted Library
+participants before snapshot-relative descriptors are composed. Participant
+outcomes exact-join the admitted Library prefix by owner-issued acquisition
+registration; a foreign, reordered, duplicated, or unexplained missing outcome
+is invalid input rather than evidence about subject availability.
+
+The generation-free classification follows this table:
+
+| Producer evidence | Type inventory outcome |
+| --- | --- |
+| One or more returned Types with exact definition identity | `Available`; retain every exact Type and Member row in producer order plus all peer evidence |
+| Complete successful production with zero Types and no inspection failures | `Unavailable` |
+| No exact Type plus participant rejection, participant failure, inspection failure, missing exact Type or projected-Member declaring-Type identity, or projection omission | `Failed` with the original typed evidence |
+| Exact Types plus any of those failures | `Available` and partial; retain the exact rows and original typed evidence |
+
+Projection truncation never proves that an omitted Library is empty. A returned
+Type without exact `MetadataTypeDefinitionName` is retained as identity-failure
+evidence and is not reconstructed from display text, metadata token, or list
+position. A Member projected onto another Type currently carries canonical
+declaring text but not the typed declaring-Type definition identity required by
+`StructuralSubjectIdentity.MemberSubject`; classification retains that complete
+producer row as typed identity-failure evidence rather than rewriting it as a
+declaration on the containing Type. The typed producer identity is tracked by
+issue #5437. Returned exact rows remain trustworthy when another row or
+participant fails; failure does not erase positive evidence.
+
+Every admitted Library remains an available Library candidate for initial
+subject recommendation. Only exact returned Type rows become Type candidates.
+Classification does not commit the recommendation, choose an active subject,
+compose `Current` or `Selection required`, mint generation-scoped actions, or
+produce a navigation snapshot.
+
+This classification is gated by
+`NavigationSubjectInventoryTests.EveryBoundedInventoryRow_PreservesProducerOrderAndIdentity`,
+`ProjectedMemberWithoutTypedDeclaringIdentity_FailsClosed`,
+`SuccessfulProducerRows_AreTrustworthyDespitePeerFailure`,
+`CompleteSuccessfulEmptyInventory_IsUnavailable`,
+`NoCandidateWithIndeterminateProducer_IsFailed`,
+`ProjectionTruncation_NeverProvesUnavailability`,
+`ProducerEvidence_IsRetainedWithoutTranslation`,
+`InitialCandidates_ContainOnlyTrustworthyExactRows`, and
+`InventoryJoin_RequiresExactParticipantRegistration`.
+
 The pure ranking over already trustworthy Type candidates and already
 available Library candidates is gated by
 `NavigationInitialSubjectRecommendationTests.InitialRecommendation_PrefersTypeThenLibraryThenRoot`,
 `TypeRecommendation_UsesPrimaryLibraryAccessibilityAndProducerOrder`, and
 `InitialRecommendation_NeverChoosesMember`. Candidate coordinate, Library,
 Type, primary-role, and accessibility consistency is gated by
-`CandidateConstruction_RejectsInconsistentOwnerIssuedEvidence`. Producer
-trust, availability, and failure classification remain unverified.
+`CandidateConstruction_RejectsInconsistentOwnerIssuedEvidence`. The bounded
+classification above supplies the trustworthy Type candidates and retains
+availability and failure evidence.
 
 ### Lens recommendation
 
@@ -739,6 +787,15 @@ The eventual subject-navigation implementation must include named gates for:
 - `InitialRecommendation_PrefersTypeThenLibraryThenRoot`
 - `TypeRecommendation_UsesPrimaryLibraryAccessibilityAndProducerOrder`
 - `InitialRecommendation_NeverChoosesMember`
+- `EveryBoundedInventoryRow_PreservesProducerOrderAndIdentity`
+- `ProjectedMemberWithoutTypedDeclaringIdentity_FailsClosed`
+- `SuccessfulProducerRows_AreTrustworthyDespitePeerFailure`
+- `CompleteSuccessfulEmptyInventory_IsUnavailable`
+- `NoCandidateWithIndeterminateProducer_IsFailed`
+- `ProjectionTruncation_NeverProvesUnavailability`
+- `ProducerEvidence_IsRetainedWithoutTranslation`
+- `InitialCandidates_ContainOnlyTrustworthyExactRows`
+- `InventoryJoin_RequiresExactParticipantRegistration`
 - `LensIdentity_BindsExactStructuralSubjectAndFacet`
 - `LensOutcome_RetainsRecommendationOrExactRequestBasis`
 - `LensRecommendation_UsesPreferredRoleBeforeRegistryOrder`
@@ -759,7 +816,6 @@ The eventual subject-navigation implementation must include named gates for:
 - `RecommendationBasis_RefreshRerunsRecommendation`
 - `ExactNonSuccessLens_RefreshReresolvesExactIdentityWithoutFallback`
 - `ExactNonSuccessDuringSubjectReconciliation_InstallsReplacementSubjectRecommendationBasis`
-- `EveryBoundedInventoryRow_PreservesProducerOrderAndIdentity`
 - `UnavailableDescriptor_HasNoTargetOrActionId`
 - `ExplicitUnavailableTransition_DoesNotApplyFallback`
 - `UnavailableReplacement_AdvancesStateRevision`
