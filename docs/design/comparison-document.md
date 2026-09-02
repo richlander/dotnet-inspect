@@ -17,13 +17,15 @@ The normative claim is:
 
 > `ComparisonDocument<T>` composes one portable identified and displayed root,
 > an optional root comparison, and an ordered population of portable identified
-> and displayed `Subject<T>` children, while moving exceptional rename and move
-> coordinates into a complete referenced description population.
+> and displayed `Subject<T>` children under one explicit subject-coordinate
+> basis, while moving exceptional rename and move coordinates into a complete
+> referenced description population.
 
 `ILInspector.Findings` owns:
 
 - the root and child-subject composition;
 - portable primary-identifier and display separation;
+- the document-level subject-coordinate basis;
 - generic comparison-payload containment;
 - subject change topology;
 - change-description addressing and referential integrity;
@@ -217,6 +219,7 @@ transfers; Git's conflation of leaf rename and parent movement does not.
 One comparison document contains:
 
 - one root `Identifier`, `Display`, and subject-change value;
+- one subject-coordinate basis;
 - one explicitly present or not-applicable root `Comparison`;
 - an ordered immutable **subject population**; and
 - an immutable **change-description population**.
@@ -252,13 +255,31 @@ It is opaque to `ComparisonDocument<T>` but has a producer-owned canonical
 spelling and scope. It must not contain credentials or depend on one live
 reader, process-local handle, or document-local collection position.
 
-The producer declares the coordinate scope used by one document. A root
-identifier is complete within the outer comparison context. When the root is a
-structural container, a child identifier may instead be complete relative to
-that root endpoint. The same relative child coordinate can then identify one
-ordinary subject under both a renamed or moved Before root and its After root.
-When the root is only a reference point, as in clone composition, child
-identifiers may be complete coordinates in the outer comparison context.
+The document carries one required `SubjectCoordinateBasis` value for every
+subject primary and subject `ChangeDescription` endpoint:
+
+| Basis | Meaning |
+| --- | --- |
+| `OuterContext` | Every subject identifier is complete in the producer-owned outer comparison context. |
+| `RootRelative` | Every subject identifier is complete relative to its corresponding root endpoint. |
+
+The root primary and root `ChangeDescription` endpoints are always complete in
+the outer comparison context. `SubjectCoordinateBasis` does not apply to them.
+One basis applies to the complete subject population; a producer cannot mix
+outer-context and root-relative subject identifiers in one document.
+
+`RootRelative` may be used only when the producer-owned coordinate grammar can
+express every selected subject primary and exceptional endpoint relative to
+the corresponding existing root endpoint. For a two-sided Diff child, both
+endpoint roots exist. For an Addition or Deletion child, only its existing
+endpoint root is required. A moved-out subject is valid only when that grammar
+can express its complete relative path; otherwise the producer uses
+`OuterContext`.
+
+The same root-relative child coordinate can identify one ordinary subject under
+both a renamed or moved Before root and its After root. When the root is only a
+reference point, as in clone composition, the producer normally selects
+`OuterContext`.
 
 `Display` is caller-issued human text. It may resemble the identifier but has
 no identity authority. A consumer never parses display text to recover an
@@ -344,6 +365,7 @@ root Move:
 Root Before: AssemblyA.TypeA
 Root After:  AssemblyB.TypeA
 Root change: Move
+Subject coordinate basis: RootRelative
 
 Child identifier in each endpoint root scope: MemberAnchor(M)
 Child change: Diff
@@ -595,6 +617,7 @@ root/subject reference order. Transformation descriptor order is significant.
 Value equality composes:
 
 - root value;
+- subject-coordinate basis;
 - root-comparison presence and payload when present;
 - ordered subject sequence;
 - ordered change-description population;
@@ -611,7 +634,7 @@ The v1 envelope uses the repository's established structured-document
 conventions:
 
 - snake-case property names;
-- string-spelled lower-case change kinds;
+- string-spelled lower-case coordinate bases and change kinds;
 - omitted absent optional properties;
 - initialized arrays rather than null arrays; and
 - one source-generated serializer registration per closed payload.
@@ -621,6 +644,7 @@ The envelope fields are:
 ```text
 ComparisonDocument<T> where T : notnull
   schema_version: 1
+  subject_coordinate_basis: SubjectCoordinateBasis
   identifier: string
   display: string
   change_kinds: ChangeKind[]?  // omitted means Diff
@@ -651,6 +675,11 @@ TransformationDescriptor
   identifier: string
   display: string
 ```
+
+`subject_coordinate_basis` is required and spells `outer-context` or
+`root-relative`. Deserialization rejects an omitted or unknown value. The field
+remains present when a filtered document has no subjects so its identity and
+value semantics do not depend on population size.
 
 `change_kinds` is omitted for Diff so the common document root remains
 identifier and display, while the common child remains identifier, display, and
@@ -879,6 +908,7 @@ Outer comparison context
   After:  nuget:sample@2.0.0
 
 Root
+  Subject coordinate basis: OuterContext
   Identifier: type:Sample.Parser
   Display: Sample.Parser
   Change: Diff
@@ -939,6 +969,7 @@ The corresponding structured fragment is:
 ```json
 {
   "schema_version": 1,
+  "subject_coordinate_basis": "outer-context",
   "identifier": "type:Sample.Parser",
   "display": "Sample.Parser",
   "comparison": {
@@ -988,6 +1019,7 @@ This mockup uses
 
 ```text
 Root
+  Subject coordinate basis: OuterContext
   Identifier: module:sha256:abc.../method:06000012
   Display: Parser.ParseCore()
   Change: Diff
@@ -1048,6 +1080,8 @@ least:
 
 - root and subject construction across within-type, within-assembly, and
   cross-assembly coordinates using an immutable test payload;
+- construction and value inequality for `OuterContext` and `RootRelative`
+  subject-coordinate bases;
 - package/comparison-set root construction for a payload item space spanning
   two assemblies;
 - explicit Present and NotApplicable root-comparison cases without null
@@ -1061,16 +1095,20 @@ least:
 - Rename, Move, and combined Rename/Move with complete descriptions;
 - root-level as well as subject-level exceptional changes;
 - a root Rename and a root Move whose unchanged child remains Diff through the
-  same root-relative identifier in both endpoint scopes;
+  same root-relative identifier in both endpoint scopes and a
+  `RootRelative` document basis;
 - a root change with an outer-context child coordinate that also changes,
-  requiring a separate child Rename or Move description rather than implicit
-  propagation;
+  requiring an `OuterContext` document basis and a separate child Rename or
+  Move description rather than implicit propagation;
 - after-primary identity for Rename/Move and before-primary identity for
   Deletion;
 - addition-only payload composition through Addition;
 - stable opaque change IDs and ordinal description ordering;
 - description ordering remaining ordinal when subject reference order differs;
 - exactly-one reference per description;
+- rejection of a Diff and Deletion sharing one Before-space identifier;
+- acceptance of a Deletion and Addition reusing one spelling across their
+  separate primary endpoint spaces;
 - rejection of a Deletion and exceptional change sharing one Before
   identifier;
 - rejection of a Diff and exceptional change sharing one Before identifier in
@@ -1093,6 +1131,9 @@ least:
 - a Move subject whose opaque test payload is labeled unchanged remaining
   valid;
 - source-generated structured round trip for at least one closed test payload;
+- round trip of both subject-coordinate bases, including preservation in an
+  empty-subject document;
+- rejection of omitted or unknown serialized `subject_coordinate_basis`;
 - rejection of explicit serialized `change_kinds: ["diff"]` as noncanonical;
 - rejection of malformed serialized forms through the same validation path; and
 - encoding of untrusted identifier and display values as JSON data.
@@ -1121,4 +1162,5 @@ prerequisites must prove:
 - cross-assembly clone retrieval preserves root/candidate module identities
   until the clone owner supplies a portable cross-module payload; and
 - each producer's identifier portability, assertions, payload completeness,
-  transformation classification, and presentation.
+  subject-coordinate-basis application, transformation classification, and
+  presentation.
