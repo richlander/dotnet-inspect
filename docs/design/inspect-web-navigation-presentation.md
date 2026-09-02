@@ -155,31 +155,44 @@ inspector numbers are presentation vocabulary; they are never parsed or
 submitted as action identity. The complete label remains each compact
 control's accessible name and hover title.
 
+The first-adopter styling must make every boxed short label narrower than the
+full label it is expected to replace. When installed text or styling makes a
+short label dominated under SlideStrip's representation rule, that item keeps
+its full label as its minimum representation; the composite does not force a
+symbol that saves no space.
+
 The composite, rather than either `SlideStrip`, owns width allocation between
-the regions:
+the regions. A strip's **anchor minimum width** is the normal inline size of
+its presentation-priority origin at that item's minimum representation.
 
 1. When both strips' preferred states fit, they consume natural width and the
    allocation controls are absent.
-2. Under pressure, the default is inspector-first. The subject strip receives
-   the smallest allocation that can show its complete minimum state without
-   scrolling when the inspector strip can retain at least one minimum item
-   viewport. The inspector strip receives the remaining width and requests its
-   maximum feasible presentation state.
+2. Outside terminal pressure, the composite reserves both allocation controls
+   and the inspector strip's anchor minimum width. The default subject
+   allocation is the lesser of its complete minimum-state width and the width
+   left after that reservation. The inspector strip receives the remainder and
+   requests its maximum presentation state. Either strip enters its own
+   overflow-minimum mode when its complete minimum state does not fit.
 3. `Show more subjects` moves the boundary to the subject strip's next richer
    presentation threshold. `Show more inspectors` returns it to the previous
-   subject threshold. Each activation therefore changes exactly one subject
-   representation promotion while the inspector strip recomputes its own
-   feasible state in the returned width.
-4. The subject-forward bound is the richest subject state that still leaves a
-   non-empty inspector strip at least one normal-sized minimum-item viewport.
-   The inspector-first bound is the subject strip's minimum state.
-5. If the two complete minimum states do not fit together, each non-empty strip
-   retains at least one normal-sized minimum-item viewport and uses its own
-   internal scrolling for the rest of its ordered inventory.
+   subject threshold. The first richer threshold may fit the subject strip's
+   complete minimum state and leave overflow-minimum mode; subsequent
+   thresholds each admit one representation promotion. The inspector strip
+   recomputes its own state in the returned width.
+4. The subject-forward bound is the richest subject threshold that still
+   leaves the inspector strip its anchor minimum width. The inspector-first
+   bound is the default allocation from step 2.
+5. **Terminal pressure** begins when the composite cannot fit both allocation
+   controls and both strips' anchor minimum widths. The controls are omitted
+   and the width after the fixed separator is divided into one subject share
+   and two inspector shares, with any rounding remainder assigned to the
+   inspector. Each strip uses overflow-minimum mode and internal scrolling;
+   an item wider than its viewport follows SlideStrip's focused-item visibility
+   rule.
 
 An empty inspector inventory omits the inspector strip and both allocation
 controls. The subject strip then receives the composite's complete width and
-requests its maximum feasible state. The subject inventory is never empty
+requests its maximum desired state. The subject inventory is never empty
 because Workspace remains its presentation-owned root entry.
 
 At the inspector-first allocation, when the inspector viewport can fit two
@@ -188,37 +201,40 @@ representation, the effective inspector and one adjacent inspector remain
 readable. A user-requested subject-forward allocation may compact additional
 inspector labels.
 
-Both allocation buttons remain mounted while pressure exists and use
-`aria-disabled="true"` at their respective bounds. Their accessible names are
-`Show more subjects` and `Show more inspectors`; visible arrows are only
-direction cues. Allocation changes do not alter subject or inspector identity,
-order, availability, activation, selection, or keyboard behavior.
+Both allocation buttons remain mounted between the all-preferred and terminal
+states and use `aria-disabled="true"` at their respective bounds. Their
+accessible names are `Show more subjects` and `Show more inspectors`; visible
+arrows are only direction cues. Allocation changes do not alter subject or
+inspector identity, order, availability, activation, selection, or keyboard
+behavior.
 
-The retained subject allocation is presentation-local state. It survives
-selection changes, asynchronous shell replacement, and resize while the same
-subject and ordered inspector identity sequence remain installed. A new
-subject or changed inspector identity sequence resets to inspector-first.
-Capacity may temporarily clamp the rendered allocation without discarding the
-retained request. The state is absent from workspace packets, Share URLs,
-browser history, and product navigation results.
+The retained subject allocation is presentation-local desired state. SSS uses
+the active subject identity and ordered inspector identity sequence as the
+subject strip's presentation-continuity key. Selection changes, asynchronous
+shell replacement, and resize retain the desired ordinal while that key is
+unchanged; a new subject or changed inspector sequence resets to
+inspector-first. Capacity or terminal pressure may temporarily clamp the
+rendered allocation without discarding the retained request. The state is
+absent from workspace packets, Share URLs, browser history, and product
+navigation results.
 
 The subject tablist uses one tab stop and manual activation. Left and Right
 Arrow move focus through rendered subjects, Home and End move to the first and
 last subject, and focus movement does not select a subject until Enter or Space
 activates it. Every subject references the shared subject panel, which is
 labelled by the active subject. The inspector tablist retains the equivalent
-lens semantics below. Reveal-button activation changes only allocation and
+lens semantics below. Allocation-button activation changes only allocation and
 focus remains on the button. Any sliding animation preserves the focused
 element and is omitted when reduced motion is requested.
 
-Whenever an installed presentation no longer needs allocation controls while
-one owns focus, the composite transfers focus before removing them. This
-applies whether resize, label replacement, or inventory replacement caused the
-transition. `Show more subjects` moves focus and the subject tablist's sole
-roving tab stop to its active tab; `Show more inspectors` does the same for the
-active inspector tab. If the inspector tablist has no active tab, focus moves
-to the active subject tab. Removing unfocused allocation controls does not move
-focus.
+Whenever an installed presentation enters the all-preferred or terminal state
+while an allocation control owns focus, the composite transfers focus before
+removing the controls. This applies whether resize, label replacement, or
+inventory replacement caused the transition. `Show more subjects` moves focus
+and the subject tablist's sole roving tab stop to its active tab;
+`Show more inspectors` does the same for the active inspector tab. If the
+inspector tablist has no active tab, focus moves to the active subject tab.
+Removing unfocused allocation controls does not move focus.
 
 `Slideable` combines each reusable strip's internal item movement with the
 composite's discrete boundary movement. It does not add pointer drag,
@@ -691,6 +707,8 @@ are proved by the gates in
    maximizes its own preferred representations in the remaining width.
    Continue through widths that fit two, one, and no full inspector labels and
    confirm that each strip follows its own deterministic representation plan.
+   Supply a full label no wider than its boxed short label and confirm that the
+   dominated short form is omitted rather than forced.
 3. Move the active inspector to the final owner-ordered entry and confirm that
    it and the nearest preceding inspector receive the readable-label priority
    without reordering either control. Install a non-empty inventory with no
@@ -701,9 +719,11 @@ are proved by the gates in
    strip uses the complete composite width.
 4. Activate `Show more subjects` repeatedly and confirm that each activation
    moves the boundary to the subject strip's next richer presentation
-   threshold. Confirm that exactly one subject representation promotes,
-   the inspector strip recomputes within its smaller viewport, and no subject,
-   inspector, selection, or product navigation state changes.
+   threshold. When the subject strip is in overflow-minimum mode, confirm that
+   the first threshold fits its complete minimum state without a promotion;
+   subsequent thresholds promote exactly one subject representation. Confirm
+   that the inspector strip recomputes within its smaller viewport and no
+   subject, inspector, selection, or product navigation state changes.
 5. Activate `Show more inspectors` and confirm that each activation removes
    exactly one subject promotion, returns that width to the inspector strip,
    and focus remains on the allocation button. At each bound, confirm that the
@@ -721,12 +741,15 @@ are proved by the gates in
    the active tab in the named region before the allocation controls unmount.
    Confirm that an absent active inspector falls back to the active subject and
    that removing unfocused allocation controls does not move focus.
-8. Narrow until the two complete minimum states cannot fit together. Confirm
-   that each non-empty strip retains at least one normal-sized minimum-item
-   viewport, scrolls its own ordered inventory without wrapping, reveals its
-   focused item, and retains every compact control's full accessible name and
-   title. Confirm that neither strip nor the page overflows its assigned
-   boundary.
+8. Narrow until both allocation controls and the two anchor minimum widths
+   cannot fit. Confirm that the controls are removed with the required focus
+   transfer, the remaining width uses the one-subject-share/two-inspector-share
+   terminal allocation, and each strip scrolls its own ordered inventory
+   without wrapping. Focus an item wider than its viewport and confirm that its
+   visible portion is maximized; with focus in one strip, confirm that a
+   distinct active anchor does not displace it. Confirm that every compact
+   control retains its full accessible name and title and neither strip nor
+   the page overflows its assigned boundary.
 9. Repeat the allocation transitions with reduced motion enabled and confirm
    that labels and focus reach the same final states without sliding animation.
 

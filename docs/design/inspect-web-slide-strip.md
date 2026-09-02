@@ -77,7 +77,8 @@ An adopter supplies one strip-level representation policy. The policy defines:
 - a deterministic promotion order over each item's available
   representation-to-representation transitions;
 - the desired presentation state: minimum, maximum, or one retained finite
-  reveal level; and
+  reveal level;
+- a presentation-continuity key and initial desired state; and
 - the normal interactive sizing that every representation must retain.
 
 A common policy is `label -> short label -> icon`, but the control does not
@@ -101,26 +102,46 @@ order rather than asking `SlideStrip` to infer selection from focus.
 
 `SlideStrip` constructs a finite promotion plan:
 
-1. State zero renders every item at its minimum available representation.
-2. Each subsequent state promotes exactly one item to its next preferred
+1. An empty inventory has one empty state, measures zero item-content width,
+   has no adjacent thresholds, does not scroll, and contains no focus target.
+2. For a non-empty inventory, state zero renders every item at its minimum
    available representation.
-3. At each state, the control selects the highest-priority currently eligible
+3. Each subsequent state promotes exactly one item to its next preferred
+   available representation.
+4. At each state, the control selects the highest-priority currently eligible
    transition from the adopter-supplied complete order over item and
    representation-transition pairs. A transition is eligible only after that
    item's preceding transition has occurred. The policy therefore decides
    whether one item reaches its preferred representation before another item
    promotes or whether equivalent promotion rounds alternate among items.
-4. The final state renders every item at its preferred available
+5. The final state renders every item at its preferred available
    representation.
 
 The plan contains no demotion between consecutive states and no state changes
 item identity, order, semantics, or normal interactive size.
 
-For its current viewport, the strip computes the greatest feasible state whose
-items fit without wrapping or shrinking below normal sizing. The rendered
-state is the lesser of that feasible state and the adopter's desired state.
-The desired state may survive a temporary capacity clamp so widening restores
-the requested fidelity.
+When state zero fits, the strip is in **fitting mode**. It computes the greatest
+feasible state whose items fit without wrapping or shrinking below normal
+sizing. The rendered state is the lesser of that feasible state and the
+adopter's desired state.
+
+When state zero does not fit, the strip is in **overflow-minimum mode**. It
+renders state zero inside its scrolling viewport; no fitting state exists and
+the rendered-state equation is not evaluated. The next richer allocation
+threshold is the width required to leave overflow-minimum mode with state zero
+fully fitting.
+
+The desired state may survive a temporary fitting-mode capacity clamp or
+overflow-minimum mode so widening restores the requested fidelity.
+
+The presentation-continuity key decides whether a desired ordinal survives a
+new promotion plan. When the key is unchanged, the strip retains the desired
+ordinal and clamps it to the new plan length; the ordinal intentionally applies
+to the new plan prefix rather than naming specific promoted items. When the key
+changes, the strip resets to the adopter-supplied initial desired state.
+Inventory identity, representation availability, policy version, or other
+adopter-owned facts may participate in that key. Width and measured thresholds
+alone do not require a new key.
 
 An adopter that wants maximum readable content supplies the maximum desired
 state. An adopter that exposes user-controlled disclosure retains an explicit
@@ -144,8 +165,14 @@ When state zero does not fit, the strip:
 - keeps every representation at normal interactive size;
 - enables internal horizontal scrolling rather than wrapping or clipping
   items from the inventory; and
-- scrolls the focused item and, when requested by the adopter, its active
-  anchor into view.
+- maximizes visibility of the focused item, fully revealing it whenever the
+  viewport can contain its normal size.
+
+Focused-item visibility has priority over an adopter-requested active anchor.
+The strip reveals the active anchor only when no item in the strip owns focus
+or both items can remain visible. When an item is wider than the viewport, the
+strip aligns the nearest edge needed to maximize its visible portion rather
+than shrinking it.
 
 `Slideable` refers to this internal movement across an inventory larger than
 the region and to discrete movement through semantic representation states. It
@@ -201,11 +228,13 @@ The composer owns that negotiation and any cross-strip controls. Each
 scrolling within the width it receives.
 
 For discrete composition, a strip exposes the normal inline size required by
-its minimum state, preferred state, current rendered state, and adjacent richer
-or poorer presentation threshold. These are presentation measurements, not
-persisted pixel identity. A composer may move an allocation boundary to one of
-those thresholds; it may not select representations independently of the
-strip's policy.
+its minimum state, preferred state, current rendered state, and adjacent
+allocation thresholds. In overflow-minimum mode, the next richer threshold
+first fits the complete minimum state; subsequent richer thresholds each
+admit one promotion. These are presentation measurements, not persisted pixel
+identity. A composer may move an allocation boundary to one of those
+thresholds; it may not select representations independently of the strip's
+policy.
 
 ## First adoption
 
@@ -251,10 +280,13 @@ The implementation PR must add focused tests that prove:
 - every available representation combination;
 - dominated short-label or icon representations under installed styling;
 - deterministic promotion order and finite bounds;
+- empty-inventory and overflow-minimum modes;
 - preferred, clamped, and restored desired states;
+- retained and reset continuity keys across promotion-plan changes;
 - state-zero fit versus internal-scroll boundaries;
 - unequal item widths;
 - focused-item and active-anchor reveal;
+- viewports narrower than the focused item's normal size;
 - focus, accessible name, and adopter-owned navigation state across
   representation replacement;
 - dynamic inventory replacement with retained and removed identities;
@@ -271,17 +303,25 @@ normal Inspect Web frontend and production Browser/Wasm suites.
    representations. Narrow through every promotion threshold and confirm that
    exactly one deterministic representation state renders at each width.
 2. Omit different optional representations and confirm that the policy skips
-   them without inventing content or changing identity.
+   them without inventing content or changing identity. Make a less-preferred
+   representation no narrower than a more-preferred one and confirm that the
+   dominated representation does not enter the promotion plan.
 3. Retain a preferred desired state, narrow until it is clamped, and widen
    again. Confirm that the requested state returns unless the adopter changed
-   it while clamped.
+   it while clamped. Replace the promotion plan under the same continuity key
+   and confirm that the ordinal is retained and clamped; replace the key and
+   confirm reset to the adopter's initial state.
 4. Narrow below the complete state-zero width and confirm that the strip
-   scrolls internally, preserves every item in order, and reveals focused and
-   requested active items.
+   enters overflow-minimum mode, scrolls internally, and preserves every item
+   in order. Separate focus from the requested active anchor and confirm that
+   focused-item visibility wins; use an item wider than the viewport and
+   confirm that the nearest edge maximizes its visible portion.
 5. Change visible representations and replace the installed inventory while
    focus and selection differ. Confirm that retained identities preserve
    focus and adopter-owned navigation state and that removed identities use
-   the adopter's external focus rule.
+   the adopter's external focus rule. Install an empty inventory and confirm
+   the empty state has zero item-content width, no thresholds, scrolling, or
+   focus target.
 6. Render two adopters with different representation policies, styles, and
    semantic roles. Confirm that both use the same state and overflow contract
    without inheriting one another's navigation behavior.
