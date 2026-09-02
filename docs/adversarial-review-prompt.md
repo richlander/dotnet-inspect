@@ -74,6 +74,31 @@ does not depend on that later work for correctness. Do report success-shaped
 unfinished behavior or a slice whose current correctness depends on a future
 change.
 
+When a candidate adds or expands a capability, substrate, host path, or broad
+rendering domain, review only design properties visible in the exact head and
+facts supplied in the candidate frame. The frame must state the complexity
+basis, consumer and end-to-end plan, and rendering strategy, or explain why
+each does not apply.
+
+Judge whether added complexity is required for robust reliability or
+correctness or enables a compelling user-observable experience. Verify that
+the visible design matches its named consumer and host plan, keeps reusable
+concepts host-neutral and hosts reasonably thin, and does not depend on
+unplanned later work for the current slice's correctness. Shared substrate
+must plan benefit and enablement through both the CLI and browser/Wasm hosts;
+for substrate intentionally limited to one consumer or host, the frame must
+supply the recorded approval and exact approved scope. Treat that record as a
+candidate-formation fact: verify that the design conforms to it, but do not
+infer, grant, or broaden approval.
+
+For rendering, verify that structured information survives to the rendering
+boundary. Markout is the default host-neutral, multi-format substrate. A
+host-specific path that bypasses it must identify the host, rationale, typed
+input model, and lowering boundary. A broad information domain must document
+where structured typing lives and who owns each format lowering, whether it
+uses Markout or another approach. Do not demand these obligations from a change
+to which the frame explains they do not apply.
+
 Push on the named pathological or boundary case. When accepting or rejecting
 that case is part of the supported contract, require exact-head gate evidence.
 A preserved non-CI fixture is design evidence, not the enforcing gate; the
@@ -97,8 +122,11 @@ owning claim defines a concrete observable requirement.
 
 Do not begin review if the candidate context contains unresolved placeholders,
 names multiple normative owners, or cannot connect the supported input to the
-claimed consequence. Return the framing defect instead of inventing a broader
-review property.
+claimed consequence. For an applicable capability, substrate, host, or
+rendering change, also stop when the required complexity basis, consumer and
+end-to-end plan, applicable approval record, or rendering strategy is absent.
+Return the framing defect instead of inventing the missing plan, approval, or
+broader review property.
 
 Treat the assigned review worktree as read-only. Do not run `git reset`,
 `git add`, or `git commit`; do not rebase or checkout another revision. Put
