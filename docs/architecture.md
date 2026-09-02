@@ -188,13 +188,13 @@ without referencing the CLI assembly.
 | `tools/DecompilerHarness` | Correctness harness | Decompiler correctness, compile-back, corpus, and independent-oracle orchestration. | [Decompiler correctness pipeline](decompiler-correctness-pipeline.md) |
 | Focused apps and fixtures | Boundary canary | Narrow executable consumers that prove a reusable boundary without becoming product owners. | Their local README or owning design |
 
+Harnesses and fixtures may prove product behavior, but they do not manufacture
+or repair the product evidence they measure.
+
 Within the CLI host, `PackageIndexCache` is a focused derived-result owner. Its
 [package index cache](design/package-index-cache.md) contract defines when a
 persistent filesystem-derived package projection may replace cold inspection;
 `CoreCache` remains only its storage mechanism.
-
-Harnesses and fixtures may prove product behavior, but they do not manufacture
-or repair the product evidence they measure.
 
 ## Core currencies
 

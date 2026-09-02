@@ -44,8 +44,9 @@ It consumes:
   that cold inspection consumes;
 - an acquisition-owned durable package-content identity covering the retained
   archive and its admitted matching product-owned inspection tree;
-- the complete filesystem-derived package projection produced from that
-  content; and
+- a typed package-inspection production outcome whose success case carries the
+  complete canonical filesystem-derived projection and whose incomplete case
+  carries the producer's diagnostics; and
 - `CoreCache` storage under one versioned package-index contract.
 
 It returns either:
@@ -170,12 +171,8 @@ The target projection is the following closed inventory:
 - manifest and deps-file relationships: `DependencyGroups`,
   `RuntimeDependencies`, and each `RuntimeIdentifierPackages` member's
   `RuntimeIdentifier` and `PackageId`, but not its request-current `Exists`;
-- `BuiltDate` from the retained archive in the identified archive/tree
-  generation; and
 - local binary facts: `TotalBinaries`, `EmbeddedPdbs`, `InPackagePdbs`,
-  `EmbeddedSourceLinkPdbs`, and `InPackageSourceLinkPdbs`, with
-  `SymbolsAvailable` and `SourceLinkAvailable` derived only from those local
-  counts.
+  `EmbeddedSourceLinkPdbs`, and `InPackageSourceLinkPdbs`.
 
 Every `InspectionResult` field not listed is outside the projection. Adding,
 removing, or changing the semantics of an inventory member changes the
@@ -206,7 +203,10 @@ Binary-signal production for this projection does not acquire or observe
 external PDBs. `SnupkgPdbs`, `MsdlPdbs`, `OtherPdbs`, their SourceLink
 counterparts, and aggregate availability that includes them remain
 request-current. Their absence from the projection is not persistent zero
-evidence.
+evidence. Reconstruction derives `SymbolsAvailable` exactly as `EmbeddedPdbs +
+InPackagePdbs` and `SourceLinkAvailable` exactly as
+`EmbeddedSourceLinkPdbs + InPackageSourceLinkPdbs`; it does not accept stored
+aggregate or external-source counts.
 
 The following facts remain outside the persistent projection:
 
@@ -214,12 +214,34 @@ The following facts remain outside the persistent projection:
   deprecation, and vulnerabilities;
 - whether a RID companion is available under the current source policy;
 - whether network or symbol acquisition is currently authorized or succeeds;
+- `BuiltDate`, because ZIP DOS time has no offset and `ZipArchiveEntry` binds
+  it to the observing process's current time zone;
 - tool-wrapper traversal and the requested package's relationship to the final
   payload; and
 - current host capability, cancellation, deadlines, and presentation choices.
 
 The caller may compose those facts after a hit. Their absence from the entry is
 not evidence that they are false or unavailable.
+
+## Production completion
+
+Serialized completeness and production completeness are separate claims. The
+entry completion record proves that every persistent member state reached the
+stored payload. It cannot prove that every cold producer completed before those
+states were formed.
+
+`PackageIndexCache` therefore accepts publication only from the success case of
+a typed package-inspection production outcome bound to the frozen cache subject.
+Success means every producer needed for the closed inventory completed and the
+result passed canonical-shape validation. A per-file decode or scan failure
+that can make any member partial produces an incomplete outcome with its
+diagnostics and cannot mint a publishable value. Missing values, default
+counters, and the absence of logged warnings cannot reconstruct success.
+
+[#3738](https://github.com/richlander/dotnet-inspect/issues/3738) owns
+construction of that outcome in `PackageInspector`. The same cold operation
+returns its ordinary result and diagnostics even when the outcome is
+incomplete; only the optional persistent publication is declined.
 
 ## Hit, miss, and failure semantics
 
@@ -247,17 +269,18 @@ are misses. A miss runs the ordinary authorized cold path. Cache corruption is
 not reported as package corruption because the entry is optional derived data,
 not the acquired package payload.
 
-An invalid cold result, failed package inspection, or incomplete projection is
-not published. A value that this cache cannot represent, including one whose
-treated-text provenance cannot be persisted, declines publication rather than
-invalidating an otherwise successful package inspection. A storage write
-failure likewise leaves the cold result usable and visible. The current
-`pkg-index-v16` truncated-description exception is a known mismatch with this
-target behavior. Target adoption supersedes that exception's effect on the
-package operation: [#3787](https://github.com/richlander/dotnet-inspect/issues/3787)
-continues to own whether richer provenance can make a truncated description
-persistable, while this owner makes an unpersistable optional value a cache
-nonpublication rather than a package failure.
+An invalid cold result, unsuccessful production outcome, or incomplete
+projection is not published. A value that this cache cannot represent,
+including one whose treated-text provenance cannot be persisted, declines
+publication rather than invalidating an otherwise successful package
+inspection. A storage write failure likewise leaves the cold result usable and
+visible. The current `pkg-index-v16` truncated-description exception is a known
+mismatch with this target behavior. Target adoption supersedes that exception's
+effect on the package operation:
+[#3787](https://github.com/richlander/dotnet-inspect/issues/3787) continues to
+own whether richer provenance can make a truncated description persistable,
+while this owner makes an unpersistable optional value a cache nonpublication
+rather than a package failure.
 
 ## Freshness and replacement
 
@@ -362,10 +385,13 @@ and version. `PackageExtractionResult` does not carry a package-owned durable
 authority key, `PackageContentGenerationIdentity`, or durable identity for the
 exact inspected tree into `PackageInspector`. It also permits a global-packages
 foreign tree to seed or consume the cache, persists `Snupkg`, `Msdl`, and
-`Other` PDB observations plus aggregates that can include them, and has no
-explicit complete-entry record. The current namespace therefore cannot satisfy
-the target subject or projection and must be fenced rather than relabeled when
-adoption lands.
+`Other` PDB observations plus aggregates that can include them, omits
+`RuntimeDependencies` entirely, persists the process-time-zone interpretation
+of `BuiltDate`, and has neither an explicit complete-entry record nor a
+production-success receipt. A per-DLL binary scan failure can therefore publish
+partial counters, while a warm hit can silently lose the complete Runtime
+Dependencies section. The current namespace cannot satisfy the target subject
+or projection and must be fenced rather than relabeled when adoption lands.
 
 Adoption depends on #3738 carrying package authority and provenance through
 derived inspection and #5484 issuing exact durable package-content identity.
@@ -405,9 +431,9 @@ The target remains unverified until Release tests establish:
   proving the first entry cannot answer the second;
 - `PackageIndexCache_AuthorityWithoutDurableKeySkipsPersistentReuse`, proving
   there is no producer-keyed fallback;
-- `PackageIndexCache_HitUsesTheExactColdProductionSubject`, proving acquisition,
-  inspection, and publication consume one retained content generation and
-  durable identity;
+- `PackageIndexCache_PublicationRequiresFrozenSubjectAndSuccessfulProduction`,
+  proving lookup and publication use one immutable subject and a missing,
+  incomplete, failed, or differently bound production outcome cannot publish;
 - `PackageIndexCache_ForeignTreeCannotSeedPersistentReuse`, covering
   global-packages entries with and without retained archives;
 - `PackageIndexCache_RejectsNoncanonicalOrAmbiguousProjection`, covering
@@ -417,10 +443,13 @@ The target remains unverified until Release tests establish:
   positive entry and missing, predecessor, malformed, truncated,
   missing-completion, deleted-member, duplicate-member, unknown-member, and
   semantically incomplete entries; and
-- `PackageIndexCache_ProjectionExcludesRequestCurrentFacts`, proving RID
-  availability, metadata enrichment, wrapper routing, current authorization,
-  and externally acquired symbol availability cannot enter the persistent
-  value.
+- `PackageIndexCache_ProjectionExcludesRequestCurrentFactsAndBuildDate`, proving
+  RID availability, metadata enrichment, wrapper routing, current
+  authorization, externally acquired symbol availability, and `BuiltDate`
+  cannot enter the persistent value; and
+- `PackageIndexCache_LocalBinaryAggregatesAreDerived`, proving reconstruction
+  derives aggregate symbol and SourceLink availability only from the four
+  persisted local-source counters.
 
 The existing inert-description and producer-separation tests remain evidence
 for their narrower current properties. They do not count as the target gates
@@ -429,7 +458,10 @@ under different names. Acquisition's
 its process-local generation owner; #5484 owns the durable identity and
 W-to-S-to-W retained-content evidence. End-to-end `PackageInspector` adoption
 and current-fact recomposition remain integration work under #3738 rather than
-gates assigned to this cache owner.
+gates assigned to this cache owner. That adoption must gate
+`PackageInspector_PartialProjectionCannotPublish`,
+`PackageInspector_WarmHitRecomputesBuildDate`, and
+`PackageInspector_ColdAndWarmRuntimeDependenciesAgree`.
 
 ## Non-claims
 
@@ -443,6 +475,7 @@ This design does not:
 - detect source-side replacement behind an acquisition cache hit;
 - persist results derived from a foreign or unretained inspection tree;
 - reuse an entry across hosts with different filesystem semantics;
+- persist the process-time-zone interpretation of a ZIP build timestamp;
 - persist package payloads, source credentials, untreated display text, or
   request-current policy;
 - guarantee a cache hit, durable write, cross-process single-flight, or
