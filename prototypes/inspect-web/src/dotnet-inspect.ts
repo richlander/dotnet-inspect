@@ -163,6 +163,7 @@ import {
   createSourceInspectionCoordinator,
   type GraphSourceRequest,
 } from "./source-inspection.ts";
+import { createOperationAuthorityPage } from "./operation-authority.ts";
 import {
   createMetadataInspectionCoordinator,
   type AppExplorerState,
@@ -934,8 +935,10 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
 }
 
 const keybindings = createWorkbenchKeybindings();
+const operationAuthority = createOperationAuthorityPage();
 const sourceInspection = createSourceInspectionCoordinator({
   state,
+  operationAuthority,
   queryMemberSource: request => inspectMemberSource(
     request.packageId,
     request.version,
@@ -965,6 +968,10 @@ const sourceInspection = createSourceInspectionCoordinator({
     taste),
   memberSourceHasConcreteOverload,
   cancelEngineSourceRequest: () => cancelSourceInspection?.(),
+  reportOperationDiagnostic: diagnostic => {
+    console.error("Source operation authority failure.", diagnostic);
+    return undefined;
+  },
   describeError: errorMessage,
   render,
   renderPreservingMemberFocus,
