@@ -98,6 +98,20 @@ static class ValidityCheck
         public bool IsValid => !IsMalformed && SemanticChecked && !HasSemanticDefect;
     }
 
+    internal readonly record struct MethodShellContext(
+        bool RequiresAsyncContext,
+        bool RequiresUnsafeContext,
+        bool HasAwaitSyntax)
+    {
+        public static MethodShellContext Create(
+            IrFunction function,
+            bool requiresUnsafeContext)
+            => new(
+                function.RequiresAsyncMethodContext,
+                requiresUnsafeContext,
+                ValidityCheck.HasAwaitSyntax(function));
+    }
+
     public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples, string? emitDefectsPath = null, string? diffDefectsPath = null, bool lowered = false)
     {
         var results = Evaluate(assemblies, cap, lowered);
@@ -226,7 +240,9 @@ static class ValidityCheck
                         typeName,
                         methodName,
                         constraints,
-                        projection.RequiresUnsafeBodyModifier,
+                        MethodShellContext.Create(
+                            function,
+                            projection.RequiresUnsafeBodyModifier),
                         productParameterList,
                         references,
                         parseOptions,
@@ -295,7 +311,9 @@ static class ValidityCheck
                         typeName,
                         methodName,
                         constraints,
-                        projection.RequiresUnsafeBodyModifier,
+                        MethodShellContext.Create(
+                            function,
+                            projection.RequiresUnsafeBodyModifier),
                         productParameterList,
                         references,
                         parseOptions,
@@ -369,7 +387,7 @@ static class ValidityCheck
         string typeName,
         string methodName,
         IReadOnlyDictionary<string, Dictionary<string, string>> constraints,
-        bool requiresUnsafeContext,
+        MethodShellContext shellContext,
         string? productParameterList,
         ImmutableArray<MetadataReference> references,
         CSharpParseOptions parseOptions,
@@ -382,7 +400,7 @@ static class ValidityCheck
             typeName,
             methodName,
             constraints,
-            requiresUnsafeContext,
+            shellContext,
             productParameterList);
         var tree = CSharpSyntaxTree.ParseText(shell, parseOptions);
         var malformed = ImmutableArray.CreateBuilder<ValidityDiagnostic>();
@@ -678,7 +696,7 @@ static class ValidityCheck
     /// <summary>Wraps a body in a generic instance method on a class so locals, params, type params, and `this` all bind; member access on `this` becomes filtered binding noise.</summary>
     internal static string Shell(IrFunction function, string body, string typeName, string methodName,
         IReadOnlyDictionary<string, Dictionary<string, string>> constraints,
-        bool requiresUnsafeContext,
+        MethodShellContext shellContext,
         string? productParameterList = null)
     {
         var generics = GenericParameterNames(function);
@@ -699,8 +717,8 @@ static class ValidityCheck
         // A method-wide unsafe context forbids await syntax (CS4004), but async
         // methods without emitted await syntax can require both modifiers. Route the
         // printer-owned unsafe fact rather than rediscovering pointer syntax here.
-        string modifier = function.RequiresAsyncMethodContext
-            ? requiresUnsafeContext && !HasAwaitSyntax(function)
+        string modifier = shellContext.RequiresAsyncContext
+            ? shellContext.RequiresUnsafeContext && !shellContext.HasAwaitSyntax
                 ? "async unsafe"
                 : "async"
             : "unsafe";

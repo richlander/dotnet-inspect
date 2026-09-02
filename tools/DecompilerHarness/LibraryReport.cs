@@ -206,7 +206,9 @@ internal static class LibraryReport
                     typeName,
                     methodName,
                     constraints,
-                    projection.RequiresUnsafeBodyModifier);
+                    ValidityCheck.MethodShellContext.Create(
+                        function,
+                        projection.RequiresUnsafeBodyModifier));
                 var tree = CSharpSyntaxTree.ParseText(shell, parseOptions);
                 var syntaxErrors = tree.GetDiagnostics().Where(ValidityCheck.IsError).ToList();
                 var illegal = ValidityCheck.IllegalStatements(tree);

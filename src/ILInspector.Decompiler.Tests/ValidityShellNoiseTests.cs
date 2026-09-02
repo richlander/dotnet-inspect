@@ -38,7 +38,9 @@ public class ValidityShellNoiseTests
             function.DeclaringType.Name,
             function.Name,
             new Dictionary<string, Dictionary<string, string>>(),
-            projection.RequiresUnsafeBodyModifier);
+            ValidityCheck.MethodShellContext.Create(
+                function,
+                projection.RequiresUnsafeBodyModifier));
 
         Assert.Contains("async Task __M(", shell);
         Assert.DoesNotContain(
@@ -70,7 +72,9 @@ public class ValidityShellNoiseTests
             function.DeclaringType.Name,
             function.Name,
             new Dictionary<string, Dictionary<string, string>>(),
-            projection.RequiresUnsafeBodyModifier);
+            ValidityCheck.MethodShellContext.Create(
+                function,
+                projection.RequiresUnsafeBodyModifier));
 
         Assert.Contains("async unsafe Task __M(", shell);
         Assert.DoesNotContain(
@@ -101,7 +105,9 @@ public class ValidityShellNoiseTests
             function.DeclaringType.Name,
             function.Name,
             new Dictionary<string, Dictionary<string, string>>(),
-            requiresUnsafeContext: false);
+            ValidityCheck.MethodShellContext.Create(
+                function,
+                requiresUnsafeContext: false));
 
         Assert.Contains("unsafe Task __M(", shell);
         Assert.DoesNotContain(
@@ -132,7 +138,9 @@ public class ValidityShellNoiseTests
             typeof(CfgSampleClass).FullName!,
             methodName,
             new Dictionary<string, Dictionary<string, string>>(),
-            requiresUnsafeContext: true);
+            ValidityCheck.MethodShellContext.Create(
+                function,
+                requiresUnsafeContext: true));
 
         Assert.Contains("async Task<int> __M(", shell);
         Assert.DoesNotContain("unsafe Task<int> __M(", shell);
