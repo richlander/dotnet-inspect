@@ -469,19 +469,31 @@ reinterpret them against another working directory. A source value that the URL
 diagnostic policy would redact cannot be embedded in an executable disclosure;
 package-backed discovery rejects that transition and directs the caller to put
 the source in `nuget.config` instead of either omitting its authority or
-printing credential-bearing text
+printing credential-bearing text. When version selection narrows a wider source
+set, a config-only replay remains sufficient only when package source mapping
+already restricts that package to the selected producers; otherwise the
+transition is rejected rather than printing the selected producer's protected
+URL
 (`Similar_ExactPackageReplayRetainsExplicitSourceAuthorityOffline`,
 `ReplaySources_RejectAValueThatDiagnosticsWouldRedact`,
 `ReplaySources_AcceptHarmlessUrlNormalization`,
 `ReplaySources_MakesTheConfigPathIndependentOfTheNextWorkingDirectory`).
+When range or floating resolution selects an exact version, only the sources
+that reported that selected version authorize its replay. The disclosure
+retains that selected producer set, not the wider source set that participated
+in discovery, while preserving the original config path for matching
+credentials and aliases
+(`Similar_SelectedVersionProducer_ReplayReopensTheSamePayload`).
 Package-coordinate replay and forwarded dependency discovery use package
 acquisition's same source-authorized, admitted cache selection. Product-owned
 app-cache payloads precede ordered global-package roots, inadmissible payloads
 fall through, and a global payload is eligible only when its retained producer
-is authorized. Discovery therefore resolves forwarding against the same
-physical package image that the disclosed exact replay selects; an active
-`NUGET_PACKAGES` override also does not hide a retained target in the default
-secondary root
+is authorized. Cache lookup uses NuGet's case-insensitive package-version
+identity and the cache's canonical lowercase path spelling, so a mixed-case
+prerelease dependency resolves the same retained archive as its exact replay.
+Discovery therefore resolves forwarding against the same physical package
+image that the disclosed exact replay selects; an active `NUGET_PACKAGES`
+override also does not hide a retained target in the default secondary root
 (`ResolveAll_SourcePolicyUsesTheSameAdmittedCachePayloadAsPackageReplay`,
 `ListCachedPackageContent_UsesASecondaryGlobalPackagesRoot`,
 `Similar_PackageForwarderUsesOnlyAnAuthorizedDependencyPayload`,

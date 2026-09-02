@@ -2447,8 +2447,11 @@ public class AssemblyDependencyResolverTests
         }
     }
 
-    [Fact]
-    public async Task ResolveAll_SourcePolicyUsesTheSameAdmittedCachePayloadAsPackageReplay()
+    [Theory]
+    [InlineData("8.0.0")]
+    [InlineData("8.0.0-Beta")]
+    public async Task ResolveAll_SourcePolicyUsesTheSameAdmittedCachePayloadAsPackageReplay(
+        string dependencyVersion)
     {
         string root = Directory.CreateTempSubdirectory(
             "dotnet-inspect-package-policy-").FullName;
@@ -2459,7 +2462,6 @@ public class AssemblyDependencyResolverTests
         const string source = "https://authorized.test/v3/index.json";
         const string otherSource = "https://other.test/v3/index.json";
         const string dependencyId = "Shared.Package";
-        const string dependencyVersion = "8.0.0";
         string? previousNuGetPackages =
             Environment.GetEnvironmentVariable("NUGET_PACKAGES");
         Environment.SetEnvironmentVariable(
@@ -2477,7 +2479,7 @@ public class AssemblyDependencyResolverTests
             File.WriteAllText(targetPath, "");
             File.WriteAllText(
                 Path.Combine(rootPackage, "root.package.nuspec"),
-                """
+                $"""
                 <?xml version="1.0" encoding="utf-8"?>
                 <package>
                   <metadata>
@@ -2485,7 +2487,7 @@ public class AssemblyDependencyResolverTests
                     <version>1.0.0</version>
                     <dependencies>
                       <group targetFramework="net8.0">
-                        <dependency id="Shared.Package" version="8.0.0" />
+                        <dependency id="Shared.Package" version="{dependencyVersion}" />
                       </group>
                     </dependencies>
                   </metadata>
@@ -2500,13 +2502,15 @@ public class AssemblyDependencyResolverTests
                     <package>
                       <metadata>
                         <id>Shared.Package</id>
-                        <version>8.0.0</version>
+                        <version>8.0.0-Beta</version>
                       </metadata>
                     </package>
                     """u8.ToArray()),
                 ("lib/net8.0/Shared.dll", appAssembly));
             Directory.CreateDirectory(staging);
-            string appNupkg = Path.Combine(staging, "shared.package.8.0.0.nupkg");
+            string appNupkg = Path.Combine(
+                staging,
+                $"shared.package.{dependencyVersion.ToLowerInvariant()}.nupkg");
             File.WriteAllBytes(appNupkg, appPackage);
             string appExtracted = Path.Combine(staging, "extracted");
             ZipFile.ExtractToDirectory(appNupkg, appExtracted);
@@ -2520,7 +2524,7 @@ public class AssemblyDependencyResolverTests
             string globalPackage = Path.Combine(
                 globalRoot,
                 dependencyId.ToLowerInvariant(),
-                dependencyVersion);
+                dependencyVersion.ToLowerInvariant());
             string globalAssetDirectory = Path.Combine(
                 globalPackage,
                 "lib",
@@ -2531,12 +2535,12 @@ public class AssemblyDependencyResolverTests
                 $$"""{"source":"{{source}}"}""");
             File.WriteAllText(
                 Path.Combine(globalPackage, "shared.package.nuspec"),
-                """
+                $"""
                 <?xml version="1.0" encoding="utf-8"?>
                 <package>
                   <metadata>
                     <id>Shared.Package</id>
-                    <version>8.0.0</version>
+                    <version>{dependencyVersion}</version>
                   </metadata>
                 </package>
                 """);
@@ -2567,7 +2571,10 @@ public class AssemblyDependencyResolverTests
                 dependencyId,
                 appDependency.PackageId,
                 ignoreCase: true);
-            Assert.Equal(dependencyVersion, appDependency.PackageVersion);
+            Assert.Equal(
+                dependencyVersion,
+                appDependency.PackageVersion,
+                ignoreCase: true);
             Assert.Equal(appAssembly, File.ReadAllBytes(appAsset));
             Assert.StartsWith(
                 Path.GetFullPath(NuGetCache.GetPackageContentCachePath()),

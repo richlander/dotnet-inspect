@@ -1,9 +1,12 @@
 using System.CommandLine;
 using System.IO.Compression;
+using System.Net;
+using System.Net.Sockets;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text;
 using System.Text.Json;
 using CSharpText;
 using DotnetInspector.CommandLine;
@@ -1623,6 +1626,191 @@ public sealed class MatchDiscoveryTests
         }
     }
 
+    [Theory]
+    [InlineData("", null, false, false)]
+    [InlineData("@1.*", null, false, false)]
+    [InlineData("@1.0.0..1.0.0", "last", false, false)]
+    [InlineData("@1.0.0..1.0.0", "last", true, false)]
+    [InlineData("@1.0.0..1.0.0", "last", true, true)]
+    public async Task Similar_SelectedVersionProducer_ReplayReopensTheSamePayload(
+        string packageVersionSelector,
+        string? rangeAddress,
+        bool useConfig,
+        bool useMapping)
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"match-range-source-replay-{Guid.NewGuid():N}");
+        string cacheRoot = Path.Combine(root, "cache");
+        string packageName = $"Match.Range.Replay.{Guid.NewGuid():N}";
+        const string version = "1.0.0";
+        string asset = $"lib/net10.0/{Path.GetFileName(TestAssembly)}";
+        Directory.CreateDirectory(root);
+        using var feed = new RangeReplayFeed(packageName, version);
+        string sourceA = feed.SourceA;
+        string sourceB = feed.SourceB;
+        string configPath = Path.Combine(root, "nuget.config");
+        if (useConfig)
+        {
+            File.WriteAllText(
+                configPath,
+                $"""
+                <configuration>
+                  <packageSources>
+                    <clear />
+                    <add key="feed-a" value="{sourceA}" />
+                    <add key="feed-b" value="{sourceB}" />
+                  </packageSources>
+                  {(useMapping
+                    ? $"""
+                      <packageSourceMapping>
+                        <packageSource key="feed-b">
+                          <package pattern="{packageName}" />
+                        </packageSource>
+                      </packageSourceMapping>
+                      """
+                    : "")}
+                </configuration>
+                """);
+        }
+        bool wasOffline = Core.HttpClientFactory.IsOffline;
+
+        try
+        {
+            Core.HttpClientFactory.Initialize(
+                new Core.HttpClientFactoryOptions { Offline = false });
+            Core.HttpClientFactory.ResetSharedForTesting();
+            NuGetCache.Initialize(
+                "dotnet-inspect-match-range-source-replay",
+                cacheRoot,
+                skipNuGetCache: true);
+            string packageA = CreatePackageArchive(
+                root,
+                "package-a",
+                packageName,
+                version,
+                asset,
+                [1, 2, 3, 4]);
+            string packageB = CreatePackageArchive(
+                root,
+                "package-b",
+                packageName,
+                version,
+                asset,
+                File.ReadAllBytes(TestAssembly));
+            CommitCachedPackage(
+                root,
+                "staged-a",
+                packageA,
+                packageName,
+                version,
+                sourceA);
+            CommitCachedPackage(
+                root,
+                "staged-b",
+                packageB,
+                packageName,
+                version,
+                sourceB);
+
+            var sourceOptions = new NuGetSourceOptions
+            {
+                Sources = useConfig ? [] : [sourceA, sourceB],
+                ConfigFile = useConfig ? configPath : null,
+            };
+            var discovery = new MatchOptions
+            {
+                LeftSelector = SampleSeed,
+                PackagePath = $"{packageName}{packageVersionSelector}",
+                PackageRangeAddress = rangeAddress,
+                AssemblyPath = asset,
+                IncludeAll = true,
+                Similar = true,
+                JsonOutput = true,
+                SourceOptions = sourceOptions,
+            };
+
+            var (discoveryExit, output, discoveryError) =
+                await RunAsync(discovery);
+
+            Assert.True(
+                discoveryExit == 0,
+                $"Expected discovery success, got {discoveryExit}: {discoveryError}");
+            Assert.Empty(discoveryError);
+            string disclosure =
+                Parse(output).GetProperty("disclosure").GetString()!;
+            if (useMapping)
+            {
+                Assert.DoesNotContain(
+                    $"--source '{sourceB}'",
+                    disclosure);
+            }
+            else
+            {
+                Assert.Contains(
+                    $"--source '{sourceB}'",
+                    disclosure);
+            }
+            Assert.DoesNotContain(
+                $"--source '{sourceA}'",
+                disclosure);
+            if (useConfig)
+            {
+                Assert.Contains(
+                    $"--nugetconfig '{Path.GetFullPath(configPath)}'",
+                    disclosure);
+            }
+
+            string[] exactArguments =
+            [
+                "match",
+                SampleSeed,
+                $"{typeof(MatchDiscoverySample).FullName}.ExactPeer",
+                "--package",
+                $"{packageName}@{version}",
+                "--library",
+                asset,
+                "--tfm",
+                "net10.0",
+                "--all",
+            ];
+            var (widenedExit, _, widenedError) =
+                await RunCliAsync(
+                    [
+                        .. exactArguments,
+                        "--source",
+                        sourceA,
+                        "--source",
+                        sourceB,
+                    ]);
+            string[] replaySourceArguments = useMapping
+                ? ["--nugetconfig", configPath]
+                : ["--source", sourceB, .. ConfigArguments()];
+            var (replayExit, _, replayError) =
+                await RunCliAsync(
+                    [.. exactArguments, .. replaySourceArguments]);
+
+            Assert.Equal(1, widenedExit);
+            Assert.Contains(
+                "Could not extract API",
+                widenedError);
+            Assert.Equal(0, replayExit);
+            Assert.Empty(replayError);
+
+            string[] ConfigArguments() =>
+                useConfig ? ["--nugetconfig", configPath] : [];
+        }
+        finally
+        {
+            Core.HttpClientFactory.Initialize(
+                new Core.HttpClientFactoryOptions { Offline = wasOffline });
+            Core.HttpClientFactory.ResetSharedForTesting();
+            NuGetCache.Initialize("dotnet-inspect");
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Similar_UnavailableForwardedSeed_ReportsTheTypedFailureAndTarget()
     {
@@ -2019,6 +2207,28 @@ public sealed class MatchDiscoveryTests
         Assert.DoesNotContain(secret, error);
     }
 
+    [Fact]
+    public void ReplaySources_SelectedProducerRedactionDoesNotRecommendTheConfigAlreadyInUse()
+    {
+        const string secret = "do-not-print";
+
+        bool accepted = MatchDiscovery.TryGetReplaySources(
+            new NuGetSourceOptions
+            {
+                Sources = [$"https://feed.invalid/v3/index.json?token={secret}"],
+                ConfigFile = "nuget.config",
+            },
+            out MatchDiscoveryReplaySources? replaySources,
+            out string? error,
+            selectedVersionSourceRestriction: true);
+
+        Assert.False(accepted);
+        Assert.Null(replaySources);
+        Assert.Contains("package source mapping", error);
+        Assert.DoesNotContain("Configure that source", error);
+        Assert.DoesNotContain(secret, error);
+    }
+
     [Theory]
     [InlineData("http://localhost:5000")]
     [InlineData("https://feed.test:443/v3/index.json")]
@@ -2141,6 +2351,158 @@ public sealed class MatchDiscoveryTests
         var image = new BlobBuilder();
         builder.Serialize(image);
         return image.ToArray();
+    }
+
+    static string CreatePackageArchive(
+        string root,
+        string fileName,
+        string packageName,
+        string version,
+        string asset,
+        byte[] assetBytes)
+    {
+        string path = Path.Combine(root, $"{fileName}.nupkg");
+        using ZipArchive archive = ZipFile.Open(
+            path,
+            ZipArchiveMode.Create);
+        ZipArchiveEntry library = archive.CreateEntry(asset);
+        using (Stream stream = library.Open())
+            stream.Write(assetBytes);
+        ZipArchiveEntry nuspec =
+            archive.CreateEntry($"{packageName}.nuspec");
+        using (Stream stream = nuspec.Open())
+        using (var writer = new StreamWriter(stream))
+        {
+            writer.Write(
+                $"""
+                <?xml version="1.0"?>
+                <package>
+                  <metadata>
+                    <id>{packageName}</id>
+                    <version>{version}</version>
+                    <authors>dotnet-inspect tests</authors>
+                    <description>range replay fixture</description>
+                  </metadata>
+                </package>
+                """);
+        }
+
+        return path;
+    }
+
+    static void CommitCachedPackage(
+        string root,
+        string directoryName,
+        string nupkg,
+        string packageName,
+        string version,
+        string source)
+    {
+        string extracted = Path.Combine(root, directoryName);
+        ZipFile.ExtractToDirectory(nupkg, extracted);
+        NuGetCache.CommitPackage(
+            extracted,
+            nupkg,
+            packageName,
+            version,
+            NuGetCache.GetSourceKey(source));
+    }
+
+    private sealed class RangeReplayFeed : IDisposable
+    {
+        private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
+        private readonly CancellationTokenSource _shutdown = new();
+        private readonly string _packageId;
+        private readonly string _version;
+
+        public RangeReplayFeed(string packageId, string version)
+        {
+            _packageId = packageId.ToLowerInvariant();
+            _version = version;
+            _listener.Start();
+            int port = ((IPEndPoint)_listener.LocalEndpoint).Port;
+            SourceA = $"http://127.0.0.1:{port}/a/index.json";
+            SourceB = $"http://127.0.0.1:{port}/b/index.json";
+            _ = Task.Run(() => ServeAsync(_shutdown.Token));
+        }
+
+        public string SourceA { get; }
+
+        public string SourceB { get; }
+
+        public void Dispose()
+        {
+            _shutdown.Cancel();
+            _listener.Stop();
+            _shutdown.Dispose();
+        }
+
+        private async Task ServeAsync(CancellationToken cancellationToken)
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                TcpClient client;
+                try
+                {
+                    client = await _listener.AcceptTcpClientAsync(cancellationToken);
+                }
+                catch (Exception) when (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (SocketException)
+                {
+                    return;
+                }
+
+                _ = Task.Run(
+                    () => RespondAsync(client, cancellationToken),
+                    CancellationToken.None);
+            }
+        }
+
+        private async Task RespondAsync(
+            TcpClient client,
+            CancellationToken cancellationToken)
+        {
+            using (client)
+            {
+                NetworkStream stream = client.GetStream();
+                var buffer = new byte[4096];
+                int read = await stream.ReadAsync(buffer, cancellationToken);
+                string request = Encoding.ASCII.GetString(buffer, 0, read);
+                string path =
+                    request.Split(' ').Skip(1).FirstOrDefault() ?? string.Empty;
+                int port = ((IPEndPoint)_listener.LocalEndpoint).Port;
+                string? body = path switch
+                {
+                    "/a/index.json" =>
+                        $$"""{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"http://127.0.0.1:{{port}}/a/flat/"}]}""",
+                    "/b/index.json" =>
+                        $$"""{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"http://127.0.0.1:{{port}}/b/flat/"}]}""",
+                    var value when value.Equals(
+                        $"/a/flat/{_packageId}/index.json",
+                        StringComparison.OrdinalIgnoreCase) =>
+                        """{"versions":[]}""",
+                    var value when value.Equals(
+                        $"/b/flat/{_packageId}/index.json",
+                        StringComparison.OrdinalIgnoreCase) =>
+                        $$"""{"versions":["{{_version}}"]}""",
+                    _ => null,
+                };
+                HttpStatusCode status =
+                    body is null ? HttpStatusCode.NotFound : HttpStatusCode.OK;
+                byte[] bytes = Encoding.UTF8.GetBytes(body ?? "");
+                byte[] head = Encoding.ASCII.GetBytes(
+                    $"HTTP/1.1 {(int)status} {status}\r\n"
+                        + "Content-Type: application/json\r\n"
+                        + $"Content-Length: {bytes.Length}\r\n"
+                        + "Connection: close\r\n\r\n");
+                await stream.WriteAsync(head, cancellationToken);
+                await stream.WriteAsync(bytes, cancellationToken);
+                await stream.FlushAsync(cancellationToken);
+            }
+        }
     }
 
     static byte[] BuildMatchTargetAssembly(

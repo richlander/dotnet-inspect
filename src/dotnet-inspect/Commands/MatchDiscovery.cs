@@ -196,12 +196,27 @@ internal static class MatchDiscovery
             bool disclosePackageReplay =
                 !tokensIndexCallerImage || seed.ReplayPackage is not null;
             MatchDiscoveryReplaySources? replaySources = null;
+            bool selectedVersionSourceRestriction =
+                seed.ReplayPackage is not null
+                && candidateAddress.Package is not null
+                && seed.ReplayPackage.Equals(
+                    candidateAddress.Package,
+                    StringComparison.OrdinalIgnoreCase)
+                && seed.PackageReplaySourceUrls is not null
+                && !seed.PackageReplayUsesOriginalSources;
+            NuGetSourceOptions? replaySourceOptions =
+                selectedVersionSourceRestriction
+                    ? ReplaySourceOptions(
+                        options.SourceOptions,
+                        seed.PackageReplaySourceUrls!)
+                    : options.SourceOptions;
             if (disclosePackageReplay
                 && candidateAddress.Package is not null
                 && !TryGetReplaySources(
-                    options.SourceOptions,
+                    replaySourceOptions,
                     out replaySources,
-                    out string? replaySourceError))
+                    out string? replaySourceError,
+                    selectedVersionSourceRestriction))
             {
                 CommandError.Write(replaySourceError!);
                 return 1;
@@ -431,7 +446,8 @@ internal static class MatchDiscovery
     internal static bool TryGetReplaySources(
         NuGetSourceOptions? sourceOptions,
         out MatchDiscoveryReplaySources? replaySources,
-        out string? error)
+        out string? error,
+        bool selectedVersionSourceRestriction = false)
     {
         if (sourceOptions is null
             || sourceOptions.Sources.Length == 0
@@ -454,8 +470,13 @@ internal static class MatchDiscovery
                 if (!CanDiscloseSource(value))
                 {
                     replaySources = null;
-                    error =
-                        $"match --similar cannot disclose a replayable package command because "
+                    error = selectedVersionSourceRestriction
+                        ? "match --similar cannot disclose a replayable package command because "
+                            + "the source that reported the selected package version contains URL "
+                            + "components that must be redacted. Exact replay requires package "
+                            + "source mapping that selects that producer through --nugetconfig "
+                            + "without printing its URL."
+                        : $"match --similar cannot disclose a replayable package command because "
                             + $"{option} contains URL components that must be redacted. Configure "
                             + "that source in a nuget.config file and pass --nugetconfig instead.";
                     return false;
@@ -483,6 +504,21 @@ internal static class MatchDiscovery
             configFile);
         error = null;
         return true;
+    }
+
+    internal static NuGetSourceOptions? ReplaySourceOptions(
+        NuGetSourceOptions? original,
+        IReadOnlyList<string> reportingSourceUrls)
+    {
+        ArgumentNullException.ThrowIfNull(reportingSourceUrls);
+        if (reportingSourceUrls.Count == 0)
+            return original;
+
+        return new NuGetSourceOptions
+        {
+            Sources = [.. reportingSourceUrls],
+            ConfigFile = original?.ConfigFile,
+        };
     }
 
     static bool CanDiscloseSource(string value)
@@ -701,7 +737,9 @@ internal static class MatchDiscovery
                 source.ResolvedPackagePath,
                 source.PackageName,
                 source.PackageVersion),
-            source.PackageExtractPath), null);
+            source.PackageExtractPath,
+            source.PackageReplaySourceUrls,
+            source.PackageReplayUsesOriginalSources), null);
     }
 
     internal static bool TryParseMethodToken(string selector, out int token)
@@ -775,7 +813,9 @@ internal static class MatchDiscovery
         ApiServices.LoadedApiSurface surface,
         string? tempDir,
         string? replayPackage,
-        string? packageExtractPath) : IDisposable
+        string? packageExtractPath,
+        IReadOnlyList<string>? packageReplaySourceUrls,
+        bool packageReplayUsesOriginalSources) : IDisposable
     {
         internal ApiSurface Api => surface.Api;
         internal string ApiDllPath => surface.ApiDllPath;
@@ -789,6 +829,10 @@ internal static class MatchDiscovery
         internal string? TempDir { get; } = tempDir;
         internal string? ReplayPackage { get; } = replayPackage;
         internal string? PackageExtractPath { get; } = packageExtractPath;
+        internal IReadOnlyList<string>? PackageReplaySourceUrls { get; } =
+            packageReplaySourceUrls;
+        internal bool PackageReplayUsesOriginalSources { get; } =
+            packageReplayUsesOriginalSources;
 
         public void Dispose() => TryDeleteTempDir(TempDir);
     }

@@ -21,6 +21,8 @@ internal sealed record ApiSourceResult(
     string? ProjectAssetsPath,
     string? TempDir,
     string? TypeName,
+    IReadOnlyList<string>? PackageReplaySourceUrls,
+    bool PackageReplayUsesOriginalSources,
     CommandContext Context);
 
 internal static class ApiSourceResolver
@@ -42,6 +44,8 @@ internal static class ApiSourceResolver
         string? platformFramework = null;
         string? projectAssetsPath = null;
         NuGetSourceOptions? acquisitionSourceOptions = options.SourceOptions;
+        IReadOnlyList<string>? packageReplaySourceUrls = null;
+        bool packageReplayUsesOriginalSources = false;
         var typeName = options.TypeName;
         var packagePath = options.PackagePath;
 
@@ -83,6 +87,15 @@ internal static class ApiSourceResolver
                         NuGetSourceResolver.RestrictToSources(
                             options.SourceOptions,
                             address.ReportingSourceUrls);
+                    packageReplaySourceUrls =
+                        [.. address.ReportingSourceUrls];
+                    packageReplayUsesOriginalSources =
+                        NuGetSourceResolver.ResolveSourceKeysForPackage(
+                            options.SourceOptions,
+                            range!.PackageId)
+                        .SequenceEqual(
+                            address.ReportingSourceUrls.Select(
+                                NuGetCache.GetSourceKey));
                     context.Logger.Log(
                         $"Resolved {range.PackageId}@{range.Start}..{range.End} {options.PackageRangeAddress} "
                         + $"to {address.Version} ({address.Selector} of #{vector.Addresses.Length})");
@@ -122,6 +135,13 @@ internal static class ApiSourceResolver
                 return (null!, 1);
             }
             var extracted = outcome.Result!;
+            packageReplaySourceUrls ??=
+                extracted.SelectedVersionSourceUrls;
+            if (extracted.SelectedVersionSourceUrls is not null)
+            {
+                packageReplayUsesOriginalSources =
+                    extracted.SelectedVersionUsesOriginalSources;
+            }
             (searchPath, tempDir, packageName, packageVersion) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
             packageExtractPath = extracted.ExtractPath;
             apiSource = SourceKind.NuGet;
@@ -368,6 +388,6 @@ internal static class ApiSourceResolver
 
         return (new ApiSourceResult(searchPath, runtimeAssemblyPath, packageName, packageVersion, packagePath,
             packageExtractPath, apiSource, apiVersion, platformFramework, selectedTfm, projectAssetsPath,
-            tempDir, typeName, context), null);
+            tempDir, typeName, packageReplaySourceUrls, packageReplayUsesOriginalSources, context), null);
     }
 }

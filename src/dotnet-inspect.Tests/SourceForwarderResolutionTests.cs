@@ -433,6 +433,8 @@ public class SourceForwarderResolutionTests
                 ProjectAssetsPath: null,
                 TempDir: null,
                 TypeName: fixture.Type.FullName,
+                PackageReplaySourceUrls: null,
+                PackageReplayUsesOriginalSources: false,
                 Context: new CommandContext(
                     verbose: true,
                     client));
@@ -503,6 +505,8 @@ public class SourceForwarderResolutionTests
                 ProjectAssetsPath: null,
                 TempDir: null,
                 TypeName: fixture.Type.FullName,
+                PackageReplaySourceUrls: null,
+                PackageReplayUsesOriginalSources: false,
                 Context: new CommandContext(
                     verbose: true,
                     client));
