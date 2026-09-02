@@ -181,9 +181,6 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     onCopyMemberSource: () => {
       calls.push("copy-member-source");
     },
-    onCopyName: () => {
-      calls.push("copy-name");
-    },
     onCopySignature: () => {
       calls.push("copy-signature");
     },
@@ -426,7 +423,6 @@ test("type panel bindings dispatch member composition and detail controls", () =
   root.addAll("[data-overload]", overload, defaultOverload);
   root.addAll("[data-copy-anchor]", anchor, invalidAnchor);
   const back = root.add("#member-back", new FakeElement());
-  const copyName = root.add("#copy-name", new FakeElement());
   const copySignature = root.add("#copy-signature", new FakeElement());
   const copyMemberSource = root.add("#copy-source", new FakeElement());
   const copyTypeSource = root.add("#copy-type-source", new FakeElement());
@@ -446,7 +442,6 @@ test("type panel bindings dispatch member composition and detail controls", () =
   overload.dispatch("click");
   defaultOverload.dispatch("click");
   back.dispatch("click");
-  copyName.dispatch("click");
   copySignature.dispatch("click");
   anchor.dispatch("click");
   invalidAnchor.dispatch("click");
@@ -465,7 +460,6 @@ test("type panel bindings dispatch member composition and detail controls", () =
     "member-overload:2",
     "member-overload:NaN",
     "member-back",
-    "copy-name",
     "copy-signature",
     "copy-anchor:digest",
     "copy-anchor:undefined",
