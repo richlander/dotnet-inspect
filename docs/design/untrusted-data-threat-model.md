@@ -297,8 +297,8 @@ inspection must not introduce `Assembly.Load`, `AssemblyLoadContext`, reflection
 over inspected binaries, module initializers, or dependency resolution that
 executes target code.
 
-That prohibition is mitigation by absence, and is recorded as
-[the rule requires](../evidence-and-validation.md#mitigation-by-absence).
+That prohibition is
+[mitigation by absence](../evidence-and-validation.md#mitigation-by-absence).
 Measured 2026-09-01 across the 1,081 non-test C# sources under `src/`:
 
 ```console

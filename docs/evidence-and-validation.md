@@ -111,14 +111,13 @@ requiring different evidence. The first draft of this table asserted it was
 absent. Measuring is what caught that, which is why measurement is leg one and
 not a formality.
 
-The record itself belongs with the claim it supports, not here. The repository's
-load-bearing instance is
-[Assemblies are parsed, never loaded](design/untrusted-data-threat-model.md#assemblies-are-parsed-never-loaded),
-which carries the measurement, the standing prohibition, the date, and an
-honest `unverified` because the analyzer that could gate it is currently scoped
-to a different concern (#5488). That is the shape to copy: the absence is
-cheap to state, and stating why it is not yet gated is what keeps it from
-reading as a control that exists.
+The record itself belongs with the claim it supports, not here. The
+repository's load-bearing instance is
+[Assemblies are parsed, never loaded](design/untrusted-data-threat-model.md#assemblies-are-parsed-never-loaded):
+measurement, standing prohibition, date, and an honest `unverified` because
+the analyzer that could gate it is scoped to a different concern (#5488).
+Stating why a claim is not yet gated is what keeps it from reading as a
+control that exists.
 
 ## Harness boundary
 
