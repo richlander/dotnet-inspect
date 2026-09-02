@@ -237,9 +237,12 @@ Each edge retains:
 - direct or transitive role relative to the restored root.
 
 The package collection contains exactly the package nodes reached from the
-root. A package is direct when at least one root edge reaches it; otherwise it
-is transitive. A diamond retains both parent edges to the same resolved
-coordinate.
+root. A package is direct when a root entry resolves to it; otherwise it is
+transitive. In a complete graph every direct package therefore has a root edge.
+An incomplete graph may retain a resolved direct package and traverse its
+usable dependencies even when missing or conflicting constraint evidence
+prevents emission of that root edge. A diamond retains both parent edges to the
+same resolved coordinate.
 
 Edge identity is unique. Repeated occurrences of the same parent, resolved
 dependency, and constraint semantics coalesce into one edge; two occurrences

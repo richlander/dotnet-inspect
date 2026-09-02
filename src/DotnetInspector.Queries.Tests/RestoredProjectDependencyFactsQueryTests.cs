@@ -107,6 +107,38 @@ public sealed class RestoredProjectDependencyFactsQueryTests
     }
 
     [Fact]
+    public void Execute_EqualPriorityDefaultTargets_TieBreakByOpaqueIdentity()
+    {
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                ["unknown0"] = new JsonObject(),
+                ["unknown4"] = new JsonObject(),
+            },
+            rootGroups: new JsonObject
+            {
+                ["unknown0"] = new JsonArray(),
+                ["unknown4"] = new JsonArray(),
+            },
+            frameworks: new JsonObject
+            {
+                ["unknown0"] = new JsonObject(),
+                ["unknown4"] = new JsonObject(),
+            });
+
+        RestoredProjectDependencyFacts facts = Available(RestoredProjectDependencyFactsQuery.Execute(bytes));
+        RestoredProjectDependencyFacts reordered = Available(
+            RestoredProjectDependencyFactsQuery.Execute(WithReversedPropertyOrder(bytes)));
+
+        string expectedIdentity = "sha256:" + Convert.ToHexStringLower(
+            SHA256.HashData(Encoding.UTF8.GetBytes("unknown4")));
+        Assert.Equal(expectedIdentity, facts.SelectedTarget!.FrameworkIdentity);
+        Assert.Equal("unknown4", facts.SelectedTarget.SourceFrameworkSpelling.ToString());
+        Assert.Equal(Describe(facts), Describe(reordered));
+        Assert.Equal(facts.SelectionIdentity, reordered.SelectionIdentity);
+    }
+
+    [Fact]
     public void Execute_ExactFrameworkRequest_SelectsRequestedTargetWithSameSemanticIdentityAsDefault()
     {
         byte[] bytes = ReadCopiedAssetsBytes();
@@ -380,6 +412,64 @@ public sealed class RestoredProjectDependencyFactsQueryTests
         Assert.True(declaration.IsComplete);
         RestoredProjectDeclaredPackage package = Assert.Single(Assert.Single(declaration.Groups).Packages);
         Assert.Equal("real.package", package.CanonicalPackageId);
+    }
+
+    [Fact]
+    public void Execute_MorePackageDeclarationsThanTheBound_LeavesDeclarationIncomplete()
+    {
+        var dependencies = new JsonObject();
+        for (int index = 0; index <= RestoredProjectDependencyFactsQuery.MaxDeclaredPackages; index++)
+        {
+            dependencies.Add(
+                $"Package{index:D5}",
+                new JsonObject { ["target"] = "Package", ["version"] = "[1.0.0, )" });
+        }
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                DocumentWithFrameworks(
+                    new JsonObject
+                    {
+                        ["net11.0"] = new JsonObject { ["dependencies"] = dependencies },
+                    })));
+
+        RestoredProjectDeclarationResult.Available declaration =
+            Assert.IsType<RestoredProjectDeclarationResult.Available>(facts.Declaration);
+        Assert.False(declaration.IsComplete);
+        Assert.Equal(
+            RestoredProjectDependencyFactsQuery.MaxDeclaredPackages,
+            Assert.Single(declaration.Groups).Packages.Length);
+        Assert.Contains(
+            declaration.Failures,
+            failure => failure.Reason == RestoredProjectDeclarationFailureReason.ConfiguredLimitExceeded);
+    }
+
+    [Fact]
+    public void Execute_MoreProjectReferencesThanTheBound_LeavesDeclarationIncomplete()
+    {
+        var dependencies = new JsonObject();
+        for (int index = 0; index <= RestoredProjectDependencyFactsQuery.MaxDeclaredProjectReferences; index++)
+        {
+            dependencies.Add(
+                $"Project{index:D5}",
+                new JsonObject { ["target"] = "Project" });
+        }
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                DocumentWithFrameworks(
+                    new JsonObject
+                    {
+                        ["net11.0"] = new JsonObject { ["dependencies"] = dependencies },
+                    })));
+
+        RestoredProjectDeclarationResult.Available declaration =
+            Assert.IsType<RestoredProjectDeclarationResult.Available>(facts.Declaration);
+        Assert.False(declaration.IsComplete);
+        Assert.Empty(Assert.Single(declaration.Groups).Packages);
+        Assert.Contains(
+            declaration.Failures,
+            failure => failure.Reason == RestoredProjectDeclarationFailureReason.ConfiguredLimitExceeded);
     }
 
     [Fact]
@@ -1040,6 +1130,27 @@ public sealed class RestoredProjectDependencyFactsQueryTests
 
         RestoredProjectDependencyFactsResult.Failed failed = Assert.IsType<RestoredProjectDependencyFactsResult.Failed>(result);
         Assert.Equal(RestoredProjectDependencyFailureReason.ConfiguredLimitExceeded, failed.Failure.Reason);
+    }
+
+    [Fact]
+    public void Execute_OversizedScalar_LeavesItsPhaseIncomplete()
+    {
+        string oversizedPivot = new('x', RestoredProjectDependencyFactsQuery.MaxScalarCharacters + 1);
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                DocumentWithFrameworks(
+                    new JsonObject
+                    {
+                        [oversizedPivot] = new JsonObject { ["dependencies"] = new JsonObject() },
+                    })));
+
+        RestoredProjectDeclarationResult.Available declaration =
+            Assert.IsType<RestoredProjectDeclarationResult.Available>(facts.Declaration);
+        Assert.False(declaration.IsComplete);
+        Assert.Empty(declaration.Groups);
+        Assert.Contains(
+            declaration.Failures,
+            failure => failure.Reason == RestoredProjectDeclarationFailureReason.InvalidGroupShape);
     }
 
     [Fact]

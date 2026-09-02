@@ -783,10 +783,10 @@ public static class RestoredProjectDependencyFactsQuery
         string FrameworkIdentity,
         string? RuntimeIdentifierIdentity)
     {
-        /// <summary>The case-collapsed correlation key duplicate detection and tie-breaking use.</summary>
-        public string NormalizedKey => NormalizedRuntimeIdentifier is null
-            ? NormalizedFramework
-            : $"{NormalizedFramework}/{NormalizedRuntimeIdentifier}";
+        /// <summary>The complete containment-safe identity used to resolve equal-priority targets.</summary>
+        public string IdentityKey => RuntimeIdentifierIdentity is null
+            ? FrameworkIdentity
+            : $"{FrameworkIdentity}/{RuntimeIdentifierIdentity}";
     }
 
     readonly record struct TargetCorrelationKey(string Framework, string? RuntimeIdentifier);
@@ -882,7 +882,7 @@ public static class RestoredProjectDependencyFactsQuery
         return pool.Length == 0
             ? null
             : TfmSelector.OrderByTfmPriorityDescending(pool, c => c.RawFramework)
-                .ThenBy(c => c.NormalizedKey, StringComparer.Ordinal)
+                .ThenBy(c => c.IdentityKey, StringComparer.Ordinal)
                 .First();
     }
 
