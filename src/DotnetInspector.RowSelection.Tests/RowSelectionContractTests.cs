@@ -338,6 +338,36 @@ public sealed class RowSelectionContractTests
                     RowSelectionStage<string>.Top(
                         1,
                         "rank"))));
+        RowSelectionPlan<string> missingResolverPlan =
+            Plan(
+                RowSelectionStage<string>.Top(
+                    1,
+                    "rank"));
+        InvalidOperationException duplicateKeyPrecedence =
+            Assert.Throws<InvalidOperationException>(
+                () => RowSelectionExecutor.ApplyNamed(
+                    [
+                        NamedRowSequence<int>.Create(
+                            RowSequenceKey.Create(7),
+                            [1]),
+                        NamedRowSequence<int>.Create(
+                            RowSequenceKey.Create(7),
+                            [2]),
+                    ],
+                    missingResolverPlan));
+        Assert.Contains(
+            "Top stage 1",
+            duplicateKeyPrecedence.Message,
+            StringComparison.Ordinal);
+        InvalidOperationException nullEntryPrecedence =
+            Assert.Throws<InvalidOperationException>(
+                () => RowSelectionExecutor.ApplyNamed<int, string>(
+                    [null!],
+                    missingResolverPlan));
+        Assert.Contains(
+            "Top stage 1",
+            nullEntryPrecedence.Message,
+            StringComparison.Ordinal);
 
         int crossSequenceCalls = 0;
         NamedRowSelectionResult<int> crossSequence =

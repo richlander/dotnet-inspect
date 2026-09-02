@@ -30,6 +30,10 @@ public static class RowSelectionExecutor
         ArgumentNullException.ThrowIfNull(sequences);
         ArgumentNullException.ThrowIfNull(plan);
 
+        var context =
+            new EvaluationContext<T, TOrder>(
+                plan,
+                comparerResolver);
         var inputs =
             new NamedRowSequence<T>[sequences.Count];
         var keys = new HashSet<RowSequenceKey>();
@@ -50,10 +54,6 @@ public static class RowSelectionExecutor
             inputs[index] = sequence;
         }
 
-        var context =
-            new EvaluationContext<T, TOrder>(
-                plan,
-                comparerResolver);
         var outputs =
             new NamedRowSequence<T>[inputs.Length];
         for (int index = 0; index < inputs.Length; index++)
