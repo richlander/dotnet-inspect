@@ -1774,8 +1774,10 @@ authorization, and
 `RedirectLimitIsResponseRejected` gate the redirect safety bound.
 `MalformedRedirectTargetIsInvalidResponse` gates redirect-target admission.
 The `NuGetFetch` `browser-wasm` build is the browser-target compilation gate.
-Candidate projection remains inside the same operation deadline as the metadata
-request.
+`CandidateProjectionRemainsInsideOperationDeadline` and
+`NestedSearchSnapshotRemainsInsideOperationDeadline` gate that outer
+projection and nested immutable snapshotting remain inside the same operation
+deadline as the metadata request.
 
 Source operations already return typed outcome shells, but current result
 shapes still carry the legacy `PackageSourceIdentity` and separate transport

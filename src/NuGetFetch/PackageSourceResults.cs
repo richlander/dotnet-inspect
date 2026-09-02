@@ -391,7 +391,7 @@ internal static class PackageSourceProjection
             operation.ThrowIfExpired();
         }
         operation.ThrowIfExpired();
-        return factory.Search(snapshot, truncationReason);
+        return factory.Search(snapshot, truncationReason, operation);
     }
 }
 
@@ -734,18 +734,42 @@ public sealed class PackageSourceResultFactory
     public PackageSearchResult Search(
         IReadOnlyList<SearchResult> results,
         PackageSearchTruncationReason truncationReason =
-            PackageSearchTruncationReason.None)
+            PackageSearchTruncationReason.None) =>
+        SearchCore(
+            results,
+            truncationReason,
+            operation: null);
+
+    internal PackageSearchResult Search(
+        IReadOnlyList<SearchResult> results,
+        PackageSearchTruncationReason truncationReason,
+        NuGetOperationDeadline operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        return SearchCore(results, truncationReason, operation);
+    }
+
+    private PackageSearchResult SearchCore(
+        IReadOnlyList<SearchResult> results,
+        PackageSearchTruncationReason truncationReason,
+        NuGetOperationDeadline? operation)
     {
         ArgumentNullException.ThrowIfNull(results);
+        operation?.ThrowIfExpired();
         ValidateEnum(truncationReason, nameof(truncationReason));
+        operation?.ThrowIfExpired();
         var matches = new PackageSearchMatch[results.Count];
+        operation?.ThrowIfExpired();
         for (int i = 0; i < results.Count; i++)
         {
+            operation?.ThrowIfExpired();
             SearchResult metadata = SnapshotSearchResult(
                 results[i]
                 ?? throw new ArgumentException(
                     "Search results cannot contain null entries.",
-                    nameof(results)));
+                    nameof(results)),
+                operation);
+            operation?.ThrowIfExpired();
             PackageCandidateObservation candidate = Candidate(
                 PackageSourceCoordinate.Create(
                     metadata.Id,
@@ -757,14 +781,17 @@ public sealed class PackageSourceResultFactory
                 _issuer,
                 metadata,
                 candidate);
+            operation?.ThrowIfExpired();
         }
 
-        return new PackageSearchResult(
+        var result = new PackageSearchResult(
             _ownerCapability,
             _issuer,
             Source,
             new PackageSourceReadOnlyList<PackageSearchMatch>(matches),
             truncationReason);
+        operation?.ThrowIfExpired();
+        return result;
     }
 
     public PackageVersionResult Versions(
@@ -1163,17 +1190,22 @@ public sealed class PackageSourceResultFactory
             throw new ArgumentOutOfRangeException(parameterName, value, null);
     }
 
-    private static SearchResult SnapshotSearchResult(SearchResult result)
+    private static SearchResult SnapshotSearchResult(
+        SearchResult result,
+        NuGetOperationDeadline? operation)
     {
+        operation?.ThrowIfExpired();
         IReadOnlyList<SearchVersion>? versions = result.Versions is null
             ? null
             : new PackageSourceReadOnlyList<SearchVersion>(
-                SnapshotSearchVersions(result.Versions));
+                SnapshotSearchVersions(result.Versions, operation));
+        operation?.ThrowIfExpired();
         IReadOnlyList<string>? owners = result.Owners is null
             ? null
             : new PackageSourceReadOnlyList<string>(
-                SnapshotStrings(result.Owners));
-        return new SearchResult(
+                SnapshotStrings(result.Owners, operation));
+        operation?.ThrowIfExpired();
+        var snapshot = new SearchResult(
             result.Id,
             result.Version,
             result.Description,
@@ -1181,14 +1213,20 @@ public sealed class PackageSourceResultFactory
             result.Verified,
             versions,
             owners);
+        operation?.ThrowIfExpired();
+        return snapshot;
     }
 
     private static SearchVersion[] SnapshotSearchVersions(
-        IReadOnlyList<SearchVersion> versions)
+        IReadOnlyList<SearchVersion> versions,
+        NuGetOperationDeadline? operation)
     {
+        operation?.ThrowIfExpired();
         var snapshot = new SearchVersion[versions.Count];
+        operation?.ThrowIfExpired();
         for (int i = 0; i < snapshot.Length; i++)
         {
+            operation?.ThrowIfExpired();
             SearchVersion version =
                 versions[i]
                 ?? throw new ArgumentException(
@@ -1197,20 +1235,27 @@ public sealed class PackageSourceResultFactory
             snapshot[i] = new SearchVersion(
                 version.Version,
                 version.Downloads);
+            operation?.ThrowIfExpired();
         }
         return snapshot;
     }
 
-    private static string[] SnapshotStrings(IReadOnlyList<string> values)
+    private static string[] SnapshotStrings(
+        IReadOnlyList<string> values,
+        NuGetOperationDeadline? operation)
     {
+        operation?.ThrowIfExpired();
         var snapshot = new string[values.Count];
+        operation?.ThrowIfExpired();
         for (int i = 0; i < snapshot.Length; i++)
         {
+            operation?.ThrowIfExpired();
             snapshot[i] =
                 values[i]
                 ?? throw new ArgumentException(
                     "Search owner collections cannot contain null entries.",
                     nameof(values));
+            operation?.ThrowIfExpired();
         }
         return snapshot;
     }

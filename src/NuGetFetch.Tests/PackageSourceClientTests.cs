@@ -4219,6 +4219,42 @@ public sealed class PackageSourceClientTests
             });
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NestedSearchSnapshotRemainsInsideOperationDeadline(
+        bool versions)
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromSeconds(1),
+            OperationTimeout = TimeSpan.FromMilliseconds(20),
+        };
+        using var operation = new NuGetOperationDeadline(
+            options,
+            Timeout.InfiniteTimeSpan,
+            CancellationToken.None);
+        PackageSourceResultFactory results = CreateResultFactory();
+        IReadOnlyList<SearchVersion>? nestedVersions = versions
+            ? new DelayedList<SearchVersion>(
+                new SearchVersion("1.0.0", 1))
+            : null;
+        IReadOnlyList<string>? nestedOwners = versions
+            ? null
+            : new DelayedList<string>("contoso");
+        var result = new SearchResult(
+            "contoso",
+            "1.0.0",
+            Versions: nestedVersions,
+            Owners: nestedOwners);
+
+        Assert.Throws<NuGetOperationTimeoutException>(
+            () => PackageSourceProjection.ProjectSearch(
+                results,
+                [result],
+                operation));
+    }
+
     [Fact]
     public void GalleryOwnedTransportIsDisposedWithClient()
     {
