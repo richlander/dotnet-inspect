@@ -29,9 +29,9 @@ restore or build, inspect a package cache, log, or choose a renderer.
 
 The immediate concrete consumer is the **Package Dependency Evidence Query**
 specified by `docs/design/package-dependency-evidence.md` and implemented under
-#5533. The end-to-end delivery tracker is #5532; it connects this capability
-issue (#5314) to planned CLI adoption in #5534 and inspect-web Browser/Wasm
-adoption in #5535.
+issue #5533. The end-to-end delivery tracker is #5532; it connects this
+capability issue (#5314) to planned CLI adoption in #5534 and inspect-web
+Browser/Wasm adoption in #5535.
 
 This query is shared host-neutral substrate, so no single-consumer or
 single-host exception applies. Its complexity is justified by the consumer's

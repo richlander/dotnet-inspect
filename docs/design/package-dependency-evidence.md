@@ -32,11 +32,12 @@ retry costs are declared by the owners that construct those inputs.
 ## Consumers and delivery
 
 The concrete product consumers are the CLI dependency experience tracked by
-#5534 and the inspect-web Browser/Wasm dependency experience tracked by #5535.
+issue #5534 and the inspect-web Browser/Wasm dependency experience tracked by
+issue #5535.
 The focused query implementation is #5533, and #5532 is the single end-to-end
 tracker joining those consumers to restored-project facts from #5314,
 direct-nuspec identity from #5316, and optional package-owner evidence from
-#5315.
+issue #5315.
 
 This query is shared host-neutral substrate, so no single-consumer or
 single-host exception applies. Its complexity is justified by observable
