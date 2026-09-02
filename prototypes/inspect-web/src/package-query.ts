@@ -16,6 +16,7 @@ export interface QueryFacetTerm {
   weight?: number;
   tier: "nuspec" | "package-content";
   selectionGroupId?: string | null;
+  combinesWithinSelectionGroup?: boolean;
   displayGroupId?: string | null;
   displayGroupLabel?: string | null;
 }
@@ -97,7 +98,9 @@ export function toggleFacet(
 
   const compatible = facet.selectionGroupId
     ? request.facets.filter(existing =>
-        existing.selectionGroupId !== facet.selectionGroupId)
+        existing.selectionGroupId !== facet.selectionGroupId
+        || (facet.combinesWithinSelectionGroup === true
+          && existing.combinesWithinSelectionGroup === true))
     : request.facets;
   return withFacet(withFacets(request, compatible), facet);
 }
@@ -134,6 +137,12 @@ export type TerminalQueryCompletion =
   | { kind: "cancelled" }
   | { kind: "failed"; reason: string };
 
+export interface QueryProgress {
+  phase: "search" | "manifest" | "package-content";
+  completed: number;
+  limit: number;
+}
+
 /** Mirrors `NuGetSearchOutcome`'s shape: results and failures both carried, so
  * a partially-searched source never renders as a confident empty/complete
  * result (untrusted-data-threat-model.md's "reject, do not sanitize" extends
@@ -141,11 +150,17 @@ export type TerminalQueryCompletion =
 export interface QueryOutcome {
   rows: readonly QueryResultRow[];
   failures: readonly string[];
+  progress: readonly QueryProgress[];
   completion: QueryCompletion;
 }
 
 export function emptyOutcome(): QueryOutcome {
-  return { rows: [], failures: [], completion: { kind: "streaming" } };
+  return {
+    rows: [],
+    failures: [],
+    progress: [],
+    completion: { kind: "streaming" },
+  };
 }
 
 export function appendRows(
@@ -162,6 +177,21 @@ export function appendFailure(
   return { ...outcome, failures: [...outcome.failures, failure] };
 }
 
+export function appendProgress(
+  outcome: QueryOutcome,
+  progress: QueryProgress,
+): QueryOutcome {
+  const existingIndex = outcome.progress.findIndex(
+    item => item.phase === progress.phase);
+  return {
+    ...outcome,
+    progress: existingIndex < 0
+      ? [...outcome.progress, progress]
+      : outcome.progress.map((item, index) =>
+          index === existingIndex ? progress : item),
+  };
+}
+
 export function withCompletion(
   outcome: QueryOutcome,
   completion: QueryCompletion,
@@ -175,6 +205,7 @@ export interface PackageQueryDataSource {
     request: QueryRequest,
     onPage: (rows: readonly QueryResultRow[]) => void,
     onFailure: (failure: string) => void,
+    onProgress: (progress: QueryProgress) => void,
     /** Signaled when `cancel()` is called or a newer run supersedes this one,
      * so the source can stop in-flight network/manifest work instead of
      * running it to completion unobserved. */
@@ -236,6 +267,11 @@ export function createPackageQueryController(
           failure => {
             if (requestGeneration !== generation) return;
             state.outcome = appendFailure(state.outcome, failure);
+            onUpdate();
+          },
+          progress => {
+            if (requestGeneration !== generation) return;
+            state.outcome = appendProgress(state.outcome, progress);
             onUpdate();
           },
           signal,

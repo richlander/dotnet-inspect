@@ -25,6 +25,9 @@ public sealed class BrowserPackageQueryOperationsTests
             Assert.Equal(expected.Summary, actual.Summary);
             Assert.Equal(expected.Weight, actual.Weight);
             Assert.Equal(expected.SelectionGroupId, actual.SelectionGroupId);
+            Assert.Equal(
+                expected.CombinesWithinSelectionGroup,
+                actual.CombinesWithinSelectionGroup);
             Assert.Equal(expected.DisplayGroupId, actual.DisplayGroupId);
             Assert.Equal(expected.DisplayGroupLabel, actual.DisplayGroupLabel);
             Assert.Equal(
@@ -63,6 +66,13 @@ public sealed class BrowserPackageQueryOperationsTests
         BrowserPackageQueryEvent projectedCompletion =
             BrowserPackageQueryOperations.Project(
                 new PackageQueryEvent.Completed(summary));
+        BrowserPackageQueryEvent projectedProgress =
+            BrowserPackageQueryOperations.Project(
+                new PackageQueryEvent.Progress(
+                    new PackageQueryProgress(
+                        PackageQueryProgressPhase.Manifest,
+                        Completed: 3,
+                        Limit: 20)));
         var profile = new PackageProfileMatch(
             "Contoso.Package",
             "1.0.0",
@@ -121,6 +131,14 @@ public sealed class BrowserPackageQueryOperationsTests
         Assert.Equal(
             expectedProducer,
             projectedMatch.Row!.Producer);
+        Assert.Equal(
+            BrowserPackageQueryEventKind.Progress,
+            projectedProgress.Kind);
+        Assert.Equal(
+            BrowserPackageQueryProgressPhase.Manifest,
+            projectedProgress.Progress!.Phase);
+        Assert.Equal(3, projectedProgress.Progress.Completed);
+        Assert.Equal(20, projectedProgress.Progress.Limit);
     }
 
     [Fact]
@@ -229,6 +247,59 @@ public sealed class BrowserPackageQueryOperationsTests
                 TestContext.Current.CancellationToken));
 
         Assert.Contains("facet IDs are unknown", error.Message);
+    }
+
+    [Fact]
+    public async Task PumpAsync_EmitsOnlyNonterminalEventsAndReturnsCompletion()
+    {
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create());
+        PackageQueryEvent.Progress progress = new(
+            new PackageQueryProgress(
+                PackageQueryProgressPhase.Search,
+                Completed: 0,
+                Limit: 1));
+        PackageQueryEvent.Failure failure = new(
+            new PackageQueryFailure(
+                PackageId: null,
+                Version: null,
+                source.Source,
+                PackageQueryFailureKind.Search,
+                "search unavailable"));
+        PackageQueryEvent.Completed completed = new(
+            new PackageQuerySummary(
+                new InertString(TextPolicy.Field, "Contoso."),
+                source.Source,
+                CandidateLimit: 20,
+                MatchLimit: 20,
+                Candidates: 0,
+                Matches: 0,
+                Failures: 1,
+                PackageQueryCompletionKind.Failed));
+        var emitted = new List<BrowserPackageQueryEvent>();
+
+        BrowserPackageQueryEvent returned =
+            await BrowserPackageQueryOperations.PumpAsync(
+                Events(progress, failure, completed),
+                emitted.Add,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            [
+                BrowserPackageQueryEventKind.Progress,
+                BrowserPackageQueryEventKind.Failure,
+            ],
+            emitted.Select(item => item.Kind));
+        Assert.Equal(BrowserPackageQueryEventKind.Completed, returned.Kind);
+    }
+
+    static async IAsyncEnumerable<PackageQueryEvent> Events(
+        params PackageQueryEvent[] events)
+    {
+        await Task.CompletedTask;
+        foreach (PackageQueryEvent queryEvent in events)
+            yield return queryEvent;
     }
 
     static PackageManifestFacts Manifest(

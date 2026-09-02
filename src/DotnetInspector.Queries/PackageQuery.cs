@@ -24,7 +24,12 @@ public enum PackageQueryFacetTier
 /// <param name="Weight">Producer-owned display order; this is not result ranking.</param>
 /// <param name="Tier">The production envelope in which the facet is available.</param>
 /// <param name="SelectionGroupId">
-/// Optional opaque identity shared by facets that cannot be selected together.
+/// Optional opaque identity shared by facets with product-owned compatibility
+/// and OR-combination semantics.
+/// </param>
+/// <param name="CombinesWithinSelectionGroup">
+/// Whether this facet can be OR-combined with other combining facets in its
+/// selection group.
 /// </param>
 /// <param name="DisplayGroupId">
 /// Optional opaque identity shared by facets rendered as one grouped control.
@@ -37,6 +42,7 @@ public sealed record PackageQueryFacetDescriptor(
     int Weight,
     PackageQueryFacetTier Tier,
     string? SelectionGroupId = null,
+    bool CombinesWithinSelectionGroup = false,
     string? DisplayGroupId = null,
     string? DisplayGroupLabel = null);
 
@@ -207,12 +213,29 @@ public sealed record PackageQuerySummary(
     int Failures,
     PackageQueryCompletionKind Completion);
 
+/// <summary>A bounded checkpoint in package-query work.</summary>
+public sealed record PackageQueryProgress(
+    PackageQueryProgressPhase Phase,
+    int Completed,
+    int Limit);
+
+/// <summary>The user-meaningful phase represented by package-query progress.</summary>
+public enum PackageQueryProgressPhase
+{
+    Search,
+    Manifest,
+    PackageContent,
+}
+
 /// <summary>One event from a package-query stream.</summary>
 public abstract record PackageQueryEvent
 {
     private PackageQueryEvent()
     {
     }
+
+    public sealed record Progress(PackageQueryProgress Value)
+        : PackageQueryEvent;
 
     public sealed record Match(PackageQueryMatch Value) : PackageQueryEvent;
     public sealed record Failure(PackageQueryFailure Value) : PackageQueryEvent;
@@ -299,6 +322,7 @@ public static class PackageQuery
                 200,
                 PackageQueryFacetTier.Nuspec,
                 ToolSelectionGroupId,
+                CombinesWithinSelectionGroup: false,
                 ToolDisplayGroupId,
                 ".NET tool format"),
             static match => match.Manifest.IsToolPackage,
@@ -312,6 +336,7 @@ public static class PackageQuery
                 210,
                 PackageQueryFacetTier.PackageContent,
                 ToolSelectionGroupId,
+                CombinesWithinSelectionGroup: true,
                 ToolDisplayGroupId,
                 ".NET tool format"),
             static match => match.Manifest.IsToolPackage,
@@ -326,6 +351,7 @@ public static class PackageQuery
                 220,
                 PackageQueryFacetTier.PackageContent,
                 ToolSelectionGroupId,
+                CombinesWithinSelectionGroup: true,
                 ToolDisplayGroupId,
                 ".NET tool format"),
             static match => match.Manifest.IsToolPackage,
@@ -339,7 +365,8 @@ public static class PackageQuery
                 "The package manifest declares at least one dependency.",
                 300,
                 PackageQueryFacetTier.Nuspec,
-                DependencySelectionGroupId),
+                DependencySelectionGroupId,
+                CombinesWithinSelectionGroup: false),
             static match => DependencyCount(match) > 0,
             static match =>
             {
@@ -358,7 +385,8 @@ public static class PackageQuery
                 "The package manifest declares no dependencies.",
                 400,
                 PackageQueryFacetTier.Nuspec,
-                DependencySelectionGroupId),
+                DependencySelectionGroupId,
+                CombinesWithinSelectionGroup: false),
             static match => DependencyCount(match) == 0,
             static _ => Evidence(
                 "The package manifest declares no dependencies.")),
@@ -416,10 +444,14 @@ public static class PackageQuery
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        string prefix = request.Prefix.EndsWith('*')
+            ? request.Prefix[..^1]
+            : request.Prefix;
         string prefixEvidence =
-            $"Package ID matches prefix \"{request.Prefix}\".";
-        if (!PackageProfileQuery.IsValidPrefix(request.Prefix)
-            || !InertString.IsPermitted(TextPolicy.Prose, request.Prefix)
+            $"Package ID matches prefix \"{prefix}\".";
+        if (prefix.Contains('*')
+            || !PackageProfileQuery.IsValidPrefix(prefix)
+            || !InertString.IsPermitted(TextPolicy.Prose, prefix)
             || !InertString.IsPermitted(TextPolicy.Prose, prefixEvidence))
         {
             return Rejected(PackageQueryRequestFailureReason.InvalidPrefix);
@@ -490,7 +522,11 @@ public static class PackageQuery
                 .GroupBy(definition =>
                     definition.Descriptor.SelectionGroupId!,
                     StringComparer.Ordinal)
-                .FirstOrDefault(group => group.Skip(1).Any());
+                .FirstOrDefault(group =>
+                    group.Skip(1).Any()
+                    && group.Any(definition =>
+                        !definition.Descriptor
+                            .CombinesWithinSelectionGroup));
         if (incompatible is not null)
         {
             return Rejected(
@@ -511,7 +547,7 @@ public static class PackageQuery
 
         return new PackageQueryPlanResult.Accepted(
             new PackageQueryPlan(
-                Evidence(request.Prefix),
+                Evidence(prefix),
                 Evidence(prefixEvidence),
                 selected,
                 request.MaximumCandidates,
@@ -594,7 +630,13 @@ public static class PackageQuery
         int candidates = 0;
         int matches = 0;
         int failures = 0;
+        int packageContentCompleted = 0;
+        bool searchOutcomeObserved = false;
         cancellationToken.ThrowIfCancellationRequested();
+        yield return Progress(
+            PackageQueryProgressPhase.Search,
+            completed: 0,
+            limit: 1);
         await foreach (PackageProfileEvent profileEvent
             in PackageProfileQuery.ExecuteAsync(
                 source,
@@ -605,10 +647,30 @@ public static class PackageQuery
                 cancellationToken).ConfigureAwait(false))
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (!searchOutcomeObserved)
+            {
+                searchOutcomeObserved = true;
+                if (profileEvent is not PackageProfileEvent.Failure
+                    {
+                        Value.Kind: PackageProfileFailureKind.Search
+                            or PackageProfileFailureKind.SearchContract,
+                    })
+                {
+                    yield return Progress(
+                        PackageQueryProgressPhase.Search,
+                        completed: 1,
+                        limit: 1);
+                }
+            }
+
             switch (profileEvent)
             {
                 case PackageProfileEvent.Match match:
                     candidates++;
+                    yield return Progress(
+                        PackageQueryProgressPhase.Manifest,
+                        candidates,
+                        plan.MaximumCandidates);
                     if (!TryMatchManifest(
                         plan,
                         match.Value,
@@ -618,6 +680,13 @@ public static class PackageQuery
 
                     if (requiresPackageContent)
                     {
+                        if (packageContentCompleted == 0)
+                        {
+                            yield return Progress(
+                                PackageQueryProgressPhase.PackageContent,
+                                completed: 0,
+                                limit: plan.MaximumCandidates);
+                        }
                         PackageQueryContentResult contentResult =
                             await contentProvider!.GetContentAsync(
                                 match.Value,
@@ -625,6 +694,11 @@ public static class PackageQuery
                         if (contentResult
                             is PackageQueryContentResult.Unavailable unavailable)
                         {
+                            packageContentCompleted++;
+                            yield return Progress(
+                                PackageQueryProgressPhase.PackageContent,
+                                packageContentCompleted,
+                                plan.MaximumCandidates);
                             failures++;
                             yield return new PackageQueryEvent.Failure(
                                 new PackageQueryFailure(
@@ -661,6 +735,11 @@ public static class PackageQuery
                         }
                         if (facts is null)
                         {
+                            packageContentCompleted++;
+                            yield return Progress(
+                                PackageQueryProgressPhase.PackageContent,
+                                packageContentCompleted,
+                                plan.MaximumCandidates);
                             failures++;
                             yield return new PackageQueryEvent.Failure(
                                 new PackageQueryFailure(
@@ -673,6 +752,11 @@ public static class PackageQuery
                             continue;
                         }
 
+                        packageContentCompleted++;
+                        yield return Progress(
+                            PackageQueryProgressPhase.PackageContent,
+                            packageContentCompleted,
+                            plan.MaximumCandidates);
                         if (!TryMatchPackageContent(
                             plan,
                             match.Value,
@@ -690,7 +774,7 @@ public static class PackageQuery
                             requiresPackageContent
                                 ? PackageQueryFacetTier.PackageContent
                                 : PackageQueryFacetTier.Nuspec,
-                            evidence.MoveToImmutable()));
+                            evidence.ToImmutable()));
                     cancellationToken.ThrowIfCancellationRequested();
                     if (matches >= plan.MaximumMatches)
                     {
@@ -711,6 +795,10 @@ public static class PackageQuery
                         is not PackageProfileFailureKind.Search)
                     {
                         candidates++;
+                        yield return Progress(
+                            PackageQueryProgressPhase.Manifest,
+                            candidates,
+                            plan.MaximumCandidates);
                     }
 
                     yield return new PackageQueryEvent.Failure(
@@ -748,20 +836,42 @@ public static class PackageQuery
             new PackageQueryEvidence(
                 PrefixEvidenceId,
                 plan.PrefixEvidence));
+        var handledGroups = new HashSet<string>(StringComparer.Ordinal);
         foreach (PackageQueryFacetDefinition definition in plan.Definitions)
         {
-            if (!definition.MatchesManifest(match))
+            string? groupId = definition.Descriptor.SelectionGroupId;
+            if (groupId is not null && !handledGroups.Add(groupId))
+                continue;
+
+            PackageQueryFacetDefinition[] alternatives = groupId is null
+                ? [definition]
+                :
+                [
+                    .. plan.Definitions.Where(candidate =>
+                        candidate.Descriptor.SelectionGroupId == groupId),
+                ];
+            PackageQueryFacetDefinition[] matched =
+            [
+                .. alternatives.Where(candidate =>
+                    candidate.MatchesManifest(match)),
+            ];
+            if (matched.Length == 0)
             {
                 evidence.Clear();
                 return false;
             }
 
-            if (definition.Descriptor.Tier == PackageQueryFacetTier.Nuspec)
+            foreach (PackageQueryFacetDefinition candidate in matched)
             {
+                if (candidate.Descriptor.Tier
+                    != PackageQueryFacetTier.Nuspec)
+                {
+                    continue;
+                }
                 evidence.Add(
                     new PackageQueryEvidence(
-                        definition.Descriptor.Id,
-                        definition.Evidence(match)));
+                        candidate.Descriptor.Id,
+                        candidate.Evidence(match)));
             }
         }
 
@@ -774,6 +884,7 @@ public static class PackageQuery
         PackageContentFacts content,
         ImmutableArray<PackageQueryEvidence>.Builder evidence)
     {
+        var handledGroups = new HashSet<string>(StringComparer.Ordinal);
         foreach (PackageQueryFacetDefinition definition in plan.Definitions)
         {
             if (definition.Descriptor.Tier
@@ -781,16 +892,38 @@ public static class PackageQuery
             {
                 continue;
             }
-            if (definition.MatchesPackageContent is null
-                || !definition.MatchesPackageContent(content))
+
+            string? groupId = definition.Descriptor.SelectionGroupId;
+            if (groupId is not null && !handledGroups.Add(groupId))
+                continue;
+
+            PackageQueryFacetDefinition[] alternatives = groupId is null
+                ? [definition]
+                :
+                [
+                    .. plan.Definitions.Where(candidate =>
+                        candidate.Descriptor.Tier
+                            == PackageQueryFacetTier.PackageContent
+                        && candidate.Descriptor.SelectionGroupId == groupId),
+                ];
+            PackageQueryFacetDefinition[] matched =
+            [
+                .. alternatives.Where(candidate =>
+                    candidate.MatchesPackageContent is not null
+                    && candidate.MatchesPackageContent(content)),
+            ];
+            if (matched.Length == 0)
             {
                 return false;
             }
 
-            evidence.Add(
-                new PackageQueryEvidence(
-                    definition.Descriptor.Id,
-                    definition.Evidence(match)));
+            foreach (PackageQueryFacetDefinition candidate in matched)
+            {
+                evidence.Add(
+                    new PackageQueryEvidence(
+                        candidate.Descriptor.Id,
+                        candidate.Evidence(match)));
+            }
         }
 
         return true;
@@ -933,6 +1066,12 @@ public static class PackageQuery
 
     static InertString Evidence(string value) =>
         new(TextPolicy.Prose, value);
+
+    static PackageQueryEvent.Progress Progress(
+        PackageQueryProgressPhase phase,
+        int completed,
+        int limit) =>
+        new(new PackageQueryProgress(phase, completed, limit));
 
     static PackageQueryEvent.Completed Completed(
         PackageQueryPlan plan,

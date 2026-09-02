@@ -16,6 +16,7 @@ const completionEvent: BrowserPackageQueryEvent = {
   kind: "Completed",
   row: null,
   failure: null,
+  progress: null,
   completion: {
     prefix: "Microsoft.",
     producer: "nuget.org",
@@ -38,6 +39,7 @@ test("packageQueryFacets preserves product descriptors and producer ordering", (
         weight: 20,
         tier: "Nuspec",
         selectionGroupId: "package.query.dependencies",
+        combinesWithinSelectionGroup: false,
         displayGroupId: null,
         displayGroupLabel: null,
       },
@@ -48,6 +50,7 @@ test("packageQueryFacets preserves product descriptors and producer ordering", (
         weight: 10,
         tier: "Nuspec",
         selectionGroupId: null,
+        combinesWithinSelectionGroup: false,
         displayGroupId: null,
         displayGroupLabel: null,
       },
@@ -58,6 +61,7 @@ test("packageQueryFacets preserves product descriptors and producer ordering", (
         weight: 30,
         tier: "PackageContent",
         selectionGroupId: "package.query.dotnet-tool-format",
+        combinesWithinSelectionGroup: true,
         displayGroupId: "package.query.display.dotnet-tool",
         displayGroupLabel: ".NET tool format",
       },
@@ -72,6 +76,7 @@ test("packageQueryFacets preserves product descriptors and producer ordering", (
       weight: 20,
       tier: "nuspec",
       selectionGroupId: "package.query.dependencies",
+      combinesWithinSelectionGroup: false,
       displayGroupId: null,
       displayGroupLabel: null,
     },
@@ -82,6 +87,7 @@ test("packageQueryFacets preserves product descriptors and producer ordering", (
       weight: 10,
       tier: "nuspec",
       selectionGroupId: null,
+      combinesWithinSelectionGroup: false,
       displayGroupId: null,
       displayGroupLabel: null,
     },
@@ -92,6 +98,7 @@ test("packageQueryFacets preserves product descriptors and producer ordering", (
       weight: 30,
       tier: "package-content",
       selectionGroupId: "package.query.dotnet-tool-format",
+      combinesWithinSelectionGroup: true,
       displayGroupId: "package.query.display.dotnet-tool",
       displayGroupLabel: ".NET tool format",
     },
@@ -102,6 +109,7 @@ test("Browser data source maps package-content rows and visible failures", async
   const matchEvent: BrowserPackageQueryEvent = {
     kind: "Match",
     failure: null,
+    progress: null,
     completion: null,
     row: {
       packageId: "Contoso.Tool",
@@ -119,6 +127,7 @@ test("Browser data source maps package-content rows and visible failures", async
   const failureEvent: BrowserPackageQueryEvent = {
     kind: "Failure",
     row: null,
+    progress: null,
     completion: null,
     failure: {
       packageId: "Contoso.Bad",
@@ -154,6 +163,7 @@ test("Browser data source maps package-content rows and visible failures", async
       tier: row.tier,
     }))),
     failure => failures.push(failure),
+    () => {},
     new AbortController().signal);
 
   assert.equal(candidateLimit, 20);
@@ -168,9 +178,21 @@ test("Browser data source maps package-content rows and visible failures", async
 
 test("Browser data source streams matches and failures before terminal completion", async () => {
   let receivedArguments: readonly unknown[] = [];
+  const progressEvent: BrowserPackageQueryEvent = {
+    kind: "Progress",
+    row: null,
+    failure: null,
+    completion: null,
+    progress: {
+      phase: "Manifest",
+      completed: 1,
+      limit: 200,
+    },
+  };
   const matchEvent: BrowserPackageQueryEvent = {
     kind: "Match",
     failure: null,
+    progress: null,
     completion: null,
     row: {
       packageId: "Microsoft.Extensions.Hosting",
@@ -185,6 +207,7 @@ test("Browser data source streams matches and failures before terminal completio
   const failureEvent: BrowserPackageQueryEvent = {
     kind: "Failure",
     row: null,
+    progress: null,
     completion: null,
     failure: {
       packageId: "Microsoft.Extensions.Bad",
@@ -200,14 +223,15 @@ test("Browser data source streams matches and failures before terminal completio
       receivedArguments = args;
       const eventSink = args[5];
       assert.ok(typeof eventSink === "object" && eventSink !== null);
+      Reflect.set(eventSink, "event", JSON.stringify(progressEvent));
       Reflect.set(eventSink, "event", JSON.stringify(matchEvent));
       Reflect.set(eventSink, "event", JSON.stringify(failureEvent));
-      Reflect.set(eventSink, "event", JSON.stringify(completionEvent));
       return completionEvent;
     },
   };
   const rows: string[] = [];
   const failures: string[] = [];
+  const progress: string[] = [];
   const request = withFacet(
     createQueryRequest("Microsoft."),
     {
@@ -220,6 +244,8 @@ test("Browser data source streams matches and failures before terminal completio
     request,
     page => rows.push(...page.map(row => row.packageId)),
     failure => failures.push(failure),
+    checkpoint => progress.push(
+      `${checkpoint.phase}:${checkpoint.completed}/${checkpoint.limit}`),
     new AbortController().signal);
 
   assert.deepEqual(receivedArguments.slice(0, 5), [
@@ -233,7 +259,50 @@ test("Browser data source streams matches and failures before terminal completio
   assert.deepEqual(
     failures,
     ["Microsoft.Extensions.Bad@1.0.0: manifest unavailable"]);
+  assert.deepEqual(progress, ["manifest:1/200"]);
   assert.deepEqual(completion, { kind: "exhausted" });
+});
+
+test("Browser progress is delivered while later engine work remains pending", async () => {
+  let releaseEngine!: () => void;
+  const engineGate = new Promise<void>(resolve => { releaseEngine = resolve; });
+  const received: string[] = [];
+  const engine: BrowserPackageQueryEngine = {
+    cancel() {},
+    async run(_prefix, _facets, _candidates, _matches, _prerelease, sink) {
+      assert.ok(typeof sink === "object" && sink !== null);
+      Reflect.set(sink, "event", JSON.stringify({
+        kind: "Progress",
+        row: null,
+        failure: null,
+        completion: null,
+        progress: {
+          phase: "Manifest",
+          completed: 4,
+          limit: 20,
+        },
+      } satisfies BrowserPackageQueryEvent));
+      assert.deepEqual(
+        received,
+        [],
+        "the synchronous managed callback must not perform UI work");
+      await engineGate;
+      return completionEvent;
+    },
+  };
+
+  const running = createBrowserPackageQueryDataSource(engine).run(
+    createQueryRequest("Microsoft."),
+    () => {},
+    () => {},
+    progress => received.push(
+      `${progress.phase}:${progress.completed}/${progress.limit}`),
+    new AbortController().signal);
+  await Promise.resolve();
+
+  assert.deepEqual(received, ["manifest:4/20"]);
+  releaseEngine();
+  assert.deepEqual(await running, { kind: "exhausted" });
 });
 
 test("Browser data source maps product bounds without calling them exhaustive", async () => {
@@ -254,6 +323,7 @@ test("Browser data source maps product bounds without calling them exhaustive", 
 
   const completion = await createBrowserPackageQueryDataSource(engine).run(
     createQueryRequest("Microsoft."),
+    () => {},
     () => {},
     () => {},
     new AbortController().signal);
@@ -284,6 +354,7 @@ test("aborting Browser query work invokes the engine cancellation export", async
     createQueryRequest("Microsoft."),
     () => {},
     () => {},
+    () => {},
     abort.signal);
   abort.abort();
 
@@ -306,6 +377,27 @@ test("malformed streamed events fail visibly instead of becoming empty output", 
       createQueryRequest("Microsoft."),
       () => {},
       () => {},
+      () => {},
       new AbortController().signal),
     /Unknown Browser package-query event/);
+});
+
+test("terminal completion is rejected on the nonterminal callback channel", async () => {
+  const engine: BrowserPackageQueryEngine = {
+    cancel() {},
+    async run(_prefix, _facets, _candidates, _matches, _prerelease, sink) {
+      assert.ok(typeof sink === "object" && sink !== null);
+      Reflect.set(sink, "event", JSON.stringify(completionEvent));
+      return completionEvent;
+    },
+  };
+
+  await assert.rejects(
+    createBrowserPackageQueryDataSource(engine).run(
+      createQueryRequest("Microsoft."),
+      () => {},
+      () => {},
+      () => {},
+      new AbortController().signal),
+    /callback carried a terminal event/);
 });
