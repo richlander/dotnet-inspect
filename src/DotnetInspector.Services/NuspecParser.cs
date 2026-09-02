@@ -199,7 +199,9 @@ public static class NuspecParser
             }
         }
 
-        // Parse readme file path
+        // Parse embedded and legacy presentation assets.
+        result.IconFile = metadata.Element(ns + "icon")?.Value;
+        result.IconUrl = metadata.Element(ns + "iconUrl")?.Value;
         result.ReadmeFile = metadata.Element(ns + "readme")?.Value;
 
         // Parse dependencies
