@@ -59,6 +59,18 @@ it runs in the suite's Release configuration; use runtime opt-ins, not
 
 ### Absence claims choose their coverage
 
+An absence claim in this section is about product or repository composition:
+within a stated boundary, a dependency, runtime, API family, prohibited
+construct, or unsupported platform capability is not present or used. For
+example, "the product has no Python runtime or dependency" is an absence claim
+because the set of implementation dependencies and paths can change as the
+repository evolves.
+
+A product algorithm postcondition is not an absence claim merely because it is
+phrased negatively. "Classification does not emit a Member with the wrong
+declaring Type" is an ordinary correctness property over supported inputs and
+uses normal contract gates.
+
 An absence claim may have full, partial, or no gate coverage. Full coverage
 names a gate for the complete stated boundary. Partial coverage names what the
 gate establishes and marks the residual explicitly. No coverage marks the
