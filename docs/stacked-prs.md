@@ -112,7 +112,7 @@ tell a restack from a rewrite.
 
 The only moved-stack-head exception is the bottom open slice after it targets
 `main`. If its base integration satisfies the
-[trivial-interaction waiver](../AGENTS.md#standing-adjustments) and the user
+[trivial-interaction waiver](round-orchestration.md#standing-adjustments) and the user
 approves that exact head, it may proceed without another review-clean round.
 That integration is not an upper-slice restack: it neither rewrites a child
 onto a newly landed parent nor changes a surviving reviewed claim. The waiver
