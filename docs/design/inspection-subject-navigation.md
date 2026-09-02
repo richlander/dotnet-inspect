@@ -579,20 +579,23 @@ The generation-free classification follows this table:
 | --- | --- |
 | One or more returned Types with exact definition identity | `Available`; retain every exact Type and Member row in producer order plus all peer evidence |
 | Complete successful production with zero Types and no inspection failures | `Unavailable` |
-| No exact Type plus participant rejection, participant failure, inspection failure, missing exact Type or projected-Member declaring-Type identity, or projection omission | `Failed` with the original typed evidence |
+| No exact Type plus participant rejection, participant failure, inspection failure, missing exact Type or unresolved projected-Member declaration identity, or projection omission | `Failed` with the original typed evidence |
 | Exact Types plus any of those failures | `Available` and partial; retain the exact rows and original typed evidence |
 
 Projection truncation never proves that an omitted Library is empty. A returned
 Type without exact `MetadataTypeDefinitionName` is retained as identity-failure
 evidence and is not reconstructed from display text, metadata token, or list
-position. #5437 added the exact typed declaring-Type definition identity to a
-Member projected onto another Type. The current Navigation classifier has not
-yet adopted that field and still retains the complete producer row as typed
-identity-failure evidence rather than rewriting it as a declaration on the
-containing Type. The Workspace-rooted implementation consumes the typed
-identity and never reconstructs it from canonical declaring text. Returned
-exact rows remain trustworthy when another row or participant fails; failure
-does not erase positive evidence.
+position. A Member projected onto another Type resolves its
+`DeclaringTypeDefinitionName` against exact Type rows in the same Library. One
+unique match retains the producer row beneath its containing Type while its
+`MemberSubject` binds the declaration Type and the declaration-scoped
+`MemberAnchor`, exact-joining the declaration Member by its producer-issued
+metadata token. Missing identity, no returned exact declaration, or multiple
+matching Type or Member rows retains the complete producer row as typed failure
+evidence and emits no Member subject. Classification never parses display or
+canonical declaring text as lookup identity. Returned exact rows remain
+trustworthy when another row or participant fails; failure does not erase
+positive evidence.
 
 Every admitted Library remains an available Library candidate for initial
 subject recommendation. Only exact returned Type rows become Type candidates.
@@ -602,7 +605,14 @@ produce a navigation snapshot.
 
 This classification is gated by
 `NavigationSubjectInventoryTests.EveryBoundedInventoryRow_PreservesProducerOrderAndIdentity`,
+`ProjectedMemberFromRealProducer_BindsDeclarationTypeAndAnchor`,
 `ProjectedMemberWithoutTypedDeclaringIdentity_FailsClosed`,
+`ProjectedMemberWithUnreturnedDeclaringType_FailsClosed`,
+`ProjectedMemberWithAmbiguousDeclaringType_FailsClosed`,
+`ProjectedMemberWithoutDeclarationMemberIdentity_FailsClosed`,
+`ProjectedMemberWithUnreturnedDeclarationMember_FailsClosed`,
+`ProjectedMemberWithAmbiguousDeclarationMember_FailsClosed`,
+`ProjectedMemberLookup_DoesNotUseDeclaringText`,
 `SuccessfulProducerRows_AreTrustworthyDespitePeerFailure`,
 `CompleteSuccessfulEmptyInventory_IsUnavailable`,
 `NoCandidateWithIndeterminateProducer_IsFailed`,
