@@ -122,6 +122,7 @@ function packageSurface(
     }],
     totalMembers: 2,
     documents: [],
+    icon: null,
     inspectionErrors: [],
     inspectionError: null,
     ...overrides,
@@ -160,6 +161,17 @@ test("root-only package surfaces preserve typed unavailability at the UI boundar
     })),
     /NoCompileAssets/,
   );
+});
+
+test("NuGet package models retain the product-issued icon descriptor", () => {
+  const icon = {
+    mediaType: "image/png",
+    base64: "iVBORw0KGgo=",
+  } as const;
+
+  const model = createNuGetPackageModel(packageSurface({ icon }));
+
+  assert.deepEqual(model.icon, icon);
 });
 
 test("graph-only implementation bodies select, switch, and clear", () => {

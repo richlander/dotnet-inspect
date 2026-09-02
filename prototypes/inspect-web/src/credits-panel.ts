@@ -2,6 +2,7 @@ import {
   isRoutedEntryPath,
   ROUTED_ENTRY_PATHS,
 } from "./entry-routes.ts";
+import { renderBrand } from "./brand.ts";
 
 export function isCreditsPath(pathname: string): boolean {
   return isRoutedEntryPath(pathname, ROUTED_ENTRY_PATHS.credits);
@@ -29,7 +30,7 @@ export function renderCreditsPage(theme: "dark" | "light"): string {
   return `
     <div class="credits-page">
       <header class="credits-bar">
-        <a class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
+        ${renderBrand()}
         <div class="credits-bar-actions">
           <button id="credits-theme" type="button" aria-label="Switch theme">${theme === "dark" ? "light" : "dark"}</button>
           <button id="credits-close" class="credits-close" type="button">back to home ✕</button>

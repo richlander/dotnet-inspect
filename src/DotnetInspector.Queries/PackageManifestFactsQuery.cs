@@ -35,6 +35,10 @@ public sealed record PackageManifestFacts(
     string? ReadmeFile,
     ImmutableArray<DeclaredPackageDependencyGroup> DependencyGroups)
 {
+    public string? IconFile { get; init; }
+
+    public string? IconUrl { get; init; }
+
     public PackageManifestIdentityProvenance IdentityProvenance { get; init; } =
         PackageManifestIdentityProvenance.ExpectedCoordinate;
 }
@@ -217,6 +221,8 @@ public static class PackageManifestFactsQuery
                     nuspec.ReadmeFile,
                     dependencyGroups)
                 {
+                    IconFile = nuspec.IconFile,
+                    IconUrl = nuspec.IconUrl,
                     IdentityProvenance = identityProvenance,
                 });
         }
@@ -361,6 +367,8 @@ public static class PackageManifestFactsQuery
         ValidateScalar(nuspec.RepositoryCommit);
         ValidateScalar(nuspec.License);
         ValidateScalar(nuspec.LicenseUrl);
+        ValidateScalar(nuspec.IconFile);
+        ValidateScalar(nuspec.IconUrl);
         ValidateScalar(nuspec.ReadmeFile);
         ValidateScalar(nuspec.Description?.ToString());
 
