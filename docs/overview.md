@@ -33,6 +33,9 @@ substrates, and inspection producers that will extend that space.
   [CLI row-selection grammar](design/cli-row-selection.md) owns item, Window,
   Top, direction, rendered-line spelling, shorthand, capability, and typed
   operation-intent lowering at the L3 boundary. Its
+  [search scope resolution](design/search-scope-resolution.md) owns default
+  activation,
+  explicit-source suppression, and named platform/package scope expansion. Its
   [Find type-search service](design/find-search-service.md) owns the
   CLI-scoped boundary from host-authorized candidate collection through typed
   exact, glob, namespace-prefix, partial, and miss classification; Metadata
@@ -179,6 +182,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   inputs](design/cli-change-classification.md): published surfaces, change
   disclosure, routing-collision analysis, invalid-input guards, and
   reservations.
+- [Search scope resolution](design/search-scope-resolution.md): default
+  activation, explicit-source suppression and composition, and named
+  platform/package scope expansion for search commands.
 - [Repository xUnit test host](design/xunit-test-host.md): semantic
   non-vacuity for explicit test selections after suite-owned argument
   expansion, while preserving xUnit-owned discovery, execution, reporting, and

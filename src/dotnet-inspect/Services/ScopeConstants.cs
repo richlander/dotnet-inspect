@@ -45,9 +45,4 @@ public static class ScopeConstants
         "Microsoft.AspNetCore.SignalR",
     ];
 
-    /// <summary>
-    /// Previously used for implicit default scope. Now empty - all frameworks are the default.
-    /// Retained for --curated flag compatibility.
-    /// </summary>
-    public static readonly string[] CuratedPackages = [];
 }
