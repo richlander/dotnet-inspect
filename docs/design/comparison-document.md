@@ -460,9 +460,11 @@ as `T` or returns an outer failed operation. Null is not an unavailable result.
 
 When `T` has oriented sides, the producer defines and applies one orientation
 uniformly within the document. A structural-clone adopter, for example, binds
-the document root to `StructuralCloneComparisonDocument.Left` and each child
-subject to `Right`. The generic envelope does not inspect `T` to verify that
-join.
+the document root to the payload's `Left` module identity and `LeftToken`, and
+each child subject to its `Right` module identity and `RightToken`. The module
+identities are equal for the current same-module payload; the tokens establish
+the method-level orientation. The generic envelope does not inspect `T` to
+verify that join.
 
 ## Completion and failure
 
@@ -560,6 +562,10 @@ identifier and display, while the common child remains identifier, display, and
 comparison. Addition and Deletion emit `change_kinds: ["addition"]` and
 `change_kinds: ["deletion"]`. Exceptional subjects emit `rename`, `move`, or
 both in that canonical order plus `change_id`.
+
+Omission is the only canonical v1 wire spelling for Diff. Deserialization
+rejects an explicit `change_kinds: ["diff"]` rather than accepting a second
+encoding of the same value.
 
 An omitted root `comparison` is the serialized form of the explicit
 NotApplicable case. Deserialization constructs that case rather than passing a
@@ -784,28 +790,28 @@ Root
   Comparison: type-wide mapped text diff
 
 Subjects
-  member:Stable(int)
+  member:Sample.Parser.Stable(int)
     Display: Stable(int)
     Change: Diff
     Comparison: ordinary mapped text diff
 
-  member:Parse(ReadOnlySpan<byte>)
+  member:Sample.Parser.Parse(ReadOnlySpan<byte>)
     Display: Parse(ReadOnlySpan<byte>)
     Change: Addition
     Comparison: addition-only mapped text diff
 
-  member:ParseLegacy(string)
+  member:Sample.Parser.ParseLegacy(string)
     Display: ParseLegacy(string)
     Change: Deletion
     Comparison: removal-only mapped text diff
 
-  member:TryParse(string)
+  member:Sample.Parser.TryParse(string)
     Display: TryParse(string)
     Change: Rename
     ChangeId: rename-parse
     Comparison: mapped text diff
 
-  member:ParserExtensions.Parse(Stream)
+  member:Sample.ParserExtensions.Parse(Stream)
     Display: Parse(Stream)
     Change: Move
     ChangeId: move-parse-stream
@@ -907,7 +913,8 @@ Subjects
 The root is the reference method, each subject is one candidate method, and each
 opaque payload retains its current clone disposition, relation,
 correspondence, blockers, methodology, and verification receipts. The adopter
-uses root-as-Left and subject-as-Right uniformly.
+uses root-as-LeftToken and subject-as-RightToken uniformly within the shared
+module identity.
 `ComparisonDocument<T>` neither converts clone analysis into diff vocabulary
 nor duplicates those fields.
 
@@ -985,6 +992,7 @@ least:
 - a Move subject whose opaque test payload is labeled unchanged remaining
   valid;
 - source-generated structured round trip for at least one closed test payload;
+- rejection of explicit serialized `change_kinds: ["diff"]` as noncanonical;
 - rejection of malformed serialized forms through the same validation path; and
 - encoding of untrusted identifier and display values as JSON data.
 
@@ -1006,8 +1014,8 @@ Later focused adopter efforts must prove:
 - lowering that extraction payload to `MappedTextDiff` exposes additions and
   removals without claiming preserved movement;
 - a clone payload adopter does not assume Before/After text semantics and
-  preserves one documented root/payload-side orientation across same-type and
-  distinct-type same-module fixtures;
+  preserves root-to-LeftToken and subject-to-RightToken orientation across
+  same-type and distinct-type same-module fixtures;
 - cross-assembly clone retrieval preserves root/candidate module identities
   until the clone owner supplies a portable cross-module payload; and
 - each producer's identifier portability, assertions, payload completeness,
