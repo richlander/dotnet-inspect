@@ -49,7 +49,14 @@ and repository-specific guidance.
 | Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Resolves installed SDK/runtime assemblies, including runtime-only implementation assemblies with no NuGet package. |
 | Local assets | `library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll`, `package ./artifacts/MyLib.nupkg` | Useful for auditing local builds before publishing. |
 
-Windows Metadata (`.winmd`) is not a supported input format.
+Windows Metadata (`.winmd`) is not a supported input format, and rejection is
+only partially enforced. Directory and package scans select `*.dll`, so a
+`.winmd` beside them is skipped without comment. A `.winmd` named explicitly —
+`library ./Foo.winmd`, `find --library ./Foo.winmd` — is currently opened and
+reported as though it were an ordinary assembly, which yields wrong values
+rather than a rejection. Treat any Windows Metadata result as unsupported
+output regardless of how confident it looks. Tracked by
+[#5559](https://github.com/richlander/dotnet-inspect/issues/5559).
 
 Bare names are routed automatically: platform-looking names (`System.*`,
 `Microsoft.AspNetCore.*`) resolve to installed platform libraries; other names
