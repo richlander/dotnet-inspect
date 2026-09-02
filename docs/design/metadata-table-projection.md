@@ -871,11 +871,12 @@ channel the check just closed.
 
 ### Status
 
-The bounded-traversal budgets, execution-incapable parsing, and opt-in heaps are
-implemented, with their gates named above. So are the visual-encoding spelling
-(#3636, extended to Unicode general categories in #3628), the failure-message
-rule, and both the trust and rendering axes, which `mdi` exposes as
-`--show-untrusted-text` and `--dangerously-print-raw`.
+The bounded-traversal budgets and opt-in heaps are implemented, with their gates
+named above. Parse-never-load is implemented with the partial NativeAOT evidence
+posture described above. So are the visual-encoding spelling (#3636, extended
+to Unicode general categories in #3628), the failure-message rule, and both the
+trust and rendering axes, which `mdi` exposes as `--show-untrusted-text` and
+`--dangerously-print-raw`.
 
 The identifier allow lists and `--survey` remain the **target model**: nothing
 validates an identifier's grammar, and refusal stops at the first violation
