@@ -3,6 +3,7 @@ import type {
   QueryFacetTerm,
   QueryResultRow,
 } from "./package-query.ts";
+import { renderBrand } from "./brand.ts";
 
 export interface PackageQueryBindingActions {
   onBack: () => void;
@@ -206,7 +207,7 @@ function renderRow(
           <h2>${escapeHtml(row.packageId)}</h2>
           <span class="query-row-version">${escapeHtml(row.version)}</span>
         </div>
-        <span class="query-tier query-tier-nuspec">nuspec</span>
+        <span class="query-tier query-tier-${escapeHtml(row.tier)}">${escapeHtml(row.tier)}</span>
       </div>
       <ul class="query-evidence">${evidence}</ul>
       <div class="query-row-meta">
@@ -234,6 +235,36 @@ function renderFacet(
       title="${escapeHtml(facet.summary ?? facet.label)}">
       ${escapeHtml(facet.label)}
     </button>`;
+}
+
+function renderFacets(
+  facets: readonly QueryFacetTerm[],
+  activeKeys: ReadonlySet<string>,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const renderedGroups = new Set<string>();
+  return facets.map(facet => {
+    if (!facet.displayGroupId) {
+      return renderFacet(facet, activeKeys, escapeHtml);
+    }
+    if (renderedGroups.has(facet.displayGroupId)) return "";
+    renderedGroups.add(facet.displayGroupId);
+    const groupFacets = facets.filter(candidate =>
+      candidate.displayGroupId === facet.displayGroupId);
+    return `
+      <div
+        class="query-facet-group"
+        role="group"
+        aria-label="${escapeHtml(
+          facet.displayGroupLabel ?? facet.label)}">
+        ${groupFacets
+          .map(groupFacet => renderFacet(
+            groupFacet,
+            activeKeys,
+            escapeHtml))
+          .join("")}
+      </div>`;
+  }).join("");
 }
 
 function renderCompletionFooter(
@@ -273,7 +304,7 @@ function renderEmptyState(
       <section class="query-empty">
         <span class="large-glyph">⌕</span>
         <h2>Query nuget.org</h2>
-        <p>Enter a package ID prefix, then narrow the live result stream with nuspec facets. No package archive is downloaded.</p>
+        <p>Enter a package ID prefix, then narrow the live result stream with product facets.</p>
       </section>`;
   }
   if (completion.kind === "cancelled") {
@@ -337,9 +368,7 @@ export function renderPackageQueryView(
     escapeHtml,
   } = options;
   const activeKeys = new Set(state.request?.facets.map(facet => facet.key) ?? []);
-  const facets = availableFacets
-    .map(facet => renderFacet(facet, activeKeys, escapeHtml))
-    .join("");
+  const facets = renderFacets(availableFacets, activeKeys, escapeHtml);
   const failures = state.outcome.failures.length
     ? `
       <section class="query-failures">
@@ -355,20 +384,24 @@ export function renderPackageQueryView(
   const results = rows
     ? `<div class="query-list">${rows}</div>${renderCompletionFooter(state.outcome, escapeHtml)}`
     : state.outcome.completion.kind === "streaming" && state.request
-      ? `<section class="query-empty query-running"><span class="loader" aria-hidden="true"></span><h2>Searching nuget.org</h2><p>Matches will appear as their manifests are evaluated.</p></section>${renderCompletionFooter(state.outcome, escapeHtml)}`
+      ? `<section class="query-empty query-running"><span class="loader" aria-hidden="true"></span><h2>Searching nuget.org</h2><p>Matches will appear as package candidates are evaluated.</p></section>${renderCompletionFooter(state.outcome, escapeHtml)}`
       : renderEmptyState(state, escapeHtml);
 
   return `
     <div class="query-page">
       <header class="query-page-bar">
-        <a id="package-query-workspace" class="brand" href="${escapeHtml(workspaceHref)}" aria-label="dotnet inspect ${workspaceHref === "/" ? "home" : "workspace"}"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
+        ${renderBrand({
+          id: "package-query-workspace",
+          href: workspaceHref,
+          ariaLabel: `dotnet inspect ${workspaceHref === "/" ? "home" : "workspace"}`,
+        })}
         <button id="package-query-back" type="button">Back</button>
       </header>
       <main class="query-main">
         <div class="query-heading">
-          <p class="query-kicker">nuspec-only · nuget.org</p>
+          <p class="query-kicker">manifest + bounded package content · nuget.org</p>
           <h1 id="package-query-heading" tabindex="-1">Package query</h1>
-          <p>Find packages by product-owned manifest and source facets without downloading package archives.</p>
+          <p>Find packages by product-owned source, manifest, and package-content facets.</p>
         </div>
         <form id="package-query-form" class="query-bar" role="search">
           <label for="package-query-prefix">Package ID prefix</label>
@@ -387,6 +420,7 @@ export function renderPackageQueryView(
             <h2>Facets</h2>
             <p>Every change starts a fresh request.</p>
             <div class="query-facets">${facets}</div>
+            <p class="query-facet-disclosure">Content facets download up to 20 candidate package archives.</p>
           </aside>
           <section class="query-results" aria-label="Package query results">
             ${results}

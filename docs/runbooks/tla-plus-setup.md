@@ -34,15 +34,19 @@ pinned release is:
 
 - **Version:** `v1.8.0` ("The Clarke" release) — currently a GitHub
   **prerelease**, not the "latest" stable tag. Agents in this repository are
-  already standardized on it (confirmed TLC build
-  `2026.08.21.155922`, rev `9787e65`), so pin to it rather than the older
+  standardized on it (confirmed TLC build `2026.09.01.002747`, rev
+  `95b800c`), so pin to it rather than the older
   stable `v1.7.4` to stay consistent with work already done.
 - **Source:** <https://github.com/tlaplus/tlaplus/releases/tag/v1.8.0>
 - **Asset:** `tla2tools.jar`
-- **SHA-256:** `eabd140a70f49eb9305a3bd3f3df944eddf87e5a90d329789085f8953a80533a` —
+- **SHA-256:** `dbcc75552f21978a4846688b8e23be1a6b6c0b3fcee35d78fec2df167958ec94` —
   CI verifies this on every run (cache hit or fresh download), since a
   cache key alone is not an integrity check against a substituted release
   asset. Update it alongside the version when the pin changes.
+
+Model READMEs retain the tool hashes and build identities used for their
+recorded historical runs; updating the repository's current pin does not
+rewrite that evidence.
 
 (For reference, Homebrew's `tla+-toolbox` cask still tracks the older stable
 `1.7.4` — it does not pick up prereleases. That is another reason it is not

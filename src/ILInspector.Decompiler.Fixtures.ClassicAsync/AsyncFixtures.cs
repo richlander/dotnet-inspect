@@ -9,10 +9,12 @@ namespace ILInspector.Decompiler.Fixtures.ClassicAsync;
 /// lowers to a classic <c>AsyncTaskMethodBuilder</c> state machine (a <c>&lt;M&gt;d__N</c>
 /// struct + <c>MoveNext</c>) rather than the runtime-async <c>AsyncHelpers.Await</c> form
 /// the rest of the repo uses. This is the async axis of the multi-mode fixture matrix:
-/// the same source the runtime-async build covers, recompiled in the other mode so the
-/// decompiler is measured (via <c>--library-report</c>) on the classic lowering too.
+/// <c>ILInspector.Decompiler.Fixtures.RuntimeAsync</c> compiles this exact source
+/// with the opposite feature setting so lowering differences are attributable to
+/// the compiler mode.
 ///
-/// On-demand only — not swept by any CI gate. Build it and point the harness at the DLL.
+/// Library reports are on-demand; <c>AsyncLoweringFixtureMatrixTests</c> gates the
+/// physical lowering distinction.
 /// </summary>
 public static class AsyncFixtures
 {

@@ -105,6 +105,15 @@ internal sealed class DetectionHarness(
                 scenario.TruncatePushStream
                     .ToString()
                     .ToLowerInvariant();
+            startInfo.Environment["TLA_CANDIDATE_FILES"] =
+                scenario.TlaCandidateFiles
+                    ?? JoinPathLists(
+                        scenario.PreviousFiles,
+                        scenario.Files);
+            startInfo.Environment["TLA_CANDIDATE_RESOLUTION_SUCCEEDS"] =
+                scenario.TlaCandidateResolutionSucceeds
+                    .ToString()
+                    .ToLowerInvariant();
 
             using Process process = Process.Start(startInfo)
                 ?? throw new InvalidOperationException(
@@ -163,6 +172,18 @@ internal sealed class DetectionHarness(
         {
             Directory.Delete(temporary, recursive: true);
         }
+    }
+
+    private static string JoinPathLists(string first, string second)
+    {
+        if (first.Length == 0)
+        {
+            return second;
+        }
+
+        return second.Length == 0
+            ? first
+            : $"{first}\n{second}";
     }
 
     private static string ReadIfExists(string path) =>
@@ -275,6 +296,26 @@ internal sealed class DetectionHarness(
         fi
         if [ "$#" -eq 3 ] && [ "$1" = "cat-file" ] && [ "$2" = "-e" ] \
            && [ "$3" = "${EXPECTED_BEFORE}^{commit}" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] \
+             && [ "$TLA_CANDIDATE_RESOLUTION_SUCCEEDS" != "true" ]; then
+            exit 1
+          fi
+          exit 0
+        fi
+        if [ "$#" -eq 7 ] && [ "$1" = "diff" ] && [ "$2" = "--no-renames" ] \
+           && [ "$3" = "--name-only" ] && [ "$4" = "-z" ] \
+           && [ "$5" = "$EXPECTED_BEFORE" ] && [ "$6" = "HEAD" ] \
+           && [ "$7" = "--" ]; then
+          if [ "$TLA_CANDIDATE_RESOLUTION_SUCCEEDS" != "true" ]; then
+            exit 1
+          fi
+          if [ -n "$TLA_CANDIDATE_FILES" ]; then
+            while IFS= read -r file; do
+              printf '%s\0' "$file"
+            done <<EOF
+        $TLA_CANDIDATE_FILES
+        EOF
+          fi
           exit 0
         fi
         if [ "$#" -eq 6 ] && [ "$1" = "diff" ] && [ "$2" = "--no-renames" ] \

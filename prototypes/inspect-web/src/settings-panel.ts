@@ -1,7 +1,8 @@
-// The Settings page (a persistent preferences panel) and the decompiler "taste" popover it
-// shares its style catalog with. Both are dependency-injected render functions with their
-// rendered control bindings; `dotnet-inspect.ts` owns `state`, localStorage persistence, and
-// the theme/taste effects, and passes each computed slice and action in explicitly.
+import { renderBrand } from "./brand.ts";
+
+// The Settings page is a dependency-injected render function with its rendered
+// control bindings. `dotnet-inspect.ts` owns `state`, localStorage persistence,
+// and the theme/taste effects, and passes each computed slice and action in.
 
 export interface StyleTier {
   id: string;
@@ -32,7 +33,6 @@ export interface SettingsPanelBindingActions {
   onClose: () => void;
   onOpen: (from: "home" | "workbench") => void;
   onTasteClear: () => void;
-  onTasteOpenToggle: () => void;
   onTasteToggle: (taste: string) => void;
   onThemeSelect: (theme: "dark" | "light") => void;
 }
@@ -50,10 +50,6 @@ export function bindSettingsPanel(
   root.querySelector("#open-settings")?.addEventListener(
     "click",
     () => actions.onOpen("workbench"));
-  root.querySelector("#taste-btn")?.addEventListener("click", event => {
-    event.stopPropagation();
-    actions.onTasteOpenToggle();
-  });
   root.querySelectorAll<HTMLElement>(".settings-seg[data-theme]")
     .forEach(button => button.addEventListener("click", () => {
       const theme = button.dataset.theme;
@@ -69,18 +65,10 @@ export function bindSettingsPanel(
   root.querySelector("#settings-taste-clear")?.addEventListener(
     "click",
     actions.onTasteClear);
-  root.querySelectorAll<HTMLElement>("#taste-popover [data-taste]")
-    .forEach(checkbox => checkbox.addEventListener(
-      "change",
-      () => actions.onTasteToggle(checkbox.dataset.taste ?? "")));
-  root.querySelector("#taste-clear")?.addEventListener(
-    "click",
-    actions.onTasteClear);
 }
 
-// The decompiler style ("taste") catalog, grouped by tier, as checkbox rows. Shared by the
-// detail-view taste popover and the Settings page so both stay in lockstep with the engine's
-// StyleOptionCatalog (fetched once into state.styleTiers/state.styleOptions).
+// The decompiler style ("taste") catalog, grouped by tier, as Settings checkbox
+// rows kept in lockstep with the engine's StyleOptionCatalog.
 export function styleCatalogGroupsHtml(catalog: StyleCatalogState, escapeHtml: EscapeHtml): string {
   const tiers = catalog.styleTiers || [];
   const options = catalog.styleOptions || [];
@@ -109,17 +97,6 @@ export function styleCatalogGroupsHtml(catalog: StyleCatalogState, escapeHtml: E
       </div>`).join("");
 }
 
-export function renderTastePopover(catalog: StyleCatalogState, escapeHtml: EscapeHtml): string {
-  const groups = styleCatalogGroupsHtml(catalog, escapeHtml);
-  const body = groups || '<div class="taste-empty">Style catalog unavailable.</div>';
-  return `
-    <div class="taste-popover" id="taste-popover" role="dialog" aria-label="Decompiler taste">
-      <div class="taste-head"><strong>Taste</strong><span>decompiler style knobs</span></div>
-      <div class="taste-body">${body}</div>
-      <div class="taste-foot">${catalog.taste.length ? '<button id="taste-clear" type="button">reset to default</button>' : '<span>default · opcode-faithful</span>'}</div>
-    </div>`;
-}
-
 export interface RenderSettingsViewOptions {
   theme: string;
   settingsReturn: string;
@@ -129,8 +106,7 @@ export interface RenderSettingsViewOptions {
 
 // The Settings page: a persistent preferences panel. Every control here writes straight to
 // localStorage (theme → inspect-theme, taste → inspect-taste) so choices survive a reload and
-// future sessions. Grouped into Appearance and Decompiler style; the latter reuses the same
-// style-option catalog the detail-view taste popover shows.
+// future sessions.
 export function renderSettingsView(options: RenderSettingsViewOptions): string {
   const { theme, settingsReturn, styleCatalog, escapeHtml } = options;
   const catalog = styleCatalogGroupsHtml(styleCatalog, escapeHtml);
@@ -140,7 +116,7 @@ export function renderSettingsView(options: RenderSettingsViewOptions): string {
   return `
     <div class="settings-page">
       <header class="settings-bar">
-        <a class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
+        ${renderBrand()}
         <button id="settings-close" class="settings-close">${settingsReturn === "workbench" ? "back to workbench" : "back to home"} ✕</button>
       </header>
       <main class="settings-main">

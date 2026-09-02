@@ -22,10 +22,40 @@ public enum StateMachineMethodRole
     DisposeAsync,
 }
 
-/// <summary>One exact MethodDef implementing a required state-machine role.</summary>
-public sealed record StateMachineMethodRelationship(
-    StateMachineMethodRole Role,
-    MetadataMethodAddress Method);
+/// <summary>
+/// The closed physical disposition of one state-machine interface role.
+/// </summary>
+public abstract record StateMachineRoleDisposition
+{
+    private protected StateMachineRoleDisposition(
+        StateMachineMethodRole role) =>
+        Role = role;
+
+    public StateMachineMethodRole Role { get; }
+
+    /// <summary>An exact MethodDef implements the role.</summary>
+    public sealed record Present : StateMachineRoleDisposition
+    {
+        internal Present(
+            StateMachineMethodRole role,
+            MetadataMethodAddress method)
+            : base(role) =>
+            Method = method;
+
+        public MetadataMethodAddress Method { get; }
+    }
+
+    /// <summary>
+    /// A bounded scan found no candidate for an explicitly optional role.
+    /// </summary>
+    public sealed record AbsentFromArtifact : StateMachineRoleDisposition
+    {
+        internal AbsentFromArtifact(StateMachineMethodRole role)
+            : base(role)
+        {
+        }
+    }
+}
 
 /// <summary>
 /// A structurally authenticated same-module state-machine relationship.
@@ -37,37 +67,82 @@ public sealed record StateMachineRelationship
         MetadataTypeDefinitionAddress stateMachineType,
         MetadataTypeDefinitionName stateMachineName,
         StateMachineClaimKind kind,
-        ImmutableArray<StateMachineMethodRelationship> methods)
+        ImmutableArray<StateMachineRoleDisposition> roles)
     {
-        if (methods.IsDefaultOrEmpty)
+        ReadOnlySpan<StateMachineMethodRole> expected = RolesFor(kind);
+        if (roles.IsDefault || roles.Length != expected.Length)
         {
             throw new ArgumentException(
-                "A state-machine relationship must contain an execution method.",
-                nameof(methods));
+                "A state-machine relationship must account for every role.",
+                nameof(roles));
+        }
+
+        foreach (StateMachineMethodRole expectedRole in expected)
+        {
+            StateMachineRoleDisposition? disposition = null;
+            foreach (StateMachineRoleDisposition candidate in roles)
+            {
+                if (candidate.Role != expectedRole)
+                    continue;
+                if (disposition is not null)
+                {
+                    throw new ArgumentException(
+                        "A state-machine relationship cannot contain duplicate roles.",
+                        nameof(roles));
+                }
+
+                disposition = candidate;
+            }
+
+            if (disposition is null
+                || disposition is
+                    StateMachineRoleDisposition.AbsentFromArtifact
+                    && !CanBeAbsent(kind, expectedRole))
+            {
+                throw new ArgumentException(
+                    "A state-machine relationship contains an invalid role disposition.",
+                    nameof(roles));
+            }
         }
 
         Kickoff = kickoff;
         StateMachineType = stateMachineType;
         StateMachineName = stateMachineName;
         Kind = kind;
-        Methods = methods;
+        Roles = roles;
     }
 
     public MetadataMethodAddress Kickoff { get; }
     public MetadataTypeDefinitionAddress StateMachineType { get; }
     public MetadataTypeDefinitionName StateMachineName { get; }
     public StateMachineClaimKind Kind { get; }
-    public ImmutableArray<StateMachineMethodRelationship> Methods { get; }
+    public ImmutableArray<StateMachineRoleDisposition> Roles { get; }
+
+    public StateMachineRoleDisposition GetRole(
+        StateMachineMethodRole role)
+    {
+        foreach (StateMachineRoleDisposition candidate in Roles)
+        {
+            if (candidate.Role == role)
+                return candidate;
+        }
+
+        throw new ArgumentOutOfRangeException(
+            nameof(role),
+            role,
+            "The role does not belong to this state-machine claim kind.");
+    }
 
     public bool TryGetMethod(
         StateMachineMethodRole role,
         out MetadataMethodAddress method)
     {
-        foreach (StateMachineMethodRelationship candidate in Methods)
+        foreach (StateMachineRoleDisposition candidate in Roles)
         {
-            if (candidate.Role == role)
+            if (candidate is StateMachineRoleDisposition.Present present
+                && candidate.Role == role)
             {
-                method = candidate.Method;
+                method = present.Method;
                 return true;
             }
         }
@@ -75,6 +150,36 @@ public sealed record StateMachineRelationship
         method = default;
         return false;
     }
+
+    internal static ReadOnlySpan<StateMachineMethodRole> RolesFor(
+        StateMachineClaimKind kind) =>
+        kind switch
+        {
+            StateMachineClaimKind.ClassicAsync =>
+            [
+                StateMachineMethodRole.MoveNext,
+                StateMachineMethodRole.SetStateMachine,
+            ],
+            StateMachineClaimKind.AsyncIterator =>
+            [
+                StateMachineMethodRole.MoveNext,
+                StateMachineMethodRole.SetStateMachine,
+                StateMachineMethodRole.MoveNextAsync,
+                StateMachineMethodRole.DisposeAsync,
+            ],
+            StateMachineClaimKind.Iterator =>
+            [
+                StateMachineMethodRole.MoveNext,
+                StateMachineMethodRole.Dispose,
+            ],
+            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+        };
+
+    internal static bool CanBeAbsent(
+        StateMachineClaimKind kind,
+        StateMachineMethodRole role) =>
+        kind == StateMachineClaimKind.ClassicAsync
+        && role == StateMachineMethodRole.SetStateMachine;
 }
 
 /// <summary>Why a state-machine relationship could not be authenticated.</summary>

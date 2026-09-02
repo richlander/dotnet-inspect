@@ -1,3 +1,4 @@
+using CiChangeDetection.Planning;
 using static CiChangeDetection.GateAssertions;
 
 namespace CiChangeDetection;
@@ -242,7 +243,8 @@ internal static class DetectionTestSuite
             missingWebManifestBody,
             "pull_request",
             "src/dotnet-inspect/Program.cs",
-            outputs);
+            outputs,
+            parity: false);
         if (missingWebManifest["code"] != "true"
             || missingWebManifest["web"] != "true")
         {
@@ -667,6 +669,19 @@ internal static class DetectionTestSuite
                 "ts-jsexport TypeScript gate did not select only web: "
                 + FormatValues(tsJsExportGate));
         }
+        Dictionary<string, string> tsJsExportContextAotGate = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/test-ts-jsexport-context-aot.sh",
+            outputs);
+        if (tsJsExportContextAotGate["code"] != "true"
+            || tsJsExportContextAotGate["web"] != "false")
+        {
+            throw new InvalidOperationException(
+                "ts-jsexport context NativeAOT gate did not select only code: "
+                + FormatValues(tsJsExportContextAotGate));
+        }
         foreach (string tsJsExportInput in new[]
         {
             "tests/ILInspector.JsExportSurface.TypeScriptFixtures/TypeScriptFixtureExports.cs",
@@ -773,7 +788,8 @@ internal static class DetectionTestSuite
                 StringComparison.Ordinal),
             "pull_request",
             "src/dotnet-inspect/Program.cs",
-            outputs);
+            outputs,
+            parity: false);
         if (missingDecompilerSkipList["decompiler"] != "true")
         {
             throw new InvalidOperationException(
@@ -1045,6 +1061,48 @@ internal static class DetectionTestSuite
                 FormatValues(tlaConfig));
         }
 
+        Dictionary<string, string> baseRenamedIntoModel = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "prototypes/X.tla",
+            outputs,
+            tlaCandidateFiles: "docs/models/x/X.tla");
+        if (baseRenamedIntoModel["tla"] != "true")
+        {
+            throw new InvalidOperationException(
+                "A base rename into a model path hid the candidate TLA+ change: " +
+                FormatValues(baseRenamedIntoModel));
+        }
+
+        Dictionary<string, string> baseRenamedOutOfModel = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "docs/models/x/X.tla",
+            outputs,
+            tlaCandidateFiles: "prototypes/X.tla");
+        if (baseRenamedOutOfModel["tla"] != "false")
+        {
+            throw new InvalidOperationException(
+                "A base rename out of a model path selected unchanged model content: " +
+                FormatValues(baseRenamedOutOfModel));
+        }
+
+        Dictionary<string, string> unresolvedTlaCandidate = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "README.md",
+            outputs,
+            tlaCandidateResolutionSucceeds: false);
+        if (unresolvedTlaCandidate["tla"] != "true")
+        {
+            throw new InvalidOperationException(
+                "An unresolved TLA+ candidate diff did not fail closed: " +
+                FormatValues(unresolvedTlaCandidate));
+        }
+
         Dictionary<string, string> tlaRunner = RunDetection(
             repository,
             body,
@@ -1058,6 +1116,20 @@ internal static class DetectionTestSuite
                 FormatValues(tlaRunner));
         }
 
+        Dictionary<string, string> tlaRunnerTest = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/test-tla-checks.sh",
+            outputs);
+        if (tlaRunnerTest["tla"] != "true"
+            || tlaRunnerTest["code"] != "false")
+        {
+            throw new InvalidOperationException(
+                "TLA+ runner test canary did not select only tla: " +
+                FormatValues(tlaRunnerTest));
+        }
+
         Dictionary<string, string> tlaOverrides = RunDetection(
             repository,
             body,
@@ -1069,6 +1141,20 @@ internal static class DetectionTestSuite
             throw new InvalidOperationException(
                 "TLA+ module overrides canary did not select only tla: " +
                 FormatValues(tlaOverrides));
+        }
+
+        Dictionary<string, string> tlaExpectedExitCodes = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/tla-expected-exit-codes.txt",
+            outputs);
+        if (tlaExpectedExitCodes["tla"] != "true"
+            || tlaExpectedExitCodes["code"] != "false")
+        {
+            throw new InvalidOperationException(
+                "TLA+ expected exit codes canary did not select only tla: " +
+                FormatValues(tlaExpectedExitCodes));
         }
 
         // eng/run-tla-checks.sh discovers .tla/.cfg files case-insensitively
@@ -1227,7 +1313,8 @@ internal static class DetectionTestSuite
             brokenGhInvocation,
             "pull_request",
             "README.md",
-            outputs);
+            outputs,
+            parity: false);
         if (brokenGh["code"] == "false" && brokenGh["docs"] == "true")
         {
             throw new InvalidOperationException(
@@ -1260,22 +1347,44 @@ internal static class DetectionTestSuite
         int failDecodeAt = 0,
         bool truncateRecordStream = false,
         bool truncatePushStream = false,
-        bool emptyPushRecord = false) =>
-        new DetectionHarness(repository, body, expectedOutputs).Run(
-            new DetectionScenario(
-                eventName,
-                files,
-                previousFiles,
-                reportedChangedFileCount,
-                changedFileCountIsString,
-                resolutionSucceeds,
-                malformedFileRecordJson,
-                objectShapedFilePage,
-                nulFileRecord,
-                nulPreviousFileRecord,
-                fileStatus,
-                failDecodeAt,
-                truncateRecordStream,
-                truncatePushStream,
-                emptyPushRecord));
+        bool emptyPushRecord = false,
+        string? tlaCandidateFiles = null,
+        bool tlaCandidateResolutionSucceeds = true,
+        bool parity = true)
+    {
+        DetectionScenario scenario = new(
+            eventName,
+            files,
+            previousFiles,
+            reportedChangedFileCount,
+            changedFileCountIsString,
+            resolutionSucceeds,
+            malformedFileRecordJson,
+            objectShapedFilePage,
+            nulFileRecord,
+            nulPreviousFileRecord,
+            fileStatus,
+            failDecodeAt,
+            truncateRecordStream,
+            truncatePushStream,
+            emptyPushRecord,
+            tlaCandidateFiles,
+            tlaCandidateResolutionSucceeds);
+        Dictionary<string, string> values =
+            new DetectionHarness(repository, body, expectedOutputs)
+                .Run(scenario);
+
+        // Every ordinary scenario is also an effective-parity case: the
+        // production planner must reach the same selections from the same
+        // event and path corpus. `parity: false` names a scenario that mutates
+        // the oracle itself; ChangePlanParity.IsComparable excludes the
+        // fallback and split-candidate cases the planner deliberately refuses
+        // or resolves differently.
+        if (parity && ChangePlanParity.IsComparable(scenario))
+        {
+            ChangePlanParity.Assert(repository, scenario, values);
+        }
+
+        return values;
+    }
 }

@@ -94,6 +94,7 @@ internal static partial class WorkflowContract
 
         ValidateInspectWebSdk(jobs);
         ValidatePackageManifestVerifierBuild(jobs);
+        ValidateTlaJob(jobs);
 
         YamlSequenceNode steps = GetRequiredSequence(
             changes,
@@ -187,7 +188,7 @@ internal static partial class WorkflowContract
             YamlMappingNode step = RequireMapping(
                 stepNode,
                 "jobs.inspect-web step");
-            if (GetOptionalScalar(step, "uses") == "actions/setup-dotnet@v5")
+            if (GetOptionalScalar(step, "uses") == "actions/setup-dotnet@v6")
             {
                 webSdkSteps.Add(step);
             }
@@ -253,6 +254,132 @@ internal static partial class WorkflowContract
             "run",
             "dotnet build eng/verify-package-manifest-corpus.cs -c Release",
             "jobs.test package-manifest corpus verifier build step");
+    }
+
+    private static void ValidateTlaJob(YamlMappingNode jobs)
+    {
+        YamlMappingNode tla = GetRequiredMapping(jobs, "tla-plus", "jobs");
+        RequireScalarValue(tla, "needs", "changes", "jobs.tla-plus");
+        RequireScalarValue(
+            tla,
+            "if",
+            "needs.changes.outputs.tla == 'true'",
+            "jobs.tla-plus");
+        RequireAbsent(tla, "continue-on-error", "jobs.tla-plus");
+        RequireAbsent(tla, "defaults", "jobs.tla-plus");
+        RequireAbsent(tla, "env", "jobs.tla-plus");
+
+        YamlSequenceNode steps = GetRequiredSequence(
+            tla,
+            "steps",
+            "jobs.tla-plus");
+        if (steps.Children.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "jobs.tla-plus must contain steps.");
+        }
+
+        YamlMappingNode checkout = RequireMapping(
+            steps.Children[0],
+            "jobs.tla-plus checkout step");
+        RequireExactKeys(
+            checkout,
+            ["uses", "with"],
+            "jobs.tla-plus checkout step");
+        RequireScalarValue(
+            checkout,
+            "uses",
+            "actions/checkout@v7",
+            "jobs.tla-plus checkout step");
+        RequireExactScalarValues(
+            GetRequiredMapping(
+                checkout,
+                "with",
+                "jobs.tla-plus checkout step"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["fetch-depth"] = "0",
+            },
+            "jobs.tla-plus checkout step.with");
+
+        List<YamlMappingNode> scopeTests = [];
+        List<YamlMappingNode> runs = [];
+        foreach (YamlNode stepNode in steps.Children)
+        {
+            YamlMappingNode step = RequireMapping(
+                stepNode,
+                "jobs.tla-plus step");
+            switch (GetOptionalScalar(step, "name"))
+            {
+                case "Self-test TLA+ runner scope":
+                    scopeTests.Add(step);
+                    break;
+                case "Run TLA+ checks":
+                    runs.Add(step);
+                    break;
+            }
+        }
+
+        if (scopeTests.Count != 1)
+        {
+            throw new InvalidOperationException(
+                "Expected one jobs.tla-plus scope self-test step.");
+        }
+        RequireScalarValue(
+            scopeTests[0],
+            "shell",
+            "bash",
+            "jobs.tla-plus scope self-test step");
+        RequireScalarValue(
+            scopeTests[0],
+            "run",
+            "eng/test-tla-checks.sh",
+            "jobs.tla-plus scope self-test step");
+
+        if (runs.Count != 1)
+        {
+            throw new InvalidOperationException(
+                "Expected one jobs.tla-plus run step.");
+        }
+        RequireScalarValue(
+            runs[0],
+            "shell",
+            "bash",
+            "jobs.tla-plus run step");
+        RequireExactScalarValues(
+            GetRequiredMapping(
+                runs[0],
+                "env",
+                "jobs.tla-plus run step"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["CI_BEFORE_SHA"] =
+                    "${{ github.event.pull_request.base.sha || " +
+                    "github.event.merge_group.base_sha || " +
+                    "github.event.before }}",
+            },
+            "jobs.tla-plus run step.env");
+
+        string run = GetRequiredScalar(
+            runs[0],
+            "run",
+            "jobs.tla-plus run step");
+        if (!run.Contains(
+                "git diff --no-renames --name-only -z " +
+                "\"$CI_BEFORE_SHA\" HEAD --",
+                StringComparison.Ordinal)
+            || !run.Contains(
+                "eng/run-tla-checks.sh --changed-files0",
+                StringComparison.Ordinal)
+            || run.Contains(
+                "eng/run-tla-checks.sh --all",
+                StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "jobs.tla-plus must pipe the base-to-head changed-file " +
+                "stream to the scoped TLA+ runner without a whole-repository " +
+                "fallback.");
+        }
     }
 
     private static void ValidateWorkflowTriggers(YamlMappingNode root)
@@ -349,7 +476,7 @@ internal static partial class WorkflowContract
         RequireScalarValue(
             setupStep,
             "uses",
-            "actions/setup-dotnet@v5",
+            "actions/setup-dotnet@v6",
             "jobs.changes .NET setup step");
         RequireExactScalarValues(
             GetRequiredMapping(
@@ -502,7 +629,8 @@ internal static partial class WorkflowContract
             {
                 ["BASH_ENV"] = "",
                 ["CI_BEFORE_SHA"] =
-                    "${{ github.event.merge_group.base_sha || " +
+                    "${{ github.event.pull_request.base.sha || " +
+                    "github.event.merge_group.base_sha || " +
                     "github.event.before }}",
                 ["CI_PR_NUMBER"] =
                     "${{ github.event.pull_request.number }}",

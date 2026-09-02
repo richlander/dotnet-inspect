@@ -66,7 +66,7 @@ export function isMemberSection(
     && memberSectionDefinitions.some(([id]) => id === value);
 }
 
-const workspaceScopes = ["package", "type", "member"] as const;
+const workspaceScopes = ["workspace", "package", "type", "member"] as const;
 
 export type WorkspaceScope = (typeof workspaceScopes)[number];
 
@@ -411,7 +411,7 @@ export function createDependencyGraphPendingState(
   };
 }
 
-export interface WorkspaceTab {
+export interface WorkspaceCoordinate {
   id: string;
   version: string;
   framework: string;
@@ -578,7 +578,7 @@ export function packageCoordinateMatchesLocation(
 
 export function workspaceCoordinatesMatch(
   packages: readonly PackageIdentity[] | null | undefined,
-  tabs: readonly WorkspaceTab[] | null | undefined,
+  tabs: readonly WorkspaceCoordinate[] | null | undefined,
 ): boolean {
   if (!packages || !tabs || packages.length !== tabs.length)
     return false;
@@ -618,6 +618,7 @@ export interface CallGraphTarget {
   selectorKey?: string | null;
   metadataToken?: number | null;
   kind?: string | null;
+  surfaceAssemblyId?: string | null;
 }
 
 export function callGraphTargetTypeId(target: CallGraphTarget | null | undefined): string {
@@ -661,6 +662,23 @@ export interface GraphMemberShareIdentity extends CallGraphTarget {
   memberName: string;
   selectorKey: string;
   metadataToken: number | null;
+}
+
+export interface GraphMemberSurfaceType {
+  assembly?: string | null;
+  assemblyId?: string | null;
+}
+
+export function graphMemberSurfaceAssembly(
+  target: CallGraphTarget & { assembly: string },
+  type: GraphMemberSurfaceType | null = null,
+): string {
+  return type?.assemblyId
+    || target.surfaceAssemblyId
+    || type?.assembly
+    || (target.assembly.endsWith(".dll")
+      ? target.assembly
+      : `${target.assembly}.dll`);
 }
 
 export interface SelectedGraphMemberBody {

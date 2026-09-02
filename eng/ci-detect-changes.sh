@@ -303,6 +303,31 @@ is_web_project_path() {
   done
   return 1
 }
+selects_tla_job() {
+  local path="$1"
+  local path_lower
+  case "$path" in
+    .github/workflows/ci.yml|eng/ci-detect-changes.sh|eng/run-tla-checks.sh|eng/test-tla-checks.sh|eng/tla-module-overrides.txt|eng/tla-expected-exit-codes.txt)
+      return 0
+      ;;
+  esac
+  path_lower=$(printf '%s' "$path" | tr '[:upper:]' '[:lower:]')
+  case "$path_lower" in
+    docs/design/models/*/*.tla|docs/design/models/*/*.cfg)
+      return 0
+      ;;
+    docs/models/*/*.tla|docs/models/*/*.cfg)
+      return 0
+      ;;
+    docs/design/models/*.tla|docs/design/models/*.cfg)
+      return 0
+      ;;
+    docs/models/*.tla|docs/models/*.cfg)
+      return 0
+      ;;
+  esac
+  return 1
+}
 while IFS= read -r -d '' file; do
   if [ "$file" = "eng/ci-detect-changes.sh" ]; then
     CODE=true
@@ -382,6 +407,7 @@ while IFS= read -r -d '' file; do
     eng/activate-iltools.sh) CODE=true ;;
     eng/run-method-semantics-platform-probe.sh) CODE=true; WEB=true ;;
     eng/run-local-path-admission-platform-probe.sh) CODE=true; WEB=true ;;
+    eng/test-ts-jsexport-context-aot.sh) CODE=true ;;
     eng/test-ts-jsexport-typescript.sh) WEB=true ;;
     eng/generate-inspect-web-multi-facade-canary.sh) WEB=true ;;
     eng/test-inspect-web-multi-facade-canary.sh) WEB=true ;;
@@ -473,28 +499,13 @@ while IFS= read -r -d '' file; do
     skills/*/*/SKILL.md) ;;
     skills/*/SKILL.md) SKILLS=true ;;
   esac
-  # TLA+ models get their own SANY/TLC verification lane rather than
-  # riding on the docs lint job, since checking them costs real compute
-  # (the docs lane is otherwise a cheap markdownlint-only pass).
-  case "$file" in
-    .github/workflows/ci.yml) TLA=true ;;
-  esac
-  case "$file_lower" in
-    docs/design/models/*/*.tla|docs/design/models/*/*.cfg) TLA=true ;;
-    docs/models/*/*.tla|docs/models/*/*.cfg) TLA=true ;;
-  esac
-  # A .tla/.cfg file placed directly under a model root, with no model
-  # subdirectory, would not match the nested patterns above but is still a
-  # layout eng/run-tla-checks.sh explicitly detects and reports as
-  # misplaced -- so it must still route to tla-plus for that diagnostic to
-  # ever run against it.
-  case "$file_lower" in
-    docs/design/models/*.tla|docs/design/models/*.cfg) TLA=true ;;
-    docs/models/*.tla|docs/models/*.cfg) TLA=true ;;
-  esac
-  case "$file" in
-    eng/run-tla-checks.sh|eng/tla-module-overrides.txt) TLA=true ;;
-  esac
+  # TLA+ models get their own SANY/TLC verification lane rather than riding
+  # on the docs lint job, since checking them costs real compute. Root-level
+  # and deeply nested files deliberately over-match here so the runner can
+  # report their unsupported layout instead of the job silently skipping.
+  if selects_tla_job "$file"; then
+    TLA=true
+  fi
   # The decompiler docket/byte-neutrality gates cost ~8 minutes, so
   # they run as their own job rather than in the hot `test` lane.
   #
@@ -591,6 +602,47 @@ while IFS= read -r -d '' file; do
   esac
 done < "$DECODED_FILES"
 rm -f "$DECODED_FILES" || true
+
+# The pull-request Files API describes the merge-base-to-PR-head diff, while
+# the job checks GitHub's current synthetic merge candidate. A base rename can
+# therefore move a PR-authored edit into or out of a model path without that
+# path appearing in the API response. Recompute only the TLA scheduling
+# decision from the same current-base-to-HEAD diff the TLA job will consume.
+if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+  TLA=false
+  tla_candidate_files=$(mktemp) || tla_candidate_files=""
+  if [ -n "$tla_candidate_files" ] \
+     && [ -n "${CI_BEFORE_SHA:-}" ] \
+     && git cat-file -e "${CI_BEFORE_SHA}^{commit}" 2>/dev/null \
+     && git diff --no-renames --name-only -z "$CI_BEFORE_SHA" HEAD -- \
+       > "$tla_candidate_files"; then
+    tla_candidate_stream_valid=true
+    if [ -s "$tla_candidate_files" ]; then
+      tla_candidate_last_byte=$(
+        tail -c 1 "$tla_candidate_files" | od -An -t u1 | tr -d '[:space:]'
+      ) || tla_candidate_stream_valid=false
+      if [ "$tla_candidate_last_byte" != "0" ]; then
+        tla_candidate_stream_valid=false
+      fi
+    fi
+    if [ "$tla_candidate_stream_valid" = "true" ]; then
+      while IFS= read -r -d '' tla_candidate_file; do
+        if selects_tla_job "$tla_candidate_file"; then
+          TLA=true
+        fi
+      done < "$tla_candidate_files"
+    else
+      TLA=true
+      echo "::warning title=TLA+ change filter fell back::The candidate changed-file stream was incomplete; running the TLA+ job so the failure is visible there."
+    fi
+  else
+    TLA=true
+    echo "::warning title=TLA+ change filter fell back::Could not compare the pull-request base with the checked-out candidate; running the TLA+ job so the failure is visible there."
+  fi
+  if [ -n "$tla_candidate_files" ]; then
+    rm -f "$tla_candidate_files" || true
+  fi
+fi
 # `ilroundtrip` does not have a job of its own: its two steps live
 # inside the `test` job, which is gated on `code`. So an input that
 # sets only `ilroundtrip` computes an output nothing can act on --

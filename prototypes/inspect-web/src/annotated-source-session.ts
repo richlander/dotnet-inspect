@@ -13,6 +13,7 @@ import type {
 import type {
   BrowserAnnotatedSource,
   BrowserAnnotatedSourceCapabilityAvailability,
+  BrowserAnnotatedSourceInvocationDestination,
   BrowserAnnotatedSourceViewerCatalog,
 } from "./inspect-web-engine.d.ts";
 
@@ -77,6 +78,13 @@ export interface AnnotatedSourceViewerModel {
   structuralRegionIds: readonly number[];
   defaultFindingIds: readonly number[];
   invocationLikeNodeKinds: ReadonlySet<string>;
+  invocationDestinations:
+    readonly BrowserAnnotatedSourceInvocationDestination[];
+}
+
+export interface IndexedInvocationDestination {
+  index: number;
+  destination: BrowserAnnotatedSourceInvocationDestination;
 }
 
 export type AnnotatedFocusTarget =
@@ -131,6 +139,8 @@ export function createAnnotatedSourceViewerModel(
     result.viewerCatalog.defaultFindingIds
       .filter(id => factIds.has(id) && annotatable.has(id)),
   );
+  const invocationDestinations =
+    validateInvocationDestinations(result.document, result.viewerCatalog);
 
   return {
     result,
@@ -142,7 +152,23 @@ export function createAnnotatedSourceViewerModel(
     defaultFindingIds,
     invocationLikeNodeKinds:
       new Set(result.viewerCatalog.invocationLikeNodeKinds),
+    invocationDestinations,
   };
+}
+
+export function invocationDestinationForNode(
+  model: AnnotatedSourceViewerModel,
+  nodeId: number,
+): IndexedInvocationDestination | null {
+  const index = model.invocationDestinations.findIndex(
+    destination => destination.nodeId === nodeId,
+  );
+  return index < 0
+    ? null
+    : {
+        index,
+        destination: model.invocationDestinations[index]!,
+      };
 }
 
 export function createEmbeddedSession(
@@ -495,6 +521,8 @@ export function capabilityReason(
   switch (availability.unavailableReason) {
     case "NotProjected":
       return "Not projected by the current product query";
+    case "ContextUnavailable":
+      return "The assembly analysis context was unavailable";
     case null:
       return "Unavailable";
     default:
@@ -566,6 +594,61 @@ function normalizeSupportedMedia(
   }
   return (["CSharp", "Il"] as const).filter(candidate =>
     normalized.includes(candidate));
+}
+
+function validateInvocationDestinations(
+  document: AnnotatedSourceDocument,
+  catalog: BrowserAnnotatedSourceViewerCatalog,
+): readonly BrowserAnnotatedSourceInvocationDestination[] {
+  if (!catalog.destinations.available
+    && catalog.invocationDestinations.length > 0) {
+    throw new TypeError(
+      "Unavailable Annotated Source destinations cannot carry rows.");
+  }
+  const nodeIds = new Set<number>();
+  return catalog.invocationDestinations.map((destination, index) => {
+    if (!Number.isSafeInteger(destination.nodeId)
+      || destination.nodeId < 0
+      || destination.nodeId >= document.nodes.length) {
+      throw new TypeError(
+        `Annotated Source destination ${index} names a node that does not exist.`);
+    }
+    const node = document.nodes[destination.nodeId]!;
+    if (node.medium !== "CSharp" || node.kind !== "InvocationExpression") {
+      throw new TypeError(
+        `Annotated Source destination ${index} does not name a C# invocation.`);
+    }
+    if (nodeIds.has(destination.nodeId)) {
+      throw new TypeError(
+        `Annotated Source destination node ${destination.nodeId} is duplicated.`);
+    }
+    nodeIds.add(destination.nodeId);
+    validateDestinationTarget(destination.target, index);
+    return destination;
+  });
+}
+
+function validateDestinationTarget(
+  target: BrowserAnnotatedSourceInvocationDestination["target"],
+  index: number,
+): void {
+  if (!target
+    || !nonEmptyString(target.id)
+    || !nonEmptyString(target.assembly)
+    || !nonEmptyString(target.typeFullName)
+    || !nonEmptyString(target.memberName)
+    || !nonEmptyString(target.selectorKey)
+    || !Array.isArray(target.parameterTypes)
+    || !target.parameterTypes.every(value => typeof value === "string")
+    || !Number.isSafeInteger(target.genericArity)
+    || target.genericArity < 0) {
+    throw new TypeError(
+      `Annotated Source destination ${index} has an invalid typed target.`);
+  }
+}
+
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
 }
 
 function uniqueSorted(values: readonly number[]): number[] {

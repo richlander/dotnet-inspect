@@ -369,10 +369,10 @@ public interface IAssemblyBindingPolicy
 }
 
 /// <summary>
-/// Migration policy that snapshots answers from an
-/// <see cref="IAssemblyReferenceResolver"/> for one inspection lifetime.
-/// New acquisition owners should implement <see cref="IAssemblyBindingPolicy"/>
-/// directly.
+/// Compatibility adapter for an <see cref="IAssemblyReferenceResolver"/>.
+/// Structured binding policies are forwarded transparently; nullable legacy
+/// resolvers are snapshotted for one inspection lifetime. New acquisition
+/// owners should implement <see cref="IAssemblyBindingPolicy"/> directly.
 /// </summary>
 public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
 {
@@ -391,43 +391,40 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
     }
 
     public AssemblyBindingPolicyVersion Version =>
-        _bindingPolicy?.Version ?? _version;
+        _bindingPolicy is { } bindingPolicy
+            ? bindingPolicy.Version
+            : _version;
 
     public AssemblyBindingSelection Select(AssemblyBindingRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var key = SelectionKey.From(request, Version);
+        if (_bindingPolicy is { } bindingPolicy)
+            return bindingPolicy.Select(request);
+
+        var key = SelectionKey.From(request);
         return _selections.GetOrAdd(
             key,
             _ => new Lazy<AssemblyBindingSelection>(
-                () => SelectCore(request),
+                () => SelectLegacy(request),
                 LazyThreadSafetyMode.ExecutionAndPublication)).Value;
     }
 
-    AssemblyBindingSelection SelectCore(AssemblyBindingRequest request)
+    AssemblyBindingSelection SelectLegacy(AssemblyBindingRequest request)
     {
         try
         {
-            AssemblyBindingSelection selection =
-                _bindingPolicy is not null
-                    ? _bindingPolicy.Select(request)
-                    : request.Target switch
-                    {
-                        AssemblyBindingTarget.AssemblyReference reference =>
-                            SelectReference(
-                                reference.Identity,
-                                request.Scope),
-                        AssemblyBindingTarget.IntrinsicCoreLibrary =>
-                            AssemblyBindingSelection.CannotSelect(
-                                new AssemblyBindingFailure(
-                                    AssemblyBindingFailureKind.UnsupportedScope)),
-                        _ => AssemblyBindingSelection.Invalid(
-                            new AssemblyBindingFailure(
-                                AssemblyBindingFailureKind.InvalidPolicyResult)),
-                    };
-            return AssemblyBindingSelection.ValidateForRequest(
-                request,
-                selection);
+            return request.Target switch
+            {
+                AssemblyBindingTarget.AssemblyReference reference =>
+                    SelectReference(reference.Identity, request.Scope),
+                AssemblyBindingTarget.IntrinsicCoreLibrary =>
+                    AssemblyBindingSelection.CannotSelect(
+                        new AssemblyBindingFailure(
+                            AssemblyBindingFailureKind.UnsupportedScope)),
+                _ => AssemblyBindingSelection.Invalid(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind.InvalidPolicyResult)),
+            };
         }
         catch (Exception ex) when (
             ex is IOException
@@ -454,12 +451,9 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
         AssemblyBindingTarget Target,
         AssemblyAcquisitionRegistration? Origin,
         bool GlobalOrigin,
-        AssemblyResolutionScope Scope,
-        AssemblyBindingPolicyVersion PolicyVersion)
+        AssemblyResolutionScope Scope)
     {
-        internal static SelectionKey From(
-            AssemblyBindingRequest request,
-            AssemblyBindingPolicyVersion policyVersion) =>
+        internal static SelectionKey From(AssemblyBindingRequest request) =>
             request.Origin switch
             {
                 AssemblyBindingOrigin.GlobalOrigin =>
@@ -467,15 +461,13 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
                         request.Target,
                         null,
                         true,
-                        request.Scope,
-                        policyVersion),
+                        request.Scope),
                 AssemblyBindingOrigin.RequestingAssembly requesting =>
                     new(
                         request.Target,
                         requesting.Registration,
                         false,
-                        request.Scope,
-                        policyVersion),
+                        request.Scope),
                 _ => throw new InvalidOperationException(
                     "Unknown assembly-binding origin."),
             };

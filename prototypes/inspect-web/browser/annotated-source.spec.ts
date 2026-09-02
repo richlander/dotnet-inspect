@@ -5,6 +5,34 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator("#explore-annotated")).toBeVisible();
 });
 
+test("inline source uses the page bar and ends with provenance", async ({ page }) => {
+  await expect(page.locator(".annotated-reader-head")).toHaveCount(0);
+  await expect(page.locator(".detail-head #copy-annotated")).toHaveText("Copy");
+  await expect(page.locator(".detail-head #explore-annotated")).toHaveText("Explore");
+  await expect(page.locator(".annotated-reader-footer")).toContainText(
+    "browser-gate product fixture",
+  );
+});
+
+test("inline source owns horizontal scrolling for long product lines", async ({ page }) => {
+  const source = page.locator(".annotated-reader > .annotated-source-code");
+  await source.locator(".annotated-source-line code").first().evaluate(element => {
+    element.textContent = "return " + "VeryLongIdentifier.".repeat(80) + "Value;";
+  });
+
+  const metrics = await source.evaluate(element => {
+    element.scrollLeft = 240;
+    return {
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      scrollLeft: element.scrollLeft,
+    };
+  });
+
+  expect(metrics.scrollWidth).toBeGreaterThan(metrics.clientWidth);
+  expect(metrics.scrollLeft).toBeGreaterThan(0);
+});
+
 test("source copy excludes annotation and inspector chrome", async ({ page }) => {
   await page.locator("#copy-annotated").click();
   const copied = await page.locator("body").getAttribute("data-copied-source");
@@ -57,6 +85,36 @@ test("keyboard source activation selects the same invocation node", async ({ pag
   await invocation.press("Enter");
 
   await expect(page.locator("#annotated-node-1")).toBeFocused();
+});
+
+test("selected invocation offers explicit destinations and hands off the modal", async ({
+  page,
+}) => {
+  await page.locator("#explore-annotated").click();
+  const invocation = page.locator(
+    '#annotated-source-modal .annotated-source-segment.invocation:has-text("object")',
+  ).first();
+  await invocation.click({ position: { x: 8, y: 8 } });
+
+  const member = page.locator(
+    '[data-annotated-action="destination-open"][data-destination="member"]',
+  );
+  const source = page.locator(
+    '[data-annotated-action="destination-open"][data-destination="source"]',
+  );
+  await expect(member).toHaveText("Member");
+  await expect(source).toHaveText("Source");
+  await expect(member).toHaveAttribute(
+    "aria-label",
+    "Open member overview for System.Object..ctor",
+  );
+
+  await source.click();
+  await expect(page.locator("#annotated-source-modal")).toHaveCount(0);
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-destination",
+    "source:0",
+  );
 });
 
 test("native pointer drag selects text without activating a node", async ({ page }) => {

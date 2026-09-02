@@ -21,20 +21,24 @@ backs the browser's single-package dependency view
 [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing)
 for what shipped and what did not.
 
-The current sources also implement the host-neutral L1 nuspec facet contract
-as `PackageQuery`: product-owned ordered descriptors, typed request planning,
-ANDed predicate evaluation over `PackageProfileQuery`, non-empty inert
-evidence, separate candidate and match bounds, visible failures, and typed
-completion. `PackageQueryTests` is its Release gate;
+The current sources also implement the host-neutral L1 facet contract as
+`PackageQuery`: product-owned ordered descriptors, typed request planning,
+ANDed predicate evaluation over `PackageProfileQuery`, an explicit
+package-content provider for archive-derived facets, non-empty inert evidence,
+separate candidate and match bounds, visible failures, and typed completion.
+Package-content evaluation is product-gated to at most 20 candidates.
+`PackageQueryTests` is its Release gate;
 `PackageQueryPlanner_IsReachableFromBrowserConsumer` is the Browser consumer
 canary.
 
-Still proposal-only: CLI `--where` wiring, the tier capability gate, and the
-promoted IL tier. Despite the Sections migration landing,
+Still proposal-only: CLI `--where` wiring, CLI capability spelling for
+package-content facets, and the promoted IL tier. Despite the Sections
+migration landing,
 `find --package-prefix`'s corpus limit is also still spelled `-t`, not the
-settled `-n` target from [Item and line limits](item-and-line-limits.md),
-which resolves the repository-wide flag-numbering problem this document
-surfaced.
+historical #4677 `-n` target. [Item and line
+limits](item-and-line-limits.md) records that CLI syntax ownership remains
+pending, so the target does not resolve the repository-wide flag-numbering
+problem this document surfaced.
 
 Related docs:
 
@@ -69,15 +73,15 @@ Related docs:
 typed manifests over a corpus, with an explicit bound and honest truncation
 and partial-source failure, rendered through the shared Sections registry
 just as `library`/`member`/`package` are. Its corpus-limit spelling is still
-`-t`, not yet the target `-n` vocabulary — see
+`-t`; the historical #4677 target proposed `-n` instead — see
 [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing).
-The L1 nuspec facet engine now provides a host-neutral way to ask "and does
-each package satisfy *this*" over facts already available from the source and
-exact manifest. The CLI does not expose it yet, and the explicit promoted tier
-for facts that require opening IL remains unimplemented. This document defines
-where those pieces belong across the existing L1/L2/L3 split, rather than
-treating the CLI project as a place to accumulate new bespoke logic the way it
-did before that split existed.
+The L1 facet engine now provides a host-neutral way to ask "and does each
+package satisfy *this*" over facts available from the source, exact manifest,
+or an explicitly supplied package archive. The CLI does not expose it yet, and
+the promoted tier for facts that require opening IL remains unimplemented.
+This document defines where those pieces belong across the existing L1/L2/L3
+split, rather than treating the CLI project as a place to accumulate new
+bespoke logic the way it did before that split existed.
 
 ## Is this CLI-side or core?
 
@@ -86,12 +90,13 @@ Core. Concretely:
 - **L1 — `DotnetInspector.Queries`.** The facet-matching engine belongs here,
   next to `PackageProfileQuery` and `PackageDependencyGroupsQuery`, which
   #4551 places in this layer rather than in the CLI project. A typed
-  query that evaluates nuspec-tier facets over a streamed manifest, and a
-  second typed query that evaluates promoted-tier (IL) facets over an
-  explicitly bounded package/version set, both return typed results and
-  choose no renderer — the existing L1 contract. This is what makes the
-  facet engine reachable from a second consumer (the browser/Wasm engine)
-  without re-deriving it, the exact failure mode
+  query that evaluates nuspec-tier facets over a streamed manifest and
+  package-content facets through an explicit host capability returns typed
+  results and chooses no renderer — the existing L1 contract. A future query
+  that evaluates promoted IL facets over an explicitly bounded
+  package/version set follows the same ownership. This is what makes the facet
+  engine reachable from a second consumer (the browser/Wasm engine) without
+  re-deriving it, the exact failure mode
   [inspection-layers.md](inspection-layers.md) exists to prevent.
 - **L2 — `Sections` (currently `src/dotnet-inspect/Sections`).** Row
   declaration, `--where` predicate evaluation, and the shape-ladder
@@ -100,7 +105,7 @@ Core. Concretely:
   at L2 ("row query — field predicates within a section... L2."), pointing
   at [row-query-order.md](row-query-order.md) for the model; nothing about
   package rows changes that. This is also where the tier capability gate is
-  enforced — see [Tier gating](#tier-gating-nuspec-vs-promoted) below — since
+  enforced — see [Tier gating](#tier-gating) below — since
   L2 is where a request is checked against what the selected section actually
   offers before L1 is asked to compute anything.
 - **L3 — `dotnet-inspect` (the `find` command).** Argument parsing,
@@ -140,7 +145,7 @@ route through the shared pipeline, the same infrastructure `library`/`member`/
 **What did not land alongside it:** the flag-numbering half of this
 recommendation. This document's own "one deliberate, called-out behavior
 change" for this migration step was retiring `-t`-as-package-limit in favor of
-the settled `-n` contract — but `find --package-prefix`'s corpus limit is
+the historical #4677 `-n` proposal — but `find --package-prefix`'s corpus limit is
 still spelled `-t` on `main` (`FindOptions.Limit`, validated as "`-t` must be
 between 1 and..."). `-S` and `--where` are also not yet wired (there is
 currently exactly one section, `Packages`, so `-S` selection is moot until the
@@ -156,11 +161,11 @@ not define how `--count` composes with L2 row windows.
 `-t`→`-n` flag rename were assumed to be one atomic step; in practice they
 decoupled, and the migration landed first. The CLI facet wiring in
 [Landing sequence](#landing-sequence) step 4 should not silently inherit `-t`
-as precedent — it should either retire `-t` for `-n` itself, or explicitly
-hand that retirement to whatever implements #4677 across the CLI, naming
-which PR owns it so it does not fall through the gap a second time.
+as precedent. It must hand the spelling decision to a focused CLI item-limit
+owner, naming which PR owns it so the decision does not fall through the gap a
+second time.
 
-### `-t` is the wrong flag to build on; `-n` owns the corpus limit
+### `-t` is the wrong flag to build on; the historical target proposed `-n`
 
 The `-t 100` `find --package-prefix` uses reuses `find`'s own pre-existing
 `-t`, whose description #4551 widens from "Limit type count (`-t 5`) or
@@ -176,7 +181,7 @@ row-count flag.
 Working through this surfaced a repository-wide flag-numbering problem:
 rendered-line `-n`, count-form `--rows`, ranked `--top`, and command-owned
 `-t`/`-m`/`--take` counts all answered adjacent "how many" questions.
-[Item and line limits](item-and-line-limits.md) settles them:
+The historical #4677 target proposed:
 
 - `-n`/bare `-N` is the universal first/last item count;
 - `--rows` carries only absolute row ranges;
@@ -188,17 +193,16 @@ A corpus-match query that names a ranking field (for example, "top 500 by
 download count") uses `--top 500 --order-by "DownloadCount desc"`; a plain
 "first 500 that match" uses `-n 500`.
 
-The Sections-registry migration was the right moment to apply the settled
-contract, but it landed without that part: `find --package-prefix` rows are
+The Sections-registry migration was the intended moment to apply that
+historical proposal, but it landed without that part: `find --package-prefix` rows are
 now declared sections, yet the corpus limit is still `-t`, not `-n`. See
 [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing)
 for the resulting follow-up.
 
-## Two-tier facets, one product vocabulary
+## Current tiers and future IL promotion
 
-The web design's nuspec/promoted split maps directly onto capability. L1 owns
-the vocabulary and predicate semantics; front ends submit product-issued
-opaque facet IDs and do not reconstruct those predicates:
+L1 owns the vocabulary and predicate semantics; front ends submit
+product-issued opaque facet IDs and do not reconstruct those predicates:
 
 - **`nuspec` tier.** Available over the bounded package profile produced from
   source metadata and exact manifests. `PackageQuery.Facets` is the finite,
@@ -208,13 +212,19 @@ opaque facet IDs and do not reconstruct those predicates:
   production envelope in which it is available, not the narrowest individual
   field its predicate reads; the common nuspec result row still carries exact
   manifest facts.
-- **`promoted` tier.** Requires opening IL for a bounded set of candidates —
-  never for the whole corpus. This must be capability-gated the same way the
-  repository already gates other exhaustive/expensive work (`--all`,
-  README.md:474, 535). The exact CLI spelling remains for its implementation
-  slice, but the adapter must resolve that spelling through product-owned
-  descriptors or bindings and submit opaque IDs. It must not hard-code a
-  second predicate vocabulary in L2 or L3.
+- **`package-content` tier.** Requires an explicit
+  `IPackageQueryContentProvider` and accepts at most 20 candidates.
+  `PackageQuery` still applies manifest predicates first, so a tool-format
+  facet does not acquire non-tool packages. The current archive-derived
+  facets inspect `DotnetToolSettings.xml` for tool v1/v2 and package paths for
+  `skills/SKILL.md` or `skills/**/SKILL.md`.
+- **Future promoted IL tier.** Requires opening IL for a bounded set of
+  candidates — never for the whole corpus. It must be capability-gated the
+  same way the repository already gates other exhaustive/expensive work
+  (`--all`, README.md:474, 535). The exact CLI spelling remains for its
+  implementation slice, but the adapter must resolve that spelling through
+  product-owned descriptors or bindings and submit opaque IDs. It must not
+  hard-code a second predicate vocabulary in L2 or L3.
 
 The future CLI may reuse `RowPredicateSyntaxParser` and repeated `--where`
 syntax as an input grammar, but this document no longer defines package facets
@@ -222,12 +232,19 @@ as arbitrary section-field predicates. If `--where` is retained, the
 implementation slice must add product-owned CLI bindings for the finite facet
 set so the CLI and browser continue to invoke the same L1 definitions.
 
-### Tier gating: nuspec vs. promoted
+### Tier gating
 
-The gate is enforced at L2, before L1 is asked to evaluate anything: a
-`--where` clause naming a promoted-tier field is rejected up front unless the
-capability flag is present, exactly mirroring how a coordinate-scoped section
-is discoverable only when its carrier flag is present
+The current L1 planner rejects package-content requests above 20 candidates,
+and execution rejects a package-content plan unless its host supplies the
+explicit content-provider capability. Selecting a package-content facet is the
+Browser's explicit cost gesture; the Browser request state lowers its
+candidate bound from 200 to 20 before dispatch.
+
+For the future CLI and promoted IL tier, the gate is enforced at L2 before L1
+is asked to evaluate anything: a `--where` clause naming a capability-bearing
+field is rejected up front unless the capability flag is present, exactly
+mirroring how a coordinate-scoped section is discoverable only when its
+carrier flag is present
 ([output-shapes.md](output-shapes.md), "Coordinate carriers sit before the
 ladder"). The bound itself — how many candidates promoted-tier evaluation
 may run against — is not the whole corpus scanned so far; it is whatever
@@ -236,15 +253,16 @@ both), mirroring the browser experience's Deepen action, which is
 "an explicit, checkbox-gated escalation... bounded to a selection so a
 thousand-row funnel doesn't silently trigger a thousand package downloads."
 
-This document does not fix `--deepen`'s exact spelling or bound shape; that is
-an open question for the implementation slice that adds it (see
+This document does not fix the CLI gesture for package-content facets or
+`--deepen`'s exact spelling and bound shape for promoted IL. Those remain open
+questions for their CLI implementation slices (see
 [Landing sequence](#landing-sequence)).
 
 ## Row declaration: coercing a wide per-package fact set into a Table
 
 A facet-matched package is not naturally one flat row: it may match zero or
-more facets, each with its own evidence, and evaluating a promoted-tier facet
-may add fields a nuspec-only row never had. Before this can be a Table,
+more facets, each with its own evidence, and evaluating a capability-bearing
+facet may add fields a nuspec-only row never had. Before this can be a Table,
 something has to decide the row grain — the same "declared row unit"
 decision #4551 already makes once for package/dependency pairs. This
 document proposes:
@@ -288,9 +306,10 @@ not need to translate a differently-shaped CLI completion signal.
 
 One ordering question is new once `--where` and `--deepen` exist: does the
 corpus bound apply before or after a nuspec-tier predicate runs?
-[Item and line limits](item-and-line-limits.md) settles `-n` as post-filter and
-post-order. The same before/after question matters because a predicate can
-shrink what the bound counts:
+The historical #4677 target placed `-n` after filtering and ordering; focused
+CLI ownership for that proposal remains pending in [Item and line
+limits](item-and-line-limits.md). The same before/after question matters
+because a predicate can shrink what the bound counts:
 
 - **Nuspec-tier `--where`** should filter before `-n` truncates: `-n 500`
   should mean "the first 500 packages that match," not "the first 500
@@ -304,11 +323,12 @@ shrink what the bound counts:
   fewer matches than its candidate bound is a true, bounded-complete result
   over that candidate set, not a truncated one.
 
-The implementation must preserve both distinct orderings: nuspec predicates
-run before the semantic `-n` result limit, while `--deepen` bounds candidates
-before promoted IL evaluation. Help text and rendered completion state must
-name the candidate bound, and the asserted ordering must name its enforcing
-gate.
+The implementation must preserve the orderings: nuspec predicates run before
+the semantic `-n` result limit; the package-content candidate cap applies
+before archive evaluation, with manifest prefilters running before acquisition;
+and `--deepen` bounds candidates before future promoted IL evaluation. Help
+text and rendered completion state must name the candidate bound, and the
+asserted ordering must name its enforcing gate.
 
 `PackageQuery.ExecuteAsync` now implements the nuspec half with separate
 `MaximumCandidates` and `MaximumMatches` bounds.
@@ -319,8 +339,9 @@ candidate-bound completion. Reaching the semantic match limit is deliberately
 conservative: execution stops without acquiring another manifest, so
 `MatchLimitReached` means more matches may exist even when the last emitted row
 also happened to exhaust the source. This behavior is gated by
-`ExecuteAsync_ExactExhaustionAtMatchLimitIsConservative`. Promoted-tier
-ordering remains proposal-only.
+`ExecuteAsync_ExactExhaustionAtMatchLimitIsConservative`. Package-content
+candidate limits and manifest prefiltering are gated by `PackageQueryTests`;
+promoted IL ordering remains proposal-only.
 
 ## Shared request/outcome shape with the browser
 
@@ -348,8 +369,10 @@ the CLI's named facets as canonical for the browser's facet rail.
 - No relational query surface here. Package-to-capability or
   package-to-integration questions route through the existing inspection
   graph, not through a new edge concept invented for this document.
-- No unbounded promoted-tier evaluation. Every IL-tier facet requires an
-  explicit, bounded `--deepen` (or equivalent) — never a corpus-wide default.
+- No unbounded package-content or promoted-tier evaluation. Package-content
+  facets retain their product-owned 20-candidate maximum. Every future IL-tier
+  facet requires an explicit, bounded `--deepen` (or equivalent) — never a
+  corpus-wide default.
 - No decision here on `--deepen`'s exact spelling, bound shape, or the saved
   query/result file's exact fields — those are implementation-slice
   decisions, not settled by this document.
@@ -364,27 +387,31 @@ the CLI's named facets as canonical for the browser's facet rail.
    `SectionPipeline<PackageProfileView>`), so `--count`/`--rows` work the
    same way they do for `library`/`member`/`package`, without a second
    bespoke implementation. What did not land alongside it: retiring
-   `-t`-as-package-limit for the settled `-n` contract, and `-S`/`--where`
+   `-t`-as-package-limit for the historical #4677 `-n` proposal, and `-S`/`--where`
    remain unwired. See
    [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing).
-3. **Product-owned nuspec facet contract — implemented in the current
-   sources.** `PackageQuery` composes `PackageProfileQuery` without package
-   payload acquisition, publishes stable ordered facet descriptors, validates
-   opaque selections, and streams matched package rows with product-authored
-   evidence and honest completion. `PackageQueryTests` and
+3. **Product-owned facet contract — implemented in the current sources.**
+   `PackageQuery` composes `PackageProfileQuery`, publishes stable ordered
+   facet descriptors, validates opaque selections, and streams matched package
+   rows with product-authored evidence and honest completion. Nuspec facets
+   need no package payload. Package-content facets require an explicit host
+   provider and at most 20 candidates. `PackageQueryTests` and
    `PackageQueryPlanner_IsReachableFromBrowserConsumer` are the named Release
    gates.
-4. **Retire `-t` for `-n` on `find --package-prefix`**, closing the gap step
-   2 left open, and **wire the product-owned nuspec facets into the CLI**,
-   preserving the filter-before-bound ordering from
+4. **Resolve the corpus-limit spelling under a focused CLI item-limit
+   owner**, closing the gap step 2 left open, and **wire the product-owned
+   nuspec facets into the CLI**, preserving the filter-before-bound ordering from
    [Completion and bound honesty parity](#completion-and-bound-honesty-parity-with-the-browser).
-   The slice must settle a CLI spelling and any product-owned bindings needed
-   to lower that spelling to opaque facet IDs without duplicating predicates.
-   Neither sub-goal has landed yet.
-5. **Add the promoted-tier capability gate and `--deepen`-bounded IL
+   The historical #4677 target proposed retiring `-t` for `-n`; the slice must
+   make its own CLI decision and settle any product-owned bindings needed to
+   lower the chosen spelling to opaque facet IDs without duplicating
+   predicates. Neither sub-goal has landed yet.
+5. **Define and wire the CLI capability gesture for package-content
+   facets**, preserving the product-owned candidate cap and visible failures.
+6. **Add the promoted-tier capability gate and `--deepen`-bounded IL
    evaluation**, including the L2 tier-gating error for an ungated
    promoted-tier field.
-6. **Define the shared save/resume file shape**, coordinated with whatever
+7. **Define the shared save/resume file shape**, coordinated with whatever
    the browser experience's local-storage record settles on when it is
    implemented.
 

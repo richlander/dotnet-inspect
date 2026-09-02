@@ -12,6 +12,7 @@ namespace ILInspector.Research.Tests;
 /// <see cref="MetadataSource"/> opened from a stream-backed <see cref="ResolvedAssemblyReference"/>
 /// with no path, and a caller-supplied <see cref="ResearchAssemblyContext"/>.
 /// </summary>
+[Collection(AnalysisIndexCacheCollection.Name)]
 public class ContentShapedMemberProjectionTests
 {
     [Fact]

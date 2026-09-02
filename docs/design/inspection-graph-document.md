@@ -355,6 +355,15 @@ actually used rather than accepting a caller assertion. Acquisition-aware call
 receipts make the document session-bound even when their logical endpoint
 subjects have portable detached identities.
 
+The Integration Census adapter uses graph subject variants that wrap its exact
+candidate-source, resolved-Type, and participant identities. Those variants
+remain session-bound even when the participant carries a realized coordinate:
+the admitted occurrence retains an
+`IntegrationCandidateAttemptAddress`, whose binding-context identity has no
+portable contract. This bridge preserves the Integration owner's currency
+without inventing an acquisition registration or treating display text as
+identity; it does not settle the deferred general portable Type-subject design.
+
 ### Nodes and groups
 
 Package and type are both subject kinds and grouping lenses.

@@ -70,16 +70,21 @@ by the package id's winning package-source-mapping pattern when mapping is
 enabled, and, for a discovered coordinate, reported the selected version. See the
 [package source model](package-source-model.md) for the end-to-end contract.
 
-A source is identified by a digest of its canonical URL, and canonicalization is
-shared with the credential scope's `IsSameEndpoint` rather than reimplemented, so
-one URL cannot mean two things in one tool. Scheme, host, default port,
-percent-escape casing, and an empty root path versus `/` fold because the URI
-grammar defines them as equivalent. Path and query case do not fold:
-`/FeedA` and `/feeda` can name different resources. Exactly one optional trailing
-path slash folds, while repeated trailing slashes and fragments remain distinct.
-The digest keeps source URLs out of cache paths and makes every identity a
-valid path segment. It is a path-safe identifier, not a security boundary;
-source authorization comes from the source policy, not from hiding cache keys.
+An HTTP source is identified by a digest of the canonical endpoint shared with
+the credential scope's `IsSameEndpoint`. Scheme, host, default port,
+percent-escape casing, and one optional trailing path slash fold; path and query
+case, repeated trailing slashes, and fragments remain distinct.
+
+A local source instead consumes the canonical path from
+[Local package source identity](local-package-source-identity.md). Path and
+`file://` spellings share one key, Windows path case folds, Unix path case does
+not, roots remain intact, and symbolic links are not resolved. The cache never
+reimplements those rules.
+
+The digest keeps endpoint and path text out of cache paths and makes every
+identity a valid path segment. It is a path-safe identifier, not a security
+boundary; source authorization comes from the source policy, not from hiding
+cache keys.
 
 ## Guarantees
 

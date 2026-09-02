@@ -174,6 +174,14 @@ The projection owns everything a host must not re-invent in JavaScript:
   `FindFocusCalleeRow` maps a physical call occurrence from the selected member
   to that stable logical edge row. Exact catalog call-site storage wins; the
   assembly-local fallback uses the same typed structural identity as projection.
+  `FindFocusCalleeTarget` returns an occurrence view of that row's target: it
+  keeps the logical node id and identity while restoring the physical call's
+  typed member and exact encoded assembly scope. A definition identity from a
+  collapsed node is withheld when the projection has no unambiguous terminal
+  resolution and it conflicts with the occurrence scope. The occurrence view
+  is not inserted into `Nodes`.
+  `FindCalleeTargetRestoresVersionDistinctOccurrenceIdentity` gates these
+  properties.
   `FindNode` likewise maps a `MethodIdentity` to a node, preferring exact
   definition evidence, including the exact definition that supplied body facts
   for a detached call-site occurrence, before the typed structural fallback
