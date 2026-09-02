@@ -10,6 +10,7 @@ using DotnetInspector.CommandLine;
 using DotnetInspector.Commands;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Options;
+using DotnetInspector.Packages;
 using DotnetInspector.Views;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -1272,6 +1273,120 @@ public sealed class MatchDiscoveryTests
     }
 
     [Fact]
+    public async Task Similar_ExactPackageReplayRetainsExplicitSourceAuthorityOffline()
+    {
+        string cacheDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"match-source-replay-{Guid.NewGuid():N}");
+        string packageName = $"Match.Source.Replay.{Guid.NewGuid():N}";
+        const string version = "1.0.0";
+        const string source = "https://private.invalid/v3/index.json";
+        string asset = $"lib/net10.0/{Path.GetFileName(TestAssembly)}";
+        string nupkg = Path.Combine(cacheDirectory, $"{packageName}.{version}.nupkg");
+        string staged = Path.Combine(cacheDirectory, "staged");
+        bool wasOffline = Core.HttpClientFactory.IsOffline;
+
+        Directory.CreateDirectory(cacheDirectory);
+        try
+        {
+            using (ZipArchive archive = ZipFile.Open(nupkg, ZipArchiveMode.Create))
+            {
+                archive.CreateEntryFromFile(TestAssembly, asset);
+                ZipArchiveEntry nuspec = archive.CreateEntry($"{packageName}.nuspec");
+                await using Stream stream = nuspec.Open();
+                await using var writer = new StreamWriter(stream);
+                await writer.WriteAsync(
+                    $"""
+                    <?xml version="1.0"?>
+                    <package>
+                      <metadata>
+                        <id>{packageName}</id>
+                        <version>{version}</version>
+                        <authors>dotnet-inspect tests</authors>
+                        <description>match replay fixture</description>
+                      </metadata>
+                    </package>
+                    """);
+            }
+
+            ZipFile.ExtractToDirectory(nupkg, staged);
+            Core.HttpClientFactory.Initialize(
+                new Core.HttpClientFactoryOptions { Offline = true });
+            Core.HttpClientFactory.ResetSharedForTesting();
+            NuGetCache.Initialize(
+                "dotnet-inspect-match-source-replay",
+                cacheDirectory,
+                skipNuGetCache: true);
+            NuGetCache.CommitPackage(
+                staged,
+                nupkg,
+                packageName,
+                version,
+                NuGetCache.GetSourceKey(source));
+
+            var sourceOptions = new NuGetSourceOptions { Sources = [source] };
+            var discovery = new MatchOptions
+            {
+                LeftSelector = SampleSeed,
+                PackagePath = $"{packageName}@{version}",
+                AssemblyPath = asset,
+                IncludeAll = true,
+                Similar = true,
+                JsonOutput = true,
+                SourceOptions = sourceOptions,
+            };
+
+            var (discoveryExit, output, discoveryError) = await RunAsync(discovery);
+
+            Assert.Equal(0, discoveryExit);
+            Assert.Empty(discoveryError);
+            Assert.Contains(
+                $"--package '{packageName}@{version}' --library '{asset}' --tfm 'net10.0' "
+                    + $"--source '{source}'",
+                Parse(output).GetProperty("disclosure").GetString());
+
+            MatchOptions replay = discovery with
+            {
+                LeftSelector = SampleSeed,
+                RightSelector = $"{typeof(MatchDiscoverySample).FullName}.ExactPeer",
+                Similar = false,
+                JsonOutput = false,
+            };
+            string[] replayArguments =
+            [
+                "match",
+                replay.LeftSelector!,
+                replay.RightSelector!,
+                "--package",
+                replay.PackagePath!,
+                "--library",
+                replay.AssemblyPath!,
+                "--tfm",
+                "net10.0",
+                "--all",
+            ];
+            var (withoutSourceExit, _, withoutSourceError) =
+                await RunCliAsync(replayArguments);
+            var (withSourceExit, _, withSourceError) =
+                await RunCliAsync([.. replayArguments, "--source", source]);
+
+            Assert.Equal(1, withoutSourceExit);
+            Assert.Contains("not available offline", withoutSourceError);
+            Assert.Equal(0, withSourceExit);
+            Assert.Empty(withSourceError);
+        }
+        finally
+        {
+            Core.HttpClientFactory.Initialize(
+                new Core.HttpClientFactoryOptions { Offline = wasOffline });
+            Core.HttpClientFactory.ResetSharedForTesting();
+            NuGetCache.Initialize("dotnet-inspect");
+            if (Directory.Exists(cacheDirectory))
+                Directory.Delete(cacheDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Similar_UnavailableForwardedSeed_ReportsTheTypedFailureAndTarget()
     {
         string directory = Path.Combine(
@@ -1610,6 +1725,82 @@ public sealed class MatchDiscoveryTests
             "--package '/packages/Fixture'\"'\"'s build.nupkg' "
                 + "--library 'lib/net10.0/Target'\"'\"'s build.dll' --tfm 'net10.0'",
             disclosure);
+    }
+
+    [Fact]
+    public void Disclosure_PackageReplayRetainsSourceSelection()
+    {
+        var request = new MatchDiscoveryRequest(
+            "A.Type.Member",
+            "A.Type",
+            "lib/net10.0/Target.dll",
+            new ILInspector.Analysis.StructuralCloneRetrievalLimits(1, 1),
+            null,
+            CandidatePackage: "Fixture@1.0.0",
+            CandidateTfm: "net10.0",
+            ReplaySources: new MatchDiscoveryReplaySources(
+                ["https://feed-a.invalid/v3/index.json"],
+                ["https://feed-b.invalid/v3/index.json"],
+                "/configs/NuGet Config"));
+
+        string disclosure = MatchDiscoveryFormatter.DisclosureFor(request);
+
+        Assert.Contains(
+            "--source 'https://feed-a.invalid/v3/index.json' "
+                + "--add-source 'https://feed-b.invalid/v3/index.json' "
+                + "--nugetconfig '/configs/NuGet Config'",
+            disclosure);
+    }
+
+    [Fact]
+    public void ReplaySources_RejectAValueThatDiagnosticsWouldRedact()
+    {
+        const string secret = "do-not-print";
+
+        bool accepted = MatchDiscovery.TryGetReplaySources(
+            new NuGetSourceOptions
+            {
+                Sources = [$"https://feed.invalid/v3/index.json?token={secret}"],
+            },
+            out MatchDiscoveryReplaySources? replaySources,
+            out string? error);
+
+        Assert.False(accepted);
+        Assert.Null(replaySources);
+        Assert.Contains("--source", error);
+        Assert.Contains("--nugetconfig", error);
+        Assert.DoesNotContain(secret, error);
+    }
+
+    [Theory]
+    [InlineData("http://localhost:5000")]
+    [InlineData("https://feed.test:443/v3/index.json")]
+    [InlineData("https://MyFeed.Test/v3/index.json")]
+    [InlineData("HTTPS://feed.test/v3/index.json")]
+    [InlineData("https://feed.test/my%20feed/index.json")]
+    public void ReplaySources_AcceptHarmlessUrlNormalization(string source)
+    {
+        bool accepted = MatchDiscovery.TryGetReplaySources(
+            new NuGetSourceOptions { Sources = [source] },
+            out MatchDiscoveryReplaySources? replaySources,
+            out string? error);
+
+        Assert.True(accepted, error);
+        Assert.Equal(source, Assert.Single(replaySources!.Sources));
+    }
+
+    [Fact]
+    public void ReplaySources_MakesTheConfigPathIndependentOfTheNextWorkingDirectory()
+    {
+        string relative = Path.Combine("config", "NuGet.Config");
+
+        bool accepted = MatchDiscovery.TryGetReplaySources(
+            new NuGetSourceOptions { ConfigFile = relative },
+            out MatchDiscoveryReplaySources? replaySources,
+            out string? error);
+
+        Assert.True(accepted, error);
+        Assert.Equal(Path.GetFullPath(relative), replaySources!.ConfigFile);
     }
 
     [Fact]

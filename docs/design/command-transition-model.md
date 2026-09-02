@@ -461,7 +461,20 @@ the resolved exact package coordinate, exact package-relative asset, and TFM.
 That includes the ordinary case where the package image is also the image the
 caller named: the original package spelling may float to another version, so it
 cannot be the replay address for a printed MethodDef token. The exact address
-survives package ranges and same-named assets in other TFMs. Package-coordinate
+survives package ranges and same-named assets in other TFMs. User-supplied
+`--source`, `--add-source`, and `--nugetconfig` selectors are part of that
+address because they authorize which cached producer may serve the package
+offline. Explicit config paths are made absolute so the next command does not
+reinterpret them against another working directory. A source value that the URL
+diagnostic policy would redact cannot be embedded in an executable disclosure;
+package-backed discovery rejects that transition and directs the caller to put
+the source in `nuget.config` instead of either omitting its authority or
+printing credential-bearing text
+(`Similar_ExactPackageReplayRetainsExplicitSourceAuthorityOffline`,
+`ReplaySources_RejectAValueThatDiagnosticsWouldRedact`,
+`ReplaySources_AcceptHarmlessUrlNormalization`,
+`ReplaySources_MakesTheConfigPathIndependentOfTheNextWorkingDirectory`).
+Package-coordinate
 replay and forwarded dependency discovery consult the same ordered
 global-packages-root inventory, so an active `NUGET_PACKAGES` override does not
 hide a retained target in the default secondary root

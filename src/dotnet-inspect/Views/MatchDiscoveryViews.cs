@@ -21,7 +21,13 @@ internal sealed record MatchDiscoveryRequest(
     int? Top,
     string? CandidatePackage = null,
     string? CandidateTfm = null,
-    string? ReplayLibrary = null);
+    string? ReplayLibrary = null,
+    MatchDiscoveryReplaySources? ReplaySources = null);
+
+internal sealed record MatchDiscoveryReplaySources(
+    ImmutableArray<string> Sources,
+    ImmutableArray<string> AdditionalSources,
+    string? ConfigFile);
 
 /// <summary>
 /// Token-to-display names for one candidate assembly, projected from the already-extracted
@@ -423,13 +429,32 @@ internal static class MatchDiscoveryFormatter
                     : Disclosure;
 
     static string ReplayOptions(MatchDiscoveryRequest request, string library)
-        => request.CandidatePackage is string candidatePackage
-            ? "--package " + ShellCommandText.Quote(candidatePackage)
-                + " --library " + ShellCommandText.Quote(library)
-                + (request.CandidateTfm is string candidateTfm
-                    ? " --tfm " + ShellCommandText.Quote(candidateTfm)
-                    : "")
-            : "--library " + ShellCommandText.Quote(library);
+    {
+        var options = new List<string>();
+        if (request.CandidatePackage is string candidatePackage)
+        {
+            options.Add("--package " + ShellCommandText.Quote(candidatePackage));
+            options.Add("--library " + ShellCommandText.Quote(library));
+            if (request.CandidateTfm is string candidateTfm)
+                options.Add("--tfm " + ShellCommandText.Quote(candidateTfm));
+
+            if (request.ReplaySources is { } sources)
+            {
+                options.AddRange(sources.Sources.Select(
+                    source => "--source " + ShellCommandText.Quote(source)));
+                options.AddRange(sources.AdditionalSources.Select(
+                    source => "--add-source " + ShellCommandText.Quote(source)));
+                if (sources.ConfigFile is string configFile)
+                    options.Add("--nugetconfig " + ShellCommandText.Quote(configFile));
+            }
+        }
+        else
+        {
+            options.Add("--library " + ShellCommandText.Quote(library));
+        }
+
+        return string.Join(' ', options);
+    }
 
     internal static (MatchDiscoveryView View, MatchDiscoveryDocument Document) BuildView(
         MatchDiscoveryRequest request,

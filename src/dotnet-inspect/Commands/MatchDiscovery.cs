@@ -7,6 +7,7 @@ using DotnetInspector.Services;
 using DotnetInspector.Views;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
+using InertText;
 using Markout;
 using NuGetFetch;
 
@@ -66,6 +67,17 @@ internal static class MatchDiscovery
         if (options.MaximumMethods is <= 0)
         {
             CommandError.Write("--max-methods must be greater than zero.");
+            return 1;
+        }
+
+        if (options.PackagePath is string packagePath
+            && !packagePath.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase)
+            && !TryGetReplaySources(
+                options.SourceOptions,
+                out _,
+                out string? replaySourceError))
+        {
+            CommandError.Write(replaySourceError!);
             return 1;
         }
 
@@ -169,6 +181,31 @@ internal static class MatchDiscovery
             // MethodDef token is a table row and names nothing outside its own image.
             ApiSurface namesSurface = populationSide?.Api ?? candidate.Api;
 
+            // Extraction and cache paths are implementation details, not stable CLI addresses.
+            // Preserve the exact package, asset, source authorization, and TFM needed to select
+            // this image again. A source URL that the diagnostic policy would alter cannot be
+            // embedded in an executable disclosure; direct the caller to a config-backed source
+            // before doing the expensive retrieval instead of printing a command that cannot
+            // replay or leaking a credential-bearing value.
+            ReplayableCandidateAddress candidateAddress =
+                GetReplayableCandidateAddress(
+                    seed.ReplayPackage,
+                    seed.PackageExtractPath,
+                    candidateImage);
+            bool disclosePackageReplay =
+                !tokensIndexCallerImage || seed.ReplayPackage is not null;
+            MatchDiscoveryReplaySources? replaySources = null;
+            if (disclosePackageReplay
+                && candidateAddress.Package is not null
+                && !TryGetReplaySources(
+                    options.SourceOptions,
+                    out replaySources,
+                    out string? replaySourceError))
+            {
+                CommandError.Write(replaySourceError!);
+                return 1;
+            }
+
             using var workspace = new InspectionWorkspace();
 
             // One image, guaranteed by the gate above, so one group serves both sides.
@@ -186,16 +223,6 @@ internal static class MatchDiscovery
             AssemblyContextStructuralCloneRetrievalResult result =
                 AssemblyContextStructuralCloneRetrievalQuery.Execute(input);
 
-            // Extraction and cache paths are implementation details, not stable CLI addresses.
-            // Preserve the exact package and asset identity needed to select this image again.
-            ReplayableCandidateAddress candidateAddress =
-                GetReplayableCandidateAddress(
-                    seed.ReplayPackage,
-                    seed.PackageExtractPath,
-                    candidateImage);
-            bool disclosePackageReplay =
-                !tokensIndexCallerImage || seed.ReplayPackage is not null;
-
             var view = MatchDiscoveryFormatter.BuildView(
                 new MatchDiscoveryRequest(
                     resolvedSeed.Display!,
@@ -205,7 +232,8 @@ internal static class MatchDiscovery
                     options.Top,
                     disclosePackageReplay ? candidateAddress.Package : null,
                     disclosePackageReplay ? candidateAddress.Tfm : null,
-                    candidateAddress.Library),
+                    candidateAddress.Library,
+                    replaySources),
                 result,
                 MatchDiscoveryNames.Build(namesSurface, candidateImage));
 
@@ -352,6 +380,82 @@ internal static class MatchDiscovery
         }
 
         return $"{packageName}@{packageVersion}";
+    }
+
+    internal static bool TryGetReplaySources(
+        NuGetSourceOptions? sourceOptions,
+        out MatchDiscoveryReplaySources? replaySources,
+        out string? error)
+    {
+        if (sourceOptions is null
+            || sourceOptions.Sources.Length == 0
+                && sourceOptions.AdditionalSources.Length == 0
+                && sourceOptions.ConfigFile is null)
+        {
+            replaySources = null;
+            error = null;
+            return true;
+        }
+
+        foreach ((string option, string[] values) in new[]
+        {
+            ("--source", sourceOptions.Sources),
+            ("--add-source", sourceOptions.AdditionalSources),
+        })
+        {
+            foreach (string value in values)
+            {
+                if (!CanDiscloseSource(value))
+                {
+                    replaySources = null;
+                    error =
+                        $"match --similar cannot disclose a replayable package command because "
+                            + $"{option} contains URL components that must be redacted. Configure "
+                            + "that source in a nuget.config file and pass --nugetconfig instead.";
+                    return false;
+                }
+            }
+        }
+
+        string? configFile = sourceOptions.ConfigFile is null
+            ? null
+            : Path.GetFullPath(sourceOptions.ConfigFile);
+        if (configFile is not null
+            && !InertString.IsPermitted(TextPolicy.Field, configFile))
+        {
+            replaySources = null;
+            error =
+                "match --similar cannot disclose a replayable package command because "
+                    + "--nugetconfig contains text that cannot be emitted losslessly. Rename the "
+                    + "config path before using it for package-backed discovery.";
+            return false;
+        }
+
+        replaySources = new MatchDiscoveryReplaySources(
+            [.. sourceOptions.Sources],
+            [.. sourceOptions.AdditionalSources],
+            configFile);
+        error = null;
+        return true;
+    }
+
+    static bool CanDiscloseSource(string value)
+    {
+        string baseline = value;
+        if (Uri.TryCreate(value, UriKind.Absolute, out Uri? uri)
+            && (uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                || uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+        {
+            // UrlRedaction and Uri may normalize harmless spelling differences such as host
+            // casing, a default port, or an omitted trailing slash. Compare two normalized
+            // spellings so only removed or encoded components make the source non-replayable.
+            baseline = uri.ToString();
+        }
+
+        return string.Equals(
+            UrlRedaction.ForDiagnostics(value).ToString(),
+            baseline,
+            StringComparison.Ordinal);
     }
 
     internal static MatchOptions ForPhysicalImageLoad(MatchOptions options)
