@@ -219,7 +219,7 @@ interface PageState {
   readonly lastResortConsole: OperationLastResortConsole;
   nextSequence: number;
   identityExhausted: boolean;
-  featureObserverActive: boolean;
+  featureObserverDepth: number;
 }
 
 interface OperationRecord<TValue, TError, TProgress> {
@@ -423,12 +423,11 @@ function publishFeature<TValue, TError, TProgress>(
   observer = session.featureObserver,
 ): boolean {
   if (observer === null) return false;
-  session.page.featureObserverActive = true;
+  session.page.featureObserverDepth++;
   try {
     observer.publish(event);
-    return true;
   } catch (error: unknown) {
-    session.page.featureObserverActive = false;
+    session.page.featureObserverDepth--;
     const failedOperationId = event.kind === "started" || event.kind === "replaced"
       ? event.operation.id
       : event.kind === "progress"
@@ -442,9 +441,9 @@ function publishFeature<TValue, TError, TProgress>(
         fault.cancellation.reason,
       );
     return false;
-  } finally {
-    session.page.featureObserverActive = false;
   }
+  session.page.featureObserverDepth--;
+  return true;
 }
 
 function createRecord<TValue, TError, TProgress>(
@@ -577,7 +576,7 @@ function cancelRecord<TValue, TError, TProgress>(
   record: OperationRecord<TValue, TError, TProgress>,
   reason: OperationCancelReason,
 ): OperationControlResult {
-  if (session.page.featureObserverActive)
+  if (session.page.featureObserverDepth > 0)
     return { kind: "rejected", reason: "feature-observer-active" };
   if (record.outcome !== null) return { kind: "no-op" };
 
@@ -628,7 +627,7 @@ function createPage(
     lastResortConsole: options.lastResortConsole ?? defaultLastResortConsole,
     nextSequence: 1,
     identityExhausted: false,
-    featureObserverActive: false,
+    featureObserverDepth: 0,
   };
 
   return {
@@ -646,7 +645,7 @@ function createPage(
 
       return {
         start: (input, adapter) => {
-          if (page.featureObserverActive) {
+          if (page.featureObserverDepth > 0) {
             return {
               kind: "rejected",
               reason: { kind: "feature-observer-active" },
@@ -750,14 +749,14 @@ function createPage(
           return { kind: "started", handle: candidate.handle };
         },
         cancelCurrent: reason => {
-          if (page.featureObserverActive)
+          if (page.featureObserverDepth > 0)
             return { kind: "rejected", reason: "feature-observer-active" };
           const current = session.current;
           if (current === null) return { kind: "no-op" };
           return cancelRecord(session, current, reason ?? "user");
         },
         dispose: () => {
-          if (page.featureObserverActive)
+          if (page.featureObserverDepth > 0)
             return { kind: "rejected", reason: "feature-observer-active" };
           if (session.disposed) return { kind: "no-op" };
 

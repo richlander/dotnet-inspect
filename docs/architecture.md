@@ -184,7 +184,7 @@ without referencing the CLI assembly.
 | Host | Place in flow | Role | Primary guide |
 | ---- | ------------- | ---- | ------------- |
 | `src/dotnet-inspect` | Product host | Complete command-line host, including source resolution, command orchestration, section selection, output models, and rendering. | [CLI host architecture](cli-architecture.md) |
-| `prototypes/inspect-web` | Product host | Browser/Wasm host and product UI over reusable engine and focused UI-control contracts. | [Inspect Web UI](design/inspect-web-ui.md) composition map, [SlideStrip](design/inspect-web-slide-strip.md) reusable control; target [operation authority](design/inspect-web-operation-authority.md) |
+| `prototypes/inspect-web` | Product host | Browser/Wasm host and product UI over reusable engine and focused UI-control contracts. | [Inspect Web UI](design/inspect-web-ui.md) composition map, [SlideStrip](design/inspect-web-slide-strip.md) reusable control, [operation authority](design/inspect-web-operation-authority.md) |
 | `tools/DecompilerHarness` | Correctness harness | Decompiler correctness, compile-back, corpus, and independent-oracle orchestration. | [Decompiler correctness pipeline](decompiler-correctness-pipeline.md) |
 | Focused apps and fixtures | Boundary canary | Narrow executable consumers that prove a reusable boundary without becoming product owners. | Their local README or owning design |
 

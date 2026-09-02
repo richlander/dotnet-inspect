@@ -922,6 +922,49 @@ for (const eventKind of [
   });
 }
 
+test("nested producer publication preserves the outer feature guard", async () => {
+  const page = createOperationAuthorityPage(deterministicOptions());
+  const replacement = producer();
+  const activeProducer = producer();
+  let harness: SessionHarness;
+  let handle: TestHandle;
+  let startResult: TestStartResult | undefined;
+  let handleResult: OperationControlResult | undefined;
+  let currentResult: OperationControlResult | undefined;
+  let disposeResult: OperationControlResult | undefined;
+  harness = sessionHarness(page, event => {
+    if (event.kind === "progress" && event.progress.value === 1) {
+      activeProducer.attempts[0]?.sink.reportProgress(2);
+      startResult = harness.session.start("replacement", replacement.adapter);
+      handleResult = handle.cancel();
+      currentResult = harness.session.cancelCurrent();
+      disposeResult = harness.session.dispose();
+    }
+    return undefined;
+  });
+  handle = started(harness.session.start("first", activeProducer.adapter));
+
+  activeProducer.attempts[0]?.sink.reportProgress(1);
+
+  assert.deepEqual(rejected(startResult ?? {
+    kind: "started",
+    handle,
+  }), { kind: "feature-observer-active" });
+  const expectedControlResult = {
+    kind: "rejected",
+    reason: "feature-observer-active",
+  };
+  assert.deepEqual(handleResult, expectedControlResult);
+  assert.deepEqual(currentResult, expectedControlResult);
+  assert.deepEqual(disposeResult, expectedControlResult);
+  assert.deepEqual(
+    harness.events.map(event => event.kind),
+    ["started", "progress", "progress"],
+  );
+  assert.equal(replacement.attempts.length, 0);
+  assert.equal(await promiseSettled(handle.outcome), false);
+});
+
 interface ThrowingFeatureResult {
   readonly handle: TestHandle | null;
   readonly priorHandle: TestHandle | null;
