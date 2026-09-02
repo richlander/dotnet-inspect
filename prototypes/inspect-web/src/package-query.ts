@@ -20,8 +20,8 @@ export interface QueryFacetTerm {
   displayGroupLabel?: string | null;
 }
 
-export const DEFAULT_QUERY_CANDIDATE_LIMIT = 200;
-export const PACKAGE_CONTENT_QUERY_CANDIDATE_LIMIT = 20;
+const DEFAULT_QUERY_CANDIDATE_LIMIT = 200;
+const PACKAGE_CONTENT_QUERY_CANDIDATE_LIMIT = 20;
 
 /** One rerunnable in-memory request. Never encodes a resolved outcome. */
 export interface QueryRequest {
