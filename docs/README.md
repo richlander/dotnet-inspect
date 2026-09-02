@@ -36,7 +36,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Architecture](architecture.md) | Current host-neutral composition, logical layers, project regions, currencies, and code-navigation map. |
 | [CLI Host Architecture](cli-architecture.md) | CLI command-host responsibilities, request lifetime, selection, and presentation composition. |
 | [CLI Change Classification and Obsolete Inputs](design/cli-change-classification.md) | Published CLI surfaces, observable change classification, disclosure, invalid-input guards, and routing reservations. |
-| [Repository xUnit Test Host](design/xunit-test-host.md) | Explicit-selection non-vacuity for the delegated xUnit argument vector while preserving xUnit-owned discovery, execution, reporting, and server dispatch. |
+| [Repository xUnit Test Host](design/xunit-test-host.md) | Microsoft Testing Platform execution and aggregate non-vacuity for repository xUnit executables. |
 | [Repository CI Change Plan](design/ci-change-plan.md) | Typed candidate provenance, exact changed-path interpretation, immutable CI validation selection, scoped evidence, and visible planner refusal. |
 | [LLM Design](llm-design.md) | Current agent-facing output and workflow design. |
 | [Progressive Disclosure](design/progressive-disclosure.md) | Current model for base/domain scope, discovery budgets, `-D`/`-S`, capabilities, counts, and row limits. |
@@ -107,6 +107,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Inspect-web Async Composition](design/inspect-web-async-composition.md) | Cross-owner scenarios, typed handoff order, runtime-semantics comparison, gate ownership, and focused migration dependencies. |
 | [Inspect Web UI](design/inspect-web-ui.md) | Composition map for the website redesign: redesign summary, product dependencies, document map, cross-document relationships, and reference-product boundary. |
 | [Inspect Web Presentation Language](design/inspect-web-presentation-language.md) | Reusable visual and accessibility language: selector-control states, progressive filter disclosure, shared subject-heading rules, and compact source-provenance presentation. |
+| [Inspect Web SlideStrip](design/inspect-web-slide-strip.md) | Reusable single-region ordered-item control with Label, optional Short Label and Icon, derived Index, whole-strip modes, contiguous windows, edge disclosure, and focus preservation. |
 | [Inspect Web Navigation Presentation](design/inspect-web-navigation-presentation.md) | Rendering and interacting with product-issued coordinate, workspace, subject, hierarchy, Library, lens, and activation descriptors. |
 | [Inspect Web Navigation Consumer](design/inspect-web-navigation-consumer.md) | Browser-side navigation-result consumer model: canonical location, browser history, transition lifecycle, effect authority, synchronization debt, and renderer/destination lifetimes. |
 | [Inspect Web Shell Interaction](design/inspect-web-shell-interaction.md) | Persistent shell and shared transient/routed surface interaction: shell actions, menu/modal semantics, Spotlight Search, Open, Settings entry, and the command palette. |
