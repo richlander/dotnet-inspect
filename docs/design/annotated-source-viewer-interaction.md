@@ -10,8 +10,10 @@ This document owns the viewer's disclosure, action vocabulary, selection,
 annotation, media, detail, Escape, and focus behavior. It consumes rather than
 redefines:
 
-- the modal lifecycle, shell composition, browser history, and destination
-  focus rules in [Inspect Web UI](inspect-web-ui.md);
+- the modal lifecycle and shell composition in
+  [Inspect Web Shell Interaction](inspect-web-shell-interaction.md), and
+  browser history and destination-focus rules in
+  [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md);
 - the annotated document, supported-media set, Finding, target, node, and
   coordinate contracts produced by the product;
 - canonical view and packet state from
@@ -26,11 +28,14 @@ The modal's open state, local selection, annotation choices, presentation
 choices, and detail are transient viewer state. This document does not add
 them to browser history, workspace definitions, or share packets.
 
-This effort makes one bounded responsibility transfer from Inspect Web UI:
+This effort makes one bounded responsibility transfer from
+[Inspect Web Shell Interaction](inspect-web-shell-interaction.md):
 viewer-local transient layers get the first opportunity to consume Escape in
-the Annotated Source modal. The viewer reports whether it consumed the gesture;
-the shell retains modal dismissal, history composition, and destination focus.
-No other modal receives this exception from this design.
+the Annotated Source modal. The viewer reports whether it consumed the
+gesture; Shell Interaction retains modal dismissal, while
+[Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) retains
+history composition and destination focus. No other modal receives this
+exception from this design.
 
 ## Experience
 
@@ -42,8 +47,9 @@ of disclosure:
    entering the modal. **Explore** opens the modal viewer.
 2. The **modal viewer** adds IL, offsets, annotation controls, source-node
    selection, a persistent inspector, and explicit destination actions. It is
-   the full-bleed modal defined by Inspect Web UI, not a durable workspace
-   lens.
+   the full-bleed modal defined by
+   [Inspect Web Shell Interaction](inspect-web-shell-interaction.md), not a
+   durable workspace lens.
 
 Every gesture belongs to one stage:
 
@@ -162,10 +168,13 @@ detail, and leaves the embedded reader at its fixed presentation. A later
 **Explore** starts fresh; it does not resurrect the dismissed modal's
 annotation, media, coordinate, node, or detail state.
 
-The modal is opened and dismissed through the Inspect Web UI owner. Those
+The modal is opened and dismissed through
+[Inspect Web Shell Interaction](inspect-web-shell-interaction.md). Those
 operations do not push or replace browser-history entries. Ordinary dismissal
 returns focus to the stable **Explore** control. Browser Back or Forward first
-dismisses the modal and then lets the shell perform history navigation.
+dismisses the modal and then
+[Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) performs
+the history navigation.
 
 ## Annotation sets
 
@@ -306,11 +315,13 @@ Pointer activation of **Close** may dismiss the whole modal even while detail
 is open. It is not the keyboard Escape transition. The shell then restores
 focus to **Explore**.
 
-Focus is trapped inside the open modal by Inspect Web UI. Successful
-destination navigation closes the modal and lets the destination/history
-owner focus the destination. Presentation, synchronization, announcements, and
-focus for every non-applied navigation outcome remain governed by Inspect Web
-UI. Superseded work produces no viewer effect. Addressable source spans carry
+Focus is trapped inside the open modal by
+[Inspect Web Shell Interaction](inspect-web-shell-interaction.md). Successful
+destination navigation closes the modal and lets
+[Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) focus
+the destination. Presentation, synchronization, announcements, and focus for
+every non-applied navigation outcome remain governed by Navigation Consumer.
+Superseded work produces no viewer effect. Addressable source spans carry
 stable DOM identities so a shell rerender that preserves the current member
 also preserves source focus rather than leaving focus outside the modal.
 
@@ -359,8 +370,9 @@ construction:
 - [#4717](https://github.com/richlander/dotnet-inspect/issues/4717) owns
   Research composition of member/Facts projections and destination
   capabilities.
-- [#4787](https://github.com/richlander/dotnet-inspect/issues/4787) owns
-  canonical workspace restoration and any future portable view fields.
+- [Workspace Definitions](workspace-definitions.md) owns canonical workspace
+  restoration and any future portable view fields, with implementation tracked
+  by [#4787](https://github.com/richlander/dotnet-inspect/issues/4787).
 - [#4852](https://github.com/richlander/dotnet-inspect/issues/4852) owns
   complete declaration representability.
 
