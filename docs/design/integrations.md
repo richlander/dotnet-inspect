@@ -409,8 +409,10 @@ execution is implemented by `IntegrationCensusExecutor`, which consumes exact
 Workspace-issued capability bindings, validates their correspondence before
 producer execution, runs producer policies sequentially, binds and resolves
 complete context-local candidate batches, and constructs the immutable
-snapshot. Inventory, graph correspondence, matrix projection, and their
-remaining gates are still target design.
+snapshot. The Inventory row projection, graph correspondence projection, and
+sparse matrix projection are implemented and verified by their named gates
+below. The remaining candidate edge cases, CLI lowering, shared host receipt
+and parity, and WASM demo are still target design.
 
 The Census is one Integration analysis over one finite universe. It is not a
 loop that runs the existing Library-targeted question once per participant.
@@ -426,7 +428,7 @@ The Integration analysis descriptor consumes the request topology from
 | Report surface | One owner-issued Workspace identity in a report-domain-only target role |
 | Universe | One finite owner-issued population of acquired Type evidence with participant outcomes and provenance |
 | Mode | `Census` |
-| Projection | Candidate rows, sparse library-by-concept matrix, or Integration graph |
+| Projection | Candidate rows, sparse participant/context-by-Integration matrix, or Integration graph |
 
 The descriptor declares these combinations before producer execution.
 Existing Targeted Library behavior and graph-supported Member and Type anchors
