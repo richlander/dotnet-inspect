@@ -1293,7 +1293,82 @@ public static class CSharpStructuralDiffPrinter
         return -1;
     }
 
-    static ImmutableArray<string> SplitTopLevelArguments(string argsText)
+    /// <summary>
+    /// If <paramref name="text"/>[<paramref name="lessThanIndex"/>] opens
+    /// what looks like a generic type-argument list (e.g. <c>Bar&lt;A, B&gt;</c>
+    /// or <c>Dictionary&lt;string, List&lt;int&gt;&gt;</c>), returns the index
+    /// of its matching closing <c>&gt;</c>. Used by
+    /// <see cref="SplitTopLevelArguments"/> and
+    /// <see cref="TryFindArgumentSpan"/> so a comma nested inside a generic
+    /// type-argument list (itself nested inside a call argument, e.g.
+    /// <c>Foo(Bar&lt;A,B&gt;())</c>) is never mistaken for a top-level
+    /// argument separator (issue #5494).
+    ///
+    /// This is a best-effort textual heuristic, not a parser: it accepts
+    /// only characters that can appear in a type-argument list (identifier
+    /// characters -- including supplementary-plane Unicode identifier
+    /// characters encoded as UTF-16 surrogate pairs -- the <c>@</c>
+    /// verbatim-identifier escape prefix (e.g. <c>@event</c>), <c>.</c>,
+    /// <c>,</c>, whitespace, nested <c>&lt;&gt;</c>, and array-suffix
+    /// <c>[]</c>) and bails (returns <c>false</c>) the
+    /// moment it sees anything else -- a parenthesis, brace, quote,
+    /// semicolon, or an arithmetic/comparison/logical operator -- treating
+    /// the opening <c>&lt;</c> as an ordinary character (e.g. a
+    /// less-than/greater-than comparison such as <c>a &lt; b</c>), exactly
+    /// as before this method existed. A comparison chain that happens to
+    /// contain a second, unrelated <c>&gt;</c> before any disqualifying
+    /// character (e.g. <c>a &lt; b, c &gt; d</c>) can still be misread as a
+    /// generic argument list; full disambiguation requires a real C# parser
+    /// and is out of scope here (see #5494).
+    /// </summary>
+    static bool TryFindGenericArgumentListEnd(string text, int lessThanIndex, out int closeIndex)
+    {
+        closeIndex = -1;
+        int depth = 1;
+        for (int index = lessThanIndex + 1; index < text.Length; index++)
+        {
+            char character = text[index];
+            if (character == '<') { depth++; continue; }
+            if (character == '>')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    closeIndex = index;
+                    return true;
+                }
+                continue;
+            }
+            if (character is '_' or '.' or ',' or '[' or ']' or '@'
+                || char.IsWhiteSpace(character))
+            {
+                continue;
+            }
+            if (char.IsHighSurrogate(character)
+                && index + 1 < text.Length
+                && char.IsLowSurrogate(text[index + 1]))
+            {
+                // A supplementary-plane identifier character (e.g. a
+                // mathematical alphanumeric symbol) is a single Unicode
+                // scalar value encoded as a UTF-16 surrogate pair; scan it
+                // as one Rune rather than rejecting on the lone high
+                // surrogate `char`.
+                var rune = new System.Text.Rune(character, text[index + 1]);
+                if (IsIdentifierPartRune(rune))
+                {
+                    index++;
+                    continue;
+                }
+                return false;
+            }
+            if (!char.IsSurrogate(character) && IsIdentifierPartRune(new System.Text.Rune(character)))
+                continue;
+            return false;
+        }
+        return false;
+    }
+
+    internal static ImmutableArray<string> SplitTopLevelArguments(string argsText)
     {
         if (argsText.Trim().Length == 0)
             return [];
@@ -1320,6 +1395,24 @@ public static class CSharpStructuralDiffPrinter
             }
             if (character == '"') { inString = true; continue; }
             if (character == '\'') { inChar = true; continue; }
+            if (character == '<')
+            {
+                // `<<` is always the shift-left operator, never two adjacent
+                // generic-argument-list opens (a real nested open always has
+                // an identifier between successive `<` characters, e.g.
+                // `Foo<Bar<Baz>>`). Skip both characters so the second `<`
+                // is never independently reconsidered as its own opener.
+                if (index + 1 < argsText.Length && argsText[index + 1] == '<')
+                {
+                    index++;
+                    continue;
+                }
+                if (TryFindGenericArgumentListEnd(argsText, index, out int genericClose))
+                {
+                    index = genericClose;
+                    continue;
+                }
+            }
             if (character is '(' or '[' or '{') depth++;
             else if (character is ')' or ']' or '}') depth--;
             else if (character == ',' && depth == 0)
@@ -1382,6 +1475,22 @@ public static class CSharpStructuralDiffPrinter
             }
             if (character == '"') { inString = true; continue; }
             if (character == '\'') { inChar = true; continue; }
+            if (character == '<')
+            {
+                // See the matching comment in SplitTopLevelArguments: `<<`
+                // is always the shift-left operator, never two adjacent
+                // generic-argument-list opens.
+                if (index + 1 < argsText.Length && argsText[index + 1] == '<')
+                {
+                    index++;
+                    continue;
+                }
+                if (TryFindGenericArgumentListEnd(argsText, index, out int genericClose))
+                {
+                    index = genericClose;
+                    continue;
+                }
+            }
             if (character is '(' or '[' or '{') { depth++; continue; }
             if (character is ')' or ']' or '}') { depth--; continue; }
             if (character != ',' || depth != 0)
