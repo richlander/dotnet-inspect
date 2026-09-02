@@ -861,7 +861,7 @@ test("type PDB source renders code above provenance once loaded", () => {
   assert.match(html, /SourceLink/);
   assert.match(
     html,
-    /<pre[^>]*aria-label="Source code"[\s\S]*class JsonSerializer \{\}[\s\S]*<\/pre>[\s\S]*<footer class="source-provenance">/);
+    /<pre[^>]*role="region"[^>]*aria-label="Source code"[\s\S]*class JsonSerializer \{\}[\s\S]*<\/pre>[\s\S]*<footer class="source-provenance">/);
   assert.doesNotMatch(html, /copy-type-source|open source/);
 });
 

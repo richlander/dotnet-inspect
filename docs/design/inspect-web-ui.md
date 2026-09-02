@@ -111,16 +111,18 @@ owns the SSS composition's two tablists, different styling and navigation,
 inspector-first width allocation, boundary controls, and subject-driven
 inspector replacement.
 
-Moving application and contextual actions out of the subject row remains
-required product direction, but it is not part of this focused pattern and
-first-adopter contract. Surface Composition changes are limited to deferring
-its stale inspector representation, horizontal-movement, pressure-trigger, and
-matching acceptance restatements to Navigation Presentation. Shell Interaction
-and Surface Composition retain their current application-action contracts until
-[#5482](https://github.com/richlander/dotnet-inspect/issues/5482) defines the
-shell-owned application control and
-[#5483](https://github.com/richlander/dotnet-inspect/issues/5483) relocates it
-and the contextual actions at the page-composition layer.
+Moving the application-action region out of the subject row remains required
+product direction, but it is not part of this focused pattern and first-adopter
+contract. Source and Annotated Source may already place their contextual
+actions in the current page-owned region. Surface Composition changes are
+otherwise limited to deferring its stale inspector representation,
+horizontal-movement, pressure-trigger, and matching acceptance restatements to
+Navigation Presentation. Shell Interaction owns the application control
+defined by
+[#5482](https://github.com/richlander/dotnet-inspect/issues/5482);
+[#5483](https://github.com/richlander/dotnet-inspect/issues/5483) relocates the
+region and its contextual actions at the page-composition layer without
+changing those action inventories.
 
 ## Cross-document relationships
 

@@ -943,8 +943,9 @@ kbd {
 .source-provenance { display: flex; align-items: center; gap: 12px; min-width: 0; min-height: 35px; padding: 7px 12px; border-top: 1px solid var(--line); background: var(--panel); }
 .source-provenance strong { color: var(--green); font: 13px var(--mono); }
 .source-provenance span { min-width: 0; color: var(--dim); font: 12px var(--mono); }
-.source-provenance > span:first-of-type { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-provenance > span { flex: 1 1 0%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .source-provenance .graph-source-status { padding: 0; }
+.source-provenance a { color: var(--blue); font: 12px var(--mono); text-decoration: none; }
 .source-result pre { min-width: 0; min-height: 0; max-width: 100%; margin: 0; padding: 18px; overflow: auto; border: 0; background: var(--code-bg); }
 .source-result pre code { color: var(--code-text); font: 14px/1.65 var(--mono); }
 .source-result .token.comment { color: #6f7669; font-style: italic; }

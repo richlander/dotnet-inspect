@@ -1030,6 +1030,9 @@ test("Source fills the detail area between shell actions and bottom provenance",
     await expect(page.locator("#copy-source")).toBeVisible();
     await expect(page.locator(".shell-action-link")).toHaveText("Open");
     await expect(page.locator("#inspector-panel > h1")).toHaveCount(0);
+    await expect(
+      page.getByRole("region", { name: "Source code" }),
+    ).toBeVisible();
 
     const inspector = await box(page, "#inspector-panel");
     const source = await box(page, ".source-result");
@@ -1043,6 +1046,25 @@ test("Source fills the detail area between shell actions and bottom provenance",
     expect(code.y + code.height).toBeLessThanOrEqual(provenance.y + 1);
     expect(provenance.y + provenance.height)
       .toBeCloseTo(source.y + source.height, 0);
+    expect(await page.evaluate(() =>
+      document.documentElement.scrollWidth
+      - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+  }
+
+  for (const width of [1440, 1120, 600, 400]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(
+      "/browser/workspace-titlebar.html?member=1&source=1&limitation=1");
+
+    const provenance = await box(
+      page,
+      ".source-provenance > span:first-of-type");
+    const limitation = await box(
+      page,
+      ".source-provenance > .graph-source-status");
+    expect(provenance.width).toBeGreaterThan(16);
+    expect(limitation.width).toBeGreaterThan(16);
+    expect(provenance.width).toBeCloseTo(limitation.width, 0);
     expect(await page.evaluate(() =>
       document.documentElement.scrollWidth
       - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);

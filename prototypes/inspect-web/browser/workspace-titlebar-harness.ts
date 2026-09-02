@@ -52,6 +52,7 @@ const memberMode = params.has("member");
 const emptyMode = params.has("empty");
 const annotatedMode = params.has("annotated");
 const sourceMode = params.has("source");
+const limitationMode = params.has("limitation");
 const longMode = params.has("long");
 const defaultPackageIcon =
   "https://nuget.org/Content/gallery/img/default-package-icon-256x256.png";
@@ -131,9 +132,14 @@ let activePackageLens: PackageLens = "overview";
 let activeTypeLens: TypeLens = sourceMode ? "source" : "api";
 let activeMemberSection: MemberSection = sourceMode ? "source" : "overview";
 const source = {
-  provider: "pdb",
-  provenance: "SourceLink · github.com/dotnet/runtime",
+  provider: limitationMode ? "decompiled" : "pdb",
+  provenance: limitationMode
+    ? "dotnet-inspect from System.Text.Json 10.0.0 lib/net10.0/System.Text.Json.dll"
+    : "SourceLink · github.com/dotnet/runtime",
   url: "https://github.com/dotnet/runtime",
+  pdbSourceLimitation: limitationMode
+    ? "The selected type's primary source document is not uniquely identified in the portable PDB."
+    : null,
   text: `public static object? DeserializeSync(string json)
 {
     return JsonSerializer.Deserialize(json, typeof(object));

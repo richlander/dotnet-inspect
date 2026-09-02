@@ -133,20 +133,28 @@ summary, centered maximum-width column, or inset source card.
 Their layout is:
 
 ```text
-Types or Members | PDB Source                    open source   copy
-                 | source content
+Application actions                                      Copy   Open
+Types or Members | source content
+                 | source provenance
 
-Types or Members | selected subject                         Copy   Explore
-                 | annotated source content
+Application actions                                   Copy   Explore
+Types or Members | annotated source content
                  | product provenance
 ```
 
-Source retains its compact provenance/action row. Annotated Source gives the
-page-owned inspection-command row its contextual actions and keeps provenance
-as a compact footer attached to the source pane. It does not add another
-visible title or presentation summary inside the pane. The navigation pane and
-source content may scroll independently. Collapsing navigation gives the
-working surface the full viewport width.
+Source and Annotated Source give the page-owned application-action region
+their contextual actions. Source keeps compact provenance as a footer attached
+to the source pane; Annotated Source keeps product provenance in the same
+position. Neither adds another visible title or presentation summary inside
+the pane. The navigation pane and source content may scroll independently.
+Collapsing navigation gives the working surface the full viewport width.
+
+The application-action region still occupies the current shell location during
+the staged redesign. Moving that region out of the subject row remains the
+separate page-composition work tracked by
+[#5483](https://github.com/richlander/dotnet-inspect/issues/5483); that move
+does not change Source action ownership or return the actions to the source
+content.
 
 Annotated Source appears inline by default and may open the full-bleed modal
 viewer governed by the shared transient-surface contract. This document owns
@@ -333,8 +341,9 @@ with the absence of a synthesized `Default feed` control.
 ### Source working surface
 
 1. Open Type Source with Type navigation visible.
-2. Confirm that the source pane uses all remaining width and begins with only
-   compact provenance and actions.
+2. Confirm that the source pane uses all remaining width, Copy and optional
+   Open appear in the application-action region, source content begins at the
+   top of the pane, and compact provenance remains attached to its bottom.
 3. Collapse Type navigation and confirm that source content expands to the full
    viewport width.
 4. Open PDB Source and confirm that no Decompiler style control appears.

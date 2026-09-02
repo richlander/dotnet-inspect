@@ -607,7 +607,7 @@ export interface RenderSourceResultOptions {
 export function renderSourceResult(options: RenderSourceResultOptions): string {
   const { source, escapeHtml, highlightCSharp } = options;
   return `<section class="source-result" aria-label="Source">
-      <pre class="language-csharp" tabindex="0" aria-label="Source code"><code class="language-csharp">${highlightCSharp(source.text)}</code></pre>
+      <pre class="language-csharp" role="region" tabindex="0" aria-label="Source code"><code class="language-csharp">${highlightCSharp(source.text)}</code></pre>
       <footer class="source-provenance"><strong>${source.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span>${escapeHtml(source.provenance)}</span>${pdbSourceLimitationHtml(source)}</footer>
     </section>`;
 }

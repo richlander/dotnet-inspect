@@ -252,20 +252,25 @@ detail, not the selected subject or its display identity.
 
 ## Source provenance
 
-Successful source provenance is presented as a compact status and action row,
-not as an explanation of the product's safety mechanisms. This rule applies to
-type, member, and graph source surfaces.
+Successful source provenance is presented as compact status, not as an
+explanation of the product's safety mechanisms. This vocabulary applies to
+type, member, and graph source surfaces; page-level placement and related
+action placement remain with their owning surfaces.
 
-The placement of that row relative to Source or Annotated Source content is
-owned by
+For type and member Source, the placement of provenance relative to content and
+the placement of Copy and optional Open are owned by
 [Inspect Web Surface Composition](inspect-web-surface-composition.md#source-and-annotated-source).
+Graph Source retains its modal-local composition.
 
 For checksum-verified source resolved through PDB information, the visible
 status is compact:
 
 ```text
-PDB Source                                      open source   copy
-PDB Source                                                    copy
+Application actions                                  Copy   Open
+PDB Source                                      compact provenance
+
+Application actions                                         Copy
+PDB Source                                      compact provenance
 ```
 
 `PDB Source` implies that the source satisfied the product's PDB checksum
@@ -274,12 +279,12 @@ SourceLink transport, repository URL, or commit hash in explanatory prose.
 Those facts remain part of the product result; they do not need to occupy the
 source viewport.
 
-The `open source` action appears only when the product result supplies an
+The `Open` action appears only when the product result supplies an
 optional producer-authorized browse URL. A raw resolved or fetch URL and
 provenance prose do not establish that authorization, and the UI does not parse
 prose to infer it. The action uses plain text with no trailing arrow or
 external-link glyph. Its accessible name may state that it opens a new browser
-tab. The `copy` action remains available with or without a browse URL.
+tab. The `Copy` action remains available with or without a browse URL.
 
 `Decompiled source` remains the concise status for product-generated source.
 If a PDB source attempt failed and the product returned a meaningful limitation
