@@ -72,8 +72,9 @@ numbers, abbreviations, or icons.
 
 An adopter supplies one strip-level representation policy. The policy defines:
 
-- the preferred-to-minimum representation order, including the required full
-  label exactly once and any available subset of short label and icon;
+- the preferred-to-minimum representation order, beginning with the required
+  full label exactly once and followed by any available subset of short label
+  and icon;
 - a deterministic promotion order over each item's available
   representation-to-representation transitions;
 - the desired presentation state: minimum, maximum, or one retained finite
@@ -82,11 +83,12 @@ An adopter supplies one strip-level representation policy. The policy defines:
 - the normal interactive sizing that every representation must retain.
 
 A common policy is `label -> short label -> icon`, but the control does not
-make that sequence universal. A text-only strip may use
+require every compact representation. A text-only strip may use
 `label -> short label`; an icon-free item may retain its short label as its
-minimum representation. Because every valid policy includes the required full
-label, filtering unavailable optional representations always leaves at least
-one representation for every item.
+minimum representation. Because every valid policy begins with the required
+full label, filtering unavailable optional representations and removing
+less-preferred dominated forms always leaves at least one representation for
+every item.
 
 Before constructing states, the control removes a dominated representation:
 one that is less preferred but no narrower than an available more-preferred

@@ -168,10 +168,10 @@ its presentation-priority origin at that item's minimum representation.
 1. When both strips' preferred states fit, they consume natural width and the
    allocation controls are absent.
 2. Outside terminal pressure, the composite reserves both allocation controls
-   and the inspector strip's anchor minimum width. The default subject
-   allocation is the lesser of its complete minimum-state width and the width
-   left after that reservation. The inspector strip receives the remainder and
-   requests its maximum presentation state. Either strip enters its own
+   and both strips' anchor minimum widths. The inspector-first allocation gives
+   the subject strip exactly its anchor minimum width and gives the inspector
+   strip the remainder. This leaves every richer subject threshold reachable
+   when it can preserve the inspector anchor. Either strip enters its own
    overflow-minimum mode when its complete minimum state does not fit.
 3. `Show more subjects` moves the boundary to the subject strip's next richer
    presentation threshold. `Show more inspectors` returns it to the previous
@@ -195,8 +195,10 @@ its presentation-priority origin at that item's minimum representation.
 
 An empty inspector inventory omits the inspector strip and both allocation
 controls. The subject strip then receives the composite's complete width and
-requests its maximum desired state. The subject inventory is never empty
-because Workspace remains its presentation-owned root entry.
+requests its maximum desired state. In every allocation regime, both non-empty
+strips supply maximum as their SlideStrip desired presentation state and render
+the richest prefix their assigned width admits. The subject inventory is never
+empty because Workspace remains its presentation-owned root entry.
 
 At the inspector-first allocation, when the inspector viewport can fit two
 full labels while retaining every remaining item at its minimum
@@ -211,15 +213,15 @@ arrows are only direction cues. Allocation changes do not alter subject or
 inspector identity, order, availability, activation, selection, or keyboard
 behavior.
 
-The retained subject allocation is presentation-local desired state. SSS uses
-the active subject identity and ordered inspector identity sequence as the
-subject strip's presentation-continuity key. Selection changes, asynchronous
-shell replacement, and resize retain the desired ordinal while that key is
-unchanged; a new subject or changed inspector sequence resets to
-inspector-first. Capacity or terminal pressure may temporarily clamp the
-rendered allocation without discarding the retained request. The state is
-absent from workspace packets, Share URLs, browser history, and product
-navigation results.
+The retained subject allocation is composite-local boundary state, distinct
+from either strip's SlideStrip desired presentation state. SSS uses the active
+subject identity and ordered inspector identity sequence as its
+allocation-continuity key. Selection changes, asynchronous shell replacement,
+and resize retain the boundary ordinal while that key is unchanged; a new
+subject or changed inspector sequence resets to inspector-first. Capacity or
+terminal pressure may temporarily clamp the rendered allocation without
+discarding the retained request. The state is absent from workspace packets,
+Share URLs, browser history, and product navigation results.
 
 The subject tablist uses one tab stop and manual activation. Left and Right
 Arrow move focus through rendered subjects, Home and End move to the first and
@@ -230,15 +232,20 @@ lens semantics below. Allocation-button activation changes only allocation and
 focus remains on the button. Any sliding animation preserves the focused
 element and is omitted when reduced motion is requested.
 
-Whenever any installed presentation removes an allocation control that owns
-focus, the composite transfers focus before removal. This includes transitions
-to all-preferred or terminal pressure and removal caused by an empty inspector
-inventory, whether resize, label replacement, or inventory replacement caused
-the transition. `Show more subjects` moves focus and the subject tablist's sole
-roving tab stop to its active tab; `Show more inspectors` does the same for the
-active inspector tab. If the inspector tablist has no active tab, focus moves
-to the active subject tab. Removing unfocused allocation controls does not move
-focus.
+Whenever a presentation-local capacity or measurement change removes an
+allocation control that owns focus, the composite transfers focus before
+removal. This includes transitions to all-preferred or terminal pressure.
+`Show more subjects` moves focus and the subject tablist's sole roving tab stop
+to its active tab; `Show more inspectors` does the same for the active
+inspector tab. If the inspector tablist has no active tab, focus moves to the
+active subject tab. Removing unfocused allocation controls does not move focus.
+
+When asynchronous navigation or snapshot installation removes a focused
+allocation control, Navigation Consumer's destination-lifetime rule governs
+instead: the UI synchronously parks focus on the persistent `dotnet-inspect`
+shell control before replacement, and only current returned effect authority
+may move focus to a result-derived destination after installation. The
+composite does not choose that destination or bypass the parking step.
 
 `Slideable` combines each reusable strip's internal item movement with the
 composite's discrete boundary movement. It does not add pointer drag,
@@ -741,12 +748,15 @@ are proved by the gates in
    without changing the subject and confirm that allocation resets to
    inspector-first.
 7. Focus each allocation button in turn and install a presentation that removes
-   it: all labels fitting, terminal pressure, and an empty inspector inventory.
-   Exercise resize and asynchronous label or inventory replacement. Confirm
-   that focus and the sole roving tab stop transfer to the active tab in the
-   named region before removal. Confirm that an absent active inspector falls
-   back to the active subject and that removing unfocused allocation controls
-   does not move focus.
+   it through a presentation-local resize or measurement change: all labels
+   fitting and terminal pressure. Confirm that focus and the sole roving tab
+   stop transfer to the active tab in the named region before removal. Confirm
+   that an absent active inspector falls back to the active subject and that
+   removing unfocused allocation controls does not move focus. Repeat through
+   asynchronous label and inventory replacement, including an empty inspector
+   inventory; confirm that focus first parks on the persistent
+   `dotnet-inspect` shell control and moves to a result-derived destination only
+   under Navigation Consumer's current effect authority.
 8. Narrow until both allocation controls and the two anchor minimum widths
    cannot fit. Confirm that the controls are removed with the required focus
    transfer, the remaining width uses the one-subject-share/two-inspector-share

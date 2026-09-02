@@ -224,9 +224,9 @@ One information hierarchy adapts across viewport sizes:
 - title-line Back and Forward sit immediately left of Search, which is flush
   right; the trailing cluster yields from full Search, to a `Search` button, to
   flush-right arrows, to nothing as the inspected target grows;
-- at the narrow shell breakpoint, inspector label-and-order pairs collapse to
-  their single boxed order symbols while retaining the complete accessible
-  labels;
+- subject and inspector representations adapt through Navigation
+  Presentation's measurement-driven Slideable Subject Strip contract rather
+  than a fixed shell breakpoint;
 - second-row Share, Settings, optional contextual actions, and trailing Help
   may collapse completely before the subject/inspector strip wraps, but a
   subject-owned sole entry action that is also a required return-focus target
