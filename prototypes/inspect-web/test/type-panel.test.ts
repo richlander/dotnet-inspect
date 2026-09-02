@@ -4,6 +4,7 @@ import {
   bindTypePanel,
   renderGraphMemberPending,
   renderMemberNav,
+  renderSourcePageActions,
   renderTypeMetadata,
   renderTypeNav,
   renderTypeSource,
@@ -842,7 +843,7 @@ test("type metadata renders composition, interfaces, and derived types once load
   assert.match(html, /data-member-jump-kind="method"/);
 });
 
-test("type PDB source renders the provenance and copy action once loaded", () => {
+test("type PDB source renders code above provenance once loaded", () => {
   const html = renderTypeSource({
     item: jsonSerializer,
     currentSignature: "sig",
@@ -858,8 +859,39 @@ test("type PDB source renders the provenance and copy action once loaded", () =>
 
   assert.match(html, /PDB Source/);
   assert.match(html, /SourceLink/);
-  assert.match(html, /id="copy-type-source"/);
-  assert.match(html, /open source ↗/);
+  assert.match(
+    html,
+    /<pre[^>]*aria-label="Source code"[\s\S]*class JsonSerializer \{\}[\s\S]*<\/pre>[\s\S]*<footer class="source-provenance">/);
+  assert.doesNotMatch(html, /copy-type-source|open source/);
+});
+
+test("source page actions move copy and open into the application row", () => {
+  const html = renderSourcePageActions({
+    source: {
+      provider: "pdb",
+      provenance: "SourceLink",
+      url: "https://example.test/source.cs?x=1&y=2",
+      text: "class JsonSerializer {}",
+    },
+    copyButtonId: "copy-type-source",
+    escapeHtml,
+  });
+
+  assert.match(html, /id="copy-type-source"[^>]*>Copy<\/button>/);
+  assert.match(
+    html,
+    /class="shell-action-link" href="https:\/\/example\.test\/source\.cs\?x=1&amp;y=2" target="_blank" rel="noreferrer">Open<\/a>/);
+});
+
+test("source page actions disable copy until source is available", () => {
+  const html = renderSourcePageActions({
+    source: null,
+    copyButtonId: "copy-source",
+    escapeHtml,
+  });
+
+  assert.match(html, /id="copy-source"[^>]* disabled>Copy<\/button>/);
+  assert.doesNotMatch(html, /shell-action-link/);
 });
 
 test("decompiled type source discloses an escaped PDB-source limitation", () => {

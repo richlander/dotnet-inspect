@@ -736,7 +736,7 @@ test("Annotated Source composition requires a concrete overload and validated se
 
   assert.match(
     appSource,
-    /const annotatedPageContext =\s*scope\(\) === "member"\s*&& state\.memberSection === "annotated"\s*&& memberSourceHasConcreteOverload\(\);/);
+    /const annotatedPageContext =\s*activeScope === "member"\s*&& state\.memberSection === "annotated"\s*&& memberSourceHasConcreteOverload\(\);/);
   assert.match(
     appSource,
     /const annotatedWorkingSurface =\s*annotatedPageContext && state\.memberAnnotatedEmbedded !== null;/);

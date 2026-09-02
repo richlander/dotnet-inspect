@@ -180,7 +180,7 @@ body {
   overflow: hidden;
   container: title-navigation / inline-size;
 }
-.title-search, .shell-actions button, .detail-actions button, .tiny-button {
+.title-search, .shell-actions button, .shell-actions .shell-action-link, .detail-actions button, .tiny-button {
   height: 26px;
   border: 1px solid var(--line);
   background: transparent;
@@ -188,9 +188,18 @@ body {
   border-radius: 2px;
   font: 10px var(--mono);
 }
-.shell-actions button { flex: none; padding: 0 8px; }
+.shell-actions button,
+.shell-actions .shell-action-link {
+  flex: none;
+  padding: 0 8px;
+}
+.shell-actions .shell-action-link {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
 .shell-actions #help, .tiny-button { width: 27px; padding: 0; }
-.title-search:hover, .shell-actions button:hover, .detail-actions button:hover, .tiny-button:hover { color: var(--text); border-color: var(--line-strong); }
+.title-search:hover, .shell-actions button:hover, .shell-actions .shell-action-link:hover, .detail-actions button:hover, .tiny-button:hover { color: var(--text); border-color: var(--line-strong); }
 
 .lensbar {
   display: flex;
@@ -455,7 +464,8 @@ body {
   overflow: hidden;
   container: shell-actions / inline-size;
 }
-.shell-actions.annotated-page-actions {
+.shell-actions.annotated-page-actions,
+.shell-actions.source-page-actions {
   flex-basis: 320px;
   max-width: 320px;
   min-width: 72px;
@@ -680,7 +690,8 @@ kbd {
 .detail-scroll { overflow: auto; padding: clamp(24px, 4vw, 52px) clamp(26px, 5vw, 72px) 70px; }
 .shell-actions.annotated-page-actions button { width: auto; padding: 0 10px; }
 .shell-actions.annotated-page-actions .primary-action { border-color: var(--accent); color: var(--text); }
-.detail-scroll.annotated-working-surface { min-height: 0; overflow: hidden; padding: 0; }
+.detail-scroll.annotated-working-surface,
+.detail-scroll.source-working-surface { min-height: 0; overflow: hidden; padding: 0; }
 
 .type-heading {
   display: grid;
@@ -928,14 +939,13 @@ kbd {
 .source-progress h2, .source-progress p { margin: 0; }
 .source-progress h2 { font-size: 15px; }
 .source-progress p { color: var(--muted); font-size: 11px; }
-.source-result { padding-top: 0; }
-.source-provenance { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-bottom: 0; background: var(--panel); }
+.source-result { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: minmax(0, 1fr) auto; overflow: hidden; background: var(--code-bg); }
+.source-provenance { display: flex; align-items: center; gap: 12px; min-width: 0; min-height: 35px; padding: 7px 12px; border-top: 1px solid var(--line); background: var(--panel); }
 .source-provenance strong { color: var(--green); font: 13px var(--mono); }
-.source-provenance span { flex: 1; color: var(--dim); font: 12px var(--mono); }
-.source-provenance a { color: var(--blue); font: 12px var(--mono); text-decoration: none; }
-.source-provenance button { font-size: 12px; }
-.source-provenance a + button { margin-left: 0; }
-.source-result pre { max-width: 100%; margin: 0; padding: 18px; overflow: auto; border: 1px solid var(--line); background: var(--code-bg); }
+.source-provenance span { min-width: 0; color: var(--dim); font: 12px var(--mono); }
+.source-provenance > span:first-of-type { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-provenance .graph-source-status { padding: 0; }
+.source-result pre { min-width: 0; min-height: 0; max-width: 100%; margin: 0; padding: 18px; overflow: auto; border: 0; background: var(--code-bg); }
 .source-result pre code { color: var(--code-text); font: 14px/1.65 var(--mono); }
 .source-result .token.comment { color: #6f7669; font-style: italic; }
 .source-result .token.keyword { color: #d98a70; }
@@ -1386,7 +1396,12 @@ kbd {
 }
 
 @container shell-actions (max-width: 259px) {
-  .annotated-page-actions #help { display: none; }
+  .annotated-page-actions #help,
+  .source-page-actions #help { display: none; }
+}
+
+@container shell-actions (max-width: 224px) {
+  .source-page-actions #open-settings { display: none; }
 }
 
 @container shell-actions (max-width: 174px) {
@@ -2452,10 +2467,8 @@ kbd {
 :root[data-theme="light"] .source-result .token.namespace { color: #6c4d91; }
 :root[data-theme="light"] .source-result .token.preprocessor { color: #6c4d91; }
 
-:root[data-theme="light"] .signature-language button,
-:root[data-theme="light"] .source-provenance button { background: #ffffff; color: #59615a; border-color: var(--line-strong); }
-:root[data-theme="light"] .signature-language button:hover,
-:root[data-theme="light"] .source-provenance button:hover { color: #20231f; border-color: var(--dim); }
+:root[data-theme="light"] .signature-language button { background: #ffffff; color: #59615a; border-color: var(--line-strong); }
+:root[data-theme="light"] .signature-language button:hover { color: #20231f; border-color: var(--dim); }
 
 /* Annotated Source keeps the portable text selectable while Findings and source-node
    selection use explicit controls and non-underline treatments. */
