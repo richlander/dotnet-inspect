@@ -294,6 +294,40 @@ public sealed class BrowserPackageQueryOperationsTests
         Assert.Equal(BrowserPackageQueryEventKind.Completed, returned.Kind);
     }
 
+    [Fact]
+    public async Task PumpAsync_RejectsAnEventAfterCompletion()
+    {
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create());
+        PackageQueryEvent.Completed completed = new(
+            new PackageQuerySummary(
+                new InertString(TextPolicy.Field, "Contoso."),
+                source.Source,
+                CandidateLimit: 20,
+                MatchLimit: 20,
+                Candidates: 0,
+                Matches: 0,
+                Failures: 0,
+                PackageQueryCompletionKind.Exhausted));
+        PackageQueryEvent.Progress lateProgress = new(
+            new PackageQueryProgress(
+                PackageQueryProgressPhase.Manifest,
+                Completed: 1,
+                Limit: 20));
+        var emitted = new List<BrowserPackageQueryEvent>();
+
+        InvalidOperationException error =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => BrowserPackageQueryOperations.PumpAsync(
+                    Events(completed, lateProgress),
+                    emitted.Add,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains("after completion", error.Message);
+        Assert.Empty(emitted);
+    }
+
     static async IAsyncEnumerable<PackageQueryEvent> Events(
         params PackageQueryEvent[] events)
     {

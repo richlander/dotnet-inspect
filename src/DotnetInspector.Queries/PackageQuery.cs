@@ -27,10 +27,6 @@ public enum PackageQueryFacetTier
 /// Optional opaque identity shared by facets with product-owned compatibility
 /// and OR-combination semantics.
 /// </param>
-/// <param name="CombinesWithinSelectionGroup">
-/// Whether this facet can be OR-combined with other combining facets in its
-/// selection group.
-/// </param>
 /// <param name="DisplayGroupId">
 /// Optional opaque identity shared by facets rendered as one grouped control.
 /// </param>
@@ -42,9 +38,15 @@ public sealed record PackageQueryFacetDescriptor(
     int Weight,
     PackageQueryFacetTier Tier,
     string? SelectionGroupId = null,
-    bool CombinesWithinSelectionGroup = false,
     string? DisplayGroupId = null,
-    string? DisplayGroupLabel = null);
+    string? DisplayGroupLabel = null)
+{
+    /// <summary>
+    /// Whether this facet can be OR-combined with other combining facets in
+    /// its selection group.
+    /// </summary>
+    public bool CombinesWithinSelectionGroup { get; init; }
+}
 
 /// <summary>A bounded package-query request over one package-ID prefix.</summary>
 public sealed record PackageQueryRequest(
@@ -322,7 +324,6 @@ public static class PackageQuery
                 200,
                 PackageQueryFacetTier.Nuspec,
                 ToolSelectionGroupId,
-                CombinesWithinSelectionGroup: false,
                 ToolDisplayGroupId,
                 ".NET tool format"),
             static match => match.Manifest.IsToolPackage,
@@ -336,9 +337,11 @@ public static class PackageQuery
                 210,
                 PackageQueryFacetTier.PackageContent,
                 ToolSelectionGroupId,
-                CombinesWithinSelectionGroup: true,
                 ToolDisplayGroupId,
-                ".NET tool format"),
+                ".NET tool format")
+            {
+                CombinesWithinSelectionGroup = true,
+            },
             static match => match.Manifest.IsToolPackage,
             static _ => Evidence(
                 "DotnetToolSettings.xml declares the portable .NET tool v1 format."),
@@ -351,9 +354,11 @@ public static class PackageQuery
                 220,
                 PackageQueryFacetTier.PackageContent,
                 ToolSelectionGroupId,
-                CombinesWithinSelectionGroup: true,
                 ToolDisplayGroupId,
-                ".NET tool format"),
+                ".NET tool format")
+            {
+                CombinesWithinSelectionGroup = true,
+            },
             static match => match.Manifest.IsToolPackage,
             static _ => Evidence(
                 "DotnetToolSettings.xml declares the RID-specific .NET tool v2 format."),
@@ -365,8 +370,7 @@ public static class PackageQuery
                 "The package manifest declares at least one dependency.",
                 300,
                 PackageQueryFacetTier.Nuspec,
-                DependencySelectionGroupId,
-                CombinesWithinSelectionGroup: false),
+                DependencySelectionGroupId),
             static match => DependencyCount(match) > 0,
             static match =>
             {
@@ -385,8 +389,7 @@ public static class PackageQuery
                 "The package manifest declares no dependencies.",
                 400,
                 PackageQueryFacetTier.Nuspec,
-                DependencySelectionGroupId,
-                CombinesWithinSelectionGroup: false),
+                DependencySelectionGroupId),
             static match => DependencyCount(match) == 0,
             static _ => Evidence(
                 "The package manifest declares no dependencies.")),

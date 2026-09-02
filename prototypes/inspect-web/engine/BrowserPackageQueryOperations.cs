@@ -99,6 +99,12 @@ namespace InspectWeb.Engine
                 .ConfigureAwait(false))
             {
                 BrowserPackageQueryEvent projected = Project(queryEvent);
+                if (completedEvent is not null)
+                {
+                    throw new InvalidOperationException(
+                        "The package-query stream produced an event after completion.");
+                }
+
                 if (projected.Kind == BrowserPackageQueryEventKind.Completed)
                 {
                     completedEvent = projected;
