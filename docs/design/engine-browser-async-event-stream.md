@@ -204,11 +204,14 @@ worker adapter owns bounded batching:
 
 A buffered batch is emitted when it reaches the adopter's declared batch size,
 before the adapter awaits a `MoveNextAsync` that did not complete
-synchronously, and before the adapter returns the terminal result. Batch
-fullness alone is never a reason to retain established events across an
-asynchronous producer suspension. An adapter may enumerate explicitly rather
-than use `await foreach` when it needs to observe that suspension boundary; it
-remains the stream's sole consumer.
+synchronously, before the adapter returns the terminal result, and before the
+adapter reports cancellation or exceptional producer termination when the
+buffer is nonempty. An event is established once `MoveNextAsync` successfully
+returns it to the adapter. Batch fullness alone is never a reason to retain
+established events across an asynchronous producer suspension or producer
+termination. An adapter may enumerate explicitly rather than use `await
+foreach` when it needs to observe those boundaries; it remains the stream's
+sole consumer.
 
 The callback channel carries only nonterminal stream events. The adapter
 retains `Completed` and returns its value once through the operation's terminal
@@ -252,12 +255,15 @@ The adapter passes the operation cancellation token into async enumeration,
 for example with `WithCancellation`. The adopting feature owns whether its
 producer uses `[EnumeratorCancellation]`, which awaited dependencies receive
 the token, and where CPU work observes it. Once enumeration observes
-cancellation, the adapter publishes no later semantic event; the operation
-owner supplies the visible cancellation reason.
+cancellation, the adapter requests no later event and publishes no event that
+was not already established. It hands off any nonempty established batch
+before the operation owner supplies the visible cancellation reason.
 
 Item failures are data only when the feature can continue and retain honest
 accounting. A source or boundary failure that prevents an honest completion
 uses the feature's failed completion or the enclosing operation failure path.
+An exceptional producer termination likewise follows any handoff of an
+established nonempty batch.
 Adapters do not convert malformed events, callback failures, worker failures,
 or unexpected exceptions into empty successful streams.
 
@@ -311,10 +317,14 @@ adopter must prove:
 2. progress is monotonic within a phase and never exceeds a declared total;
 3. items and item failures retain producer order around progress events;
 4. exactly one completion is observed and no callback carries it;
-5. cancellation and unexpected failure produce no later semantic event;
-6. the currently adopted callback or batch path flushes on its declared bound
-   and producer suspension, cannot drop durable events, and cannot reorder
-   completion; a worker claim requires the residual owner work above;
+5. cancellation and unexpected failure request no later event and publish no
+   event that was not already established;
+6. the currently adopted callback or batch path flushes on its declared bound,
+   producer suspension, and producer termination; an under-full durable batch
+   followed by synchronously canceled and faulted `MoveNextAsync` outcomes is
+   handed off in order before the operation reports cancellation or failure;
+   the path cannot drop durable events or reorder completion, and a worker
+   claim requires the residual owner work above;
 7. stale-operation events cannot update replacement feature state;
 8. a CLI consumer can enumerate the same host-neutral stream without Browser
    types; and
