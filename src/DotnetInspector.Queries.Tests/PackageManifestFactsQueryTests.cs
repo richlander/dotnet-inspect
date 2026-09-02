@@ -29,6 +29,8 @@ public sealed class PackageManifestFactsQueryTests
                         <packageTypes>
                           <packageType name="DotnetTool" />
                         </packageTypes>
+                        <icon>images\package.png</icon>
+                        <iconUrl>https://example.test/legacy.png</iconUrl>
                         <readme>docs/README.md</readme>
                         <dependencies>
                           <dependency id="Example.Dependency" version="[2.0.0]" />
@@ -52,6 +54,8 @@ public sealed class PackageManifestFactsQueryTests
         Assert.Equal("https://licenses.nuget.org/MIT", facts.LicenseUrl);
         Assert.Equal(["DotnetTool"], facts.PackageTypes);
         Assert.True(facts.IsToolPackage);
+        Assert.Equal(@"images\package.png", facts.IconFile);
+        Assert.Equal("https://example.test/legacy.png", facts.IconUrl);
         Assert.Equal("docs/README.md", facts.ReadmeFile);
 
         DeclaredPackageDependencyGroup group =
@@ -626,6 +630,37 @@ public sealed class PackageManifestFactsQueryTests
             failure.Failure.Reason);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Execute_RejectsOversizedIconDeclaration(bool legacyUrl)
+    {
+        string value = new(
+            'a',
+            PackageManifestFactsQuery.MaxScalarCharacters + 1);
+        string element = legacyUrl ? "iconUrl" : "icon";
+        PackageManifestFactsResult.Failed failure = Assert.IsType<
+            PackageManifestFactsResult.Failed>(
+                PackageManifestFactsQuery.Execute(
+                    Encoding.UTF8.GetBytes(
+                        $$"""
+                        <package>
+                          <metadata>
+                            <id>Example.Package</id>
+                            <version>1.0.0</version>
+                            <{{element}}>{{value}}</{{element}}>
+                          </metadata>
+                        </package>
+                        """),
+                    PackageSourceCoordinate.Create(
+                        "Example.Package",
+                        "1.0.0")));
+
+        Assert.Equal(
+            PackageManifestFailureReason.ConfiguredLimitExceeded,
+            failure.Failure.Reason);
+    }
+
     [Fact]
     public void Execute_RejectsExcessiveDependencyCardinality()
     {
@@ -857,6 +892,8 @@ public sealed class PackageManifestFactsQueryTests
         Assert.Equal(expected.LicenseUrl, actual.LicenseUrl);
         Assert.Equal(expected.PackageTypes, actual.PackageTypes);
         Assert.Equal(expected.IsToolPackage, actual.IsToolPackage);
+        Assert.Equal(expected.IconFile, actual.IconFile);
+        Assert.Equal(expected.IconUrl, actual.IconUrl);
         Assert.Equal(expected.ReadmeFile, actual.ReadmeFile);
         Assert.Equal(
             expected.DependencyGroups.Length,

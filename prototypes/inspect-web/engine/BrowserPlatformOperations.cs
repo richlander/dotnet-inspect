@@ -693,6 +693,7 @@ public static partial class InspectionEngine
                 resolution.Coordinate.Version,
                 [framework],
                 framework,
+                Icon: null,
                 assembly,
                 SelectedCompileLibrary(framework),
                 projected.Assemblies,

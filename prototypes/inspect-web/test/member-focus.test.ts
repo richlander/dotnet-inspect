@@ -323,11 +323,11 @@ test("type-filter selection survives a replacement render", () => {
 
 test("stable workbench controls survive a replacement render", () => {
   const { document, element } = createDocument();
-  const initialButton = element("#copy-name", { id: "copy-name" });
+  const initialButton = element("#share", { id: "share" });
   document.activeElement = initialButton;
   const snapshot = captureMemberFocus(document);
 
-  const replacementButton = element("#copy-name", { id: "copy-name" });
+  const replacementButton = element("#share", { id: "share" });
   document.activeElement = document.body;
   restoreMemberFocus(document, snapshot, callback => {
     callback(0);
