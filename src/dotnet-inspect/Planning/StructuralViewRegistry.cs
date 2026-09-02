@@ -1034,7 +1034,7 @@ public static class StructuralViewRegistry
 
             if (i + 1 < tokens.Count
                 && !tokens[i + 1].StartsWith(
-                    '-',
+                    "-",
                     StringComparison.Ordinal))
             {
                 values.Add(tokens[++i]);
