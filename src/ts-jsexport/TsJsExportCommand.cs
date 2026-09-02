@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.CommandLine;
 using ILInspector.TypeScriptGeneration;
 
@@ -21,7 +22,7 @@ public static class TsJsExportCommand
         var assemblyArgument = new Argument<string>("assembly")
         {
             Description =
-                "Path to a .NET assembly exposing supported static [JSExport] methods.",
+                "Path to a .NET export assembly, or to the assembly defining --context.",
         };
         var runtimeModuleOption = new Option<string?>("--runtime-module")
         {
@@ -33,14 +34,27 @@ public static class TsJsExportCommand
             Description =
                 "Path to publish the generated TypeScript module. Writes to stdout when omitted.",
         };
+        var contextTypeOption = new Option<string?>("--context")
+        {
+            Description =
+                "Exact context type carrying JsExportRoot declarations.",
+        };
+        var assemblySearchPathOption =
+            new Option<string[]>("--assembly-search-path")
+            {
+                Description =
+                    "Additional file or directory used to resolve rooted assemblies.",
+                AllowMultipleArgumentsPerToken = false,
+            };
 
         var rootCommand = new RootCommand(
-            "Generates one typed TypeScript facade from an assembly's authenticated "
-                + "[JSExport] surface.")
+            "Generates typed TypeScript facades from authenticated [JSExport] surfaces.")
         {
             assemblyArgument,
             runtimeModuleOption,
             outputOption,
+            contextTypeOption,
+            assemblySearchPathOption,
         };
 
         rootCommand.SetAction(parseResult =>
@@ -49,12 +63,78 @@ public static class TsJsExportCommand
             string? runtimeModule =
                 parseResult.GetValue(runtimeModuleOption);
             string? outputPath = parseResult.GetValue(outputOption);
+            string? contextType = parseResult.GetValue(contextTypeOption);
+            string[] searchPaths =
+                parseResult.GetValue(assemblySearchPathOption) ?? [];
             if (string.IsNullOrWhiteSpace(runtimeModule))
             {
                 stderr.WriteLine(
                     "ts-jsexport: --runtime-module requires a non-empty module specifier.");
                 return 1;
             }
+
+            if (contextType is not null)
+            {
+                if (string.IsNullOrWhiteSpace(contextType))
+                {
+                    stderr.WriteLine(
+                        "ts-jsexport: --context requires a non-empty exact type name.");
+                    return 1;
+                }
+                if (string.IsNullOrWhiteSpace(outputPath))
+                {
+                    stderr.WriteLine(
+                        "ts-jsexport: --output is required with --context.");
+                    return 1;
+                }
+                if (searchPaths.Length == 0)
+                {
+                    stderr.WriteLine(
+                        "ts-jsexport: at least one --assembly-search-path is "
+                            + "required with --context.");
+                    return 1;
+                }
+                if (Path.Exists(outputPath))
+                {
+                    stderr.WriteLine(
+                        $"ts-jsexport: context output path already exists: "
+                            + outputPath);
+                    return 1;
+                }
+                if (!JsExportContextGenerator.TryGenerate(
+                        assemblyPath,
+                        contextType,
+                        searchPaths,
+                        runtimeModule,
+                        "ts-jsexport",
+                        stderr,
+                        out ImmutableArray<GeneratedJsExportFacade> facades))
+                {
+                    return 1;
+                }
+
+                try
+                {
+                    PublishContextDirectory(outputPath, facades);
+                    return 0;
+                }
+                catch (Exception ex) when (
+                    ex is IOException or UnauthorizedAccessException
+                        or ArgumentException or NotSupportedException)
+                {
+                    stderr.WriteLine(
+                        $"ts-jsexport: could not write TypeScript facade set to "
+                            + $"'{outputPath}': {ex.Message}");
+                    return 1;
+                }
+            }
+            if (searchPaths.Length > 0)
+            {
+                stderr.WriteLine(
+                    "ts-jsexport: --assembly-search-path requires --context.");
+                return 1;
+            }
+
             if (!JsExportSurfaceLoader.TryLoad(
                     assemblyPath,
                     "ts-jsexport",
@@ -112,6 +192,26 @@ public static class TsJsExportCommand
         });
 
         return rootCommand;
+    }
+
+    static void PublishContextDirectory(
+        string outputDirectory,
+        ImmutableArray<GeneratedJsExportFacade> facades)
+    {
+        string fullPath = Path.GetFullPath(outputDirectory);
+        if (Path.Exists(fullPath))
+        {
+            throw new IOException(
+                $"Context output path already exists: {fullPath}");
+        }
+
+        Directory.CreateDirectory(fullPath);
+        foreach (GeneratedJsExportFacade facade in facades)
+        {
+            File.WriteAllText(
+                Path.Combine(fullPath, facade.Root.ArtifactName),
+                facade.Source);
+        }
     }
 
     static void PublishAtomically(string outputPath, string content)

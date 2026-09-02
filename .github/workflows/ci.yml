@@ -80,7 +80,7 @@ jobs:
           # expression", taking the whole run with it.
           fetch-depth: 0
 
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
 
@@ -235,7 +235,7 @@ jobs:
           cache-dependency-path: prototypes/inspect-web/package-lock.json
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -422,7 +422,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -473,7 +473,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -661,12 +661,16 @@ jobs:
           dotnet run --project tests/ILInspector.JsExportSurface.Tests \
             -c Release --no-build -- \
             -class 'ILInspector.JsExportSurface.Tests.JsonNamingPoliciesTests' \
+            -class 'ILInspector.JsExportSurface.Tests.JsExportContextLoaderTests' \
             -class 'ILInspector.JsExportSurface.Tests.TypeScriptFacadeEmitterTests' \
+            -class 'ILInspector.JsExportSurface.Tests.TsJsExportContractsTests' \
             -class 'ILInspector.JsExportSurface.Tests.TsJsExportCommandTests' \
             -xml "$results"
           for class in \
             ILInspector.JsExportSurface.Tests.JsonNamingPoliciesTests \
+            ILInspector.JsExportSurface.Tests.JsExportContextLoaderTests \
             ILInspector.JsExportSurface.Tests.TypeScriptFacadeEmitterTests \
+            ILInspector.JsExportSurface.Tests.TsJsExportContractsTests \
             ILInspector.JsExportSurface.Tests.TsJsExportCommandTests
           do
             if ! grep -Fq "type=\"$class\"" "$results"; then
@@ -691,6 +695,9 @@ jobs:
               exit 1
             fi
           done
+
+      - name: Run ts-jsexport context NativeAOT gate
+        run: eng/test-ts-jsexport-context-aot.sh "${{ matrix.rid }}"
 
       - name: Run runfaster tests
         run: dotnet run --project src/runfaster.Tests -c Release
@@ -741,7 +748,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -813,7 +820,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -934,7 +941,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -1035,7 +1042,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -1139,7 +1146,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
