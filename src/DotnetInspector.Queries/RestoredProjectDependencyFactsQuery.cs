@@ -1572,6 +1572,21 @@ public static class RestoredProjectDependencyFactsQuery
                 return;
             }
 
+            if (dependency.Value.ValueKind != JsonValueKind.String)
+            {
+                _failures.Add(RestoredProjectGraphFailureReason.UnresolvedDependency);
+                return;
+            }
+
+            string? rawConstraint = dependency.Value.GetString();
+            if (rawConstraint is not { Length: > 0 }
+                || rawConstraint.Length > MaxScalarCharacters
+                || !VersionRange.TryParse(rawConstraint, out VersionRange? range))
+            {
+                _failures.Add(RestoredProjectGraphFailureReason.UnresolvedDependency);
+                return;
+            }
+
             if (!TryResolveNode(dependency.Name, out string? matchedKey, out string? nodeType, out _))
             {
                 if (!_limitExceeded)
@@ -1592,20 +1607,9 @@ public static class RestoredProjectDependencyFactsQuery
             }
 
             if (!string.Equals(nodeType, "package", StringComparison.OrdinalIgnoreCase)
-                || dependency.Value.ValueKind != JsonValueKind.String)
-            {
-                _failures.Add(RestoredProjectGraphFailureReason.UnresolvedDependency);
-                return;
-            }
-
-            string? rawConstraint = dependency.Value.GetString();
-            if (rawConstraint is not { Length: > 0 }
-                || rawConstraint.Length > MaxScalarCharacters
-                || !VersionRange.TryParse(rawConstraint, out VersionRange? range)
                 || !TryBuildPackageIdentity(matchedKey!, out RestoredProjectPackageNodeIdentity packageIdentity))
             {
-                if (!_limitExceeded)
-                    _failures.Add(RestoredProjectGraphFailureReason.UnresolvedDependency);
+                _failures.Add(RestoredProjectGraphFailureReason.UnresolvedDependency);
                 return;
             }
 

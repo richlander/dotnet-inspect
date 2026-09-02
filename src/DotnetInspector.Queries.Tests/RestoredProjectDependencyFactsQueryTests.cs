@@ -1047,6 +1047,49 @@ public sealed class RestoredProjectDependencyFactsQueryTests
     }
 
     [Fact]
+    public void Execute_ProjectDependencyWithMalformedVersion_IsIncompleteAndDoesNotTraverse()
+    {
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                ["net11.0"] = new JsonObject
+                {
+                    ["Root.Project/1.0.0"] = new JsonObject
+                    {
+                        ["type"] = "project",
+                        ["dependencies"] = new JsonObject { ["Child.Project"] = new JsonObject() },
+                    },
+                    ["Child.Project/1.0.0"] = new JsonObject
+                    {
+                        ["type"] = "project",
+                        ["dependencies"] = new JsonObject { ["Foo"] = "1.0.0" },
+                    },
+                    ["Foo/1.0.0"] = new JsonObject { ["type"] = "package" },
+                },
+            },
+            rootGroups: new JsonObject { ["net11.0"] = new JsonArray("Root.Project >= 1.0.0") },
+            frameworks: new JsonObject
+            {
+                ["net11.0"] = new JsonObject
+                {
+                    ["dependencies"] = new JsonObject
+                    {
+                        ["Root.Project"] = new JsonObject { ["target"] = "Project" },
+                    },
+                },
+            });
+
+        RestoredProjectDependencyFacts facts = Available(RestoredProjectDependencyFactsQuery.Execute(bytes));
+
+        RestoredProjectGraphResult.Available graph = Assert.IsType<RestoredProjectGraphResult.Available>(facts.Graph);
+        Assert.False(graph.IsComplete);
+        Assert.Empty(graph.Packages);
+        Assert.Empty(graph.Edges);
+        RestoredProjectGraphFailure failure = Assert.Single(graph.Failures);
+        Assert.Equal(RestoredProjectGraphFailureReason.UnresolvedDependency, failure.Reason);
+    }
+
+    [Fact]
     public void Execute_NonCanonicalPackageNodeName_IsRejectedWithoutEnteringIdentity()
     {
         const string NonCanonicalPackageId = "\u65e5\u672c\u8a9e";
