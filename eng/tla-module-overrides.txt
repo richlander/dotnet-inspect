@@ -66,6 +66,19 @@ docs/models/package-realization-admission/BrokenByteCapacity.cfg=PackageRealizat
 docs/models/package-realization-admission/BrokenDuplicateBindingIdentity.cfg=PackageRealizationAdmission_DuplicateMutation_MC
 docs/models/package-realization-admission/BrokenRootOnlyAdmission.cfg=PackageRealizationAdmission_RootOnlyMutation_MC
 
+docs/models/assembly-context-group-lifecycle/AssemblyContextGroupReleaseBlocked.cfg=AssemblyContextGroupReleaseLifecycle
+docs/models/assembly-context-group-lifecycle/BrokenActiveView.cfg=AssemblyContextGroupLifecycle
+docs/models/assembly-context-group-lifecycle/BrokenEarlyRelease.cfg=AssemblyContextGroupLifecycle
+docs/models/assembly-context-group-lifecycle/BrokenExceptionalRollback.cfg=AssemblyContextGroupLifecycle
+docs/models/assembly-context-group-lifecycle/BrokenImportedGroupReleaseLifecycle.cfg=AssemblyContextGroupLifecycle
+docs/models/assembly-context-group-lifecycle/BrokenPreReservationFailure.cfg=AssemblyContextGroupLifecycle
+docs/models/assembly-context-group-lifecycle/BrokenRejectedRetention.cfg=AssemblyContextGroupLifecycle
+docs/models/assembly-context-group-lifecycle/BrokenReleasedAccess.cfg=AssemblyContextGroupLifecycle
+docs/models/assembly-context-group-lifecycle/BrokenResourceOrder.cfg=AssemblyContextGroupLifecycle
+docs/models/assembly-context-group-lifecycle/BrokenSuccessfulPolicy.cfg=AssemblyContextGroupLifecycle
+docs/models/assembly-context-group-lifecycle/Liveness.cfg=AssemblyContextGroupLifecycle
+docs/models/assembly-context-group-lifecycle/Safety.cfg=AssemblyContextGroupLifecycle
+
 docs/design/models/state-machine-completeness/BudgetExhaustion.cfg=StateMachineCompleteness
 docs/design/models/state-machine-completeness/BrokenAbsentOnFailure.cfg=StateMachineCompleteness
 docs/design/models/state-machine-completeness/BrokenDroppedRow.cfg=StateMachineCompleteness
