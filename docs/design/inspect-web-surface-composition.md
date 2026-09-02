@@ -224,14 +224,16 @@ One information hierarchy adapts across viewport sizes:
 - title-line Back and Forward sit immediately left of Search, which is flush
   right; the trailing cluster yields from full Search, to a `Search` button, to
   flush-right arrows, to nothing as the inspected target grows;
-- at the narrow shell breakpoint, inspector label-and-order pairs collapse to
-  their single boxed order symbols while retaining the complete accessible
-  labels;
+- subject and inspector representations adapt through Navigation
+  Presentation's measurement-driven Slideable Subject Strip contract rather
+  than a fixed shell breakpoint;
 - second-row Share, Settings, optional contextual actions, and trailing Help
-  may collapse completely before the subject/inspector strip wraps, but a
-  subject-owned sole entry action that is also a required return-focus target
-  remains visible and takes priority over those optional actions;
-- subject and inspector navigation scroll horizontally instead of wrapping;
+  may collapse completely before the Slideable Subject Strip enters
+  control-free pressure, but a subject-owned sole entry action that is also a
+  required return-focus target remains visible and takes priority over those
+  optional actions;
+- subject and inspector navigation follows Navigation Presentation's
+  contiguous horizontal window contract instead of wrapping;
 - subject-path segments and optional advertisements elide visually without
   losing the complete accessible subject path or segment-level copy controls;
   the Search label may collapse from its scoped label to `Search` before the
@@ -347,8 +349,10 @@ with the absence of a synthesized `Default feed` control.
    dialog name, initial focus, focus containment, Escape dismissal, and focus
    return.
 4. Confirm that the title-line inspected target and second-row
-   subject/inspector strip remain single-line scrolling or truncating surfaces
-   rather than wrapping.
+   subject/inspector strip remain single-line rather than wrapping. Confirm
+   that the title-line target elides while preserving its complete accessible
+   path, and that only the Slideable Subject Strip uses contiguous windows and
+   edge disclosure.
 5. With focus in the wide navigation pane, narrow the viewport and confirm that
    focus moves to the new drawer button without opening it.
 6. Open the drawer, restore the wide viewport, and confirm that the drawer
