@@ -286,6 +286,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Finding nomenclature](design/finding-nomenclature.md): observation/change semantics, operation outcomes, and Research composition boundaries.
 - [Finding producer design](design/finding-producers.md): how to choose owners, payloads, identities, result shapes, and matching modes.
 - [Finding coordinates](design/finding-coordinates.md): separation of subject identity, correspondence, optional producer order, and typed provenance.
+- [Finding instance census](design/finding-instance-census.md): producer-issued
+  receipt and per-instance keys for one sealed execution census, with
+  bijection and exact-association validation.
 - [Finding value semantics](design/finding-value-equality.md): .NET equality
   and hashing for Finding-owned structural values, ordered collections,
   identity sets, union cases, and reference-identity operation objects.

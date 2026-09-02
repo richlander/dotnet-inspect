@@ -72,6 +72,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Allocation Triage Pre-Filters](design/allocation-triage-prefilters.md) | Which allocation candidates Performance Triage surfaces, why the pre-filters prune cold-by-construction shapes, and what realized cost the static side cannot predict. |
 | [Finding Nomenclature](design/finding-nomenclature.md) | Canonical observation/change vocabulary, arity ladder, operation outcomes, and Research composition boundary. |
 | [Finding Producer Design](design/finding-producers.md) | Choosing producer ownership, payloads, identities, result shapes, matching modes, and higher-rung boundaries. |
+| [Finding Instance Census](design/finding-instance-census.md) | Producer-issued receipt and per-instance keys for one sealed Finding census, including exact-association validation. |
 | [Finding Value Semantics](design/finding-value-equality.md) | Equality and hashing for Finding-owned structural values, ordered collections, identity sets, union cases, and operation objects. |
 | [Analysis Diff Format](design/analysis-diff.md) | Complete immutable two-version item sequences and exhaustive producer-issued N:M relations for shared CLI and browser/Wasm analysis. |
 | [Comparison Document](design/comparison-document.md) | Portable root and subject composition for shared CLI/browser diffs and clone payloads, including referenced rename/move descriptions. |
