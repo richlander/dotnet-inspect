@@ -127,7 +127,7 @@ export interface GraphMemberNavigationWorkState {
   graphMemberNavigationSeq: number;
   graphMemberNavigationTitle: string;
   graphMemberNavigationError: string;
-  pendingGraphMemberDeepLink: unknown | null;
+  pendingGraphMemberDeepLink: object | null;
 }
 
 export function invalidateGraphMemberNavigationWork(
