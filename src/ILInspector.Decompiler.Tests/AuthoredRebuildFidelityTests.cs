@@ -658,6 +658,39 @@ public sealed class AuthoredRebuildFidelityTests
     }
 
     [Fact]
+    public async Task AuthoredRebuildFidelity_PdbAbsenceProducesSourceAbsentResult()
+    {
+        NuGetCache.Initialize("dotnet-inspect");
+        var fixture = CompilePortablePdbFixture();
+        try
+        {
+            using var httpClient =
+                new HttpClient(
+                    new StaticStatusHandler(
+                        HttpStatusCode.NotFound));
+            IReadOnlyList<AuthoredRebuildFidelityResult> results =
+                await AuthoredRebuildFidelity.EvaluateAssembliesAsync(
+                    [fixture.AssemblyPath],
+                    cap: 1,
+                    httpClient,
+                    new SourceFetcher(httpClient));
+
+            AuthoredRebuildFidelityResult result = Assert.Single(results);
+            Assert.Equal(
+                AuthoredRebuildOutcome.SourceAbsent,
+                result.Outcome);
+            Assert.Contains(
+                "No matching portable PDB",
+                result.Detail,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task SourceCorrespondencePdbAcquisition_RejectsUnverifiedStandalonePdb()
     {
         NuGetCache.Initialize("dotnet-inspect");

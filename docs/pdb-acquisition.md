@@ -340,10 +340,13 @@ these distinctions.
 
 The persistent symbol-miss cache records HTTP 404 absence only. A cached HTTP
 403 retains failure evidence, while other operational statuses are not replayed
-as absence; `DownloadPdbAsync_CachePreservesAbsenceAndFailure` gates that
-distinction. The source-correspondence and authored-rebuild harness lanes reject
-an adjacent standalone PDB when the assembly has no Portable CodeView identity,
-and project malformed embedded-PDB opening as typed failure.
+as absence. Legacy `.miss` entries whose payload is not exactly HTTP 404 are
+ignored so the provider is retried.
+`DownloadPdbAsync_CachePreservesAbsenceAndFailure` and
+`DownloadPdbAsync_LegacyOperationalMissIsRetried` gate those distinctions. The
+source-correspondence and authored-rebuild harness lanes reject an adjacent
+standalone PDB when the assembly has no Portable CodeView identity, and project
+malformed embedded-PDB opening as typed failure.
 `SourceCorrespondencePdbAcquisition_RejectsUnverifiedStandalonePdb` and
 `SourceCorrespondencePdbAcquisition_MalformedEmbeddedPdbIsFailure` gate those
 opening boundaries without changing the general-purpose `PdbContext` policy.

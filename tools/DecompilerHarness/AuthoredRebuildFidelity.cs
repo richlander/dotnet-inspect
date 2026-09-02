@@ -171,6 +171,18 @@ static class AuthoredRebuildFidelity
                                 + pdbAcquisitionFailure.Message,
                             ImplementationDiff: null);
                     }
+                    else if (source is { Context.NeedsPdb: true })
+                    {
+                        evaluated = new AuthoredRebuildFidelityResult(
+                            decompilerResult,
+                            AuthoredRebuildOutcome.SourceAbsent,
+                            ChecksumVerification: null,
+                            buildContext,
+                            source.Context.WindowsPdbDetected
+                                ? "A Windows PDB was found, but portable-PDB source mapping is unavailable."
+                                : "No matching portable PDB is available.",
+                            ImplementationDiff: null);
+                    }
                     else
                     {
                         if (source is null)

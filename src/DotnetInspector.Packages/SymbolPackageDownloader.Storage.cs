@@ -78,8 +78,19 @@ public partial class SymbolPackageDownloader
             return true;
         }
 
-        if (CoreCache.TryGet(SymbolMissCacheCategory, key, SymbolMissCacheTtl, extension: "miss") == null)
+        string? cachedStatus =
+            CoreCache.TryGet(
+                SymbolMissCacheCategory,
+                key,
+                SymbolMissCacheTtl,
+                extension: "miss");
+        if (!string.Equals(
+            cachedStatus,
+            ((int)HttpStatusCode.NotFound).ToString(),
+            StringComparison.Ordinal))
+        {
             return false;
+        }
 
         log?.Invoke($"Using cached symbol miss: {source}");
         return true;

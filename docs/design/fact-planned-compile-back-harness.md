@@ -814,7 +814,9 @@ download-limit and cache-permission boundaries, while
 `AcquirePdbAsync_MismatchedSymbolPackageIdentityRecordsFailure` distinguishes a
 rejected same-name PDB from a symbol package that genuinely contains no
 candidate. `AuthoredRebuildFidelity_PdbFailureProducesSourceFailedResult` keeps
-the existing authored-rebuild command on the same typed failure contract.
+the existing authored-rebuild command on the same typed failure contract, while
+`AuthoredRebuildFidelity_PdbAbsenceProducesSourceAbsentResult` keeps a
+failure-free PDB miss non-failing.
 `SourceCorrespondencePdbAcquisition_RejectsUnverifiedStandalonePdb` prevents an
 identity-less adjacent PDB from entering this lane, and
 `SourceCorrespondencePdbAcquisition_MalformedEmbeddedPdbIsFailure` preserves a

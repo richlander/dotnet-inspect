@@ -62,6 +62,54 @@ public class SymbolPackageDownloaderTests : IDisposable
     }
 
     [Theory]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Gone)]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    public async Task DownloadPdbAsync_LegacyOperationalMissIsRetried(
+        HttpStatusCode statusCode)
+    {
+        var handler = new CountingHandler(
+            _ => new HttpResponseMessage(statusCode));
+        using var client = new HttpClient(handler);
+        var downloader = new SymbolPackageDownloader(client);
+        var guid = Guid.Parse("00112233-4455-6677-8899-aabbccddeeff");
+
+        await downloader.DownloadPdbAsync(
+            guid,
+            pdbAge: 1,
+            pdbFileName: "Legacy.pdb",
+            isPortable: true,
+            assemblyPath: "/tmp/Legacy.dll",
+            cancellationToken: TestContext.Current.CancellationToken);
+        int firstCount = handler.RequestCount;
+        foreach (string key in handler.RequestUris)
+        {
+            CoreCache.Set(
+                "symbol-misses",
+                key,
+                ((int)statusCode).ToString(),
+                extension: "miss");
+        }
+
+        bool failure;
+        using (FeedFailureTelemetry.Scope(mergeIntoParent: false))
+        {
+            await downloader.DownloadPdbAsync(
+                guid,
+                pdbAge: 1,
+                pdbFileName: "Legacy.pdb",
+                isPortable: true,
+                assemblyPath: "/tmp/Legacy.dll",
+                cancellationToken: TestContext.Current.CancellationToken);
+            failure = FeedFailureTelemetry.Current is { HasFailures: true };
+        }
+
+        Assert.True(firstCount > 0);
+        Assert.True(handler.RequestCount > firstCount);
+        Assert.True(failure);
+    }
+
+    [Theory]
     [InlineData("/")]
     [InlineData("some/dir/")]
     public async Task DownloadPdbAsync_UnusablePdbFileName_SkipsSymbolServersButStillAttemptsSnupkg(string pdbFileName)
