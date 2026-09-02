@@ -2859,8 +2859,7 @@ public static class CompileBackSourceComposer
                 IsOverride: false,
                 IsSealed: false,
                 IsAsync: !isConstructor
-                    && (function.RequiresAsyncBodyModifier
-                        || function.IsRuntimeAsync == MetadataFactState.Yes),
+                    && function.RequiresAsyncMethodContext,
                 ConstructorInitializer: targetConstructorInitializer,
                 ExplicitInterfaceMemberName: explicitInterfaceMemberName,
                 RequiresUnsafeModifier: ContainsFixedBufferElementAccess(function))
