@@ -261,21 +261,27 @@ app.innerHTML = `
     })}
     <header class="subject-zone" aria-label="Subjects and inspectors">
       ${scopeBarHtml()}
-      <nav class="shell-actions${annotatedMode ? " annotated-page-actions" : ""}${sourceMode ? " source-page-actions" : ""}" aria-label="Application">
-        <button id="share">Share</button>
-        ${annotatedMode ? renderAnnotatedSourcePageActions(true) : ""}
-        ${sourceMode
-          ? renderSourcePageActions({
-              source,
-              copyButtonId: memberMode
-                ? "copy-source"
-                : "copy-type-source",
-              escapeHtml,
-            })
+      <div class="shell-actions${annotatedMode ? " annotated-page-actions" : ""}${sourceMode ? " source-page-actions" : ""}">
+        ${annotatedMode || sourceMode
+          ? `<div class="working-surface-actions" role="group" aria-label="${annotatedMode ? "Annotated Source actions" : "Source actions"}">
+              ${annotatedMode ? renderAnnotatedSourcePageActions(true) : ""}
+              ${sourceMode
+                ? renderSourcePageActions({
+                    source,
+                    copyButtonId: memberMode
+                      ? "copy-source"
+                      : "copy-type-source",
+                    escapeHtml,
+                  })
+                : ""}
+            </div>`
           : ""}
-        <button id="open-settings">Settings</button>
-        <button id="help" aria-label="Keyboard help">?</button>
-      </nav>
+        <nav class="legacy-application-actions" aria-label="Application">
+          <button id="share">Share</button>
+          <button id="open-settings">Settings</button>
+          <button id="help" aria-label="Keyboard help">?</button>
+        </nav>
+      </div>
     </header>
     <div class="notice-stack"></div>
     <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="active-subject-tab">

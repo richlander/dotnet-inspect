@@ -2768,23 +2768,29 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
 
       <header class="subject-zone" aria-label="Subjects and inspectors">
         ${renderScopeBar()}
-        <nav class="shell-actions${annotatedPageContext ? " annotated-page-actions" : ""}${sourcePageKind ? " source-page-actions" : ""}" aria-label="Application">
-          <button id="share" type="button">Share</button>
-          ${annotatedPageContext
-            ? renderAnnotatedSourcePageActions(annotatedActionsEnabled)
+        <div class="shell-actions${annotatedPageContext ? " annotated-page-actions" : ""}${sourcePageKind ? " source-page-actions" : ""}">
+          ${annotatedPageContext || sourcePageKind
+            ? `<div class="working-surface-actions" role="group" aria-label="${annotatedPageContext ? "Annotated Source actions" : "Source actions"}">
+                ${annotatedPageContext
+                  ? renderAnnotatedSourcePageActions(annotatedActionsEnabled)
+                  : ""}
+                ${sourcePageKind
+                  ? renderSourcePageActions({
+                      source: sourcePageSource,
+                      copyButtonId: sourcePageKind === "member"
+                        ? "copy-source"
+                        : "copy-type-source",
+                      escapeHtml,
+                    })
+                  : ""}
+              </div>`
             : ""}
-          ${sourcePageKind
-            ? renderSourcePageActions({
-                source: sourcePageSource,
-                copyButtonId: sourcePageKind === "member"
-                  ? "copy-source"
-                  : "copy-type-source",
-                escapeHtml,
-              })
-            : ""}
-          <button id="open-settings" type="button">Settings</button>
-          <button id="help" type="button" aria-label="Keyboard help">?</button>
-        </nav>
+          <nav class="legacy-application-actions" aria-label="Application">
+            <button id="share" type="button">Share</button>
+            <button id="open-settings" type="button">Settings</button>
+            <button id="help" type="button" aria-label="Keyboard help">?</button>
+          </nav>
+        </div>
       </header>
 
       <div class="notice-stack">

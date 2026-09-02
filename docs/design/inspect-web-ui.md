@@ -117,18 +117,15 @@ owns the SSS composition's two tablists, different styling and navigation,
 inspector-first width allocation, boundary controls, and subject-driven
 inspector replacement.
 
-Moving the application-action region out of the subject row remains required
-product direction, but it is not part of this focused pattern and first-adopter
-contract. Source and Annotated Source may already place their contextual
-actions in the current page-owned region. Surface Composition changes are
-otherwise limited to deferring its stale inspector representation,
-horizontal-movement, pressure-trigger, and matching acceptance restatements to
-Navigation Presentation. Shell Interaction owns the application control
-defined by
-[#5482](https://github.com/richlander/dotnet-inspect/issues/5482);
-[#5483](https://github.com/richlander/dotnet-inspect/issues/5483) relocates the
-region and its contextual actions at the page-composition layer without
-changing those action inventories.
+The page-level action line keeps working-surface actions distinct from the
+Application menu: Source and Annotated Source supply contextual groups between
+the SlideStrip region and the fixed application control. Surface Composition
+owns that placement and the transition from legacy direct application controls
+without changing either action inventory. This focused pattern otherwise
+defers its stale inspector representation, horizontal-movement,
+pressure-trigger, and matching acceptance restatements to Navigation
+Presentation. Shell Interaction owns the Application menu's identity,
+inventory, and behavior.
 
 ## Cross-document relationships
 

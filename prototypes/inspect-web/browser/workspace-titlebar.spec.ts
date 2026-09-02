@@ -1031,6 +1031,12 @@ test("Source fills the detail area between shell actions and bottom provenance",
     await expect(page.locator(".shell-action-link")).toHaveText("Open");
     await expect(page.locator("#inspector-panel > h1")).toHaveCount(0);
     await expect(
+      page.getByRole("group", { name: "Source actions" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("navigation", { name: "Application" }),
+    ).toBeVisible();
+    await expect(
       page.getByRole("region", { name: "Source code" }),
     ).toBeVisible();
 

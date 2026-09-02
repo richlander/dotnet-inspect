@@ -266,10 +266,10 @@ For checksum-verified source resolved through PDB information, the visible
 status is compact:
 
 ```text
-Application actions                                  Copy   Open
+Working-surface actions                              Copy   Open
 PDB Source                                      compact provenance
 
-Application actions                                         Copy
+Working-surface actions                                     Copy
 PDB Source                                      compact provenance
 ```
 

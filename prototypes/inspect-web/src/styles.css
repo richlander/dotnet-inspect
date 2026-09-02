@@ -464,6 +464,16 @@ body {
   overflow: hidden;
   container: shell-actions / inline-size;
 }
+.working-surface-actions,
+.legacy-application-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+}
+.working-surface-actions { flex: none; }
+.legacy-application-actions { flex: 1 1 auto; }
 .shell-actions.annotated-page-actions,
 .shell-actions.source-page-actions {
   flex-basis: 320px;
