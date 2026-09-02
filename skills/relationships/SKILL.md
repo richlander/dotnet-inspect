@@ -20,8 +20,9 @@ Scope any of these commands the same way: `--project path/to.csproj` (restored
 project references), `--package Foo` (repeatable), `--library path.dll`,
 `--platform` (all in-box frameworks), `--extensions` or `--aspnetcore` (curated
 Microsoft.* sets), and `--tfm net9.0`. For `implements` and `extensions`, use
-`--package-prefix Azure.AI` to search every package under a NuGet ID prefix;
-`depends` does not accept `--package-prefix`.
+`--package-prefix Azure.AI` to search up to 100 packages under a NuGet ID
+prefix; the command warns when that bound is reached. `depends` does not accept
+`--package-prefix`.
 
 `--project` reads existing restored assets; restore/build first if dependencies
 changed.

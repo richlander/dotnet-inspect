@@ -197,6 +197,48 @@ public class SearchScopeResolutionTests
     [InlineData("find", "System.String")]
     [InlineData("implements", "IDisposable")]
     [InlineData("extensions", "System.String")]
+    public void PackagePrefixGuidance_DisclosesExpansionLimit(
+        string command,
+        string target)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            [command, target]);
+        var option = result.CommandResult.Command.Options.Single(
+            candidate => candidate.Name == "--package-prefix");
+
+        Assert.Contains(
+            $"up to {ScopeConstants.PackagePrefixExpansionLimit}",
+            option.Description,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PackagePrefixLimitReached_IsVisible()
+    {
+        var (exit, output, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            CommandLineHelpers.WarnIfPackagePrefixLimitReached(
+                ScopeConstants.PackagePrefixExpansionLimit,
+                "Contoso.");
+            return Task.FromResult(0);
+        });
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"{ScopeConstants.PackagePrefixExpansionLimit}-package search limit",
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "additional matches may be omitted",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("find", "System.String")]
+    [InlineData("implements", "IDisposable")]
+    [InlineData("extensions", "System.String")]
     [InlineData("depends", "System.String")]
     public void CuratedCompatibilityInput_IsNotRegistered(string command, string target)
     {

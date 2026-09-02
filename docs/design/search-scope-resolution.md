@@ -82,12 +82,17 @@ Explicit selectors compose additively:
 | `--extensions` | the current Microsoft.Extensions package catalog |
 | `--aspnetcore` | the current ASP.NET Core package catalog |
 | explicit `--package` values | those package coordinates |
-| `--package-prefix` | matching package coordinates; its presence suppresses the default even when expansion is empty |
+| `--package-prefix` | up to 100 matching package coordinates; its presence suppresses the default even when expansion is empty |
 | valued `--platform`, `--library`, `--project`, or `--bin` | no framework or package contribution; their presence suppresses the default |
 
 Valued `--platform` is parser output for a platform-library source, not the
 bare platform-group selection. This design consumes that distinction and does
 not define its token grammar.
+
+Package-prefix contribution is bounded to the first 100 coordinates returned
+by prefix search. Reaching that bound produces a visible warning because
+additional matches may exist. Prefix query, provider ordering, and paging
+remain acquisition concerns.
 
 Package order is:
 
@@ -155,6 +160,9 @@ The Release `dotnet-inspect.Tests` suite enforces the contract:
   are the outcome-level pathological gates;
 - `SearchScopeResolutionTests.DependsImplicitScope_RetainsBareLibraryFallback`
   gates the command's source-free type-or-library convenience; and
+- `SearchScopeResolutionTests.PackagePrefixGuidance_DisclosesExpansionLimit`
+  and `SearchScopeResolutionTests.PackagePrefixLimitReached_IsVisible` gate the
+  prefix bound's user-facing help and warning; and
 - `SearchScopeResolutionTests.CuratedCompatibilityInput_IsNotRegistered`
   gates removal of the redundant hidden input from every participating
   command.

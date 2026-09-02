@@ -49,7 +49,10 @@ public static class SearchCommandDefinitions
         var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete types" };
         var membersOption = new Option<bool>("--members") { Description = "Search member names instead of type names (auto-enabled when the pattern starts with '.', e.g. .Serialize)" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
-        var packagePrefixOption = new Option<string?>("--package-prefix") { Description = "Search a NuGet package ID prefix; without a pattern, inspect latest manifests only" };
+        var packagePrefixOption = new Option<string?>("--package-prefix")
+        {
+            Description = $"With a type pattern, search up to {ScopeConstants.PackagePrefixExpansionLimit} matching package IDs; without one, inspect latest manifests only"
+        };
         var typeFilterOption = new Option<string?>("-t") { Description = "Limit result count (-t 5) or filter API types by glob (-t *Json*)" };
         typeFilterOption.Aliases.Add("--type");
 
@@ -156,7 +159,10 @@ public static class SearchCommandDefinitions
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete types" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
-        var packagePrefixOption = new Option<string?>("--package-prefix") { Description = "Search all packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)" };
+        var packagePrefixOption = new Option<string?>("--package-prefix")
+        {
+            Description = $"Search up to {ScopeConstants.PackagePrefixExpansionLimit} packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)"
+        };
         var typeFilterOption = new Option<string?>("-t") { Description = "Limit type count (-t 5) or filter by glob (-t *Json*)" };
         typeFilterOption.Aliases.Add("--type");
 
@@ -294,7 +300,10 @@ public static class SearchCommandDefinitions
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete members" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
-        var packagePrefixOption = new Option<string?>("--package-prefix") { Description = "Search all packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)" };
+        var packagePrefixOption = new Option<string?>("--package-prefix")
+        {
+            Description = $"Search up to {ScopeConstants.PackagePrefixExpansionLimit} packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)"
+        };
         var typeFilterOption = new Option<string?>("-t") { Description = "Limit type count (-t 5) or filter by glob (-t *Json*)" };
         typeFilterOption.Aliases.Add("--type");
 
