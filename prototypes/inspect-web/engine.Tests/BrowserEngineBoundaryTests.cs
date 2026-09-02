@@ -5087,6 +5087,7 @@ public sealed class BrowserEngineBoundaryTests
             packageId,
             "1.0.0",
             source,
+            PackageSourceIdentity.NuGetOrg,
             TimeSpan.FromMilliseconds(200));
         await handler.RequestStarted.Task.WaitAsync(
             TimeSpan.FromSeconds(1),
@@ -5118,6 +5119,7 @@ public sealed class BrowserEngineBoundaryTests
             packageId,
             version,
             source,
+            PackageSourceIdentity.NuGetOrg,
             TimeSpan.FromSeconds(5));
 
         Assert.Equal(version, package.Version);
@@ -5159,7 +5161,7 @@ public sealed class BrowserEngineBoundaryTests
             [],
             TotalDownloads: 0,
             Verified: false,
-            PackageSourceIdentity.NuGetOrg,
+            source.Source,
             manifest);
         using var deadline =
             new BrowserPackageWorkspace.BrowserPackageOperationDeadline(
@@ -5170,6 +5172,7 @@ public sealed class BrowserEngineBoundaryTests
             await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
                 package,
                 source,
+                PackageSourceIdentity.NuGetOrg,
                 deadline);
 
         IPackageContent content = Assert.IsType<
@@ -5206,7 +5209,7 @@ public sealed class BrowserEngineBoundaryTests
             [],
             TotalDownloads: 0,
             Verified: false,
-            PackageSourceIdentity.NuGetOrg,
+            source.Source,
             manifest);
         using var deadline =
             new BrowserPackageWorkspace.BrowserPackageOperationDeadline(
@@ -5217,6 +5220,7 @@ public sealed class BrowserEngineBoundaryTests
             await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
                 package,
                 source,
+                PackageSourceIdentity.NuGetOrg,
                 deadline);
 
         string message = Assert.IsType<
@@ -5248,6 +5252,7 @@ public sealed class BrowserEngineBoundaryTests
                 version,
                 "net11.0",
                 source,
+                PackageSourceIdentity.NuGetOrg,
                 TimeSpan.FromSeconds(5));
 
         PackageRootBinding binding = Assert.IsType<PackageRootBinding>(
@@ -5280,6 +5285,7 @@ public sealed class BrowserEngineBoundaryTests
                 "1.0.0",
                 targetFramework: null,
                 selectedSource,
+                PackageSourceIdentity.NuGetOrg,
                 TimeSpan.FromSeconds(5));
 
         Assert.Null(selected.RealizedCoordinate.Framework);
@@ -5298,6 +5304,7 @@ public sealed class BrowserEngineBoundaryTests
                 "1.0.0",
                 targetFramework: null,
                 rootOnlySource,
+                PackageSourceIdentity.NuGetOrg,
                 TimeSpan.FromSeconds(5));
 
         Assert.Null(rootOnly.RealizedCoordinate.Framework);
@@ -5324,6 +5331,7 @@ public sealed class BrowserEngineBoundaryTests
                     packageId,
                     "1.0.0",
                     source,
+                    PackageSourceIdentity.NuGetOrg,
                     TimeSpan.FromSeconds(5)));
 
         Assert.Contains(
@@ -5353,6 +5361,7 @@ public sealed class BrowserEngineBoundaryTests
                     packageId,
                     "1.0.0",
                     source,
+                    PackageSourceIdentity.NuGetOrg,
                     TimeSpan.FromSeconds(5)));
 
         Assert.Contains(
@@ -5378,6 +5387,7 @@ public sealed class BrowserEngineBoundaryTests
             packageId,
             version: null,
             source,
+            PackageSourceIdentity.NuGetOrg,
             TimeSpan.FromSeconds(5));
 
         Assert.Equal(version, package.Version);
@@ -5412,6 +5422,7 @@ public sealed class BrowserEngineBoundaryTests
             packageId,
             version: null,
             source,
+            PackageSourceIdentity.NuGetOrg,
             TimeSpan.FromSeconds(5));
         await handler.RequestStarted.Task.WaitAsync(
             TimeSpan.FromSeconds(10),
@@ -5439,6 +5450,7 @@ public sealed class BrowserEngineBoundaryTests
             packageId,
             "1.0.0",
             source,
+            PackageSourceIdentity.NuGetOrg,
             TimeSpan.FromMilliseconds(500));
         await handler.RequestStarted.Task.WaitAsync(
             TimeSpan.FromSeconds(1),
@@ -5447,6 +5459,7 @@ public sealed class BrowserEngineBoundaryTests
             packageId,
             "1.0.0",
             source,
+            PackageSourceIdentity.NuGetOrg,
             TimeSpan.FromMilliseconds(100));
 
         TimeoutException secondFailure =
@@ -5464,17 +5477,21 @@ public sealed class BrowserEngineBoundaryTests
     public void PendingAcquisitionAssociation_UsesCoordinateAndExactClientReference()
     {
         using IPackageSourceClient gallery =
-            PackageSourceClientFactory.CreateGallery();
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create());
         using IPackageSourceClient v3 =
             PackageSourceClientFactory.Create(
                 PackageSourceDescriptor.NuGetV3(
                     "nuget-v3",
                     "NuGet.org v3",
-                    new Uri("https://api.nuget.org/v3/index.json")));
+                    new Uri("https://api.nuget.org/v3/index.json")),
+                PackageSourceAssociation.Create());
         const string coordinate = "example@1.0.0";
 
-        Assert.Equal(gallery.Identity, v3.Identity);
-        Assert.NotEqual(gallery.Kind, v3.Kind);
+        Assert.Equal(gallery.Source.Producer, v3.Source.Producer);
+        Assert.NotEqual(
+            gallery.Source.TransportKind,
+            v3.Source.TransportKind);
 
         var galleryKey =
             new BrowserPackageWorkspace.PendingAcquisitionKey(
@@ -5523,7 +5540,9 @@ public sealed class BrowserEngineBoundaryTests
         using IPackageSourceClient servingSource =
             Gallery(servingHandler);
 
-        Assert.Equal(stalledSource.Identity, servingSource.Identity);
+        Assert.Equal(
+            stalledSource.Source.Producer,
+            servingSource.Source.Producer);
         Assert.NotSame(stalledSource, servingSource);
 
         Task<BrowserPackage> stalled =
@@ -5531,6 +5550,7 @@ public sealed class BrowserEngineBoundaryTests
                 packageId,
                 version,
                 stalledSource,
+                PackageSourceIdentity.NuGetOrg,
                 TimeSpan.FromMilliseconds(500));
         await stalledHandler.RequestStarted.Task.WaitAsync(
             TimeSpan.FromSeconds(1),
@@ -5541,6 +5561,7 @@ public sealed class BrowserEngineBoundaryTests
                 packageId,
                 version,
                 servingSource,
+                PackageSourceIdentity.NuGetOrg,
                 TimeSpan.FromSeconds(5));
 
         Assert.Equal(packageId, served.PackageId);
@@ -5690,6 +5711,7 @@ public sealed class BrowserEngineBoundaryTests
         var handler = new StallingGalleryRegistrationHandler();
         using IPackageSourceClient source =
             PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create(),
                 handler,
                 new NuGetFetchOptions
                 {
@@ -5736,6 +5758,7 @@ public sealed class BrowserEngineBoundaryTests
         var handler = new StallingGalleryRegistrationHandler();
         using IPackageSourceClient source =
             PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create(),
                 handler,
                 new NuGetFetchOptions
                 {
@@ -6256,6 +6279,7 @@ public sealed class BrowserEngineBoundaryTests
 
     static IPackageSourceClient Gallery(HttpMessageHandler handler) =>
         PackageSourceClientFactory.CreateGallery(
+            PackageSourceAssociation.Create(),
             handler,
             new NuGetFetchOptions
             {
