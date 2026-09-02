@@ -5161,7 +5161,7 @@ public sealed class BrowserEngineBoundaryTests
             [],
             TotalDownloads: 0,
             Verified: false,
-            PackageSourceIdentity.NuGetOrg,
+            source.Source,
             manifest);
         using var deadline =
             new BrowserPackageWorkspace.BrowserPackageOperationDeadline(
@@ -5172,6 +5172,7 @@ public sealed class BrowserEngineBoundaryTests
             await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
                 package,
                 source,
+                PackageSourceIdentity.NuGetOrg,
                 deadline);
 
         IPackageContent content = Assert.IsType<
@@ -5208,7 +5209,7 @@ public sealed class BrowserEngineBoundaryTests
             [],
             TotalDownloads: 0,
             Verified: false,
-            PackageSourceIdentity.NuGetOrg,
+            source.Source,
             manifest);
         using var deadline =
             new BrowserPackageWorkspace.BrowserPackageOperationDeadline(
@@ -5219,6 +5220,7 @@ public sealed class BrowserEngineBoundaryTests
             await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
                 package,
                 source,
+                PackageSourceIdentity.NuGetOrg,
                 deadline);
 
         string message = Assert.IsType<

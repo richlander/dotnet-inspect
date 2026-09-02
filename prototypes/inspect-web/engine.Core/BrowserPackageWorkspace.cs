@@ -673,23 +673,38 @@ internal static class BrowserPackageWorkspace
         };
     }
 
+    internal static ValueTask<PackageQueryContentResult>
+        AcquirePackageQueryContentAsync(
+            PackageProfileMatch package,
+            IPackageSourceClient source,
+            BrowserPackageOperationDeadline deadline) =>
+        AcquirePackageQueryContentAsync(
+            package,
+            source,
+            ConfiguredSourceIdentityFor(source),
+            deadline);
+
     internal static async ValueTask<PackageQueryContentResult>
         AcquirePackageQueryContentAsync(
             PackageProfileMatch package,
             IPackageSourceClient source,
+            PackageSourceIdentity configuredSourceIdentity,
             BrowserPackageOperationDeadline deadline)
     {
         ArgumentNullException.ThrowIfNull(package);
         ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(configuredSourceIdentity);
         ArgumentNullException.ThrowIfNull(deadline);
         PackageSourceCoordinate coordinate = PackageSourceCoordinate.Create(
             package.PackageId,
             package.Version);
+
         PackageSourcePayloadResult result;
         try
         {
             result = await PackagePayloadAcquisition.AcquireAsync(
                     source,
+                    configuredSourceIdentity,
                     coordinate,
                     Store,
                     limits: PayloadLimits,

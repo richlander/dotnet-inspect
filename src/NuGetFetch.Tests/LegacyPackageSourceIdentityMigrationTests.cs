@@ -1,25 +1,14 @@
-using System.Text.RegularExpressions;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace NuGetFetch.Tests;
 
 public sealed class LegacyPackageSourceIdentityMigrationTests
 {
     const string LegacyTypeName = "PackageSource" + "Identity";
-    static readonly Regex LegacyTypeReference = new(
-        $@"\b{LegacyTypeName}\b",
-        RegexOptions.CultureInvariant);
-    static readonly Regex DescriptorDeclaration = new(
-        @"\bPackageSourceDescriptor\s*\??\s+([A-Za-z_][A-Za-z0-9_]*)\b",
-        RegexOptions.CultureInvariant);
-    static readonly Regex InferredDescriptorDeclaration = new(
-        @"\bvar\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*PackageSourceDescriptor\s*\.",
-        RegexOptions.CultureInvariant);
-    static readonly Regex DescriptorTypeReference = new(
-        @"\bPackageSourceDescriptor\b",
-        RegexOptions.CultureInvariant);
-    static readonly Regex IdentityAccess = new(
-        @"\.\s*Identity\b",
-        RegexOptions.CultureInvariant);
+    const string DescriptorTypeName = "PackageSource" + "Descriptor";
+    const string IdentityPropertyName = "Identity";
 
     [Fact]
     public void LegacyPackageSourceIdentitySurfaceMatchesMigrationSet()
@@ -66,12 +55,12 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
             new(
                 "#4805",
                 "prototypes/inspect-web/engine.Core/BrowserPackageWorkspace.cs",
-                ExplicitReferences: 11,
+                ExplicitReferences: 12,
                 ImplicitReferences: 0),
             new(
                 "#4805",
                 "prototypes/inspect-web/engine.Tests/BrowserEngineBoundaryTests.cs",
-                ExplicitReferences: 15,
+                ExplicitReferences: 17,
                 ImplicitReferences: 0),
         ];
 
@@ -113,44 +102,103 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
     [Fact]
     public void LegacyReferenceDiscoveryIncludesImplicitFormattingAndEquality()
     {
-        string descriptorType = "PackageSource" + "Descriptor";
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"legacy-source-inventory-{Guid.NewGuid():N}");
+        string sourceRoot = Path.Combine(root, "src");
+        Directory.CreateDirectory(sourceRoot);
+        Directory.CreateDirectory(Path.Combine(root, "prototypes"));
+        string descriptorType = DescriptorTypeName;
         string identityMember = "." + "Identity";
         string source = $$"""
-            {{descriptorType}} first = Create();
-            {{descriptorType}} second = Create();
-            _ = $"{first{{identityMember}}}";
-            _ = first{{identityMember}} == second{{identityMember}};
+            namespace NuGetFetch
+            {
+                sealed class {{descriptorType}}
+                {
+                    public object {{IdentityPropertyName}} => new();
+                }
+            }
+            namespace Probe
+            {
+                using NuGetFetch;
+
+                sealed class Consumer
+                {
+                    void Read({{descriptorType}} first, {{descriptorType}} second)
+                    {
+                        var alias = first;
+                        _ = $"{alias{{identityMember}}}";
+                        _ = alias{{identityMember}} == second{{identityMember}};
+                        _ = "alias.Identity";
+                        // alias.Identity is not an executable reader.
+                    }
+                }
+            }
             """;
 
-        Assert.Equal(3, CountImplicitReferences(source));
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(sourceRoot, "AliasedDescriptorReader.cs"),
+                source);
+
+            MigrationEntry reader =
+                Assert.Single(DiscoverReferences(new DirectoryInfo(root)));
+            Assert.Equal(0, reader.ExplicitReferences);
+            Assert.Equal(3, reader.ImplicitReferences);
+            Assert.Contains(
+                "unlisted",
+                MigrationSetError([], [reader]),
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     static MigrationEntry[] DiscoverReferences(DirectoryInfo root)
     {
-        string[] sourceRoots =
+        string[] paths =
         [
-            Path.Combine(root.FullName, "src"),
-            Path.Combine(root.FullName, "prototypes"),
-        ];
-
-        return
-        [
-            .. sourceRoots
+            .. new[]
+            {
+                Path.Combine(root.FullName, "src"),
+                Path.Combine(root.FullName, "prototypes"),
+            }
                 .SelectMany(path =>
                     Directory.EnumerateFiles(
                         path,
                         "*.cs",
                         SearchOption.AllDirectories))
                 .Where(path => !IsBuildOutput(root.FullName, path))
-                .Select(path =>
+                .Order(StringComparer.Ordinal),
+        ];
+        SyntaxTree[] trees =
+        [
+            .. paths.Select(path =>
+                CSharpSyntaxTree.ParseText(
+                    File.ReadAllText(path),
+                    CSharpParseOptions.Default
+                        .WithLanguageVersion(LanguageVersion.Preview),
+                    path)),
+        ];
+        CSharpCompilation compilation = CreateCompilation(trees);
+
+        return
+        [
+            .. trees
+                .Select(tree =>
                 {
-                    string source = File.ReadAllText(path);
+                    SyntaxNode syntax = tree.GetRoot();
+                    SemanticModel semantics =
+                        compilation.GetSemanticModel(tree);
                     return new MigrationEntry(
                         Issue: "",
-                        Path.GetRelativePath(root.FullName, path)
+                        Path.GetRelativePath(root.FullName, tree.FilePath)
                             .Replace('\\', '/'),
-                        LegacyTypeReference.Matches(source).Count,
-                        CountImplicitReferences(source));
+                        CountExplicitReferences(syntax),
+                        CountImplicitReferences(syntax, semantics));
                 })
                 .Where(entry =>
                     entry.ExplicitReferences != 0
@@ -159,43 +207,48 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
         ];
     }
 
-    static int CountImplicitReferences(string source)
+    static int CountExplicitReferences(SyntaxNode syntax) =>
+        syntax.DescendantTokens()
+            .Count(token =>
+                token.IsKind(SyntaxKind.IdentifierToken)
+                && token.ValueText == LegacyTypeName);
+
+    static int CountImplicitReferences(
+        SyntaxNode syntax,
+        SemanticModel semantics) =>
+        syntax.DescendantNodes()
+            .OfType<MemberAccessExpressionSyntax>()
+            .Count(access =>
+                access.Name.Identifier.ValueText
+                    == IdentityPropertyName
+                && semantics.GetSymbolInfo(access).Symbol
+                    is IPropertySymbol
+                    {
+                        ContainingType.Name: DescriptorTypeName,
+                        ContainingNamespace.Name: "NuGetFetch",
+                        ContainingNamespace.ContainingNamespace
+                            .IsGlobalNamespace: true,
+                    });
+
+    static CSharpCompilation CreateCompilation(
+        IReadOnlyList<SyntaxTree> trees)
     {
-        var positions = new HashSet<int>();
-        for (int start = 0; start < source.Length;)
-        {
-            int terminator = source.IndexOf(';', start);
-            int length = terminator < 0
-                ? source.Length - start
-                : terminator - start + 1;
-            string statement = source.Substring(start, length);
-            if (DescriptorTypeReference.IsMatch(statement))
-            {
-                foreach (Match access in IdentityAccess.Matches(statement))
-                    positions.Add(start + access.Index);
-            }
-            start += length;
-        }
-
-        var descriptorNames = new HashSet<string>(StringComparer.Ordinal);
-        foreach (Match declaration in DescriptorDeclaration.Matches(source))
-            descriptorNames.Add(declaration.Groups[1].Value);
-        foreach (Match declaration in
-                 InferredDescriptorDeclaration.Matches(source))
-        {
-            descriptorNames.Add(declaration.Groups[1].Value);
-        }
-
-        foreach (string name in descriptorNames)
-        {
-            var access = new Regex(
-                $@"\b{Regex.Escape(name)}\s*\.\s*Identity\b",
-                RegexOptions.CultureInvariant);
-            foreach (Match match in access.Matches(source))
-                positions.Add(match.Index + match.Value.IndexOf('.'));
-        }
-
-        return positions.Count;
+        string trustedPlatformAssemblies =
+            Assert.IsType<string>(
+                AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES"));
+        MetadataReference[] references =
+        [
+            .. trustedPlatformAssemblies
+                .Split(Path.PathSeparator)
+                .Select(path =>
+                    MetadataReference.CreateFromFile(path)),
+        ];
+        return CSharpCompilation.Create(
+            "LegacyPackageSourceIdentityMigrationInventory",
+            trees,
+            references,
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary));
     }
 
     static string? MigrationSetError(

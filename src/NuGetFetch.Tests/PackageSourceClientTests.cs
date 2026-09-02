@@ -4256,6 +4256,31 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public void VersionResultSnapshotRemainsInsideOperationDeadline()
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromSeconds(1),
+            OperationTimeout = TimeSpan.FromMilliseconds(20),
+        };
+        using var operation = new NuGetOperationDeadline(
+            options,
+            Timeout.InfiniteTimeSpan,
+            CancellationToken.None);
+        PackageSourceResultFactory results = CreateResultFactory();
+        PackageCandidateObservation candidate = results.Candidate(
+            PackageSourceCoordinate.Create("contoso", "1.0.0"),
+            PackageDiscoveryContract.CompleteVersionEnumeration,
+            PackageListingState.Unknown);
+
+        Assert.Throws<NuGetOperationTimeoutException>(
+            () => results.Versions(
+                new DelayedList<PackageCandidateObservation>(candidate),
+                hasAuthoritativeListingState: false,
+                operation));
+    }
+
+    [Fact]
     public void GalleryOwnedTransportIsDisposedWithClient()
     {
         var handler = new RecordingHandler();

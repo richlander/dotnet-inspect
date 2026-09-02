@@ -206,7 +206,8 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                 {
                     return _results.Versions(
                         [],
-                        hasAuthoritativeListingState: true);
+                        hasAuthoritativeListingState: true,
+                        operation);
                 }
 
                 IReadOnlyList<string> versions = index?.Versions
@@ -430,7 +431,8 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
             operation.ThrowIfExpired();
             return results.Versions(
                 candidates,
-                hasAuthoritativeListingState: true);
+                hasAuthoritativeListingState: true,
+                operation);
         }
         catch (OperationCanceledException)
             when (callerCancellation.IsCancellationRequested)

@@ -453,7 +453,7 @@ public sealed class PackageQueryTests
     [Fact]
     public async Task ExecuteAsync_PackageContentFacetsMatchSkillsAndToolFormats()
     {
-        PackageSearchMatch[] candidates =
+        SearchResult[] candidates =
         [
             Match("Contoso.V1"),
             Match("Contoso.V2"),
@@ -463,10 +463,10 @@ public sealed class PackageQueryTests
             candidates,
             candidates.ToDictionary(
                 candidate =>
-                    $"{candidate.Metadata.Id.ToLowerInvariant()}@1.0.0",
+                    $"{candidate.Id.ToLowerInvariant()}@1.0.0",
                 candidate => Manifest(
-                    candidate.Metadata.Id,
-                    packageTypes: candidate.Metadata.Id == "Contoso.Library"
+                    candidate.Id,
+                    packageTypes: candidate.Id == "Contoso.Library"
                         ? ""
                         : """
                           <packageTypes>

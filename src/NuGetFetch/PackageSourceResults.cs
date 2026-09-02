@@ -371,7 +371,8 @@ internal static class PackageSourceProjection
         operation.ThrowIfExpired();
         return factory.Versions(
             candidates,
-            hasAuthoritativeListingState);
+            hasAuthoritativeListingState,
+            operation);
     }
 
     public static PackageSearchResult ProjectSearch(
@@ -796,29 +797,59 @@ public sealed class PackageSourceResultFactory
 
     public PackageVersionResult Versions(
         IReadOnlyList<PackageCandidateObservation> candidates,
-        bool hasAuthoritativeListingState)
+        bool hasAuthoritativeListingState) =>
+        VersionsCore(
+            candidates,
+            hasAuthoritativeListingState,
+            operation: null);
+
+    internal PackageVersionResult Versions(
+        IReadOnlyList<PackageCandidateObservation> candidates,
+        bool hasAuthoritativeListingState,
+        NuGetOperationDeadline operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        return VersionsCore(
+            candidates,
+            hasAuthoritativeListingState,
+            operation);
+    }
+
+    private PackageVersionResult VersionsCore(
+        IReadOnlyList<PackageCandidateObservation> candidates,
+        bool hasAuthoritativeListingState,
+        NuGetOperationDeadline? operation)
     {
         ArgumentNullException.ThrowIfNull(candidates);
+        operation?.ThrowIfExpired();
+        int count = candidates.Count;
+        operation?.ThrowIfExpired();
         var snapshot =
-            new PackageCandidateObservation[candidates.Count];
+            new PackageCandidateObservation[count];
+        operation?.ThrowIfExpired();
         for (int i = 0; i < snapshot.Length; i++)
         {
+            operation?.ThrowIfExpired();
             PackageCandidateObservation candidate =
                 candidates[i]
                 ?? throw new ArgumentException(
                     "Version candidates cannot contain null entries.",
                     nameof(candidates));
+            operation?.ThrowIfExpired();
             ValidateCandidate(candidate);
+            operation?.ThrowIfExpired();
             snapshot[i] = candidate;
         }
 
-        return new PackageVersionResult(
+        var result = new PackageVersionResult(
             _ownerCapability,
             _issuer,
             Source,
             new PackageSourceReadOnlyList<PackageCandidateObservation>(
                 snapshot),
             hasAuthoritativeListingState);
+        operation?.ThrowIfExpired();
+        return result;
     }
 
     public PackageSourceManifest Manifest(

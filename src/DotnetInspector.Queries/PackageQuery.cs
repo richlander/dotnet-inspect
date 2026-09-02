@@ -901,7 +901,7 @@ public static class PackageQuery
         new(
             failure.PackageId,
             failure.Version,
-            failure.Producer,
+            failure.Source,
             failure.Kind switch
             {
                 PackageProfileFailureKind.Search =>
