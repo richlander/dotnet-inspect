@@ -242,7 +242,8 @@ result-authorized focus/announcement ordering.
 [Workspace Definitions](workspace-definitions.md) owns portable projection and
 complete restoration composition. #4787 established the current version-2
 shape; #5525 tracks adoption of explicit Workspace and Package subjects plus an
-optional active occurrence independent from the active subject.
+optional retained occurrence and descendant context independent from the active
+subject.
 
 ### Non-claims
 
@@ -976,18 +977,33 @@ gates below.
 
 After packet decoding, Workspace and retained-coordinate realization, and
 portable identity resolution, the canonical-state owner supplies one exact
-Workspace, one optional exact retained-coordinate occurrence, and the optional
-exact subject and navigation lens requested inside it.
+Workspace, zero or one exact retained occurrence context, and the optional
+exact active subject and navigation lens requested inside it.
+
+The retained occurrence context is independent from the active subject. It
+contains:
+
+- the exact retained occurrence and its Package or non-package Root;
+- the optional exact retained Library, Type, and Member path beneath that
+  occurrence; and
+- the exact Type-inventory Library context, when established.
+
+An explicitly selected Workspace may therefore retain one complete occurrence
+context without making any descendant the active subject. Two Workspace-selected
+snapshots with the same occurrence but different retained Type or Member
+contexts remain distinct restoration inputs. No active occurrence means no
+retained occurrence context.
 
 Inspection Subject Navigation independently retains that requested payload,
-requires any requested non-Workspace subject's exact occurrence ancestry to
-equal the supplied occurrence, and requires the lens identity's exact subject
-to equal the requested subject. An occurrence/subject mismatch or subject/lens
-mismatch fails before Registry resolution and aborts preparation. Navigation
-then resolves its subject and lens halves and publishes one complete prepared
-snapshot only when both halves succeed. Any half-failure likewise aborts, and
-supersession prevents an older preparation from being published. The focused
-participant state machine is
+requires every identity in the retained context to share one exact occurrence
+ancestry, requires any requested non-Workspace subject's exact occurrence
+ancestry to equal that context, and requires the lens identity's exact subject
+to equal the requested subject. A context/subject mismatch, internally
+inconsistent context, or subject/lens mismatch fails before Registry resolution
+and aborts preparation. Navigation then resolves its subject and lens halves
+and publishes one complete prepared snapshot only when both halves succeed.
+Any half-failure likewise aborts, and supersession prevents an older
+preparation from being published. The focused participant state machine is
 [`AtomicRestoration.tla`](models/inspection-subject-navigation/AtomicRestoration.tla).
 
 This owner does not install the prepared snapshot or coordinate other
@@ -995,9 +1011,10 @@ restoration participants. Complete Workspace restoration composition and
 atomic commit belong to [Workspace Definitions](workspace-definitions.md),
 whose current version-2 shape was established by #4787. That shape cannot yet
 represent an explicitly selected Workspace, distinguish Package from
-non-package Root, or carry an optional active occurrence independently from the
-active subject. #5525 owns that focused adoption. Section, body, source-target,
-and other portable state remain outside this owner.
+non-package Root, or carry an optional retained occurrence and descendant
+context independently from the active subject. #5525 owns that focused
+adoption. Section, body, source-target, and other portable state remain outside
+this owner.
 
 ## Consumer contract
 
@@ -1151,6 +1168,8 @@ The eventual subject-navigation implementation must include named gates for:
 - `CanonicalRestoration_PreparedPairEqualsExactRequest`
 - `CanonicalRestoration_RejectsMismatchedSubjectBoundLens`
 - `CanonicalRestoration_RejectsSubjectFromAnotherOccurrence`
+- `CanonicalRestoration_RejectsInconsistentRetainedOccurrenceContext`
+- `CanonicalRestoration_WorkspaceSubjectPreservesDistinctDescendantContexts`
 - `CanonicalRestoration_FailedPreparationSettlesAsAbort`
 
 The closed-kind, component-binding, and construction gates are updated in
@@ -1205,6 +1224,7 @@ result identifies Navigation as the failure source.
 | Pending or failed retained coordinate | Typed owner evidence and no Navigation activation action; Close remains available when the owner marks the occurrence closable |
 | Foreign-Workspace subject, action, or restoration payload | Rejected before Registry resolution, correspondence, or fallback |
 | Restoration occurrence and subject ancestry disagree inside one Workspace | Preparation aborts before Registry resolution |
+| Two Workspace-selected restorations share an occurrence but retain different Type contexts | Distinct prepared snapshots preserve the exact independently supplied descendant context |
 | Package content or selection generation is replaced at the same portable coordinate | New exact Package subject; stale subject and actions are rejected |
 | Coordinate variation within one Workspace | Typed correspondence or independent recommendation confined to the requested occurrence |
 | Coordinate variation across Workspaces | No correspondence; separate retained session and independently restored state |

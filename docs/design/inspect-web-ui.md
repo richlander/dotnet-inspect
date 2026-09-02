@@ -65,7 +65,8 @@ This document composes four adjacent owner contracts without defining them:
   fields, versioning, migration, valid combinations, per-coordinate view
   state, canonical packet projection, and restoration. #4787 established the
   current version-2 shape; #5525 tracks adoption of explicit Workspace and
-  Package subjects plus an optional active occurrence.
+  Package subjects plus optional retained occurrence and descendant context
+  independent from the active subject.
 - [Browser package sources](browser-package-sources.md#default-feed-decision)
   owns browser source selection and the decision that first-run Gallery
   bootstrap does not become default-feed or acquisition-preference semantics.

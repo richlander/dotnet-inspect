@@ -63,8 +63,15 @@ read that way:
 - **Complete restoration coordination.** `AtomicRestoration.tla` covers only
   the navigation participant's subject+lens preparation. Other participants,
   transaction commit, and installation belong to
-  [Workspace Definitions](../../workspace-definitions.md), with implementation
-  tracked by [#4787](https://github.com/richlander/dotnet-inspect/issues/4787).
+  [Workspace Definitions](../../workspace-definitions.md). #4787 established
+  the current version-2 shape; #5525 tracks Workspace/Package subject and
+  retained-context adoption.
+- **Retained occurrence context.** `AtomicRestoration.tla` does not model the
+  exact retained occurrence, descendant Library/Type/Member path, or
+  Type-inventory Library context supplied independently from an active
+  Workspace subject. Implementation gates check internal context consistency
+  and distinguish same-occurrence Workspace restorations with different lower
+  context.
 - **Acquisition, security, or performance.** Coordinate realization appears
   only as an external prerequisite that may abort.
 
@@ -279,10 +286,12 @@ remaining differences are deliberate abstractions rather than disagreements:
   Implementation gates check that barrier, exact occurrence, owner-result
   correlation, and Workspace containment.
 - **Optional restoration inputs.** Canonical restoration's subject and lens are
-  optional in the packet. The model always receives both resolved values
-  because the claim under test begins at the navigation participant boundary:
-  one exact pair is prepared and published together. It models neither other
-  restoration participants nor installation.
+  optional in the packet, and retained occurrence context is independently
+  optional. The model always receives both resolved subject and lens values
+  because the claim under test begins at the narrower pair-publication
+  boundary: one exact pair is prepared and published together. It models
+  neither retained occurrence context, other restoration participants, nor
+  installation.
 - **Retained request payload.** `SnapshotAuthority.tla` instantiates exact
   retained-result correlation for a lens request. Exact subject-result
   correlation remains a named implementation gate; canonical preparation
