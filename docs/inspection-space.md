@@ -521,10 +521,11 @@ completions whose contracts remain owned by
 exact-group request,
 terminal receipt, and result lifecycle in
 [`AssemblyContextGroupReleaseLifecycle.tla`](models/assembly-context-group-lifecycle/AssemblyContextGroupReleaseLifecycle.tla);
-callback and resource internals remain in that detailed model. The model checks
-the interaction contract. The Release gates below enforce the shipped close
-mechanics; exact direct-receipt attribution remains unverified by a
-fault-injection implementation gate.
+callback and resource internals remain in the detailed
+[`AssemblyContextGroupLifecycle.tla`](models/assembly-context-group-lifecycle/AssemblyContextGroupLifecycle.tla)
+model. The model checks the interaction contract. The Release gates below
+enforce the shipped close mechanics; exact direct-receipt attribution remains
+unverified by a fault-injection implementation gate.
 
 The direct and coordinated workspace-close paths are implemented. The
 parameterless constructor retains synchronous compatibility.

@@ -662,12 +662,8 @@ NoAdmissionAfterDisposal ==
 GroupReleaseWaitsForQuiescence ==
     quiescenceWitness
 
-GroupReleaseNext ==
-    \/ GroupRelease!RequestRelease
-    \/ GroupRelease!CompleteRelease("Succeeded", LiveCallbacks = {})
-
 GroupReleaseBehaviorRefinesOwner ==
-    GroupRelease!Init /\ [][GroupReleaseNext]_releaseVars
+    GroupRelease!SafetySpec(LiveCallbacks = {})
 
 GroupReleaseCompletionMatchesRequest ==
     GroupRelease!CompletionMatchesRequest

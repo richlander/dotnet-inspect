@@ -745,16 +745,8 @@ DirectReceiptResultMatchesReportSource ==
         \/ (directCompletedGroup = ComposedDirectGroup
             => cleanupOutcome[ComposedDirectGroup] = directCompletionResult)
 
-DirectGroupReleaseNext ==
-    \/ DirectGroupRelease!RequestRelease
-    \/ \E outcome \in {"Succeeded", "Failed"} :
-        DirectGroupRelease!CompleteRelease(
-            outcome,
-            ~groupBusy[ComposedDirectGroup])
-
 DirectGroupReleaseBehaviorRefinesOwner ==
-    DirectGroupRelease!Init
-        /\ [][DirectGroupReleaseNext]_directGroupReleaseVars
+    DirectGroupRelease!SafetySpec(~groupBusy[ComposedDirectGroup])
 
 DirectGroupReleaseCompletionCarriesResult ==
     DirectGroupRelease!CompletionCarriesResult
@@ -768,16 +760,8 @@ ForeignDirectGroupReleaseCompletionMatchesRequest ==
 ForeignDirectGroupReleaseCompletionCarriesResult ==
     ForeignDirectGroupRelease!CompletionCarriesResult
 
-ForeignDirectGroupReleaseNext ==
-    \/ ForeignDirectGroupRelease!RequestRelease
-    \/ \E outcome \in {"Succeeded", "Failed"} :
-        ForeignDirectGroupRelease!CompleteRelease(
-            outcome,
-            ~groupBusy[ForeignDirectGroup])
-
 ForeignDirectGroupReleaseBehaviorRefinesOwner ==
-    ForeignDirectGroupRelease!Init
-        /\ [][ForeignDirectGroupReleaseNext]_foreignDirectGroupReleaseVars
+    ForeignDirectGroupRelease!SafetySpec(~groupBusy[ForeignDirectGroup])
 
 ReleaseBeginsAtMostOnce ==
     \A g \in Groups : releaseStarts[g] <= 1
