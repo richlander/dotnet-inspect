@@ -146,8 +146,10 @@ inspector label fits. Under pressure it becomes **inspector-first**:
    inspector labels at normal control sizing, at least the active inspector
    and one adjacent inspector remain readable as text in the default
    inspector-first allocation.
-5. If even that boundary cannot fit, inspector labels compact to their order
-   symbols and the composite scrolls horizontally rather than wrapping or
+5. Below the two-readable-label capacity, inspectors continue compacting by
+   the label-admission rules above. The composite begins horizontal scrolling
+   only when the complete level-zero control set -- compact subjects, reveal
+   controls, and every inspector symbol -- cannot fit without wrapping or
    shrinking controls below their normal interactive size.
 
 The owner-issued subject or inspector label remains each compact control's
@@ -325,8 +327,8 @@ or member section is a tab with `role="tab"` and `aria-selected`, including
 identically labelled tabs owned by different subjects. An effective lens is
 selected programmatically rather than conveyed by color alone. When no
 effective lens exists, every tab has `aria-selected="false"`. An empty
-descriptor collection omits the tablist and leaves the no-effective-lens status region as
-the content following the subject/inspector strip.
+descriptor collection omits the tablist and leaves the no-effective-lens status
+region as the content following the Slideable Subject Strip.
 
 Each tablist has the accessible name `<Subject> lenses`. The effective tab
 references its panel with `aria-controls`; the panel uses `role="tabpanel"` and
@@ -688,7 +690,10 @@ are proved by the gates in
 2. Narrow to the first pressure boundary and confirm that subject labels become
    `[W] [P] [L] [T] [M]` before inspector labels compact. Confirm that the
    active inspector and the next owner-ordered inspector remain readable when
-   the stated two-label capacity fits.
+   the stated two-label capacity fits. Continue through widths that fit one
+   readable inspector label and then only inspector symbols; confirm that label
+   admission remains deterministic and the composite does not scroll while the
+   complete level-zero control set fits.
 3. Move the active inspector to the final owner-ordered entry and confirm that
    it and the nearest preceding inspector receive the readable-label priority
    without reordering either control. Install a non-empty inventory with no
