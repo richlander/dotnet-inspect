@@ -149,6 +149,12 @@ work should follow the reference model rather than copy a legacy command.
 
 Package acquisition and symbol/source acquisition are separate.
 
+In the Browser package query, selecting a product-issued package-content facet
+is the explicit package-acquisition gesture. The product planner caps that
+request at 20 candidates, and execution requires the host to supply an
+`IPackageQueryContentProvider`; merely discovering that an archive is
+available grants no authority to open it.
+
 Capability-bearing gestures carry **request provenance**, not authority.
 Argument parsing retains the user's original verbosity, explicit
 section/category/glob selection, discovery mode, and explicit policy flags.

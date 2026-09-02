@@ -215,6 +215,7 @@ public sealed record BrowserBuildIdentity(
 public enum BrowserPackageQueryFacetTier
 {
     Nuspec,
+    PackageContent,
 }
 
 public sealed record BrowserPackageQueryFacetDescriptor(
@@ -223,7 +224,9 @@ public sealed record BrowserPackageQueryFacetDescriptor(
     string Summary,
     int Weight,
     BrowserPackageQueryFacetTier Tier,
-    string? SelectionGroupId);
+    string? SelectionGroupId,
+    string? DisplayGroupId,
+    string? DisplayGroupLabel);
 
 public sealed record BrowserPackageQueryFacetCatalog(
     BrowserPackageQueryFacetDescriptor[] Facets);
@@ -249,6 +252,8 @@ public enum BrowserPackageQueryFailureKind
     ManifestAcquisition,
     ManifestContract,
     InvalidManifest,
+    PackageContentAcquisition,
+    PackageContentEvaluation,
 }
 
 public sealed record BrowserPackageQueryFailure(
