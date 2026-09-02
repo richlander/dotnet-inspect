@@ -461,6 +461,50 @@ public sealed class ResolvedAssemblyReference
         AssemblyResolutionProvenance provenance,
         out bool usedFallbackIdentity,
         DateTime? lastWriteTimeUtc = null)
+        => CreateFromStreamWithFallbackIdentityCore(
+            artifactRegistration: null,
+            openRead,
+            fallbackIdentity,
+            provenance,
+            out usedFallbackIdentity,
+            lastWriteTimeUtc);
+
+    /// <summary>
+    /// Projects one authorized artifact registration into an assembly
+    /// descriptor, retaining a fallback identity when the selected image
+    /// cannot provide valid assembly identity and MVID evidence.
+    /// </summary>
+    /// <remarks>
+    /// The fallback keeps a selected malformed, native, module, or empty-MVID
+    /// image visible as a rejection carrier while preserving exact artifact
+    /// correspondence. It is not evidence that the image is a managed
+    /// assembly; artifact-backed opens still validate the image and reject it.
+    /// </remarks>
+    public static ResolvedAssemblyReference CreateFromArtifactWithFallbackIdentity(
+        ArtifactAcquisitionRegistration artifactRegistration,
+        Func<Stream> openRead,
+        AssemblyReferenceIdentity fallbackIdentity,
+        AssemblyResolutionProvenance provenance,
+        out bool usedFallbackIdentity,
+        DateTime? lastWriteTimeUtc = null)
+    {
+        ArgumentNullException.ThrowIfNull(artifactRegistration);
+        return CreateFromStreamWithFallbackIdentityCore(
+            artifactRegistration,
+            openRead,
+            fallbackIdentity,
+            provenance,
+            out usedFallbackIdentity,
+            lastWriteTimeUtc);
+    }
+
+    static ResolvedAssemblyReference CreateFromStreamWithFallbackIdentityCore(
+        ArtifactAcquisitionRegistration? artifactRegistration,
+        Func<Stream> openRead,
+        AssemblyReferenceIdentity fallbackIdentity,
+        AssemblyResolutionProvenance provenance,
+        out bool usedFallbackIdentity,
+        DateTime? lastWriteTimeUtc)
     {
         ArgumentNullException.ThrowIfNull(openRead);
         ArgumentNullException.ThrowIfNull(fallbackIdentity);
@@ -475,6 +519,7 @@ public sealed class ResolvedAssemblyReference
         }
 
         AssemblyReferenceIdentity? identity = null;
+        Guid? moduleVersionId = null;
         using (Stream stream = source)
         {
             try
@@ -490,7 +535,21 @@ public sealed class ResolvedAssemblyReference
                             AssemblyReferenceIdentity.FromAssemblyDefinition(
                                 metadata);
                         if (!string.IsNullOrWhiteSpace(candidate.Name))
+                        {
                             identity = candidate;
+                            if (artifactRegistration is not null)
+                            {
+                                ModuleDefinition module =
+                                    metadata.GetModuleDefinition();
+                                Guid candidateModuleVersionId =
+                                    metadata.GetGuid(module.Mvid);
+                                if (candidateModuleVersionId != Guid.Empty)
+                                {
+                                    moduleVersionId =
+                                        candidateModuleVersionId;
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -501,7 +560,17 @@ public sealed class ResolvedAssemblyReference
         }
 
         usedFallbackIdentity = identity is null;
-        return Create(
+        if (usedFallbackIdentity)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(
+                fallbackIdentity.Name);
+        }
+        var registration =
+            new AssemblyAcquisitionRegistration(artifactRegistration);
+        if (moduleVersionId is Guid value)
+            registration.BindModuleVersionId(value);
+        return new ResolvedAssemblyReference(
+            registration,
             identity ?? fallbackIdentity,
             path: null,
             openRead,
