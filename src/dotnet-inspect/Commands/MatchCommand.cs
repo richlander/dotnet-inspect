@@ -94,7 +94,8 @@ public static class MatchCommand
         {
             var loaded = ApiServices.LoadFullApi(
                 source.SearchPath, source.RuntimeAssemblyPath, options.PackagePath, source.PackageName,
-                source.ApiSource, source.ApiVersion, source.SelectedTfm, logger, options);
+                source.ApiSource, source.ApiVersion, source.SelectedTfm, logger, options,
+                source.PackageExtractPath);
             if (loaded == null)
             {
                 CommandError.Write("Could not extract API from library.");

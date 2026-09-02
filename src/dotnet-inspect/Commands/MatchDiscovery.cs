@@ -191,7 +191,8 @@ internal static class MatchDiscovery
                 GetReplayableCandidateAddress(
                     seed.ReplayPackage,
                     seed.PackageExtractPath,
-                    candidateImage);
+                    candidateImage,
+                    resolvedSeed.OriginProvenance);
             bool disclosePackageReplay =
                 !tokensIndexCallerImage || seed.ReplayPackage is not null;
             MatchDiscoveryReplaySources? replaySources = null;
@@ -209,7 +210,22 @@ internal static class MatchDiscovery
             using var workspace = new InspectionWorkspace();
 
             // One image, guaranteed by the gate above, so one group serves both sides.
-            using AssemblyContextGroup group = CreateGroup(workspace, seedImage);
+            string? rootPackageDirectory =
+                seed.PackageExtractPath is not null
+                && TryGetRelativeAsset(
+                    seed.PackageExtractPath,
+                    seedImage,
+                    out _)
+                    ? seed.PackageExtractPath
+                    : null;
+            using AssemblyContextGroup group = CreateGroup(
+                workspace,
+                seedImage,
+                rootPackageDirectory,
+                candidateAddress.Tfm,
+                options.SourceOptions,
+                usePackageSourcePolicy:
+                    candidateAddress.Package is not null);
 
             var input = new AssemblyContextStructuralCloneRetrievalInput(
                 group,
@@ -305,6 +321,7 @@ internal static class MatchDiscovery
         string? packagePath,
         string? packageExtractPath,
         string candidateImage,
+        AssemblyResolutionProvenance? candidateProvenance = null,
         IReadOnlyList<string>? packageRoots = null)
     {
         if (packagePath is not null
@@ -312,6 +329,24 @@ internal static class MatchDiscovery
             && TryGetRelativeAsset(packageExtractPath, candidateImage, out string? packageAsset))
         {
             return PackageCandidateAddress(packagePath, packageAsset);
+        }
+
+        if (candidateProvenance
+                is not AssemblyResolutionProvenance.PackageAsset package)
+        {
+            return new(null, candidateImage, null);
+        }
+
+        if (NuGetCache.TryGetPackageContentIdentity(
+                candidateImage,
+                out _,
+                out _,
+                out string appCacheAsset,
+                out _))
+        {
+            return PackageCandidateAddress(
+                $"{package.PackageId}@{package.PackageVersion}",
+                appCacheAsset);
         }
 
         IEnumerable<string> roots = packageRoots ?? NuGetCache.GetNuGetPackageRoots();
@@ -325,7 +360,18 @@ internal static class MatchDiscovery
                     StringSplitOptions.RemoveEmptyEntries);
                 if (segments.Length >= 3)
                 {
-                    string dependencyPackage = $"{segments[0]}@{segments[1]}";
+                    if (!segments[0].Equals(
+                            package.PackageId,
+                            StringComparison.OrdinalIgnoreCase)
+                        || !segments[1].Equals(
+                            package.PackageVersion,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    string dependencyPackage =
+                        $"{package.PackageId}@{package.PackageVersion}";
                     string dependencyAsset = string.Join('/', segments[2..]);
                     return PackageCandidateAddress(dependencyPackage, dependencyAsset);
                 }
@@ -476,7 +522,13 @@ internal static class MatchDiscovery
         MatchCommand.ResolvedSelector resolved =
             MatchCommand.ResolveSelector(seed.Api, seed.ApiDllPath, selector);
         if (resolved.Error is not null)
-            return new ResolvedSeed(null, null, null, null, resolved.Error);
+            return new ResolvedSeed(
+                null,
+                null,
+                null,
+                null,
+                null,
+                resolved.Error);
 
         // The declaring type comes from the resolution that already happened. Re-deriving it here
         // meant a second token scan that could disagree with the first, and for a raw token that
@@ -487,6 +539,10 @@ internal static class MatchDiscovery
             resolved.Display,
             resolved.OriginAssemblyPath,
             resolved.DeclaringType,
+            resolved.DeclaringType is null
+                ? null
+                : seed.TryGetSourceAssembly(resolved.DeclaringType)
+                    ?.Provenance,
             null);
     }
 
@@ -590,13 +646,25 @@ internal static class MatchDiscovery
             null);
     }
 
-    static AssemblyContextGroup CreateGroup(InspectionWorkspace workspace, string path)
+    static AssemblyContextGroup CreateGroup(
+        InspectionWorkspace workspace,
+        string path,
+        string? rootPackageDirectory,
+        string? targetFramework,
+        NuGetSourceOptions? sourceOptions,
+        bool usePackageSourcePolicy)
     {
         ResolvedAssemblyReference assembly = ResolvedAssemblyReference.CreateFromPath(
             path,
             AssemblyResolutionProvenance.Local("match --similar"));
         var policy = new AssemblyDependencyResolver(
-            new AssemblyDependencyResolutionOptions(path));
+            new AssemblyDependencyResolutionOptions(path)
+            {
+                RootPackageDirectory = rootPackageDirectory,
+                TargetFramework = targetFramework,
+                PackageSourceOptions = sourceOptions,
+                UsePackageSourcePolicy = usePackageSourcePolicy,
+            });
         return workspace.CreateAssemblyContextGroup(
             [new AssemblyContextParticipant(assembly, policy)]);
     }
@@ -618,7 +686,7 @@ internal static class MatchDiscovery
         ApiServices.LoadedApiSurface? loaded = ApiServices.LoadFullApi(
             source.SearchPath, source.RuntimeAssemblyPath, sideOptions.PackagePath,
             source.PackageName, source.ApiSource, source.ApiVersion, source.SelectedTfm,
-            source.Context.Logger, sideOptions);
+            source.Context.Logger, sideOptions, source.PackageExtractPath);
         if (loaded is null)
         {
             CommandError.Write("Could not extract API from library.");
@@ -627,8 +695,7 @@ internal static class MatchDiscovery
         }
 
         return (new LoadedSide(
-            loaded.Api,
-            loaded.ApiDllPath,
+            loaded,
             source.TempDir,
             GetReplayablePackage(
                 source.ResolvedPackagePath,
@@ -696,6 +763,7 @@ internal static class MatchDiscovery
         string? Display,
         string? OriginAssemblyPath,
         ApiType? DeclaringType,
+        AssemblyResolutionProvenance? OriginProvenance,
         string? Error);
 
     internal readonly record struct ReplayableCandidateAddress(
@@ -704,14 +772,16 @@ internal static class MatchDiscovery
         string? Tfm);
 
     sealed class LoadedSide(
-        ApiSurface api,
-        string apiDllPath,
+        ApiServices.LoadedApiSurface surface,
         string? tempDir,
         string? replayPackage,
         string? packageExtractPath) : IDisposable
     {
-        internal ApiSurface Api { get; } = api;
-        internal string ApiDllPath { get; } = apiDllPath;
+        internal ApiSurface Api => surface.Api;
+        internal string ApiDllPath => surface.ApiDllPath;
+        internal ResolvedAssemblyReference? TryGetSourceAssembly(
+            ApiType type) =>
+            surface.TryGetSourceAssembly(type);
 
         /// <summary>
         /// The temporary package directory, when one must be cleaned up after the command.

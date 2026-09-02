@@ -168,6 +168,72 @@ public static class NuGetCache
         return CoreCache.GetCategoryPath(PackageContentCategory);
     }
 
+    /// <summary>
+    /// Gets the product package-content cache when cache services have already
+    /// been initialized.
+    /// </summary>
+    public static bool TryGetPackageContentCachePath(out string path)
+    {
+        if (_appName is null)
+        {
+            path = "";
+            return false;
+        }
+
+        path = GetPackageContentCachePath();
+        return true;
+    }
+
+    /// <summary>
+    /// Recovers the exact package coordinate and asset path represented by a
+    /// file inside a product-owned package-content cache slot.
+    /// </summary>
+    public static bool TryGetPackageContentIdentity(
+        string path,
+        out string packageName,
+        out string version,
+        out string assetPath,
+        out string packageDirectory)
+    {
+        packageName = "";
+        version = "";
+        assetPath = "";
+        packageDirectory = "";
+        if (!TryGetPackageContentCachePath(out string cacheRoot))
+            return false;
+
+        string relative = Path.GetRelativePath(
+            Path.GetFullPath(cacheRoot),
+            Path.GetFullPath(path));
+        if (Path.IsPathRooted(relative)
+            || relative.Equals("..", StringComparison.Ordinal)
+            || relative.StartsWith(
+                $"..{Path.DirectorySeparatorChar}",
+                StringComparison.Ordinal)
+            || relative.StartsWith(
+                $"..{Path.AltDirectorySeparatorChar}",
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        string[] segments = relative.Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length < 4)
+            return false;
+
+        packageName = segments[0];
+        version = segments[1];
+        assetPath = string.Join('/', segments[3..]);
+        packageDirectory = Path.Combine(
+            cacheRoot,
+            segments[0],
+            segments[1],
+            segments[2]);
+        return true;
+    }
+
     internal static bool UsesGlobalPackages => !_skipNuGetCache;
 
     /// <summary>
@@ -269,8 +335,8 @@ public static class NuGetCache
         // to read from, in configured order. A slot belonging to any other
         // source is not consulted: those bytes were fetched under an authority
         // this caller no longer claims.
-        var appCachePath = GetPackageContentCachePath();
-        if (Directory.Exists(appCachePath))
+        if (TryGetPackageContentCachePath(out string appCachePath)
+            && Directory.Exists(appCachePath))
         {
             foreach (var sourceKey in allowedSourceKeys ?? [])
             {

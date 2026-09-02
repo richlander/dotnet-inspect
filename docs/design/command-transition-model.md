@@ -474,11 +474,17 @@ printing credential-bearing text
 `ReplaySources_RejectAValueThatDiagnosticsWouldRedact`,
 `ReplaySources_AcceptHarmlessUrlNormalization`,
 `ReplaySources_MakesTheConfigPathIndependentOfTheNextWorkingDirectory`).
-Package-coordinate
-replay and forwarded dependency discovery consult the same ordered
-global-packages-root inventory, so an active `NUGET_PACKAGES` override does not
-hide a retained target in the default secondary root
-(`ListCachedPackageContent_UsesASecondaryGlobalPackagesRoot`,
+Package-coordinate replay and forwarded dependency discovery use package
+acquisition's same source-authorized, admitted cache selection. Product-owned
+app-cache payloads precede ordered global-package roots, inadmissible payloads
+fall through, and a global payload is eligible only when its retained producer
+is authorized. Discovery therefore resolves forwarding against the same
+physical package image that the disclosed exact replay selects; an active
+`NUGET_PACKAGES` override also does not hide a retained target in the default
+secondary root
+(`ResolveAll_SourcePolicyUsesTheSameAdmittedCachePayloadAsPackageReplay`,
+`ListCachedPackageContent_UsesASecondaryGlobalPackagesRoot`,
+`Similar_PackageForwarderUsesOnlyAnAuthorizedDependencyPayload`,
 `Similar_PackageForwardedPopulation_DisclosesTheExactReplayAddress`,
 `Similar_PackageSameImage_DisclosesTheExactReplayAddress`). An image the caller
 supplied directly outlives the command and is disclosed unchanged

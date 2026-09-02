@@ -184,6 +184,64 @@ public static class PackageExtractor
     private static readonly IPackageStore s_packageStore = new FileSystemPackageStore();
 
     /// <summary>
+    /// Selects the first exact cached package that the current source policy
+    /// authorizes and the normal payload admission contract accepts.
+    /// </summary>
+    public static string? TryGetAdmittedCachedPackagePath(
+        string packageName,
+        string version,
+        NuGetSourceOptions? sourceOptions,
+        IReadOnlyList<string>? globalPackageRoots = null)
+    {
+        if (!IsValidPackageId(packageName)
+            || !TryNormalizePackageVersion(
+                version,
+                out string normalizedVersion))
+        {
+            return null;
+        }
+
+        string normalizedName = packageName.ToLowerInvariant();
+        PackageSourceAuthorization authorization =
+            new SourcePolicyPackageSourceAuthorization(sourceOptions)
+                .AuthorizeSourcesFor(normalizedName);
+        if (authorization.Sources.Count == 0)
+            return null;
+
+        string[] sourceKeys =
+        [
+            .. authorization.Sources.Select(
+                source => NuGetCache.GetSourceKey(source.Url)),
+        ];
+        foreach (CachedPackage cached in NuGetCache.EnumerateCachedPackageContent(
+                     normalizedName,
+                     normalizedVersion,
+                     sourceKeys,
+                     globalPackagesPaths: globalPackageRoots))
+        {
+            string expectedNupkg = Path.Combine(
+                cached.ExtractPath,
+                $"{normalizedName}.{normalizedVersion}.nupkg");
+            var content = new FileSystemPackageContent(
+                cached.ExtractPath,
+                File.Exists(expectedNupkg) ? expectedNupkg : null,
+                fromCache: true,
+                cached.ProducerKey,
+                cached.RequiresArchiveTreeMatch);
+            if (PackageContentAdmission.EvaluateFileSystem(
+                    content,
+                    PackagePayloadLimits.Default,
+                    CancellationToken.None)
+                == PackageContentAdmission.Outcome.Admissible)
+            {
+                return cached.ExtractPath;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Extracts a package from a local .nupkg file or downloads from NuGet sources.
     /// </summary>
     /// <param name="client">HTTP client for downloading packages</param>

@@ -1228,6 +1228,243 @@ public sealed class MatchDiscoveryTests
     }
 
     [Fact]
+    public async Task Similar_PackageForwarderUsesOnlyAnAuthorizedDependencyPayload()
+    {
+        string fixtureDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"match-forwarded-dependency-{Guid.NewGuid():N}");
+        string appCache = Path.Combine(fixtureDirectory, "app-cache");
+        string globalRoot = Path.Combine(fixtureDirectory, "global");
+        string rootPackage = Path.Combine(
+            fixtureDirectory,
+            "Forwarding.Root.1.0.0.nupkg");
+        string dependencyId = $"Forwarding.Target.{Guid.NewGuid():N}";
+        const string dependencyVersion = "1.0.0";
+        const string authorizedSource =
+            "https://authorized.invalid/v3/index.json";
+        const string unauthorizedSource =
+            "https://unauthorized.invalid/v3/index.json";
+        const string targetNamespace = "Forwarding.Target";
+        const string targetTypeName = "Sample";
+        string targetSelector = $"{targetNamespace}.{targetTypeName}.Seed";
+        string targetType = $"{targetNamespace}.{targetTypeName}";
+        string dependencyAsset =
+            $"lib/net10.0/{dependencyId}.dll";
+        byte[] targetImage = BuildMatchTargetAssembly(
+            dependencyId,
+            targetNamespace,
+            targetTypeName);
+        string? previousNuGetPackages =
+            Environment.GetEnvironmentVariable("NUGET_PACKAGES");
+        Directory.CreateDirectory(fixtureDirectory);
+
+        try
+        {
+            using (ZipArchive archive = ZipFile.Open(
+                       rootPackage,
+                       ZipArchiveMode.Create))
+            {
+                ZipArchiveEntry facade =
+                    archive.CreateEntry("lib/net10.0/Facade.dll");
+                await using (Stream stream = facade.Open())
+                {
+                    await stream.WriteAsync(
+                        BuildForwarderFacade(
+                            "Facade",
+                            new AssemblyReferenceIdentity(
+                                dependencyId,
+                                new Version(1, 0, 0, 0),
+                                Culture: null,
+                                PublicKeyToken: null),
+                            targetNamespace,
+                            targetTypeName),
+                        TestContext.Current.CancellationToken);
+                }
+
+                ZipArchiveEntry nuspec =
+                    archive.CreateEntry("Forwarding.Root.nuspec");
+                await using Stream nuspecStream = nuspec.Open();
+                await using var writer = new StreamWriter(nuspecStream);
+                await writer.WriteAsync(
+                    $"""
+                    <?xml version="1.0"?>
+                    <package>
+                      <metadata>
+                        <id>Forwarding.Root</id>
+                        <version>1.0.0</version>
+                        <authors>dotnet-inspect tests</authors>
+                        <description>forwarded dependency fixture</description>
+                        <dependencies>
+                          <group targetFramework="net10.0">
+                            <dependency id="{dependencyId}" version="{dependencyVersion}" />
+                          </group>
+                        </dependencies>
+                      </metadata>
+                    </package>
+                    """);
+            }
+
+            string dependencyDirectory = Path.Combine(
+                globalRoot,
+                dependencyId.ToLowerInvariant(),
+                dependencyVersion);
+            string dependencyAssetPath = Path.Combine(
+                dependencyDirectory,
+                dependencyAsset.Replace(
+                    '/',
+                    Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(
+                Path.GetDirectoryName(dependencyAssetPath)!);
+            File.WriteAllBytes(dependencyAssetPath, targetImage);
+            File.WriteAllText(
+                Path.Combine(
+                    dependencyDirectory,
+                    $"{dependencyId}.nuspec"),
+                $"""
+                <?xml version="1.0"?>
+                <package>
+                  <metadata>
+                    <id>{dependencyId}</id>
+                    <version>{dependencyVersion}</version>
+                    <authors>dotnet-inspect tests</authors>
+                    <description>forwarded target fixture</description>
+                  </metadata>
+                </package>
+                """);
+            string metadataPath = Path.Combine(
+                dependencyDirectory,
+                ".nupkg.metadata");
+            File.WriteAllText(
+                metadataPath,
+                $$"""{"source":"{{unauthorizedSource}}"}""");
+
+            Environment.SetEnvironmentVariable(
+                "NUGET_PACKAGES",
+                globalRoot);
+            NuGetCache.Initialize(
+                "dotnet-inspect-match-forwarded-dependency",
+                appCache,
+                skipNuGetCache: false);
+            var options = new MatchOptions
+            {
+                LeftSelector = targetSelector,
+                RightSelector = targetType,
+                PackagePath = rootPackage,
+                AssemblyPath = "lib/net10.0/Facade.dll",
+                IncludeAll = true,
+                Similar = true,
+                JsonOutput = true,
+                SourceOptions = new NuGetSourceOptions
+                {
+                    Sources = [authorizedSource],
+                },
+            };
+
+            var (unauthorizedExit, unauthorizedOutput, unauthorizedError) =
+                await RunAsync(options);
+
+            Assert.Null(
+                PackageExtractor.TryGetAdmittedCachedPackagePath(
+                    dependencyId,
+                    dependencyVersion,
+                    options.SourceOptions,
+                    [globalRoot]));
+            Assert.True(
+                unauthorizedExit == 1,
+                $"Expected unavailable forwarding.\nOutput:\n{unauthorizedOutput}\nError:\n{unauthorizedError}");
+            Assert.Empty(unauthorizedOutput);
+            Assert.Contains(
+                $"Forwarded type '{targetType}' "
+                    + "could not be resolved: UnboundBinding.",
+                unauthorizedError);
+
+            File.WriteAllText(
+                metadataPath,
+                $$"""{"source":"{{authorizedSource}}"}""");
+            var (authorizedExit, authorizedOutput, authorizedError) =
+                await RunAsync(options);
+
+            Assert.Equal(0, authorizedExit);
+            Assert.Empty(authorizedError);
+            JsonElement document = Parse(authorizedOutput);
+            Assert.Equal(
+                dependencyAsset,
+                document.GetProperty("candidate_assembly").GetString());
+            string disclosure =
+                document.GetProperty("disclosure").GetString()!;
+            string expectedDisclosure =
+                $"--package '{dependencyId.ToLowerInvariant()}@{dependencyVersion}' "
+                    + $"--library '{dependencyAsset}' --tfm 'net10.0' "
+                    + $"--source '{authorizedSource}'";
+            Assert.True(
+                disclosure.Contains(
+                    expectedDisclosure,
+                    StringComparison.Ordinal),
+                $"Expected disclosure fragment:\n{expectedDisclosure}\nActual:\n{disclosure}");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "NUGET_PACKAGES",
+                previousNuGetPackages);
+            NuGetCache.Initialize("dotnet-inspect");
+            Directory.Delete(fixtureDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ReplayAddress_AppCachePathRequiresTypedPackageProvenance()
+    {
+        string cacheRoot = Path.Combine(
+            Path.GetTempPath(),
+            $"match-app-cache-address-{Guid.NewGuid():N}");
+        string packageId = $"app.cache.dependency.{Guid.NewGuid():N}";
+        NuGetCache.Initialize(
+            "dotnet-inspect-match-app-cache-address",
+            cacheRoot,
+            skipNuGetCache: true);
+        try
+        {
+            string candidate = Path.Combine(
+                NuGetCache.GetPackageContentCachePath(),
+                packageId,
+                "1.0.0",
+                "producer",
+                "lib",
+                "net10.0",
+                "Target.dll");
+
+            var directAddress =
+                MatchDiscovery.GetReplayableCandidateAddress(
+                    packagePath: null,
+                    packageExtractPath: null,
+                    candidate);
+            var packageAddress =
+                MatchDiscovery.GetReplayableCandidateAddress(
+                    packagePath: null,
+                    packageExtractPath: null,
+                    candidate,
+                    AssemblyResolutionProvenance.Package(
+                        packageId,
+                        "1.0.0",
+                        tfm: null,
+                        rid: null));
+
+            Assert.Null(directAddress.Package);
+            Assert.Equal(candidate, directAddress.Library);
+            Assert.Equal($"{packageId}@1.0.0", packageAddress.Package);
+            Assert.Equal("lib/net10.0/Target.dll", packageAddress.Library);
+            Assert.Equal("net10.0", packageAddress.Tfm);
+        }
+        finally
+        {
+            NuGetCache.Initialize("dotnet-inspect");
+            if (Directory.Exists(cacheRoot))
+                Directory.Delete(cacheRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Similar_PackageSameImage_DisclosesTheExactReplayAddress()
     {
         string fixtureDirectory = Path.Combine(
@@ -1653,7 +1890,12 @@ public sealed class MatchDiscoveryTests
             MatchDiscovery.GetReplayableCandidateAddress(
                 "facade.fixture@1.0.0",
                 Path.Combine(Path.GetTempPath(), "facade-fixture"),
-                candidate);
+                candidate,
+                AssemblyResolutionProvenance.Package(
+                    "dependency.fixture",
+                    "2.3.4",
+                    tfm: null,
+                    rid: null));
 
         Assert.Equal("dependency.fixture@2.3.4", address.Package);
         Assert.Equal("lib/net10.0/Dependency.dll", address.Library);
@@ -1678,7 +1920,12 @@ public sealed class MatchDiscoveryTests
                 "facade.fixture@1.0.0",
                 Path.Combine(Path.GetTempPath(), "facade-fixture"),
                 candidate,
-                [overrideRoot, defaultRoot]);
+                AssemblyResolutionProvenance.Package(
+                    "dependency.fixture",
+                    "2.3.4",
+                    tfm: null,
+                    rid: null),
+                packageRoots: [overrideRoot, defaultRoot]);
 
         Assert.Equal("dependency.fixture@2.3.4", address.Package);
         Assert.Equal("lib/net10.0/Dependency.dll", address.Library);
@@ -1894,6 +2141,83 @@ public sealed class MatchDiscoveryTests
         var image = new BlobBuilder();
         builder.Serialize(image);
         return image.ToArray();
+    }
+
+    static byte[] BuildMatchTargetAssembly(
+        string assemblyName,
+        string typeNamespace,
+        string typeName)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString($"{assemblyName}.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString(typeNamespace),
+            metadata.GetOrAddString(typeName),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        AddMatchTargetMethod(metadata, bodyEncoder, "Seed");
+        AddMatchTargetMethod(metadata, bodyEncoder, "ExactPeer");
+
+        var builder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        return image.ToArray();
+    }
+
+    static void AddMatchTargetMethod(
+        MetadataBuilder metadata,
+        MethodBodyStreamEncoder bodies,
+        string name)
+    {
+        var code = new BlobBuilder();
+        code.WriteBytes(new byte[] { 0x17, 0x18, 0x58, 0x26, 0x2A });
+        int body = bodies.AddMethodBody(
+            new InstructionEncoder(code),
+            maxStack: 2);
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                parameterCount: 0,
+                returnType => returnType.Void(),
+                parameters => { });
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(name),
+            metadata.GetOrAddBlob(signature),
+            body,
+            MetadataTokens.ParameterHandle(1));
     }
 
     static ApiSurfaceInspectionFailure ForwardingFailure(
