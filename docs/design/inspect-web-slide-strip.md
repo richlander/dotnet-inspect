@@ -144,10 +144,12 @@ viable modes, allocation, retained window, and focus:
    count, breaking ties toward the more-preferred mode.
 7. If no normal-sized window fits, the control creates one fallback singleton
    containing the pending navigation destination, otherwise the focused item,
-   otherwise the retained leading identity, otherwise the initial anchor. The
-   item remains normal-sized, may be clipped by the viewport, and is aligned by
-   the policy. Overlaid edge indicators still disclose hidden inventory
-   without reducing its visible portion.
+   otherwise the retained leading identity, otherwise the initial anchor. It
+   uses the mode selected by step 6; when every mode has zero fitting items,
+   the preference tie-break selects Label. The item remains normal-sized, may
+   be clipped by the viewport, and is aligned by the policy. Overlaid edge
+   indicators still disclose hidden inventory without reducing its visible
+   portion.
 8. Within the selected mode, widening adds adjacent items one at a time until
    the complete inventory is visible; narrowing removes edge items one at a
    time without mixing modes.
@@ -183,10 +185,12 @@ visible portion rather than shrinking it.
 
 A slide-before or slide-after request moves the contiguous window by one
 owner-order position when hidden inventory exists in that direction. Sliding
-does not select or activate an item and never hides an item that currently owns
-focus. The adopter owns keyboard meaning and may issue those requests after
-its existing arrow-key navigation moves focus; pointer, touch, trackpad, or
-wheel handling may call the same operation when focus remains visible.
+does not select or activate an item. When the requested movement would hide the
+focused item, the newly revealed item at the movement edge becomes the pending
+destination and the atomic reveal-tab-stop-focus transaction applies. The
+adopter owns keyboard meaning and may issue slide requests after its existing
+arrow-key navigation resolves a destination; pointer, touch, trackpad, or wheel
+handling uses the same focus-preserving operation.
 
 The strip exposes leading and trailing edge-availability states. Their
 overlaid visual treatment may be a vertical highlight or fade, but the
@@ -320,6 +324,7 @@ The implementation PR must add focused tests that prove:
 - exact leading, trailing, and dual edge-indicator states;
 - overlaid indicators that do not alter capacity or item hit targets;
 - slide-before and slide-after bounds;
+- focused one-item slide transactions in both directions;
 - atomic reveal-then-focus navigation to an out-of-window identity;
 - invalid policy and missing required-Label rejection;
 - dynamic inventory replacement with retained and removed identities;
@@ -364,13 +369,17 @@ normal Inspect Web frontend and production Browser/Wasm suites.
    and confirm that the fallback singleton preserves normal size, the
    configured edge maximizes its visible portion, and overlaid indicators do
    not consume capacity or obscure its hit target.
-6. Replace the installed inventory while focus and selection differ. Confirm
+6. At a one-item window, focus the visible item and issue slide-after and
+   slide-before requests. Confirm that the newly revealed boundary item becomes
+   the pending destination and that window, sole tab stop, and focus move
+   atomically without selection or activation.
+7. Replace the installed inventory while focus and selection differ. Confirm
    that retained identities preserve focus and adopter-owned navigation state
    and that removed identities use the adopter's external focus rule. Install
    an empty inventory and confirm zero item-content width, no edge indicators,
    ignored slide requests, and no focus target.
-7. Render two adopters with different mode policies, styles, minimum visible
+8. Render two adopters with different mode policies, styles, minimum visible
    counts, and semantic roles. Confirm that both use the same window contract
    without inheriting one another's navigation behavior.
-8. Repeat every transition with reduced motion and confirm identical final
+9. Repeat every transition with reduced motion and confirm identical final
    mode, window, focus, and edge-indicator states.

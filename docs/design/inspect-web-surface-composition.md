@@ -231,7 +231,8 @@ One information hierarchy adapts across viewport sizes:
   may collapse completely before the subject/inspector strip wraps, but a
   subject-owned sole entry action that is also a required return-focus target
   remains visible and takes priority over those optional actions;
-- subject and inspector navigation scroll horizontally instead of wrapping;
+- subject and inspector navigation follows Navigation Presentation's
+  contiguous horizontal window contract instead of wrapping;
 - subject-path segments and optional advertisements elide visually without
   losing the complete accessible subject path or segment-level copy controls;
   the Search label may collapse from its scoped label to `Search` before the
@@ -347,8 +348,8 @@ with the absence of a synthesized `Default feed` control.
    dialog name, initial focus, focus containment, Escape dismissal, and focus
    return.
 4. Confirm that the title-line inspected target and second-row
-   subject/inspector strip remain single-line scrolling or truncating surfaces
-   rather than wrapping.
+   subject/inspector strip retain their single-line contiguous windows and edge
+   disclosure rather than wrapping.
 5. With focus in the wide navigation pane, narrow the viewport and confirm that
    focus moves to the new drawer button without opening it.
 6. Open the drawer, restore the wide viewport, and confirm that the drawer

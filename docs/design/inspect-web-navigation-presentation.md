@@ -175,9 +175,11 @@ inspector count.
 2. While the controls and both policy minimum widths fit, the composite
    reserves those widths. The inspector-first allocation gives the subject
    strip exactly its policy minimum width and gives the inspector strip the
-   remainder. This begins with one complete subject Label while the inspector
-   strip selects the richest mode and largest contiguous window its allocation
-   admits.
+   remainder, returning inspector width beyond its complete preferred inventory
+   to the subject strip. This begins with one complete subject Label while the
+   inspector strip selects the richest mode and largest contiguous window its
+   allocation admits; subjects use otherwise idle width without reducing
+   inspector content.
 3. `Show more subjects` moves the boundary to the subject strip's next richer
    window threshold, adding one adjacent full subject Label.
    `Show more inspectors` returns it to the previous subject threshold. The
@@ -199,8 +201,9 @@ inspector count.
    to the inspector. If one strip's complete preferred state is narrower than
    its share, that surplus returns to the other strip. Each strip then
    independently selects its mode and largest fitting contiguous window. A
-   share below the policy minimum uses SlideStrip's fallback singleton, and an
-   item wider than its viewport follows the focused-item alignment rule.
+   share below the policy minimum uses SlideStrip's one-item floor and uses the
+   fallback singleton only when no normal-sized item fits. An item wider than
+   its viewport follows the focused-item alignment rule.
 
 An empty inspector inventory omits the inspector strip and both allocation
 controls. The subject strip then receives the composite's complete width and
