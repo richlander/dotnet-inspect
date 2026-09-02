@@ -7,6 +7,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Planning;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -86,6 +87,62 @@ public static class RouterCommandDefinition
             }
 
             RequestTelemetry.Breadcrumb("router-hit", string.Join(' ', tokens));
+            bool structuralDiscovery =
+                tokens.Any(token =>
+                    token is "--discover" or "-D"
+                    || token.StartsWith(
+                        "--discover=",
+                        StringComparison.Ordinal)
+                    || token.StartsWith(
+                        "-D=",
+                        StringComparison.Ordinal))
+                && tokens.Any(token =>
+                    token == "--schema"
+                    || token.StartsWith(
+                        "--schema=",
+                        StringComparison.Ordinal));
+            if (StructuralViewRegistry.TryClassifyCommandless(
+                    tokens,
+                    structuralDiscovery,
+                    out CommandlessStructuralRoute? structuralRoute))
+            {
+                string[] structuralTokens =
+                    CommandLineBuilder.PreprocessArgs(
+                        structuralRoute!.RewrittenTokens,
+                        rootCommand);
+                RequestTelemetry.Breadcrumb(
+                    "router-structural",
+                    $"{structuralRoute.Route.Label}: "
+                    + string.Join(' ', structuralTokens));
+                return await CommandLineBuilder.InvokeWithLineWindowAsync(
+                    rootCommand.Parse(structuralTokens),
+                    structuralTokens);
+            }
+
+            if (structuralDiscovery)
+            {
+                StructuralDiscoveryRequest request =
+                    StructuralDiscoveryRequest.From(
+                        sourceParseResult,
+                        opts);
+                StructuralCatalogAlternatives alternatives =
+                    StructuralViewRegistry
+                        .CreateCommandlessAlternatives(
+                            tokens,
+                            request);
+                RequestTelemetry.Breadcrumb(
+                    "router-structural",
+                    "alternatives: "
+                    + string.Join(
+                        ",",
+                        alternatives.Alternatives.Select(
+                            alternative =>
+                                alternative.Route.Label)));
+                return StructuralViewRegistry.Execute(
+                    alternatives,
+                    request);
+            }
+
             var rewritten = await RouterTokenRewriter.RewriteAsync(
                 tokens,
                 sourceOptions,

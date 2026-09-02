@@ -7,6 +7,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using DotnetInspector.Planning;
 
 namespace DotnetInspector.Commands;
 
@@ -17,8 +18,22 @@ public static class MemberCommand
 {
     public const string Name = "member";
 
-    public static async Task<int> ExecuteAsync(MemberOptions options)
+    public static Task<int> ExecuteAsync(MemberOptions options)
+        => ExecuteAsync(
+            options,
+            ResolvedMemberInspectionPlan
+                .FromCompatibilityOptions(options));
+
+    internal static async Task<int> ExecuteAsync(
+        MemberOptions options,
+        ResolvedMemberInspectionPlan plan)
     {
+        if (plan.Intent.Surface != InspectionSurface.Member)
+            throw new ArgumentException(
+                "A member command requires a member inspection plan.",
+                nameof(plan));
+        ResolvedMemberInspectionPlan executionPlan = plan;
+
         // Validate that member command has a type argument
         if (string.IsNullOrEmpty(options.TypeName))
         {
@@ -38,10 +53,19 @@ public static class MemberCommand
             return 1;
 
         var unresolvedOptions = options;
-        if (!options.RouterDeferredTypeOrMember)
+        bool catalogNeedsTargetResolution =
+            !options.RouterDeferredTypeOrMember
+            && options.IncludeSections is null
+            && options.MemberFilter.Count == 0
+            && options.TypeName is { } unresolvedTypeName
+            && CSharpText.FqnParser.LastTopLevelDot(
+                unresolvedTypeName) > 0;
+        if (!options.RouterDeferredTypeOrMember
+            && !catalogNeedsTargetResolution)
         {
             // Shared preamble: section validation, discovery, verbosity promotion
-            var (preamble, error) = ApiCommand.RunPreamble(options);
+            var (preamble, error) =
+                ApiCommand.RunPreamble(options, plan);
             if (error.HasValue) return error.Value;
             options = (MemberOptions)preamble.Options;
         }
@@ -190,16 +214,28 @@ public static class MemberCommand
                     apiType.FullName);
             }
 
-            if (options.RouterDeferredTypeOrMember)
+            if (options.RouterDeferredTypeOrMember
+                || catalogNeedsTargetResolution)
             {
-                if (options.ShapeExplicitlySet)
+                if (options.RouterDeferredTypeOrMember
+                    && options.ShapeExplicitlySet)
                 {
                     CommandError.Write("--shape is only valid for type targets.");
                     return 1;
                 }
 
+                MemberOptions planningOptions =
+                    options.RouterDeferredTypeOrMember
+                        ? unresolvedOptions
+                        : options;
+                executionPlan =
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(
+                            planningOptions);
                 var (preamble, error) =
-                    ApiCommand.RunPreamble(unresolvedOptions);
+                    ApiCommand.RunPreamble(
+                        planningOptions,
+                        executionPlan);
                 if (error.HasValue) return error.Value;
                 options = (MemberOptions)preamble.Options with
                 {
@@ -516,7 +552,10 @@ public static class MemberCommand
                     return 1;
                 }
                 return ApiCommand.ExecuteEffectiveDiscovery(
-                    apiType, ApiMemberSectionPipelines.Create(effectiveOptions), effectiveOptions,
+                    apiType,
+                    ApiInspectionCatalogRegistry.CreateMemberPipeline(
+                        executionPlan.Selection.Catalog),
+                    effectiveOptions,
                     new ApiCommand.TypeAcquisitionContext(
                         foundIn, packageName, packageVersion, apiSource, selectedTfm));
             }

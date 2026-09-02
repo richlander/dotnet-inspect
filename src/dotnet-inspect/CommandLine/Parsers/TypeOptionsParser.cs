@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
+using DotnetInspector.Planning;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
@@ -15,6 +16,47 @@ namespace DotnetInspector.CommandLine;
 /// </summary>
 public static class TypeOptionsParser
 {
+    public static bool TryCreateStructuralPlan(
+        ParseResult parseResult,
+        SharedOptions options,
+        TypeCommandArgs args,
+        out StructuralDiscoveryPlan? plan)
+    {
+        plan = null;
+        if (!options.IsDiscoveryMode(parseResult)
+            || !options.ParseSchema(parseResult))
+        {
+            return false;
+        }
+
+        SharedParsers.SourceSelectionInputs sourceInputs =
+            SharedParsers.ReadSourceSelectionInputs(
+                parseResult,
+                args.ArgsArg,
+                args.PackageOption,
+                args.AssemblyOption,
+                args.PlatformOption);
+        bool hasProjectSource =
+            !string.IsNullOrWhiteSpace(
+                parseResult.GetValue(args.ProjectOption));
+        string? typeName =
+            sourceInputs.HasExplicitSource || hasProjectSource
+                ? sourceInputs.Args.FirstOrDefault()
+                : sourceInputs.Args.Length >= 2
+                    ? sourceInputs.Args[1]
+                    : sourceInputs.Args.FirstOrDefault();
+        InspectionCatalogIdentity catalog =
+            string.IsNullOrWhiteSpace(typeName)
+            || TypeMatcher.IsTypeGlobPattern(typeName)
+                ? InspectionCatalogIdentity.ApiType
+                : InspectionCatalogIdentity.ApiMember;
+        plan = new StructuralDiscoveryPlan.Resolved(
+            StructuralViewRegistry.Route(
+                StructuralViewIdentity.Type,
+                catalog));
+        return true;
+    }
+
     /// <summary>
     /// Arguments container for type command options.
     /// </summary>
@@ -76,7 +118,9 @@ public static class TypeOptionsParser
     /// <summary>
     /// Successfully parsed options ready for execution.
     /// </summary>
-    public record Success(TypeOptions Options) : TypeParseResult;
+    public record Success(
+        TypeOptions Options,
+        ResolvedMemberInspectionPlan Plan) : TypeParseResult;
 
     /// <summary>
     /// Parses type command options asynchronously (due to source resolution).
@@ -261,6 +305,9 @@ public static class TypeOptionsParser
                 ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
         };
 
-        return new Success(options);
+        return new Success(
+            options,
+            ResolvedMemberInspectionPlan
+                .FromCompatibilityOptions(options));
     }
 }

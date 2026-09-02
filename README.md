@@ -58,6 +58,13 @@ type names such as `string`, `int`, `DateTime`, and `Guid` resolve to
 `System.Private.CoreLib`. Use explicit commands and `--package`, `--platform`,
 or `--library` when you need a specific source.
 
+Use `-D --schema` to inspect the syntax-selected structural view without
+acquiring or loading the target. Package `--library` and `--all-libraries`
+queries expose their route-specific schemas before package resolution, while
+ambiguous commandless or dotted-member targets return separately labeled
+alternatives rather than a lookup-chosen union. A commandless
+`<target> --all-libraries` gesture always selects the package aggregate view.
+
 ## Demo: query rendered C# body shapes
 
 Discover the stable IDs accepted by body queries:

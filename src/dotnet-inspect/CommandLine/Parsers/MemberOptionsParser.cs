@@ -4,7 +4,10 @@ using DotnetInspector.Options;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using DotnetInspector.Planning;
+using CSharpText;
 using DotnetInspector.Views;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.CommandLine;
 
@@ -14,6 +17,152 @@ namespace DotnetInspector.CommandLine;
 /// </summary>
 public static class MemberOptionsParser
 {
+    public static bool TryCreateStructuralPlan(
+        ParseResult parseResult,
+        SharedOptions options,
+        MemberCommandArgs args,
+        out StructuralDiscoveryPlan? plan)
+    {
+        plan = null;
+        if (!options.IsDiscoveryMode(parseResult)
+            || !options.ParseSchema(parseResult))
+        {
+            return false;
+        }
+
+        SharedParsers.SourceSelectionInputs sourceInputs =
+            SharedParsers.ReadSourceSelectionInputs(
+                parseResult,
+                args.ArgsArg,
+                args.PackageOption,
+                args.AssemblyOption,
+                args.PlatformOption);
+        string[] optionMembers =
+            parseResult.GetValue(args.MemberOption) ?? [];
+        bool ctor = parseResult.GetValue(args.CtorOption);
+        int? index = parseResult.GetValue(args.IndexOption);
+        bool hasProjectSource =
+            (parseResult.GetValue(args.ProjectOption) ?? []).Length > 0
+            && !sourceInputs.HasExplicitSource;
+        int typeIndex =
+            sourceInputs.HasExplicitSource || hasProjectSource ? 0 : 1;
+        string? typeName = sourceInputs.Args.Length > typeIndex
+            ? sourceInputs.Args[typeIndex]
+            : sourceInputs.Args.FirstOrDefault();
+        string[] positionalMembers =
+            sourceInputs.Args.Length > typeIndex + 1
+                ? sourceInputs.Args[(typeIndex + 1)..]
+                : [];
+        string[] constructorMembers =
+            ctor ? [".ctor"] : [];
+        string[] members =
+        [
+            .. positionalMembers,
+            .. optionMembers,
+            .. constructorMembers,
+        ];
+        string[] discoverSelectors =
+            options.ParseDiscover(parseResult) ?? [];
+        string[] sectionSelectors =
+            discoverSelectors.Length > 0
+                ? discoverSelectors
+                : options.ParseSelect(parseResult) ?? [];
+        InspectionTargetRequirement baseRequirement =
+            members.Length == 0
+                ? InspectionTargetRequirement.Type
+                : InspectionTargetRequirement.MemberSet;
+        SectionDemandClassification demand =
+            ApiSectionDemandIndex.Classify(
+                InspectionSurface.Member,
+                [.. sectionSelectors],
+                options.ParseSelectDefault(parseResult),
+                baseRequirement);
+        bool exactMember =
+            index is not null
+            || members.Any(member =>
+            {
+                MemberTargetSelector selector =
+                    MemberTargetSelector.Parse(member);
+                return selector.OverloadIndex is not null
+                    || !string.IsNullOrWhiteSpace(
+                        selector.DigestPrefix);
+            })
+            || demand.RequiredTarget
+                == InspectionTargetRequirement.ExactMember;
+        InspectionCatalogIdentity memberCatalog =
+            members.Length == 0
+                ? InspectionCatalogIdentity.ApiMember
+                : exactMember
+                    ? InspectionCatalogIdentity.ApiMemberDetail
+                    : InspectionCatalogIdentity.ApiMemberOverload;
+
+        bool dottedTailAmbiguity =
+            members.Length == 0
+            && !string.IsNullOrWhiteSpace(typeName)
+            && (FqnParser.LastTopLevelDot(typeName) > 0
+                || StructuralViewRegistry
+                    .HasUnambiguousMemberTail(typeName));
+        bool bodyKindGesture =
+            (parseResult.GetValue(options.RowWhere) ?? [])
+                .Any(expression =>
+                    expression.StartsWith(
+                        "Kind=",
+                        StringComparison.OrdinalIgnoreCase));
+        if (dottedTailAmbiguity
+            && (index is not null
+                || bodyKindGesture
+                || StructuralViewRegistry
+                    .HasUnambiguousMemberTail(typeName!)))
+        {
+            plan = new StructuralDiscoveryPlan.Resolved(
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.MemberTarget,
+                    InspectionCatalogIdentity.ApiMemberDetail));
+            return true;
+        }
+
+        if (!dottedTailAmbiguity)
+        {
+            StructuralViewIdentity view =
+                memberCatalog == InspectionCatalogIdentity.ApiMember
+                    ? StructuralViewIdentity.MemberType
+                    : StructuralViewIdentity.MemberTarget;
+            plan = new StructuralDiscoveryPlan.Resolved(
+                StructuralViewRegistry.Route(view, memberCatalog));
+            return true;
+        }
+
+        string dottedTypeName = typeName!;
+        string impliedMember =
+            dottedTypeName[
+                (FqnParser.LastTopLevelDot(dottedTypeName) + 1)..];
+        MemberTargetSelector impliedSelector =
+            MemberTargetSelector.Parse(impliedMember);
+        InspectionCatalogIdentity peeledCatalog =
+            impliedSelector.OverloadIndex is not null
+            || !string.IsNullOrWhiteSpace(impliedSelector.DigestPrefix)
+            || demand.RequiredTarget
+                == InspectionTargetRequirement.ExactMember
+                ? InspectionCatalogIdentity.ApiMemberDetail
+                : InspectionCatalogIdentity.ApiMemberOverload;
+        string[]? alternativeSelectors =
+            options.ParseDiscover(parseResult) is { Length: > 0 } discover
+                ? discover
+                : options.ParseSelect(parseResult);
+        plan = new StructuralDiscoveryPlan.Alternatives(
+            StructuralViewRegistry.CreateAlternatives(
+                [
+                    StructuralViewRegistry.Route(
+                        StructuralViewIdentity.MemberType,
+                        InspectionCatalogIdentity.ApiMember),
+                    StructuralViewRegistry.Route(
+                        StructuralViewIdentity.MemberTarget,
+                        peeledCatalog),
+                ],
+                alternativeSelectors));
+        return true;
+    }
+
     /// <summary>
     /// Arguments container for member command options.
     /// </summary>
@@ -79,7 +228,9 @@ public static class MemberOptionsParser
     /// <summary>
     /// Successfully parsed options ready for execution.
     /// </summary>
-    public record Success(MemberOptions Options) : MemberParseResult;
+    public record Success(
+        MemberOptions Options,
+        ResolvedMemberInspectionPlan Plan) : MemberParseResult;
 
     /// <summary>
     /// Parses member command options asynchronously (due to source resolution).
@@ -419,7 +570,10 @@ public static class MemberOptionsParser
                 ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
         };
 
-        return new Success(options);
+        return new Success(
+            options,
+            ResolvedMemberInspectionPlan
+                .FromCompatibilityOptions(options));
     }
 
     /// <summary>

@@ -2,6 +2,7 @@ using System.CommandLine;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Planning;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
@@ -120,6 +121,30 @@ public static class ApiCommandDefinitions
 
         typeCommand.SetAction(async (parseResult, ct) =>
         {
+            if (TypeOptionsParser.TryCreateStructuralPlan(
+                    parseResult,
+                    opts,
+                    commandArgs,
+                    out StructuralDiscoveryPlan? structuralPlan))
+            {
+                StructuralDiscoveryRequest request =
+                    StructuralDiscoveryRequest.From(
+                        parseResult,
+                        opts);
+                return structuralPlan switch
+                {
+                    StructuralDiscoveryPlan.Resolved resolved =>
+                        StructuralViewRegistry.Execute(
+                            resolved.Route,
+                            request),
+                    StructuralDiscoveryPlan.Alternatives alternatives =>
+                        StructuralViewRegistry.Execute(
+                            alternatives.Value,
+                            request),
+                    _ => 1,
+                };
+            }
+
             var result = await TypeOptionsParser.ParseAsync(parseResult, opts, commandArgs);
 
             switch (result)
@@ -151,7 +176,9 @@ public static class ApiCommandDefinitions
                     return 1;
 
                 case TypeOptionsParser.Success success:
-                    return await TypeCommand.ExecuteAsync(success.Options);
+                    return await TypeCommand.ExecuteAsync(
+                        success.Options,
+                        success.Plan);
 
                 default:
                     return 1;
@@ -280,6 +307,30 @@ public static class ApiCommandDefinitions
 
         memberCommand.SetAction(async (parseResult, ct) =>
         {
+            if (MemberOptionsParser.TryCreateStructuralPlan(
+                    parseResult,
+                    opts,
+                    commandArgs,
+                    out StructuralDiscoveryPlan? structuralPlan))
+            {
+                StructuralDiscoveryRequest request =
+                    StructuralDiscoveryRequest.From(
+                        parseResult,
+                        opts);
+                return structuralPlan switch
+                {
+                    StructuralDiscoveryPlan.Resolved resolved =>
+                        StructuralViewRegistry.Execute(
+                            resolved.Route,
+                            request),
+                    StructuralDiscoveryPlan.Alternatives alternatives =>
+                        StructuralViewRegistry.Execute(
+                            alternatives.Value,
+                            request),
+                    _ => 1,
+                };
+            }
+
             var result = await MemberOptionsParser.ParseAsync(parseResult, opts, commandArgs);
 
             switch (result)
@@ -311,7 +362,9 @@ public static class ApiCommandDefinitions
                     return 1;
 
                 case MemberOptionsParser.Success success:
-                    return await MemberCommand.ExecuteAsync(success.Options);
+                    return await MemberCommand.ExecuteAsync(
+                        success.Options,
+                        success.Plan);
 
                 default:
                     return 1;

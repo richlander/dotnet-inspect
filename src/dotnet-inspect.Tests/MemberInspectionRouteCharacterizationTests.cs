@@ -205,8 +205,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 libraryPipeline,
                 libraryInfoSections,
                 $"focus:{FormatLibraryCapabilities(libraryInfoFocusAuthorization)};"
-                    + "discovery:rejected",
-                discoveryRejected: true),
+                    + "discovery:not-reached"),
             Observe(
                 "direct-library",
                 await ObserveLibraryDiscoveryAsync(),
@@ -264,8 +263,9 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                     + "discovery:vulnerability-traffic=False"),
             new(
                 "package-single-library",
-                "schema/discovery-after-package-acquisition",
-                "Library[schema:166:64FBBBE37EC7]",
+                "schema-static-before-package-acquisition/"
+                    + "effective-after-package-acquisition",
+                "Library[schema:144:50107017F6F5]",
                 "focus=Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
@@ -275,14 +275,15 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                     + "discovery:not-reached"),
             new(
                 "package-all-libraries",
-                "discovery-rejected",
-                "Library[render:Library Info]",
+                "schema-static-before-package-acquisition/"
+                    + "render-after-package-acquisition",
+                "Library[schema:144:50107017F6F5]",
                 "focus=Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
-                    + "Library Info->Type forwarders;discovery=rejected",
+                    + "Library Info->Type forwarders;discovery=none",
                 "focus:pdb=False;source=False;cached=False;"
-                    + "discovery:rejected"),
+                    + "discovery:not-reached"),
             new(
                 "direct-library",
                 "schema-static-without-target/effective-with-target",
@@ -302,37 +303,37 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "assembly-type-list",
                 "schema-static/effective-deferred",
-                "ApiType[schema:16:35B2A603B562]",
+                "ApiType[schema:8:FE1B16EEA0D2]",
                 "focus=none;discovery=none",
                 "focus:none"),
             new(
                 "type-member-list",
                 "schema-static/effective-deferred",
-                "ApiMember[schema:66:FE9290184C28]",
+                "ApiMember[schema:32:0F5B4EA1E460]",
                 "focus=none;discovery=none",
                 "focus:pdb=True;source=False"),
             new(
                 "member-type-view",
                 "schema-static/effective-deferred",
-                "ApiMember[schema:66:FE9290184C28]",
+                "ApiMember[schema:32:0F5B4EA1E460]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(
                 "overload-inventory",
                 "schema-static/effective-deferred/executed-multiple-overloads",
-                "ApiMemberOverload[schema:81:0B835ECE3CFC]",
+                "ApiMemberOverload[schema:39:FC5904ABC7D8]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(
                 "exact-member-detail",
                 "schema-static/effective-deferred",
-                "ApiMemberDetail[schema:57:9CF9EB2E407B]",
+                "ApiMemberDetail[schema:25:F808481CE5B4]",
                 "focus=none;discovery=none",
                 "focus:pdb=True;source=True"),
             new(
                 "hidden-router",
-                "router-to-member/schema-static",
-                "ApiMember[schema:66:FE9290184C28]",
+                "schema-static-alternatives-before-router-rewrite",
+                "ApiType[schema:146:4C6E5427583E]",
                 "focus=none;discovery=none",
                 "focus:none"),
         ];
@@ -509,11 +510,9 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 Discover = [],
                 Schema = true,
             }));
-        Assert.Equal(1, missingPackage.ExitCode);
-        Assert.Empty(missingPackage.Output);
-        Assert.Contains(
-            $"File not found: {missingPackagePath}",
-            missingPackage.Error);
+        Assert.Equal(0, missingPackage.ExitCode);
+        Assert.Contains(SectionNames.LibraryInfo, missingPackage.Output);
+        Assert.Empty(missingPackage.Error);
 
         var result = await ConsoleCapture.RunAsync(
             () => PackageCommand.ExecuteAsync(new InspectionOptions
@@ -549,7 +548,8 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         Assert.Contains("| Architecture | field", discovery.Output);
         Assert.Empty(discovery.Error);
         return new(
-            "schema/discovery-after-package-acquisition",
+            "schema-static-before-package-acquisition/"
+                + "effective-after-package-acquisition",
             IdentifyCatalog(result.Output, schemaTree.Output));
     }
 
@@ -574,16 +574,24 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 Discover = [],
                 Schema = true,
             }));
-        Assert.Equal(1, result.ExitCode);
-        Assert.Empty(result.Output);
-        Assert.Contains(
-            "--all-libraries cannot be combined with -D/--discover",
-            result.Error);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(SectionNames.LibraryInfo, result.Output);
+        Assert.Empty(result.Error);
+        var tree = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(new InspectionOptions
+            {
+                PackageArgs = [_packagePath],
+                AllLibraries = true,
+                Discover = [],
+                Schema = true,
+                Tree = true,
+            }));
+        Assert.Equal(0, tree.ExitCode);
+        Assert.Empty(tree.Error);
         return new(
-            "discovery-rejected",
-            IdentifyCatalogFromRenderedSection(
-                render.Output,
-                SectionNames.LibraryInfo));
+            "schema-static-before-package-acquisition/"
+                + "render-after-package-acquisition",
+            IdentifyCatalog(result.Output, tree.Output));
     }
 
     private static async Task<DiscoveryObservation> ObserveLibraryDiscoveryAsync()
@@ -731,21 +739,20 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             () => CommandLineBuilder.InvokeAsync(parsed, routedArgs));
         Assert.Equal(0, routed.ExitCode);
         Assert.Contains(
-            $"| {SectionNames.TypeInfo} | section |",
+            $"[type/type/ApiMember] {SectionNames.TypeInfo}",
             routed.Output);
-        Assert.DoesNotContain(
-            $"| {SectionNames.Signature} | section |",
+        Assert.Contains(
+            $"[member/member-target/ApiMemberOverload] {SectionNames.Signature}",
             routed.Output);
         Assert.Empty(routed.Error);
 
-        BreadcrumbObservation rewrite = Assert.Single(
+        Assert.DoesNotContain(
             observations,
             observation => observation.Stage == "router-rewrite");
-        Assert.Contains(" -> member ", rewrite.Detail);
 
         return new RouteObservation(
             "hidden-router",
-            "router-to-member/schema-static",
+            "schema-static-alternatives-before-router-rewrite",
             IdentifyCatalog(routed.Output, tree.Output),
             "focus=none;discovery=none",
             "focus:none");

@@ -25666,7 +25666,22 @@ public partial class CommandExecutionTests
                 "package", packagePath, "--all-libraries", "-S", "Integration: Configuration", "--tsv");
 
             Assert.Equal(0, exit);
-            Assert.Contains("package\tversion\tlibrary\ttfm\tkind\tapi", output);
+            string[] lines = output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries);
+            string[] headers = lines[0].Split('\t');
+            PackageCommand.AllLibrariesRowSchema rowSchema =
+                Assert.Single(
+                    PackageCommand.AllLibrariesRowSchemas,
+                    schema => schema.Section.Equals(
+                        "Integration: Configuration",
+                        StringComparison.Ordinal));
+            Assert.Equal(rowSchema.StableHeaders, headers);
+            Assert.All(
+                lines[1..],
+                line => Assert.Equal(
+                    headers.Length,
+                    line.Split('\t').Length));
             Assert.Contains("Microsoft.Extensions.Configuration.dll", output);
             Assert.Contains("Microsoft.Extensions.Configuration.Json.dll", output);
             Assert.DoesNotContain("Tip:", error);

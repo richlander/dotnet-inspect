@@ -9,6 +9,7 @@ using ILInspector.Metadata;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Planning;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using Markout;
@@ -364,59 +365,54 @@ public class ApiCommand
         SectionPipeline<ApiSurface> TypePipeline,
         SectionPipeline<ApiType> MemberPipeline);
 
-    internal static (PreambleResult Result, int? Error) RunPreamble(ApiOptions options)
+    internal static (PreambleResult Result, int? Error) RunPreamble(
+        ApiOptions options,
+        ResolvedMemberInspectionPlan? resolvedPlan = null)
     {
         options = options with { UserVerbosityOverride = options.UserVerbosity };
+        if (options.Discover is not null
+            && !options.EffectiveDiscovery)
+        {
+            StructuralDiscoveryPlan structuralPlan =
+                StructuralViewRegistry.CreateApiPlan(options);
+            StructuralDiscoveryRequest request =
+                StructuralDiscoveryRequest.From(options);
+            int exitCode = structuralPlan switch
+            {
+                StructuralDiscoveryPlan.Resolved resolved =>
+                    StructuralViewRegistry.Execute(
+                        resolved.Route,
+                        request),
+                StructuralDiscoveryPlan.Alternatives alternatives =>
+                    StructuralViewRegistry.Execute(
+                        alternatives.Value,
+                        request),
+                _ => 1,
+            };
+            return (null!, exitCode);
+        }
+
         if (options is MemberOptions { IncludeSections: not null } preResolvedMemberOptions)
             options = preResolvedMemberOptions with { MemberSectionsPreResolved = true };
 
+        resolvedPlan ??=
+            ResolvedMemberInspectionPlan
+                .FromCompatibilityOptions(options);
         var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
-        var structuralDetailOptions = options.Discover is not null
-                                      && !options.EffectiveDiscovery
-            ? TryGetDottedDetailDiscoveryOptions(options)
-            : null;
-        var memberPipeline = ApiMemberSectionPipelines.Create(
-            structuralDetailOptions ?? options);
+        var memberPipeline =
+            resolvedPlan.Selection.Catalog
+                is InspectionCatalogIdentity.ApiMember
+                or InspectionCatalogIdentity.ApiMemberOverload
+                or InspectionCatalogIdentity.ApiMemberDetail
+                ? ApiInspectionCatalogRegistry.CreateMemberPipeline(
+                    resolvedPlan.Selection.Catalog)
+                : ApiMemberSectionDescriptors.CreatePipeline();
         bool hasTypeName = !string.IsNullOrWhiteSpace(options.TypeName);
         bool typeNameIsGlob =
             hasTypeName
             && TypeMatcher.IsTypeGlobPattern(options.TypeName!);
         bool singleTypeMode = options is MemberOptions || (hasTypeName && !typeNameIsGlob);
         var knownSections = singleTypeMode ? memberPipeline.SelectableSectionNames : typePipeline.SelectableSectionNames;
-        if (structuralDetailOptions is null
-            && options is MemberOptions memberOptions
-            && memberOptions.MemberFilter.Count == 0
-            && MightPeelDottedGenericMemberSelector(memberOptions.TypeName))
-        {
-            knownSections = knownSections
-                .Concat(ApiMemberDetailSectionDescriptors.CreatePipeline().SelectableSectionNames)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-        }
-
-        // Discovery mode: -D/--discover lists effective sections (resolves source) by
-        // default; --schema opts out to the cheap, offline static schema listing.
-        if (options.Discover != null && !options.EffectiveDiscovery)
-        {
-            var structuralOptions =
-                (ApiOptions?)structuralDetailOptions ?? options;
-            var schema = singleTypeMode
-                ? GetTypeDocumentSchema(structuralOptions)
-                : ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
-
-            // Restrict plain discovery to columns/sections queryable under the active options.
-            if (singleTypeMode)
-            {
-                schema = RestrictSchemaToSections(schema, knownSections);
-                schema = ToQueryableSchema(schema, structuralOptions);
-            }
-
-            return (null!, DiscoverOutput.Execute(options.Discover, schema,
-                tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
-                sectionCostAnnotations: singleTypeMode ? memberPipeline.GetCostAnnotations() : null,
-                sectionCategories: singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
-                projection: options));
-        }
 
         // Bare -S renders the fixed overview: the sections whose length does not depend on which
         // type you are looking at. For a single type that is Type Info, so `type X -S` reports the
@@ -436,7 +432,8 @@ public class ApiCommand
         // all five growing tables. #3648 gave it the bounded API Info section, so bare -S can now
         // mean the same thing here that it means everywhere else.
         var usesFixedOverview = options is TypeOptions
-            || ApiMemberSectionPipelines.UsesDetailPipeline(options);
+            || resolvedPlan.Selection.Catalog
+                == InspectionCatalogIdentity.ApiMemberDetail;
         var bareSelectSections = usesFixedOverview
             ? singleTypeMode
                 ? memberPipeline.FixedOverviewSectionNames
@@ -462,12 +459,17 @@ public class ApiCommand
         // Both paths still enforce Body Shapes requirements before acquisition.
         if (options is not MemberOptions { MemberSectionsPreResolved: true })
         {
-            var selectResult = SelectResolver.ResolveSelectAsSections(
-                options.Select,
-                knownSections,
-                bareSelectSections,
-                singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
-                selectDefault: options.SelectDefault);
+            SelectResult selectResult =
+                options.Discover is null
+                    ? resolvedPlan.Selection.ToSelectResult()
+                    : SelectResolver.ResolveSelectAsSections(
+                        options.Select,
+                        knownSections,
+                        bareSelectSections,
+                        singleTypeMode
+                            ? memberPipeline.GetCategoryMap()
+                            : typePipeline.GetCategoryMap(),
+                        selectDefault: options.SelectDefault);
             if (ShouldDeferSelectToListing(options, singleTypeMode, selectResult, typePipeline))
             {
                 // `-D` advertised these names and `-S` rejected them, on the same command line: the
@@ -802,53 +804,6 @@ public class ApiCommand
             return options with { MermaidOutput = false };
 
         return options;
-    }
-
-    static bool MightPeelDottedGenericMemberSelector(string? typeName)
-    {
-        if (string.IsNullOrWhiteSpace(typeName))
-            return false;
-
-        var lastDot = FqnParser.LastTopLevelDot(typeName);
-        if (lastDot <= 0 || lastDot == typeName.Length - 1)
-            return false;
-
-        return MemberTargetSelector.Parse(typeName[(lastDot + 1)..]).GenericArity.HasValue;
-    }
-
-    static MemberOptions? TryGetDottedDetailDiscoveryOptions(
-        ApiOptions options)
-    {
-        if (options is not MemberOptions
-            {
-                MemberFilter.Count: 0,
-                TypeName: { } typeName
-            } memberOptions)
-        {
-            return null;
-        }
-
-        var lastDot = FqnParser.LastTopLevelDot(typeName);
-        if (lastDot <= 0 || lastDot == typeName.Length - 1)
-            return null;
-
-        var selector =
-            MemberTargetSelector.Parse(typeName[(lastDot + 1)..]);
-        if (!selector.OverloadIndex.HasValue
-            && string.IsNullOrWhiteSpace(selector.DigestPrefix))
-        {
-            return null;
-        }
-
-        return memberOptions with
-        {
-            MemberFilter = new HashSet<string>(
-                [selector.Name],
-                StringComparer.OrdinalIgnoreCase),
-            OverloadIndex = selector.OverloadIndex,
-            MemberDigest = selector.DigestPrefix,
-            MemberGenericArity = selector.GenericArity,
-        };
     }
 
     private static bool ValidateRouteIndependentOptionShape(
@@ -1251,6 +1206,11 @@ public class ApiCommand
     }
 
     internal static DocumentSchema GetTypeDocumentSchema(ApiOptions options)
+        => GetTypeDocumentSchema(
+            ApiMemberSectionPipelines.UsesDetailPipeline(options));
+
+    private static DocumentSchema GetTypeDocumentSchema(
+        bool includeExactMemberColumns)
     {
         var schema = MergeSchemas(
             ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema(),
@@ -1265,7 +1225,7 @@ public class ApiCommand
         // those schema entries because the type pipeline exposes whole-type code sections.
         var detailSchema = MergeSchemas(schema,
             ApiViewContext.Default.GetSchemaInfo<MemberCodeView>()!.ToDocumentSchema());
-        if (!ApiMemberSectionPipelines.UsesDetailPipeline(options))
+        if (!includeExactMemberColumns)
             return detailSchema;
         if (detailSchema.GetSection(SectionNames.Calls) == null)
             detailSchema.Add(SectionNames.Calls, "column", "IL Offset", "Evidence Method", "Opcode", "Call Kind", "Callee", "Operand Token", "Return Address");
@@ -1280,6 +1240,35 @@ public class ApiCommand
             "field",
             CallGraphFieldSelection.Names);
         return detailSchema;
+    }
+
+    internal static DocumentSchema GetStructuralSchema(
+        InspectionCatalogIdentity identity)
+    {
+        if (identity == InspectionCatalogIdentity.ApiType)
+        {
+            return ApiViewContext.Default
+                .GetSchemaInfo<CliApiSurface>()!
+                .ToDocumentSchema();
+        }
+
+        if (identity is not (
+            InspectionCatalogIdentity.ApiMember
+            or InspectionCatalogIdentity.ApiMemberOverload
+            or InspectionCatalogIdentity.ApiMemberDetail))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(identity),
+                identity,
+                "The requested identity is not an API catalog.");
+        }
+        ApiInspectionCatalog catalog =
+            ApiInspectionCatalogRegistry.Get(identity);
+        return RestrictSchemaToSections(
+            GetTypeDocumentSchema(
+                identity
+                == InspectionCatalogIdentity.ApiMemberDetail),
+            catalog.SectionNames);
     }
 
     private static DocumentSchema MergeSchemas(params DocumentSchema[] schemas)

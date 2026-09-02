@@ -11,6 +11,7 @@ using DotnetInspector.Sections;
 using Markout;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using DotnetInspector.Planning;
 
 using Decompiler = ILInspector.Decompiler;
 
@@ -24,19 +25,38 @@ public static class TypeCommand
     public const string Name = "type";
 
     public static Task<int> ExecuteAsync(TypeOptions options)
-        => ExecuteCoreAsync(options);
+        => ExecuteAsync(
+            options,
+            ResolvedMemberInspectionPlan
+                .FromCompatibilityOptions(options));
+
+    internal static Task<int> ExecuteAsync(
+        TypeOptions options,
+        ResolvedMemberInspectionPlan plan)
+        => ExecuteCoreAsync(options, plan);
 
     internal static Task<int> ExecuteResolvedAsync(
         TypeOptions options,
         ApiSourceResult source,
         ApiServices.LoadedApiSurface loaded)
-        => ExecuteCoreAsync(options, source, loaded);
+        => ExecuteCoreAsync(
+            options,
+            ResolvedMemberInspectionPlan
+                .FromCompatibilityOptions(options),
+            source,
+            loaded);
 
     private static async Task<int> ExecuteCoreAsync(
         TypeOptions options,
+        ResolvedMemberInspectionPlan plan,
         ApiSourceResult? resolvedSource = null,
         ApiServices.LoadedApiSurface? loadedSurface = null)
     {
+        if (plan.Intent.Surface != InspectionSurface.Type)
+            throw new ArgumentException(
+                "A type command requires a type inspection plan.",
+                nameof(plan));
+
         if (!PerformanceTriageOptions.TryValidate(
                 options.PerformanceTriage,
                 out var performanceTriageError))
@@ -46,7 +66,8 @@ public static class TypeCommand
         }
 
         // Shared preamble: section validation, discovery, verbosity promotion
-        var (preamble, error) = ApiCommand.RunPreamble(options);
+        var (preamble, error) =
+            ApiCommand.RunPreamble(options, plan);
         if (error.HasValue) return error.Value;
 
         options = (TypeOptions)preamble.Options;
