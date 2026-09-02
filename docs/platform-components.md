@@ -168,7 +168,7 @@ dnx dotnet-inspect -y -- find "*Controller*" --aspnetcore
 | Need code samples | `--package --samples` |
 | Specific version | `--package Name@version` |
 | Offline/no network | `--platform --use-local-docs` |
-| Discover type location | `find --framework --package` |
+| Discover type location | `find <pattern>` or `find <pattern> --package Name` |
 
 ## Platform Directory Structure
 

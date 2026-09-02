@@ -92,8 +92,8 @@ public static class SearchCommandDefinitions
                 case FindOptionsParser.ShowHelpWithTips:
                     return TipWriter.MissingArgumentWithTips(findCommand,
                         "Search pattern required.",
-                        "find Chat*                                # search default scope",
-                        "find Chat* --platform                     # platform libraries only",
+                        "find Chat*                                # implicit platform scope",
+                        "find Chat* --platform                     # explicit platform scope",
                         "find Chat* --extensions                   # Microsoft.Extensions packages",
                         "find Chat* --aspnetcore                   # ASP.NET Core packages",
                         "find Chat* --package Newtonsoft.Json       # specific package",
@@ -189,8 +189,8 @@ public static class SearchCommandDefinitions
             {
                 return TipWriter.MissingArgumentWithTips(implCommand,
                     "Type name required.",
-                    "implements Stream                         # search default scope",
-                    "implements Stream --platform              # platform libraries only",
+                    "implements Stream                         # implicit platform scope",
+                    "implements Stream --platform              # explicit platform scope",
                     "implements Stream --extensions             # Microsoft.Extensions packages",
                     "implements Stream --aspnetcore             # ASP.NET Core packages",
                     "implements Stream --package Foo            # specific package",
@@ -329,8 +329,8 @@ public static class SearchCommandDefinitions
             {
                 return TipWriter.MissingArgumentWithTips(extCommand,
                     "Type name required.",
-                    "extensions HttpClient                     # search default scope",
-                    "extensions HttpClient --platform          # platform libraries only",
+                    "extensions HttpClient                     # implicit platform scope",
+                    "extensions HttpClient --platform          # explicit platform scope",
                     "extensions HttpClient --extensions         # Microsoft.Extensions packages",
                     "extensions HttpClient --aspnetcore         # ASP.NET Core packages",
                     "extensions HttpClient --package Foo        # specific package",
