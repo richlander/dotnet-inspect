@@ -3,10 +3,9 @@
 ; into the runtime, emit executable code, or activate target types.
 ;
 ; The compiler's semantic model enforces this list for projects marked with
-; IsInspectionProductProject. AssemblyLoadingPolicyTests pins the exact list,
-; verifies the shipped product closures receive it, builds a negative canary
-; that must fail with RS0030, and scans Release IL so an RS0030 suppression
-; cannot hide a forbidden reference.
+; IsInspectionProductProject. AssemblyLoadingPolicyTests verifies that shipped
+; product closures receive it and builds a negative canary that must fail with
+; RS0030.
 
 M:System.Reflection.Assembly.Load(System.Byte[]);Parse assembly bytes through System.Reflection.Metadata; never load inspected code into the runtime.
 M:System.Reflection.Assembly.Load(System.Byte[],System.Byte[]);Parse assembly bytes through System.Reflection.Metadata; never load inspected code into the runtime.
