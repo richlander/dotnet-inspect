@@ -244,18 +244,10 @@ over-broad-design recovery procedure live in
   normative changes need focused efforts joined by a thin composition map.
 - State boundaries and contracts as simply as possible. Never translate current
   or planned implementation into prose; code implements the contract.
-- When product correctness joins facts across components, model the same
-  owner-issued join currency — version, generation, identity, receipt, handle,
-  or composite key — and preserve the association, freshness, and replacement
-  semantics that make the product join sound. The model may abstract the
-  currency's concrete representation.
-- Let TLA+ module dependencies mirror product dependencies: consume stable
-  owner-issued definitions and behaviors through named instances instead of
-  copying them, and recheck the imported properties in each composition. A
-  bounded result for one instance is evidence, not a proof transferred to
-  another. Put contract-defining configurations in
-  `eng/tla-expected-exit-codes.txt` so CI enforces their exact semantic
-  verdict; see
+- Compose TLA+ models along product boundaries: model the same owner-issued
+  join currency the product joins facts on, and put contract-defining
+  configurations in `eng/tla-expected-exit-codes.txt` so CI enforces their
+  exact semantic verdict; see
   [TLA+ methodology](docs/tla-plus-methodology.md#compose-models-along-product-boundaries).
 - A **broad design** normatively specifies multiple independently owned
   components (outside that one exception) or sweeps an end-to-end lifecycle.
@@ -377,8 +369,8 @@ and file-based-app commands.
 Match evidence to the claim and use the smallest existing check that proves it.
 Detailed practices — matching evidence to claim types, the style-oracle
 consultation procedure, and the harness/product boundary — live in
-[`docs/evidence-and-validation.md`](docs/evidence-and-validation.md). Two rules
-are load-bearing everywhere:
+[`docs/evidence-and-validation.md`](docs/evidence-and-validation.md). Three
+rules are load-bearing everywhere:
 
 - **Asserted properties name their gate.** A safety, soundness, or faithfulness
   claim must name its enforcing gate or say `unverified`. A gate counts only
@@ -389,6 +381,12 @@ are load-bearing everywhere:
   product-owned artifact construction — never construct, normalize, or repair
   C# that is later compiled as product evidence. If a test needs that
   compensation, stop and fix the product gap instead.
+- **Mitigation by absence names its gate too.** A hazard the product does not
+  exhibit is mitigated by measured, dated absence plus a standing policy not to
+  introduce it. Check whether the standard toolchain already gates it and
+  prefer enabling that over prose; without a gate the claim is `unverified`.
+  Never build bespoke enforcement for a hazard with no instances. Detail:
+  [Mitigation by absence](docs/evidence-and-validation.md#mitigation-by-absence).
 
 ### Markdown
 
@@ -468,34 +466,16 @@ merge, confirm live GitHub readiness — see [Merge preflight](docs/round-orches
 ### Clean reviews are not spent by main moving
 
 When a `main`-targeting PR (or the bottom open stack slice) has a review-clean
-head, or a head with a pending/approved trivial-interaction waiver, and
-an agent observes that `origin/main` moved while the PR remains open, assess the
-landed range before an agent-driven merge or mutation — do not integrate
-blindly and do not start another round by default. An upper stack slice follows
-its parent instead: parent movement is a restack requiring review at the new
-head.
-
-After a non-mutating fetch, classify the landed range into exactly one
-outcome, act on it, and report the classification and action as normal session
-output before changing labels or dispatching reviewers; re-classify only when
-the landed range itself changes, not on every poll. Merging still needs a live
-readiness check and explicit user authorization.
-The analysis is a point-in-time decision aid, not an exact-base lock: later base
-movement does not trigger branch integration or CI chasing; exact-base
-revalidation needs a merge queue, not repeated branch updates.
-Full detection, classification, and action procedure:
+head or an approved trivial-interaction waiver and `origin/main` moves while it
+stays open, classify the landed range before any agent-driven merge or
+mutation: do not integrate blindly and do not start another round by default.
+An upper stack slice instead follows its parent, whose movement is a restack
+requiring review at the new head. Report the classification as normal session
+output before changing labels or dispatching reviewers, re-classifying only
+when the landed range itself changes. It is a point-in-time decision aid, not
+an exact-base lock; merging still needs live readiness and explicit
+authorization. The four outcomes and their exact actions:
 [Carry-forward after clean reviews](docs/round-orchestration.md#carry-forward-after-clean-reviews).
-The four outcomes: **no interaction** (keep the reviewed or waived head
-unchanged, preserve its state and merge authorization, and start no new CI run
-or other gate — the common case), **trivial interaction** (if still open,
-expire authorization, disable any armed auto-merge first, remove
-`review-clean`, integrate, run affected gates, and offer the exact-head
-re-review waiver), **significant interaction, no conflict** (if still open,
-expire authorization, disable any armed auto-merge first, remove
-`review-clean`, integrate, re-run validation and CI, and re-dispatch reviewers
-as a normal round), and **merge conflict requiring semantic resolution**
-(expire authorization, disable any armed auto-merge first, and recover under
-[Recovery transitions](#recovery-transitions)).
 
 ### How many reviewers, and from which models
 

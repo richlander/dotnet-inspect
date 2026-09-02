@@ -57,6 +57,60 @@ non-vacuity test that fails when the wiring is removed. A gate counts only when
 it runs in the suite's Release configuration; use runtime opt-ins, not
 `[Conditional("DEBUG")]`.
 
+## Mitigation by absence
+
+Some hazards are addressed not by a control but by the product never doing the
+dangerous thing. That reasoning is legitimate, and it is the cheapest possible
+mitigation, but it is only sound with all three legs:
+
+1. **Measured absence.** Cite the command and its output. Never assert absence
+   from memory or from having read some of the code.
+2. **A standing policy** not to introduce the construct. Absence alone is a
+   fact about today; the policy is what makes it forward-looking. If the
+   product later exhibits the construct, the mitigation is void, and the policy
+   makes that a visible decision rather than silent drift.
+3. **A date.** The record states when the measurement was taken, because it can
+   only ever be true as of then.
+
+Before writing any of that down, check whether the standard toolchain already
+gates the construct. A rule that ships with a linter the repository already
+runs is strictly better than prose: it is enforcement rather than assertion, it
+costs nothing to maintain, and it satisfies
+[Asserted properties name their gate](#asserted-properties-name-their-gate)
+honestly. Turning on an existing off-the-shelf rule is not "bespoke
+enforcement" and does not conflict with keeping enforcement inside conventional
+practice.
+
+Only when no standard gate exists does measured-absence-plus-policy stand on
+its own — and then the claim is `unverified`, and must say so.
+
+Keep the write-up proportional to the evidence. A hazard with zero instances
+earns a sentence, not an essay. Prose describing a hazard that does not exist
+here dilutes the material that does and implies a threat the reader then has to
+rule out. Do not build a bespoke check for a construct with no instances.
+
+Worked example, measured against `prototypes/inspect-web` on 2026-09-01 across
+the 123 tracked `.ts`, `.js`, and `.html` files outside `node_modules`:
+
+| Construct | Instances | Gate |
+| --- | --- | --- |
+| `eval(...)` | 0 | `eslint(no-eval)` |
+| `new Function(...)` | 0 | `typescript(no-implied-eval)` |
+| `document.write(...)` | 0 | none — `unverified` |
+| inline HTML event handler attributes | 0 | none — `unverified` |
+
+Two of the four were already gated by rules the repository turned on for other
+reasons, which is the point: the check for an existing gate came before the
+prose, and replaced it.
+
+The construct that is *not* in that table matters more than the ones that are.
+`.innerHTML =` has 24 instances and is the front end's primary rendering
+mechanism, so mitigation by absence does not apply to it at all; its safety
+rests on escaping at each interpolation, which is a different argument
+requiring different evidence. The first draft of this table asserted it was
+absent. Measuring is what caught that, which is why measurement is leg one and
+not a formality.
+
 ## Harness boundary
 
 Harnesses own orchestration, fixtures, independent oracles, comparison, and
