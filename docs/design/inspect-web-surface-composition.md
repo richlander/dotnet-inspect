@@ -228,9 +228,10 @@ One information hierarchy adapts across viewport sizes:
   Presentation's measurement-driven Slideable Subject Strip contract rather
   than a fixed shell breakpoint;
 - second-row Share, Settings, optional contextual actions, and trailing Help
-  may collapse completely before the subject/inspector strip wraps, but a
-  subject-owned sole entry action that is also a required return-focus target
-  remains visible and takes priority over those optional actions;
+  may collapse completely before the Slideable Subject Strip enters
+  control-free pressure, but a subject-owned sole entry action that is also a
+  required return-focus target remains visible and takes priority over those
+  optional actions;
 - subject and inspector navigation follows Navigation Presentation's
   contiguous horizontal window contract instead of wrapping;
 - subject-path segments and optional advertisements elide visually without

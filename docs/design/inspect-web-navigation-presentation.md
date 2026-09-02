@@ -166,8 +166,10 @@ accessible name and hover title.
 
 The composite, rather than either `SlideStrip`, owns width allocation between
 the regions. A strip's **policy minimum width** is the normal inline size
-required by its least-capacity policy outcome at the current anchor: one Label
-for subjects and two Index controls for inspectors, clamped to the installed
+required by its least-capacity policy outcome around SlideStrip's effective
+required identity: pending navigation destination, otherwise current focus,
+otherwise retained leading identity or initial anchor. That is one Label for
+subjects and two Index controls for inspectors, clamped to the installed
 inspector count. One fixed non-interactive separator remains between non-empty
 strips in every allocation state. Every fit calculation below uses the
 composite width remaining after that measured separator; the allocation
@@ -190,7 +192,11 @@ of Label or Index content.
    window threshold, adding one adjacent full subject Label.
    `Show more inspectors` returns it to the previous subject threshold. The
    inspector strip recomputes its whole-strip mode and contiguous window in the
-   returned width; neither strip mixes representations.
+   returned width, retains only the exact normal inline width required by that
+   result, and returns all other width to subjects; neither strip mixes
+   representations. The requested boundary advances by one threshold, but
+   passively returned inspector slack may admit additional subject Labels
+   without changing inspector output.
 4. The subject-forward bound is the richest subject threshold that still
    leaves the inspector strip its policy minimum width. The inspector-first
    bound is the default allocation from step 2. When no richer subject
@@ -225,7 +231,10 @@ of Label or Index content.
 An empty inspector inventory omits the inspector strip and both allocation
 controls. The subject strip then receives the composite's complete width and
 renders the largest full-Label window that fits. The subject inventory is never
-empty because Workspace remains its presentation-owned root entry.
+empty because Workspace remains its presentation-owned root entry. If that
+width is below the subject fallback-visibility floor, the subject-only
+composite retains the floor in an internally scrolling viewport inside its
+assigned page boundary.
 
 At the inspector-first allocation, when the inspector viewport can fit two
 Labels, the effective inspector and one adjacent inspector remain readable.
@@ -255,8 +264,9 @@ packets, Share URLs, browser history, or product navigation results.
 Allocation-button bounds are computed from the currently rendered boundary,
 not an unclamped retained request. Activating either button replaces the
 retained request with the adjacent ordinal relative to that rendered boundary,
-so every enabled activation produces exactly one visible subject-window
-change.
+so every enabled activation requests at least one visible subject-window
+change. Exact-width inspector slack return may passively admit more Labels; the
+next bounds are then recomputed from that richer rendered boundary.
 
 The subject tablist uses one tab stop and manual activation. Left and Right
 Arrow move focus through the complete installed subject order, sliding the
@@ -697,10 +707,14 @@ add and pass these named Inspect Web tests:
   `slideable subject strip composes reusable strips without losing navigation`
   cover the separate subject and inspector whole-strip mode policies,
   contiguous windows and edge indicators, inspector-first width allocation,
+  exact selected-window slack return at every control-present boundary,
   semantic boundary thresholds, single-label subject capacity, multi-item
-  compact inspector capacity, presentation-local window and allocation
-  retention, reduced-motion behavior, and focus/tab-stop preservation across
-  allocation changes and asynchronous shell replacement.
+  compact inspector capacity, control-free removal, terminal-deficit
+  unused-width then ratio-distance ordering and inspector tie-break,
+  fallback-visibility floors, two-strip and subject-only internal-minimum
+  scrolling, presentation-local window and allocation retention, reduced-motion
+  behavior, and focus/tab-stop preservation across allocation changes and
+  asynchronous shell replacement.
 
 The implementation fixture supplies typed product results through the normal
 navigation boundary. It does not construct a parallel host catalog or bypass
@@ -772,15 +786,19 @@ are proved by the gates in
    inspector strip and both allocation controls are absent while the subject
    strip uses the complete composite width.
 5. Activate `Show more subjects` repeatedly and confirm that each activation
-   moves the boundary to the next subject-window threshold and admits exactly
-   one adjacent full Label. Confirm that the inspector strip recomputes one
-   uniform mode and contiguous window within its smaller viewport and that no
-   subject, inspector, selection, or product navigation state changes.
+   requests the next subject-window threshold and admits at least one adjacent
+   full Label. Confirm that the inspector strip recomputes one uniform mode and
+   contiguous window within its smaller viewport, retains exactly the width
+   required by that result, and returns all other width to subjects. When that
+   slack crosses another subject threshold, confirm that the additional Label
+   appears without changing inspector output. Confirm that no subject,
+   inspector, selection, or product navigation state changes.
 6. Activate `Show more inspectors` and confirm that each activation removes
-   one visible subject Label and returns the width to the inspector strip.
-   Confirm that focus remains on the allocation button. At each bound, confirm
-   that the corresponding mounted button is `aria-disabled="true"` and
-   activation has no effect.
+   at least one visible subject Label and returns the requested width to the
+   inspector strip before exact result-width slack return. Confirm that focus
+   remains on the allocation button. At each rendered bound, confirm that the
+   corresponding mounted button is `aria-disabled="true"` and activation has
+   no effect.
 7. Rove focus to an inactive subject and inspector and replace the shell
    asynchronously. Confirm that the focused typed tab remains the sole tab
    stop in its tablist, each retained window still contains its focus, and

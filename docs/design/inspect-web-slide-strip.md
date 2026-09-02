@@ -268,7 +268,9 @@ the width it receives.
 For discrete composition, a strip exposes the normal inline size required by:
 
 - the complete preferred-mode inventory;
-- each viable mode's minimum visible-item count at the current origin;
+- each viable mode's minimum visible-item count around the effective required
+  identity: pending navigation destination, otherwise current focus, otherwise
+  retained leading identity or initial anchor;
 - the fallback-visibility floor;
 - the current mode and window;
 - the adjacent width that adds or removes one item; and
