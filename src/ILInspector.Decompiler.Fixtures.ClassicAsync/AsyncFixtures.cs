@@ -175,6 +175,43 @@ public static class AsyncFixtures
         return await Task.FromResult(value);
     }
 
+    public static unsafe int ConsumePointer(int value, int* pointer)
+    {
+        *pointer = value;
+        return value;
+    }
+
+    public static async Task<int> AwaitThenConsumePointer(
+        Task<int> task,
+        UnsafeHolder holder)
+    {
+        int value = await task;
+        unsafe
+        {
+            return ConsumePointer(value, holder.Risky);
+        }
+    }
+
+    public static async Task<int> AwaitWithUnsafeLocalFunction(
+        Task<int> task,
+        UnsafeHolder holder)
+    {
+        int Read(int* pointer)
+        {
+            unsafe
+            {
+                return *pointer;
+            }
+        }
+
+        int value;
+        unsafe
+        {
+            value = Read(holder.Risky);
+        }
+        return value + await task;
+    }
+
     public static Task<int> set_GetTask(Task<int> task) => task;
 
     public static (int Left, int Right) Pair(int value)

@@ -2,7 +2,9 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
+using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -72,6 +74,97 @@ public class CompilerFeatureOptionsTests
         Assert.True((method.ImplAttributes & RuntimeAsync) != 0);
     }
 
+    [Fact]
+    public void UpdatedSafePointerComparisonAwait_RemainsReconstructable()
+    {
+        string oracleAssembly =
+            typeof(ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures).Assembly.Location;
+        var options = CompilerFeatureOptions.ParseOptions(oracleAssembly)
+            .WithFeatures([
+                new KeyValuePair<string, string>(
+                    "updated-memory-safety-rules",
+                    "true"),
+                new KeyValuePair<string, string>("runtime-async", "off"),
+            ]);
+        using var compiled = Compile(
+            """
+            using System.Threading.Tasks;
+
+            public static class C
+            {
+                public static unsafe async Task<bool> M(nint value)
+                {
+                    return await Task.FromResult((int*)value == null);
+                }
+            }
+            """,
+            options);
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"updated-pointer-await-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, compiled.Image);
+        try
+        {
+            using var source = MetadataSource.OpenWithoutSymbols(path);
+            MetadataReader reader = source.Reader;
+            TypeDefinitionHandle stateMachine = reader.TypeDefinitions.Single(
+                handle => reader.GetString(
+                        reader.GetTypeDefinition(handle).Name)
+                    .StartsWith("<M>d__", StringComparison.Ordinal));
+            MethodDefinitionHandle moveNext = reader.GetTypeDefinition(stateMachine)
+                .GetMethods()
+                .Single(handle => reader.GetString(
+                    reader.GetMethodDefinition(handle).Name) == "MoveNext");
+            var function = IrImporter.Import(source, "C", "M");
+            Assert.NotNull(function);
+            IrPasses.Run(
+                function,
+                IrPasses.Default,
+                PassContext.ForImport(
+                    method => method.Name == "MoveNext"
+                        ? IrImporter.Import(source, moveNext)
+                        : IrImporter.Import(source, method)));
+            function.CheckInvariant();
+
+            var result = CSharpPrinter.Print(function);
+
+            Assert.True(
+                result.Fidelity == DecompilationFidelity.Full,
+                $"{result.Output}\n{string.Join('\n', result.Diagnostics)}\n"
+                + string.Join(
+                    '\n',
+                    function.Descendants
+                        .OfType<UnsupportedNode>()
+                        .Select(node => $"{node.Opcode}: {node.Reason}")));
+            Assert.True(result.RequiresAsyncBodyModifier);
+            Assert.Single(function.Descendants.OfType<AwaitExpression>());
+            Assert.DoesNotContain(
+                function.Descendants.OfType<UnsupportedNode>(),
+                node => node.Opcode == "classic async");
+            Assert.Contains(
+                "return await Task.FromResult<bool>",
+                result.Output);
+
+            using var recompiled = Compile(
+                $$"""
+                using System.Threading.Tasks;
+
+                public static class D
+                {
+                    public static async Task<bool> M(nint value)
+                    {
+                {{result.Output}}
+                    }
+                }
+                """,
+                options);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     static CompiledAssembly Compile(string source, CSharpParseOptions options)
     {
         var compilation = CSharpCompilation.Create(
@@ -102,6 +195,7 @@ public class CompilerFeatureOptionsTests
     {
         public PEReader PE { get; } = pe;
         public ImmutableArray<Diagnostic> Diagnostics { get; } = diagnostics;
+        public byte[] Image => stream.ToArray();
 
         public void Dispose()
         {

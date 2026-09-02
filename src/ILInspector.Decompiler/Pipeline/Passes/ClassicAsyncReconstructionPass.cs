@@ -215,6 +215,8 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         {
             return ReconstructionResult.UnconsumedExecutionRegion;
         }
+        if (statements.Any(UnsafeAwaitOperand.WouldPlaceAwaitInUnsafeContext))
+            return ReconstructionResult.UnsafeAwaitOperand;
 
         var block = new Block(0);
         foreach (var statement in statements)

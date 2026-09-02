@@ -2204,8 +2204,8 @@ public sealed partial class CSharpPrinter
                     $"{ParameterTypeText(parameter, index < localFunction.ParameterRefKinds.Length ? localFunction.ParameterRefKinds[index] : ArgumentRefKind.Value)} {CSharpNaming.ContainedIdentifier(parameter.Name)}"));
             string header = $"{modifier}{TypeText(localFunction.ReturnType)} {CSharpNaming.ContainedIdentifier(localFunction.Name)}({parameters})";
             bool expressionNeedsUnsafeBlock = localFunction.ExpressionBody is { } expression
-                && _newMemorySafetyRules
-                && (NeedsUnsafeContext(expression)
+                && EmitsUnsafeBlocks
+                && (NeedsExplicitUnsafeContext(expression)
                     || (localFunction.ReturnType.Kind == TypeRefKind.ByRef && RendersAsPointerDeref(expression)));
             if (localFunction.ExpressionBody is { } body && !expressionNeedsUnsafeBlock)
             {

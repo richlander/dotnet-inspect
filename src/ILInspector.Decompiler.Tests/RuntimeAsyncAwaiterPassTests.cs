@@ -6,6 +6,8 @@ namespace ILInspector.Decompiler.Tests;
 [Trait("Area", "Pass")]
 public class RuntimeAsyncAwaiterPassTests
 {
+    const string AsyncFixtureType =
+        "ILInspector.Decompiler.Fixtures.ClassicAsync.AsyncFixtures";
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef Bool = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef TaskType = TypeRef.CoreLib("System.Threading.Tasks", "Task");
@@ -97,6 +99,34 @@ public class RuntimeAsyncAwaiterPassTests
         Assert.Single(function.Descendants.OfType<AwaitExpression>());
         Assert.Contains("if (condition)", output);
         Assert.Contains("await Task.Yield();", output);
+    }
+
+    [Fact]
+    public void CompiledAwaitThenUnsafeConsumer_PreservesPreUnsafeSpill()
+    {
+        var function = RaisedAsyncFixture("AwaitThenConsumePointer");
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.Empty(function.Descendants.OfType<AwaitExpression>());
+        Assert.Contains(
+            function.Descendants.OfType<UnsupportedNode>(),
+            node => node.Opcode == "runtime await"
+                && node.Reason.Contains(
+                    "unsafe context would contain await",
+                    StringComparison.Ordinal));
+        Assert.DoesNotContain("unsafe\n{\n    return ConsumePointer(await", result.Output);
+    }
+
+    [Fact]
+    public void CompiledLegacyAsyncLocalFunction_WrapsUnsafeExpressionBody()
+    {
+        var function = RaisedAsyncFixture("AwaitWithUnsafeLocalFunction");
+        var output = CSharpPrinter.Print(function).Output;
+
+        Assert.False(function.UsesUpdatedMemorySafetyRules);
+        Assert.Contains("int Read(int* pointer)\n{\n    unsafe", output);
+        Assert.DoesNotContain("int Read(int* pointer) => *pointer;", output);
     }
 
     [Theory]
@@ -278,6 +308,7 @@ public class RuntimeAsyncAwaiterPassTests
                 broken == SyntheticBreak.ExternalHelperEntry ? 10 : 20));
             body.Add(external);
         }
+
         body.Add(head);
         body.Add(helper);
         body.Add(merge);
@@ -297,6 +328,29 @@ public class RuntimeAsyncAwaiterPassTests
                 ? MetadataFactState.No
                 : MetadataFactState.Yes,
         };
+    }
+
+    static IrFunction RaisedAsyncFixture(string methodName)
+    {
+        string configuration =
+            new DirectoryInfo(AppContext.BaseDirectory).Name;
+        string path = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..",
+            "..",
+            "ILInspector.Decompiler.Fixtures.RuntimeAsync",
+            configuration,
+            "ILInspector.Decompiler.Fixtures.RuntimeAsync.dll"));
+        using var source = MetadataSource.Open(path);
+        var function = IrImporter.Import(source, AsyncFixtureType, methodName);
+        Assert.NotNull(function);
+        IrPasses.Run(
+            function,
+            IrPasses.Default,
+            PassContext.ForImport(
+                method => IrImporter.Import(source, method)));
+        function.CheckInvariant();
+        return function;
     }
 
     public enum SyntheticBreak

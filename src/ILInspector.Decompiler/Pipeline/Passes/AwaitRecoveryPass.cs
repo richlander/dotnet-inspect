@@ -27,8 +27,13 @@ public sealed class AwaitRecoveryPass : IIrPass
         {
             if (!MemberIdentity.IsAsyncHelpersAwait(call))
                 continue;
-            if (UnsafeAwaitOperand.RequiresUnsafeContext(call.Arguments[0]))
+            IrNode statement = ContainingStatement(call);
+            if (UnsafeAwaitOperand.RequiresUnsafeContext(call.Arguments[0])
+                || UnsafeAwaitOperand.RequiresUnsafeContext(statement))
+            {
+                MarkDeclined(function, call, statement, context);
                 continue;
+            }
 
             var operand = (IrExpression)call.DetachChildren()[0];
             var await = new AwaitExpression(
@@ -40,6 +45,46 @@ public sealed class AwaitRecoveryPass : IIrPass
             call.ReplaceWith(await);
             function.RequiresAsyncBodyModifier = true;
         }
+    }
+
+    static IrNode ContainingStatement(IrNode node)
+    {
+        var current = node;
+        while (current.Parent is not null and not Block)
+            current = current.Parent;
+        return current;
+    }
+
+    static void MarkDeclined(
+        IrFunction function,
+        Call call,
+        IrNode statement,
+        PassContext context)
+    {
+        if (statement.Parent is not Block block)
+            return;
+
+        context.Stepper.StepOver(
+            "decline runtime await: unsafe context would contain await",
+            call);
+        var marker = new UnsupportedNode(
+            call.SourceOffset,
+            "runtime await",
+            "unsafe context would contain await; original helper call preserved");
+        marker.SetSourceOffset(call.SourceOffset);
+        var markerStatement = new ExpressionStatement(marker);
+        markerStatement.SetSourceOffset(call.SourceOffset);
+
+        IReadOnlyList<IrNode> statements = block.DetachChildren();
+        foreach (var candidate in statements)
+        {
+            if (ReferenceEquals(candidate, statement))
+                block.Add(markerStatement);
+            block.Add(candidate);
+        }
+        function.Diagnostics.Add(new DecompilerDiagnostic(
+            DiagnosticIds.UnsupportedConstruct,
+            "runtime await reconstruction declined: unsafe context would contain await"));
     }
 
 }

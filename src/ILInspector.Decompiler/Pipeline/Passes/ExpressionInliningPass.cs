@@ -262,6 +262,9 @@ public sealed class ExpressionInliningPass : IIrPass
             if (ReferenceOwnership.HasAncestor<AwaitExpression>(load)
                 && UnsafeAwaitOperand.RequiresUnsafeContext(storedValue))
                 continue;
+            if (UnsafeAwaitOperand.ContainsAwait(storedValue)
+                && UnsafeAwaitOperand.RequiresUnsafeContext(next))
+                continue;
 
             var value = (IrExpression)store.DetachChildren()[0];
 
@@ -381,6 +384,9 @@ public sealed class ExpressionInliningPass : IIrPass
                 // A value that reads places must still evaluate first at the use
                 // site; an effect-free value that reads nothing can land anywhere.
                 if ((reads.Count > 0 || RequiresFirstEvaluation(value)) && !IsFirstEvaluatedLeaf(use, useStatement))
+                    continue;
+                if (UnsafeAwaitOperand.ContainsAwait(value)
+                    && UnsafeAwaitOperand.RequiresUnsafeContext(useStatement))
                     continue;
 
                 var inlined = (IrExpression)block.Children[si].DetachChildren()[0];

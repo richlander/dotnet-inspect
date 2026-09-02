@@ -920,6 +920,121 @@ public class LadderRung6GateTests
     }
 
     [Fact]
+    public void Rung6AwaitBeforeUnsafeConsumer_PreservesSafeBoundary()
+    {
+        var taskOfInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task`1"),
+            [Int32]);
+        var risky = new MethodRef(
+            TypeRef.Definition("Synthetic", "", "Helpers"),
+            "Risky",
+            Int32,
+            [Int32],
+            HasThis: false)
+        {
+            RequiresUnsafe = true,
+        };
+
+        IrFunction CreateFunction()
+        {
+            var function = Function(
+                "AwaitBeforeUnsafeConsumer",
+                taskOfInt,
+                [new Parameter("task", taskOfInt)],
+                [Int32],
+                new StoreLocal(
+                    0,
+                    Int32,
+                    new AwaitExpression(
+                        new LoadArgument(0, "task", taskOfInt),
+                        Int32)),
+                new Return(new Call(
+                    risky,
+                    isVirtual: false,
+                    [new LoadLocal(0, Int32)])));
+            function.RequiresAsyncBodyModifier = true;
+            new ExpressionInliningPass().Run(function, PassContext.None);
+            return function;
+        }
+
+        var updatedFunction = CreateFunction();
+        updatedFunction.UsesUpdatedMemorySafetyRules = true;
+        var updated = CSharpPrinter.Print(updatedFunction);
+        var legacyFunction = CreateFunction();
+        legacyFunction.UsesUpdatedMemorySafetyRules = false;
+        var legacy = CSharpPrinter.Print(legacyFunction);
+        const string declarations =
+            "using System.Threading.Tasks; "
+            + "public static class Helpers { public static unsafe int Risky(int value) => value; }";
+        const string header =
+            "static async System.Threading.Tasks.Task<int> M(System.Threading.Tasks.Task<int> task)";
+
+        Assert.Contains("int V_0 = await task;", updated.Output);
+        Assert.Contains("int V_0 = await task;", legacy.Output);
+        Assert.DoesNotContain("Risky(await", updated.Output);
+        Assert.DoesNotContain("Risky(await", legacy.Output);
+        AssertNoErrors(RecompileNewRules(header, updated.Output!, declarations), updated.Output!);
+        AssertNoErrors(RecompileLegacyRules(header, legacy.Output!, declarations), legacy.Output!);
+    }
+
+    [Fact]
+    public void Rung6LegacyAsyncLocalFunction_UsesExplicitInnerBlock()
+    {
+        var task = TypeRef.CoreLib("System.Threading.Tasks", "Task");
+        var yieldAwaitable = TypeRef.CoreLib(
+            "System.Runtime.CompilerServices",
+            "YieldAwaitable");
+        var yield = new MethodRef(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task"),
+            "Yield",
+            yieldAwaitable,
+            [],
+            HasThis: false);
+
+        IrFunction CreateFunction()
+        {
+            var function = Function(
+                "LegacyAsyncLocalFunction",
+                task,
+                [],
+                [],
+                new ExpressionStatement(new AwaitExpression(
+                    new Call(yield, isVirtual: false, []),
+                    Void)),
+                new LocalFunctionStatement(
+                    "Read",
+                    Int32,
+                    [new Parameter("pointer", IntPointer)],
+                    [ArgumentRefKind.Value],
+                    isStatic: true,
+                    [],
+                    [],
+                    usesUpdatedMemorySafetyRules: false,
+                    skipLocalsInit: false,
+                    BlockContainer(new Return(new LoadIndirect(
+                        Int32,
+                        new LoadArgument(0, "pointer", IntPointer))))),
+                new Return(null));
+            function.RequiresAsyncBodyModifier = true;
+            return function;
+        }
+
+        var updatedFunction = CreateFunction();
+        updatedFunction.UsesUpdatedMemorySafetyRules = true;
+        var updated = CSharpPrinter.Print(updatedFunction);
+        var legacyFunction = CreateFunction();
+        legacyFunction.UsesUpdatedMemorySafetyRules = false;
+        var legacy = CSharpPrinter.Print(legacyFunction);
+        const string declarations = "using System.Threading.Tasks;";
+        const string header = "static async System.Threading.Tasks.Task M()";
+
+        Assert.Contains("static int Read(int* pointer)\n{\n    unsafe", updated.Output);
+        Assert.Contains("static int Read(int* pointer)\n{\n    unsafe", legacy.Output);
+        AssertNoErrors(RecompileNewRules(header, updated.Output!, declarations), updated.Output!);
+        AssertNoErrors(RecompileLegacyRules(header, legacy.Output!, declarations), legacy.Output!);
+    }
+
+    [Fact]
     public void Rung6LocalFunctionRefReturn_UsesLocalReturnTypeForUnsafeBlock()
     {
         var refInt = TypeRef.ByRef(Int32);
