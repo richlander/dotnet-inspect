@@ -14,7 +14,7 @@ how consumers use these values.
 
 ## Contract
 
-Finding-owned values compose four equality shapes:
+Finding-owned values compose six equality shapes:
 
 | Shape | Examples | Equality contract |
 | --- | --- | --- |
