@@ -264,7 +264,7 @@ public sealed class PackageQueryTests
     [Fact]
     public async Task ExecuteAsync_FiltersBeforeMatchLimitAndStopsManifestAcquisition()
     {
-        PackageSearchMatch[] candidates =
+        SearchResult[] candidates =
         [
             Match("Contoso.One", verified: false),
             Match("Contoso.Two", verified: true),
@@ -277,8 +277,8 @@ public sealed class PackageQueryTests
             candidates,
             candidates.ToDictionary(
                 candidate =>
-                    $"{candidate.Metadata.Id.ToLowerInvariant()}@1.0.0",
-                candidate => Manifest(candidate.Metadata.Id)));
+                    $"{candidate.Id.ToLowerInvariant()}@1.0.0",
+                candidate => Manifest(candidate.Id)));
         PackageQueryPlan plan = Accepted(
             PackageQuery.Plan(
                 new PackageQueryRequest(
@@ -453,7 +453,7 @@ public sealed class PackageQueryTests
     [Fact]
     public async Task ExecuteAsync_PackageContentFacetsMatchSkillsAndToolFormats()
     {
-        PackageSearchMatch[] candidates =
+        SearchResult[] candidates =
         [
             Match("Contoso.V1"),
             Match("Contoso.V2"),
@@ -463,10 +463,10 @@ public sealed class PackageQueryTests
             candidates,
             candidates.ToDictionary(
                 candidate =>
-                    $"{candidate.Metadata.Id.ToLowerInvariant()}@1.0.0",
+                    $"{candidate.Id.ToLowerInvariant()}@1.0.0",
                 candidate => Manifest(
-                    candidate.Metadata.Id,
-                    packageTypes: candidate.Metadata.Id == "Contoso.Library"
+                    candidate.Id,
+                    packageTypes: candidate.Id == "Contoso.Library"
                         ? ""
                         : """
                           <packageTypes>
@@ -851,13 +851,7 @@ public sealed class PackageQueryTests
             [],
             new Dictionary<string, byte[]>())
         {
-            SearchFailure = new PackageSourceFailure(
-                PackageSourceIdentity.NuGetOrg,
-                PackageSourceKind.NuGetGallery,
-                PackageSourceCapabilities.Search,
-                Coordinate: null,
-                PackageSourceFailureKind.Timeout,
-                "The package source operation exceeded its configured deadline."),
+            SearchFailureKind = PackageSourceFailureKind.Timeout,
         };
         PackageQueryPlan plan = Accepted(
             PackageQuery.Plan(new PackageQueryRequest("Contoso.")));
@@ -941,20 +935,11 @@ public sealed class PackageQueryTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_CountsMalformedCandidateBeforeMatchLimit()
+    public async Task ExecuteAsync_CountsOutOfPrefixCandidateBeforeMatchLimit()
     {
-        PackageSearchMatch malformed = new(
-            new SearchResult(null!, "1.0.0"),
-            new PackageCandidateObservation(
-                PackageSourceCoordinate.Create(
-                    "Contoso.Malformed",
-                    "1.0.0"),
-                PackageSourceIdentity.NuGetOrg,
-                PackageDiscoveryContract.KeywordSearch,
-                PackageListingState.Listed));
         var source = new FakePackageSource(
             [
-                malformed,
+                new SearchResult("Other.Malformed", "1.0.0"),
                 Match("Contoso.Valid"),
             ],
             new Dictionary<string, byte[]>
@@ -1113,26 +1098,16 @@ public sealed class PackageQueryTests
         PackageQueryPlanResult result) =>
         Assert.IsType<PackageQueryPlanResult.Rejected>(result).Failure;
 
-    private static PackageSearchMatch Match(
+    private static SearchResult Match(
         string packageId,
         string version = "1.0.0",
         bool verified = false,
         long totalDownloads = 0)
-    {
-        PackageSourceCoordinate coordinate =
-            PackageSourceCoordinate.Create(packageId, version);
-        return new PackageSearchMatch(
-            new SearchResult(
-                packageId,
-                version,
-                TotalDownloads: totalDownloads,
-                Verified: verified),
-            new PackageCandidateObservation(
-                coordinate,
-                PackageSourceIdentity.NuGetOrg,
-                PackageDiscoveryContract.KeywordSearch,
-                PackageListingState.Listed));
-    }
+        => new(
+            packageId,
+            version,
+            TotalDownloads: totalDownloads,
+            Verified: verified);
 
     private static FakePackageSource SourceFor(
         byte[] manifest,
@@ -1205,12 +1180,92 @@ public sealed class PackageQueryTests
                 .Value.Completion);
     }
 
+    private static PackageSourceResultFactory CreateResultFactory()
+    {
+        PackageSourceResultFactory? captured = null;
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.CreateCustom(
+                PackageSourceDescriptor.NuGetGallery,
+                PackageSourceAssociation.Create(),
+                factory =>
+                {
+                    captured = factory;
+                    return new FactoryOnlyPackageSourceClient(factory.Source);
+                });
+        return Assert.IsType<PackageSourceResultFactory>(captured);
+    }
+
+    private sealed class FactoryOnlyPackageSourceClient(
+        PackageSourceResultIdentity source)
+        : IPackageSourceClient
+    {
+        public PackageSourceResultIdentity Source { get; } = source;
+        public PackageSourceCapabilities Capabilities =>
+            PackageSourceCapabilities.None;
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchAsync(
+                string query,
+                int take = 20,
+                bool prerelease = false,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchByPrefixAsync(
+                string prefix,
+                int take = 100,
+                bool prerelease = false,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageVersionResult>>
+            GetVersionsAsync(
+                string packageId,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourceManifest>>
+            GetManifestAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>>
+            GetPackageAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>>
+            TryGetSymbolsAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public void Dispose()
+        {
+        }
+    }
+
     private sealed class FakePackageSource(
-        IReadOnlyList<PackageSearchMatch> matches,
+        IReadOnlyList<SearchResult> matches,
         IReadOnlyDictionary<string, byte[]> manifests)
         : IPackageSourceClient
     {
-        public PackageSourceFailure? SearchFailure { get; init; }
+        private readonly PackageSourceResultFactory _results =
+            CreateResultFactory();
+
+        public PackageSourceFailureKind? SearchFailureKind { get; init; }
         public PackageSearchTruncationReason SearchTruncationReason
         {
             get;
@@ -1220,8 +1275,7 @@ public sealed class PackageQueryTests
         public List<string> ManifestRequests { get; } = [];
         public int LastSearchTake { get; private set; }
         public int PackageRequests { get; private set; }
-        public PackageSourceIdentity Identity => PackageSourceIdentity.NuGetOrg;
-        public PackageSourceKind Kind => PackageSourceKind.NuGetGallery;
+        public PackageSourceResultIdentity Source => _results.Source;
         public PackageSourceCapabilities Capabilities =>
             PackageSourceCapabilities.Search
             | PackageSourceCapabilities.Manifest;
@@ -1237,14 +1291,12 @@ public sealed class PackageQueryTests
             cancellationToken.ThrowIfCancellationRequested();
             LastSearchTake = take;
             PackageSourceOperationResult<PackageSearchResult> result =
-                SearchFailure is null
-                    ? new PackageSourceOperationResult<PackageSearchResult>
-                        .Succeeded(
-                            new PackageSearchResult(
-                                matches,
-                                SearchTruncationReason))
-                    : new PackageSourceOperationResult<PackageSearchResult>
-                        .Failed(SearchFailure);
+                SearchFailureKind is null
+                    ? _results.SucceededSearch(
+                        _results.Search(
+                            matches,
+                            SearchTruncationReason))
+                    : _results.FailedSearch(SearchFailureKind.Value);
             return Task.FromResult(result);
         }
 
@@ -1263,22 +1315,12 @@ public sealed class PackageQueryTests
             OnManifestRequest?.Invoke(ManifestRequests.Count);
             PackageSourceOperationResult<PackageSourceManifest> result =
                 manifests.TryGetValue(key, out byte[]? content)
-                    ? new PackageSourceOperationResult<PackageSourceManifest>
-                        .Succeeded(
-                            new PackageSourceManifest(
-                                coordinate,
-                                Identity,
-                                Kind,
-                                content))
-                    : new PackageSourceOperationResult<PackageSourceManifest>
-                        .Failed(
-                            new PackageSourceFailure(
-                                Identity,
-                                Kind,
-                                PackageSourceCapabilities.Manifest,
-                                coordinate,
-                                PackageSourceFailureKind.NotFound,
-                                "The requested payload was not found at the package source."));
+                    ? _results.SucceededManifest(
+                        coordinate,
+                        _results.Manifest(coordinate, content))
+                    : _results.FailedManifest(
+                        coordinate,
+                        PackageSourceFailureKind.NotFound);
             return Task.FromResult(result);
         }
 
