@@ -108,8 +108,8 @@ The shell exposes one stable Application menu control separately from the
 subject zone. [Inspect Web Surface
 Composition](inspect-web-surface-composition.md) owns its page-level placement,
 its relationship to overflowing content, and the responsive allocation that
-keeps it outside the subject row. The control's interaction identity and menu
-inventory do not change with viewport width.
+keeps it outside the subject and inspector region. The control's interaction
+identity and menu inventory do not change with viewport width.
 
 Search is an input-like control in the title line that opens Spotlight. It is
 not editable in place and does not become a dominant centered command control.
