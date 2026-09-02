@@ -98,18 +98,18 @@ current workspace.
 The title line shows the applicable Package, Library, Type, and Member identity
 as one typed path.
 
-The second persistent row is the Navigation Presentation-owned subject zone:
-the Workspace, Package, Type, and Member subject ladder followed by the active
-subject's inspectors. `Share`, `Settings`, `Keyboard help`, and contextual
-working-surface actions are not children of that row or items in either
-SlideStrip.
+The second persistent line includes the Navigation Presentation-owned subject
+and inspector region: the Workspace, Package, Type, and Member subject ladder
+followed by the active subject's inspectors. `Share`, `Settings`,
+`Keyboard help`, and contextual working-surface actions are not children of
+that region or items in either SlideStrip.
 
 The shell exposes one stable Application menu control separately from the
 subject zone. [Inspect Web Surface
 Composition](inspect-web-surface-composition.md) owns its page-level placement,
 its relationship to overflowing content, and the responsive allocation that
-keeps it outside the subject row. The control's interaction identity and menu
-inventory do not change with viewport width.
+keeps it outside the subject and inspector region. The control's interaction
+identity and menu inventory do not change with viewport width.
 
 Search is an input-like control in the title line that opens Spotlight. It is
 not editable in place and does not become a dominant centered command control.
@@ -156,8 +156,9 @@ The shell may land before adjacent redesign owners. During that transition:
   success-shaped placeholder action;
 - the `dotnet-inspect` root control is the sole persistent Home affordance;
 - existing direct Share, Settings, and keyboard Help controls may remain in the
-  subject row until the Surface Composition adoption tracked by
-  [#5483](https://github.com/richlander/dotnet-inspect/issues/5483) lands;
+  subject row until
+  [Surface Composition's placement contract](inspect-web-surface-composition.md#shell-navigation-and-application-actions)
+  is implemented;
 - that adoption replaces the direct controls atomically with the one
   Application menu rather than rendering both action homes; and
 - retained packages may provisionally supply Workspace entries and Package
@@ -430,8 +431,8 @@ and pass these named Inspect Web tests:
 
 These gates exercise the Shell Interaction-owned control in a focused harness.
 Surface Composition's later placement adoption owns the geometry proving that
-the control remains outside the subject row and visible beside overflowing
-content.
+the control remains outside the subject and inspector region and visible
+beside overflowing content.
 
 ## Non-claims
 
