@@ -85,6 +85,12 @@ test("keyboard tab activation preserves focus across shell replacement", async (
   await page.keyboard.press("ArrowRight");
   await expect(metadata).toBeFocused();
   await expect(metadata).toHaveAttribute("aria-selected", "false");
+  await page.evaluate(() => window.rerenderScopeBarProbe());
+  await expect(api).toHaveAttribute("aria-selected", "true");
+  await expect(api).toHaveAttribute("tabindex", "-1");
+  await expect(metadata).toHaveAttribute("aria-selected", "false");
+  await expect(metadata).toHaveAttribute("tabindex", "0");
+  await expect(metadata).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(metadata).toHaveAttribute("aria-selected", "true");
   await expect(metadata).toBeFocused();

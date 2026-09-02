@@ -20,6 +20,7 @@ import { renderWorkspaceSubject } from "../src/workspace-subject.ts";
 declare global {
   interface Window {
     focusWorkbenchSearchProbe: () => boolean;
+    rerenderScopeBarProbe: () => void;
   }
 }
 
@@ -291,3 +292,4 @@ function bindHarnessScopeBar() {
 bindHarnessScopeBar();
 
 window.focusWorkbenchSearchProbe = () => focusWorkbenchSearch(document);
+window.rerenderScopeBarProbe = renderHarnessScopeBar;

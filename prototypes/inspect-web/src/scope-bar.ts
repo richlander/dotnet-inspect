@@ -72,14 +72,17 @@ export function restoreScopeBarFocus(
       : target.kind === "type-lens"
         ? ["[data-lens]", target.value]
         : ["[data-member-section]", target.value];
-  const replacement = [...root.querySelectorAll<HTMLElement>(selector)]
-    .find(element => (
+  const tabs = [...root.querySelectorAll<HTMLElement>(selector)];
+  const replacement = tabs.find(element => (
       element.dataset.scope
       ?? element.dataset.packageLens
       ?? element.dataset.lens
       ?? element.dataset.memberSection
     ) === value);
   if (!replacement) return false;
+  tabs.forEach(tab => {
+    tab.tabIndex = tab === replacement ? 0 : -1;
+  });
   replacement.focus();
   return true;
 }

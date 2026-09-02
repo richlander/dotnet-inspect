@@ -83,14 +83,19 @@ test("typed tab focus survives element replacement", () => {
   assert.deepEqual(target, { kind: "type-lens", value: "metadata" });
   assert.ok(target);
 
+  const selected = new FakeElement({ lens: "api" });
+  selected.tabIndex = 0;
   const replacement = new FakeElement({ lens: "metadata" });
+  replacement.tabIndex = -1;
   const root = new FakeRoot();
-  root.add("[data-lens]", replacement);
+  root.add("[data-lens]", selected, replacement);
 
   assert.equal(
     restoreScopeBarFocus(fakeDom.parentNode(root), target),
     true);
   assert.equal(replacement.focused, true);
+  assert.equal(replacement.tabIndex, 0);
+  assert.equal(selected.tabIndex, -1);
 });
 
 test("package scope bindings dispatch only scope and package-lens controls", () => {
