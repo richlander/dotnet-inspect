@@ -4619,6 +4619,15 @@ public class CfgSampleClass
     }
 
     // ---- runtime-async (async v2) fixtures: awaits lower to AsyncHelpers.Await calls ----
+#pragma warning disable CS1998, CS9123
+    public static async unsafe System.Threading.Tasks.Task RuntimeAsyncNoAwaitUnsafe()
+    {
+        int value = 0;
+        int* pointer = &value;
+        _ = *pointer;
+    }
+#pragma warning restore CS1998, CS9123
+
     public static async System.Threading.Tasks.Task<int> AwaitOnce(System.Threading.Tasks.Task<int> t)
     {
         int x = await t;

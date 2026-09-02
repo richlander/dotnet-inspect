@@ -141,7 +141,8 @@ The subject strip maps each subject descriptor to:
 The inspector strip maps each inspector descriptor to:
 
 - its owner-issued label as Label;
-- an optional owner-issued Short Label such as `CG`;
+- a Short Label derived by uppercasing the first character of each displayed
+  label word, such as `O`, `CG`, or `AS`;
 - an optional owner-issued Unicode Icon;
 - its boxed one-based owner-order number as Index; and
 - preferred-to-minimum modes Label, Short Label, Icon, and Index, skipping
@@ -186,12 +187,14 @@ of Label or Index content.
    minimum. For each inspector result, it reserves exactly that result's normal
    inline width, gives all remaining width to subjects, and records the
    resulting subject mode and window.
-3. The composite deduplicates identical result pairs and removes every
-   dominated pair for which another allocation shows at least as rich a
-   subject result and at least as rich an inspector result, with one strict
-   improvement. The remaining Pareto levels are ordered from inspector-rich to
-   subject-rich; each successive level strictly increases the visible subject
-   result and strictly decreases the inspector result.
+3. The composite collapses result pairs with equal richness — the same visible
+   subject count plus the same inspector mode and visible count — to the
+   representative window nearest the strips' current continuity state. It then
+   removes every dominated pair for which another allocation shows at least as
+   rich a subject result and at least as rich an inspector result, with one
+   strict improvement. The remaining Pareto levels are ordered from
+   inspector-rich to subject-rich; each successive level strictly increases
+   the visible subject result and strictly decreases the inspector result.
    SlideStrip's policy and adjacent capacity thresholds define inspector
    richness; the Label-only subject result is richer when it contains more
    visible subjects.
@@ -361,9 +364,11 @@ Search/history cluster. That cluster yields space before the target path and
 may not become another persistent tab strip, coordinate selector, or
 independently reconstructed identity.
 
-Second-row `Share` copies the canonical workspace link. A separate `Copy name`
-action is absent because copy belongs to the segment whose typed identity is
-being copied.
+The subject zone contains no Share or separate `Copy name` action. Copy belongs
+to the segment whose typed identity is being copied; the shell-owned
+Application menu exposes canonical workspace Share outside both SlideStrips as
+placed by
+[Inspect Web Surface Composition](inspect-web-surface-composition.md#shell-navigation-and-application-actions).
 
 Browser Back and Forward own navigation history. Compact Back and Forward
 buttons sit immediately to the left of the visible Spotlight Search control.
@@ -622,11 +627,14 @@ controls render in the Package working surface:
 
 ```text
 dotnet-inspect  ⬡ System.Text.Json                         ← →  Search
-Workspace Package Type Member | Overview Dependencies Metadata   Share Settings ?
+Workspace Package Type Member | Overview Dependencies Metadata        ☰
 
 Package coordinate
 Version 10.0.0   Framework net10.0
 ```
+
+The trailing Application menu occupies its own Surface Composition-owned slot;
+it is not a subject or inspector item.
 
 The coordinate editor is available while Package is selected, across its
 inspectors. It is absent from Workspace, Library, Type, and Member so package

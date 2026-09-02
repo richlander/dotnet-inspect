@@ -181,10 +181,18 @@ complete metadata directory for a lazy `PEReader`; that acquisition-owner cost
 is visible and measured separately. Once the block is available, classifier
 work and allocation are fixed by the root prefix and 256-byte ceiling and do
 not scale with stream, heap, table, or row content.
+`MetadataFormatAdmission` is the Metadata-owned entry point that maps that
+classification onto this contract before any SRM reader is constructed.
+`AdmitImage` returns `true` for supported ECMA-335 metadata and `false` for an
+image with no metadata; `GetMetadataReader` additionally rejects the
+no-metadata case, so no caller receives a reader over an unadmitted image.
+
 Acquisition or direct projection APIs whose established return shape has no
 failure arm throw `UnsupportedMetadataFormatException` carrying no artifact
-text for unsupported Windows Metadata and `BadImageFormatException` with the
-same text constraint for a malformed-root result. Typed query owners catch and
+text for unsupported Windows Metadata and
+`MalformedMetadataRootException : BadImageFormatException`, which carries the
+classifier's exact `MetadataRootMalformedReason` under the same text
+constraint, for a malformed-root result. Typed query owners catch and
 preserve those distinct mechanisms as unsupported-input and malformed-input
 results. They must not translate either to `null`, an empty projection, or
 partial rows.
@@ -206,10 +214,18 @@ no-work-before-reject properties.
 
 The classifier's primitive-local contract is implemented and gated by
 `MetadataImageFormatClassifierTests` and
-`LayeringTests.MetadataPrimitives_MetadataRootClassifierIsIsolated`. Product
-session and projection adoption remains unverified until the focused Metadata
-successor tracked by #4877 lands; callers must not infer that the classifier's
-existence alone closes the repository-wide `MDP017` entry-point inventory.
+`LayeringTests.MetadataPrimitives_MetadataRootClassifierIsIsolated`. Bounding
+the version scan to the ECMA-335 255-byte limit is gated by that class's
+`Mdp017_PaddedByteCannotTerminateMaximumVersionString` case, and the
+`MetadataFormatAdmission` contract by `MetadataFormatAdmissionTests` in
+`ILInspector.Metadata.Tests`.
+
+Owner adoption is deliberately staged. This contract is available but is not
+yet called by the Metadata, Services, Analysis, Decompiler, Research, ILDiff,
+Queries, or CLI owners, and no gate yet requires them to; each owner adopts it
+in a focused successor tracked by #4877. Until those land, callers must not
+infer that the contract's existence closes the repository-wide `MDP017`
+entry-point inventory.
 
 ### Lossless `MethodSemantics` row boundary
 

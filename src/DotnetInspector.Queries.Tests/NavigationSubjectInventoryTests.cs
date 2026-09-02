@@ -62,7 +62,7 @@ public sealed class NavigationSubjectInventoryTests
     }
 
     [Fact]
-    public void ProjectedMemberWithoutTypedDeclaringIdentity_FailsClosed()
+    public void ProjectedMemberFromRealProducer_BindsDeclarationTypeAndAnchor()
     {
         var participant = new AssemblyContextParticipant(
             ResolvedAssemblyReference.CreateFromPath(
@@ -106,31 +106,292 @@ public sealed class NavigationSubjectInventoryTests
         NavigationTypeInventoryRow receiver = Assert.Single(
             types.Rows,
             row => row.ProducerRow.FullName == typeof(InventoryFixture).FullName);
-        Assert.DoesNotContain(
+        NavigationMemberInventoryRow projected = Assert.Single(
             receiver.Members,
             row => row.ProducerRow.Name == nameof(InventoryExtensions.Extend));
-        NavigationInventoryEvidence.MemberIdentityMissing extension =
-            Assert.Single(
-                types.Evidence
-                    .OfType<
-                        NavigationInventoryEvidence.MemberIdentityMissing>(),
-                evidence =>
-                    evidence.ProducerRow.Name
-                        == nameof(InventoryExtensions.Extend)
-                    && ReferenceEquals(
-                        evidence.ContainingType,
-                        receiver.ProducerRow));
-        Assert.NotNull(extension.ProducerRow.DeclaringTypeCanonicalName);
         NavigationTypeInventoryRow declaring = Assert.Single(
             types.Rows,
             row => row.ProducerRow.FullName
                 == typeof(InventoryExtensions).FullName);
-        Assert.Contains(
+        NavigationMemberInventoryRow declaration = Assert.Single(
             declaring.Members,
             row => row.ProducerRow.Name
                     == nameof(InventoryExtensions.Extend)
                 && row.ProducerRow.DeclaringTypeCanonicalName is null
                 && row.Subject.DeclaringType == declaring.Subject);
+        Assert.Equal(
+            declaring.ProducerRow.DefinitionName,
+            projected.ProducerRow.DeclaringTypeDefinitionName);
+        Assert.Same(declaring.Subject, projected.Subject.DeclaringType);
+        Assert.NotEqual(receiver.Subject, projected.Subject.DeclaringType);
+        Assert.Equal(
+            declaration.Subject.Identity.Member,
+            projected.Subject.Identity.Member);
+        Assert.DoesNotContain(
+            types.Evidence,
+            evidence => evidence
+                    is NavigationInventoryEvidence
+                        .ProjectedMemberIdentityFailure failure
+                && ReferenceEquals(
+                    failure.ProducerRow,
+                    projected.ProducerRow));
+    }
+
+    [Fact]
+    public void ProjectedMemberWithoutTypedDeclaringIdentity_FailsClosed()
+    {
+        RealizedMemberCoordinate.Package coordinate = Coordinate();
+        WorkspaceContextMember library = Library(coordinate, "Library");
+        ApiMember projected = ProjectedMember(
+            "Extend",
+            declaringType: null);
+        ApiType receiver = Type("Receiver", "public", projected);
+
+        NavigationTypeInventoryOutcome.Available types =
+            Assert.IsType<NavigationTypeInventoryOutcome.Available>(
+                Classify(
+                    coordinate,
+                    [library],
+                    library,
+                    Surface(Available(library, receiver))).Types);
+
+        Assert.Empty(Assert.Single(types.Rows).Members);
+        NavigationInventoryEvidence.ProjectedMemberIdentityFailure failure =
+            Assert.IsType<
+                NavigationInventoryEvidence.ProjectedMemberIdentityFailure>(
+                    Assert.Single(types.Evidence));
+        Assert.Equal(
+            NavigationProjectedMemberIdentityFailureKind
+                .DeclaringTypeIdentityMissing,
+            failure.Kind);
+        Assert.Same(receiver, failure.ContainingType);
+        Assert.Same(projected, failure.ProducerRow);
+    }
+
+    [Fact]
+    public void ProjectedMemberWithUnreturnedDeclaringType_FailsClosed()
+    {
+        RealizedMemberCoordinate.Package coordinate = Coordinate();
+        WorkspaceContextMember library = Library(coordinate, "Library");
+        ApiMember projected = ProjectedMember(
+            "Extend",
+            TypeName("Other", "Extensions"));
+        ApiType receiver = Type("Receiver", "public", projected);
+
+        NavigationTypeInventoryOutcome.Available types =
+            Assert.IsType<NavigationTypeInventoryOutcome.Available>(
+                Classify(
+                    coordinate,
+                    [library],
+                    library,
+                    Surface(Available(library, receiver))).Types);
+
+        Assert.Empty(Assert.Single(types.Rows).Members);
+        NavigationInventoryEvidence.ProjectedMemberIdentityFailure failure =
+            Assert.IsType<
+                NavigationInventoryEvidence.ProjectedMemberIdentityFailure>(
+                    Assert.Single(types.Evidence));
+        Assert.Equal(
+            NavigationProjectedMemberIdentityFailureKind
+                .DeclaringTypeNotReturned,
+            failure.Kind);
+        Assert.Same(projected, failure.ProducerRow);
+    }
+
+    [Fact]
+    public void ProjectedMemberWithAmbiguousDeclaringType_FailsClosed()
+    {
+        RealizedMemberCoordinate.Package coordinate = Coordinate();
+        WorkspaceContextMember library = Library(coordinate, "Library");
+        MetadataTypeDefinitionName declaringType =
+            TypeName("Sample", "Extensions");
+        ApiMember projected = ProjectedMember("Extend", declaringType);
+        ApiType receiver = Type("Receiver", "public", projected);
+        ApiType first = Type("FirstExtensions", "public");
+        ApiType second = Type("SecondExtensions", "public");
+        first.DefinitionName = declaringType;
+        second.DefinitionName = declaringType;
+
+        NavigationTypeInventoryOutcome.Available types =
+            Assert.IsType<NavigationTypeInventoryOutcome.Available>(
+                Classify(
+                    coordinate,
+                    [library],
+                    library,
+                    Surface(Available(library, receiver, first, second))).Types);
+
+        Assert.Empty(
+            Assert.Single(
+                types.Rows,
+                row => ReferenceEquals(
+                    row.ProducerRow,
+                    receiver)).Members);
+        NavigationInventoryEvidence.ProjectedMemberIdentityFailure failure =
+            Assert.IsType<
+                NavigationInventoryEvidence.ProjectedMemberIdentityFailure>(
+                    Assert.Single(types.Evidence));
+        Assert.Equal(
+            NavigationProjectedMemberIdentityFailureKind
+                .DeclaringTypeAmbiguous,
+            failure.Kind);
+        Assert.Same(projected, failure.ProducerRow);
+    }
+
+    [Fact]
+    public void ProjectedMemberWithoutDeclarationMemberIdentity_FailsClosed()
+    {
+        RealizedMemberCoordinate.Package coordinate = Coordinate();
+        WorkspaceContextMember library = Library(coordinate, "Library");
+        MetadataTypeDefinitionName declaringType =
+            TypeName("Sample", "Extensions");
+        ApiMember projected = ProjectedMember(
+            "Extend",
+            declaringType,
+            metadataToken: null);
+        ApiType receiver = Type("Receiver", "public", projected);
+        ApiType declaring = Type("Extensions", "public", Member("Extend"));
+
+        NavigationTypeInventoryOutcome.Available types =
+            Assert.IsType<NavigationTypeInventoryOutcome.Available>(
+                Classify(
+                    coordinate,
+                    [library],
+                    library,
+                    Surface(Available(library, receiver, declaring))).Types);
+
+        Assert.Empty(
+            Assert.Single(
+                types.Rows,
+                row => ReferenceEquals(
+                    row.ProducerRow,
+                    receiver)).Members);
+        NavigationInventoryEvidence.ProjectedMemberIdentityFailure failure =
+            Assert.IsType<
+                NavigationInventoryEvidence.ProjectedMemberIdentityFailure>(
+                    Assert.Single(types.Evidence));
+        Assert.Equal(
+            NavigationProjectedMemberIdentityFailureKind
+                .DeclarationMemberIdentityMissing,
+            failure.Kind);
+        Assert.Same(projected, failure.ProducerRow);
+    }
+
+    [Fact]
+    public void ProjectedMemberWithUnreturnedDeclarationMember_FailsClosed()
+    {
+        RealizedMemberCoordinate.Package coordinate = Coordinate();
+        WorkspaceContextMember library = Library(coordinate, "Library");
+        MetadataTypeDefinitionName declaringType =
+            TypeName("Sample", "Extensions");
+        ApiMember projected = ProjectedMember("Extend", declaringType);
+        ApiType receiver = Type("Receiver", "public", projected);
+        ApiType declaring = Type("Extensions", "public");
+
+        NavigationTypeInventoryOutcome.Available types =
+            Assert.IsType<NavigationTypeInventoryOutcome.Available>(
+                Classify(
+                    coordinate,
+                    [library],
+                    library,
+                    Surface(Available(library, receiver, declaring))).Types);
+
+        Assert.Empty(
+            Assert.Single(
+                types.Rows,
+                row => ReferenceEquals(
+                    row.ProducerRow,
+                    receiver)).Members);
+        NavigationInventoryEvidence.ProjectedMemberIdentityFailure failure =
+            Assert.IsType<
+                NavigationInventoryEvidence.ProjectedMemberIdentityFailure>(
+                    Assert.Single(types.Evidence));
+        Assert.Equal(
+            NavigationProjectedMemberIdentityFailureKind
+                .DeclarationMemberNotReturned,
+            failure.Kind);
+        Assert.Same(projected, failure.ProducerRow);
+    }
+
+    [Fact]
+    public void ProjectedMemberWithAmbiguousDeclarationMember_FailsClosed()
+    {
+        RealizedMemberCoordinate.Package coordinate = Coordinate();
+        WorkspaceContextMember library = Library(coordinate, "Library");
+        MetadataTypeDefinitionName declaringType =
+            TypeName("Sample", "Extensions");
+        ApiMember projected = ProjectedMember("Extend", declaringType);
+        ApiType receiver = Type("Receiver", "public", projected);
+        ApiMember first = Member("Extend");
+        first.MetadataToken = projected.MetadataToken;
+        ApiMember second = Member("Extend");
+        second.MetadataToken = projected.MetadataToken;
+        ApiType declaring =
+            Type("Extensions", "public", first, second);
+
+        NavigationTypeInventoryOutcome.Available types =
+            Assert.IsType<NavigationTypeInventoryOutcome.Available>(
+                Classify(
+                    coordinate,
+                    [library],
+                    library,
+                    Surface(Available(library, receiver, declaring))).Types);
+
+        Assert.Empty(
+            Assert.Single(
+                types.Rows,
+                row => ReferenceEquals(
+                    row.ProducerRow,
+                    receiver)).Members);
+        NavigationInventoryEvidence.ProjectedMemberIdentityFailure failure =
+            Assert.IsType<
+                NavigationInventoryEvidence.ProjectedMemberIdentityFailure>(
+                    Assert.Single(types.Evidence));
+        Assert.Equal(
+            NavigationProjectedMemberIdentityFailureKind
+                .DeclarationMemberAmbiguous,
+            failure.Kind);
+        Assert.Same(projected, failure.ProducerRow);
+    }
+
+    [Fact]
+    public void ProjectedMemberLookup_DoesNotUseDeclaringText()
+    {
+        RealizedMemberCoordinate.Package coordinate = Coordinate();
+        WorkspaceContextMember library = Library(coordinate, "Library");
+        MetadataTypeDefinitionName declaringType =
+            TypeName("Sample", "Extensions");
+        ApiMember projected = ProjectedMember("Extend", declaringType);
+        projected.DeclaringType = "Misleading.Display";
+        projected.DeclaringTypeCanonicalName = "Misleading.Canonical";
+        ApiType receiver = Type("Receiver", "public", projected);
+        ApiMember declaration = Member("Extend");
+        declaration.MetadataToken = projected.MetadataToken;
+        ApiType declaring =
+            Type("Extensions", "public", declaration);
+
+        NavigationTypeInventoryOutcome.Available types =
+            Assert.IsType<NavigationTypeInventoryOutcome.Available>(
+                Classify(
+                    coordinate,
+                    [library],
+                    library,
+                    Surface(Available(library, receiver, declaring))).Types);
+
+        NavigationTypeInventoryRow declaringRow = Assert.Single(
+            types.Rows,
+            row => ReferenceEquals(row.ProducerRow, declaring));
+        NavigationMemberInventoryRow projectedRow = Assert.Single(
+            Assert.Single(
+                types.Rows,
+                row => ReferenceEquals(
+                    row.ProducerRow,
+                    receiver)).Members);
+        Assert.Same(
+            declaringRow.Subject,
+            projectedRow.Subject.DeclaringType);
+        Assert.Equal(
+            ApiMemberIdentity.GetMemberAnchor(declaring, declaration),
+            projectedRow.Subject.Identity.Member);
     }
 
     [Fact]
@@ -511,6 +772,20 @@ public sealed class NavigationSubjectInventoryTests
             Kind = "method",
             Signature = $"void {name}()",
         };
+
+    static ApiMember ProjectedMember(
+        string name,
+        MetadataTypeDefinitionName? declaringType,
+        int? metadataToken = 0x06000001)
+    {
+        ApiMember member = Member(name);
+        member.Kind = "extension-method";
+        member.MetadataToken = metadataToken;
+        member.DeclaringType = "Display text is not identity";
+        member.DeclaringTypeCanonicalName = "Sample.Extensions";
+        member.DeclaringTypeDefinitionName = declaringType;
+        return member;
+    }
 
     static ApiSurfaceInspectionFailure InspectionFailure(string operation) =>
         new(
