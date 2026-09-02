@@ -15,10 +15,10 @@ It is the second design slice in a stack:
 
 The normative claim is:
 
-> `ComparisonDocument<T>` composes one portable identified and displayed root
-> with an ordered population of portable identified and displayed
-> `Subject<T>` children, while moving exceptional rename and move coordinates
-> into a complete referenced description population.
+> `ComparisonDocument<T>` composes one portable identified and displayed root,
+> an optional root comparison, and an ordered population of portable identified
+> and displayed `Subject<T>` children, while moving exceptional rename and move
+> coordinates into a complete referenced description population.
 
 `ILInspector.Findings` owns:
 
@@ -59,6 +59,7 @@ A type comparison contains member comparisons. A clone search has one
 reference method and a population of candidate-method comparisons. Both need:
 
 - one portable root identity and human display;
+- one explicitly present or not-applicable root comparison;
 - ordered child subjects with their own portable identities and displays;
 - one comparison payload per child;
 - compact ordinary subjects;
@@ -161,14 +162,19 @@ transfers; Git's conflation of leaf rename and parent movement does not.
 One comparison document contains:
 
 - one root `Identifier`, `Display`, and subject-change value;
+- one explicitly present or not-applicable root `Comparison`;
 - an ordered immutable **subject population**; and
 - an immutable **change-description population**.
 
-The document root supplies the comparison's scope or reference point. Each
-`Subject<T>` child supplies:
+The document root supplies the comparison's scope or reference point. Its
+optional `Comparison` carries a payload only when `T` has a meaningful
+root-wide item space, such as a type-wide source relation spanning several
+members. Structural absence means not applicable, not unavailable or failed.
+
+Each `Subject<T>` child supplies:
 
 - one caller-issued portable `Identifier`;
-- one caller-issued human `Display`; and
+- one caller-issued human `Display`;
 - one subject-change value; and
 - one non-null `Comparison` payload `T`.
 
@@ -223,15 +229,17 @@ different current/After subject. Identifier comparison is ordinal.
 
 Exceptional endpoints also occupy those spaces:
 
-- each Deletion primary and each change description's Before identifier is
-  unique in Before space; and
+- in a document using endpoint topology, each Diff primary, each Deletion
+  primary, and each change description's Before identifier is unique in Before
+  space; and
 - each Diff, Addition, Rename, or Move primary is unique in current/After
   space.
 
 This rejects both deleting and renaming the same Before subject, or issuing
-several rename/move claims from one Before subject, while permitting a deleted
-Before subject and a different resulting subject to use the same identifier
-spelling in their separate spaces.
+several rename/move claims from one Before subject. A Deletion and Addition may
+reuse one identifier spelling across their separate spaces, representing
+unpaired replacement. Diff instead asserts the ordinary correspondence and
+therefore occupies both spaces when any non-Diff topology is present.
 
 ## Primary-subject normalization
 
@@ -254,9 +262,10 @@ result identifies those endpoints; `ComparisonDocument<T>` retains the
 scope-relative root and subject composition within them.
 
 Addition is explicit even when `T` can independently represent a one-sided
-comparison. The root has no `T`; without Addition, a newly added empty root
-would be indistinguishable from an ordinary compared root with no selected
-children. This is the contract-defining pathological case.
+comparison. A root may have a NotApplicable comparison; without Addition, a
+newly added empty root would be indistinguishable from an ordinary compared
+root with no selected children. This is the contract-defining pathological
+case.
 
 Addition and Deletion need no change description. Their primary subjects are
 already their complete existing endpoints.
@@ -281,6 +290,13 @@ the existence changes are singleton forms. Invalid combinations include:
 - Deletion with any other kind;
 - duplicate Rename or Move kinds; and
 - an empty kind population.
+
+Rename and Move are functional 1:1 subject claims: one Before endpoint and one
+After endpoint. A split, extraction, or merge does not create a fan-out or
+fan-in population of subject Moves. The producer represents the resulting
+subjects with Diff, Addition, Deletion, or one designated 1:1 exceptional
+successor as appropriate; N:M correspondence among code regions or other items
+belongs inside `T`.
 
 The implementation uses a closed shape that makes these combinations
 unrepresentable or rejects them at construction. Numeric bitwise flag values
@@ -397,6 +413,21 @@ metadata extension mechanism.
 deletion-capable comparison type represents its one-sided evidence within its
 own contract.
 
+The root comparison uses an explicit closed presence shape:
+
+- **Present** contains one non-null `T`; or
+- **NotApplicable** contains no payload.
+
+It does not use null to conflate structural absence with acquisition or
+comparison failure.
+
+One closed document uses one `T` for the root and every child. Root and child
+item spaces may differ, but their payload and item types do not. An
+`AnalysisDiff<PortableSourceRegion>` adopter may use a type-wide root sequence
+and member-wide child sequences because both retain the same item type. A
+producer needing unrelated root and child payload types uses separate documents
+or defines one explicit payload union.
+
 The generic envelope cannot prove that an arbitrary `T` is immutable or has
 semantic value equality. Producers supply payload values whose observable
 state and `Equals`/`GetHashCode` behavior remain stable for the document's
@@ -411,6 +442,18 @@ The document:
 - does not recover subject identity from `T`;
 - does not turn payload failure into an empty comparison; and
 - composes `EqualityComparer<T>.Default` only for value equality.
+
+A subject change and a payload relation are orthogonal even when their
+vocabularies use similar words. Subject Move describes one subject's containing
+coordinate. An `AnalysisDiff<TItem>` Placement Moved facet describes item
+correspondence inside one payload. Neither claim implies the other.
+
+Root and child comparisons are also independent payloads over
+producer-declared item spaces. The format does not reconcile or deduplicate
+them. Consumers must not aggregate item counts across levels: one region may be
+Moved in a type-wide root payload, Removed in an old member payload, and Added
+in a new member payload, with all three claims valid in their respective item
+spaces.
 
 When comparison cannot be produced, the producer uses a typed payload outcome
 as `T` or returns an outer failed operation. Null is not an unavailable result.
@@ -429,6 +472,7 @@ state. It has no partial, failed, unavailable, or timeout case.
 Completeness requires:
 
 - one valid root;
+- one valid root-comparison presence value;
 - every selected subject to have one valid non-null payload;
 - every exceptional change reference to resolve exactly once;
 - every description to be referenced exactly once; and
@@ -454,6 +498,7 @@ root/subject reference order. Transformation descriptor order is significant.
 Value equality composes:
 
 - root value;
+- root-comparison presence and payload when present;
 - ordered subject sequence;
 - ordered change-description population;
 - ordered transformation descriptors; and
@@ -483,6 +528,7 @@ ComparisonDocument<T> where T : notnull
   display: string
   change_kinds: ChangeKind[]?  // omitted means Diff
   change_id: string?           // only Rename or Move
+  comparison: T?               // omitted means structurally not applicable
   subjects: Subject<T>[]
   change_descriptions: ChangeDescription[]
 
@@ -515,6 +561,10 @@ comparison. Addition and Deletion emit `change_kinds: ["addition"]` and
 `change_kinds: ["deletion"]`. Exceptional subjects emit `rename`, `move`, or
 both in that canonical order plus `change_id`.
 
+An omitted root `comparison` is the serialized form of the explicit
+NotApplicable case. Deserialization constructs that case rather than passing a
+null `T` through the payload contract.
+
 Identifiers, displays, and descriptor values are emitted as data values, never
 as property names or structural syntax. Structured sinks spell enum-like kinds
 as stable lower-case words rather than numeric flag values.
@@ -537,6 +587,187 @@ inert data: its serializer JSON-encodes them, and presentation consumers remain
 responsible for containment in Markdown, HTML, terminals, or other output.
 The format never interprets a display or identifier as preformatted markup.
 
+## Fixture evidence
+
+The existing fixture set is valuable but does not cover the subject topology
+or cross-subject payload relations this format must compose.
+
+| Existing asset | Evidence it provides | Missing comparison-document evidence |
+| --- | --- | --- |
+| `DiffFixtures.V1` / `DiffFixtures.V2` | Real versioned assemblies with many same-type body, operand, control-flow, generic, constructor, operator, and member-removal changes | Positive rename, move between types, move between assemblies, rename plus move, type relocation, and assembly-root changes |
+| In-memory API diff tests | Type/member addition, removal, signature change, filtering, and endpoint topology | Compiler-produced portable coordinates and positive rename/move correspondence |
+| `DiffAsmFixtures.*` | Same-full-name type distinction and cross-assembly caller identity | A Before/After artifact pair or any subject moved across assemblies |
+| `ResearchTargetCorrespondenceFixtures.V1/V2` | A nested-type-versus-namespace-type negative that correctly remains selection drift | A producer-approved positive type move |
+| `structural-clone-relationships.json` | Same-type, same-module exact, near, semantic-hazard, hard-negative, and unsupported clone relationships | Clone pairs across different types in one assembly |
+| `structural-clone-cross-assembly.json` | Cross-module retrieval, ranking, address preservation, hazards, and a known miss over the same logical type in two versioned assemblies | Distinct-type and distinct-assembly clone topology, plus a portable cross-module pair payload |
+
+The implementation and adoption efforts therefore require a deliberate
+comparison-topology fixture family. Reusing an asset is preferred where it
+already proves the exact case; incidental cross-assembly references or
+in-memory records do not substitute for an authored positive transition.
+
+### Keep topology and payload relations separate
+
+Two orthogonal fixture axes use some of the same words:
+
+| Axis | Owns | Cases |
+| --- | --- | --- |
+| Subject topology | Functional identity and containing-coordinate transition for one root or child | Diff/no topology change, Addition, Deletion, Rename, Move, and Rename plus Move |
+| Payload relation | Item correspondence inside one `T` | no item change, addition, removal, addition plus removal, changed correspondence, and moved correspondence |
+
+Subject topology never derives from payload relations, and payload relations
+never derive from subject topology:
+
+- a subject Move with an unchanged payload is valid;
+- a Diff subject whose payload contains only moved relations is valid;
+- Rename is a shape/identity case and is gated first with an unchanged payload;
+- a completely replaced body may remain Diff when its subject identity is
+  unchanged; and
+- payload addition plus removal is one code-diff case, not a subject kind.
+
+Subject Rename and Move are 1:1 claims. One Before subject cannot move to three
+After subjects because Before-space uniqueness rejects competing exceptional
+claims. A split or extraction projects to subject topology as either:
+
+- one Deletion plus several Additions; or
+- one producer-designated Rename/Move successor plus additional Additions.
+
+The producer records that choice. Any one-to-many or many-to-many item
+correspondence remains inside `T`.
+
+### Required scope matrix
+
+At each applicable scope, the authored fixtures model subject topology and
+payload relations independently.
+
+| Scope | Subject-topology cases | Payload-relation cases | Clone cases |
+| --- | --- | --- | --- |
+| Within one type | Diff, Addition, Deletion, and Rename with unchanged payload; Move is not applicable because the containing type is unchanged | no change, add-only, remove-only, add plus remove, changed, and moved regions | exact, near, semantic hazard, and hard negative |
+| Between types in one assembly | Diff controls in each type, Addition, Deletion, Move with unchanged payload, Rename plus Move, ToExtension, and FromExtension | no change, add-only, remove-only, add plus remove, changed, and moved regions crossing member/type boundaries | exact and near clones across distinct declaring types, plus semantic-hazard and hard-negative candidates |
+| Between assemblies | Diff controls in each assembly, Addition, Deletion, type/member Move with unchanged payload, and Rename plus Move | no change, add-only, remove-only, add plus remove, and changed within assembly roots; moved regions crossing assemblies require a package/comparison-set root | relevant, semantic-hazard, and hard-negative retrieval candidates in a distinct module and type, with rank and address orientation |
+| Assembly root | Diff, Addition with an empty subject population, Deletion with an empty subject population, and separately authored Rename | Population-level no change, add-only, remove-only, and add plus remove when `T` compares assembly contents; source-region movement is not applicable | Not applicable unless a clone producer chooses an assembly root |
+
+An applicability omission is explicit:
+
+- member Move is not applicable within one unchanged declaring type;
+- a source-region payload is not meaningful for a metadata-only assembly-root
+  document;
+- moved-region correspondence across assemblies requires a producer-owned root
+  item space that spans both assemblies;
+- cross-module clone retrieval currently produces ranked similarity evidence,
+  not an Exact/Near pairwise relation; and
+- no assembly-root clone case is required by the current product.
+
+### Artifact topology
+
+The main paired artifact set uses at least two stable assembly simple names on
+both sides of the version boundary. Ordinary version projects retain their
+output assembly names, while cross-assembly cases move a subject between two
+assemblies that both continue to exist. This makes a subject Move distinct from
+an assembly Rename.
+
+Assembly Rename is format-construction evidence until a producer explicitly
+establishes package-local correspondence between old and new assembly
+identities. A separate dedicated project pair is deferred to that producer
+effort; building it earlier would provide no product evidence.
+
+For every cross-assembly subject transition, the ledger records which document
+owns the transition and requires sibling documents not to emit a competing
+Addition or Deletion for the same logical subject.
+
+### Three-way extraction
+
+The pathological code-diff fixture starts with one method containing three
+separated regions:
+
+```text
+Before: TypeA.Process
+  region A
+  stable separator
+  region B
+  stable separator
+  region C
+```
+
+After refactoring, `TypeA.Process` remains as an orchestrator and three new
+methods contain the extracted regions:
+
+```text
+After: TypeA.Process calls ProcessPartA, ProcessPartB, ProcessPartC
+After: TypeA.ProcessPartA contains region A
+After: TypeA.ProcessPartB contains region B
+After: TypeA.ProcessPartC contains region C
+```
+
+The subject projection is one Diff for `Process` plus three Additions. It is not
+three subject Moves from one Before method. A neighboring variant in which
+`Process` is removed uses one Deletion plus three Additions.
+
+A root-level
+`ComparisonDocument<AnalysisDiff<PortableSourceRegion>>.Comparison`, where
+`PortableSourceRegion` is producer-owned, spans the whole type. Its Before item
+sequence includes the three regions in the old method, its After item sequence
+includes the regions in the three new methods, and it carries three independent
+correspondence relations with Placement Moved. The item coordinate includes its
+owning member so movement across method boundaries is explicit.
+
+The fixture also proves the lossy presentation projection:
+
+- `AnalysisDiff<PortableSourceRegion>` retains the three moved relations; and
+- lowering to root-level `MappedTextDiff` renders the crossing relations as
+  additions and removals, without claiming that Markout preserved movement.
+
+A within-assembly variant moves the three regions into methods in three
+different types under one assembly-wide item space. A cross-assembly variant
+uses a package/comparison-set root whose producer-owned item space spans both
+assemblies; that producer does not exist yet, so the fixture begins as
+format-construction evidence.
+
+### Ledger and gate ownership
+
+Fixture-authored neighboring negatives prove:
+
+- equal or near-equal payloads without producer-approved subject
+  correspondence remain separate Addition and Deletion subjects;
+- type/member display similarity does not establish identity; and
+- a cross-assembly reference is not itself a cross-assembly subject move.
+
+Format-construction rejection gates separately prove:
+
+- the same Before identifier cannot be both deleted and renamed/moved; and
+- two transitions cannot claim the same Before endpoint.
+
+The authored fixture ledger records inputs and intended transitions:
+
+- exact identifier projection, including assembly-name and member-anchor
+  components;
+- root and subject identifiers and displays;
+- primary endpoint spaces;
+- intended change kinds and document ownership;
+- ChangeIds, complete exceptional endpoints, and transformations;
+- payload item-space scope and expected relation disposition; and
+- the expected disposition of a region independently at root and child levels;
+  and
+- whether the expectation is format-construction evidence or a current
+  producer-owned claim.
+
+Foundational format tests construct these coordinate shapes with an immutable
+test payload. They prove envelope invariants but do not claim that a current
+producer detected Rename or Move.
+
+Adopter corpus tests exercise product-owned artifact construction and compare
+product-produced documents with the producer-owned ledger expectations. They
+begin only when the corresponding producer exists; the harness does not
+manufacture or repair the document it checks.
+
+The current `StructuralCloneComparisonDocument` deliberately requires both
+methods to come from one module. It can gate within-type and within-assembly
+clone composition unchanged. The existing cross-assembly retrieval corpus
+gates relevant, semantic-hazard, and hard-negative ranking plus address
+orientation. A separate clone-owner effort must define a portable cross-module
+pair payload before a structured cross-assembly clone document can claim
+pairwise Exact or Near relations as `T`.
+
 ## Demonstration: whole-type text diff
 
 This mockup uses `ComparisonDocument<MappedTextDiff>`.
@@ -550,10 +781,11 @@ Root
   Identifier: type:Sample.Parser
   Display: Sample.Parser
   Change: Diff
+  Comparison: type-wide mapped text diff
 
 Subjects
-  member:Parse(string)
-    Display: Parse(string)
+  member:Stable(int)
+    Display: Stable(int)
     Change: Diff
     Comparison: ordinary mapped text diff
 
@@ -573,8 +805,8 @@ Subjects
     ChangeId: rename-parse
     Comparison: mapped text diff
 
-  member:ParserExtensions.Parse(string)
-    Display: Parse(string)
+  member:ParserExtensions.Parse(Stream)
+    Display: Parse(Stream)
     Change: Move
     ChangeId: move-parse-stream
     Comparison: mapped text diff
@@ -608,6 +840,9 @@ The corresponding structured fragment is:
   "schema_version": 1,
   "identifier": "type:Sample.Parser",
   "display": "Sample.Parser",
+  "comparison": {
+    "...": "opaque root-level MappedTextDiff payload"
+  },
   "subjects": [
     {
       "identifier": "member:Sample.ParserExtensions.TryParse(System.String)",
@@ -655,6 +890,7 @@ Root
   Identifier: module:sha256:abc.../method:06000012
   Display: Parser.ParseCore()
   Change: Diff
+  Comparison: NotApplicable
 
 Subjects
   module:sha256:abc.../method:06000028
@@ -707,10 +943,18 @@ contract rather than recursively weakening this one.
 The foundational implementation effort must add Release gates proving at
 least:
 
+- root and subject construction across within-type, within-assembly, and
+  cross-assembly coordinates using an immutable test payload;
+- package/comparison-set root construction for a payload item space spanning
+  two assemblies;
+- explicit Present and NotApplicable root-comparison cases without null
+  payloads;
+- one closed payload type shared by present root and child comparisons with
+  different item-space scopes;
 - empty-subject and multi-subject document construction;
 - preservation of semantic subject order;
-- ordinary Diff and Deletion without descriptions;
-- Addition without a description, including an added empty root;
+- Diff, Addition, and Deletion without descriptions, including an added empty
+  root;
 - Rename, Move, and combined Rename/Move with complete descriptions;
 - root-level as well as subject-level exceptional changes;
 - after-primary identity for Rename/Move and before-primary identity for
@@ -721,6 +965,8 @@ least:
 - exactly-one reference per description;
 - rejection of a Deletion and exceptional change sharing one Before
   identifier;
+- rejection of a Diff and exceptional change sharing one Before identifier in
+  a topology-bearing document;
 - rejection of several exceptional changes sharing one Before identifier;
 - rejection of Rename/Move whose endpoint identifiers are equal even when
   displays differ;
@@ -734,15 +980,35 @@ least:
 - independently allocated value equality and hashing;
 - payload equality remaining independent of subject identity and delegated to
   `EqualityComparer<T>.Default`;
+- a Diff subject whose opaque test payload is labeled as containing moved items
+  remaining Diff without a change description;
+- a Move subject whose opaque test payload is labeled unchanged remaining
+  valid;
 - source-generated structured round trip for at least one closed test payload;
 - rejection of malformed serialized forms through the same validation path; and
 - encoding of untrusted identifier and display values as JSON data.
 
 Later focused adopter efforts must prove:
 
+- the authored fixture ledger's schema, inventory coverage, exact identifier
+  projection, and expectation ownership;
 - a closed `ComparisonDocument<MappedTextDiff>` rendering or serialization
-  adopter preserves root, subject, and exceptional change joins;
+  adopter preserves root, subject, and exceptional change joins across the
+  diff fixture matrix;
+- diff adopters exercise no payload change, add-only, remove-only, add plus
+  remove, changed, and moved-region payloads independently from subject Diff,
+  Addition, Deletion, Rename, and Move;
+- a closed `ComparisonDocument<AnalysisDiff<PortableSourceRegion>>` adopter
+  retains the three extraction-region Move relations in its type-wide root
+  comparison;
+- root and child fixture expectations remain separately countable but are not
+  aggregated across item-space scopes;
+- lowering that extraction payload to `MappedTextDiff` exposes additions and
+  removals without claiming preserved movement;
 - a clone payload adopter does not assume Before/After text semantics and
-  preserves one documented root/payload-side orientation; and
+  preserves one documented root/payload-side orientation across same-type and
+  distinct-type same-module fixtures;
+- cross-assembly clone retrieval preserves root/candidate module identities
+  until the clone owner supplies a portable cross-module payload; and
 - each producer's identifier portability, assertions, payload completeness,
   transformation classification, and presentation.
