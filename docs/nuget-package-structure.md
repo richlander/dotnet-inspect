@@ -24,8 +24,8 @@ it is managed code.
 
 | Package path | Role in `dotnet-inspect` |
 | --- | --- |
-| `ref/<tfm>/*.dll` | Preferred compile assets for the selected target framework. These are commonly reference assemblies and may be metadata-only. |
-| `lib/<tfm>/*.dll` | Runtime-neutral implementation assets and the compile fallback when no applicable `ref` assembly group supplies compile assets. |
+| `ref/<tfm>/*.dll` | Preferred compile assets when real assemblies exist at the exactly selected target framework. These are commonly reference assemblies and may be metadata-only. |
+| `lib/<tfm>/*.dll` | Runtime-neutral implementation assets and the compile fallback when the exactly selected target framework has no real `ref` assembly group and no compatible empty group suppresses fallback. |
 | `runtimes/<rid>/lib/<tfm>/*.dll` | RID-specific implementation assets. For an exact RID request, an asset here replaces a neutral `lib` asset at the same relative path. |
 | `runtimes/<rid>/native/*` | Native runtime assets; not managed compile assets. |
 | `build/`, `buildTransitive/`, `buildMultiTargeting/` | MSBuild props and targets; build logic, not compile assets. |
@@ -63,7 +63,10 @@ assembly is not automatically exposed to package consumers at compile time.
 
 ## Explicitly empty compile groups
 
-The exact file name `_._` is NuGet's empty-group marker. An applicable
+The exact file name `_._` is NuGet's empty-group marker. Real reference assets
+and empty markers intentionally use different framework matching rules. Only
+real `ref` assets at the exactly selected target framework can supply the
+compile surface. If none exist there, the nearest compatible
 `ref/<tfm>/_._` group states that the package deliberately contributes no
 compile assembly for that target:
 
@@ -77,9 +80,10 @@ fallback. `Example.dll` may still be selected independently as an
 implementation asset, but the package has no compile surface for that target.
 This is an explicit outcome, not missing package data.
 
-A real reference-assembly group at the selected target wins over a compatible
-empty group. Files such as `lib/net8.0/_._`, `ref/net8.0/_`, and
-`ref/net8.0/_._.dll` are not empty-group markers.
+A real reference-assembly group at the exactly selected target wins over a
+compatible empty group. A compatible real `ref` group at another target
+framework is not a compile candidate. Files such as `lib/net8.0/_._`,
+`ref/net8.0/_`, and `ref/net8.0/_._.dll` are not empty-group markers.
 
 ## Product boundaries
 
@@ -98,10 +102,20 @@ Current behavior is gated by:
 - `PackageCompileAssetSelectorTests.InMemorySelection_PrefersReferenceAssetsAndPackageNamedDefault`;
 - `PackageCompileAssetSelectorTests.InMemorySelection_FallsBackToLibraryAssetsAtHighestTfm`;
 - `PackageCompileAssetSelectorTests.EmptyReferenceGroup_AtTheSelectedFramework_SuppressesLibraryFallback`;
-- `PackageAssetSelectorTests.Select_PrefersTheRuntimeSpecificAssetForTheRequestedRid`; and
-- `PackageAssetSelectorTests.Select_WithoutARid_UsesOnlyRuntimeNeutralAssets`.
+- `PackageCompileAssetSelectorTests.EmptyReferenceGroup_NearestCompatibleGroupSuppressesLibraryFallback`;
+- `PackageCompileAssetSelectorTests.EmptyReferenceGroup_LosesToRealReferenceAssetsAtTheSelectedFramework`;
+- `PackageCompileAssetSelectorTests.RidSpecificImplementation_DoesNotReplaceLibraryCompileFallback`;
+- `PackageAssetSelectorTests.Select_PrefersTheRuntimeSpecificAssetForTheRequestedRid`;
+- `PackageAssetSelectorTests.Select_WithoutARid_UsesOnlyRuntimeNeutralAssets`;
+- `PackageAssemblyContextRealizationTests.RidSpecificImplementation_UsesSeparateNeutralCompileRole`;
+- `BrowserEngineBoundaryTests.RidSpecificPackage_SeparatesCompileAndImplementationAssets`.
 
-For the broader ecosystem conventions, see NuGet's
-[assembly selection guidance](https://learn.microsoft.com/nuget/create-packages/select-assemblies-referenced-by-projects)
-and
-[multi-targeting package layout](https://learn.microsoft.com/nuget/create-packages/supporting-multiple-target-frameworks).
+For the upstream role semantics, NuGet's
+[asset-selection guidance](https://learn.microsoft.com/nuget/create-packages/native-files-in-net-packages#understanding-nuget-package-asset-selection)
+defines compile assets as `ref/<tfm>` falling back to neutral `lib/<tfm>`,
+runtime assets as `runtimes/<rid>/lib/<tfm>` falling back to `lib/<tfm>`, and
+states that compile-time assemblies cannot vary by RID. NuGet.Client encodes
+the same separation in
+[`ManagedCodeConventions`](https://github.com/NuGet/NuGet.Client/blob/a173713d680ed2f40600034599e2c41108ca0c59/src/NuGet.Core/NuGet.Packaging/ContentModel/ManagedCodeConventions.cs#L517-L553)
+and applies compile and runtime selection separately in
+[`LockFileUtils`](https://github.com/NuGet/NuGet.Client/blob/a173713d680ed2f40600034599e2c41108ca0c59/src/NuGet.Core/NuGet.Commands/RestoreCommand/Utility/LockFileUtils.cs#L220-L240).

@@ -643,7 +643,7 @@ diagnostics, guarded content access, and acquisition leases under
 [Artifact acquisition and workspaces](artifact-acquisition-and-workspaces.md).
 The package adapter owns package coordinates and
 [asset selection](../nuget-package-structure.md#assembly-asset-roles). L1
-consumes its owner-issued typed results; it does not mint an artifact identity,
+consumes their owner-issued typed results; it does not mint an artifact identity,
 reinterpret a non-acquired outcome as an empty role, select package assets, or
 dispose a borrowed acquisition lease.
 
