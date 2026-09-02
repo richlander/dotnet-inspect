@@ -364,9 +364,11 @@ Search/history cluster. That cluster yields space before the target path and
 may not become another persistent tab strip, coordinate selector, or
 independently reconstructed identity.
 
-Second-row `Share` copies the canonical workspace link. A separate `Copy name`
-action is absent because copy belongs to the segment whose typed identity is
-being copied.
+The subject zone contains no Share or separate `Copy name` action. Copy belongs
+to the segment whose typed identity is being copied; the shell-owned
+Application menu exposes canonical workspace Share outside both SlideStrips as
+placed by
+[Inspect Web Surface Composition](inspect-web-surface-composition.md#shell-navigation-and-application-actions).
 
 Browser Back and Forward own navigation history. Compact Back and Forward
 buttons sit immediately to the left of the visible Spotlight Search control.
@@ -625,11 +627,14 @@ controls render in the Package working surface:
 
 ```text
 dotnet-inspect  ⬡ System.Text.Json                         ← →  Search
-Workspace Package Type Member | Overview Dependencies Metadata   Share Settings ?
+Workspace Package Type Member | Overview Dependencies Metadata        ☰
 
 Package coordinate
 Version 10.0.0   Framework net10.0
 ```
+
+The trailing Application menu occupies its own Surface Composition-owned slot;
+it is not a subject or inspector item.
 
 The coordinate editor is available while Package is selected, across its
 inspectors. It is absent from Workspace, Library, Type, and Member so package
