@@ -248,6 +248,22 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
                         descriptor.{{IdentityPropertyName}};
                 }
                 """);
+            File.WriteAllText(
+                Path.Combine(sourceRoot, "ConditionalUsing.cs"),
+                """
+                #if CONDITIONAL_NUGETFETCH_USING
+                global using NuGetFetch;
+                #endif
+                """);
+            File.WriteAllText(
+                Path.Combine(sourceRoot, "ConditionalUsingConsumer.cs"),
+                $$"""
+                namespace Probe;
+                sealed class ConditionalUsingConsumer
+                {
+                    {{LegacyTypeName}}? Read() => null;
+                }
+                """);
 
             Dictionary<string, MigrationEntry> readers =
                 DiscoverReferences(new DirectoryInfo(root))
@@ -275,6 +291,10 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
                 readers[
                     "tests/ConditionalDescriptorConsumer.cs"]
                     .ImplicitReferences);
+            Assert.Equal(
+                1,
+                readers["tests/ConditionalUsingConsumer.cs"]
+                    .ExplicitReferences);
             Assert.All(
                 readers.Values.Where(entry =>
                     entry.Path is not
@@ -403,10 +423,10 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
                 legacyAliases);
         }
 
-        HashSet<string> analyzedAliasConfigurations =
+        HashSet<string> analyzedBindingConfigurations =
             new(StringComparer.Ordinal)
             {
-                AliasConfigurationFingerprint(
+                BindingConfigurationFingerprint(
                     baseline.Where(tree =>
                         conditionalPaths.Contains(tree.FilePath))),
             };
@@ -422,11 +442,11 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
                 definedSymbols,
                 baselineByPath,
                 conditionalPaths);
-            string aliasConfiguration =
-                AliasConfigurationFingerprint(
+            string bindingConfiguration =
+                BindingConfigurationFingerprint(
                     trees.Where(tree =>
                         conditionalPaths.Contains(tree.FilePath)));
-            if (!analyzedAliasConfigurations.Add(aliasConfiguration))
+            if (!analyzedBindingConfigurations.Add(bindingConfiguration))
                 continue;
 
             CSharpCompilation configuredCompilation =
@@ -551,20 +571,29 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
         }
     }
 
-    static string AliasConfigurationFingerprint(
+    static string BindingConfigurationFingerprint(
         IEnumerable<SyntaxTree> trees) =>
         string.Join(
             '\n',
             trees.SelectMany(tree =>
                     tree.GetRoot()
                         .DescendantNodes()
-                        .OfType<UsingDirectiveSyntax>()
-                        .Where(directive => directive.Alias is not null)
-                        .Select(directive =>
-                            directive.Alias is { } alias
-                                ? $"{tree.FilePath}:{directive.SpanStart}:"
-                                    + $"{alias.Name}={directive.Name}"
-                                : throw new InvalidOperationException()))
+                        .Where(node => node switch
+                        {
+                            UsingDirectiveSyntax => true,
+                            BaseNamespaceDeclarationSyntax => true,
+                            TypeDeclarationSyntax declaration =>
+                                declaration.Identifier.ValueText
+                                    is LegacyTypeName
+                                    or DescriptorTypeName,
+                            TypeParameterSyntax parameter =>
+                                parameter.Identifier.ValueText
+                                    is LegacyTypeName
+                                    or DescriptorTypeName,
+                            _ => false,
+                        })
+                        .Select(node =>
+                            $"{tree.FilePath}:{node.SpanStart}:{node}"))
                 .Order(StringComparer.Ordinal));
 
     static HashSet<int> ActiveSyntaxLocations(SyntaxNode syntax) =>
