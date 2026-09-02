@@ -338,7 +338,7 @@ public sealed class BrowserEngineLayeringTests
             "NuGetFetch.NuGetApi",
             "NuGetFetch.PackageExtractor",
             "NuGetFetch.PackageSignatureVerifier",
-            "NuGetFetch.PackageSourcePayload",
+            "NuGetFetch.PackageSourceResultFactory",
         ];
         HashSet<string> approved =
             approvedOwners.ToHashSet(StringComparer.Ordinal);
