@@ -212,6 +212,31 @@ public class SearchScopeResolutionTests
             StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData(
+        "docs/workflows/core/type-queries.md",
+        "across all Azure AI packages")]
+    [InlineData(
+        "skills/relationships/SKILL.md",
+        "search every package under")]
+    public void PackagePrefixCurrentGuidance_DisclosesExpansionLimit(
+        string relativePath,
+        string exhaustiveClaim)
+    {
+        string content = File.ReadAllText(Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            relativePath));
+
+        Assert.Contains(
+            $"up to {ScopeConstants.PackagePrefixExpansionLimit}",
+            content,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            exhaustiveClaim,
+            content,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task PackagePrefixLimitReached_IsVisible()
     {

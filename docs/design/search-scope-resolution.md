@@ -161,8 +161,11 @@ The Release `dotnet-inspect.Tests` suite enforces the contract:
 - `SearchScopeResolutionTests.DependsImplicitScope_RetainsBareLibraryFallback`
   gates the command's source-free type-or-library convenience; and
 - `SearchScopeResolutionTests.PackagePrefixGuidance_DisclosesExpansionLimit`
-  and `SearchScopeResolutionTests.PackagePrefixLimitReached_IsVisible` gate the
-  prefix bound's user-facing help and warning; and
+  and
+  `SearchScopeResolutionTests.PackagePrefixCurrentGuidance_DisclosesExpansionLimit`
+  gate the prefix bound's user-facing help, workflow, and skill;
+- `SearchScopeResolutionTests.PackagePrefixLimitReached_IsVisible` gates its
+  warning; and
 - `SearchScopeResolutionTests.CuratedCompatibilityInput_IsNotRegistered`
   gates removal of the redundant hidden input from every participating
   command.

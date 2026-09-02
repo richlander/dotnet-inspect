@@ -389,7 +389,7 @@ grep -c 'Command'
 ### 6c. Search across package prefix
 
 ```prompt
-What chat types exist across all Azure AI packages?
+What chat types are found across up to 100 Azure AI packages returned by prefix search?
 ```
 
 ```bash
