@@ -411,18 +411,13 @@ worked example that document points at.
   `StringPreview_NeverExceedsCharBudgetEvenWhenEscaped`, because
   `StringBudget_…` asserts only that the full length is reported and the
   preview is non-empty.
-- **Parse, never load — the tool is execution incapable.** Reading is SRM-only,
-  and the shipped tool is Native AOT: there is no JIT, so `Assembly.Load` and
-  friends cannot bring new IL to life. Nothing the tool downloads can be
-  executed, whatever the metadata says. That is a structural property, not a
-  convention. The gate is the AOT build itself — `PublishAot` is `true` by
-  default for `src/dotnet-inspect`, and `release.yml` builds every shipped
-  RID-specific package that way, so a change that needed runtime code
-  generation would fail to build rather than fail a test. The one caveat worth
-  naming: the RID-neutral `any` fallback package is deliberately non-AOT
-  (`-p:PublishAot=false`), so on that package the property rests on the code
-  being SRM-only rather than on the runtime being unable to comply. A malformed
-  coded index resolves to a visible failure marker, not a fabricated target.
+- **Parse, never load.** Metadata-table projection uses SRM readers and must not
+  load or execute inspected assemblies. Loading new IL assemblies at runtime is
+  unsupported by NativeAOT, and the shipped dotnet-inspect product graph is
+  maintained as NativeAOT-compatible. NativeAOT therefore provides
+  user-selected partial evidence for this composition absence claim, not a
+  syntactic or path-complete proof. A malformed coded index resolves to a
+  visible failure marker, not a fabricated target.
 - **Heaps are explicit-only.** The string/blob/user-string/guid heaps are the largest
   amplification surface, so nothing that merely asks for *more output* may turn
   one on — only naming a heap section does. Verbosity is the axis that would
@@ -876,11 +871,12 @@ channel the check just closed.
 
 ### Status
 
-The bounded-traversal budgets, execution-incapable parsing, and opt-in heaps are
-implemented, with their gates named above. So are the visual-encoding spelling
-(#3636, extended to Unicode general categories in #3628), the failure-message
-rule, and both the trust and rendering axes, which `mdi` exposes as
-`--show-untrusted-text` and `--dangerously-print-raw`.
+The bounded-traversal budgets and opt-in heaps are implemented, with their gates
+named above. Parse-never-load is implemented with the partial NativeAOT evidence
+posture described above. So are the visual-encoding spelling (#3636, extended
+to Unicode general categories in #3628), the failure-message rule, and both the
+trust and rendering axes, which `mdi` exposes as `--show-untrusted-text` and
+`--dangerously-print-raw`.
 
 The identifier allow lists and `--survey` remain the **target model**: nothing
 validates an identifier's grammar, and refusal stops at the first violation
