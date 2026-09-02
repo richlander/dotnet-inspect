@@ -156,8 +156,9 @@ The shell may land before adjacent redesign owners. During that transition:
   success-shaped placeholder action;
 - the `dotnet-inspect` root control is the sole persistent Home affordance;
 - existing direct Share, Settings, and keyboard Help controls may remain in the
-  subject row until the Surface Composition adoption tracked by
-  [#5483](https://github.com/richlander/dotnet-inspect/issues/5483) lands;
+  subject row until
+  [Surface Composition's placement contract](inspect-web-surface-composition.md#shell-navigation-and-application-actions)
+  is implemented;
 - that adoption replaces the direct controls atomically with the one
   Application menu rather than rendering both action homes; and
 - retained packages may provisionally supply Workspace entries and Package
