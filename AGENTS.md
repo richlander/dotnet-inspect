@@ -34,7 +34,8 @@ development model and rationale. The binding summary:
   substrate identifies its consumer in the specification and issue, links an
   overall end-to-end tracker, and may land its consumer in a later slice.
   Shared substrate must benefit and plan enablement through both the CLI and
-  browser/Wasm hosts.
+  browser/Wasm hosts; a single-consumer or single-host substrate requires
+  explicit user approval from the start.
 - **Keep hosts thin.** Put reusable concepts and algorithms in host-neutral
   code. Duplicated host logic triggers a review for a shared abstraction that
   would also benefit another future host.

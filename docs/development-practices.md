@@ -76,11 +76,18 @@ start. The consumer may land in a later slice, but the focused specification
 and implementation issue must identify it, and a single overall end-to-end
 tracking issue must link the substrate and consumer work.
 
-Shared product substrate must have a planned benefit in both current product
+Shared product substrate defaults to planned benefit in both current product
 hosts: the CLI and browser/Wasm. The end-to-end tracker records the planned
-enablement slices for both hosts from the outset. This keeps substrate tied to
-observable value and tests whether the boundary belongs in shared code rather
-than one host.
+enablement slices for both hosts from the outset. A substrate intended for only
+one consumer or host requires explicit user approval before implementation;
+record the approved scope in its specification, implementation issue, and
+end-to-end tracker from the start.
+
+`InertString` illustrates the shared default: its containment contract must
+work for all consumers. `ts-jsexport` is an approved exception: its website-only
+consumer and single-host target were intentional from the beginning. The
+default and exception both keep substrate tied to observable value and make
+the shared-versus-host-specific boundary explicit before implementation.
 
 Keep each host as thin as reasonably possible. Hosts own gestures, policy,
 operation lifetime, composition, and presentation; reusable concepts and
