@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -29,22 +31,31 @@ namespace ILInspector.Metadata.Tests;
 /// in <c>SystemTypeArgumentName</c> and every site calls it.
 /// </para>
 /// <para>
-/// This is the enforcing gate for that claim, and it takes two checks because
-/// one is not enough. The census fails if the literal is spelled anywhere but
-/// its single definition. On its own that only forbids one way of writing a
-/// second rule: a site could compare against a name it built some other way
-/// and the census would never see it. So the second check names the sites that
-/// classify and requires each to use the shared rule — and for the three that
-/// decide safety, to *return* its result, since reaching it on one path while
-/// answering by another rule elsewhere is the same divergence wearing the
-/// shape of compliance.
+/// This is the enforcing gate for that claim, and it took three rounds of
+/// review to learn that reading source can only ever forbid the shapes it was
+/// taught. The census fails if the literal is spelled anywhere but its single
+/// definition. The declared-site check names the sites that classify and
+/// requires each to use the shared rule — and for the three that decide
+/// safety, to *return* its result, applied to an argument passed through
+/// untouched. Those two are censuses: they notice a site that appears,
+/// disappears, or stops delegating.
 /// </para>
 /// <para>
-/// What the pair guarantees is that no other file spells the rule, that the
-/// three safety sites answer exactly what the shared rule answers, and that
-/// the rendering site calls it. What it does not guarantee is that a wholly
-/// new site cannot classify without either spelling the literal or joining the
-/// list below.
+/// The load-bearing check is neither of them.
+/// <see cref="ProviderClassifiesExactlyAsTheSharedRule"/> asks the provider
+/// what it actually answers and compares it to the rule, so it does not care
+/// how a divergence was written. Every escape found in review — an independent
+/// predicate, the shared call made on a path nobody takes, the shared call
+/// handed a rewritten name — fails it on the first input differing only by
+/// case.
+/// </para>
+/// <para>
+/// Stated exactly: the provider's classification is pinned to the shared rule
+/// behaviorally; the guard's site is pinned by source, since its entry point
+/// takes a handle rather than a name and has no name-level seam to compare
+/// against; and no other file spells the rule. What none of it proves is that
+/// a wholly new site cannot classify without either spelling the literal or
+/// joining the list below.
 /// </para>
 /// </remarks>
 public class SharedClassificationRuleTests
@@ -187,6 +198,40 @@ public class SharedClassificationRuleTests
     }
 
     [Theory]
+    [InlineData("System.Type")]
+    [InlineData("system.type")]
+    [InlineData("SYSTEM.TYPE")]
+    [InlineData("System.type")]
+    [InlineData("System.Type ")]
+    [InlineData(" System.Type")]
+    [InlineData("System.RuntimeType")]
+    [InlineData("System.Types")]
+    [InlineData("Type")]
+    [InlineData("object")]
+    [InlineData("")]
+    public void ProviderClassifiesExactlyAsTheSharedRule(string rendered)
+    {
+        // The behavioral half of the gate. The checks above read source and
+        // can only ever forbid the shapes they were taught; this asks the
+        // provider what it actually answers. Every mutation the source checks
+        // were extended to catch -- an independent predicate, the shared call
+        // made on a path nobody takes, the shared call handed a transformed
+        // name -- diverges here on the first input that differs only by case.
+        using var stream = File.OpenRead(
+            typeof(SharedClassificationRuleTests).Assembly.Location);
+        using var image = new PEReader(stream);
+        var provider = new AttributeDecoder.ArgTypeProvider(
+            image.GetMetadataReader(),
+            preserveSerializedTypeNames: false,
+            beforeMaterialize: null,
+            enumUnderlyingType: null);
+
+        Assert.Equal(
+            SystemTypeArgumentName.Matches(rendered),
+            provider.IsSystemType(rendered));
+    }
+
+    [Theory]
     [InlineData("System.Type", true)]
     [InlineData("system.type", false)]
     [InlineData("System.Types", false)]
@@ -211,32 +256,51 @@ public class SharedClassificationRuleTests
             .OfType<MemberAccessExpressionSyntax>()
             .Any(access => IsSharedRule(access, member));
 
-    // Every value the method returns is the shared rule's own result. Reaching
-    // the rule on one path is not enough: a site could call it in a branch it
-    // rarely takes and answer the rest of the time by a rule of its own, which
-    // is the divergence this gate exists to prevent, wearing the shape of
-    // compliance.
+    // Every value the method returns is the shared rule's own result, applied
+    // to an argument passed through untouched. Reaching the rule on one path
+    // is not enough: a site could call it in a branch it rarely takes, or hand
+    // it a name it rewrote first, and answer the rest of the time by a rule of
+    // its own -- the divergence this gate exists to prevent, wearing the shape
+    // of compliance.
     static bool DecidesBySharedRule(MethodDeclarationSyntax method, string member)
     {
         var returned = method.DescendantNodes()
             .OfType<ReturnStatementSyntax>()
+            .Where(statement => OwnedBy(statement, method))
             .Select(statement => statement.Expression)
             .Concat(new[] { method.ExpressionBody?.Expression })
             .OfType<ExpressionSyntax>()
             .ToList();
 
-        return returned.Count > 0 && returned.All(expression => Unwrap(expression)
-            is MemberAccessExpressionSyntax access && IsSharedRule(access, member));
+        return returned.Count > 0 && returned.All(IsSharedRuleResult);
+
+        bool IsSharedRuleResult(ExpressionSyntax expression)
+            => Strip(expression) switch
+            {
+                MemberAccessExpressionSyntax access => IsSharedRule(access, member),
+                InvocationExpressionSyntax invocation =>
+                    Strip(invocation.Expression) is MemberAccessExpressionSyntax callee
+                    && IsSharedRule(callee, member)
+                    && invocation.ArgumentList.Arguments.All(argument =>
+                        Strip(argument.Expression) is IdentifierNameSyntax),
+                _ => false,
+            };
     }
 
-    // The expression that produced a returned value: an invocation yields the
-    // member it invoked, and parentheses are not a difference.
-    static ExpressionSyntax Unwrap(ExpressionSyntax expression) => expression switch
-    {
-        ParenthesizedExpressionSyntax parenthesized => Unwrap(parenthesized.Expression),
-        InvocationExpressionSyntax invocation => Unwrap(invocation.Expression),
-        _ => expression,
-    };
+    // A return statement belongs to the listed method only when no lambda or
+    // local function stands between them. A helper closure answering its own
+    // question is not this method answering it.
+    static bool OwnedBy(SyntaxNode node, MethodDeclarationSyntax method)
+        => node.Ancestors()
+            .FirstOrDefault(ancestor => ancestor
+                is MethodDeclarationSyntax
+                or LocalFunctionStatementSyntax
+                or AnonymousFunctionExpressionSyntax) == method;
+
+    static ExpressionSyntax Strip(ExpressionSyntax expression)
+        => expression is ParenthesizedExpressionSyntax parenthesized
+            ? Strip(parenthesized.Expression)
+            : expression;
 
     static bool IsSharedRule(MemberAccessExpressionSyntax access, string member)
         => access.Name.Identifier.ValueText == member
@@ -277,6 +341,16 @@ public class SharedClassificationRuleTests
                 "*.cs",
                 SearchOption.AllDirectories))
             {
+                // Build output is not the component's source. A generated file
+                // holding the literal would fail the census for something no
+                // contributor wrote.
+                var relative = Path.GetRelativePath(dir, file);
+                if (relative.Split(Path.DirectorySeparatorChar)
+                    is [var top, ..] && top is "obj" or "bin")
+                {
+                    continue;
+                }
+
                 yield return file;
             }
         }

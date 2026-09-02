@@ -452,8 +452,9 @@ and I3 separately, across both the metadata axes and the observer axis. A gate
 that asserts only offset agreement passes both the unbounded and the expensive
 attack; a gate defined only over generated metadata cannot see gap 4 at all.
 
-**This specification is itself partial.** Seven of the eight known gaps were
-found by reading rather than by any gate, and six of them were found after
+**This specification is itself partial.** Seven of the eight gaps found so far,
+the now-closed gap 8 included, were found
+by reading rather than by any gate, and six of them were found after
 this document's first draft — including two found by reviewing this very
 section. That is evidence the enumeration below is incomplete rather than
 evidence it is done. Treat it as the starting corpus for the oracle, not as a
@@ -808,22 +809,29 @@ Narrow is not the same as harmless, which is why this was worth closing rather
 than documenting. What a classification disagreement costs when it happens is
 the `dotnet/runtime#57531` case described earlier in this document.
 
-`SharedClassificationRuleTests` is the gate, and it takes two checks because
-one is not enough. A census parses the metadata assemblies' source and fails if
-the literal is spelled anywhere but its single definition. That alone would
-only forbid one way of writing a second rule — a site could compare against a
-name it built some other way and the census would never see it — so a second
-check names the sites that classify and fails if any stops using the shared
-rule. For the three that decide safety it requires more than a call: every
-value they return must be the shared rule's own result, because reaching the
-rule on one path while answering by another rule elsewhere is the same
-divergence wearing the shape of compliance. A third test keeps the census from
-passing vacuously if the definition itself disappears.
+`SharedClassificationRuleTests` is the gate, and three rounds of review on the
+PR that shared the rule taught it what reading source cannot do. A census
+parses the metadata assemblies' source and fails if the literal is spelled
+anywhere but its single definition. A declared-site check names the sites that
+classify and fails if any stops using the shared rule; for the three that
+decide safety it requires every returned value to be the shared rule's own
+result, applied to an argument passed through untouched. Both are censuses.
+They notice a site that appears, disappears, or stops delegating, and each
+round of review found one more way to satisfy them while classifying
+independently.
 
-Stated exactly, the pair guarantees that no other file spells the rule, that
-the three safety sites answer exactly what the shared rule answers, and that
-the rendering site calls it. It does not prove that a wholly new site cannot
-classify without either spelling the literal or joining the list.
+The load-bearing check is behavioral: it asks the provider what it answers for
+a corpus of rendered names and compares that to the rule itself. It does not
+care how a divergence was written, so every escape found in review fails it on
+the first input differing only by case. A third test keeps the census from
+passing vacuously if the definition disappears.
+
+Stated exactly: the provider's classification is pinned to the shared rule
+behaviorally, the guard's site is pinned by source — its entry point takes a
+handle rather than a rendered name, so there is no name-level seam to compare
+against — and no other file spells the rule. None of it proves that a wholly
+new site cannot classify without either spelling the literal or joining the
+declared list.
 
 ### Frozen cross-assembly enum-width adapter
 
