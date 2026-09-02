@@ -353,11 +353,13 @@ are load-bearing everywhere:
   claim must name its enforcing gate or say `unverified`. A gate counts only
   when it runs in the suite's Release configuration; use runtime opt-ins, not
   `[Conditional("DEBUG")]`.
-- **Absence-claim coverage is a user choice.** Before proceeding, propose full,
-  partial, or no gate coverage and get the user's selection. An analyzer or
-  NativeAOT evidence for NativeAOT-prohibited behavior may be a gate; the
+- **Composition absence-claim coverage is a user choice.** Before asserting
+  that a product or repository boundary contains no dependency, runtime, API
+  family, prohibited construct, or unsupported platform capability, propose
+  full, partial, or no gate coverage. Negatively phrased algorithmic correctness
+  properties use ordinary contract gates. The
   [evidence guide](docs/evidence-and-validation.md#absence-claims-choose-their-coverage)
-  owns the detailed coverage and residual rules.
+  owns the detailed rules.
 - **Harnesses don't manufacture the evidence they check.** They own
   orchestration, fixtures, oracles, and reporting, but must exercise
   product-owned artifact construction — never construct, normalize, or repair
