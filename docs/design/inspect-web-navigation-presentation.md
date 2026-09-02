@@ -180,28 +180,27 @@ of Label or Index content.
 
 1. When both complete inventories fit in Label mode, they consume natural width
    and the allocation controls are absent.
-2. While the controls and both policy minimum widths fit, the composite
-   reserves those widths. The inspector-first allocation gives the subject
-   strip exactly its policy minimum width and gives the inspector strip the
-   remainder long enough to select the inspector's mode and window. It then
-   reserves only the exact normal inline width required by that selected
-   inspector result and returns all remaining width to the subject strip. This
-   begins with at least one complete subject Label while subjects use otherwise
-   idle width without reducing inspector output.
-3. `Show more subjects` moves the boundary to the subject strip's next richer
-   window threshold, adding one adjacent full subject Label.
-   `Show more inspectors` returns it to the previous subject threshold. The
-   inspector strip recomputes its whole-strip mode and contiguous window in the
-   returned width, retains only the exact normal inline width required by that
-   result, and returns all other width to subjects; neither strip mixes
-   representations. The requested boundary advances by one threshold, but
-   passively returned inspector slack may admit additional subject Labels
-   without changing inspector output.
-4. The subject-forward bound is the richest subject threshold that still
-   leaves the inspector strip its policy minimum width. The inspector-first
-   bound is the default allocation from step 2. When no richer subject
-   threshold preserves the inspector minimum, the default allocation is both
-   bounds and `Show more subjects` is disabled.
+2. While the controls and both policy minimum widths fit, the composite builds
+   one finite **stable allocation ladder**. It enumerates every distinct
+   inspector mode and window reachable while subjects retain their policy
+   minimum. For each inspector result, it reserves exactly that result's normal
+   inline width, gives all remaining width to subjects, and records the
+   resulting subject mode and window.
+3. The composite deduplicates identical result pairs and removes every
+   dominated pair for which another allocation shows at least as rich a
+   subject result and at least as rich an inspector result, with one strict
+   improvement. The remaining Pareto levels are ordered from inspector-rich to
+   subject-rich; each successive level strictly increases the visible subject
+   result and strictly decreases the inspector result.
+   SlideStrip's policy and adjacent capacity thresholds define inspector
+   richness; the Label-only subject result is richer when it contains more
+   visible subjects.
+4. The first level is inspector-first and the last is subject-forward.
+   `Show more subjects` moves to the next level; `Show more inspectors` moves
+   to the previous level. A single-level ladder is both bounds and disables
+   both controls. Because duplicate and dominated pairs are absent, every
+   enabled activation changes the intended region's visible result and neither
+   strip mixes representations.
 5. **Control-free pressure** begins when the composite cannot fit both
    allocation controls and both strips' policy minimum widths. The controls are
    omitted. When the remaining width can fit both policy minima, the subject
@@ -250,23 +249,21 @@ visible arrows are only direction cues. Allocation changes do not alter
 subject or inspector identity, order, availability, activation, selection, or
 keyboard behavior.
 
-The retained subject allocation is composite-local boundary state, distinct
+The retained allocation is the composite-local stable-ladder ordinal, distinct
 from either strip's retained window. SSS uses the active subject identity and
 ordered inspector identity sequence as its allocation-continuity key.
-Selection changes, asynchronous shell replacement, and resize retain the
-boundary ordinal while that key is unchanged; a new subject or changed
-inspector sequence resets to inspector-first. Capacity, control-free pressure,
-or terminal deficit may temporarily clamp the rendered allocation without
-discarding the retained request. Each strip separately retains its own window
-under the generic continuity contract. None of this state enters workspace
-packets, Share URLs, browser history, or product navigation results.
+Selection changes, asynchronous shell replacement, and resize retain and clamp
+the ordinal against the recomputed ladder while that key is unchanged; a new
+subject or changed inspector sequence resets to inspector-first. Control-free
+pressure, terminal deficit, or an all-preferred fit may temporarily replace the
+rendered allocation without discarding the retained ordinal. Each strip
+separately retains its own window under the generic continuity contract. None
+of this state enters workspace packets, Share URLs, browser history, or product
+navigation results.
 
-Allocation-button bounds are computed from the currently rendered boundary,
-not an unclamped retained request. Activating either button replaces the
-retained request with the adjacent ordinal relative to that rendered boundary,
-so every enabled activation requests at least one visible subject-window
-change. Exact-width inspector slack return may passively admit more Labels; the
-next bounds are then recomputed from that richer rendered boundary.
+Allocation-button bounds and activation use the currently rendered stable
+level, not an unclamped retained request. An enabled button always selects the
+adjacent Pareto level and therefore cannot converge to the same rendered pair.
 
 The subject tablist uses one tab stop and manual activation. Left and Right
 Arrow move focus through the complete installed subject order, sliding the
@@ -707,14 +704,14 @@ add and pass these named Inspect Web tests:
   `slideable subject strip composes reusable strips without losing navigation`
   cover the separate subject and inspector whole-strip mode policies,
   contiguous windows and edge indicators, inspector-first width allocation,
-  exact selected-window slack return at every control-present boundary,
-  semantic boundary thresholds, single-label subject capacity, multi-item
-  compact inspector capacity, control-free removal, terminal-deficit
-  unused-width then ratio-distance ordering and inspector tie-break,
-  fallback-visibility floors, two-strip and subject-only internal-minimum
-  scrolling, presentation-local window and allocation retention, reduced-motion
-  behavior, and focus/tab-stop preservation across allocation changes and
-  asynchronous shell replacement.
+  stable Pareto-ladder construction, duplicate and dominated result removal,
+  exact selected-window slack return, adjacent non-no-op allocation controls,
+  single-label subject capacity, multi-item compact inspector capacity,
+  control-free removal, terminal-deficit unused-width then ratio-distance
+  ordering and inspector tie-break, fallback-visibility floors, two-strip and
+  subject-only internal-minimum scrolling, presentation-local window and
+  allocation retention, reduced-motion behavior, and focus/tab-stop
+  preservation across allocation changes and asynchronous shell replacement.
 
 The implementation fixture supplies typed product results through the normal
 navigation boundary. It does not construct a parallel host catalog or bypass
@@ -785,20 +782,22 @@ are proved by the gates in
    roving tab. Install an empty inspector inventory and confirm that the
    inspector strip and both allocation controls are absent while the subject
    strip uses the complete composite width.
-5. Activate `Show more subjects` repeatedly and confirm that each activation
-   requests the next subject-window threshold and admits at least one adjacent
-   full Label. Confirm that the inspector strip recomputes one uniform mode and
-   contiguous window within its smaller viewport, retains exactly the width
-   required by that result, and returns all other width to subjects. When that
-   slack crosses another subject threshold, confirm that the additional Label
-   appears without changing inspector output. Confirm that no subject,
-   inspector, selection, or product navigation state changes.
-6. Activate `Show more inspectors` and confirm that each activation removes
-   at least one visible subject Label and returns the requested width to the
-   inspector strip before exact result-width slack return. Confirm that focus
-   remains on the allocation button. At each rendered bound, confirm that the
-   corresponding mounted button is `aria-disabled="true"` and activation has
-   no effect.
+5. Enumerate the stable allocation ladder and confirm that duplicate result
+   pairs and pairs dominated in both regions are absent. Activate
+   `Show more subjects` repeatedly and confirm that each activation selects the
+   adjacent level, strictly increases the visible subject result, and strictly
+   decreases inspector richness. Confirm that exact inspector-result width
+   return may admit multiple additional full subject Labels at one level and
+   that no subject, inspector, selection, or product navigation identity
+   changes.
+6. Activate `Show more inspectors` and confirm that each activation selects the
+   adjacent level, strictly increases inspector richness, and strictly
+   decreases the visible subject result. Reproduce a measurement where a raw
+   previous subject threshold would return through slack to the same pair and
+   confirm that the deduplicated ladder instead reaches the next inspector
+   result. Confirm that focus remains on the allocation button. At each bound,
+   confirm that the corresponding mounted button is `aria-disabled="true"` and
+   activation has no effect.
 7. Rove focus to an inactive subject and inspector and replace the shell
    asynchronously. Confirm that the focused typed tab remains the sole tab
    stop in its tablist, each retained window still contains its focus, and
