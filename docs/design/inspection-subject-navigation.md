@@ -823,13 +823,14 @@ Navigation reconciles one retained context with one root-first algorithm:
    resolved node must be an exact descendant of the preceding result.
 3. **Apply one fallback.** At the first unresolved path node, apply the table's
    fallback for that level inside the established root and truncate every lower
-   node. Missing or ambiguous correspondence follows the same rule with its
-   diagnostic. No fallback crosses the established root or Workspace.
+   node. Missing, ambiguous, refused, or failed correspondence follows the same
+   rule with its diagnostic. No fallback crosses the established root or
+   Workspace.
 4. **Derive the active subject.** Workspace remains active independently. A
    non-Workspace active subject uses its resolved path node when present;
-   otherwise it becomes the fallback result produced for that level. Retained
-   nodes below an unchanged or exactly resolved active ancestor remain context
-   without becoming active.
+   otherwise it becomes the single fallback result. Retained nodes below an
+   unchanged or exactly resolved active ancestor remain context without becoming
+   active.
 5. **Complete the snapshot.** Rebuild contiguous hierarchy descriptors, derive
    Type-inventory Library context from the resulting path and current realized
    facts, then reconcile the active subject's lens basis.
@@ -876,7 +877,7 @@ the retained root moves between exact occurrences inside one Workspace:
 | Member missing, Type resolves | Resolved Type |
 | Type missing, defining Library resolves | Highest-ranked trustworthy Type in that Library, then the Library |
 | Library missing | Available aggregate, then the new occurrence's exact Package or Root |
-| Correspondence missing, ambiguous, refused, or failed | New occurrence's independent Type -> Library -> Package-or-Root recommendation with diagnostic |
+| Correspondence missing, ambiguous, refused, or failed | Apply the unresolved node's level fallback inside the already resolved ancestor, truncate lower nodes, and retain the diagnostic |
 
 Display text, package ID alone, portable coordinate equality, assembly name,
 token, and ordinal are not correspondence.
@@ -1307,7 +1308,7 @@ result identifies Navigation as the failure source.
 | Partial Type inventory | Deterministic successful candidate plus retained failures |
 | Member disappears | Containing Type, never another Member |
 | Type disappears with Library retained | Recommended Type in that Library, then Library |
-| Coordinate correspondence is ambiguous | Independent new-occurrence recommendation plus diagnostic |
+| Coordinate correspondence is ambiguous | Level-local fallback inside the resolved ancestor, lower-path truncation, and retained diagnostic |
 | Two lens requests complete out of order | Latest issued lens is final |
 | Refresh and reconciliation complete out of order | Maintenance request order determines final snapshot |
 | Coordinate acquisition fails | Prior snapshot retained; abort effect visible; maintenance eventually resumes |
