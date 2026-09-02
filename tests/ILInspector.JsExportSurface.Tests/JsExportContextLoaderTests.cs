@@ -71,9 +71,15 @@ public sealed class JsExportContextLoaderTests
     [InlineData("")]
     [InlineData(".")]
     [InlineData("CON")]
+    [InlineData("CONIN$")]
+    [InlineData("CONOUT$")]
+    [InlineData("CONOUT$.Facade")]
+    [InlineData("COM1 .Facade")]
     [InlineData("COM¹")]
+    [InlineData("COM¹ .Facade")]
     [InlineData("COM².txt")]
     [InlineData("LPT³")]
+    [InlineData("LPT³ .Facade")]
     [InlineData("bad/name")]
     [InlineData("trailing.")]
     [InlineData("trailing ")]
@@ -84,6 +90,20 @@ public sealed class JsExportContextLoaderTests
                 assemblyName,
                 out string? artifactName));
         Assert.Null(artifactName);
+    }
+
+    [Theory]
+    [InlineData("CONIN$Extra")]
+    [InlineData("CONOUT$1")]
+    [InlineData("COM10 .Facade")]
+    [InlineData("XCOM1 .Facade")]
+    public void ContextAcceptsPortableDeviceNameNeighbors(string assemblyName)
+    {
+        Assert.True(
+            JsExportContextLoader.TryGetArtifactName(
+                assemblyName,
+                out string? artifactName));
+        Assert.Equal($"{assemblyName}.ts", artifactName);
     }
 
     [Theory]

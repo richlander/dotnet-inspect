@@ -605,8 +605,10 @@ internal static class JsExportContextLoader
             return false;
         }
 
-        string deviceName = assemblyName.Split('.')[0];
+        string deviceName = assemblyName.Split('.')[0].TrimEnd(' ', '.');
         if (deviceName.Equals("CON", StringComparison.OrdinalIgnoreCase)
+            || deviceName.Equals("CONIN$", StringComparison.OrdinalIgnoreCase)
+            || deviceName.Equals("CONOUT$", StringComparison.OrdinalIgnoreCase)
             || deviceName.Equals("PRN", StringComparison.OrdinalIgnoreCase)
             || deviceName.Equals("AUX", StringComparison.OrdinalIgnoreCase)
             || deviceName.Equals("NUL", StringComparison.OrdinalIgnoreCase)
