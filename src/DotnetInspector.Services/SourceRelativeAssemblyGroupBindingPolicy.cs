@@ -481,9 +481,15 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         }
     }
 
-    sealed record AssemblyRoute(
-        ResolvedAssemblyReference Assembly,
-        IAssemblyBindingPolicy Policy);
+    sealed class AssemblyRoute(
+        ResolvedAssemblyReference assembly,
+        IAssemblyBindingPolicy policy)
+    {
+        internal ResolvedAssemblyReference Assembly { get; } =
+            assembly;
+        internal IAssemblyBindingPolicy Policy { get; } =
+            policy;
+    }
 
     sealed class IntrinsicSelectionCache
     {

@@ -591,8 +591,34 @@ public class AssemblyDependencyResolverTests
     }
 
     [Fact]
+    public void AssemblyGroup_DuplicateRegistrationIsRejected()
+    {
+        ResolvedAssemblyReference assembly = Descriptor(
+            new AssemblyReferenceIdentity(
+                "Duplicate.Owner",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("duplicate owner"));
+
+        Assert.Throws<ArgumentException>(
+            () => new SourceRelativeAssemblyGroupBindingPolicy(
+                [
+                    (assembly, (IAssemblyBindingPolicy)MissingPolicy.Instance),
+                    (assembly, (IAssemblyBindingPolicy)MissingPolicy.Instance),
+                ]));
+    }
+
+    [Fact]
     public async Task AssemblyGroup_ConcurrentLearnedRoutesAreBothRetained()
     {
+        ResolvedAssemblyReference defaultOwner = Descriptor(
+            new AssemblyReferenceIdentity(
+                "Default.Owner",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("default owner"));
         ResolvedAssemblyReference firstOwner = Descriptor(
             new AssemblyReferenceIdentity(
                 "First.Owner",
@@ -622,6 +648,8 @@ public class AssemblyDependencyResolverTests
                 null),
             AssemblyResolutionProvenance.Local("second candidate"));
         using var barrier = new Barrier(2);
+        var defaultPolicy = new FixedSelectionPolicy(
+            AssemblyBindingSelection.NameNotOwned());
         var firstPolicy =
             new CoordinatedSelectedPolicy(
                 firstCandidate,
@@ -632,6 +660,7 @@ public class AssemblyDependencyResolverTests
                 barrier);
         var group = new SourceRelativeAssemblyGroupBindingPolicy(
             [
+                (defaultOwner, (IAssemblyBindingPolicy)defaultPolicy),
                 (firstOwner, (IAssemblyBindingPolicy)firstPolicy),
                 (secondOwner, (IAssemblyBindingPolicy)secondPolicy),
             ]);
@@ -669,17 +698,24 @@ public class AssemblyDependencyResolverTests
             new Version(1, 0, 0, 0),
             null,
             null);
-        _ = group.Select(
-            new AssemblyBindingRequest(
-                AssemblyBindingTarget.Reference(probe),
-                AssemblyBindingOrigin.FromAssembly(firstCandidate),
-                AssemblyResolutionScope.Any));
-        _ = group.Select(
-            new AssemblyBindingRequest(
-                AssemblyBindingTarget.Reference(probe),
-                AssemblyBindingOrigin.FromAssembly(secondCandidate),
-                AssemblyResolutionScope.Any));
+        var firstProbe = Assert.IsType<
+            AssemblyBindingSelection.Selected>(
+                group.Select(
+                    new AssemblyBindingRequest(
+                        AssemblyBindingTarget.Reference(probe),
+                        AssemblyBindingOrigin.FromAssembly(firstCandidate),
+                        AssemblyResolutionScope.Any)));
+        var secondProbe = Assert.IsType<
+            AssemblyBindingSelection.Selected>(
+                group.Select(
+                    new AssemblyBindingRequest(
+                        AssemblyBindingTarget.Reference(probe),
+                        AssemblyBindingOrigin.FromAssembly(secondCandidate),
+                        AssemblyResolutionScope.Any)));
 
+        Assert.Same(firstCandidate, firstProbe.Assembly);
+        Assert.Same(secondCandidate, secondProbe.Assembly);
+        Assert.Equal(0, defaultPolicy.SelectionCount);
         Assert.Equal(2, firstPolicy.SelectionCount);
         Assert.Equal(2, secondPolicy.SelectionCount);
         Assert.Same(version, group.Version);
