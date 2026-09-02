@@ -6,6 +6,7 @@ import {
   clampAllocationOrdinal,
   renderScopeBar,
   restoreScopeBarFocus,
+  scopeBarShortLabel,
   type ScopeBarBindingActions,
 } from "../src/scope-bar.ts";
 import { fakeDom } from "./fake-dom.ts";
@@ -14,6 +15,13 @@ test("allocation ordinals clamp to the current stable ladder", () => {
   assert.equal(clampAllocationOrdinal(3, 2), 1);
   assert.equal(clampAllocationOrdinal(1, 4), 1);
   assert.equal(clampAllocationOrdinal(-1, 4), 0);
+});
+
+test("scope-bar short labels are word initialisms", () => {
+  assert.equal(scopeBarShortLabel("Overview"), "O");
+  assert.equal(scopeBarShortLabel("Call graph"), "CG");
+  assert.equal(scopeBarShortLabel("Annotated source"), "AS");
+  assert.equal(scopeBarShortLabel("API"), "A");
 });
 
 class FakeElement {

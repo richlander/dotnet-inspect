@@ -231,6 +231,7 @@ import {
   createScopeBarState,
   renderScopeBar as renderScopeBarPure,
   restoreScopeBarFocus,
+  scopeBarShortLabel,
   type ScopeBarBinding,
 } from "./scope-bar.ts";
 import {
@@ -2607,7 +2608,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     ? document.activeElement
     : null;
   const scopeBarOwnsFocus = focusedElement
-    ?.closest("[data-scope-bar]") !== null;
+    ?.closest("[data-scope-bar]") != null;
   const scopeBarFocus = focusedElement
     ? captureScopeBarFocus(focusedElement)
     : null;
@@ -3035,51 +3036,48 @@ function hasEffectiveInspector(): boolean {
 
 function packageLensPresentation(
   id: PackageLens,
-): readonly [shortLabel: string, icon: string] {
+): string {
   switch (id) {
-    case "overview": return ["OV", "◫"];
-    case "dependencies": return ["DEP", "⇄"];
-    case "integrations": return ["INT", "⌁"];
-    case "opportunities": return ["OPP", "◇"];
-    case "analysis": return ["AN", "∿"];
-    case "metadata": return ["META", "≡"];
+    case "overview": return "◫";
+    case "dependencies": return "⇄";
+    case "integrations": return "⌁";
+    case "opportunities": return "◇";
+    case "analysis": return "∿";
+    case "metadata": return "≡";
     default: return assertNever(id, "package lens presentation");
   }
 }
 
 function typeLensPresentation(
   id: TypeLens,
-): readonly [shortLabel: string, icon: string] {
+): string {
   switch (id) {
-    case "api": return ["API", "⌘"];
-    case "metadata": return ["META", "≡"];
-    case "source": return ["SRC", "⌑"];
+    case "api": return "⌘";
+    case "metadata": return "≡";
+    case "source": return "⌑";
     default: return assertNever(id, "type lens presentation");
   }
 }
 
 function memberSectionPresentation(
   id: MemberSection,
-): readonly [shortLabel: string, icon: string] {
+): string {
   switch (id) {
-    case "overview": return ["OV", "◫"];
-    case "call-graph": return ["CG", "⑂"];
-    case "facts": return ["FX", "·"];
-    case "source": return ["SRC", "⌑"];
-    case "annotated": return ["ANN", "✎"];
+    case "overview": return "◫";
+    case "call-graph": return "⑂";
+    case "facts": return "·";
+    case "source": return "⌑";
+    case "annotated": return "✎";
     default: return assertNever(id, "member section presentation");
   }
 }
 
 function scopeBarInspectorDefinitions<TId extends string>(
   definitions: readonly (readonly [TId, string])[],
-  presentation: (
-    id: TId,
-  ) => readonly [shortLabel: string, icon: string],
+  presentation: (id: TId) => string,
 ): readonly (readonly [TId, string, string, string])[] {
   return definitions.map(([id, label]) => {
-    const [shortLabel, icon] = presentation(id);
-    return [id, label, shortLabel, icon];
+    return [id, label, scopeBarShortLabel(label), presentation(id)];
   });
 }
 

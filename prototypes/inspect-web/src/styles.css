@@ -248,20 +248,21 @@ body {
 .slide-strip-edge {
   position: absolute;
   z-index: 2;
-  top: 6px;
-  bottom: 6px;
-  width: 8px;
+  top: 50%;
+  width: 0;
+  height: 0;
+  border-top: 9px solid transparent;
+  border-bottom: 9px solid transparent;
+  transform: translateY(-50%);
   pointer-events: none;
 }
 .slide-strip-edge.before {
   left: 0;
-  border-left: 2px solid var(--accent);
-  background: linear-gradient(90deg, var(--panel), transparent);
+  border-right: 4px solid var(--accent);
 }
 .slide-strip-edge.after {
   right: 0;
-  border-right: 2px solid var(--accent);
-  background: linear-gradient(270deg, var(--panel), transparent);
+  border-left: 4px solid var(--accent);
 }
 .slide-strip-allocation {
   flex: none;

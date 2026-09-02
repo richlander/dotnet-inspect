@@ -94,6 +94,15 @@ export function clampAllocationOrdinal(
   return Math.max(0, Math.min(requested, levelCount - 1));
 }
 
+export function scopeBarShortLabel(label: string): string {
+  return label
+    .trim()
+    .split(/\s+/)
+    .map(word => word[0] ?? "")
+    .join("")
+    .toUpperCase();
+}
+
 export function captureScopeBarFocus(
   element: HTMLElement,
 ): ScopeBarFocusTarget | null {
@@ -448,8 +457,12 @@ function outerWidth(element: HTMLElement): number {
     + Number.parseFloat(style.marginRight || "0");
 }
 
-function resultKey(result: SlideStripResult): string {
-  return `${result.mode}:${result.visibleIds.join(",")}`;
+function allocationRichnessKey(pair: AllocationPair): string {
+  return [
+    pair.subject.result.visibleCount,
+    pair.inspector.result.modeIndex,
+    pair.inspector.result.visibleCount,
+  ].join(":");
 }
 
 function inspectorAtLeastAsRich(
@@ -471,6 +484,16 @@ function pairDominates(left: AllocationPair, right: AllocationPair): boolean {
       > right.subject.result.visibleCount
     || !inspectorAtLeastAsRich(right.inspector.result, left.inspector.result);
   return subjectAtLeast && inspectorAtLeast && strict;
+}
+
+function resultWindowDistance(
+  result: SlideStripResult,
+  current: SlideStripResult | undefined,
+): number {
+  return current
+    ? Math.abs(result.startIndex - current.startIndex)
+      + Math.abs(result.endIndex - current.endIndex)
+    : 0;
 }
 
 function requestedMinimum(
@@ -797,10 +820,29 @@ class ScopeBarController implements ScopeBarBinding {
       }
       pairs.push({ subject, inspector });
     }
-    const distinct = [...new Map(pairs.map(pair => [
-      `${resultKey(pair.subject.result)}|${resultKey(pair.inspector.result)}`,
-      pair,
-    ])).values()];
+    const distinctByRichness = new Map<string, AllocationPair>();
+    const currentSubject = this.subject.current?.result;
+    const currentInspector = this.inspector.current?.result;
+    for (const pair of pairs) {
+      const key = allocationRichnessKey(pair);
+      const existing = distinctByRichness.get(key);
+      if (!existing) {
+        distinctByRichness.set(key, pair);
+        continue;
+      }
+      const existingDistance = resultWindowDistance(
+        existing.subject.result,
+        currentSubject)
+        + resultWindowDistance(existing.inspector.result, currentInspector);
+      const candidateDistance = resultWindowDistance(
+        pair.subject.result,
+        currentSubject)
+        + resultWindowDistance(pair.inspector.result, currentInspector);
+      if (candidateDistance < existingDistance) {
+        distinctByRichness.set(key, pair);
+      }
+    }
+    const distinct = [...distinctByRichness.values()];
     const pareto = distinct.filter(pair =>
       !distinct.some(candidate =>
         candidate !== pair && pairDominates(candidate, pair)));

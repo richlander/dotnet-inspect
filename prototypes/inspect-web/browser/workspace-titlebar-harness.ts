@@ -4,6 +4,7 @@ import {
   createScopeBarState,
   renderScopeBar,
   restoreScopeBarFocus,
+  scopeBarShortLabel,
   type ScopeBarBinding,
 } from "../src/scope-bar.ts";
 import { renderAnnotatedSourcePageActions } from "../src/annotated-source.ts";
@@ -127,24 +128,24 @@ let activeMemberSection: MemberSection = "overview";
 const packageStrip: readonly (
   readonly [PackageLens, string, string, string]
 )[] = [
-  ["overview", "Overview", "OV", "◫"],
-  ["dependencies", "Dependencies", "DEP", "⇄"],
+  ["overview", "Overview", scopeBarShortLabel("Overview"), "◫"],
+  ["dependencies", "Dependencies", scopeBarShortLabel("Dependencies"), "⇄"],
 ];
 const typeStrip: readonly (
   readonly [TypeLens, string, string, string]
 )[] = [
-  ["api", "API", "API", "⌘"],
-  ["metadata", "Metadata", "META", "≡"],
-  ["source", "Source", "SRC", "⌑"],
+  ["api", "API", scopeBarShortLabel("API"), "⌘"],
+  ["metadata", "Metadata", scopeBarShortLabel("Metadata"), "≡"],
+  ["source", "Source", scopeBarShortLabel("Source"), "⌑"],
 ];
 const memberStrip: readonly (
   readonly [MemberSection, string, string, string]
 )[] = [
-  ["overview", "Overview", "OV", "◫"],
-  ["call-graph", "Call graph", "CG", "⑂"],
-  ["facts", "Facts", "FX", "·"],
-  ["source", "Source", "SRC", "⌑"],
-  ["annotated", "Annotated source", "ANN", "✎"],
+  ["overview", "Overview", scopeBarShortLabel("Overview"), "◫"],
+  ["call-graph", "Call graph", scopeBarShortLabel("Call graph"), "⑂"],
+  ["facts", "Facts", scopeBarShortLabel("Facts"), "·"],
+  ["source", "Source", scopeBarShortLabel("Source"), "⌑"],
+  ["annotated", "Annotated source", scopeBarShortLabel("Annotated source"), "✎"],
 ];
 
 function scopeBarHtml() {
@@ -277,7 +278,7 @@ function renderHarnessScopeBar() {
     ? document.activeElement
     : null;
   const scopeBarOwnsFocus = focusedElement
-    ?.closest("[data-scope-bar]") !== null;
+    ?.closest("[data-scope-bar]") != null;
   const focusTarget = focusedElement
     ? captureScopeBarFocus(focusedElement)
     : null;

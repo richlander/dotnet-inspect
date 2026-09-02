@@ -362,6 +362,56 @@ test("allocation controls move between adjacent stable result pairs", async ({
   ).toHaveText(["Overview", "Call graph", "Facts"]);
 });
 
+test("every allocation level strictly trades subject for inspector richness", async ({
+  page,
+}) => {
+  const modeOrder = ["label", "short-label", "icon", "index"];
+  for (const width of [600, 760]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/browser/workspace-titlebar.html?member=1");
+    await page.getByRole("tab", { name: "Overview" }).click();
+
+    const subject = page.locator(".slide-strip-subject");
+    const inspector = page.locator(".slide-strip-inspector");
+    const moreSubjects = page.locator("[data-more-subjects]");
+    const levels: {
+      subjectCount: number;
+      inspectorMode: number;
+      inspectorCount: number;
+    }[] = [];
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const mode = await inspector.getAttribute("data-mode");
+      levels.push({
+        subjectCount: await subject.locator(
+          "[data-subject-tab]:not([hidden])",
+        ).count(),
+        inspectorMode: modeOrder.indexOf(mode ?? ""),
+        inspectorCount: await inspector.locator(
+          "[data-inspector-tab]:not([hidden])",
+        ).count(),
+      });
+      if (await moreSubjects.getAttribute("aria-disabled") === "true") break;
+      await moreSubjects.click();
+    }
+
+    await expect(moreSubjects).toHaveAttribute("aria-disabled", "true");
+    expect(levels.length).toBeGreaterThan(1);
+    for (let index = 1; index < levels.length; index++) {
+      const previous = levels[index - 1];
+      const current = levels[index];
+      if (!previous || !current) {
+        throw new Error("Allocation ladder snapshot is incomplete.");
+      }
+      expect(current.subjectCount).toBeGreaterThan(previous.subjectCount);
+      expect(
+        current.inspectorMode > previous.inspectorMode
+        || (current.inspectorMode === previous.inspectorMode
+          && current.inspectorCount < previous.inspectorCount),
+      ).toBe(true);
+    }
+  }
+});
+
 test("temporary pressure does not discard the retained allocation", async ({
   page,
 }) => {
@@ -466,6 +516,51 @@ test("edge indicators do not replace an item hit target", async ({ page }) => {
     });
 
   expect(target).toBe("call-graph");
+  const triangles = await page.locator(".slide-strip-inspector").evaluate(
+    element => {
+      const before = getComputedStyle(
+        element.querySelector<HTMLElement>("[data-slide-strip-before]")!);
+      const after = getComputedStyle(
+        element.querySelector<HTMLElement>("[data-slide-strip-after]")!);
+      return {
+        before: before.borderRightWidth,
+        after: after.borderLeftWidth,
+        height: Number.parseFloat(after.borderTopWidth)
+          + Number.parseFloat(after.borderBottomWidth),
+      };
+    });
+  expect(triangles.before).toBe("4px");
+  expect(triangles.after).toBe("4px");
+  expect(triangles.height).toBe(18);
+});
+
+test("representation-specific gaps participate in measured capacity", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 480, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+  await page.addStyleTag({
+    content: `
+      .slide-strip-inspector[data-mode="short-label"] .slide-strip-items {
+        gap: 60px;
+      }`,
+  });
+  await page.evaluate(() => window.rerenderScopeBarProbe());
+
+  const layout = await page.locator(".slide-strip-inspector").evaluate(
+    element => {
+      const items = element.querySelector<HTMLElement>(".slide-strip-items");
+      if (!items) throw new Error("Inspector items are unavailable.");
+      return {
+        fallback: element.dataset.fallback,
+        mode: element.dataset.mode,
+        stripWidth: element.getBoundingClientRect().width,
+        itemsWidth: items.getBoundingClientRect().width,
+      };
+    });
+  expect(layout.fallback).toBe("false");
+  expect(layout.mode).not.toBe("short-label");
+  expect(layout.itemsWidth).toBeLessThanOrEqual(layout.stripWidth + 0.5);
 });
 
 test("oversized end alignment exposes the item's ending edge", async ({
@@ -549,6 +644,9 @@ test("reduced motion preserves the same SlideStrip result", async ({ page }) => 
   const ordinary = await snapshot();
   expect(ordinary.strips.find(strip => strip.kind === "inspector")?.mode)
     .toBe("short-label");
+  await expect(page.locator(
+    '.slide-strip-inspector [data-inspector-tab]:not([hidden]) [data-slide-strip-representation="short-label"]',
+  )).toHaveText(["O", "CG", "F"]);
 
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.reload();

@@ -56,12 +56,20 @@ function itemId(
 
 function measuredPolicy(
   policy: SlideStripPolicy,
-  gap: number,
+  gaps: ReadonlyMap<SlideStripRepresentation, number>,
 ): SlideStripPolicy {
   return {
     ...policy,
-    modes: policy.modes.map(mode => ({ ...mode, gap })),
+    modes: policy.modes.map(mode => ({
+      ...mode,
+      gap: gaps.get(mode.kind) ?? mode.gap,
+    })),
   };
+}
+
+interface DomMeasurements {
+  itemMeasurements: readonly SlideStripItemMeasurement[];
+  gaps: ReadonlyMap<SlideStripRepresentation, number>;
 }
 
 export class SlideStripDomController {
@@ -100,9 +108,9 @@ export class SlideStripDomController {
     if (!itemContainer) {
       throw new Error("SlideStrip requires a .slide-strip-items container.");
     }
-    const gap = elementGap(itemContainer);
-    this.policy = measuredPolicy(policy, gap);
-    this.measurements = this.measure();
+    const measurements = this.measure(policy, itemContainer);
+    this.policy = measuredPolicy(policy, measurements.gaps);
+    this.measurements = measurements.itemMeasurements;
     this.candidateWidths = slideStripCandidateWidths(
       this.items,
       this.measurements,
@@ -234,7 +242,10 @@ export class SlideStripDomController {
     return true;
   }
 
-  private measure(): readonly SlideStripItemMeasurement[] {
+  private measure(
+    policy: SlideStripPolicy,
+    itemContainer: HTMLElement,
+  ): DomMeasurements {
     const priorMode = this.element.dataset.mode;
     const priorVisibility = this.element.style.visibility;
     const hidden = this.buttons.map(button => button.hidden);
@@ -243,8 +254,10 @@ export class SlideStripDomController {
     const measurements = new Map<string, Partial<
       Record<SlideStripRepresentation, number>
     >>();
-    for (const mode of this.policy.modes) {
+    const gaps = new Map<SlideStripRepresentation, number>();
+    for (const mode of policy.modes) {
       this.element.dataset.mode = mode.kind;
+      gaps.set(mode.kind, elementGap(itemContainer));
       for (const button of this.buttons) {
         const id = itemId(button);
         if (id === undefined) continue;
@@ -259,10 +272,13 @@ export class SlideStripDomController {
     if (priorMode === undefined) delete this.element.dataset.mode;
     else this.element.dataset.mode = priorMode;
     this.element.style.visibility = priorVisibility;
-    return this.items.map(item => ({
-      id: item.id,
-      widths: measurements.get(item.id) ?? {},
-    }));
+    return {
+      itemMeasurements: this.items.map(item => ({
+        id: item.id,
+        widths: measurements.get(item.id) ?? {},
+      })),
+      gaps,
+    };
   }
 
   private focusedId(): string | undefined {
