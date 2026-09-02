@@ -809,6 +809,117 @@ public class LadderRung6GateTests
     }
 
     [Fact]
+    public void Rung6UnsafeLocalFunctionBody_KeepsDeclarationInCallerScope()
+    {
+        var helpers = TypeRef.Definition("Synthetic", "", "Helpers");
+        var risky = new MethodRef(helpers, "Risky", Void, [], HasThis: false)
+        {
+            RequiresUnsafe = true,
+        };
+
+        IrFunction CreateFunction()
+        {
+            var localBody = BlockContainer(
+                new ExpressionStatement(new Call(risky, isVirtual: false, [])),
+                new Return(null));
+            return Function(
+                "UnsafeLocalFunctionBody",
+                Void,
+                [],
+                [],
+                new ExpressionStatement(new LocalFunctionInvocation("Take", Void, [])),
+                new LocalFunctionStatement(
+                    "Take",
+                    Void,
+                    [],
+                    isStatic: true,
+                    [],
+                    [],
+                    usesUpdatedMemorySafetyRules: true,
+                    skipLocalsInit: false,
+                    localBody),
+                new Return(null));
+        }
+
+        var (updated, legacy) = PrintRulePair(CreateFunction);
+        const string declarations =
+            "public static class Helpers { public static unsafe void Risky() { } }";
+
+        Assert.Contains("Take();\nstatic void Take()", updated);
+        Assert.Contains("static void Take()\n{\n    unsafe", updated);
+        Assert.DoesNotContain("unsafe\n{\n    static void Take()", updated);
+        AssertNoErrors(RecompileNewRules("static void M()", updated, declarations), updated);
+        AssertNoErrors(RecompileLegacyRules("static unsafe void M()", legacy, declarations), legacy);
+    }
+
+    [Fact]
+    public void Rung6UnsafeEvaluationBeforeAwait_UsesExplicitBlockUnderBothRuleSets()
+    {
+        var holder = TypeRef.Definition("Synthetic", "", "Holder");
+        var intPointer = TypeRef.Pointer(Int32);
+        var taskOfInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task`1"),
+            [Int32]);
+        var getter = new MethodRef(holder, "get_Risky", intPointer, [], HasThis: true)
+        {
+            RequiresUnsafe = true,
+        };
+        var fromResult = new MethodRef(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task"),
+            "FromResult",
+            taskOfInt,
+            [Int32],
+            HasThis: false);
+
+        IrFunction CreateFunction()
+        {
+            var function = Function(
+                "UnsafeEvaluationBeforeAwait",
+                taskOfInt,
+                [new Parameter("holder", holder)],
+                [Int32],
+                new StoreLocal(
+                    0,
+                    Int32,
+                    new LoadIndirect(
+                        Int32,
+                        new LoadProperty(
+                            getter,
+                            new LoadArgument(0, "holder", holder),
+                            []))),
+                new Return(new AwaitExpression(
+                    new Call(
+                        fromResult,
+                        isVirtual: false,
+                        [new LoadLocal(0, Int32)]),
+                    Int32)));
+            function.RequiresAsyncBodyModifier = true;
+            return function;
+        }
+
+        var updatedFunction = CreateFunction();
+        updatedFunction.UsesUpdatedMemorySafetyRules = true;
+        var updated = CSharpPrinter.Print(updatedFunction);
+        var legacyFunction = CreateFunction();
+        legacyFunction.UsesUpdatedMemorySafetyRules = false;
+        var legacy = CSharpPrinter.Print(legacyFunction);
+        const string declarations =
+            "using System.Threading.Tasks; "
+            + "public sealed class Holder { public unsafe int* Risky => (int*)0; }";
+        const string header =
+            "static async System.Threading.Tasks.Task<int> M(Holder holder)";
+
+        Assert.False(updated.RequiresUnsafeBodyModifier);
+        Assert.False(legacy.RequiresUnsafeBodyModifier);
+        Assert.Contains("unsafe\n{", updated.Output);
+        Assert.Contains("unsafe\n{", legacy.Output);
+        Assert.DoesNotContain("unsafe\n{\n    return await", updated.Output);
+        Assert.DoesNotContain("unsafe\n{\n    return await", legacy.Output);
+        AssertNoErrors(RecompileNewRules(header, updated.Output!, declarations), updated.Output!);
+        AssertNoErrors(RecompileLegacyRules(header, legacy.Output!, declarations), legacy.Output!);
+    }
+
+    [Fact]
     public void Rung6LocalFunctionRefReturn_UsesLocalReturnTypeForUnsafeBlock()
     {
         var refInt = TypeRef.ByRef(Int32);
@@ -868,6 +979,27 @@ public class LadderRung6GateTests
                 isUnsigned: false,
                 new LoadLocalAddress(0, Int32))),
             [Int32]);
+        AssertRuleDifference(
+            new Fixed(
+                Int32,
+                localIndex: 0,
+                new Constant(null, TypeRef.ByRef(Int32)),
+                BlockContainer()),
+            [TypeRef.ByRef(Int32)]);
+        var functionPointer = TypeRef.FunctionPointer(Void, [], "");
+        AssertRuleDifference(
+            new StoreField(
+                new FieldRef(TypeRef.Definition("Synthetic", "", "Holder"), "Target", functionPointer),
+                instance: null,
+                new AddressOfMethod(
+                    new MethodRef(
+                        TypeRef.Definition("Synthetic", "", "Holder"),
+                        "Method",
+                        Void,
+                        [],
+                        HasThis: false),
+                    functionPointer)),
+            []);
 
         void AssertRuleDifference(IrNode statement, ImmutableArray<TypeRef> locals)
         {
@@ -1374,6 +1506,7 @@ public class LadderRung6GateTests
             [new Parameter("p", IntPointer)],
             [byRefInt],
             new StoreLocal(0, byRefInt, new LoadArgument(0, "p", IntPointer)),
+            new StoreIndirect(Int32, new LoadLocal(0, byRefInt), new Constant(9, Int32)),
             new Return(null));
 
         IrFunction CreateRebind() => Function(

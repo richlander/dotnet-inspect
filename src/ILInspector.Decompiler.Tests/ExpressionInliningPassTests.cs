@@ -89,6 +89,63 @@ public class ExpressionInliningPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void UnsafeEvaluation_IsNotInlinedIntoAwait()
+    {
+        var taskOfInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task`1"),
+            [Int32]);
+        var getter = new MethodRef(Holder, "get_Risky", Int32, [], HasThis: true)
+        {
+            RequiresUnsafe = true,
+        };
+        var fromResult = new MethodRef(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task"),
+            "FromResult",
+            taskOfInt,
+            [Int32],
+            HasThis: false);
+        var block = new Block();
+        block.Add(new StoreLocal(
+            0,
+            Int32,
+            new LoadProperty(
+                getter,
+                new LoadArgument(0, "holder", Holder),
+                [])));
+        block.Add(new Return(new AwaitExpression(
+            new Call(
+                fromResult,
+                isVirtual: false,
+                [new LoadLocal(0, Int32)]),
+            Int32)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(
+                taskOfInt,
+                [new Parameter("holder", Holder)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [Int32],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+            RequiresAsyncBodyModifier = true,
+        };
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<StoreLocal>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("unsafe\n{\n    V_0 = holder.Risky;", output);
+        Assert.Contains("return await", output);
+        Assert.Contains("FromResult(V_0);", output);
+        Assert.DoesNotContain("unsafe\n{\n    return await", output);
+    }
+
     // A pure value (no effect, cannot throw) is still unsound to defer past a
     // write to a place it READS. A slot holds `x + 1`; a for-loop follows whose
     // initializer assigns `x = 10`. The slot's single load sits in the loop

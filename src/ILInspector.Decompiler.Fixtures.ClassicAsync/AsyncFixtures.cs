@@ -30,6 +30,11 @@ public static class AsyncFixtures
 
     public sealed record Snapshot(int Value);
 
+    public sealed class UnsafeHolder
+    {
+        public unsafe int* Risky => (int*)0;
+    }
+
     public struct Counter
     {
         public int Value;
@@ -159,6 +164,16 @@ public static class AsyncFixtures
 
     public static async Task<int> AwaitOrdinarySetMethod(Task<int> task)
         => await set_GetTask(task);
+
+    public static async Task<int> AwaitUnsafeProperty(UnsafeHolder holder)
+    {
+        int value;
+        unsafe
+        {
+            value = *holder.Risky;
+        }
+        return await Task.FromResult(value);
+    }
 
     public static Task<int> set_GetTask(Task<int> task) => task;
 

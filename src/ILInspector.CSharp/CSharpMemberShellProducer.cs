@@ -620,8 +620,11 @@ public static class CSharpMemberShellProducer
                 && CSharpFormatter.TypeRequiresUnsafeModifier(returnType))
             || spec.Parameters.Any(parameter =>
                 CSharpFormatter.TypeRequiresUnsafeModifier(parameter.Type))
-            || (spec.Body is { } body && CSharpFormatter.RequiresUnsafeModifier(body))
-            || (spec.SiblingBody is { } siblingBody
+            || (!spec.IsAsync
+                && spec.Body is { } body
+                && CSharpFormatter.RequiresUnsafeModifier(body))
+            || (!spec.IsAsync
+                && spec.SiblingBody is { } siblingBody
                 && CSharpFormatter.RequiresUnsafeModifier(siblingBody))
             || (spec.ConstructorInitializer is { } initializer
                 && CSharpFormatter.RequiresUnsafeModifier(initializer))

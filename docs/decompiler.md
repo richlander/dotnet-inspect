@@ -88,9 +88,11 @@ A module compiled with the `updated-memory-safety-rules` feature carries a
 module-level `MemorySafetyRulesAttribute`. Under those rules the member `unsafe`
 modifier no longer makes a method body an unsafe context, so `CSharpPrinter`
 emits explicit, minimally scoped `unsafe { }` blocks around the operations that
-still need one. For a legacy module (no attribute) it emits no blocks — the
-member modifier supplies the context. The wrapping is gated on the source
-module's rules, so legacy output is byte-identical.
+still need one. For a legacy module (no attribute) it normally emits no blocks
+because the member modifier supplies the context. An async body is the exception:
+because C# forbids `await` in a member-level unsafe context, legacy async output
+uses the same explicit block boundaries and does not derive an `unsafe` modifier
+from body operations.
 
 An operation needs a block when it is:
 
@@ -111,8 +113,10 @@ safe under the new rules and stay outside the blocks. When the unsafe operation
 initializes a local used later, the declaration is hoisted above the block so
 the variable stays in scope.
 
-Await reconstruction stands down when an implicit await-pattern member requires
-unsafe context because C# forbids `await` inside an unsafe context.
+Await reconstruction stands down when either the awaited operand or an implicit
+await-pattern member requires unsafe context because C# forbids `await` inside
+an unsafe context. A temporary whose unsafe evaluation precedes an already
+reconstructed await is retained rather than inlined into the awaited expression.
 
 The stackalloc→`Span<T>` case is first raised from the compiler's lowering — a
 `localloc` fed to the `Span<T>(void*, int)` constructor — back into a source-level

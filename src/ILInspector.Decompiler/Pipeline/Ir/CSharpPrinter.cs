@@ -28,6 +28,7 @@ public sealed partial class CSharpPrinter
     /// printer wraps unsafe operations in explicit <c>unsafe { }</c> blocks.
     /// </summary>
     readonly bool _newMemorySafetyRules;
+    readonly bool _containsAwaitExpression;
 
     /// <summary>
     /// True when the method body skips locals initialization (<see
@@ -70,6 +71,7 @@ public sealed partial class CSharpPrinter
         _function = function;
         _options = options ?? PrinterOptions.Default;
         _newMemorySafetyRules = function.UsesUpdatedMemorySafetyRules;
+        _containsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any();
         _skipLocalsInit = function.SkipLocalsInit;
         _reservedScopeNames = reservedScopeNames is null
             ? []
@@ -376,8 +378,9 @@ public sealed partial class CSharpPrinter
             ConstructorChain = _constructorChain,
             FieldInitializers = _fieldInitializers,
             RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
-            RequiresUnsafeBodyModifier = function.Descendants.Prepend(function).Any(NeedsUnsafeBodyModifier),
-            ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
+            RequiresUnsafeBodyModifier = !_containsAwaitExpression
+                && function.Descendants.Prepend(function).Any(NeedsUnsafeBodyModifier),
+            ContainsAwaitExpression = _containsAwaitExpression,
             BodyIsSingleExpressionBody = BodyIsSingleExpressionBody(function, output),
             BodyIsDestructor = function.IsDestructor,
             Metadata = new DecompilerResultMetadata(EffectiveDecompilerOptions(), [.. _decisions]),
@@ -1501,12 +1504,12 @@ public sealed partial class CSharpPrinter
         // strand the variable inside that block (out of scope at its uses), so
         // demote the store: the local declares up front and the wrapped statement
         // becomes a plain `v = <unsafe>` assignment.
-        if (_newMemorySafetyRules)
+        if (EmitsUnsafeBlocks)
         {
             foreach (var store in _declaringStores.OfType<StoreLocal>().ToList())
             {
                 if (store.Type.Kind != TypeRefKind.ByRef
-                    && HasUnsafeOperation(store.Value)
+                    && HasExplicitUnsafeOperation(store.Value)
                     && LocalIsRead(function, store.Index)
                     && !LocalReadsStayInsideUnsafeRun(function, store))
                 {
@@ -1559,7 +1562,8 @@ public sealed partial class CSharpPrinter
             return false;
 
         int end = start;
-        while (end + 1 < container.Children.Count && HasUnsafeOperation(container.Children[end + 1]))
+        while (end + 1 < container.Children.Count
+            && NeedsExplicitUnsafeContext(container.Children[end + 1]))
             end++;
 
         foreach (var node in function.DescendantsOutsideNestedFunctions)
@@ -1583,7 +1587,7 @@ public sealed partial class CSharpPrinter
             return false;
         for (int i = 0; i < statement.ChildIndex; i++)
         {
-            if (NeedsUnsafeContext(block.Children[i])
+            if (NeedsExplicitUnsafeContext(block.Children[i])
                 && UnsafeRunEnd(block.Children, i) > statement.ChildIndex)
             {
                 return true;
@@ -2729,7 +2733,9 @@ public sealed partial class CSharpPrinter
                 continue;
             }
 
-            if (_newMemorySafetyRules && _unsafeDepth == 0 && NeedsUnsafeContext(statements[i]))
+            if (EmitsUnsafeBlocks
+                && _unsafeDepth == 0
+                && NeedsExplicitUnsafeContext(statements[i]))
             {
                 int j = UnsafeRunEnd(statements, i);
                 string pad = new(' ', indent * 4);
@@ -2850,13 +2856,13 @@ public sealed partial class CSharpPrinter
 
     bool HasGeneratedUnsafeSetupBoundary(IReadOnlyList<IrNode> statements)
     {
-        if (!_newMemorySafetyRules || _unsafeDepth != 0)
+        if (!EmitsUnsafeBlocks || _unsafeDepth != 0)
             return false;
 
         int i = 0;
         while (i < statements.Count)
         {
-            if (!NeedsUnsafeContext(statements[i]))
+            if (!NeedsExplicitUnsafeContext(statements[i]))
             {
                 i++;
                 continue;
@@ -2936,7 +2942,7 @@ public sealed partial class CSharpPrinter
     int UnsafeRunEnd(IReadOnlyList<IrNode> statements, int start)
     {
         int end = start + 1;
-        while (end < statements.Count && NeedsUnsafeContext(statements[end]))
+        while (end < statements.Count && NeedsExplicitUnsafeContext(statements[end]))
             end++;
 
         for (int i = start; i < end; i++)
@@ -2945,7 +2951,7 @@ public sealed partial class CSharpPrinter
             if (requiredEnd > end)
             {
                 end = requiredEnd;
-                while (end < statements.Count && NeedsUnsafeContext(statements[end]))
+                while (end < statements.Count && NeedsExplicitUnsafeContext(statements[end]))
                     end++;
             }
         }
@@ -2959,7 +2965,7 @@ public sealed partial class CSharpPrinter
         {
             StoreStackSlot store when _declaringStores.Contains(store)
                 => LastReferenceEnd(statements, searchStart, node => ReferencesStackSlot(node, store.Slot)),
-            StoreLocal store when _declaringStores.Contains(store) && HasUnsafeOperation(store.Value)
+            StoreLocal store when _declaringStores.Contains(store) && NeedsExplicitUnsafeContext(store)
                 => LastReferenceEnd(statements, searchStart, node => ReferencesLocalIncludingSharedNestedScopes(node, store.Index)),
             _ => searchStart,
         };
@@ -3000,6 +3006,7 @@ public sealed partial class CSharpPrinter
         Fixed fx => HasUnsafeOperation(fx.PinSource),
         UsingStatement u => HasUnsafeOperation(u.Resource) || MethodsRequireUnsafe(u.ConsumedMemberRefs),
         ForeachStatement f => HasUnsafeOperation(f.Collection) || MethodsRequireUnsafe(f.ConsumedMemberRefs),
+        LocalFunctionStatement => false,
         TryCatch t => t.Clauses.Any(c => HasUnsafeOperation(c.Filter)),
         TryFinally => false,
         StoreElement s when _inlineReceiverTempStores.TryGetValue(s, out var store)
@@ -3009,6 +3016,51 @@ public sealed partial class CSharpPrinter
 
     bool HasUnsafeOperation(IrNode? node)
         => node is not null && (IsUnsafeOperation(node) || node.Descendants.Any(IsUnsafeOperation));
+
+    bool EmitsUnsafeBlocks => _newMemorySafetyRules || _containsAwaitExpression;
+
+    bool NeedsExplicitUnsafeContext(IrNode node)
+        => _newMemorySafetyRules
+            ? NeedsUnsafeContext(node)
+            : _containsAwaitExpression && NeedsLegacyUnsafeContext(node);
+
+    bool HasExplicitUnsafeOperation(IrNode? node)
+        => node is not null
+            && (_newMemorySafetyRules
+                ? HasUnsafeOperation(node)
+                : HasLegacyUnsafeOperation(node));
+
+    bool HasLegacyUnsafeOperation(IrNode? node)
+        => node is not null
+            && (IsUnsafeOperation(node)
+                || IsLegacyPointerOperation(node)
+                || node.Descendants.Any(candidate =>
+                    IsUnsafeOperation(candidate)
+                    || IsLegacyPointerOperation(candidate)));
+
+    bool NeedsLegacyUnsafeContext(IrNode node) => node switch
+    {
+        ForLoop f => HasLegacyUnsafeOperation(f.Initializer)
+            || HasLegacyUnsafeOperation(f.Condition)
+            || HasLegacyUnsafeOperation(f.Increment),
+        WhileLoop w => HasLegacyUnsafeOperation(w.Condition),
+        DoWhileLoop d => HasLegacyUnsafeOperation(d.Condition),
+        IfStatement s => HasLegacyUnsafeOperation(s.Condition),
+        Switch s => HasLegacyUnsafeOperation(s.Value),
+        Lock l => HasLegacyUnsafeOperation(l.LockObject),
+        Fixed => true,
+        UsingStatement u => HasLegacyUnsafeOperation(u.Resource)
+            || MethodsRequireUnsafe(u.ConsumedMemberRefs),
+        ForeachStatement f => ContainsPointer(f.LocalType)
+            || HasLegacyUnsafeOperation(f.Collection)
+            || MethodsRequireUnsafe(f.ConsumedMemberRefs),
+        LocalFunctionStatement => false,
+        TryCatch t => t.Clauses.Any(c => HasLegacyUnsafeOperation(c.Filter)),
+        TryFinally => false,
+        StoreElement s when _inlineReceiverTempStores.TryGetValue(s, out var store)
+            => HasLegacyUnsafeOperation(s) || HasLegacyUnsafeOperation(store.Value),
+        _ => HasLegacyUnsafeOperation(node),
+    };
 
     bool NeedsUnsafeBodyModifier(IrNode node)
         => NeedsUnsafeContext(node)
@@ -3139,10 +3191,15 @@ public sealed partial class CSharpPrinter
     {
         StoreLocal store => ContainsPointer(store.Type),
         StoreStackSlot store => ContainsPointer(StackSlotTargetType(store)),
+        Fixed => true,
         LocalFunctionStatement localFunction => SignatureRequiresUnsafe(
             localFunction.ReturnType,
             localFunction.Parameters.Select(parameter => parameter.Type)),
         ForeachStatement foreachStatement => ContainsPointer(foreachStatement.LocalType),
+        LoadField field => ContainsPointer(field.Field.Type),
+        StoreField field => ContainsPointer(field.Field.Type),
+        LoadFieldAddress field => ContainsPointer(field.Field.Type),
+        AddressOfMethod => true,
         Convert
         {
             Operand: LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress

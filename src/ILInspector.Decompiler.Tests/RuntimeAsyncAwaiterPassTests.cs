@@ -149,6 +149,20 @@ public class RuntimeAsyncAwaiterPassTests
             call => call.Callee.Name == "GetAwaiter");
     }
 
+    [Fact]
+    public void UnsafeAwaitOperand_StandsDownBecauseAwaitCannotEnterUnsafeContext()
+    {
+        var function = Synthetic(requiresUnsafeOperand: true);
+
+        new RuntimeAsyncAwaiterPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<AwaitExpression>());
+        Assert.Contains(
+            function.Descendants.OfType<Call>(),
+            call => call.Callee.Name == "GetAwaiter");
+    }
+
     [Theory]
     [InlineData(SyntheticBreak.NonRuntimeMethod)]
     [InlineData(SyntheticBreak.WrongHelperAssembly)]
@@ -177,7 +191,8 @@ public class RuntimeAsyncAwaiterPassTests
     static IrFunction Synthetic(
         string helperName = "UnsafeAwaitAwaiter",
         SyntheticBreak broken = SyntheticBreak.None,
-        bool requiresUnsafeAwaiterMember = false)
+        bool requiresUnsafeAwaiterMember = false,
+        bool requiresUnsafeOperand = false)
     {
         int helperLocal = broken == SyntheticBreak.DifferentHelperLocal ? 2 : 1;
         int completedLocal = broken == SyntheticBreak.DifferentIsCompletedLocal ? 2 : 1;
@@ -188,7 +203,21 @@ public class RuntimeAsyncAwaiterPassTests
         var helperParameter = broken == SyntheticBreak.WrongHelperSignature ? Awaitable : Awaiter;
 
         var head = new Block(0);
-        var awaitableStore = new StoreLocal(0, Awaitable, new LoadArgument(0, "awaitable", Awaitable));
+        IrExpression awaitable = requiresUnsafeOperand
+            ? new Call(
+                new MethodRef(
+                    TypeRef.Definition("Synthetic", "Samples", "Holder"),
+                    "GetAwaitable",
+                    Awaitable,
+                    [],
+                    HasThis: false)
+                {
+                    RequiresUnsafe = true,
+                },
+                isVirtual: false,
+                [])
+            : new LoadArgument(0, "awaitable", Awaitable);
+        var awaitableStore = new StoreLocal(0, Awaitable, awaitable);
         head.Add(awaitableStore);
         var getAwaiter = broken == SyntheticBreak.StaticGetAwaiterWithoutExtensionEvidence
             ? new Call(

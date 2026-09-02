@@ -27,6 +27,8 @@ public sealed class AwaitRecoveryPass : IIrPass
         {
             if (!MemberIdentity.IsAsyncHelpersAwait(call))
                 continue;
+            if (UnsafeAwaitOperand.RequiresUnsafeContext(call.Arguments[0]))
+                continue;
 
             var operand = (IrExpression)call.DetachChildren()[0];
             var await = new AwaitExpression(

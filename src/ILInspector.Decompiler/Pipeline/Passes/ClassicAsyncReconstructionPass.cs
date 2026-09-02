@@ -46,9 +46,13 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             out var body,
             out var locals,
             out var localNames);
-        if (reconstruction == ReconstructionResult.UnconsumedExecutionRegion)
+        if (reconstruction is ReconstructionResult.UnconsumedExecutionRegion
+            or ReconstructionResult.UnsafeAwaitOperand)
         {
-            MarkUnconsumedExecutionRegion(function, kickoff, context);
+            var reason = reconstruction == ReconstructionResult.UnsafeAwaitOperand
+                ? "await operand requires unsafe context"
+                : "execution region contains unconsumed user effects";
+            MarkDeclined(function, kickoff, context, reason);
             return;
         }
         if (reconstruction != ReconstructionResult.Reconstructed)
@@ -73,6 +77,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         NotRecognized,
         Reconstructed,
         UnconsumedExecutionRegion,
+        UnsafeAwaitOperand,
     }
 
     sealed class LocalBuilder
@@ -192,6 +197,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         locals = [];
         localNames = [];
 
+        if (HasUnsafeAwaitOperand(moveNext, kickoff))
+            return ReconstructionResult.UnsafeAwaitOperand;
+
         var localBuilder = new LocalBuilder();
         if (!TryBuildStatements(
                 moveNext,
@@ -220,6 +228,28 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         locals = localBuilder.Locals;
         localNames = localBuilder.Names;
         return ReconstructionResult.Reconstructed;
+    }
+
+    static bool HasUnsafeAwaitOperand(IrFunction moveNext, IrFunction kickoff)
+    {
+        foreach (var getResult in GetResultCalls(moveNext))
+        {
+            var operand = AwaitedOperandForGetResult(
+                moveNext,
+                getResult,
+                out _,
+                out _);
+            if (operand is null)
+                continue;
+
+            var remapped = CloneAndRemap(operand, kickoff);
+            if (remapped is not null
+                && UnsafeAwaitOperand.RequiresUnsafeContext(remapped))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     static bool HasUnconsumedExecutionStore(IrFunction moveNext)
@@ -322,13 +352,14 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 ? definition
                 : type;
 
-    static void MarkUnconsumedExecutionRegion(
+    static void MarkDeclined(
         IrFunction function,
         Kickoff kickoff,
-        PassContext context)
+        PassContext context,
+        string reason)
     {
         context.Stepper.StepOver(
-            $"decline classic async '{function.Name}': execution region contains unconsumed user effects");
+            $"decline classic async '{function.Name}': {reason}");
 
         IReadOnlyList<Block> originalBlocks = function.Body.Blocks;
         function.Body.DetachChildren();
@@ -337,7 +368,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         var marker = new UnsupportedNode(
             kickoff.SourceOffset,
             "classic async",
-            "execution region contains unconsumed user effects; original kickoff preserved");
+            $"{reason}; original kickoff preserved");
         marker.SetSourceOffset(kickoff.SourceOffset);
         var markerStatement = new ExpressionStatement(marker);
         markerStatement.SetSourceOffset(kickoff.SourceOffset);
@@ -353,7 +384,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         function.RequiresAsyncBodyModifier = false;
         function.Diagnostics.Add(new DecompilerDiagnostic(
             DiagnosticIds.UnsupportedConstruct,
-            "classic async reconstruction declined: execution region contains unconsumed user effects"));
+            $"classic async reconstruction declined: {reason}"));
     }
 
     static bool TryBuildStatements(
@@ -937,7 +968,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             return null;
 
         var operand = CloneAndRemap(awaitedOperand, kickoff);
-        return operand is null
+        return operand is null || UnsafeAwaitOperand.RequiresUnsafeContext(operand)
             ? null
             : new AwaitExpression(
                 operand,

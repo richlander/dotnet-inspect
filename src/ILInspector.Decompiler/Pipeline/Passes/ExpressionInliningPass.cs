@@ -256,6 +256,13 @@ public sealed class ExpressionInliningPass : IIrPass
             if (!firstLeaf && DefersPastConflictingWrite(store is StoreLocal s2 ? s2.Value : ((StoreStackSlot)store).Value, next))
                 continue;
 
+            var storedValue = store is StoreLocal localStore
+                ? localStore.Value
+                : ((StoreStackSlot)store).Value;
+            if (ReferenceOwnership.HasAncestor<AwaitExpression>(load)
+                && UnsafeAwaitOperand.RequiresUnsafeContext(storedValue))
+                continue;
+
             var value = (IrExpression)store.DetachChildren()[0];
 
             context.Stepper.StepOver(

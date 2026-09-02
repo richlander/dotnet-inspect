@@ -22,6 +22,18 @@ public class ReferenceOwnershipTests
     }
 
     [Fact]
+    public void HasAncestor_MatchesKindsAboveNodeOnly()
+    {
+        var load = new LoadLocal(0, Int);
+        var awaitExpression = new AwaitExpression(load, Int);
+        var statement = new Return(awaitExpression);
+
+        Assert.True(ReferenceOwnership.HasAncestor<AwaitExpression>(load));
+        Assert.False(ReferenceOwnership.HasAncestor<AwaitExpression>(awaitExpression));
+        Assert.False(ReferenceOwnership.HasAncestor<AwaitExpression>(statement));
+    }
+
+    [Fact]
     public void LocalReferencesOnlyWithin_AllowsStoreLoadAndAddressUnderAllowedRoots()
     {
         var allowed = new Block();
