@@ -148,6 +148,11 @@ substrates, and inspection producers that will extend that space.
   owns the user-scenario ordering and typed handoffs across operation
   authority, worker runtime, generated facades, managed bridging, and
   feature-owned work without redefining those owners.
+- [`docs/design/engine-browser-async-event-stream.md`](design/engine-browser-async-event-stream.md)
+  owns host-neutral, request-scoped engine event sequences: advisory progress,
+  durable partial items and item failures, one semantic completion, and
+  adapter-side pull, batching, and cancellation obligations before Browser
+  publication.
 - [`docs/design/custom-attribute-value-decoding.md`](design/custom-attribute-value-decoding.md)
   owns the safety contract for decoding custom-attribute values
   from untrusted metadata: the alignment, bounding, and guard-work invariants
