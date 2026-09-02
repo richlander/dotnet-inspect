@@ -593,6 +593,137 @@ public class AssemblyDependencyResolverTests
         Assert.Equal(1, secondPolicy.SelectionCount);
     }
 
+    [Fact]
+    public void AssemblyGroup_DuplicateRegistrationIsRejected()
+    {
+        ResolvedAssemblyReference assembly = Descriptor(
+            new AssemblyReferenceIdentity(
+                "Duplicate.Owner",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("duplicate owner"));
+
+        Assert.Throws<ArgumentException>(
+            () => new SourceRelativeAssemblyGroupBindingPolicy(
+                [
+                    (assembly, (IAssemblyBindingPolicy)MissingPolicy.Instance),
+                    (assembly, (IAssemblyBindingPolicy)MissingPolicy.Instance),
+                ]));
+    }
+
+    [Fact]
+    public async Task AssemblyGroup_ConcurrentLearnedRoutesAreBothRetained()
+    {
+        ResolvedAssemblyReference defaultOwner = Descriptor(
+            new AssemblyReferenceIdentity(
+                "Default.Owner",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("default owner"));
+        ResolvedAssemblyReference firstOwner = Descriptor(
+            new AssemblyReferenceIdentity(
+                "First.Owner",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("first owner"));
+        ResolvedAssemblyReference secondOwner = Descriptor(
+            new AssemblyReferenceIdentity(
+                "Second.Owner",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("second owner"));
+        ResolvedAssemblyReference firstCandidate = Descriptor(
+            new AssemblyReferenceIdentity(
+                "First.Candidate",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("first candidate"));
+        ResolvedAssemblyReference secondCandidate = Descriptor(
+            new AssemblyReferenceIdentity(
+                "Second.Candidate",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("second candidate"));
+        using var barrier = new Barrier(2);
+        var defaultPolicy = new FixedSelectionPolicy(
+            AssemblyBindingSelection.NameNotOwned());
+        var firstPolicy =
+            new CoordinatedSelectedPolicy(
+                firstCandidate,
+                barrier);
+        var secondPolicy =
+            new CoordinatedSelectedPolicy(
+                secondCandidate,
+                barrier);
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (defaultOwner, (IAssemblyBindingPolicy)defaultPolicy),
+                (firstOwner, (IAssemblyBindingPolicy)firstPolicy),
+                (secondOwner, (IAssemblyBindingPolicy)secondPolicy),
+            ]);
+        AssemblyBindingPolicyVersion version = group.Version;
+
+        Task<AssemblyBindingSelection> firstSelection = Task.Run(
+            () => group.Select(
+                new AssemblyBindingRequest(
+                    AssemblyBindingTarget.Reference(
+                        firstCandidate.Identity),
+                    AssemblyBindingOrigin.FromAssembly(firstOwner),
+                    AssemblyResolutionScope.Any)));
+        Task<AssemblyBindingSelection> secondSelection = Task.Run(
+            () => group.Select(
+                new AssemblyBindingRequest(
+                    AssemblyBindingTarget.Reference(
+                        secondCandidate.Identity),
+                    AssemblyBindingOrigin.FromAssembly(secondOwner),
+                    AssemblyResolutionScope.Any)));
+
+        AssemblyBindingSelection[] selections =
+            await Task.WhenAll(firstSelection, secondSelection);
+
+        Assert.Same(
+            firstCandidate,
+            Assert.IsType<AssemblyBindingSelection.Selected>(
+                selections[0]).Assembly);
+        Assert.Same(
+            secondCandidate,
+            Assert.IsType<AssemblyBindingSelection.Selected>(
+                selections[1]).Assembly);
+
+        var probe = new AssemblyReferenceIdentity(
+            "Probe",
+            new Version(1, 0, 0, 0),
+            null,
+            null);
+        var firstProbe = Assert.IsType<
+            AssemblyBindingSelection.Selected>(
+                group.Select(
+                    new AssemblyBindingRequest(
+                        AssemblyBindingTarget.Reference(probe),
+                        AssemblyBindingOrigin.FromAssembly(firstCandidate),
+                        AssemblyResolutionScope.Any)));
+        var secondProbe = Assert.IsType<
+            AssemblyBindingSelection.Selected>(
+                group.Select(
+                    new AssemblyBindingRequest(
+                        AssemblyBindingTarget.Reference(probe),
+                        AssemblyBindingOrigin.FromAssembly(secondCandidate),
+                        AssemblyResolutionScope.Any)));
+
+        Assert.Same(firstCandidate, firstProbe.Assembly);
+        Assert.Same(secondCandidate, secondProbe.Assembly);
+        Assert.Equal(0, defaultPolicy.SelectionCount);
+        Assert.Equal(2, firstPolicy.SelectionCount);
+        Assert.Equal(2, secondPolicy.SelectionCount);
+        Assert.Same(version, group.Version);
+    }
+
     [Theory]
     [InlineData(AssemblyBindingMissDisposition.Undifferentiated)]
     [InlineData(AssemblyBindingMissDisposition.NoNameOwner)]
@@ -2127,6 +2258,32 @@ public class AssemblyDependencyResolverTests
             AssemblyBindingRequest request)
         {
             SelectionCount++;
+            return AssemblyBindingSelection.Found(selected);
+        }
+    }
+
+    sealed class CoordinatedSelectedPolicy(
+        ResolvedAssemblyReference selected,
+        Barrier firstSelectionBarrier) : IAssemblyBindingPolicy
+    {
+        int _selectionCount;
+
+        internal int SelectionCount =>
+            Volatile.Read(ref _selectionCount);
+
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request)
+        {
+            if (Interlocked.Increment(ref _selectionCount) == 1
+                && !firstSelectionBarrier.SignalAndWait(
+                    TimeSpan.FromSeconds(30)))
+            {
+                throw new TimeoutException(
+                    "Concurrent binding selections did not rendezvous.");
+            }
+
             return AssemblyBindingSelection.Found(selected);
         }
     }

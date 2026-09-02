@@ -1,8 +1,11 @@
 import {
   bindScopeBar,
   captureScopeBarFocus,
+  createScopeBarState,
   renderScopeBar,
   restoreScopeBarFocus,
+  scopeBarShortLabel,
+  type ScopeBarBinding,
 } from "../src/scope-bar.ts";
 import { renderAnnotatedSourcePageActions } from "../src/annotated-source.ts";
 import type {
@@ -15,11 +18,19 @@ import {
   focusWorkbenchSearch,
   workbenchShellHtml,
 } from "../src/shell-controls.ts";
-import { renderWorkspaceSubject } from "../src/workspace-subject.ts";
+import type { BrowserHomeDemoResolved } from "../src/inspect-web-engine.d.ts";
+import {
+  bindWorkspaceSubject,
+  focusWorkspacePacket,
+  renderWorkspacePacketView,
+  renderWorkspaceSubject,
+  retainWorkspacePacket,
+} from "../src/workspace-subject.ts";
 
 declare global {
   interface Window {
     focusWorkbenchSearchProbe: () => boolean;
+    renderPackageScopeProbe: () => void;
     rerenderScopeBarProbe: () => void;
   }
 }
@@ -34,10 +45,14 @@ function escapeHtml(value: unknown): string {
 
 const app = document.querySelector<HTMLElement>("#app");
 if (!app) throw new Error("The workspace-titlebar harness root is unavailable.");
+const appRoot: HTMLElement = app;
+const scopeBarState = createScopeBarState();
+let scopeBarBinding: ScopeBarBinding | null = null;
 const params = new URL(location.href).searchParams;
 const workspaceMode = params.has("workspace");
 const packageMode = params.has("package");
 const memberMode = params.has("member");
+const emptyMode = params.has("empty");
 const annotatedMode = params.has("annotated");
 const longMode = params.has("long");
 const defaultPackageIcon =
@@ -48,7 +63,7 @@ const packageIcon = params.has("fallback")
   ? defaultPackageIcon
   : systemTextJsonIcon;
 const subjectPath = workspaceMode
-  ? [{ kind: "workspace", label: "Workspace", copyable: false }]
+  ? [{ kind: "workspace", label: "System.Text.Json", copyable: false }]
   : packageMode
     ? [{ kind: "package", label: "System.Text.Json", copyable: true }]
     : memberMode
@@ -106,7 +121,100 @@ const coordinates = [
     isRuntimePack: false,
   },
 ];
-const activeCoordinate = coordinates[0] ?? null;
+const packetDefinitions: readonly BrowserHomeDemoResolved[] = [
+  {
+    id: "stj-serializer",
+    title: "System.Text.Json",
+    summary: "Browse a real package API",
+    workspaceMembers: [{
+      kind: "package",
+      id: "System.Text.Json",
+      version: "10.0.0",
+      framework: "net10.0",
+      assembly: null,
+    }],
+    tabs: [],
+    focusTabIndex: 0,
+    view: {
+      library: null,
+      type: "System.Text.Json.JsonSerializer",
+      memberAnchor: null,
+      memberKey: null,
+      section: "Methods",
+    },
+  },
+  {
+    id: "stj-serialize-callgraph",
+    title: "Serialize call graph",
+    summary: "Dense package-local STJ graph",
+    workspaceMembers: [{
+      kind: "package",
+      id: "System.Text.Json",
+      version: "10.0.0",
+      framework: "net10.0",
+      assembly: null,
+    }],
+    tabs: [],
+    focusTabIndex: 0,
+    view: {
+      library: null,
+      type: "System.Text.Json.JsonSerializer",
+      memberAnchor: "1dc14dd1fb",
+      memberKey: "method:Serialize",
+      section: "Call Graph",
+    },
+  },
+  {
+    id: "stj-getdecimal-callgraph",
+    title: "JsonElement.GetDecimal",
+    summary: "STJ number parse path",
+    workspaceMembers: [{
+      kind: "package",
+      id: "System.Text.Json",
+      version: "10.0.0",
+      framework: "net10.0",
+      assembly: null,
+    }],
+    tabs: [],
+    focusTabIndex: 0,
+    view: {
+      library: null,
+      type: "System.Text.Json.JsonElement",
+      memberAnchor: "cfd9980a6c",
+      memberKey: "method:GetDecimal",
+      section: "Call Graph",
+    },
+  },
+];
+let workspacePackets: BrowserHomeDemoResolved[] = [];
+for (const packet of packetDefinitions)
+  workspacePackets = retainWorkspacePacket(workspacePackets, packet);
+let selectedWorkspacePacketId = workspacePackets[0]?.id ?? "";
+
+function selectedWorkspacePacket(): BrowserHomeDemoResolved | null {
+  return workspacePackets.find(
+    packet => packet.id === selectedWorkspacePacketId) ?? null;
+}
+
+function workspaceNavigationHtml(): string {
+  return renderWorkspaceSubject({
+    packets: workspacePackets,
+    selectedPacketId: selectedWorkspacePacketId,
+    escapeHtml,
+  });
+}
+
+function workspaceDetailHtml(): string {
+  return renderWorkspacePacketView({
+    packet: selectedWorkspacePacket(),
+    packages: coordinates.slice(0, 1),
+    activePackage: coordinates[0] ?? null,
+    escapeHtml,
+    packageIdentityKey: item =>
+      `${item.id}@${item.version}::${item.activeFramework}`,
+  });
+}
+
 let activeScope: WorkspaceScope = workspaceMode
   ? "workspace"
   : packageMode
@@ -117,21 +225,27 @@ let activeScope: WorkspaceScope = workspaceMode
 let activePackageLens: PackageLens = "overview";
 let activeTypeLens: TypeLens = "api";
 let activeMemberSection: MemberSection = "overview";
-const packageStrip: readonly (readonly [PackageLens, string])[] = [
-  ["overview", "Overview"],
-  ["dependencies", "Dependencies"],
+const packageStrip: readonly (
+  readonly [PackageLens, string, string, string]
+)[] = [
+  ["overview", "Overview", scopeBarShortLabel("Overview"), "◫"],
+  ["dependencies", "Dependencies", scopeBarShortLabel("Dependencies"), "⇄"],
 ];
-const typeStrip: readonly (readonly [TypeLens, string])[] = [
-  ["api", "API"],
-  ["metadata", "Metadata"],
-  ["source", "Source"],
+const typeStrip: readonly (
+  readonly [TypeLens, string, string, string]
+)[] = [
+  ["api", "API", scopeBarShortLabel("API"), "⌘"],
+  ["metadata", "Metadata", scopeBarShortLabel("Metadata"), "≡"],
+  ["source", "Source", scopeBarShortLabel("Source"), "⌑"],
 ];
-const memberStrip: readonly (readonly [MemberSection, string])[] = [
-  ["overview", "Overview"],
-  ["call-graph", "Call graph"],
-  ["facts", "Facts"],
-  ["source", "Source"],
-  ["annotated", "Annotated source"],
+const memberStrip: readonly (
+  readonly [MemberSection, string, string, string]
+)[] = [
+  ["overview", "Overview", scopeBarShortLabel("Overview"), "◫"],
+  ["call-graph", "Call graph", scopeBarShortLabel("Call graph"), "⑂"],
+  ["facts", "Facts", scopeBarShortLabel("Facts"), "·"],
+  ["source", "Source", scopeBarShortLabel("Source"), "⌑"],
+  ["annotated", "Annotated source", scopeBarShortLabel("Annotated source"), "✎"],
 ];
 
 function scopeBarHtml() {
@@ -140,12 +254,13 @@ function scopeBarHtml() {
     : activeScope === "package"
       ? packageStrip
       : activeScope === "member"
-        ? memberStrip
+        ? (emptyMode ? [] : memberStrip)
         : typeStrip;
   return renderScopeBar({
     scope: activeScope,
     strip,
     activeStripId: activeScope === "workspace"
+      || (activeScope === "member" && emptyMode)
       ? null
       : activeScope === "package"
         ? activePackageLens
@@ -159,18 +274,13 @@ function scopeBarHtml() {
         : "data-lens",
     panelId: "inspector-panel",
     showMemberScope: memberMode,
+    emptyStripLabel: emptyMode ? "Filtered member list" : "",
     escapeHtml,
   });
 }
 
 const navigationHtml = workspaceMode
-  ? renderWorkspaceSubject({
-      packages: coordinates,
-      activePackage: activeCoordinate,
-      escapeHtml,
-      packageIdentityKey: item =>
-        `${item.id}@${item.version}::${item.activeFramework}`,
-    })
+  ? workspaceNavigationHtml()
   : `<section class="type-browser">
       <header class="browser-head">Target inventory</header>
       <label class="type-search">
@@ -237,7 +347,9 @@ app.innerHTML = `
       ${navigationHtml}
       <section class="detail-pane">
         <article id="inspector-panel" class="detail-scroll"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
-          <h1>${subjectPath.at(-1)?.label}</h1>
+          ${workspaceMode
+            ? workspaceDetailHtml()
+            : `<h1>${subjectPath.at(-1)?.label}</h1>`}
           ${packageMode ? `
             <section class="document-section package-coordinate-editor">
               <div class="section-title"><h2>Package coordinate</h2><span>1 target framework</span></div>
@@ -258,18 +370,39 @@ document.querySelectorAll<HTMLElement>("[data-subject-copy]").forEach(button =>
   }));
 
 function renderHarnessScopeBar() {
-  const focusTarget = document.activeElement instanceof HTMLElement
-    ? captureScopeBarFocus(document.activeElement)
+  const focusedElement = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
+  const scopeBarOwnsFocus = focusedElement
+    ?.closest("[data-scope-bar]") != null;
+  const focusTarget = focusedElement
+    ? captureScopeBarFocus(focusedElement)
     : null;
   const scopeBar = document.querySelector<HTMLElement>(".lensbar");
   if (!scopeBar) throw new Error("The scope bar is unavailable.");
+  if (scopeBarOwnsFocus) {
+    appRoot.tabIndex = -1;
+    appRoot.focus({ preventScroll: true });
+  }
+  scopeBarBinding?.disconnect();
   scopeBar.outerHTML = scopeBarHtml();
   bindHarnessScopeBar();
-  if (focusTarget) restoreScopeBarFocus(document, focusTarget);
+  if (scopeBarOwnsFocus) {
+    let restored = false;
+    if (focusTarget) {
+      scopeBarBinding?.revealFocusTarget(focusTarget);
+      restored = restoreScopeBarFocus(document, focusTarget);
+    }
+    if (!restored) {
+      document.querySelector<HTMLElement>(".brand")
+        ?.focus({ preventScroll: true });
+    }
+    appRoot.removeAttribute("tabindex");
+  }
 }
 
 function bindHarnessScopeBar() {
-  bindScopeBar(document, {
+  scopeBarBinding = bindScopeBar(document, {
     onMemberSectionSelect: section => {
       activeMemberSection = section;
       renderHarnessScopeBar();
@@ -286,10 +419,56 @@ function bindHarnessScopeBar() {
       activeTypeLens = lens;
       renderHarnessScopeBar();
     },
+  }, scopeBarState);
+}
+
+function renderHarnessWorkspace(packetId: string) {
+  if (!workspacePackets.some(packet => packet.id === packetId)) return;
+  selectedWorkspacePacketId = packetId;
+  const navigation =
+    document.querySelector<HTMLElement>(".workspace-nav");
+  const detail =
+    document.querySelector<HTMLElement>("#inspector-panel");
+  const path =
+    document.querySelector<HTMLElement>(".subject-path");
+  const pathSegment =
+    path?.querySelector<HTMLElement>(".subject-path-segment");
+  if (!navigation || !detail || !path || !pathSegment)
+    throw new Error("The workspace packet harness is incomplete.");
+  navigation.outerHTML = workspaceNavigationHtml();
+  detail.innerHTML = workspaceDetailHtml();
+  const title = selectedWorkspacePacket()?.title ?? "Current workspace";
+  path.setAttribute("aria-label", title);
+  path.title = title;
+  pathSegment.textContent = title;
+  bindHarnessWorkspace();
+  requestAnimationFrame(() =>
+    focusWorkspacePacket(document, packetId));
+}
+
+function bindHarnessWorkspace() {
+  if (!workspaceMode) return;
+  bindWorkspaceSubject(document, {
+    onSelect: renderHarnessWorkspace,
+    onOpen: packetId => {
+      const count = Number(document.body.dataset.workspaceExecutionCount ?? "0");
+      document.body.dataset.workspaceExecutionCount = String(count + 1);
+      document.body.dataset.workspaceExecution = packetId;
+    },
+    onClose: packageKey => {
+      document.body.dataset.workspaceClose = packageKey;
+    },
   });
 }
 
 bindHarnessScopeBar();
+bindHarnessWorkspace();
+if (workspaceMode) document.body.dataset.workspaceExecutionCount = "0";
 
 window.focusWorkbenchSearchProbe = () => focusWorkbenchSearch(document);
+window.renderPackageScopeProbe = () => {
+  activeScope = "package";
+  activePackageLens = "overview";
+  renderHarnessScopeBar();
+};
 window.rerenderScopeBarProbe = renderHarnessScopeBar;

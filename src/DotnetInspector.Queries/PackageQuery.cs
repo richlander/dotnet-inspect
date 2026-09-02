@@ -180,7 +180,7 @@ public enum PackageQueryFailureKind
 public sealed record PackageQueryFailure(
     string? PackageId,
     string? Version,
-    PackageSourceIdentity Producer,
+    PackageSourceResultIdentity Source,
     PackageQueryFailureKind Kind,
     string Message,
     PackageManifestFailureReason? ManifestFailureReason = null);
@@ -199,7 +199,7 @@ public enum PackageQueryCompletionKind
 /// <summary>Terminal accounting for one package-query stream.</summary>
 public sealed record PackageQuerySummary(
     InertString Prefix,
-    PackageSourceIdentity Producer,
+    PackageSourceResultIdentity Source,
     int CandidateLimit,
     int MatchLimit,
     int Candidates,
@@ -630,7 +630,7 @@ public static class PackageQuery
                                 new PackageQueryFailure(
                                     match.Value.PackageId,
                                     match.Value.Version,
-                                    match.Value.Producer,
+                                    match.Value.Source,
                                     PackageQueryFailureKind
                                         .PackageContentAcquisition,
                                     unavailable.Message));
@@ -666,7 +666,7 @@ public static class PackageQuery
                                 new PackageQueryFailure(
                                     match.Value.PackageId,
                                     match.Value.Version,
-                                    match.Value.Producer,
+                                    match.Value.Source,
                                     PackageQueryFailureKind
                                         .PackageContentEvaluation,
                                     "The package content could not be evaluated."));
@@ -696,7 +696,7 @@ public static class PackageQuery
                     {
                         yield return Completed(
                             plan,
-                            source.Identity,
+                            source.Source,
                             candidates,
                             matches,
                             failures,
@@ -720,7 +720,7 @@ public static class PackageQuery
                 case PackageProfileEvent.Completed completed:
                     yield return Completed(
                         plan,
-                        completed.Value.Producer,
+                        completed.Value.Source,
                         completed.Value.Candidates,
                         matches,
                         failures,
@@ -901,7 +901,7 @@ public static class PackageQuery
         new(
             failure.PackageId,
             failure.Version,
-            failure.Producer,
+            failure.Source,
             failure.Kind switch
             {
                 PackageProfileFailureKind.Search =>
@@ -936,7 +936,7 @@ public static class PackageQuery
 
     static PackageQueryEvent.Completed Completed(
         PackageQueryPlan plan,
-        PackageSourceIdentity producer,
+        PackageSourceResultIdentity source,
         int candidates,
         int matches,
         int failures,
@@ -944,7 +944,7 @@ public static class PackageQuery
         new(
             new PackageQuerySummary(
                 plan.Prefix,
-                producer,
+                source,
                 plan.MaximumCandidates,
                 plan.MaximumMatches,
                 candidates,
