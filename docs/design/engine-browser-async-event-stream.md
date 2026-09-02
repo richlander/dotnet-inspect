@@ -45,16 +45,19 @@ directly to a bounded empty result.
 
 ### Durable partial results
 
-Matches and item failures reach the host as soon as they are established. A
-later progress checkpoint, item failure, cancellation, or bounded completion
+Matches and item failures reach the host incrementally, no later than the
+adapter's declared batch bound or the producer's next asynchronous suspension.
+A later progress checkpoint, item failure, cancellation, or bounded completion
 does not replace rows already admitted into the outcome.
 
 ### Browser worker migration
 
-The same engine stream works before and after .NET moves to a Web Worker.
-Today an adapter may invoke a bounded synchronous JavaScript callback. The
-worker adapter will map nonterminal events to validated `postMessage` payloads
-and return the terminal result through the managed-operation result envelope.
+The same engine stream remains the feature contract before and after .NET
+moves to a Web Worker. Today an adapter may invoke a bounded synchronous
+JavaScript callback. After the separately owned durable-event handoffs in
+[Residual worker integration](#residual-worker-integration) land, a worker
+adapter can map nonterminal events to validated `postMessage` payloads and
+return the terminal result through the managed-operation result envelope.
 Neither transport changes the engine event meanings.
 
 ### CLI consumption
@@ -72,7 +75,8 @@ This document owns:
 - the distinction between advisory progress and durable outcome events;
 - exactly one semantic completion, after every nonterminal event;
 - adapter-side pull, batching, progress coalescing, and bounded buffering;
-- cancellation observation at async-enumerator and feature checkpoints; and
+- operation-token handoff into enumeration and suppression of semantic events
+  after cancellation is observed; and
 - the host-neutral obligations an adopting feature must define and gate.
 
 It consumes:
@@ -177,8 +181,13 @@ The engine adapter is the sole enumerator:
 feature IAsyncEnumerable<TEvent>
   -> host adapter await foreach
      -> callback today
-     -> validated worker message after worker migration
-        -> current-operation publication authority
+        -> feature reducer and renderer
+
+future worker path, after adjacent owners add a durable-event handoff:
+feature IAsyncEnumerable<TEvent>
+  -> managed nonterminal event/batch handoff
+     -> validated worker event/batch message
+        -> current-operation durable publication authority
            -> feature reducer and renderer
 ```
 
@@ -193,6 +202,14 @@ worker adapter owns bounded batching:
 - a batch preserves event order; and
 - `Completed` cannot overtake an earlier batch.
 
+A buffered batch is emitted when it reaches the adopter's declared batch size,
+before the adapter awaits a `MoveNextAsync` that did not complete
+synchronously, and before the adapter returns the terminal result. Batch
+fullness alone is never a reason to retain established events across an
+asynchronous producer suspension. An adapter may enumerate explicitly rather
+than use `await foreach` when it needs to observe that suspension boundary; it
+remains the stream's sole consumer.
+
 The callback channel carries only nonterminal stream events. The adapter
 retains `Completed` and returns its value once through the operation's terminal
 result envelope. This avoids publishing the same semantic completion through
@@ -202,13 +219,41 @@ The current-operation owner decides whether a transported event may update the
 view. A stale event can be consumed for protocol and release purposes without
 regaining publication authority.
 
+### Residual worker integration
+
+The current owners do not yet provide the future path in the second half of
+the diagram. Operation authority exposes advisory progress and one terminal
+result, the managed bridge exposes a progress callback, and the worker
+runtime's closed worker-to-main inventory contains `Progress` and `Settled`.
+Durable `Item` and `ItemFailure` events must not be tunneled through those
+progress shapes or buffered into settlement.
+
+Moving an adopter behind the worker therefore depends on three separately
+owned residuals:
+
+- [#5570](https://github.com/richlander/dotnet-inspect/issues/5570) extends
+  operation authority with typed durable nonterminal event or batch
+  publication while preserving stale-operation suppression.
+- [#5419](https://github.com/richlander/dotnet-inspect/issues/5419) extends the
+  managed bridge with an authenticated nonterminal union or batch handoff and
+  owns its callback lifetime and release.
+- [#5418](https://github.com/richlander/dotnet-inspect/issues/5418) extends the
+  worker runtime's closed protocol with validated event or batch messages,
+  payload budgets, ordering before settlement, and epoch behavior.
+
+Those owners choose and gate their concrete shapes. Their composition update
+must join the same typed nonterminal payload without reclassifying durable
+events as progress. This document owns only the semantic distinction and
+ordering that those handoffs consume.
+
 ## Cancellation and failure
 
-The enumerator receives the operation cancellation token through
-`[EnumeratorCancellation]`. Each awaited dependency receives that token, and
-CPU work observes it at feature-owned bounded checkpoints. Cancellation stops
-further semantic events; the operation owner supplies the visible cancellation
-reason.
+The adapter passes the operation cancellation token into async enumeration,
+for example with `WithCancellation`. The adopting feature owns whether its
+producer uses `[EnumeratorCancellation]`, which awaited dependencies receive
+the token, and where CPU work observes it. Once enumeration observes
+cancellation, the adapter publishes no later semantic event; the operation
+owner supplies the visible cancellation reason.
 
 Item failures are data only when the feature can continue and retain honest
 accounting. A source or boundary failure that prevents an honest completion
@@ -224,7 +269,8 @@ Each adopting owner specifies:
 - progress phases, counters, totals, and coalescing keys;
 - the terminal accounting and completion kinds;
 - the first checkpoint for a no-item path;
-- cancellation checkpoints and awaited calls;
+- its feature-owned cancellation checkpoints, awaited-call propagation, and
+  Release gate;
 - maximum durable events and adapter batch size;
 - mapping to its CLI and Browser hosts; and
 - neighboring no-progress and failure cases.
@@ -259,12 +305,16 @@ outcomes.
 The shared contract is enforced through each adopter's Release gates. A first
 adopter must prove:
 
-1. progress precedes terminal completion on a no-item path;
+1. on a no-item path with later work held at an incomplete producer await,
+   progress is delivered while that work remains pending rather than only
+   immediately before terminal completion;
 2. progress is monotonic within a phase and never exceeds a declared total;
 3. items and item failures retain producer order around progress events;
 4. exactly one completion is observed and no callback carries it;
 5. cancellation and unexpected failure produce no later semantic event;
-6. callback or worker batching cannot drop durable events or reorder completion;
+6. the currently adopted callback or batch path flushes on its declared bound
+   and producer suspension, cannot drop durable events, and cannot reorder
+   completion; a worker claim requires the residual owner work above;
 7. stale-operation events cannot update replacement feature state;
 8. a CLI consumer can enumerate the same host-neutral stream without Browser
    types; and
