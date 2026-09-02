@@ -164,7 +164,7 @@ reaches through Research to redefine the other.
 | Region | Place in flow | Responsibility | Primary authority |
 | ------ | ------------- | -------------- | ----------------- |
 | `DotnetInspector.Vocabulary` | Cross-host catalog | Shared static catalogs for legal rich-query values across hosts. | [Query vocabulary](design/vocabulary.md) |
-| `DotnetInspector.RowSelection` | Orthogonal leaf | Typed `Head`, `Tail`, `Window`, and `Top` declarations plus complete-sequence generic reference evaluation. | [Semantic row selection](design/semantic-row-selection.md) |
+| `DotnetInspector.RowSelection` | Shared row-selection contract | Typed `Head`, `Tail`, `Window`, and `Top` declarations plus complete-sequence generic reference evaluation. | [Semantic row selection](design/semantic-row-selection.md) |
 | `DotnetInspector.Queries` | Core L1 | Typed query definitions, immutable catalogs, workspaces, execution plans, and typed results. | [Inspection layers](design/inspection-layers.md), [inspection space](inspection-space.md) |
 | `DotnetInspector.ResearchQueries` | Optional L1 companion | Research-backed queries without pulling Research into the core query assembly. | [Inspection layers](design/inspection-layers.md) |
 | `DotnetInspector.PackageQueries` | Optional L1 companion | Package-aware composition over package-neutral queries and realization proofs. | [Package Root realization](design/artifact-acquisition-and-workspaces.md#package-root-realization) |

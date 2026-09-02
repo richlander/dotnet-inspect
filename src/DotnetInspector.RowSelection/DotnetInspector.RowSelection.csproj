@@ -12,7 +12,4 @@
     <Description>Typed row-selection declarations and complete-sequence reference evaluation</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
-
-  <!-- Leaf floor: references no product project by design. -->
-
 </Project>
