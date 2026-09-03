@@ -77,12 +77,22 @@ consumer.
    can decide whether to trust it. A substrate must never present a
    convention match as a structural fact. Name grammars must come from the
    shared `GeneratedNameGrammar`, never from an ad-hoc string test.
-3. **Independent multi-consumer demand.** At least two higher layers need the
-   same meaning. The evidence may be:
+3. **Independent multi-consumer demand.** At least two independent derivations
+   or reads of the same meaning exist today, **and at least one of them lives
+   above `ILInspector.Metadata`.** The evidence may be:
 
-   - **consumption** — two layers already read the substrate's result; or
-   - **duplication** — two or more layers each derive the same meaning
+   - **consumption** — a layer already reads the substrate's result; or
+   - **duplication** — two or more components each derive the same meaning
      independently today, or one reads a substrate while another derives it.
+
+   Both halves are load-bearing, and they answer different questions. The
+   count establishes that drift is *possible*, which is what a substrate
+   prevents. The higher-layer requirement establishes that the meaning is not
+   simply Metadata's own internal business: a fact that only Metadata ever
+   derives can be refactored inside Metadata without a published contract.
+   Several derivations inside Metadata plus one genuine higher-layer consumer
+   therefore satisfies this requirement; several derivations inside Metadata
+   and nothing above it does not.
 
    Duplication is the stronger signal, because a second derivation is the
    drift the substrate exists to prevent. No substrate need already exist:
@@ -235,10 +245,22 @@ the budget-limited outcome. A budget exception must not escape the entry
 point, because an escaping exception is indistinguishable to a consumer from a
 tool defect.
 
-**Caching belongs to the consumer.** A substrate is constructed from a reader
-and is free of ambient state; whether to build one per operation, or hold one
-lazily for the lifetime of a metadata source, is the consumer's decision.
-Substrates must not introduce process-wide caches or a shared registry.
+**Caching belongs to the consumer.** A substrate is constructed from a reader,
+and whether to build one per operation or hold one lazily for the lifetime of
+a metadata source is the consumer's decision. A substrate must not introduce a
+shared registry, nor process-wide state that outlives the reader it was
+derived from or is shared between readers.
+
+Reader-keyed memoization is not ambient state in that sense and is permitted:
+it is observationally transparent, and its lifetime is bounded by the reader
+rather than by the process. The precedents already rely on it —
+`StateMachineRelationshipIndex` obtains both its assembly-reference projection
+and its core-library answer from `static readonly
+ConditionalWeakTable<MetadataReader, ...>` memoizers
+(`src/ILInspector.Metadata/StateMachineRelationshipIndex.cs:1658`-`1662`,
+`src/ILInspector.Metadata/AssemblyReferenceIdentity.cs:22`-`25` and `:133`-`137`,
+`src/ILInspector.Metadata/CoreLibraryRootAuthentication.cs:7`-`21`). The
+distinction that matters is keying and lifetime, not the `static` keyword.
 
 ## What a substrate guarantees, and what it leaves alone
 
@@ -299,22 +321,35 @@ change that introduces it.
 
 These published meanings independently satisfy **requirement 3**: each shows
 its own demand evidence, and the following subsection lists meanings that do
-not.
+not. Membership here means exactly that and nothing more.
 
-Membership here is not a certificate that all five requirements hold today.
-The admission test governs whether a component is admitted as a substrate; an
-admitted component can still deviate from the contract afterwards, and one
-does. Exact TypeDef declaration currently **fails requirement 5**: budget
-exhaustion is reported as `Malformed`, and the failure vocabulary has no
-budget mechanism to distinguish them — `MetadataTypeNameFailureMechanism`
-declares only `Metadata`, `Relationship`, `Signature`, and
-`TypeSpecification` (`src/ILInspector.MetadataPrimitives/MetadataTypeNameResult.cs:8`-`14`),
-while `Malformed` hard-codes `Mechanism.Metadata` (`:76`-`:82`), leaving only
-a `Detail` string to separate a bounded artifact from a broken one. That is
-recorded in **Known deviations** and tracked as
+**Requirement 5 is not met by the tree today.** It is the one requirement the
+existing components were written without, and auditing all six rows against it
+found four failures — so requirement 5 is stated here as a forward contract,
+not as something the precedents demonstrate. The failures share a single
+defect class: a **resource bound we imposed** and a **defect in the artifact**
+arrive at the consumer as the same published value, separated only by a
+human-readable `Detail` string.
+
+| Established meaning | Requirement 5 today |
+| --- | --- |
+| State-machine claims and kickoff/type pairing | **Fails.** An out-of-range caller handle routes through `MalformedHandle` (`src/ILInspector.Metadata/StateMachineRelationshipIndex.cs:174`-`180`) to the same `Rejected(Malformed)` a genuinely unreadable artifact produces (`:124`-`127`). The vocabulary has `BudgetExceeded` but no `InvalidHandle` (`src/ILInspector.Metadata/StateMachineRelationship.cs:186`-`194`), though the sibling index models exactly that case (`src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:102`-`104`). |
+| Exact `MoveNext` execution-role selection | Conforming — role selection and rejection are typed. |
+| Module memory-safety rules markers | Conforming — version, malformed, conflicting, unsupported, and budget states are each typed. |
+| Member unsafe contracts | **Fails.** The attribute-row budget (`MemorySafetyMetadataIndex.cs:748`-`752`), a `MetadataBudgetException` (`:801`-`803`), and malformed metadata (`:805`-`810`) all return `Unavailable`, published as `AttributeUnavailable`; the failure enum has no budget case (`:102`-`110`). |
+| Exact TypeDef declaration | **Fails.** Budget exhaustion is reported as `Malformed`: `MetadataTypeNameFailureMechanism` declares only `Metadata`, `Relationship`, `Signature`, and `TypeSpecification` (`src/ILInspector.MetadataPrimitives/MetadataTypeNameResult.cs:8`-`14`), and `Malformed` hard-codes `Mechanism.Metadata` (`:76`-`:82`). |
+| TypeDef kind classification | **Fails.** `MetadataTypeDefinitionKind` offers only `Unknown`, `Class`, `Interface`, `ValueType` (`src/ILInspector.Metadata/TypeDeclaration.cs:14`-`20`), and `Unknown` is returned for bound exhaustion or a cycle (`MetadataTypeDeclarationProbe.cs:785`-`789`), an unsupported TypeSpec shape (`:818`-`857`), a rejected name read (`:864`-`881`), and malformed metadata (`:910`-`915`) — inside a success-shaped `Defined` result (`:640`-`648`). |
+
+All four are recorded in **Known deviations** and tracked by
+[#5730](https://github.com/richlander/dotnet-inspect/issues/5730) and
 [#5708](https://github.com/richlander/dotnet-inspect/issues/5708). A row
 carrying a recorded deviation is non-conforming and tracked, not silently
-admitted, and it may not be cited as precedent for the requirement it fails.
+admitted, and **may not be cited as precedent for the requirement it fails**.
+
+That so many rows fail one requirement is the most useful thing this inventory
+found. Each component chose its own failure vocabulary in isolation, and each
+independently omitted the same distinction. A shared contract is the only
+thing that would have caught it, which is the argument for naming the pattern.
 
 | Published meaning (component) | Reading consumer | Second demand, and its evidence |
 | --- | --- | --- |
@@ -325,11 +360,13 @@ admitted, and it may not be cited as precedent for the requirement it fails.
 | Exact TypeDef declaration (`MetadataTypeDeclarationProbe`) | Queries, reads the result through the Metadata-owned session entry point — `src/DotnetInspector.Queries/InspectionGraphIntegrationsQuery.cs:1226`, `:1310`, `:2001` call `session.ProbeDeclaration(...)`, which returns the substrate's own `TypeDeclarationResult` (`src/ILInspector.Metadata/AssemblyInspectionSession.cs:371`) | **Consumption.** The Decompiler calls the probe class directly — `MetadataTypeDeclarationProbe.ProbeDefinition(reader, typeName)` at `src/ILInspector.Decompiler/Pipeline/Ir/IrImporter.cs:236`. |
 | TypeDef kind classification (`MetadataTypeDeclarationProbe`) | Analysis, reads a projection — `TypeResolutionContext` carries `defined.Kind` into `ResolvedTypeDefinition` (`src/ILInspector.Metadata/TypeResolutionContext.cs:2055`), and Analysis reads `resolved.Definition.Kind` at `src/ILInspector.Analysis/CatalogMemberJoinProjector.cs:185` | **Consumption and duplication both.** Analysis also keeps its own check — `IsValueTypeDefinition`, commented "Authoritative in-assembly check", at `src/ILInspector.Analysis/LibraryBodyPrimaryMetadataResolver.cs:930`-`945` — so it consumes the substrate in one place and re-derives the same fact in another. The Decompiler classifies the family independently in `ClassifyShape` at `src/ILInspector.Decompiler/Pipeline/CrossAssemblyTypeResolver.cs:1333`, over a finer codomain that keeps the enum and delegate distinctions `MetadataTypeDefinitionKind` (`src/ILInspector.Metadata/TypeDeclaration.cs:14`-`20`) folds away. |
 
-The state-machine duplication is not merely redundant, it is *worse* than the
+The state-machine duplication is not merely redundant, it is *weaker* than the
 substrate it duplicates: Analysis identifies state-machine types with an ad-hoc
-`">d__"` substring test (`LibraryBodyPrimaryMetadataResolver.cs:835`), exactly
-the ad-hoc name test requirement 2 forbids, rather than the shared
-`GeneratedNameGrammar`. Duplication reproduces a derivation, not its quality.
+`">d__"` substring test (`LibraryBodyPrimaryMetadataResolver.cs:835`) rather
+than the shared `GeneratedNameGrammar`. That is an observation about what the
+duplicate evidence is worth, not a rule imposed on Analysis — Analysis is not
+a substrate, the admission test does not govern it, and it is free to keep
+that code. Duplication reproduces a derivation, not its quality.
 
 ### Published alongside, but not independently admitted
 
@@ -344,6 +381,7 @@ per-meaning rule from being satisfied by a class-level sibling.
 | Published meaning (component) | Why it does not independently satisfy requirement 3 |
 | --- | --- |
 | Remaining interface roles — `SetStateMachine`, `MoveNextAsync`, `Dispose`, `DisposeAsync` (`StateMachineRelationshipIndex`) | **No second demand, and no individual reader.** The Decompiler does not distinguish them: iterating role dispositions at `src/ILInspector.Decompiler/Pipeline/ClassicAsyncRequestAdapter.cs:234`-`245`, it collapses every role other than `MoveNext` to a single `Support` answer. Analysis derives none of them. They are published because `StateMachineRelationship` requires a complete role array — its constructor rejects any relationship that does not "account for every role" (`src/ILInspector.Metadata/StateMachineRelationship.cs:69`-`80`) against the per-kind role sets in `RolesFor` (`:154`-`175`) — not because a second layer needs them. |
+| Core-library-root authentication (`MetadataTypeDeclarationProbe`) | **No demand above Metadata.** `DeclaringAssemblyDefinesCoreLibraryRoot` (`src/ILInspector.Metadata/TypeDeclaration.cs:179`) is copied into every successful `Defined` result and re-published on the `ResolvedTypeDefinition` projection (`src/ILInspector.Metadata/TypeResolution.cs:982`), but every reader is inside Metadata — `TypeResolutionContext.cs:2247`, `:2341`, `:2819` and `TypeParameterKindClassifier.cs:330`, `:397`. It fails requirement 3's higher-layer half outright, and is a good illustration of it: a fact only Metadata consumes needs no published contract to stay consistent. |
 | Forwarding chains and module exports (`MetadataTypeDeclarationProbe`) | **Single reader.** `ProbeDefinition` explicitly "finds one exact TypeDef in the current image without considering exports or forwarders" (`src/ILInspector.Metadata/MetadataTypeDeclarationProbe.cs:11`), so the Decompiler is not a reader of this family; only Queries is. |
 
 "Consumed" is used in two senses in the Established table and the column says
@@ -382,11 +420,16 @@ hundred lines away in `LibraryBodyPrimaryMetadataResolver`. Partial adoption is
 the normal state, not a transitional one, which is why the pattern records
 demand per meaning rather than per consumer.
 
-A related habit shows up three times while assembling this inventory: a layer
+A related habit turned up repeatedly while assembling this inventory: a layer
 that needs a compiler name grammar writes its own. Analysis matches `">d__"`
-by substring, the Decompiler builds `$"<{member.Name}>k__BackingField"` by
-hand, and both bypass the shared `GeneratedNameGrammar` that requirement 2
-mandates. Duplication reproduces a derivation, not its quality.
+by substring (`src/ILInspector.Analysis/LibraryBodyPrimaryMetadataResolver.cs:835`)
+and the Decompiler builds `$"<{member.Name}>k__BackingField"` by hand
+(`src/ILInspector.Decompiler/MemberBodyProducer.cs:1630`); both bypass the
+shared `GeneratedNameGrammar`. Those layers are not substrates and this
+document does not bind them. The relevance is narrower and is about this
+pattern: a name grammar is exactly the kind of conventional evidence
+requirement 2 admits only when it is centrally owned, so the spread of private
+copies is the demand signal, not a violation.
 
 Duplication is the point rather than an embarrassment: it has now produced two
 shipped divergences, [#5670](https://github.com/richlander/dotnet-inspect/issues/5670)
@@ -397,7 +440,7 @@ backlog. The memory-safety row's remaining adoption is tracked under
 state-machine duplication is recorded here and has no tracker yet. None is
 claimed as completed adoption.
 
-Two of the eight meanings published by the established components do not
+Three of the nine meanings published by the established components do not
 independently qualify. A component earns substrate status for the meaning that
 justified it, and tends to accumulate neighbouring families afterwards. The
 admission test governs the first; the publication contract governs both.
@@ -428,7 +471,11 @@ non-conforming work:
 - Every row names an **existing** deviation with `path:line` evidence. Rows
   whose correction is a code change name their tracker —
   [#5708](https://github.com/richlander/dotnet-inspect/issues/5708) for the
-  budget outcome and
+  declaration budget outcome,
+  [#5730](https://github.com/richlander/dotnet-inspect/issues/5730) for the
+  outcome collapses shared across all three components,
+  [#5731](https://github.com/richlander/dotnet-inspect/issues/5731) for
+  unbounded declaration-table construction, and
   [#5711](https://github.com/richlander/dotnet-inspect/issues/5711) for the
   identity rows. The raw-handle row is tracked in
   [#5711](https://github.com/richlander/dotnet-inspect/issues/5711) as well,
@@ -439,16 +486,30 @@ non-conforming work:
 | Substrate | Deviation | Evidence |
 | --- | --- | --- |
 | Type declaration and forwarding resolution | Budget exhaustion is reported as `Malformed`, collapsing the **Budget-limited** distinction into malformed metadata. A consumer cannot tell a hostile-artifact bound from a broken artifact. | `src/ILInspector.Metadata/MetadataTypeDeclarationProbe.cs:67` returns `TypeDeclarationResult.Rejected(MetadataTypeNameFailure.Malformed(...))` with the message "exceeded its structural-name work budget". |
+| `StateMachineRelationshipIndex` | An out-of-range caller handle is published as `Rejected(Malformed)`, indistinguishable from unreadable metadata — a caller bug and a hostile artifact report identically. The vocabulary has `BudgetExceeded` but no `InvalidHandle`. | `MalformedHandle` at `src/ILInspector.Metadata/StateMachineRelationshipIndex.cs:174`-`180`, reached from `:139` and `:156`, versus the recoverable-failure path at `:124`-`127`; vocabulary at `src/ILInspector.Metadata/StateMachineRelationship.cs:186`-`194`. Tracked as [#5730](https://github.com/richlander/dotnet-inspect/issues/5730). |
+| `MemorySafetyMetadataIndex` | Attribute-row budget, name-work budget, and malformed metadata all publish as `AttributeUnavailable`; the failure enum has no budget case. | `src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:748`-`752`, `:801`-`803`, `:805`-`810`; enum at `:102`-`110`. Tracked as [#5730](https://github.com/richlander/dotnet-inspect/issues/5730). |
+| Type declaration and forwarding resolution | TypeDef **kind** collapses bound exhaustion, unsupported TypeSpec shapes, rejected name reads, and malformed metadata into `Unknown`, published inside a success-shaped `Defined` result. | `src/ILInspector.Metadata/MetadataTypeDeclarationProbe.cs:785`-`789`, `:818`-`857`, `:864`-`881`, `:910`-`915`, published at `:640`-`648`; enum at `src/ILInspector.Metadata/TypeDeclaration.cs:14`-`20`. Tracked as [#5730](https://github.com/richlander/dotnet-inspect/issues/5730). |
+| Type declaration and forwarding resolution | The whole-table paths take **no work bound at all**, so the construction rule above is unmet rather than merely misreported. Array sizes come straight from untrusted table counts. | `Probe` scans every TypeDef and ExportedType — `src/ILInspector.Metadata/MetadataTypeDeclarationProbe.cs:113`-`203`; the `Index` constructor allocates from `reader.TypeDefinitions.Count` and `reader.ExportedTypes.Count` and reads every entry — `:219`-`301`; reached lazily from `src/ILInspector.Metadata/AssemblyInspectionSession.cs:371`-`375`. Only `ProbeDefinition` has a budget. Tracked as [#5731](https://github.com/richlander/dotnet-inspect/issues/5731). |
 | Type declaration and forwarding resolution | Publishes bare row coordinates throughout its result graph, so a retained result cannot be rebound to a module safely. The correction boundary is **every** published coordinate, not the examples cited. | `TypeDefinitionToken.Value` — `src/ILInspector.Metadata/TypeDeclaration.cs:27`; `ExportedTypeToken.Value` — `:50`; `MetadataTypeNameFailure.SubjectToken` — `src/ILInspector.MetadataPrimitives/MetadataTypeNameResult.cs:39`. Tracked as [#5711](https://github.com/richlander/dotnet-inspect/issues/5711). |
 | `MemorySafetyMetadataIndex` | Same defect, same boundary. | `MemorySafetyMemberContractEvidence.MemberToken` and `.AssociatedMemberToken` — `src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:94`; `MemorySafetyRulesObservation.AttributeToken` — `:24`. Tracked as [#5711](https://github.com/richlander/dotnet-inspect/issues/5711). |
 | `MemorySafetyMetadataIndex`, `StateMachineRelationshipIndex` | Accept raw handles, so an in-range handle from another module is undetectable at the boundary. This is a limit of the key type; the deviation is that neither documents it. | `GetMemberContract(EntityHandle)` (`src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:363`) admits any handle its `IsValidMemberHandle` accepts, and that check tests kind and row number only — `src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:841`; `IsValidMethodHandle` checks row range alone — `src/ILInspector.Metadata/StateMachineRelationshipIndex.cs:164`. |
 
-The requirement is not invented for this document: the other two substrates
-already model the distinction as a first-class case —
-`src/ILInspector.Metadata/StateMachineRelationship.cs:192` and
-`src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:32` both declare
-`BudgetExceeded`. Type declaration is the outlier, and correcting it is
-tracked as [#5708](https://github.com/richlander/dotnet-inspect/issues/5708).
+The requirement is not invented for this document — but it is not satisfied by
+any of the three, either, and the gap is instructive. Two of them already
+*declare* the case: `src/ILInspector.Metadata/StateMachineRelationship.cs:192`
+and `src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:32` both have
+`BudgetExceeded`. Declaring the case is not the same as routing every
+reachable state to it. The state-machine index has `BudgetExceeded` and still
+reports an invalid handle as `Malformed`; the memory-safety index has
+`BudgetExceeded` for module rules and still collapses the member-contract
+budget into `AttributeUnavailable`.
+
+So the defect is not one outlier component that forgot a vocabulary. It is
+that each component extended its vocabulary only as far as the paths it
+happened to think about, and no shared contract ever asked whether every
+reachable disposition had a home. That is precisely the failure a named
+pattern with a fixed admission test prevents, and it is the strongest
+practical argument in this document.
 
 ### Candidates
 
