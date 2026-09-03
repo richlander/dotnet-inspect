@@ -18,11 +18,19 @@ static class NuGetTargetFrameworkIdentity
 
         try
         {
-            string frameworkText = source.Contains(',', StringComparison.Ordinal)
-                ? TfmSelector.NormalizeTfm(source)
-                : source;
-            NuGetFramework framework =
-                NuGetFramework.ParseFolder(frameworkText);
+            NuGetFramework framework;
+            if (source.Contains(',', StringComparison.Ordinal))
+            {
+                string normalized = TfmSelector.NormalizeTfm(source);
+                framework = string.Equals(normalized, source, StringComparison.Ordinal)
+                    ? NuGetFramework.Parse(source)
+                    : NuGetFramework.ParseFolder(normalized);
+            }
+            else
+            {
+                framework = NuGetFramework.ParseFolder(source);
+            }
+
             if (framework.IsUnsupported)
                 return false;
 

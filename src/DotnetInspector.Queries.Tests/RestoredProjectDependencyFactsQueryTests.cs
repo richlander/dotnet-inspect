@@ -244,6 +244,49 @@ public sealed class RestoredProjectDependencyFactsQueryTests
         Assert.Equal(RestoredProjectTargetSelectionProvenance.Requested, facts.SelectedTarget.Provenance);
     }
 
+    [Theory]
+    [InlineData("UAP,Version=v10.0", "uap10.0")]
+    [InlineData("MonoAndroid,Version=v10.0", "monoandroid10.0")]
+    [InlineData(".NETPortable,Version=v0.0,Profile=Profile7", "portable-net45+win8")]
+    [InlineData("Xamarin.iOS,Version=v1.0", "xamarinios10")]
+    public void Execute_SchemaVersion3_ShortRequestCorrelatesWithNuGetLongForm(
+        string longFramework,
+        string shortFramework)
+    {
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                [longFramework] = new JsonObject(),
+            },
+            rootGroups: new JsonObject
+            {
+                [longFramework] = new JsonArray(),
+            },
+            frameworks: new JsonObject
+            {
+                [shortFramework] = new JsonObject
+                {
+                    ["dependencies"] = new JsonObject(),
+                },
+            },
+            version: 3);
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                bytes,
+                new RestoredProjectTargetRequest(shortFramework)));
+
+        Assert.Equal(shortFramework, facts.SelectedTarget!.FrameworkIdentity);
+        Assert.Equal(
+            shortFramework,
+            Assert.Single(
+                Assert.IsType<RestoredProjectDeclarationResult.Available>(
+                    facts.Declaration).Groups).FrameworkIdentity.Identity);
+        Assert.True(
+            Assert.IsType<RestoredProjectGraphResult.Available>(
+                facts.Graph).IsComplete);
+    }
+
     [Fact]
     public void Execute_SchemaVersion3_CorrelatesShortDeclarationPivotWithLongTargetPivot()
     {
@@ -1024,6 +1067,33 @@ public sealed class RestoredProjectDependencyFactsQueryTests
             {
                 ["net8.0"] = new JsonObject(),
                 [".NETCoreApp,Version=v8.0"] = new JsonObject(),
+            },
+            rootGroups: new JsonObject(),
+            frameworks: new JsonObject());
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(bytes));
+
+        Assert.Null(facts.SelectedTarget);
+        Assert.Equal(
+            RestoredProjectGraphFailureReason.AmbiguousTargetIdentity,
+            Assert.IsType<RestoredProjectGraphResult.Failed>(
+                facts.Graph).Failure.Reason);
+    }
+
+    [Theory]
+    [InlineData("uap10.0", "UAP,Version=v10.0")]
+    [InlineData("monoandroid10.0", "MonoAndroid,Version=v10.0")]
+    [InlineData("portable-net45+win8", ".NETPortable,Version=v0.0,Profile=Profile7")]
+    public void Execute_NuGetLongAndShortDuplicateTargetPivotsFailGraph(
+        string shortFramework,
+        string longFramework)
+    {
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                [shortFramework] = new JsonObject(),
+                [longFramework] = new JsonObject(),
             },
             rootGroups: new JsonObject(),
             frameworks: new JsonObject());
@@ -1943,11 +2013,15 @@ public sealed class RestoredProjectDependencyFactsQueryTests
         return Encoding.UTF8.GetBytes(document.ToJsonString());
     }
 
-    static byte[] SyntheticDocument(JsonObject targets, JsonObject rootGroups, JsonObject frameworks)
+    static byte[] SyntheticDocument(
+        JsonObject targets,
+        JsonObject rootGroups,
+        JsonObject frameworks,
+        int version = 4)
     {
         var document = new JsonObject
         {
-            ["version"] = 4,
+            ["version"] = version,
             ["targets"] = targets,
             ["projectFileDependencyGroups"] = rootGroups,
             ["project"] = new JsonObject { ["frameworks"] = frameworks },
