@@ -20,6 +20,7 @@ policy.
 - Can the workspace mutate the composed binding-policy version outside the
   owner-issued lifecycle?
 - Does each rejected preparation retain its exact typed cause?
+- Can a failed private attempt silently schedule an automatic retry?
 - Does observed drift make the old generation unavailable before a replacement
   becomes current?
 - Does every started generation settle, and can a replacement complete?
@@ -44,10 +45,11 @@ The model consumes rather than redefines three adjacent contracts:
 
 `WorkspaceBindingPolicyRealization` begins after acquisition and assembly
 projection have produced one exact planned participant-registration sequence,
-role projection, and delegate map. It ends when the workspace atomically
-exposes a matching group/policy pair or records a typed failure. Existing query
-leases, group cleanup, and resource quiescence remain owned by the
-generation-access, group-lifecycle, and workspace-close models.
+role projection, and delegate map, including one route for every planned
+participant registration. It ends when the workspace atomically exposes a
+matching group/policy pair or records a typed failure. Existing query leases,
+group cleanup, and resource quiescence remain owned by the generation-access,
+group-lifecycle, and workspace-close models.
 
 ## State space
 
@@ -62,17 +64,20 @@ policy versions. The first generation explores:
 
 Mismatch scenarios do not also advance the composite policy version, keeping
 each typed failure attributable to one cause. Those failures are terminal and
-do not promise an automatic successful retry. Only retirement after observed
-drift enables an exact second generation. The second generation proves
-replacement progress once started, without claiming that the workspace starts
-it automatically or converges while policy state continues changing.
+cannot start the second generation. Only retirement after observed drift
+enables an exact second generation, representing a later authorized demand
+rather than an automatic retry. The second generation proves replacement
+progress once started, without claiming that the workspace starts it
+automatically or converges while policy state continues changing.
 
 The model represents participant plans, role projections, and delegate maps as
-opaque owner-issued values. It proves exact association and lifecycle ordering,
-not their internal construction or policy meaning. One constructed-policy
-identity represents the requirement that every participant in the opaque plan
-receives the same exact adopted capability; the implementation gate must
-quantify the individual constructors.
+opaque owner-issued values. The delegate-map value includes the complete
+planned participant-origin route map; discovery-time route addition is outside
+the modeled context contract. The model proves exact association and lifecycle
+ordering, not the map's internal construction or policy meaning. One
+constructed-policy identity represents the requirement that every participant
+in the opaque plan receives the same exact adopted capability; the
+implementation gate must quantify the individual constructors.
 
 ## Assumptions and non-claims
 
@@ -89,6 +94,13 @@ The model does not represent reservation arithmetic, quiescent cleanup, or the
 possibility that a requested replacement is refused or fails. The second
 generation is the admitted, stable-policy success scenario. Its temporal
 property applies only after replacement preparation starts.
+
+The model includes automatic retry after a private `PolicyVersionMismatch` only
+as a disabled mutation. The checked contract prevents the first generation's
+failed phase from enabling the second generation; a later replacement is
+modeled only after a published generation is retired. The implementation
+correspondence gate must separately prove that the participant-origin route map
+was complete before preparation.
 
 Each mismatch scenario changes one receipt field. The model proves that each
 cause is rejected and typed independently, but not the precedence when one
@@ -132,7 +144,8 @@ not immediate resource disposal.
 | `FailedGenerationIsUnavailable` | A failed generation publishes neither group nor policy. |
 | `RetiredGenerationIsUnavailable` | Observed drift removes both current handles for the retired generation. |
 | `ReplacementFollowsRetirement` | A replacement cannot publish before a previously published generation is retired. |
-| `ReplacementStartsAfterRetirement` | A replacement cannot enter preparation while the previous generation remains current. |
+| `ReplacementStartsAfterRetirement` | Outside the separately modeled failed-attempt branch, generation two cannot start before generation one retires. |
+| `FailedPrivateAttemptDoesNotRetry` | A private generation failure cannot schedule the modeled replacement generation. |
 | `PublicationObservedCurrentVersion` | Every publish step independently witnesses that its captured version was current. |
 | `BindingVersionAdvanceIsFresh` | The imported binding-owner invariant holds for the workspace's projected version state. |
 | `BindingVersionBehaviorRefinesOwner` | Every workspace step changes the projected version state through the owner action or stutters. |
@@ -145,7 +158,7 @@ not immediate resource disposal.
 
 | Configuration | Purpose |
 | --- | --- |
-| `WorkspaceBindingPolicyRealizationSafety.cfg` | Checks all eighteen safety invariants and the imported owner-behavior refinement property over exact, mismatched, pre-publication-drift, published-drift, and replacement scenarios. |
+| `WorkspaceBindingPolicyRealizationSafety.cfg` | Checks all nineteen safety invariants and the imported owner-behavior refinement property over exact, mismatched, pre-publication-drift, published-drift, and replacement scenarios. |
 | `WorkspaceBindingPolicyRealizationLiveness.cfg` | Checks build settlement, requested-access drift retirement, and progress after stable replacement starts. |
 | `BrokenPreparationMatch.cfg` | Accepts a completion from another preparation; it must violate `AdoptedPolicyMatchesPreparation`. |
 | `BrokenParticipantMatch.cfg` | Accepts a foreign participant plan; it must violate `AdoptedPolicyMatchesParticipants`. |
@@ -160,14 +173,16 @@ not immediate resource disposal.
 | `BrokenAtomicPublication.cfg` | Publishes a group without its policy; it must violate `PublicationIsAtomic`. |
 | `BrokenAtomicRetirement.cfg` | Retires the group while leaving its policy current; it must independently violate `RetirementWasAtomic`. |
 | `BrokenReplacementStartBeforeRetirement.cfg` | Starts generation two while generation one remains current, while still forbidding early publication; it must violate `ReplacementStartsAfterRetirement`. |
+| `BrokenAutomaticRetryAfterFailure.cfg` | Starts generation two after a failed private generation; it must violate `FailedPrivateAttemptDoesNotRetry`. |
 | `BrokenReplacementBeforeRetirement.cfg` | Publishes generation two over a still-current generation one; it must violate `ReplacementFollowsRetirement`. |
 | `ReachabilityReplacement.cfg` | Negates replacement publication and fails only after a complete retire-and-replace trace. |
 
 `eng/tla-expected-exit-codes.txt` makes both positive configurations
-exact-success gates and requires the imported-lifecycle bypass configuration to
-produce TLC's liveness-property violation exit. The other legacy mutations
-retain the coherent-verdict runner policy documented in the repository TLA+
-methodology.
+exact-success gates, requires the automatic-retry mutation to produce TLC's
+safety-property violation exit, and requires the imported-lifecycle bypass
+configuration to produce TLC's liveness-property violation exit. The other
+legacy mutations retain the coherent-verdict runner policy documented in the
+repository TLA+ methodology.
 
 ## Running TLC
 
@@ -211,6 +226,7 @@ for config in \
   BrokenImportedBindingVersionLifecycle \
   BrokenAtomicPublication \
   BrokenAtomicRetirement \
+  BrokenAutomaticRetryAfterFailure \
   BrokenReplacementStartBeforeRetirement \
   BrokenReplacementBeforeRetirement \
   ReachabilityReplacement
@@ -228,7 +244,7 @@ The positive configurations completed with no errors:
 
 | Configuration | Generated states | Distinct states | Maximum depth | Result |
 | --- | ---: | ---: | ---: | --- |
-| Safety | 68 | 65 | 14 | All eighteen safety invariants and the imported owner-behavior refinement property passed. |
+| Safety | 68 | 65 | 14 | All nineteen safety invariants and the imported owner-behavior refinement property passed. |
 | Liveness | 68 | 65 | 14 | All three temporal properties passed. |
 
 The safety graph starts eleven initial scenarios. It executed 12 preparations,
@@ -237,7 +253,7 @@ three publications, three pre-publication invalidations, five composite-policy
 version advances, one current-access request, and one published-generation
 retirement.
 
-The fourteen invariant and reachability mutations exited with TLC status 12.
+The fifteen invariant and reachability mutations exited with TLC status 12.
 The imported-behavior mutation exited with status 13 on
 `BindingVersionBehaviorRefinesOwner`:
 
@@ -255,6 +271,7 @@ The imported-behavior mutation exited with status 13 on
 | Broken imported binding lifecycle | 24 / 24 | 3 | The workspace marked the version advanced without using the owner transition, violating the imported behavior. |
 | Broken atomic publication | 54 / 52 | 6 | The group became current without its policy. |
 | Broken atomic retirement | 63 / 60 | 9 | Retirement removed the group but left its policy current. |
+| Broken automatic retry | 49 / 48 | 5 | A failed private generation scheduled generation two without a later authorized demand. |
 | Broken replacement start ordering | 62 / 59 | 8 | Generation two started while generation one remained current, with early publication still forbidden. |
 | Broken replacement ordering | 79 / 70 | 12 | Generation two published over a still-current generation one. |
 | Replacement reachability | 68 / 65 | 14 | Generation one retired after observed drift, then generation two published. |

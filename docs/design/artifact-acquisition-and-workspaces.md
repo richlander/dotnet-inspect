@@ -981,15 +981,24 @@ generation. The preparation carries owner-issued identities for:
   binding policy before composition begins.
 
 The participant plan, role projection, and delegate map are already complete.
-The workspace cannot append a late participant, change a role, or replace one
-delegate after issuing the preparation. Binding composition consumes the
-complete candidate-domain and finalization contracts from
+For this sealed context, every planned participant registration has one
+delegated-policy route before preparation, and discovery may use only those
+planned registrations as binding origins. If the workspace cannot supply a
+configured route map for which discovery-time route addition is impossible, it
+rejects realization. This requirement constrains the prepared policy state,
+not whether its policy type can learn routes in other, open-ended contexts.
+The workspace cannot append a late participant, learn a late origin route,
+change a role, or replace one delegate after issuing the preparation. Binding
+composition consumes the complete candidate-domain and finalization contracts
+from
 [complete identity-eligible binding composition](type-forwarding-resolution.md#complete-identity-eligible-binding-composition).
 The delegated-policy map names the delegates and routes used to build that
 composite. Their individual versions and refresh remain internal to the
 composite owner. The workspace captures and later compares only the
 composite's distinct outer token; delegate drift reaches the workspace when the
 composite publishes a refreshed state and outer token.
+This is the complete-route-map option anticipated by the adjacent
+[composite policy contract](type-forwarding-resolution.md#atomic-selectionversion-snapshots).
 This section does not reconstruct selections from evidence order or define
 selection, ambiguity, miss, or precedence semantics.
 
@@ -1071,11 +1080,15 @@ rejection or any other replacement failure remains `NotRealized` with no
 current generation and no automatic retry.
 
 For a started, admitted replacement whose composite token remains stable, fair
-preparation, adoption, construction, and publication eventually settle. Under
-continuing churn, each demand makes at most one attempt: another token change
-returns typed `PolicyVersionMismatch`, and only a later authorized demand may
-try again. The workspace performs no unbounded retry loop and makes no
-convergence or elapsed-time guarantee.
+preparation, adoption, construction, and publication eventually settle. Each
+demand makes at most one attempt. A token change returns typed
+`PolicyVersionMismatch`, and only a later authorized demand may try again with
+a new generation identity, preparation identity, and then-current token. The
+workspace never automatically retries a failed private generation. The
+complete participant and route plan removes discovery-time route growth from
+this context, so an observed change is external policy drift rather than
+expected realization progress. The workspace makes no convergence or
+elapsed-time guarantee under continuing churn.
 
 The workspace may observe drift at realization and current-access boundaries;
 this contract does not require a background watcher, prescribe notification or
@@ -1272,6 +1285,11 @@ These properties remain unverified until the named Release gates land:
   omitted, or foreign role-projection evidence is rejected;
 - `ExplicitAssemblyContext_PolicyAdoptionRequiresExactDelegateMap` proves a
   changed, omitted, or foreign delegated-policy map is rejected;
+- `ExplicitAssemblyContext_DiscoveryUsesCompleteRouteMap` proves every
+  discovery binding origin belongs to the exact participant plan and already
+  has its delegated-policy route before preparation, including a multi-hop
+  forwarding fixture that completes without an observed composite-token
+  advance;
 - `ExplicitAssemblyContext_PolicyAdoptionRequiresCapturedVersion` proves both a
   receipt carrying another captured version and a composite outer token that
   advanced before publication fail without publishing;
