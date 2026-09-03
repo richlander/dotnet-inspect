@@ -180,6 +180,7 @@ public static class NuGetSourceResolver
     public static List<NuGetSource> ResolveSources(NuGetSourceOptions? options, string? workingDirectory = null)
     {
         options ??= NuGetSourceOptions.Default;
+        string? configDirectory = GetConfigDirectory(options, workingDirectory);
 
         if (options.ConfigFile is not null)
         {
@@ -191,12 +192,12 @@ public static class NuGetSourceResolver
         IReadOnlyList<PackageSourceDeclaration> activeDeclarations =
             SourceResolver.GetEffectiveSourceDeclarations(
                 options.ConfigFile,
-                workingDirectory);
+                configDirectory);
         IReadOnlyList<PackageSourceDeclaration> configuredAliases =
             options.Sources.Length > 0 || options.AdditionalSources.Length > 0
                 ? SourceResolver.GetConfiguredSourceAliasDeclarations(
                     options.ConfigFile,
-                    workingDirectory)
+                    configDirectory)
                 : activeDeclarations;
 
         List<NuGetSource> selected = options.Sources.Length > 0
@@ -238,8 +239,10 @@ public static class NuGetSourceResolver
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
 
         options ??= NuGetSourceOptions.Default;
-        PackageSourceMapping mapping =
-            ResolvePackageSourceMapping(options, workingDirectory);
+        string? configDirectory = GetConfigDirectory(options, workingDirectory);
+        PackageSourceMapping mapping = ResolvePackageSourceMapping(
+            options,
+            configDirectory);
         if (!mapping.IsEnabled)
         {
             return CollapseLegacyAliases(
@@ -272,13 +275,13 @@ public static class NuGetSourceResolver
             IReadOnlyList<PackageSourceDeclaration> activeDeclarations =
                 SourceResolver.GetEffectiveSourceDeclarations(
                     options.ConfigFile,
-                    workingDirectory);
+                    configDirectory);
             IReadOnlyList<PackageSourceDeclaration> configuredAliases =
                 options.Sources.Length > 0
                     || options.AdditionalSources.Length > 0
                     ? SourceResolver.GetConfiguredSourceAliasDeclarations(
                         options.ConfigFile,
-                        workingDirectory)
+                        configDirectory)
                     : activeDeclarations;
 
             selected = options.Sources.Length > 0
@@ -325,7 +328,12 @@ public static class NuGetSourceResolver
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
 
         options ??= NuGetSourceOptions.Default;
-        PackageSourceMapping mapping = ResolvePackageSourceMapping(options, workingDirectory);
+        string? configDirectory = GetConfigDirectory(
+            options,
+            workingDirectory);
+        PackageSourceMapping mapping = ResolvePackageSourceMapping(
+            options,
+            configDirectory);
         if (!mapping.IsEnabled)
         {
             PackageSourceResolution resolution =
@@ -365,13 +373,13 @@ public static class NuGetSourceResolver
             IReadOnlyList<PackageSourceDeclaration> activeDeclarations =
                 SourceResolver.GetEffectiveSourceDeclarations(
                     options.ConfigFile,
-                    workingDirectory);
+                    configDirectory);
             IReadOnlyList<PackageSourceDeclaration> configuredAliases =
                 options.Sources.Length > 0
                     || options.AdditionalSources.Length > 0
                     ? SourceResolver.GetConfiguredSourceAliasDeclarations(
                         options.ConfigFile,
-                        workingDirectory)
+                        configDirectory)
                     : activeDeclarations;
 
             selected = options.Sources.Length > 0
@@ -419,7 +427,25 @@ public static class NuGetSourceResolver
         string? workingDirectory = null)
         => SourceResolver.ResolvePackageSourceMapping(
             options?.ConfigFile,
-            workingDirectory);
+            options is null
+                ? workingDirectory
+                : GetConfigDirectory(options, workingDirectory));
+
+    static string? GetConfigDirectory(
+        NuGetSourceOptions options,
+        string? workingDirectory)
+    {
+        if (options.ConfigDirectory is null)
+            return workingDirectory;
+        if (!Path.IsPathFullyQualified(options.ConfigDirectory))
+        {
+            throw new ArgumentException(
+                "The NuGet config discovery directory must be absolute.",
+                nameof(options));
+        }
+
+        return options.ConfigDirectory;
+    }
 
     internal static bool IsAliasEligibleForPackage(
         NuGetSource source,
@@ -552,6 +578,9 @@ public static class NuGetSourceResolver
         NuGetSourceOptions options,
         string? workingDirectory)
     {
+        string? configDirectory = GetConfigDirectory(
+            options,
+            workingDirectory);
         if (options.ConfigFile is not null)
             ValidateExplicitConfig(options.ConfigFile);
 
@@ -561,12 +590,12 @@ public static class NuGetSourceResolver
         IReadOnlyList<PackageSourceDeclaration> activeDeclarations =
             SourceResolver.GetEffectiveSourceDeclarations(
                 options.ConfigFile,
-                workingDirectory);
+                configDirectory);
         IReadOnlyList<PackageSourceDeclaration> configuredAliases =
             options.Sources.Length > 0 || options.AdditionalSources.Length > 0
                 ? SourceResolver.GetConfiguredSourceAliasDeclarations(
                     options.ConfigFile,
-                    workingDirectory)
+                    configDirectory)
                 : activeDeclarations;
 
         PackageSourceResolution selected = options.Sources.Length > 0
