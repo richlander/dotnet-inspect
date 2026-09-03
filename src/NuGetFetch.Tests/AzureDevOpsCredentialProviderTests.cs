@@ -24,7 +24,7 @@ namespace NuGetFetch.Tests;
 /// export DOTNET_INSPECT_TEST_AZDO_FEED=https://pkgs.dev.azure.com/ORG/PROJECT/_packaging/FEED/nuget/v3/index.json
 /// export ARTIFACTS_CREDENTIALPROVIDER_ACCESSTOKEN=&lt;PAT with Packaging read, or an Entra access token&gt;
 /// export ARTIFACTS_CREDENTIALPROVIDER_URI_PREFIXES=https://pkgs.dev.azure.com/ORG/
-/// dotnet run --project src/NuGetFetch.Tests -c Release -- -trait "Network=Live"
+/// dotnet run --project src/NuGetFetch.Tests -c Release -- --filter-trait "Network=Live"
 /// </code>
 /// <para>
 /// The provider is fed its token through the environment rather than a prompt because these run
