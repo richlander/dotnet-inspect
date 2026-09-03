@@ -8,7 +8,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <summary>
 /// Imports one method from a live <see cref="MetadataSource"/> into fully
 /// materialized data (docs/decompiler-ir.md): symbolic types throughout, no
-/// metadata handles in the output, valid after the source is disposed.
+/// reader-owned blobs or bare metadata handles in the output, and valid after
+/// the source is disposed. Exact identities survive only as MVID-scoped
+/// metadata addresses paired with an opaque acquisition guard.
 /// </summary>
 public static class MethodImporter
 {
@@ -154,6 +156,10 @@ public static class MethodImporter
         {
             LocalDeclaredInNestedScope = NestedScopeFlags(declarations.Scopes, il.Length),
         };
+        MethodClassification? asyncClassification =
+            MethodClassificationScanner.ClassifyAsyncMethod(
+                reader,
+                method);
 
         return new ImportedMethod(
             declaringType,
@@ -162,9 +168,19 @@ public static class MethodImporter
             methodBody,
             CompilerGenerated: FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes())),
             DeclaringTypeCompilerGenerated: FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, typeDef.GetCustomAttributes())),
-            IsRuntimeAsync: FactState(MethodDefinitionFacts.IsRuntimeAsync(method)),
+            IsRuntimeAsync: FactState(
+                asyncClassification == MethodClassification.RuntimeAsync),
             MetadataToken: MetadataTokens.GetToken(methodHandle),
-            DeclaringTypeGenericParameterNames: typeGenericParameterNames);
+            DeclaringTypeGenericParameterNames: typeGenericParameterNames)
+        {
+            ClassicAsyncRequest =
+                asyncClassification is not null
+                    ? source.AdaptClassicAsyncRequest(
+                        methodHandle,
+                        asyncClassification)
+                    : null,
+            IsMetadataBacked = true,
+        };
     }
 
     static MetadataFactState FactState(bool value) => value ? MetadataFactState.Yes : MetadataFactState.No;
