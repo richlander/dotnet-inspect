@@ -969,7 +969,10 @@ public sealed class PackageAssemblyContextRealizationTests
             ("ref/net11.0/Artifact.Mixed.Sample.dll", valid),
             ("lib/net11.0/Artifact.Mixed.Sample.dll", malformed));
         PackageRootBinding binding =
-            Binding("Artifact.Mixed.Sample", content);
+            Binding(
+                "artifact.mixed.sample",
+                content,
+                displayPackageId: "Artifact.Mixed.Sample");
         await using InspectionWorkspace workspace =
             InspectionWorkspace.CreateAsynchronous();
         using PackageAssemblyContextRealization realization =
@@ -988,6 +991,15 @@ public sealed class PackageAssemblyContextRealizationTests
             Assert.Single(realization.SurfaceParticipants);
         PackageAssemblyRoleParticipant implementationParticipant =
             Assert.Single(realization.ImplementationParticipants);
+        Assert.Equal(
+            "artifact.mixed.sample",
+            binding.Coordinate.PackageId);
+        Assert.Equal(
+            "Artifact.Mixed.Sample",
+            surfaceParticipant.Package.PackageId);
+        Assert.Same(
+            surfaceParticipant.Package,
+            implementationParticipant.Package);
         Assert.NotSame(
             realization.SurfaceGroup,
             realization.ImplementationGroup);
@@ -1435,7 +1447,8 @@ public sealed class PackageAssemblyContextRealizationTests
 
     static PackageRootBinding Binding(
         string packageId,
-        IPackageContent content)
+        IPackageContent content,
+        string? displayPackageId = null)
     {
         const string version = "1.0.0";
         const string producer = "tests";
@@ -1446,7 +1459,8 @@ public sealed class PackageAssemblyContextRealizationTests
             PackagePayloadOrigin.Download);
         return PackageRootBinding.CreateFromSource(
             payload,
-            Framework);
+            Framework,
+            displayPackageId: displayPackageId);
     }
 
     static byte[] IntegrationAssembly(
