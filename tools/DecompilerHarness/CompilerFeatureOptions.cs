@@ -1,7 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
-using ILInspector.Metadata;
+using ILInspector.Decompiler.Pipeline;
 
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -37,20 +37,17 @@ static class CompilerFeatureOptions
     }
 
     /// <summary>
-    /// Recompilation must replay the mode the printer used, and the printer
-    /// keys on module marker <em>presence</em> rather than the version (see
-    /// <c>IrImporter.ModuleUsesUpdatedMemorySafetyRules</c>). Any observed
-    /// module marker therefore selects the updated-rules feature, so an
-    /// unsupported or conflicting version still compiles back under the same
-    /// rules it was printed with. Only a module with no marker at all
-    /// (<see cref="MemorySafetyRulesState.Legacy"/>) compiles as legacy.
+    /// Recompilation must replay the mode the printer used, so this defers to
+    /// the printer's own predicate rather than deriving the mode independently.
+    /// Any second reader — including the more faithful
+    /// <c>MemorySafetyMetadataIndex</c>, which accepts marker spellings the
+    /// printer ignores — can disagree with the printer and compile output back
+    /// under rules it was not printed with.
+    /// <c>CompilerFeatureOptionsTests.HarnessReplayMatchesPrinterMode</c> is the
+    /// gate.
     /// </summary>
     static bool ModuleUsesUpdatedMemorySafetyRules(PEReader pe)
-        => MemorySafetyMetadataIndex.Create(pe.GetMetadataReader()).Rules
-            is MemorySafetyRulesResult.Available
-            {
-                State: not MemorySafetyRulesState.Legacy
-            };
+        => IrImporter.ModuleUsesUpdatedMemorySafetyRules(pe.GetMetadataReader());
 
     static bool ModuleUsesRuntimeAsync(PEReader pe)
     {

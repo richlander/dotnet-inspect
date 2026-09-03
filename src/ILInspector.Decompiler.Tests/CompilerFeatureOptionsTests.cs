@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
 
 using Microsoft.CodeAnalysis;
@@ -103,7 +104,48 @@ public class CompilerFeatureOptionsTests
             feature => feature.Key == "updated-memory-safety-rules");
     }
 
-    static byte[] BuildMarkedModule(int? version)
+    public static TheoryData<string, byte[]> ReplayModeImages() => new()
+    {
+        { "unmarked", BuildMarkedModule(null) },
+        { "v2 MethodDef ctor", BuildMarkedModule(2) },
+        { "v3 MethodDef ctor", BuildMarkedModule(3) },
+        { "v99 MethodDef ctor", BuildMarkedModule(99) },
+        // ECMA-335 lets a MemberRef name a member of a same-module TypeDef, a
+        // spelling the printer's constructor decode does not recognize. Reading
+        // the marker through any other decoder diverges here.
+        { "v2 MemberRef->TypeDef ctor", BuildMarkedModule(2, memberRefConstructor: true) },
+        // A truncated fixed-arg blob leaves the marker present but its version
+        // undecodable, which version-decoding readers report as absent.
+        { "malformed marker blob", BuildMarkedModule(2, malformedValue: true) },
+    };
+
+    /// <summary>
+    /// The harness must recompile under the exact mode the printer used. This
+    /// pins the two predicates together over marker spellings where an
+    /// independent reader is known to disagree with the printer, so the harness
+    /// cannot silently drift back to deriving the mode on its own.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(ReplayModeImages))]
+    public void HarnessReplayMatchesPrinterMode(string label, byte[] image)
+    {
+        using var pe = new PEReader(new MemoryStream(image));
+        bool printerUsesUpdatedRules =
+            IrImporter.ModuleUsesUpdatedMemorySafetyRules(pe.GetMetadataReader());
+        bool harnessReplaysUpdatedRules = CompilerFeatureOptions.ParseOptions(pe).Features
+            .Any(feature => feature.Key == "updated-memory-safety-rules"
+                && feature.Value == "true");
+
+        Assert.True(
+            printerUsesUpdatedRules == harnessReplaysUpdatedRules,
+            $"{label}: printer replayed updated rules = {printerUsesUpdatedRules}, "
+                + $"harness replayed updated rules = {harnessReplaysUpdatedRules}");
+    }
+
+    static byte[] BuildMarkedModule(
+        int? version,
+        bool memberRefConstructor = false,
+        bool malformedValue = false)
     {
         var metadata = new MetadataBuilder();
         ModuleDefinitionHandle module = metadata.AddModule(
@@ -127,6 +169,8 @@ public class CompilerFeatureOptionsTests
                 1,
                 returnType => returnType.Void(),
                 parameters => parameters.AddParameter().Type().Int32());
+        BlobHandle constructorSignatureHandle =
+            metadata.GetOrAddBlob(constructorSignature);
 
         MethodDefinitionHandle constructor = metadata.AddMethodDefinition(
             System.Reflection.MethodAttributes.Public
@@ -134,7 +178,7 @@ public class CompilerFeatureOptionsTests
                 | System.Reflection.MethodAttributes.RTSpecialName,
             System.Reflection.MethodImplAttributes.Runtime,
             metadata.GetOrAddString(".ctor"),
-            metadata.GetOrAddBlob(constructorSignature),
+            constructorSignatureHandle,
             bodyOffset: -1,
             MetadataTokens.ParameterHandle(1));
 
@@ -145,7 +189,7 @@ public class CompilerFeatureOptionsTests
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             constructor);
-        metadata.AddTypeDefinition(
+        TypeDefinitionHandle markerType = metadata.AddTypeDefinition(
             System.Reflection.TypeAttributes.NotPublic,
             metadata.GetOrAddString("System.Runtime.CompilerServices"),
             metadata.GetOrAddString("MemorySafetyRulesAttribute"),
@@ -153,15 +197,26 @@ public class CompilerFeatureOptionsTests
             MetadataTokens.FieldDefinitionHandle(1),
             constructor);
 
+        EntityHandle constructorToken = memberRefConstructor
+            ? metadata.AddMemberReference(
+                markerType,
+                metadata.GetOrAddString(".ctor"),
+                constructorSignatureHandle)
+            : constructor;
+
         if (version is { } marker)
         {
             var value = new BlobBuilder();
             value.WriteUInt16(1);
-            value.WriteInt32(marker);
-            value.WriteUInt16(0);
+            if (!malformedValue)
+            {
+                value.WriteInt32(marker);
+                value.WriteUInt16(0);
+            }
+
             metadata.AddCustomAttribute(
                 module,
-                constructor,
+                constructorToken,
                 metadata.GetOrAddBlob(value));
         }
 
