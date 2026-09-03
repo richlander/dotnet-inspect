@@ -117,11 +117,14 @@ fix, not a behavior to document.
 >
 > **D2 — Fail closed, visibly.** A blob whose *structure* the decoder cannot
 > follow yields `null` — never a partial value, never a laundered exception,
-> never a plausible-looking guess. No attacker-declared quantity can produce an
-> `OutOfMemoryException`.
+> never a plausible-looking guess about where the next element begins. No
+> declared count can size an allocation disproportionate to the bytes actually
+> supplied.
 >
 > **D3 — Fidelity.** On output from compilers in the certified range, decoded
-> values equal SRM's.
+> values equal the values the producing compiler encoded. SRM arbitrates
+> wherever it can; where it cannot — notably an enum width that both decoders
+> default to `Int32` — the certified corpus supplies producer truth directly.
 
 D1 is about cost. D2 is about what happens when the input wins. D3 is about
 being right on input that is not an attack.
@@ -226,21 +229,32 @@ malformed metadata, so a caller's refusal and a malformed blob no longer share a
 catch by accident. **A caller's refusal is not a statement about the blob**, and
 it must never be laundered into one.
 
-**No attacker-declared quantity can produce an `OutOfMemoryException`**, because
-of D1's allocation clause — not because one is caught. Catching it would be a
-fiction: by the time it is thrown the allocation has already been attempted.
+**The claim is about amplification, not about allocation.** State it precisely,
+because two stronger-sounding versions are both wrong. "`OutOfMemoryException`
+has no path to arise" is unachievable — a large enough legitimate blob can
+exhaust a small enough host, and no parsing discipline prevents that. "No
+attacker-declared quantity can produce an `OutOfMemoryException`" is also wrong,
+because the element count `N` *is* attacker-declared and does size the result;
+what makes it safe is that the attacker must supply `N` bytes to declare it.
 
-State that bound precisely, because the unqualified claim "`OutOfMemoryException`
-has no path to arise" is not achievable and should not be made. `count >
-RemainingBytes → null` bounds a count by the blob it came from; it does not make
-decoding free. A legal `SZARRAY<bool>` of `N` elements occupies about `N` bytes
-of blob and materializes `N` `CustomAttributeTypedArgument<string>` slots of two
-references each, so retained memory is roughly **16×** the blob length on a
-64-bit host. That is a constant multiple, which is exactly what D1's
-retained-memory clause permits, and it is the real ceiling: a sufficiently large
-*legitimate* blob can still exhaust a sufficiently small host. What D1 removes is
-the **amplification** — the twelve-byte blob that asks for tens of gigabytes.
-A host-level memory limit is the host's concern, not this contract's.
+The enforceable claim is therefore a **bounded amplification factor**: retained
+memory is at most a constant multiple of the bytes actually supplied, and that
+constant is a property of the output representation rather than of anything the
+blob declares. `count > RemainingBytes → null` is what establishes it, and it
+holds independently of whether the parse is correct.
+
+Sizing that constant honestly matters, because it is easy to undercount. A legal
+`SZARRAY<bool>` of `N` elements occupies about `N` bytes of blob and materializes
+`N` `CustomAttributeTypedArgument<string>` slots. Each slot is two references
+(16 bytes on a 64-bit host) — but `CustomAttributeTypedArgument<T>.Value` is
+typed `object`, so every primitive element is **boxed**, adding a separate
+heap object per element. For the densest case the true figure is tens of bytes
+retained per blob byte, not the 16 the slots alone suggest. Quote the shape of
+the bound rather than a specific multiple, and if slice 2 wants a smaller
+constant it must introduce and gate value caching explicitly.
+
+What D1 removes is the amplification — the twelve-byte blob that asks for tens of
+gigabytes. A host-level memory limit is the host's concern, not this contract's.
 
 Issue #5397 (`TryDecode` swallows `OutOfMemoryException` through a bare catch) is
 therefore **not** moot under the inversion, and this document retains it as a D2
@@ -280,7 +294,8 @@ Two consequences must be recorded rather than assumed away:
   succeeds. Any instrument that uses SRM as its oracle is blind to a width both
   sides guess identically. Establishing this belongs to D3's certified corpus,
   where the real width is known from the producing compiler, not to a
-  differential test.
+  differential test. That obligation is stated as a gate requirement under
+  [D3](#d3--fidelity).
 
 **Slice 2 owes a comment fix here.** `EnumUnderlyingPrimitive.cs:16` currently
 justifies the `Int32` default as being chosen "so the skip stays aligned" — a
@@ -295,14 +310,38 @@ would be free to be far tighter and would then refuse real attributes.
 
 ### D3 — Fidelity
 
-On output from compilers in the certified range, our decoded values equal SRM's.
+On output from compilers in the certified range, our decoded values equal the
+values the producing compiler encoded.
 
-SRM is the oracle, not a counterpart. A disagreement is a **fidelity bug**: the
+SRM is an oracle, not a counterpart. A disagreement is a **fidelity bug**: the
 value we print is wrong. It is never a safety bug, because nothing about SRM's
 behavior bounds ours. This is the entire benefit of the inversion, and it is
 worth stating in exactly those terms, because under the previous design the same
 disagreement was a fail-open in which we had already told a caller the blob was
 safe.
+
+**SRM equality is not the claim; it is the cheap way to check most of it.**
+Stating D3 as "equals SRM" would be a contract this component can satisfy while
+being wrong, and the gap is not hypothetical — it is the largest known fidelity
+risk in the component. When an enum's defining assembly is unavailable, our width
+resolution defaults to `Int32`; SRM's provider reaches the same default through
+the same fallback. If the enum is really `Int64`, both decoders consume four
+bytes where eight were written, both mis-read every subsequent argument, and both
+produce the identical wrong answer. An SRM-equality oracle passes.
+
+So D3 names **producer truth** as the standard and SRM as an arbiter only where
+it can arbitrate:
+
+| Where | Oracle |
+| --- | --- |
+| Any value both decoders can resolve independently | SRM equality. Cheap, broad, and sufficient. |
+| A width that both decoders default to `Int32` because resolution failed | **The certified corpus.** It built the assemblies, so it knows each enum's real underlying type from source; SRM cannot arbitrate here at all. |
+
+The second row is an obligation on the D3 gate, not an aspiration: the stage-1
+corpus must include assemblies that reference a non-`Int32` enum across an
+assembly boundary and are decoded *without* the defining reference available, and
+must assert the decoded value against the known underlying type. Omitting that
+case leaves the defect class ungated while the gate reports green.
 
 D3 is scoped to legal producer output on purpose. Outside the certified range
 the obligation drops from *decode correctly* to *refuse safely* — D1 and D2 with
@@ -662,7 +701,7 @@ encoding.
 | --- | --- | --- |
 | **D1** | A generative gate varying the attacker-controlled dimensions jointly. Tracked as #5733. | Does not exist. Four hand-written amplification regressions pin four instances; four open defects violate it. |
 | **D2** | Slice 2's differential test: `null` wherever SRM throws, plus every existing guard and reader test green. **Blind to the `Int32` width default**, which SRM guesses identically; that belongs to D3. | Lands with slice 2. |
-| **D3** | The #5148 generator re-targeted from offset agreement to **value equality**, plus the stage-1 corpus below with zero refusals. #5065 is retitled to D3 by #5288 slice 4. | #5148 open; stage 1 not landed. |
+| **D3** | The #5148 generator re-targeted from offset agreement to **value equality**, plus the stage-1 corpus below with zero refusals. **Must include the producer-truth width cases SRM cannot arbitrate**; see [D3](#d3--fidelity). #5065 is retitled to D3 by #5288 slice 4. | #5148 open; stage 1 not landed. |
 
 Until those gates exist, any statement in this document that an invariant
 *holds* is unverified in the sense of [Asserted properties name their
@@ -762,12 +801,15 @@ range actually emit, and everything outside it drops from *decode correctly* to
 | Claim | Domain | Narrowable by producer version? |
 | --- | --- | --- |
 | D1, D2 | all byte sequences | No |
-| D3 fidelity | real producer output, against a pinned SRM | Yes |
+| D3 fidelity | real producer output, against producer truth (SRM arbitrating where it can) | Yes |
 | No spurious refusal | real producer output, certified SDK range | Yes |
 
 **Stage 1** sweeps every custom attribute in a pinned real-package corpus built by
 SDKs in the certified range and asserts zero refusals and value equality with SRM,
-reusing the baseline machinery under `tools/DecompilerHarness/corpus/`. **Stage 2**
+reusing the baseline machinery under `tools/DecompilerHarness/corpus/`. It must
+additionally carry the **producer-truth width cases** described under
+[D3](#d3--fidelity) — cross-assembly non-`Int32` enums decoded without their
+defining reference — because SRM equality is vacuous there. **Stage 2**
 (#5304) is the exhaustive per-position enumeration with `MustApprove` /
 `MustRefuse` / `KnownGap` dispositions; after the inversion its obligation outside
 the certified set is D1 and D2 only.
