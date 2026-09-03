@@ -19,9 +19,9 @@ shorthand, preserves raw positions, extracts those occurrences, and invokes
 the lowerer. Implicit routing, diagnostic selection and rendering, command
 adoption, and guidance remain unimplemented.
 
-Only that explicit-occurrence subset is verified by its named Release gates in
-[Required gates](#required-gates). Every other asserted behavior remains
-unverified until its named gate lands.
+Only those two explicit-command subsets are verified by their named Release
+gates in [Required gates](#required-gates). Every other asserted behavior
+remains unverified until its named gate lands.
 
 Related owners:
 
