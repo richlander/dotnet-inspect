@@ -29,6 +29,16 @@ trap 'rm -rf "$scratch"' EXIT
 census="$scratch/async-census.json"
 graph="$scratch/browser-engine-restore-graph.json"
 graph_result="$scratch/async-project-graph.json"
+version_prefix=$(
+  "$dotnet" msbuild \
+    "$repo_root/src/dotnet-inspect/dotnet-inspect.csproj" \
+    -getProperty:VersionPrefix \
+    -nologo
+)
+if [[ -z "$version_prefix" ]]; then
+  echo "The authoritative product VersionPrefix is empty." >&2
+  exit 1
+fi
 
 "$dotnet" run \
   "$repo_root/prototypes/inspect-web/scripts/verify-async-lowering.cs" \
@@ -41,7 +51,8 @@ graph_result="$scratch/async-project-graph.json"
 "$repo_root/eng/generate-inspect-web-engine-facade.sh" \
   --contract \
   "$assembly" \
-  "$scratch/inspect-web-engine.d.ts"
+  "$scratch/inspect-web-engine.d.ts" \
+  "$version_prefix"
 cmp \
   "$repo_root/prototypes/inspect-web/src/inspect-web-engine.d.ts" \
   "$scratch/inspect-web-engine.d.ts"
