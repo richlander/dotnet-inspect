@@ -52,7 +52,7 @@ public enum RestoredProjectTargetSelectionProvenance
 /// <summary>Whether a declaration group's authored framework spelling resolved to a recognized canonical framework.</summary>
 public enum RestoredProjectFrameworkIdentityKind
 {
-    /// <summary><see cref="TfmSelector.NormalizeTfm"/> and <see cref="TfmResolver"/> established a canonical framework.</summary>
+    /// <summary>NuGet target-framework semantics established a canonical short-folder identity.</summary>
     Recognized,
 
     /// <summary>The spelling is retained as an explicit, unrepaired opaque owner identity.</summary>
@@ -770,9 +770,9 @@ public static class RestoredProjectDependencyFactsQuery
     // ---- Target selection -------------------------------------------------
 
     /// <summary>
-    /// One <c>targets</c> pivot. <see cref="NormalizedFramework"/> is correlation currency and may
-    /// still hold artifact-authored spelling; <see cref="FrameworkIdentity"/> and
-    /// <see cref="RuntimeIdentifierIdentity"/> are the public, containment-safe forms.
+    /// One <c>targets</c> pivot. <see cref="NormalizedFramework"/> retains the legacy priority and
+    /// unrecognized-case correlation spelling; <see cref="FrameworkIdentity"/> and
+    /// <see cref="RuntimeIdentifierIdentity"/> are canonical-or-opaque public identities.
     /// </summary>
     sealed record TargetCandidate(
         string RawKey,
@@ -832,7 +832,7 @@ public static class RestoredProjectDependencyFactsQuery
                 rawRuntimeIdentifier,
                 normalizedFramework,
                 normalizedRid,
-                FrameworkIdentityText(normalizedFramework, rawFramework),
+                FrameworkIdentityText(rawFramework),
                 rawRuntimeIdentifier is null
                     ? null
                     : PackageCoordinateResolver.IsAcquisitionTargetText(rawRuntimeIdentifier)
@@ -840,7 +840,10 @@ public static class RestoredProjectDependencyFactsQuery
                         : RestoredProjectIdentityText.Opaque(rawRuntimeIdentifier));
 
             if (!seen.Add(new TargetCorrelationKey(
-                    candidate.NormalizedFramework,
+                    RestoredProjectIdentityText.IsOpaque(
+                        candidate.FrameworkIdentity)
+                            ? candidate.NormalizedFramework
+                            : candidate.FrameworkIdentity,
                     candidate.NormalizedRuntimeIdentifier)))
             {
                 candidates = [];
@@ -855,11 +858,12 @@ public static class RestoredProjectDependencyFactsQuery
     }
 
     /// <summary>Recognized canonical framework text, or an opaque digest over the authored spelling.</summary>
-    static string FrameworkIdentityText(string normalizedFramework, string rawFramework) =>
-        PackageCoordinateResolver.IsAcquisitionTargetText(normalizedFramework)
-        && TfmResolver.TryGetBaseFrameworkIdentity(normalizedFramework, out _)
-            ? normalizedFramework.ToLowerInvariant()
-            : RestoredProjectIdentityText.Opaque(rawFramework);
+    static string FrameworkIdentityText(string rawFramework) =>
+        NuGetTargetFrameworkIdentity.TryNormalize(
+            rawFramework,
+            out string canonicalFramework)
+                ? canonicalFramework
+                : RestoredProjectIdentityText.Opaque(rawFramework);
 
     static TargetCandidate? SelectTarget(
         ImmutableArray<TargetCandidate> candidates,
@@ -888,16 +892,19 @@ public static class RestoredProjectDependencyFactsQuery
 
     /// <summary>
     /// Schema 4 pivots are target aliases, so a request matches them directly. Schema 3 pivots are
-    /// long framework names, so a short request is correlated through the existing
-    /// <see cref="TfmSelector.NormalizeTfm"/> behavior rather than a second framework parser.
+    /// long framework names, so a short request is correlated through canonical NuGet framework
+    /// identity.
     /// </summary>
     static bool MatchesRequestedFramework(TargetCandidate candidate, string requestedFramework, int schemaVersion) =>
         string.Equals(candidate.RawFramework, requestedFramework, StringComparison.OrdinalIgnoreCase)
         || (schemaVersion == 3
+            && NuGetTargetFrameworkIdentity.TryNormalize(
+                requestedFramework,
+                out string requestedIdentity)
             && string.Equals(
-                candidate.NormalizedFramework,
-                TfmSelector.NormalizeTfm(requestedFramework),
-                StringComparison.OrdinalIgnoreCase));
+                candidate.FrameworkIdentity,
+                requestedIdentity,
+                StringComparison.Ordinal));
 
     // ---- Declaration phase --------------------------------------------------
 
@@ -940,9 +947,9 @@ public static class RestoredProjectDependencyFactsQuery
                 continue;
             }
 
-            string normalizedTfm = TfmSelector.NormalizeTfm(rawPivot).ToLowerInvariant();
-            bool recognized = PackageCoordinateResolver.IsAcquisitionTargetText(normalizedTfm)
-                && TfmResolver.TryGetBaseFrameworkIdentity(normalizedTfm, out _);
+            bool recognized = NuGetTargetFrameworkIdentity.TryNormalize(
+                rawPivot,
+                out string normalizedTfm);
             RestoredProjectFrameworkIdentity frameworkIdentity = recognized
                 ? new RestoredProjectFrameworkIdentity(RestoredProjectFrameworkIdentityKind.Recognized, normalizedTfm)
                 : new RestoredProjectFrameworkIdentity(
@@ -1312,15 +1319,22 @@ public static class RestoredProjectDependencyFactsQuery
 
     /// <summary>
     /// Schema 4 pivots are target aliases matched directly; schema 3 pivots are correlated through
-    /// the existing normalized framework identity.
+    /// canonical NuGet framework identity.
     /// </summary>
     static bool CorrelatesWithPivot(string rawPivot, int schemaVersion, TargetCandidate candidate) =>
         schemaVersion == 4
             ? string.Equals(rawPivot, candidate.RawFramework, StringComparison.OrdinalIgnoreCase)
             : string.Equals(
-                TfmSelector.NormalizeTfm(rawPivot),
-                candidate.NormalizedFramework,
-                StringComparison.OrdinalIgnoreCase);
+                rawPivot,
+                candidate.RawFramework,
+                StringComparison.OrdinalIgnoreCase)
+                || (NuGetTargetFrameworkIdentity.TryNormalize(
+                        rawPivot,
+                        out string pivotIdentity)
+                    && string.Equals(
+                        pivotIdentity,
+                        candidate.FrameworkIdentity,
+                        StringComparison.Ordinal));
 
     /// <summary>
     /// Aggregates repeated failure reasons into one deterministic count per reason, so public

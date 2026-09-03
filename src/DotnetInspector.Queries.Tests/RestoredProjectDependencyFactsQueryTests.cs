@@ -918,6 +918,126 @@ public sealed class RestoredProjectDependencyFactsQueryTests
         AssertNoArtifactTextInIdentities(facts);
     }
 
+    [Theory]
+    [InlineData("uap10.0", "uap10.0")]
+    [InlineData("monoandroid10.0", "monoandroid10.0")]
+    [InlineData("portable-net45+win8", "portable-net45+win8")]
+    public void Execute_NuGetFrameworkFamiliesUseCanonicalIdentity(
+        string sourceFramework,
+        string canonicalFramework)
+    {
+        var frameworks = new JsonObject
+        {
+            [sourceFramework] = new JsonObject
+            {
+                ["dependencies"] = new JsonObject(),
+            },
+        };
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                DocumentWithFrameworks(frameworks)));
+        RestoredProjectDeclarationGroup group = Assert.Single(
+            Assert.IsType<RestoredProjectDeclarationResult.Available>(
+                facts.Declaration).Groups);
+
+        Assert.Equal(
+            RestoredProjectFrameworkIdentityKind.Recognized,
+            group.FrameworkIdentity.Kind);
+        Assert.Equal(canonicalFramework, group.FrameworkIdentity.Identity);
+        Assert.Equal(canonicalFramework, group.Identity.PivotIdentity);
+    }
+
+    [Fact]
+    public void Execute_LongPlatformFrameworkUsesCanonicalShortIdentity()
+    {
+        const string sourceFramework =
+            ".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion=10.0.19041.0";
+        var frameworks = new JsonObject
+        {
+            [sourceFramework] = new JsonObject
+            {
+                ["dependencies"] = new JsonObject(),
+            },
+        };
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                DocumentWithFrameworks(frameworks)));
+        RestoredProjectDeclarationGroup group = Assert.Single(
+            Assert.IsType<RestoredProjectDeclarationResult.Available>(
+                facts.Declaration).Groups);
+
+        Assert.Equal(
+            RestoredProjectFrameworkIdentityKind.Recognized,
+            group.FrameworkIdentity.Kind);
+        Assert.Equal(
+            "net8.0-windows10.0.19041",
+            group.FrameworkIdentity.Identity);
+        Assert.StartsWith(
+            "sha256:",
+            group.Identity.PivotIdentity,
+            StringComparison.Ordinal);
+        Assert.Equal(sourceFramework, group.SourcePivotSpelling.ToString());
+    }
+
+    [Fact]
+    public void Execute_SelectedTargetUsesTheSameNuGetFrameworkIdentity()
+    {
+        const string framework = "uap10.0";
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                [framework] = new JsonObject(),
+            },
+            rootGroups: new JsonObject
+            {
+                [framework] = new JsonArray(),
+            },
+            frameworks: new JsonObject
+            {
+                [framework] = new JsonObject
+                {
+                    ["dependencies"] = new JsonObject(),
+                },
+            });
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                bytes,
+                new RestoredProjectTargetRequest(framework)));
+
+        Assert.Equal(framework, facts.SelectedTarget!.FrameworkIdentity);
+        Assert.Equal(framework, facts.SelectionIdentity.TargetIdentity);
+        Assert.Equal(
+            framework,
+            Assert.Single(
+                Assert.IsType<RestoredProjectDeclarationResult.Available>(
+                    facts.Declaration).Groups).FrameworkIdentity.Identity);
+    }
+
+    [Fact]
+    public void Execute_LongAndShortDuplicateTargetPivotsFailGraph()
+    {
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                ["net8.0"] = new JsonObject(),
+                [".NETCoreApp,Version=v8.0"] = new JsonObject(),
+            },
+            rootGroups: new JsonObject(),
+            frameworks: new JsonObject());
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(bytes));
+
+        Assert.Null(facts.SelectedTarget);
+        Assert.Equal(
+            RestoredProjectGraphFailureReason.AmbiguousTargetIdentity,
+            Assert.IsType<RestoredProjectGraphResult.Failed>(
+                facts.Graph).Failure.Reason);
+    }
+
     [Fact]
     public void Execute_HostileTargetPivotSpelling_YieldsAnOpaqueSelectedTargetIdentity()
     {
