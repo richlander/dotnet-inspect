@@ -820,7 +820,10 @@ failure-free PDB miss non-failing.
 `SourceCorrespondencePdbAcquisition_RejectsUnverifiedStandalonePdb` prevents an
 identity-less adjacent PDB from entering this lane, and
 `SourceCorrespondencePdbAcquisition_MalformedEmbeddedPdbIsFailure` preserves a
-typed result when embedded-PDB opening fails. The compiler-backed
+typed result when embedded-PDB opening fails, and
+`SourceCorrespondencePdbAcquisition_MalformedSourceLinkMapIsFailure` preserves
+failure when a present SourceLink map cannot be decoded into usable mappings.
+The compiler-backed
 `SourceCorrespondencePdbAcquisition_MapsCompiledMultiplicationAssignment`
 guards C# assignment-operator correlation against hand-written metadata-name
 drift.

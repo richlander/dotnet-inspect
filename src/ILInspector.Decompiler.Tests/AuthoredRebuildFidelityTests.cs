@@ -783,6 +783,38 @@ public sealed class AuthoredRebuildFidelityTests
     }
 
     [Fact]
+    public async Task SourceCorrespondencePdbAcquisition_MalformedSourceLinkMapIsFailure()
+    {
+        NuGetCache.Initialize("dotnet-inspect");
+        string assemblyPath =
+            FixtureCatalog.SourceLinkMalformed.AssemblyPath();
+        using var httpClient =
+            new HttpClient(
+                new StaticStatusHandler(
+                    HttpStatusCode.NotFound));
+
+        IReadOnlyList<ReturnToSenderSourceProbeResult> results =
+            await ReturnToSenderSourceProbe.EvaluateSourceCorrespondenceAsync(
+                [assemblyPath],
+                cap: 1,
+                httpClient,
+                new SourceFetcher(httpClient));
+
+        ReturnToSenderSourceProbeResult result = Assert.Single(results);
+        Assert.Equal(
+            SourceAcquisitionOutcome.Failed,
+            result.SourceAcquisition);
+        Assert.Contains(
+            "SourceLink map is unusable",
+            result.SourceAcquisitionDetail,
+            StringComparison.Ordinal);
+        Assert.True(
+            ReturnToSenderSourceProbe.HasCommandFailure(
+                results,
+                failOnInvalid: false));
+    }
+
+    [Fact]
     public async Task SourceCorrespondencePdbAcquisition_MapsCompiledMultiplicationAssignment()
     {
         var fixture = CompilePortablePdbFixture(

@@ -326,6 +326,18 @@ public static class PdbSourceAcquisition
 
         if (document.ResolvedUrl is not { Length: > 0 } url)
         {
+            if (document.Storage != SourceDocumentStorage.Embedded
+                && source.SourceLinkMap.Status == SourceLinkMapStatus.Unusable)
+            {
+                return Failed(
+                    subject,
+                    "The SourceLink map is unusable: "
+                        + (source.SourceLinkMap.Error
+                            ?? "the map contains no usable document mappings"),
+                    mapping,
+                    document);
+            }
+
             return Absent(document.Storage == SourceDocumentStorage.Embedded
                 ? "Embedded PDB-source retrieval is not available."
                 : "The selected source document has no fetchable SourceLink URL.");

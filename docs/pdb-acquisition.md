@@ -346,10 +346,13 @@ ignored so the provider is retried.
 `DownloadPdbAsync_LegacyOperationalMissIsRetried` gate those distinctions. The
 source-correspondence and authored-rebuild harness lanes reject an adjacent
 standalone PDB when the assembly has no Portable CodeView identity, and project
-malformed embedded-PDB opening as typed failure.
+malformed embedded-PDB opening or a present unusable SourceLink map as typed
+failure after verified local and repository alternatives are exhausted.
 `SourceCorrespondencePdbAcquisition_RejectsUnverifiedStandalonePdb` and
-`SourceCorrespondencePdbAcquisition_MalformedEmbeddedPdbIsFailure` gate those
-opening boundaries without changing the general-purpose `PdbContext` policy.
+`SourceCorrespondencePdbAcquisition_MalformedEmbeddedPdbIsFailure` gate the PDB
+opening boundaries without changing the general-purpose `PdbContext` policy;
+`SourceCorrespondencePdbAcquisition_MalformedSourceLinkMapIsFailure` gates the
+SourceLink decode boundary.
 
 ## Related resources
 
