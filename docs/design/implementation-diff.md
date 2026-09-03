@@ -172,29 +172,18 @@ correspond to decompiler nodes. Checksum agreement proves that the bytes match
 the Portable PDB declaration, not that they were the physical syntax tree that
 produced the MethodDef.
 
-The CLI consumes the shared
-[member source diff presentation](member-source-diff-presentation.md). Exact
-PDB member text is the Before endpoint. The After endpoint is the product-owned
-whole-member render projected from type-body placement to standalone placement
-by removing exactly one producer-guaranteed indentation level. This replaces
-the earlier CLI-only declaration projection; signature wrapping, expression
-body choice, and every other decompiler-owned spelling now come from
-`MemberRenderResult`. Leading rendered metadata attributes are excluded through
-the same model-free declaration boundary that defines the PDB member slice, so
-they do not appear as comparison-only additions. The After header is
-`Decompiled comparison`, distinguishing it from the CLI's separate Decompiled
-Source section.
-
-Normal verbosity reports factual added, removed, changed, and moved line counts
-from the producer-owned `AnalysisDiff<string>`. Changed and moved are
+Normal verbosity reports factual added, removed, changed, and moved line
+counts from the producer-owned `AnalysisDiff<string>`. Changed and moved are
 independent facets, so the same Before and After population can contribute to
-both; unequal correspondence cardinalities remain explicit. Detailed verbosity
-(`-v:d`) renders the same complete Markout `MappedTextDiff`. Stable unchanged
-one-to-one correspondences become presentation anchors; every other relation
-becomes conventional removal and addition text, so movement identity is
-intentionally absent from the rendered patch while remaining available to
-statistics. Both forms identify the PDB source location and distinguish exact
-document-byte checksum agreement from agreement after CR/LF normalization.
+both; unequal correspondence cardinalities remain explicit. Detailed
+verbosity (`-v:d`) lowers that analysis to a complete Markout
+`MappedTextDiff` through the host-neutral `DotnetInspector.Presentation`
+adapter. Stable unchanged one-to-one correspondences become presentation
+anchors; every other relation becomes conventional removal and addition text,
+so movement identity is intentionally absent from the rendered patch while
+remaining available to statistics. Both forms identify the PDB source location
+and distinguish exact document-byte checksum agreement from agreement after
+CR/LF normalization.
 `TextFindingsTests` gates the complete source-line relation partition,
 including unequal replacement populations, moved lines, line-ending
 equivalence, and final-line terminators. `SourceTextDiffRendererTests` gates

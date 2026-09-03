@@ -13,7 +13,7 @@ structured-comparison tracker
 The normative claim is:
 
 > Complete PDB and decompilation endpoint evidence for one member projects to
-> one canonical standalone text pair, one `AnalysisDiff<string>`, one
+> one canonical standalone comparison pair, one `AnalysisDiff<string>`, one
 > two-sided statistics summary, and one Markout `MappedTextDiff` shared by the
 > CLI and browser hosts.
 
@@ -54,16 +54,18 @@ browser does not receive its typed inputs and reproducing it would move CLI
 formatting policy into the query.
 
 The shared projection therefore standardizes on the product-owned whole-member
-render, removes producer-rendered declaration trivia that the PDB member slice
-does not contain, and converts placement from type-body context to standalone
-context. This deliberately changes CLI Source Diff hunks and statistics where
-the old CLI projection chose different wrapping or expression-body layout. No
+render, removes declaration-leading trivia from both comparison endpoints, and
+converts decompiled placement from type-body context to standalone context.
+Applying the same typed boundary to both endpoints handles an attribute or
+comment that shares the PDB signature line without manufacturing a difference.
+This deliberately changes CLI Source Diff hunks and statistics where the old
+CLI projection chose different wrapping or expression-body layout. No
 compatibility switch preserves the old comparison-only projection.
 
 The separate CLI `Decompiled Source` section remains a CLI presentation. The
-diff's After endpoint is labelled `Decompiled comparison`, not `Decompiled
-Source`, so one output never claims that two different strings are the same
-section content.
+diff endpoints are labelled `PDB comparison` and `Decompiled comparison`, not
+`PDB Source` and `Decompiled Source`, so one output never claims that normalized
+comparison text is the separate section content.
 
 ## Input boundary
 
@@ -89,42 +91,55 @@ become empty or one-sided diffs. Hosts present those typed outcomes without a
 
 ### Before
 
-Before text is the checksum-verified PDB member text emitted by the source
-producer, unchanged character-for-character. That producer has already
-dedented the selected declaration, normalized line endings to LF, and trimmed
-the terminal newline. The presentation adapter performs no further trimming,
-indentation, or line-ending transformation.
+The checksum-verified PDB member text remains available unchanged through the
+query result for provenance and the PDB Source section. The canonical Before
+comparison starts from that text, which the producer has already dedented,
+normalized to LF, and terminal-newline-trimmed.
+
+The adapter applies the shared declaration boundary below to remove only
+declaration-leading trivia. That includes complete leading trivia lines and,
+when an attribute or comment shares the signature line, the prefix before the
+typed signature-start column. Signature text, body text, relative indentation,
+trailing whitespace, and line boundaries remain unchanged.
 
 ### After
 
 After text is a standalone projection of complete
 `MemberRenderResult.Text`. The product render guarantees a whole-type member
 segment indented one type-body level and may include metadata attribute lines
-before the signature. The projection:
+before the signature. The projection first removes exactly that one leading
+four-space level from every non-empty physical line, then applies the same
+declaration boundary as Before.
 
-1. removes exactly that one leading four-space level from every non-empty
-   physical line;
-2. uses `CSharpText` declaration recognition to identify the one member's
-   signature start; and
-3. removes only the leading attribute/trivia lines before that signature,
-   matching the PDB member-slice boundary.
+### Shared declaration boundary
+
+`CSharpText` recognizes members only inside a type. The adapter therefore places
+each standalone endpoint inside the same fixed synthetic type wrapper for
+recognition, selects exactly one child member declaration, and translates its
+line and column coordinates back to the unwrapped endpoint.
+
+The synthetic type contributes no output text, analysis item, line number, or
+Markout coordinate. It exists only to obtain the owner-issued trivia,
+signature-line, and signature-column boundary. The adapter removes the endpoint
+prefix before that boundary and retains everything from the signature token
+through the member end.
 
 It does not:
 
 - reflow or unwrap the signature;
 - choose a different block or expression-body form;
 - trim nested indentation or trailing whitespace;
-- remove attributes from inside the declaration or body;
+- remove attributes or comments after the signature token;
 - use a host-owned C# parser or regenerate C#;
 - add using directives from `MemberRenderResult.Namespaces`; or
 - manufacture text for an incomplete render.
 
 Removing one producer-guaranteed placement indent preserves the member's
-relative indentation and every decompiler-owned spelling choice. Typed
-declaration recognition prevents source attributes that live outside the PDB
-slice from becoming fake additions. If a non-empty line lacks the required
-prefix, or one exact signature start cannot be established, projection fails
-visibly rather than guessing a source boundary.
+relative indentation and every decompiler-owned spelling choice. Applying one
+typed declaration boundary to both endpoints prevents trivia placement from
+becoming a fake change. If a non-empty After line lacks the required prefix, or
+either wrapped endpoint does not establish one exact child member and signature
+start, projection fails visibly rather than guessing a source boundary.
 
 `MemberRenderResult` has already normalized line endings to LF and trimmed the
 terminal newline. Canonical After therefore has an absent final terminator, as
@@ -175,7 +190,7 @@ emit.
 One successful presentation result retains:
 
 - canonical Before and After text;
-- endpoint provenance;
+- original endpoint provenance and access to the unchanged producer evidence;
 - the complete `AnalysisDiff<string>`;
 - added, removed, changed-Before, changed-After, moved-Before, and moved-After
   counts; and
@@ -222,7 +237,7 @@ The CLI preserves:
 - exact and line-ending-normalized checksum evidence;
 - factual two-sided statistics;
 - complete detailed Markout output;
-- the distinct `Decompiled comparison` After label;
+- the distinct `PDB comparison` and `Decompiled comparison` endpoint labels;
 - explicit identical and unavailable outcomes; and
 - structured table, TSV, and JSONL projections.
 
@@ -236,6 +251,7 @@ The contract fixture uses a complete product render with:
 
 - a wrapped multi-line signature;
 - leading metadata attributes excluded from the PDB member slice;
+- an attribute sharing the PDB signature line;
 - nested block indentation;
 - an expression that differs from PDB source;
 - one moved line; and
@@ -245,7 +261,10 @@ The fixture proves:
 
 - exactly one type-body indentation level is removed from every non-empty After
   line;
-- leading rendered attributes do not become attribute-only additions;
+- a synthetic type scope yields exact member signature coordinates without
+  entering output or analysis coordinates;
+- separate-line and same-line declaration trivia are removed consistently from
+  both endpoints and do not become attribute-only additions or removals;
 - wrapped signature and nested indentation remain otherwise unchanged;
 - changed and moved counts retain separate Before and After cardinalities;
 - mapped endpoint lines are index-identical to analysis endpoint lines; and
@@ -256,11 +275,13 @@ The fixture proves:
 
 Release presentation tests prove:
 
-- PDB text is character-for-character preserved as canonical Before text;
+- the unchanged PDB endpoint remains available beside canonical Before text;
 - one and only one producer-guaranteed type-body indent is removed from
   complete decompiled lines;
-- leading rendered attributes outside the PDB member-slice boundary are
-  excluded through `CSharpText` declaration recognition;
+- a synthetic type wrapper produces one exact child-member boundary and
+  contributes no output lines or coordinates;
+- separate-line and same-line attributes/comments before the signature token
+  are excluded consistently from both endpoints;
 - inconsistent complete-result indentation fails visibly;
 - ambiguous or missing signature boundaries fail visibly;
 - incomplete endpoint evidence cannot produce a diff;
@@ -280,8 +301,9 @@ Release CLI tests prove:
 - checksum provenance and unavailable outcomes remain visible;
 - the PDB Source and Source Diff co-selection performs one equivalent PDB
   acquisition;
-- the After header is `Decompiled comparison`, while the separate Decompiled
-  Source section keeps its own label and content;
+- the headers are `PDB comparison` and `Decompiled comparison`, while the
+  separate PDB Source and Decompiled Source sections keep their own labels and
+  content;
 - non-text projections retain structured statistics; and
 - a wrapped-signature fixture demonstrates the intentional replacement of the
   old CLI-only endpoint projection.
