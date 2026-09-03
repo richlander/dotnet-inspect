@@ -3,6 +3,7 @@ using System.CommandLine;
 using System.CommandLine.Parsing;
 using System.Text.Json;
 using DotnetInspector.Packages;
+using DotnetInspector.Services;
 using NuGetFetch;
 
 namespace DotnetInspector.CommandLine;
@@ -139,6 +140,7 @@ public static class CommandLineHelpers
             results = await NuGetSearchService.SearchByPrefixAsync(
                 client,
                 prefix,
+                take: ScopeConstants.PackagePrefixExpansionLimit,
                 log: log,
                 sourceOptions: sourceOptions,
                 fetchOptions: NuGetFetchOptions.FromRequestTimeout(
@@ -159,6 +161,7 @@ public static class CommandLineHelpers
             return [];
         }
 
+        WarnIfPackagePrefixLimitReached(results.Count, prefix);
         log?.Invoke($"Found {results.Count} package(s) matching prefix \"{prefix}\"");
         var packageNames = results.Select(r => r.PackageId).ToArray();
 
@@ -166,6 +169,15 @@ public static class CommandLineHelpers
             log?.Invoke($"  {pkg}");
 
         return packageNames;
+    }
+
+    internal static void WarnIfPackagePrefixLimitReached(int resultCount, string prefix)
+    {
+        if (resultCount < ScopeConstants.PackagePrefixExpansionLimit)
+            return;
+
+        CommandError.WriteWarning(
+            $"Package prefix \"{prefix}\" reached the {ScopeConstants.PackagePrefixExpansionLimit}-package search limit; additional matches may be omitted.");
     }
 
     internal static bool IsPrefixResolutionFailure(Exception error) =>

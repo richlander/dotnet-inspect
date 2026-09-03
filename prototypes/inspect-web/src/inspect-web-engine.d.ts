@@ -675,6 +675,26 @@ export interface BrowserVocabularySection {
     readonly fields: ReadonlyArray<BrowserVocabularyField>;
     readonly values: ReadonlyArray<unknown>;
 }
+export interface BrowserWorkspacePackage {
+    readonly package: string;
+    readonly version: string;
+    readonly framework: string;
+}
+export interface BrowserWorkspacePackageOccurrence {
+    readonly action: string;
+    readonly package: string;
+    readonly version: string;
+    readonly framework: string;
+}
+export interface BrowserWorkspacePackageOccurrenceActivation {
+    readonly activated: boolean;
+    readonly superseded: boolean;
+    readonly package: BrowserPackageSurface | null;
+}
+export interface BrowserWorkspacePackageOccurrenceView {
+    readonly occurrences: ReadonlyArray<BrowserWorkspacePackageOccurrence>;
+    readonly superseded: boolean;
+}
 export interface BrowserWorkspaceShareContext {
     readonly id: string;
     readonly tabIds: ReadonlyArray<string>;
@@ -719,10 +739,12 @@ export interface BrowserWorkspaceShareView {
 }
 export declare function initializeRuntime(): Promise<void>;
 export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]): Promise<number>;
+export declare function activateWorkspacePackageOccurrence(action: string): BrowserWorkspacePackageOccurrenceActivation;
 export declare function asyncLoweringCanary(): Promise<string>;
 export declare function buildIdentity(): BrowserBuildIdentity;
 export declare function cancelPackageQuery(): void;
 export declare function cancelSourceQuery(): void;
+export declare function clearWorkspacePackageOccurrences(): void;
 export declare function configureHost(origin: string): void;
 export declare function decodeWorkspaceShareState(encoded: string): BrowserWorkspaceShareDecodeResult;
 export declare function encodeWorkspaceShareState(stateJson: string): BrowserWorkspaceShareEncodeResult;
@@ -759,6 +781,7 @@ export declare function queryPlatformPerformance(targetFramework: string, platfo
 export declare function queryTypeMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserSource>;
 export declare function queryTypeProjection(packageId: string, version: string, targetFramework: string, assemblyName: string, typeId: string): Promise<BrowserTypeMetadata>;
 export declare function queryTypeSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string): Promise<BrowserSource>;
+export declare function queryWorkspacePackageOccurrences(workspaceJson: string): Promise<BrowserWorkspacePackageOccurrenceView>;
 export declare function resolveHomeDemo(scenarioId: string): BrowserHomeDemoResolveResult;
 export declare function resolvePackageDependencyVersion(packageId: string, declaredRange: string | null): Promise<string>;
 export declare function runHomeDemo(scenarioId: string): Promise<BrowserHomeDemoRunResult>;

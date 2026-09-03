@@ -2708,7 +2708,7 @@ public class ApiCommand
                 options is MemberOptions { MemberSourceTooComplex: true },
                 options is MemberOptions { MemberSourceCoordinatesInvalid: true },
                 (options as MemberOptions)?.MethodSource,
-                options.UserVerbosity < Verbosity.Detailed);
+                options.UserVerbosity >= Verbosity.Detailed);
 
         }
 
@@ -2956,7 +2956,7 @@ public class ApiCommand
             SectionNames.PdbSource => CodeSectionDocument(section, SectionNames.PdbSource, (options as MemberOptions)?.MethodSource?.SourceUrl, view.MemberCode?.PdbSourceCode.Content),
             SectionNames.DecompiledSource => CodeSectionDocument(section, "Decompiled Source", null, view.MemberCode?.DecompiledSourceCode.Content),
             SectionNames.AnnotatedSource => CodeSectionDocument(section, "Annotated Source", null, view.MemberCode?.AnnotatedSourceCode.Content),
-            SectionNames.SourceDiff => CodeSectionDocument(section, "Source Diff", (options as MemberOptions)?.MethodSource?.SourceUrl, view.MemberCode?.SourceDiffCode.Content),
+            SectionNames.SourceDiff => CodeSectionDocument(section, "Source Diff", (options as MemberOptions)?.MethodSource?.SourceUrl, view.MemberCode?.SourceDiffCode?.Content),
             SectionNames.IL => CodeSectionDocument(section, "IL", null, view.MemberCode?.ILCode.Content),
             _ => []
         };
@@ -3220,7 +3220,7 @@ public class ApiCommand
             SectionNames.CostOverlay => view.MemberCode?.CostOverlayCode.Content ?? "",
             SectionNames.SemanticsOverlay => view.MemberCode?.SemanticsOverlayCode.Content ?? "",
             SectionNames.PdbSource => view.MemberCode?.PdbSourceCode.Content ?? "",
-            SectionNames.SourceDiff => view.MemberCode?.SourceDiffCode.Content ?? "",
+            SectionNames.SourceDiff => view.MemberCode?.SourceDiffCode?.Content ?? "",
             SectionNames.IL => view.MemberCode?.ILCode.Content ?? "",
             SectionNames.SourceFiles => BareUrlColumn(view.SourceFileRows?.Select(row => row.Url), SectionNames.SourceFiles, out error),
             SectionNames.SourceLocations => BareUrlColumn(view.SourceLocationRows?.Select(row => row.Url), SectionNames.SourceLocations, out error),
@@ -3553,7 +3553,7 @@ public class ApiCommand
                     memberOptions.MemberSourceTooComplex,
                     memberOptions.MemberSourceCoordinatesInvalid,
                     memberOptions.MethodSource,
-                    memberOptions.UserVerbosity < Verbosity.Detailed);
+                    memberOptions.UserVerbosity >= Verbosity.Detailed);
             }
 
             if (renderOptions is TypeOptions
@@ -3712,7 +3712,7 @@ public class ApiCommand
         bool sourceTooComplex,
         bool sourceCoordinatesInvalid,
         MethodSourceContext? source,
-        bool reviewerSized)
+        bool detailed)
     {
         if (!requestedSections.Contains(SectionNames.SourceDiff))
             return;
@@ -3720,29 +3720,27 @@ public class ApiCommand
         view.MemberCode ??= new MemberCodeView();
         if (sourceTooComplex)
         {
-            view.MemberCode.SourceDiffCode = new Markout.CodeSection(
-                "diff",
-                "# PDB Source unavailable because PDB source extraction exceeded "
+            view.MemberCode.SourceDiffCode = new SourceDiffOutput(
+                "PDB Source unavailable because PDB source extraction exceeded "
                 + "the lexical complexity limit.");
             return;
         }
         if (sourceCoordinatesInvalid)
         {
-            view.MemberCode.SourceDiffCode = new Markout.CodeSection(
-                "diff",
-                "# PDB Source unavailable because portable-PDB sequence-point coordinates "
+            view.MemberCode.SourceDiffCode = new SourceDiffOutput(
+                "PDB Source unavailable because portable-PDB sequence-point coordinates "
                 + "cannot address the verified source.");
             return;
         }
 
-        string diff = SourceTextDiffRenderer.CreateUnifiedDiff(
+        SourceDiffOutput diff = SourceTextDiffRenderer.CreateOutput(
                 // The unavailable note is an explanation, not source text: leave the diff's
                 // "before" side unavailable so it reports that rather than diffing the note.
                 view.MemberCode.PdbSourceUnavailable ? null : view.MemberCode.PdbSourceCode.Content,
                 view.MemberCode.DecompiledSourceCode.Content,
                 SectionNames.PdbSource,
                 "Decompiled Source",
-                reviewerSized);
+                detailed);
         if (source is { HasChecksumEvidence: true })
         {
             string location = CSharpText.CSharpIdentifier.ContainRenderedText(
@@ -3760,12 +3758,12 @@ public class ApiCommand
                     + "after CR/LF normalization.",
                 _ => throw new InvalidOperationException("Checksum evidence requires a successful verification."),
             };
-            diff = $"# PDB source: {location}\n"
-                + $"# Integrity: {integrity}\n"
-                + diff;
+            diff = diff.WithMetadata(
+                new Markout.MarkoutField("PDB source", location),
+                new Markout.MarkoutField("Integrity", integrity));
         }
 
-        view.MemberCode.SourceDiffCode = new Markout.CodeSection("diff", diff);
+        view.MemberCode.SourceDiffCode = diff;
     }
 
     private static void WriteJsonTypeOutput(ApiType type, ApiOptions options)

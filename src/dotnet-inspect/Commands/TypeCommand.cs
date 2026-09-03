@@ -152,7 +152,8 @@ public static class TypeCommand
                             logger)
                         : ApiServices.LoadFullApi(
                             searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
-                            apiSource, apiVersion, selectedTfm, logger, options));
+                            apiSource, apiVersion, selectedTfm, logger, options,
+                            source.PackageExtractPath));
                 if (loaded == null)
                 {
                     CommandError.Write("Could not extract API from library.");
@@ -224,7 +225,8 @@ public static class TypeCommand
                 var loaded = loadedSurface
                     ?? ApiServices.LoadFullApi(
                         searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
-                        apiSource, apiVersion, selectedTfm, logger, options);
+                        apiSource, apiVersion, selectedTfm, logger, options,
+                        source.PackageExtractPath);
                 if (loaded == null)
                 {
                     CommandError.Write("Could not extract API from library.");

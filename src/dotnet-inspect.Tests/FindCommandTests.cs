@@ -413,9 +413,14 @@ public class FindCommandTests
     }
 
     [Fact]
-    public async Task PackageProfileCatalog_MaterializesSourceExecutionOnce()
+    public async Task
+        PackageProfileCatalog_MaterializesOnceAndForwardsOperationContext()
     {
         var source = new CountingPackageSource();
+        using var operationContext = new NuGetOperationContext(
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(4),
+            TestContext.Current.CancellationToken);
         PackageProfileSectionCatalog catalog =
             PackageProfileSections.CreateCatalog();
 
@@ -427,11 +432,13 @@ public class FindCommandTests
                 .RunAsync(
                     new PackageProfileQueryContext(
                         source,
-                        new PackagePrefixProfileRequest("Contoso.")),
+                        new PackagePrefixProfileRequest("Contoso."),
+                        operationContext),
                     cancellationToken:
                         TestContext.Current.CancellationToken);
 
         Assert.Equal(1, source.SearchRequests);
+        Assert.Same(operationContext, source.SearchOperationContext);
         ImmutableArray<PackageProfileEvent> first =
             results.Get(PackageProfileQuery.Definition);
         ImmutableArray<PackageProfileEvent> second =
@@ -949,6 +956,11 @@ public class FindCommandTests
     private sealed class CountingPackageSource : IPackageSourceClient
     {
         public int SearchRequests { get; private set; }
+        public NuGetOperationContext? SearchOperationContext
+        {
+            get;
+            private set;
+        }
         public PackageSourceResultIdentity Source => TestResults.Source;
         public PackageSourceCapabilities Capabilities =>
             PackageSourceCapabilities.Search;
@@ -963,6 +975,7 @@ public class FindCommandTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             SearchRequests++;
+            SearchOperationContext = operationContext;
             return Task.FromResult<
                 PackageSourceOperationResult<PackageSearchResult>>(
                     TestResults.FailedSearch(
@@ -1159,9 +1172,9 @@ public class FindCommandIntegrationTests
     }
 
     [Theory]
-    [InlineData("Azure", 0, "-t must be between 1 and 10000 for a package-prefix profile (got 0).")]
-    [InlineData("Azure", 10001, "-t must be between 1 and 10000 for a package-prefix profile (got 10001).")]
-    [InlineData("Azure ", 100, "--package-prefix must be 1 to 100 characters without surrounding whitespace or control characters.")]
+    [InlineData("Azure", 0, "-t must be between 1 and 1000 for a package-prefix profile (got 0).")]
+    [InlineData("Azure", 1001, "-t must be between 1 and 1000 for a package-prefix profile (got 1001).")]
+    [InlineData("Azure ", 500, "--package-prefix must be 1 to 100 characters without surrounding whitespace or control characters.")]
     public async Task PackageProfileInvalidInput_UsesComposedDiagnostic(
         string prefix,
         int limit,
@@ -1185,6 +1198,13 @@ public class FindCommandIntegrationTests
             "ArgumentOutOfRange_",
             error,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PackageProfileLimits_UseMeasuredDefaultAndMaximum()
+    {
+        Assert.Equal(500, FindCommand.PackageProfileDefaultLimit);
+        Assert.Equal(1_000, FindCommand.PackageProfileMaximumLimit);
     }
 
     [Fact]
@@ -1279,7 +1299,7 @@ public class FindCommandIntegrationTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("-t must be an integer between 1 and 10000", error);
+        Assert.Contains("-t must be an integer between 1 and 1000", error);
         Assert.DoesNotContain("Attempted:", error);
         Assert.DoesNotContain("Arg_", error, StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -1307,7 +1327,7 @@ public class FindCommandIntegrationTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "-t must be between 1 and 10000 for a package-prefix profile",
+            "-t must be between 1 and 1000 for a package-prefix profile",
             error);
         Assert.DoesNotContain("Attempted:", error);
     }
@@ -1896,18 +1916,16 @@ public class FindCommandIntegrationTests
     // ── Error handling tests ─────────────────────────────────────────
 
     [Fact]
-    public async Task Find_NoScope_AppliesCuratedDefault()
+    public async Task Find_NoScope_AppliesPlatformDefault()
     {
         var options = new FindOptions
         {
             Pattern = "Stream"
-            // No scope specified - should apply curated defaults
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
             () => FindCommand.ExecuteAsync(options));
 
-        // Should succeed with curated scope applied
         Assert.Equal(0, exit);
         Assert.Contains("Stream", output);
     }

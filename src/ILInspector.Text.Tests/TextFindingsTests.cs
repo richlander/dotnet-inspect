@@ -196,6 +196,93 @@ public class TextFindingsTests
         Assert.True(complete.IsExact);
     }
 
+    [Fact]
+    public void CreateAnalysisDiff_GroupsUnequalReplacementPopulation()
+    {
+        AnalysisDiff<string> diff = TextFindings.CreateAnalysisDiff(
+            "before one\nbefore two\n",
+            "after one\nafter two\nafter three\n",
+            Subject);
+
+        AnalysisDiffRelation.Correspondence relation =
+            Assert.IsType<AnalysisDiffRelation.Correspondence>(
+                Assert.Single(diff.Relations));
+        Assert.Equal([0, 1], relation.BeforeCoordinates);
+        Assert.Equal([0, 1, 2], relation.AfterCoordinates);
+        Assert.Equal(AnalysisDiffContentKind.Changed, relation.Content);
+        Assert.Equal(AnalysisDiffPlacementKind.Stable, relation.Placement);
+    }
+
+    [Fact]
+    public void CreateAnalysisDiff_PreservesOneSidedAddition()
+    {
+        AnalysisDiff<string> diff = TextFindings.CreateAnalysisDiff(
+            "stable\n",
+            "stable\nadded\n",
+            Subject);
+
+        Assert.Contains(
+            diff.Relations,
+            relation => relation is AnalysisDiffRelation.Addition
+            {
+                AfterCoordinates: [1]
+            });
+    }
+
+    [Fact]
+    public void CreateAnalysisDiff_PreservesMovedLines()
+    {
+        AnalysisDiff<string> diff = TextFindings.CreateAnalysisDiff(
+            "A\nB\nC\nmoved-one\nmoved-two\nD\nE",
+            "moved-one\nmoved-two\nA\nB\nC\nD\nE",
+            Subject);
+
+        AnalysisDiffRelation.Correspondence[] moved = diff.Relations
+            .OfType<AnalysisDiffRelation.Correspondence>()
+            .Where(relation => relation.Placement == AnalysisDiffPlacementKind.Moved)
+            .ToArray();
+
+        Assert.Equal(2, moved.Length);
+        Assert.All(
+            moved,
+            relation => Assert.Equal(AnalysisDiffContentKind.Unchanged, relation.Content));
+    }
+
+    [Fact]
+    public void CreateAnalysisDiff_FinalTerminatorChangeChangesFinalLine()
+    {
+        AnalysisDiff<string> diff = TextFindings.CreateAnalysisDiff(
+            "value",
+            "value\n",
+            Subject);
+
+        AnalysisDiffRelation.Correspondence relation =
+            Assert.IsType<AnalysisDiffRelation.Correspondence>(
+                Assert.Single(diff.Relations));
+        Assert.Equal([0], relation.BeforeCoordinates);
+        Assert.Equal([0], relation.AfterCoordinates);
+        Assert.Equal(AnalysisDiffContentKind.Changed, relation.Content);
+        Assert.Equal(AnalysisDiffPlacementKind.Stable, relation.Placement);
+    }
+
+    [Theory]
+    [InlineData("alpha\r\nbeta\r\n", "alpha\nbeta\n")]
+    [InlineData("alpha\rbeta\r", "alpha\nbeta\n")]
+    public void CreateAnalysisDiff_NormalizesLineEndingSpelling(string before, string after)
+    {
+        AnalysisDiff<string> diff = TextFindings.CreateAnalysisDiff(before, after, Subject);
+
+        Assert.All(
+            diff.Relations,
+            relation =>
+            {
+                AnalysisDiffRelation.Correspondence correspondence =
+                    Assert.IsType<AnalysisDiffRelation.Correspondence>(relation);
+                Assert.Equal(AnalysisDiffContentKind.Unchanged, correspondence.Content);
+                Assert.Equal(AnalysisDiffPlacementKind.Stable, correspondence.Placement);
+            });
+    }
+
     static FindingComparison<string>.Complete Compare(string oldText, string newText)
         => CompleteComparison(TextFindings.Compare(oldText, newText, Subject));
 

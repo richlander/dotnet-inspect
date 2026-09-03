@@ -69,7 +69,8 @@ public static class PackageProfileSections
                     PackageProfileQuery.ExecuteToArrayAsync(
                     context.Source,
                     context.Request,
-                    cancellationToken))
+                    cancellationToken,
+                    context.OperationContext))
             .Compile();
 
     private static void ConfigurePipeline(

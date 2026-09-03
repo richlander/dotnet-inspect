@@ -430,8 +430,12 @@ public sealed class PackageAssemblyContextRealizationTests
             PackagePayloadOrigin.Download);
 
         PackageRootBinding binding =
-            PackageRootBinding.CreateFromResolved(payload, "net10.0");
+            PackageRootBinding.CreateFromResolved(
+                payload,
+                "net10.0",
+                "Resolved.Sample");
 
+        Assert.Equal("Resolved.Sample", binding.Root.PackageId);
         Assert.Equal("net11.0", binding.Coordinate.Framework);
         Assert.Equal("linux-x64", binding.Coordinate.RuntimeIdentifier);
         Assert.Equal("net10.0", binding.Root.RequestedTargetFramework);
@@ -449,6 +453,11 @@ public sealed class PackageAssemblyContextRealizationTests
         Assert.Equal(
             "linux-x64",
             binding.Root.RequestedRuntimeIdentifier);
+        Assert.Throws<ArgumentException>(
+            () => PackageRootBinding.CreateFromResolved(
+                payload,
+                "net10.0",
+                "Different.Package"));
     }
 
     [Fact]
