@@ -324,9 +324,10 @@ System.Text.Json > System.Text.Json.JsonSerializer > DeserializeSync
 ```
 
 The path contains the applicable Package, Library, Type, and Member display
-identities supplied by their owners. Workspace renders `Workspace`. The
-presentation does not parse one display string to derive another, and the
-segments are orientation rather than inert navigation breadcrumbs.
+identities supplied by their owners. Workspace renders the selected live
+Workspace's session name. The presentation does not parse one display string
+to derive another, and the segments are orientation rather than inert
+navigation breadcrumbs.
 
 The Package segment receives the strongest visual emphasis, following
 npmx.dev's useful emphasis and direct-copy treatment for current package
@@ -338,7 +339,8 @@ Each product-issued Package, Library, Type, or Member segment is an individually
 copyable control. Activating one copies that segment's owner-issued canonical
 name, not the combined rendered path or text parsed from another segment.
 Workspace is presentation-owned retained-coordinate management and remains
-plain orientation text rather than inventing a canonical name.
+plain orientation text. Its session name is not a canonical or portable
+identity.
 
 The inspected target begins with a fixed-width root-icon slot. A package uses the
 embedded JPEG or PNG named by its validated nuspec `<icon>` declaration. The
@@ -380,56 +382,71 @@ finally the arrows disappear.
 
 ### Workspace surface
 
-Workspace is the first subject and the persistent entry point for workspace
-packet inspection and retained-coordinate management. The primary inventory is
-the set of product-issued packets, not the deduplicated runtime workspaces that
-realize them. A packet composes its Workspace, navigation, and initial view as
-defined by [Workspace Definitions](workspace-definitions.md); two packets remain
-separately selectable when they reuse the same underlying Workspace. The first
-browser adoption retains resolved product demo scenarios for the current
-session.
+Workspace is the first subject and the persistent entry point for the
+browser session's live Workspaces and their retained-coordinate management.
+Every live Workspace remains visible in one inventory even when several have
+equal coordinate sets. The selected Workspace supplies the active package,
+portable share basis, and in-app navigation-history projection. Those
+projections are session state, not product Workspace identities.
 
-Selecting a packet is observational: it changes the packet detail shown in the
-content pane and starts no acquisition or inspection work. The detail shows its
-owner-issued title and summary, declared workspace members, initial navigation
-target, and initial view. A separate, explicit `Open workspace` action executes
-the selected packet. The selected packet's title replaces the generic
-`Workspace` content heading and inspected-target label.
+The session begins with one `Default` Workspace. `New workspace` creates and
+selects an empty live Workspace with the next session name. The Browser surface
+bounds the live collection at four Workspaces. A non-default Workspace exposes
+an explicit `Remove workspace` action; Default cannot be removed. Closing the
+final coordinate leaves an empty Workspace visible and selected rather than
+routing Home or removing it.
 
-Selection and runtime state remain separate. The selected packet title orients
-the packet viewer; it does not claim that the packet uniquely owns the loaded
-Workspace or that its initial view is active. The loaded Workspace section
-reports runtime state without inferring packet identity from matching
-coordinates. Packet selection preserves focus on the selected inventory entry.
+Each inventory row and the selected Workspace detail infer presentation only
+from that Workspace's actual loaded package models:
 
-The same content pane separately lists the runtime Workspace's loaded
-coordinates with:
+- the session name and loaded-coordinate count;
+- package or Platform identity, version, and target framework;
+- the active coordinate; and
+- an explicit Close action for each removable package coordinate.
 
-- coordinate identity and acquisition kind;
-- optional owner-issued current-subject context;
-- loading, ready, or failed state; and
-- an explicit Close action.
+The inference does not mint identity, reconstruct a demo scenario, or treat a
+portable workspace packet as the user-facing Workspace. Browser-session
+Workspace IDs and names do not enter Share packets and are not a substitute for
+the product-issued identities and membership results tracked by
+[#5508](https://github.com/richlander/dotnet-inspect/issues/5508) and
+[#5583](https://github.com/richlander/dotnet-inspect/issues/5583).
 
-Opening a packet or closing a coordinate submits its opaque identity and
-renders the returned workspace outcome. The UI does not choose a subject, lens,
-successor, or fallback for the product. Separate packets remain separate even
-when their display package IDs and complete coordinate sets match.
+Selecting a Workspace is a real session transition. It preserves the outgoing
+Workspace projection, activates the selected projection, invalidates work
+owned by the outgoing navigation generation, renders the selected Workspace
+name in the content heading and inspected-target path, and preserves focus on
+the selected inventory entry. The Navigation Consumer associates browser
+history entries with the owning browser-session Workspace ID. Back or Forward
+selects a known associated Workspace before applying the entry; an absent or
+unknown session ID targets Default and never creates a phantom Workspace.
+
+An empty Workspace has the canonical session route `/#workspace`. It renders
+the ordinary Workspace shell, inventory, Search action, and empty package
+detail. Share is unavailable until the Workspace has a projectable package
+state. An older `/#workspace` history entry selects its associated live
+Workspace without undoing packages loaded since that entry was created.
+Refreshing that non-portable route returns to Default's empty Workspace shell;
+session-created Workspaces are not yet persisted.
+
+Product demos always replace the Default Workspace with the demo's exact
+resolved coordinates and view. They neither create Workspace rows nor merge
+their coordinates into a selected user-created Workspace. Ordinary package
+opening targets the selected Workspace.
 
 Closing an inactive coordinate preserves the active coordinate's inspection
 state and keeps Workspace selected. Closing the active coordinate selects the
-returned successor while remaining in Workspace. Share and refresh preserve the Workspace subject and its retained coordinates.
-The home-demo packet inventory is session-scoped until scenario identity is
-part of the share format; after refresh, the generic current Workspace remains
-viewable without reconstructing a demo identity from matching coordinates.
+returned successor while remaining in Workspace. Share and refresh preserve
+the Workspace subject and its retained coordinates, but this slice makes no
+persistence claim for the collection itself.
 
-Workspace renders stable focus targets for its heading, every packet entry, and
-every coordinate action. Post-result focus and failure
-handling are owned by
-[Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md#workspace-result-focus).
+Workspace renders stable focus targets for its heading, every Workspace entry,
+and every coordinate action. Post-result focus, browser-history association,
+and deferred-effect authority are owned by
+[Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md).
 
-Workspace also exposes the same Search and Open actions as the shell. It does
-not infer source identity, package equivalence, local-file correspondence, or
-a composite workspace name from display labels.
+Workspace also exposes the same Search and package-open actions as the shell.
+It does not infer source identity, package equivalence, local-file
+correspondence, or canonical Workspace identity from display labels.
 
 ### Lens navigation semantics
 
@@ -911,12 +928,25 @@ are proved by the gates in
 
 ### Workspace composition
 
-1. Supply two open-coordinate descriptors with different optional subject
-   context and status.
-2. Confirm that Workspace renders those descriptors without deriving identity
-   from their labels.
-3. Activate and close entries and confirm that each action submits the opaque
-   coordinate identity once and renders the returned workspace outcome.
+1. Start a browser session and confirm that one removable-coordinate inventory
+   named `Default` is visible.
+2. Load System.Text.Json into Default, create a second Workspace, and load
+   Microsoft.Extensions packages into it. Confirm that both Workspaces remain
+   visible and each detail is inferred only from its own package models.
+3. Switch repeatedly between the overlapping and disjoint coordinate sets.
+   Confirm that the selected Workspace name appears in the inspected-target path
+   and content heading, its package projection is active, and focus follows the
+   selected inventory entry.
+4. Create an empty Workspace, close the final coordinate in another non-default
+   Workspace, and confirm that both remain visible as empty Workspace
+   destinations. Refresh `/#workspace` and confirm that, after engine readiness,
+   the empty Default Workspace shell renders rather than Home.
+5. Remove a non-default Workspace and confirm that Default becomes selected.
+   Confirm that Default has no removal action and that creation is disabled at
+   four live Workspaces.
+6. Run three demos with equal System.Text.Json coordinates and different views.
+   Confirm that they replace Default's content without creating three rows or
+   mutating the selected user-created Workspace.
 
 Post-result focus and failure acceptance are specified by
 [Workspace focus acceptance](inspect-web-navigation-consumer.md#workspace-focus-acceptance).

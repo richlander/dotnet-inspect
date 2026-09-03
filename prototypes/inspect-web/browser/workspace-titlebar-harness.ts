@@ -18,20 +18,33 @@ import {
   focusWorkbenchSearch,
   workbenchShellHtml,
 } from "../src/shell-controls.ts";
-import type { BrowserHomeDemoResolved } from "../src/inspect-web-engine.d.ts";
 import {
   bindWorkspaceSubject,
-  focusWorkspacePacket,
-  renderWorkspacePacketView,
+  focusWorkspace,
   renderWorkspaceSubject,
-  retainWorkspacePacket,
+  renderWorkspaceView,
 } from "../src/workspace-subject.ts";
+import {
+  MAX_LIVE_WORKSPACES,
+  createLiveWorkspace,
+  createLiveWorkspaceSession,
+  removeLiveWorkspace,
+  selectLiveWorkspace,
+  selectedLiveWorkspace,
+  updateSelectedLiveWorkspace,
+  withWorkspaceHistoryId,
+  workspaceForHistory,
+  workspaceOperationIsCurrent,
+} from "../src/workspace-session.ts";
 
 declare global {
   interface Window {
     focusWorkbenchSearchProbe: () => boolean;
     renderPackageScopeProbe: () => void;
     rerenderScopeBarProbe: () => void;
+    beginDelayedWorkspaceLoadProbe: () => void;
+    completeDelayedWorkspaceLoadProbe: () => void;
+    restoreUnknownWorkspaceProbe: () => void;
   }
 }
 
@@ -63,7 +76,7 @@ const packageIcon = params.has("fallback")
   ? defaultPackageIcon
   : systemTextJsonIcon;
 const subjectPath = workspaceMode
-  ? [{ kind: "workspace", label: "System.Text.Json", copyable: false }]
+  ? [{ kind: "workspace", label: "Default", copyable: false }]
   : packageMode
     ? [{ kind: "package", label: "System.Text.Json", copyable: true }]
     : memberMode
@@ -121,94 +134,53 @@ const coordinates = [
     isRuntimePack: false,
   },
 ];
-const packetDefinitions: readonly BrowserHomeDemoResolved[] = [
-  {
-    id: "stj-serializer",
-    title: "System.Text.Json",
-    summary: "Browse a real package API",
-    workspaceMembers: [{
-      kind: "package",
-      id: "System.Text.Json",
-      version: "10.0.0",
-      framework: "net10.0",
-      assembly: null,
-    }],
-    tabs: [],
-    focusTabIndex: 0,
-    view: {
-      library: null,
-      type: "System.Text.Json.JsonSerializer",
-      memberAnchor: null,
-      memberKey: null,
-      section: "Methods",
-    },
-  },
-  {
-    id: "stj-serialize-callgraph",
-    title: "Serialize call graph",
-    summary: "Dense package-local STJ graph",
-    workspaceMembers: [{
-      kind: "package",
-      id: "System.Text.Json",
-      version: "10.0.0",
-      framework: "net10.0",
-      assembly: null,
-    }],
-    tabs: [],
-    focusTabIndex: 0,
-    view: {
-      library: null,
-      type: "System.Text.Json.JsonSerializer",
-      memberAnchor: "1dc14dd1fb",
-      memberKey: "method:Serialize",
-      section: "Call Graph",
-    },
-  },
-  {
-    id: "stj-getdecimal-callgraph",
-    title: "JsonElement.GetDecimal",
-    summary: "STJ number parse path",
-    workspaceMembers: [{
-      kind: "package",
-      id: "System.Text.Json",
-      version: "10.0.0",
-      framework: "net10.0",
-      assembly: null,
-    }],
-    tabs: [],
-    focusTabIndex: 0,
-    view: {
-      library: null,
-      type: "System.Text.Json.JsonElement",
-      memberAnchor: "cfd9980a6c",
-      memberKey: "method:GetDecimal",
-      section: "Call Graph",
-    },
-  },
-];
-let workspacePackets: BrowserHomeDemoResolved[] = [];
-for (const packet of packetDefinitions)
-  workspacePackets = retainWorkspacePacket(workspacePackets, packet);
-let selectedWorkspacePacketId = workspacePackets[0]?.id ?? "";
+const workspaceSession =
+  createLiveWorkspaceSession<(typeof coordinates)[number]>("default");
+updateSelectedLiveWorkspace(workspaceSession, {
+  packages: params.has("empty-workspace") ? [] : coordinates.slice(0, 1),
+  activePackageKey: params.has("empty-workspace")
+    ? null
+    : "System.Text.Json@10.0.0::net10.0",
+  shareBasis: null,
+  navigation: { stack: [], index: -1 },
+});
+createLiveWorkspace(workspaceSession, "extensions");
+updateSelectedLiveWorkspace(workspaceSession, {
+  packages: coordinates.slice(1),
+  activePackageKey:
+    "Microsoft.Extensions.DependencyInjection@10.0.0::net10.0",
+  shareBasis: null,
+  navigation: { stack: [], index: -1 },
+});
+selectLiveWorkspace(workspaceSession, "default");
+let workspaceNavigationSequence = 0;
+let delayedWorkspaceOwner: {
+  workspaceId: string;
+  navigationSequence: number;
+} | null = null;
+if (workspaceMode) {
+  history.replaceState(
+    withWorkspaceHistoryId(history.state, "default"),
+    "",
+    location.href);
+}
 
-function selectedWorkspacePacket(): BrowserHomeDemoResolved | null {
-  return workspacePackets.find(
-    packet => packet.id === selectedWorkspacePacketId) ?? null;
+function selectedWorkspace() {
+  return selectedLiveWorkspace(workspaceSession);
 }
 
 function workspaceNavigationHtml(): string {
   return renderWorkspaceSubject({
-    packets: workspacePackets,
-    selectedPacketId: selectedWorkspacePacketId,
+    workspaces: workspaceSession.workspaces,
+    selectedWorkspaceId: workspaceSession.selectedWorkspaceId,
+    maximumWorkspaces: MAX_LIVE_WORKSPACES,
     escapeHtml,
   });
 }
 
 function workspaceDetailHtml(): string {
-  return renderWorkspacePacketView({
-    packet: selectedWorkspacePacket(),
-    packages: coordinates.slice(0, 1),
-    activePackage: coordinates[0] ?? null,
+  return renderWorkspaceView({
+    workspace: selectedWorkspace(),
     escapeHtml,
     packageIdentityKey: item =>
       `${item.id}@${item.version}::${item.activeFramework}`,
@@ -274,6 +246,9 @@ function scopeBarHtml() {
         : "data-lens",
     panelId: "inspector-panel",
     showMemberScope: memberMode,
+    ...(workspaceMode && params.has("empty-workspace")
+      ? { subjectScopes: ["workspace"] as const }
+      : {}),
     emptyStripLabel: emptyMode ? "Filtered member list" : "",
     escapeHtml,
   });
@@ -422,9 +397,12 @@ function bindHarnessScopeBar() {
   }, scopeBarState);
 }
 
-function renderHarnessWorkspace(packetId: string) {
-  if (!workspacePackets.some(packet => packet.id === packetId)) return;
-  selectedWorkspacePacketId = packetId;
+function renderHarnessWorkspace(
+  workspaceId: string,
+  pushHistory = true,
+) {
+  if (!selectLiveWorkspace(workspaceSession, workspaceId)) return;
+  workspaceNavigationSequence++;
   const navigation =
     document.querySelector<HTMLElement>(".workspace-nav");
   const detail =
@@ -434,28 +412,38 @@ function renderHarnessWorkspace(packetId: string) {
   const pathSegment =
     path?.querySelector<HTMLElement>(".subject-path-segment");
   if (!navigation || !detail || !path || !pathSegment)
-    throw new Error("The workspace packet harness is incomplete.");
+    throw new Error("The workspace harness is incomplete.");
   navigation.outerHTML = workspaceNavigationHtml();
   detail.innerHTML = workspaceDetailHtml();
-  const title = selectedWorkspacePacket()?.title ?? "Current workspace";
+  const title = selectedWorkspace().name;
   path.setAttribute("aria-label", title);
   path.title = title;
   pathSegment.textContent = title;
   bindHarnessWorkspace();
+  if (pushHistory) {
+    history.pushState(
+      withWorkspaceHistoryId(null, workspaceId),
+      "",
+      location.href);
+  }
   requestAnimationFrame(() =>
-    focusWorkspacePacket(document, packetId));
+    focusWorkspace(document, workspaceId));
 }
 
 function bindHarnessWorkspace() {
   if (!workspaceMode) return;
   bindWorkspaceSubject(document, {
     onSelect: renderHarnessWorkspace,
-    onOpen: packetId => {
-      const count = Number(document.body.dataset.workspaceExecutionCount ?? "0");
-      document.body.dataset.workspaceExecutionCount = String(count + 1);
-      document.body.dataset.workspaceExecution = packetId;
+    onCreate: () => {
+      const id = `workspace-${workspaceSession.workspaces.length + 1}`;
+      if (!createLiveWorkspace(workspaceSession, id)) return;
+      renderHarnessWorkspace(id);
     },
-    onClose: packageKey => {
+    onRemove: workspaceId => {
+      removeLiveWorkspace(workspaceSession, workspaceId);
+      renderHarnessWorkspace("default");
+    },
+    onClosePackage: packageKey => {
       document.body.dataset.workspaceClose = packageKey;
     },
   });
@@ -463,7 +451,12 @@ function bindHarnessWorkspace() {
 
 bindHarnessScopeBar();
 bindHarnessWorkspace();
-if (workspaceMode) document.body.dataset.workspaceExecutionCount = "0";
+if (workspaceMode) {
+  window.addEventListener("popstate", event => {
+    const workspace = workspaceForHistory(workspaceSession, event.state);
+    renderHarnessWorkspace(workspace.id, false);
+  });
+}
 
 window.focusWorkbenchSearchProbe = () => focusWorkbenchSearch(document);
 window.renderPackageScopeProbe = () => {
@@ -472,3 +465,34 @@ window.renderPackageScopeProbe = () => {
   renderHarnessScopeBar();
 };
 window.rerenderScopeBarProbe = renderHarnessScopeBar;
+window.beginDelayedWorkspaceLoadProbe = () => {
+  delayedWorkspaceOwner = {
+    workspaceId: workspaceSession.selectedWorkspaceId,
+    navigationSequence: workspaceNavigationSequence,
+  };
+};
+window.completeDelayedWorkspaceLoadProbe = () => {
+  const owner = delayedWorkspaceOwner;
+  delayedWorkspaceOwner = null;
+  if (!owner || !workspaceOperationIsCurrent(
+    workspaceSession,
+    owner,
+    workspaceNavigationSequence)) {
+    document.body.dataset.workspaceLateLoad = "rejected";
+    return;
+  }
+  const latePackage = coordinates[0];
+  if (!latePackage) throw new Error("The delayed package fixture is missing.");
+  selectedLiveWorkspace(workspaceSession).packages = [
+    ...selectedLiveWorkspace(workspaceSession).packages,
+    latePackage,
+  ];
+  document.body.dataset.workspaceLateLoad = "applied";
+  renderHarnessWorkspace(workspaceSession.selectedWorkspaceId, false);
+};
+window.restoreUnknownWorkspaceProbe = () => {
+  const workspace = workspaceForHistory(
+    workspaceSession,
+    withWorkspaceHistoryId(null, "unknown"));
+  renderHarnessWorkspace(workspace.id, false);
+};

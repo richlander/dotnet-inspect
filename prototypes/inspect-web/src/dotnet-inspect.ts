@@ -158,7 +158,6 @@ import {
   productHomeDemoLocationHref,
   setProductHomeDemoCatalog,
   type ProductHomeDemoId,
-  type ProductHomeDemoResolved,
 } from "./product-home-demos.ts";
 import {
   createSourceInspectionCoordinator,
@@ -238,11 +237,25 @@ import {
 } from "./scope-bar.ts";
 import {
   bindWorkspaceSubject,
-  focusWorkspacePacket,
-  renderWorkspacePacketView,
+  focusWorkspace as focusLiveWorkspace,
+  renderWorkspaceView as renderLiveWorkspaceView,
   renderWorkspaceSubject,
-  retainWorkspacePacket as retainWorkspacePacketInList,
 } from "./workspace-subject.ts";
+import {
+  MAX_LIVE_WORKSPACES,
+  createLiveWorkspace,
+  createLiveWorkspaceSession,
+  defaultLiveWorkspace,
+  removeLiveWorkspace,
+  selectLiveWorkspace,
+  selectedLiveWorkspace,
+  updateSelectedLiveWorkspace,
+  withWorkspaceHistoryId,
+  workspaceForHistory,
+  workspaceOperationIsCurrent,
+  type LiveWorkspace,
+  type LiveWorkspaceSession,
+} from "./workspace-session.ts";
 import {
   bindDocViewer,
   renderDocViewer as renderDocViewerPure,
@@ -636,6 +649,8 @@ const HOME_BOT_ANIMATION_DURATION_MS = 5500;
 const DEFAULT_REQUESTED_FRAMEWORK = "net10.0";
 let homeBotAnimationStartedAt: number | null = null;
 let homeReadyGlintPending = true;
+const initialWorkspaceSession =
+  createLiveWorkspaceSession<AppPackage>(crypto.randomUUID());
 const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   statusBarExpanded: false,
@@ -739,8 +754,7 @@ const initialState = {
   memberDocumentationKey: "",
   lens: "api" as const,
   packageLens: "overview" as const,
-  workspacePackets: [],
-  selectedWorkspacePacketId: "",
+  workspaceSession: initialWorkspaceSession,
   workspaceSubjectOpen: false,
   atPackageRoot: false,
   typeFilter: "",
@@ -804,7 +818,7 @@ const initialState = {
 interface StateOverrides {
   packages: AppPackage[];
   package: AppPackage | null;
-  workspacePackets: ProductHomeDemoResolved[];
+  workspaceSession: LiveWorkspaceSession<AppPackage>;
   workspaceShareBasis: BrowserWorkspaceShareState | null;
   platformIndex: PlatformIndex | null;
   queryNoticeRetryAction: RetryAction;
@@ -890,10 +904,28 @@ function captureCanonicalWorkspaceRestoreSnapshot():
 CanonicalWorkspaceRestoreSnapshot {
   sourceInspection.cancelCurrentRequest();
   cancelAnnotatedSourceRequest(state);
+  syncCurrentLiveWorkspace();
   const packages = structuredClone(state.packages);
   const activeKey = state.package
     ? packageIdentityKey(state.package)
     : null;
+  const workspaceSession: LiveWorkspaceSession<AppPackage> = {
+    selectedWorkspaceId: state.workspaceSession.selectedWorkspaceId,
+    nextWorkspaceNumber: state.workspaceSession.nextWorkspaceNumber,
+    workspaces: state.workspaceSession.workspaces.map(workspace => ({
+      ...workspace,
+      packages: workspace.id === state.workspaceSession.selectedWorkspaceId
+        ? packages
+        : [...workspace.packages],
+      shareBasis: workspace.shareBasis
+        ? structuredClone(workspace.shareBasis)
+        : null,
+      navigation: {
+        stack: workspace.navigation.stack.map(entry => ({ ...entry })),
+        index: workspace.navigation.index,
+      },
+    })),
+  };
   return {
     state: {
       ...state,
@@ -923,6 +955,7 @@ CanonicalWorkspaceRestoreSnapshot {
       recentPackages: structuredClone(state.recentPackages),
       spotlightPkgHits: structuredClone(state.spotlightPkgHits),
       history: [...state.history],
+      workspaceSession,
     },
     hasWorkspace: state.package !== null,
     navigation: navigationHistory.snapshot(),
@@ -1329,6 +1362,44 @@ const navigationHistory = createNavigationHistory({
 });
 const navigationSequence = createNavigationSequence();
 
+function currentLiveWorkspace(): LiveWorkspace<AppPackage> {
+  return selectedLiveWorkspace(state.workspaceSession);
+}
+
+function syncCurrentLiveWorkspace() {
+  updateSelectedLiveWorkspace(state.workspaceSession, {
+    packages: state.packages,
+    activePackageKey: state.package
+      ? packageIdentityKey(state.package)
+      : null,
+    shareBasis: state.workspaceShareBasis,
+    navigation: navigationHistory.snapshot(),
+  });
+}
+
+function adoptLiveWorkspaceProjection(workspace: LiveWorkspace<AppPackage>) {
+  state.packages = [...workspace.packages];
+  state.package = workspace.activePackageKey
+    ? state.packages.find(
+        pkg => packageIdentityKey(pkg) === workspace.activePackageKey) ?? null
+    : null;
+  state.workspaceShareBasis = workspace.shareBasis;
+  navigationHistory.restore(workspace.navigation);
+  spotlightCache = null;
+}
+
+function workspaceHistoryState(value: unknown = history.state) {
+  return withWorkspaceHistoryId(
+    value,
+    state.workspaceSession.selectedWorkspaceId);
+}
+
+function emptyWorkspaceUrl(): string {
+  const url = new URL("/", location.href);
+  url.hash = "workspace";
+  return url.toString();
+}
+
 function currentPackageQueryHandoff() {
   return packageQueryHandoffNavigationSeq !== null
     && navigationSequence.isCurrent(packageQueryHandoffNavigationSeq);
@@ -1405,6 +1476,7 @@ state.home = state.credits
   || (!state.packageQueryOpen
     && !initialLocation.package
     && !initialWorkspace.hasWorkspaceState
+    && !initialLocation.workspaceSubjectOpen
     && !initialLocation.routeFailure);
 state.queryNotice = "";
 if (initialLocation.package) {
@@ -1416,6 +1488,10 @@ if (initialLocation.lens) state.lens = initialLocation.lens;
 if (initialLocation.atPackageRoot) {
   state.atPackageRoot = true;
   state.packageLens = initialLocation.packageLens || "overview";
+}
+if (initialLocation.workspaceSubjectOpen) {
+  state.workspaceSubjectOpen = true;
+  state.atPackageRoot = true;
 }
 
 function deepLinkFromLocation(loc: ParsedLocation): DeepLink {
@@ -1864,12 +1940,22 @@ function retainPackageModel(
 
 function releasePackageModelCaches(packageModel: AppPackage) {
   const dependencyKey = workspaceDependencyKey(packageModel);
-  delete state.workspaceDependencies[dependencyKey];
-  delete state.workspaceDependencyErrors[dependencyKey];
-  state.workspaceDependencyLoads.delete(dependencyKey);
+  const retainedPackages = [
+    ...state.packages,
+    ...state.workspaceSession.workspaces
+      .filter(workspace =>
+        workspace.id !== state.workspaceSession.selectedWorkspaceId)
+      .flatMap(workspace => workspace.packages),
+  ];
+  if (!retainedPackages.some(
+    item => workspaceDependencyKey(item) === dependencyKey)) {
+    delete state.workspaceDependencies[dependencyKey];
+    delete state.workspaceDependencyErrors[dependencyKey];
+    state.workspaceDependencyLoads.delete(dependencyKey);
+  }
 
   const id = packageModel.id.toLowerCase();
-  if (!state.packages.some(item => item.id.toLowerCase() === id)) {
+  if (!retainedPackages.some(item => item.id.toLowerCase() === id)) {
     delete state.packageVersions[id];
     delete state.packageVersionsLoading[id];
   }
@@ -1941,7 +2027,12 @@ function closeWorkspacePackage(packageKey: string) {
   }
 
   state.package = null;
-  goHome();
+  state.workspaceShareBasis = null;
+  state.workspaceSubjectOpen = true;
+  state.atPackageRoot = true;
+  navigationHistory.restore({ stack: [], index: -1 });
+  syncCurrentLiveWorkspace();
+  render();
 }
 
 function activatePackage(
@@ -2661,7 +2752,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   packageQueryLiveAnnouncer.reset();
   // A loading/interstitial view holds one random bot for its whole appearance; any non-loading
   // view resets it so the next interstitial picks a fresh random bot (see interstitialBotSrc).
-  const showingInterstitial = state.loading || state.error || (!state.home && !state.package);
+  const showingInterstitial = state.loading || state.error;
   if (!showingInterstitial) loadingBotSrc = null;
   if (state.loading || state.error) {
     renderLoading();
@@ -2673,7 +2764,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     return;
   }
   if (!state.package) {
-    renderLoading();
+    renderEmptyLiveWorkspace(options);
     return;
   }
   const pkg = state.package;
@@ -2843,6 +2934,81 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   }
 }
 
+function renderEmptyLiveWorkspace(
+  options: { synchronizeUrl?: boolean } = {},
+) {
+  const workspace = currentLiveWorkspace();
+  const path: readonly SubjectPathSegment[] = [{
+    kind: "workspace",
+    label: workspace.name,
+    copyable: false,
+  }];
+  document.title = `dotnet-inspect -- ${workspace.name}`;
+  app.innerHTML = `
+    <div class="workbench">
+      ${workbenchShellHtml({
+        inspectedTargetHtml: `
+          <div class="inspected-target" aria-label="Inspected target">
+            <span class="subject-icon" aria-hidden="true">W</span>
+            <div class="subject-path" aria-label="${escapeHtml(workspace.name)}" title="${escapeHtml(workspace.name)}">
+              ${renderInspectedSubjectPath(path)}
+            </div>
+          </div>`,
+        titleNavigationHtml: `
+          <nav class="title-navigation" aria-label="Search and history">
+            <div class="nav-history">
+              <button id="nav-back" ${navigationHistory.canBack() ? "" : "disabled"} title="Back (Alt+← or Shift+←)" aria-label="Back">←</button>
+              <button id="nav-forward" ${navigationHistory.canForward() ? "" : "disabled"} title="Forward (Alt+→ or Shift+→)" aria-label="Forward">→</button>
+            </div>
+            <button id="open-search" class="title-search" type="button" aria-haspopup="dialog" title="Search (Ctrl/Command+P)">
+              <span class="title-search-glyph" aria-hidden="true">⌕</span>
+              <span class="title-search-label title-search-label-full">Search types, members, packages</span>
+              <span class="title-search-label title-search-label-compact">Search</span>
+              <kbd>Ctrl P</kbd>
+            </button>
+          </nav>`,
+      })}
+      <header class="subject-zone" aria-label="Subjects and inspectors">
+        ${renderScopeBar()}
+        <nav class="shell-actions" aria-label="Application">
+          <button id="share" type="button" disabled>Share</button>
+          <button id="open-settings" type="button">Settings</button>
+          <button id="help" type="button" aria-label="Keyboard help">?</button>
+        </nav>
+      </header>
+      <div class="notice-stack">
+        ${visibleQueryNotice()
+          ? `<div class="query-notice" role="alert">
+              <span class="query-notice-glyph">⚠</span>
+              <span class="query-notice-text">${escapeHtml(visibleQueryNotice())}</span>
+              ${state.queryNotice && state.queryNoticeRetryAction
+                ? '<button id="retry-notice" type="button">retry</button>'
+                : ""}
+              <button id="dismiss-notice" type="button" aria-label="Dismiss">×</button>
+            </div>`
+          : ""}
+      </div>
+      <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="active-subject-tab">
+        ${renderWorkspaceNavPane()}
+        <section class="detail-pane">
+          <article id="inspector-panel" class="detail-scroll">
+            ${renderWorkspaceView()}
+          </article>
+        </section>
+      </main>
+      ${state.spotlightOpen ? spotlight.modalHtml() : ""}
+    </div>`;
+  bindEvents();
+  restorePackageQueryReturnFocus();
+  restorePackageQueryWorkspaceFocus();
+  if (options.synchronizeUrl !== false) {
+    workspaceLocation.replace(
+      emptyWorkspaceUrl(),
+      workspaceHistoryState());
+    lastCanonicalWorkspaceHref = location.href;
+  }
+}
+
 function maybeAutoLoadVisibleSource() {
   const kind = currentSourceOperationKind();
   if (kind === "graph") {
@@ -2929,7 +3095,7 @@ function inspectedSubjectPath(
   if (scope() === "workspace") {
     return [{
       kind: "workspace",
-      label: selectedWorkspacePacket()?.title ?? "Current workspace",
+      label: currentLiveWorkspace().name,
       copyable: false,
     }];
   }
@@ -2981,9 +3147,11 @@ function renderInspectedSubjectPath(
 }
 
 function renderWorkspaceNavPane() {
+  syncCurrentLiveWorkspace();
   return renderWorkspaceSubject({
-    packets: state.workspacePackets,
-    selectedPacketId: state.selectedWorkspacePacketId || null,
+    workspaces: state.workspaceSession.workspaces,
+    selectedWorkspaceId: state.workspaceSession.selectedWorkspaceId,
+    maximumWorkspaces: MAX_LIVE_WORKSPACES,
     escapeHtml,
   });
 }
@@ -3111,6 +3279,9 @@ function renderScopeBar() {
       stripAttribute: "data-workspace-lens",
       panelId: "inspector-panel",
       showMemberScope,
+      ...(state.package
+        ? {}
+        : { subjectScopes: ["workspace"] as const }),
       escapeHtml,
     });
   }
@@ -3204,10 +3375,9 @@ function renderPackageView() {
 }
 
 function renderWorkspaceView() {
-  return renderWorkspacePacketView({
-    packet: selectedWorkspacePacket(),
-    packages: state.packages,
-    activePackage: state.package,
+  syncCurrentLiveWorkspace();
+  return renderLiveWorkspaceView({
+    workspace: currentLiveWorkspace(),
     escapeHtml,
     packageIdentityKey,
   });
@@ -5475,9 +5645,10 @@ const graphBackActions: GraphBackBindingActions = {
 
 function bindWorkspaceSubjectEvents() {
   bindWorkspaceSubject(document, {
-    onSelect: selectWorkspacePacket,
-    onOpen: runHomeDemo,
-    onClose: closeWorkspacePackage,
+    onSelect: selectWorkspace,
+    onCreate: createWorkspace,
+    onRemove: removeWorkspace,
+    onClosePackage: closeWorkspacePackage,
   });
 }
 
@@ -6802,7 +6973,7 @@ function buildStateUrl(base = location.href) {
     const snapshot = captureWorkspaceUrlState();
     return snapshot
       ? workspaceLocation.build(snapshot, base)
-      : new URL(base);
+      : new URL(emptyWorkspaceUrl());
   }
   if (state.atPackageRoot && state.package) {
     return buildPackageRootStateUrl(base, {
@@ -6833,18 +7004,19 @@ function syncUrl() {
   if (currentPackageQueryHandoff()) return;
   if (retainFailedWorkspaceUrl()) return;
   try {
+    syncCurrentLiveWorkspace();
     if (state.atPackageRoot && state.package && !state.loading) {
       document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
       workspaceLocation.replace(
         buildStateUrl().toString(),
-        history.state);
+        workspaceHistoryState());
       lastCanonicalWorkspaceHref = location.href;
       return;
     }
     const snapshot = captureWorkspaceUrlState();
     if (!snapshot || state.loading) return;
     document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
-    workspaceLocation.sync(snapshot, history.state);
+    workspaceLocation.sync(snapshot, workspaceHistoryState());
     lastCanonicalWorkspaceHref = location.href;
   } catch {
     // Keep the last canonical URL while the active Browser state is not projectable.
@@ -7421,33 +7593,105 @@ function bindHomeEvents() {
   });
 }
 
-// Home buttons use product demo ids from engine `listHomeDemos` / `resolveHomeDemo`
-// (`ProductInspectionDemos` / CLI `demo <id>`). STJ + platform restore via share
-// deep links built from the resolved projection; member-bound Call Graph demos
-// execute through one generated engine operation over the product-resolved
-// workspace and view.
-function selectedWorkspacePacket(): ProductHomeDemoResolved | null {
-  return state.workspacePackets.find(
-    packet => packet.id === state.selectedWorkspacePacketId) ?? null;
-}
-
-function selectWorkspacePacket(packetId: string): void {
-  if (!state.workspacePackets.some(packet => packet.id === packetId)) return;
-  state.selectedWorkspacePacketId = packetId;
+function prepareLiveWorkspaceSurface() {
+  dismissModalsForRoutedNavigation();
+  invalidateMemberDestinationWork(state);
+  state.packageQueryOpen = false;
+  packageQueryController.cancel();
+  state.credits = false;
+  state.home = false;
+  state.loading = false;
+  state.error = "";
+  state.errorTitle = "";
+  state.errorDetail = "";
+  state.retryAction = null;
+  state.queryNotice = "";
+  state.queryNoticeRetryAction = null;
+  failedWorkspaceUrlState = null;
+  state.platformStack = [];
+  resetLocationFilters();
+  resetMemberSectionState();
   state.workspaceSubjectOpen = true;
   state.atPackageRoot = true;
-  render();
-  afterCurrentNavigationFrame(() =>
-    focusWorkspacePacket(document, packetId));
 }
 
-function retainWorkspacePacket(packet: ProductHomeDemoResolved): void {
-  state.workspacePackets = retainWorkspacePacketInList(
-    state.workspacePackets,
-    packet);
-  state.selectedWorkspacePacketId = packet.id;
+function adoptWorkspace(workspaceId: string): LiveWorkspace<AppPackage> | null {
+  if (workspaceId === state.workspaceSession.selectedWorkspaceId)
+    return currentLiveWorkspace();
+  syncCurrentLiveWorkspace();
+  const workspace = selectLiveWorkspace(state.workspaceSession, workspaceId);
+  if (!workspace) return null;
+  adoptLiveWorkspaceProjection(workspace);
+  return workspace;
 }
 
+function currentWorkspaceLocation(): string {
+  try {
+    return state.package
+      ? buildStateUrl().toString()
+      : emptyWorkspaceUrl();
+  } catch {
+    return emptyWorkspaceUrl();
+  }
+}
+
+function selectWorkspace(workspaceId: string): void {
+  if (workspaceId === state.workspaceSession.selectedWorkspaceId
+    && scope() === "workspace") {
+    afterCurrentNavigationFrame(() => focusLiveWorkspace(document, workspaceId));
+    return;
+  }
+  const workspace = adoptWorkspace(workspaceId);
+  if (!workspace) return;
+  navigationSequence.begin();
+  prepareLiveWorkspaceSurface();
+  render({ synchronizeUrl: false });
+  workspaceLocation.push(
+    currentWorkspaceLocation(),
+    workspaceHistoryState(null));
+  afterCurrentNavigationFrame(() => focusLiveWorkspace(document, workspace.id));
+}
+
+function createWorkspace(): void {
+  syncCurrentLiveWorkspace();
+  const workspace = createLiveWorkspace(
+    state.workspaceSession,
+    crypto.randomUUID());
+  if (!workspace) return;
+  adoptLiveWorkspaceProjection(workspace);
+  navigationSequence.begin();
+  prepareLiveWorkspaceSurface();
+  render({ synchronizeUrl: false });
+  workspaceLocation.push(emptyWorkspaceUrl(), workspaceHistoryState(null));
+  afterCurrentNavigationFrame(() => focusLiveWorkspace(document, workspace.id));
+}
+
+function removeWorkspace(workspaceId: string): void {
+  if (workspaceId !== state.workspaceSession.selectedWorkspaceId) return;
+  syncCurrentLiveWorkspace();
+  const removed = removeLiveWorkspace(state.workspaceSession, workspaceId);
+  if (!removed) return;
+  const workspace = currentLiveWorkspace();
+  adoptLiveWorkspaceProjection(workspace);
+  for (const packageModel of removed.packages)
+    releasePackageModelCaches(packageModel);
+  navigationSequence.begin();
+  prepareLiveWorkspaceSurface();
+  render({ synchronizeUrl: false });
+  workspaceLocation.push(
+    currentWorkspaceLocation(),
+    workspaceHistoryState(null));
+  afterCurrentNavigationFrame(() => focusLiveWorkspace(document, workspace.id));
+}
+
+function activateDefaultWorkspaceForDemo() {
+  const workspace = defaultLiveWorkspace(state.workspaceSession);
+  if (workspace.id !== state.workspaceSession.selectedWorkspaceId)
+    adoptWorkspace(workspace.id);
+}
+
+// Home buttons use product demo ids from engine `listHomeDemos` / `resolveHomeDemo`.
+// Every demo targets the Default live Workspace; demos do not create scenario rows.
 function runHomeDemo(kind: ProductHomeDemoId) {
   const resolveResult = inspectResolveHomeDemo(kind);
   const resolved = resolveResult.found ? resolveResult.demo : null;
@@ -7458,7 +7702,7 @@ function runHomeDemo(kind: ProductHomeDemoId) {
     render();
     return;
   }
-  retainWorkspacePacket(resolved);
+  activateDefaultWorkspaceForDemo();
   state.home = false;
   const link = productHomeDemoLocationHref(
     resolved,
@@ -7467,7 +7711,7 @@ function runHomeDemo(kind: ProductHomeDemoId) {
     observeAsync(runCallGraphDemo(kind), "Loading the call graph demo");
     return;
   }
-  workspaceLocation.push(link);
+  workspaceLocation.push(link, workspaceHistoryState(null));
   const loc = parseLocation();
   observeAsync(restoreWorkspaceFromLocation(loc, loc), "Loading the demo workspace");
 }
@@ -7491,7 +7735,7 @@ function goHome() {
   state.credits = false;
   state.home = true;
   spotlight.reset();
-  workspaceLocation.push("/");
+  workspaceLocation.push("/", workspaceHistoryState(null));
   render();
 }
 
@@ -7507,7 +7751,7 @@ function openCredits() {
   state.credits = true;
   state.home = true;
   spotlight.reset();
-  workspaceLocation.push("/credits");
+  workspaceLocation.push("/credits", workspaceHistoryState(null));
   render();
 }
 
@@ -7638,10 +7882,10 @@ function openPackageQueryRoute(seed = "") {
     "/query",
     predecessorEntryId
       ? packageQueryHistoryState(
-          null,
+          workspaceHistoryState(null),
           crypto.randomUUID(),
           { predecessorEntryId, returnFocus })
-      : null);
+      : workspaceHistoryState(null));
   render();
   focusPackageQueryInput();
 }
@@ -7663,7 +7907,7 @@ function closePackageQueryRoute() {
   state.credits = false;
   state.home = true;
   spotlight.reset();
-  workspaceLocation.replace("/");
+  workspaceLocation.replace("/", workspaceHistoryState(null));
   render();
 }
 
@@ -7752,7 +7996,9 @@ async function openPackageQueryRow(
   }
 
   packageQueryHandoffNavigationSeq = null;
-  workspaceLocation.push(buildStateUrl().toString());
+  workspaceLocation.push(
+    buildStateUrl().toString(),
+    workspaceHistoryState(null));
   render();
   focusTypeList();
 }
@@ -9841,6 +10087,16 @@ async function loadPackage(
   const background = options.background === true;
   const navigationSeq = options.navigationSeq
     ?? (background ? null : navigationSequence.begin());
+  const operationWorkspaceId = state.workspaceSession.selectedWorkspaceId;
+  const operationIsCurrent = () => navigationSeq === null
+    ? state.workspaceSession.selectedWorkspaceId === operationWorkspaceId
+    : workspaceOperationIsCurrent(
+        state.workspaceSession,
+        {
+          workspaceId: operationWorkspaceId,
+          navigationSequence: navigationSeq,
+        },
+        navigationSequence.current());
   const prevPackage = state.package;
   const prevRequested = {
     package: state.requestedPackage,
@@ -9870,9 +10126,7 @@ async function loadPackage(
       ...(options.replacePackage !== undefined
         ? { replacePackage: options.replacePackage }
         : {}),
-      ...(navigationSeq == null
-        ? {}
-        : { isCurrent: () => navigationSequence.isCurrent(navigationSeq) }),
+      isCurrent: operationIsCurrent,
     });
     if (!packageModel) return null;
     if (background) return packageModel;
@@ -9902,7 +10156,7 @@ async function loadPackage(
     await selectionData;
     return packageModel;
   } catch (error) {
-    if (navigationSeq != null && !navigationSequence.isCurrent(navigationSeq))
+    if (!operationIsCurrent())
       return null;
     const friendly = friendlyLoadError(error, packageId, version);
     if (background) {
@@ -10085,9 +10339,13 @@ async function loadRuntimePack(
   isCurrent: () => boolean = () => true,
   platformVersion = "",
 ): Promise<RuntimeLoadResult> {
+  const operationWorkspaceId = state.workspaceSession.selectedWorkspaceId;
+  const operationIsCurrent = () =>
+    state.workspaceSession.selectedWorkspaceId === operationWorkspaceId
+    && isCurrent();
   const result = await packageAcquisition.loadRuntimePack(
     framework,
-    isCurrent,
+    operationIsCurrent,
     platformVersion);
   return {
     packageModel: result.packageModel,
@@ -10102,11 +10360,15 @@ async function loadRuntimePackAssembly(
   isCurrent: () => boolean = () => true,
   platformVersion = "",
 ): Promise<RuntimeLoadResult> {
+  const operationWorkspaceId = state.workspaceSession.selectedWorkspaceId;
+  const operationIsCurrent = () =>
+    state.workspaceSession.selectedWorkspaceId === operationWorkspaceId
+    && isCurrent();
   const result = await packageAcquisition.loadRuntimePackAssembly(
     framework,
     assemblyFileName,
     pack,
-    isCurrent,
+    operationIsCurrent,
     platformVersion);
   return {
     packageModel: result.packageModel,
@@ -10118,6 +10380,14 @@ async function runCallGraphDemo(demoId: ProductHomeDemoId) {
   const retry = () =>
     observeAsync(runCallGraphDemo(demoId), "Loading the call graph demo");
   const navigationSeq = navigationSequence.begin();
+  const operationWorkspaceId = state.workspaceSession.selectedWorkspaceId;
+  const operationIsCurrent = () => workspaceOperationIsCurrent(
+    state.workspaceSession,
+    {
+      workspaceId: operationWorkspaceId,
+      navigationSequence: navigationSeq,
+    },
+    navigationSequence.current());
   state.loading = true;
   state.error = "";
   state.errorDetail = "";
@@ -10141,11 +10411,11 @@ async function runCallGraphDemo(demoId: ProductHomeDemoId) {
   try {
     result = await inspectRunHomeDemo(demoId);
   } catch (error) {
-    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    if (!operationIsCurrent()) return;
     fail(error);
     return;
   }
-  if (!navigationSequence.isCurrent(navigationSeq)) return;
+  if (!operationIsCurrent()) return;
   if (!result.found) {
     state.loading = false;
     state.error = `Unknown product home demo '${demoId}'.`;
@@ -10185,6 +10455,7 @@ async function runCallGraphDemo(demoId: ProductHomeDemoId) {
         "The engine-run demo selection was not present in its returned package surfaces.");
     }
 
+    clearWorkspacePackages();
     for (const packageModel of packages) {
       retainPackageModel(packageModel);
       recordRecentPackage(
@@ -10255,7 +10526,7 @@ async function runCallGraphDemo(demoId: ProductHomeDemoId) {
     render();
     await renderMermaidCallGraph();
   } catch (error) {
-    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    if (!operationIsCurrent()) return;
     fail(error);
   }
 }
@@ -10271,7 +10542,15 @@ async function restoreWorkspaceFromLocation(
     ? captureCanonicalWorkspaceRestoreSnapshot()
     : null,
 ) {
-  if (!navigationSequence.isCurrent(navigationSeq)) return;
+  const operationWorkspaceId = state.workspaceSession.selectedWorkspaceId;
+  const operationIsCurrent = () => workspaceOperationIsCurrent(
+    state.workspaceSession,
+    {
+      workspaceId: operationWorkspaceId,
+      navigationSequence: navigationSeq,
+    },
+    navigationSequence.current());
+  if (!operationIsCurrent()) return;
   if (loc.routeFailure) {
     failWorkspaceRoute(loc.routeFailure.message);
     return;
@@ -10351,11 +10630,11 @@ async function restoreWorkspaceFromLocation(
     if (isRuntimePackId(tab.id)) {
       const runtimeResult = await loadRuntimePack(
         tab.framework,
-        () => navigationSequence.isCurrent(navigationSeq),
+        operationIsCurrent,
         tab.version);
       loaded = runtimeResult.packageModel;
       runtimeFailureMessage = runtimeResult.failureMessage;
-      if (!loaded && navigationSequence.isCurrent(navigationSeq)) {
+      if (!loaded && operationIsCurrent()) {
         const failure =
           `Workspace restore was incomplete: ${tab.id}: ${runtimeFailureMessage
             || state.runtimePackError
@@ -10370,7 +10649,7 @@ async function restoreWorkspaceFromLocation(
         navigationSeq
       });
     }
-    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    if (!operationIsCurrent()) return;
     if (!loaded) failedTabCount++;
     if (loaded && matchesTarget(tab)) loadedTargetModel = loaded;
   }
@@ -10408,7 +10687,7 @@ async function restoreWorkspaceFromLocation(
         loc.libraryPack,
         navigationSeq,
         () => restoreWorkspaceFromLocation(loc, deep));
-      if (!navigationSequence.isCurrent(navigationSeq)) return;
+      if (!operationIsCurrent()) return;
       if (!scoped) {
         if (loc.shareState) {
           failCanonicalWorkspaceRestore(
@@ -10584,7 +10863,9 @@ async function restoreInitialWorkspace() {
   const packageId = loc.package;
   if (!packageId) {
     state.loading = false;
-    state.home = true;
+    state.home = !loc.workspaceSubjectOpen;
+    state.workspaceSubjectOpen = loc.workspaceSubjectOpen;
+    state.atPackageRoot = loc.workspaceSubjectOpen;
     state.queryNotice = loc.workspaceNotice || "";
     render();
     return;
@@ -10773,8 +11054,15 @@ function navigateInAppUrl(url: URL) {
   if (focusWorkspace) {
     packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
   }
-  workspaceLocation.push(url.toString());
+  workspaceLocation.push(url.toString(), workspaceHistoryState(null));
   const loc = parseLocation();
+  if (loc.workspaceSubjectOpen
+    && !loc.package
+    && !(loc.tabs && loc.tabs.length)) {
+    prepareLiveWorkspaceSurface();
+    render({ synchronizeUrl: false });
+    return;
+  }
   observeAsync(
     restoreWorkspaceFromLocation(loc, loc, navigationSeq),
     "Navigating");
@@ -11224,6 +11512,10 @@ window.addEventListener("popstate", () => {
   const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation();
   invalidateMemberDestinationWork(state);
   if (dismissedAnnotatedSourceModal) render({ synchronizeUrl: false });
+  const historyWorkspace = workspaceForHistory(
+    state.workspaceSession,
+    history.state);
+  adoptWorkspace(historyWorkspace.id);
   if (isPackageQueryPath(location.pathname)) {
     clearNavigationError();
     applyPackageQueryHistory(history.state);
@@ -11275,6 +11567,7 @@ window.addEventListener("popstate", () => {
     state.home =
       !pendingLocation.package
       && !pendingWorkspace.hasWorkspaceState
+      && !pendingLocation.workspaceSubjectOpen
       && !pendingLocation.routeFailure;
     state.loading = !state.home;
     if (state.home) clearNavigationError();
@@ -11305,7 +11598,19 @@ window.addEventListener("popstate", () => {
       null);
     return;
   }
-  const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);
+  const emptyWorkspace = loc.workspaceSubjectOpen
+    && !loc.package
+    && !(loc.tabs && loc.tabs.length);
+  if (emptyWorkspace) {
+    clearNavigationError();
+    prepareLiveWorkspaceSurface();
+    syncCurrentLiveWorkspace();
+    render({ synchronizeUrl: false });
+    return;
+  }
+  const bareHome = !loc.workspaceSubjectOpen
+    && !loc.package
+    && !(loc.tabs && loc.tabs.length);
   if (bareHome) {
     // Navigated back to the bare root — show the intro/home page (engine stays warm).
     clearNavigationError();

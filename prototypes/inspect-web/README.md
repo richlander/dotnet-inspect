@@ -1207,9 +1207,19 @@ The `eng/CiChangeDetection` gate, invoked through
 
 ## Interaction model
 
-Package tabs and the framework selector are workspace identity, not display
-state: changing either resolves a different workspace. Lenses this engine does
-not answer report the engine's failure rather than fixture results.
+The Browser session starts with one live Workspace named `Default` and can
+retain up to four live Workspaces. Each Workspace keeps its own loaded package
+projection, active coordinate, share basis, and in-app navigation stack.
+`New workspace` creates an empty selected Workspace; non-default Workspaces can
+be removed, while closing their final package leaves the empty Workspace
+visible. Package opening targets the selected Workspace. Product demos replace
+Default with their exact resolved coordinates and view, so demos neither create
+scenario rows nor pollute a user-created analysis Workspace. The collection is
+session-local; persistence is future work.
+
+Package coordinates and the framework selector are Workspace membership, not
+display state. Lenses this engine does not answer report the engine's failure
+rather than fixture results.
 
 `src/workspace-navigation.ts` owns the in-memory view history, monotonic
 navigation generation, URL routing and building, typed adaptation to the
@@ -1220,6 +1230,13 @@ that intercepts same-origin in-app anchor clicks
 browser behavior. Initial routing records the opaque `w=` value without decoding
 it, which preserves the bare-home paint before WebAssembly while allowing shared
 workspace resolution to run only after the engine is ready.
+`src/workspace-session.ts` owns the Browser-local live-Workspace collection,
+the selected projection, and private browser-history association. Async package
+work must retain both its originating Workspace ID and navigation generation;
+changing either rejects the completion. Empty Workspace state uses
+`/#workspace` so closing the last coordinate cannot leave a stale package URL.
+Within one session, returning to an older `/#workspace` history entry selects
+its live Workspace without treating Back as package-membership undo.
 `BrowserWorkspaceShareOperations` then routes decode through
 `WorkspaceSharePacketCodec` and `WorkspaceSharePacketTransposer`; encoding
 reverses the same path. TypeScript neither understands compact packet fields nor

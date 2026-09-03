@@ -447,6 +447,40 @@ the invoking row action. The request's package-ID/version submission and
 failure semantics are owned by
 [Package Query Experience](package-query-experience.md#layout).
 
+### Browser-session Workspace association
+
+The Browser host may retain several live Workspace projections before product
+Workspace identity and membership operations are available. Each projection
+has an opaque browser-session ID and retains only its packages, active
+coordinate, portable share basis, and in-app navigation stack.
+Theme, recent packages, engine status, package-query state, and the Workspace
+collection itself remain session-global. The browser-session ID is neither a
+product identity nor portable state.
+
+Every browser-history entry produced from a live Workspace carries its
+browser-session Workspace ID as private history metadata. Back or Forward first
+selects a known associated Workspace and only then applies the entry's URL
+restoration. An absent or unknown ID selects Default; traversal never creates a
+Workspace from history metadata. The URL continues to carry the product-owned
+portable state and remains authoritative for the selected projection.
+
+`/#workspace` is the Workspace-subject route when no portable package snapshot
+belongs to that history entry. During the same browser session, restoring that
+entry selects its associated live Workspace and leaves its current membership
+intact; browser view navigation is not package-membership undo. A Workspace
+whose final package was explicitly closed therefore remains empty and cannot
+resurrect that package through Back. Refresh starts a new session with an empty
+Default Workspace because the route carries no portable package snapshot and
+persistence is not yet claimed.
+
+Every asynchronous Browser acquisition or restoration captures both the
+originating browser-session Workspace ID and the existing navigation
+generation. It may mutate state only while both still match. Workspace
+selection starts a new navigation generation, cancels or invalidates
+destination work, and resets Workspace-local object-reference caches before
+the selected projection is exposed. A late completion from Workspace A cannot
+populate Workspace B even when their coordinate sets are equal.
+
 ## Non-claims
 
 This document does not render navigation descriptors, decide which subject or
@@ -463,6 +497,15 @@ these named Inspect Web tests. Descriptor-rendering and widget-focus gates for
 this same test file are recorded in
 [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md#implementation-gates):
 
+- `workspace-session.test.ts` and an outcome-level Browser gate:
+  `live Workspace history and asynchronous results retain their owner` covers
+  two Workspaces with overlapping coordinates, a delayed acquisition that
+  completes after switching, Back and Forward between their history entries,
+  an absent and unknown history Workspace ID, and `/#workspace` refresh. It
+  proves that late work changes neither the selected nor foreign projection,
+  traversal selects only a known Workspace or Default before restoration,
+  equal coordinates do not alias caches, and an empty route cannot resurrect a
+  closed package.
 - `navigation-consumer.test.ts`:
   `typed outcomes commit only returned state and release authority` covers
   applied, unavailable with and without a replacement snapshot, rejected,

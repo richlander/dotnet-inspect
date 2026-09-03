@@ -35,6 +35,7 @@ export interface RenderScopeBarOptions<TId extends string = string> {
   panelId?: string;
   subjectPanelId?: string;
   showMemberScope?: boolean;
+  subjectScopes?: readonly WorkspaceScope[];
   emptyStripLabel?: string;
   escapeHtml: (value: unknown) => string;
 }
@@ -310,8 +311,9 @@ function edgeIndicators(): string {
 
 function subjectDefinitions(
   showMemberScope: boolean,
+  subjectScopes: readonly WorkspaceScope[] | undefined,
 ): readonly (readonly [WorkspaceScope, string])[] {
-  return [
+  const definitions: readonly (readonly [WorkspaceScope, string])[] = [
     ["workspace", "Workspace"],
     ["package", "Package"],
     ["type", "Type"],
@@ -319,6 +321,9 @@ function subjectDefinitions(
       ? [["member", "Member"] as const]
       : []),
   ];
+  return subjectScopes
+    ? definitions.filter(([id]) => subjectScopes.includes(id))
+    : definitions;
 }
 
 export function renderScopeBar<TId extends string>(
@@ -332,6 +337,7 @@ export function renderScopeBar<TId extends string>(
     panelId,
     subjectPanelId = "subject-panel",
     showMemberScope = scope === "member",
+    subjectScopes,
     emptyStripLabel = "",
     escapeHtml,
   } = options;
@@ -345,7 +351,7 @@ export function renderScopeBar<TId extends string>(
       : scope === "type"
         ? "Type"
         : "Member";
-  const subjects = subjectDefinitions(showMemberScope);
+  const subjects = subjectDefinitions(showMemberScope, subjectScopes);
   const subjectIds = subjects.map(([id]) => id).join(",");
   const inspectorIds = strip.map(([id]) => id).join(",");
   const inspectorAnchor = activeIndex >= 0

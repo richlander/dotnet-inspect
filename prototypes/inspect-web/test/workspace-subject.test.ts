@@ -2,12 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   bindWorkspaceSubject,
-  focusWorkspacePacket,
-  renderWorkspacePacketView,
+  focusWorkspace,
   renderWorkspaceSubject,
-  retainWorkspacePacket,
+  renderWorkspaceView,
+  type WorkspaceSummary,
 } from "../src/workspace-subject.ts";
-import type { BrowserHomeDemoResolved } from "../src/inspect-web-engine.d.ts";
 import type { PackageControlPackage } from "../src/package-controls.ts";
 import { fakeDom } from "./fake-dom.ts";
 
@@ -23,205 +22,196 @@ function packageIdentityKey(pkg: PackageControlPackage) {
   return `${pkg.id}@${pkg.version}::${pkg.activeFramework}`;
 }
 
-const packet: BrowserHomeDemoResolved = {
-  id: "stj-serialize-callgraph",
-  title: "Serialize call graph",
-  summary: "Dense package-local STJ graph",
-  workspaceMembers: [{
-    kind: "package",
-    id: "System.Text.Json",
-    version: "10.0.0",
-    framework: "net10.0",
-    assembly: null,
-  }],
-  tabs: [{
-    id: "stj",
-    member: {
-      kind: "package",
-      id: "System.Text.Json",
-      version: "10.0.0",
-      framework: "net10.0",
-      assembly: null,
-    },
-  }],
-  focusTabIndex: 0,
-  view: {
-    library: null,
-    type: "System.Text.Json.JsonSerializer",
-    memberAnchor: "1dc14dd1fb",
-    memberKey: "method:Serialize",
-    section: "Call Graph",
-  },
+const stj: PackageControlPackage = {
+  id: "System.Text.Json",
+  version: "10.0.0",
+  activeFramework: "net10.0",
+  isRuntimePack: false,
+};
+const extensions: PackageControlPackage = {
+  id: "Microsoft.Extensions.DependencyInjection",
+  version: "10.0.0",
+  activeFramework: "net10.0",
+  isRuntimePack: false,
+};
+const platform: PackageControlPackage = {
+  id: "Microsoft.NETCore.App",
+  version: "10.0.0",
+  activeFramework: "net10.0",
+  isRuntimePack: true,
 };
 
-test("Workspace lists independently selectable packets", () => {
-  const sibling = {
-    ...packet,
-    id: "stj-getdecimal-callgraph",
-    title: "JsonElement.GetDecimal",
-    summary: "STJ number parse path",
-    view: {
-      ...packet.view,
-      type: "System.Text.Json.JsonElement",
-      memberKey: "method:GetDecimal",
-    },
+function workspace(
+  overrides: Partial<WorkspaceSummary<PackageControlPackage>> = {},
+): WorkspaceSummary<PackageControlPackage> {
+  return {
+    id: "default",
+    name: "Default",
+    isDefault: true,
+    packages: [stj],
+    activePackageKey: packageIdentityKey(stj),
+    ...overrides,
   };
+}
 
+test("Workspace inventory lists every live workspace and inferred packages", () => {
   const html = renderWorkspaceSubject({
-    packets: [packet, sibling],
-    selectedPacketId: packet.id,
+    workspaces: [
+      workspace(),
+      workspace({
+        id: "extensions",
+        name: "Workspace 2",
+        isDefault: false,
+        packages: [extensions, platform],
+        activePackageKey: packageIdentityKey(extensions),
+      }),
+    ],
+    selectedWorkspaceId: "extensions",
+    maximumWorkspaces: 4,
     escapeHtml,
   });
 
-  assert.match(html, /WORKSPACE PACKETS[\s\S]*2/);
-  assert.match(html, /workspace-packet active/);
-  assert.match(html, /Serialize call graph[\s\S]*Dense package-local STJ graph/);
-  assert.match(html, /JsonElement\.GetDecimal[\s\S]*STJ number parse path/);
-  assert.doesNotMatch(html, /data-workspace-open/);
+  assert.match(html, /WORKSPACES[\s\S]*2/);
+  assert.match(html, /data-workspace="default"[\s\S]*Default[\s\S]*System\.Text\.Json/);
+  assert.match(html, /workspace-card active[\s\S]*Workspace 2/);
+  assert.match(html, /Microsoft\.Extensions\.DependencyInjection \+ 1/);
+  assert.match(html, /data-workspace-create/);
+  assert.doesNotMatch(html, /workspace packet/i);
 });
 
-test("Workspace packet retention keys scenarios independently of coordinates", () => {
-  const sibling = {
-    ...packet,
-    id: "stj-getdecimal-callgraph",
-    title: "JsonElement.GetDecimal",
-  };
-  const retained = retainWorkspacePacket(
-    retainWorkspacePacket([], packet),
-    sibling);
+test("Workspace inventory disables creation at the session limit", () => {
+  const html = renderWorkspaceSubject({
+    workspaces: [
+      workspace(),
+      workspace({ id: "two", name: "Workspace 2", isDefault: false }),
+      workspace({ id: "three", name: "Workspace 3", isDefault: false }),
+      workspace({ id: "four", name: "Workspace 4", isDefault: false }),
+    ],
+    selectedWorkspaceId: "default",
+    maximumWorkspaces: 4,
+    escapeHtml,
+  });
 
-  assert.deepEqual(
-    retained.map(item => item.id),
-    ["stj-serialize-callgraph", "stj-getdecimal-callgraph"]);
-  assert.deepEqual(
-    retained.map(item => item.workspaceMembers),
-    [packet.workspaceMembers, packet.workspaceMembers]);
+  assert.match(html, /data-workspace-create disabled/);
 });
 
-test("Workspace packet details distinguish packet data from loaded coordinates", () => {
-  const active: PackageControlPackage = {
-    id: "System.Text.Json",
-    version: "10.0.0",
-    activeFramework: "net10.0",
-    isRuntimePack: false,
-  };
-  const platform: PackageControlPackage = {
-    id: "Microsoft.NETCore.App",
-    version: "10.0.0",
-    activeFramework: "net10.0",
-    isRuntimePack: true,
-  };
-
-  const html = renderWorkspacePacketView({
-    packet,
-    packages: [platform, active],
-    activePackage: active,
+test("Workspace details show live coordinates and remove only non-default workspaces", () => {
+  const nonDefault = workspace({
+    id: "extensions",
+    name: "Workspace 2",
+    isDefault: false,
+    packages: [platform, extensions],
+    activePackageKey: packageIdentityKey(extensions),
+  });
+  const html = renderWorkspaceView({
+    workspace: nonDefault,
+    escapeHtml,
+    packageIdentityKey,
+  });
+  const defaultHtml = renderWorkspaceView({
+    workspace: workspace(),
     escapeHtml,
     packageIdentityKey,
   });
 
-  assert.match(html, /Workspace packet[\s\S]*Serialize call graph/);
-  assert.match(html, /Packet workspace[\s\S]*System\.Text\.Json/);
-  assert.match(html, /Initial view[\s\S]*Call Graph[\s\S]*method:Serialize/);
-  assert.match(html, /Loaded workspace[\s\S]*Microsoft\.NETCore\.App/);
-  assert.match(html, /data-workspace-open="stj-serialize-callgraph"/);
-  assert.match(html, />Open workspace</);
+  assert.match(html, /Inspection workspace[\s\S]*Workspace 2/);
+  assert.match(html, /Microsoft\.NETCore\.App[\s\S]*Microsoft\.Extensions\.DependencyInjection/);
+  assert.match(html, /data-workspace-remove="extensions"/);
+  assert.match(html, /aria-label="Close Microsoft\.Extensions\.DependencyInjection 10\.0\.0 net10\.0"/);
+  assert.doesNotMatch(html, /Close Microsoft\.NETCore\.App/);
+  assert.doesNotMatch(defaultHtml, /data-workspace-remove/);
 });
 
-test("Workspace selection, explicit Open, and Close dispatch separate identities", () => {
+test("Empty workspace remains a visible analysis destination", () => {
+  const html = renderWorkspaceView({
+    workspace: workspace({
+      id: "empty",
+      name: "Workspace 2",
+      isDefault: false,
+      packages: [],
+      activePackageKey: null,
+    }),
+    escapeHtml,
+    packageIdentityKey,
+  });
+
+  assert.match(html, /Workspace 2[\s\S]*No packages loaded/);
+  assert.match(html, /ready for packages/);
+  assert.match(html, /No packages are loaded in this workspace/);
+});
+
+test("Workspace selection, creation, removal, and package close dispatch separately", () => {
   const listeners = new Map<string, EventListener>();
-  const select = {
-    dataset: { workspacePacket: "packet-key" },
-    addEventListener: (name: string, listener: EventListener) =>
-      listeners.set(`select:${name}`, listener),
-  };
-  const open = {
-    dataset: { workspaceOpen: "open-key" },
-    addEventListener: (name: string, listener: EventListener) =>
-      listeners.set(`open:${name}`, listener),
-  };
-  const close = {
-    dataset: { workspaceClose: "close-key" },
-    addEventListener: (name: string, listener: EventListener) =>
-      listeners.set(`close:${name}`, listener),
+  const elements = {
+    select: {
+      dataset: { workspace: "workspace-key" },
+      addEventListener: (name: string, listener: EventListener) =>
+        listeners.set(`select:${name}`, listener),
+    },
+    create: {
+      dataset: {},
+      addEventListener: (name: string, listener: EventListener) =>
+        listeners.set(`create:${name}`, listener),
+    },
+    remove: {
+      dataset: { workspaceRemove: "remove-key" },
+      addEventListener: (name: string, listener: EventListener) =>
+        listeners.set(`remove:${name}`, listener),
+    },
+    close: {
+      dataset: { workspacePackageClose: "package-key" },
+      addEventListener: (name: string, listener: EventListener) =>
+        listeners.set(`close:${name}`, listener),
+    },
   };
   const root = {
     querySelectorAll: (selector: string) =>
-      selector === "[data-workspace-packet]"
-        ? [select]
-        : selector === "[data-workspace-open]"
-          ? [open]
-          : [close],
+      selector === "[data-workspace]"
+        ? [elements.select]
+        : selector === "[data-workspace-create]"
+          ? [elements.create]
+          : selector === "[data-workspace-remove]"
+            ? [elements.remove]
+            : [elements.close],
   };
   const calls: string[] = [];
 
-  bindWorkspaceSubject(
-    fakeDom.parentNode(root),
-    {
-      onSelect: key => calls.push(`select:${key}`),
-      onOpen: key => calls.push(`open:${key}`),
-      onClose: key => calls.push(`close:${key}`),
-    });
+  bindWorkspaceSubject(fakeDom.parentNode(root), {
+    onSelect: key => calls.push(`select:${key}`),
+    onCreate: () => calls.push("create"),
+    onRemove: key => calls.push(`remove:${key}`),
+    onClosePackage: key => calls.push(`close:${key}`),
+  });
 
   listeners.get("select:click")?.(fakeDom.event());
-  listeners.get("open:click")?.(fakeDom.event());
+  listeners.get("create:click")?.(fakeDom.event());
+  listeners.get("remove:click")?.(fakeDom.event());
   listeners.get("close:click")?.(fakeDom.event());
   assert.deepEqual(calls, [
-    "select:packet-key",
-    "open:open-key",
-    "close:close-key",
+    "select:workspace-key",
+    "create",
+    "remove:remove-key",
+    "close:package-key",
   ]);
 });
 
-test("Workspace Close names distinguish matching package ids", () => {
-  const packages: PackageControlPackage[] = [
-    {
-      id: "Example.Package",
-      version: "1.0.0",
-      activeFramework: "net8.0",
-      isRuntimePack: false,
-    },
-    {
-      id: "Example.Package",
-      version: "2.0.0",
-      activeFramework: "net10.0",
-      isRuntimePack: false,
-    },
-  ];
-
-  const html = renderWorkspacePacketView({
-    packet: null,
-    packages,
-    activePackage: packages[0] ?? null,
-    escapeHtml,
-    packageIdentityKey,
-  });
-
-  assert.match(html, /aria-label="Close Example\.Package 1\.0\.0 net8\.0"/);
-  assert.match(html, /aria-label="Close Example\.Package 2\.0\.0 net10\.0"/);
-});
-
-test("Workspace packet focus survives observational selection", () => {
+test("Workspace focus follows selection", () => {
   let focused = "";
   const root = {
     querySelectorAll: () => [{
-      dataset: { workspacePacket: "first" },
+      dataset: { workspace: "first" },
       focus: () => {
         focused = "first";
       },
     }, {
-      dataset: { workspacePacket: "second" },
+      dataset: { workspace: "second" },
       focus: () => {
         focused = "second";
       },
     }],
   };
 
-  assert.equal(
-    focusWorkspacePacket(fakeDom.parentNode(root), "second"),
-    true);
+  assert.equal(focusWorkspace(fakeDom.parentNode(root), "second"), true);
   assert.equal(focused, "second");
-  assert.equal(
-    focusWorkspacePacket(fakeDom.parentNode(root), "missing"),
-    false);
+  assert.equal(focusWorkspace(fakeDom.parentNode(root), "missing"), false);
 });

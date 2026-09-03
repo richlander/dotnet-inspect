@@ -2106,7 +2106,7 @@ test("annotated source Escape and history ownership track the mounted surface", 
     ?? "";
   assert.match(
     popstate,
-    /const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberDestinationWork\(state\);\s*if \(dismissedAnnotatedSourceModal\) render\(\{ synchronizeUrl: false \}\);\s*if \(isPackageQueryPath/);
+    /const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberDestinationWork\(state\);\s*if \(dismissedAnnotatedSourceModal\) render\(\{ synchronizeUrl: false \}\);[\s\S]*adoptWorkspace\(historyWorkspace\.id\);\s*if \(isPackageQueryPath/);
   assert.match(
     appSource,
     /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\)[\s\S]*if \(options\.synchronizeUrl !== false\) syncUrl\(\)/);
@@ -2593,7 +2593,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
   assert.match(sync, /state\.atPackageRoot/);
   assert.match(
     sync,
-    /workspaceLocation\.replace\(\s*buildStateUrl\(\)\.toString\(\),\s*history\.state\)/);
+    /workspaceLocation\.replace\(\s*buildStateUrl\(\)\.toString\(\),\s*workspaceHistoryState\(\)\)/);
   assert.match(
     stateUrl,
     /state\.atPackageRoot && state\.package[\s\S]*buildPackageRootStateUrl/);
@@ -2611,7 +2611,7 @@ test("initial workspace packet resolution waits for the engine phase", () => {
     /const initialWorkspace = workspaceLocation\.preflightCurrent\(\);\s*const initialLocation = initialWorkspace\.visible/);
   assert.match(
     appSource,
-    /state\.packageQueryOpen = isPackageQueryPath\(location\.pathname\);[\s\S]*state\.home = state\.credits\s*\|\| \(!state\.packageQueryOpen\s*&& !initialLocation\.package\s*&& !initialWorkspace\.hasWorkspaceState\s*&& !initialLocation\.routeFailure\)/);
+    /state\.packageQueryOpen = isPackageQueryPath\(location\.pathname\);[\s\S]*state\.home = state\.credits\s*\|\| \(!state\.packageQueryOpen\s*&& !initialLocation\.package\s*&& !initialWorkspace\.hasWorkspaceState\s*&& !initialLocation\.workspaceSubjectOpen\s*&& !initialLocation\.routeFailure\)/);
   const restore = appSource.match(
     /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction isStyleTier/)?.[0]
     ?? "";
@@ -2648,7 +2648,7 @@ test("malformed package routes use the contained restore failure path", () => {
     ?? "";
   assert.match(
     popstate,
-    /if \(loc\.routeFailure\) \{\s*failWorkspaceRoute\(loc\.routeFailure\.message\);\s*return;\s*\}\s*if \(!clearWorkspaceRouteFailure\(\)\) \{\s*render\(\);\s*return;\s*\}\s*const canonicalSnapshot = loc\.hasWorkspaceState[\s\S]*state\.queryNotice = loc\.workspaceNotice \|\| "";[\s\S]*const bareHome/);
+    /if \(loc\.routeFailure\) \{\s*failWorkspaceRoute\(loc\.routeFailure\.message\);\s*return;\s*\}\s*if \(!clearWorkspaceRouteFailure\(\)\) \{\s*render\(\);\s*return;\s*\}\s*const canonicalSnapshot = loc\.hasWorkspaceState[\s\S]*state\.queryNotice = loc\.workspaceNotice \|\| "";[\s\S]*const emptyWorkspace[\s\S]*const bareHome/);
 
   const failure = appSource.match(
     /function failWorkspaceRoute\([\s\S]*?\n}\n\nfunction failCanonicalWorkspaceRestore/)?.[0]
@@ -2658,7 +2658,7 @@ test("malformed package routes use the contained restore failure path", () => {
     /function failWorkspaceRoute\(message: string\) \{\s*if \(state\.package\)[\s\S]*failedWorkspaceUrlState = \{\s*kind: "route",\s*notice: `Package route failed: \$\{message\}`,[\s\S]*pathname: location\.pathname,\s*search: location\.search,\s*recoveryUrl: buildPackageRootStateUrl\(location\.href,[\s\S]*state\.errorTitle = "Package route failed";[\s\S]*state\.error = message;[\s\S]*state\.retryAction = retryUnavailable/);
   assert.match(
     appSource,
-    /function goHome\(\) \{\s*navigationSequence\.begin\(\);\s*state\.loading = false;[\s\S]*invalidateGraphMemberNavigation\(\);\s*clearNavigationError\(\);\s*if \(!clearWorkspaceRouteFailure\(\)\) \{\s*render\(\);\s*return;\s*\}[\s\S]*workspaceLocation\.push\("\/"\);[\s\S]*render\(\)/);
+    /function goHome\(\) \{\s*navigationSequence\.begin\(\);\s*state\.loading = false;[\s\S]*invalidateGraphMemberNavigation\(\);\s*clearNavigationError\(\);\s*if \(!clearWorkspaceRouteFailure\(\)\) \{\s*render\(\);\s*return;\s*\}[\s\S]*workspaceLocation\.push\("\/", workspaceHistoryState\(null\)\);[\s\S]*render\(\)/);
   assert.match(
     appSource,
     /function visibleQueryNotice\(\) \{\s*const routeNotice = failedWorkspaceUrlState\?\.kind === "route"\s*\? failedWorkspaceUrlState\.notice\s*: null;\s*return \[state\.queryNotice, routeNotice\]\s*\.filter\(Boolean\)\s*\.join\(" "\);\s*\}/);
@@ -2675,7 +2675,7 @@ test("malformed package routes use the contained restore failure path", () => {
     appSource.match(
       /<span class="query-notice-text">\${escapeHtml\(visibleQueryNotice\(\)\)}<\/span>/g,
     )?.length,
-    2);
+    3);
   assert.match(
     appSource,
     /state\.queryNotice && state\.queryNoticeRetryAction\s*\? '<button id="retry-notice"/);
@@ -2715,7 +2715,7 @@ test("last package close recovers a route before releasing the workspace", () =>
 
   assert.match(
     close,
-    /const removal = removeWorkspacePackage\([\s\S]*if \(!removal\.closed\) return;[\s\S]*if \(!removal\.active && !clearWorkspaceRouteFailure\(\)\) \{\s*render\(\);\s*return;\s*\}[\s\S]*state\.packages = removal\.packages;\s*releasePackageModelCaches\(removal\.closed\);[\s\S]*state\.package = null;\s*goHome\(\);/);
+    /const removal = removeWorkspacePackage\([\s\S]*if \(!removal\.closed\) return;[\s\S]*if \(!removal\.active && !clearWorkspaceRouteFailure\(\)\) \{\s*render\(\);\s*return;\s*\}[\s\S]*state\.packages = removal\.packages;\s*releasePackageModelCaches\(removal\.closed\);[\s\S]*state\.package = null;[\s\S]*state\.workspaceSubjectOpen = true;[\s\S]*syncCurrentLiveWorkspace\(\);\s*render\(\);/);
 });
 
 test("Workspace close preserves the subject unless the active coordinate changes", () => {
@@ -2857,7 +2857,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /@media \(max-width: 860px\) \{\s*body\.package-query-route \{ min-width: 0; \}/);
   assert.match(
     handoff,
-    /packageQueryController\.cancel\(\);\s*state\.packageQueryOpen = false;\s*const navigationSeq = navigationSequence\.begin\(\);\s*packageQueryHandoffNavigationSeq = navigationSeq;[\s\S]*await loadPackage\([\s\S]*\{ navigationSeq }\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) \{\s*if \(packageQueryHandoffNavigationSeq === navigationSeq\)\s*packageQueryHandoffNavigationSeq = null;\s*return;\s*\}[\s\S]*packageQueryHandoffNavigationSeq = null;\s*workspaceLocation\.push\(buildStateUrl\(\)\.toString\(\)\)/);
+    /packageQueryController\.cancel\(\);\s*state\.packageQueryOpen = false;\s*const navigationSeq = navigationSequence\.begin\(\);\s*packageQueryHandoffNavigationSeq = navigationSeq;[\s\S]*await loadPackage\([\s\S]*\{ navigationSeq }\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) \{\s*if \(packageQueryHandoffNavigationSeq === navigationSeq\)\s*packageQueryHandoffNavigationSeq = null;\s*return;\s*\}[\s\S]*packageQueryHandoffNavigationSeq = null;\s*workspaceLocation\.push\(\s*buildStateUrl\(\)\.toString\(\),\s*workspaceHistoryState\(null\)\)/);
   assert.match(
     syncUrl,
     /function syncUrl\(\) \{\s*if \(currentPackageQueryHandoff\(\)\) return;\s*if \(retainFailedWorkspaceUrl\(\)\) return;/);
@@ -2898,7 +2898,10 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /if \(state\.packageQueryOpen \|\| leftPackageQueryHandoff\) \{[\s\S]*packageQueryHandoffNavigationSeq = null;[\s\S]*state\.packageQueryReturnFocusPending =\s*state\.packageQueryReturnFocus !== null[\s\S]*isPackageQueryPredecessor\(\s*history\.state,\s*state\.packageQueryPredecessorEntryId\)/);
   assert.match(
     popstate,
-    /if \(!state\.engineReady\) \{\s*const pendingWorkspace = workspaceLocation\.preflightCurrent\(\);\s*const pendingLocation = pendingWorkspace\.visible;[\s\S]*state\.loading = !state\.home;[\s\S]*render\(\);\s*return;\s*\}\s*const loc = parseLocation\(\)/);
+    /const historyWorkspace = workspaceForHistory\([\s\S]*history\.state\);\s*adoptWorkspace\(historyWorkspace\.id\);\s*if \(isPackageQueryPath\(location\.pathname\)\)/);
+  assert.match(
+    popstate,
+    /if \(!state\.engineReady\) \{[\s\S]*render\(\);\s*return;\s*\}\s*const loc = parseLocation\(\)/);
   assert.match(
     popstate,
     /if \(leftPackageQueryForWorkspaceSuccessor\) \{\s*packageQueryWorkspaceFocusNavigationSeq = navigationSeq;\s*\}\s*if \(!state\.engineReady\)/);
@@ -2922,10 +2925,10 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /function focusTypeList\([\s\S]*afterCurrentNavigationFrame\(\(\) => \{[\s\S]*"#type-list"/);
   assert.match(
     appSource,
-    /workspaceLocation\.replace\(\s*buildStateUrl\(\)\.toString\(\),\s*history\.state\)/);
+    /workspaceLocation\.replace\(\s*buildStateUrl\(\)\.toString\(\),\s*workspaceHistoryState\(\)\)/);
   assert.match(
     appSource,
-    /workspaceLocation\.sync\(snapshot, history\.state\)/);
+    /workspaceLocation\.sync\(snapshot, workspaceHistoryState\(\)\)/);
   assert.equal(
     appSource.match(
       /\? withScopeQuery\(state\.packageQueryState\.request, validPrefix\)/g)
@@ -5711,13 +5714,34 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /appendQueryNotice\(\s+friendly\.message,\s+options\.retryAction/);
   assert.match(
     workspaceSubjectSource,
-    /data-workspace-close=/);
+    /data-workspace-package-close=/);
   assert.match(
     appSource,
-    /onClose: closeWorkspacePackage/);
+    /onClosePackage: closeWorkspacePackage/);
   assert.match(
     appSource,
-    /onSelect: selectWorkspacePacket,\s+onOpen: runHomeDemo/);
+    /onSelect: selectWorkspace,\s+onCreate: createWorkspace,\s+onRemove: removeWorkspace/);
+  assert.match(
+    appSource,
+    /activateDefaultWorkspaceForDemo\(\)/);
+  assert.match(
+    appSource,
+    /workspaceOperationIsCurrent\(/);
+  assert.match(
+    appSource,
+    /workspaceForHistory\(\s*state\.workspaceSession,\s*history\.state\)/);
+  assert.match(
+    appSource,
+    /function renderEmptyLiveWorkspace\([\s\S]*state\.spotlightOpen \? spotlight\.modalHtml\(\)[\s\S]*restorePackageQueryReturnFocus\(\);[\s\S]*restorePackageQueryWorkspaceFocus\(\)/);
+  assert.match(
+    appSource,
+    /function releasePackageModelCaches\([\s\S]*workspace\.id !== state\.workspaceSession\.selectedWorkspaceId[\s\S]*flatMap\(workspace => workspace\.packages\)[\s\S]*workspaceDependencyKey\(item\) === dependencyKey/);
+  assert.match(
+    appSource,
+    /function prepareLiveWorkspaceSurface\(\)[\s\S]*state\.queryNotice = "";[\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*failedWorkspaceUrlState = null/);
+  assert.match(
+    appSource,
+    /state\.package = null;[\s\S]*state\.workspaceSubjectOpen = true;[\s\S]*navigationHistory\.restore\(\{ stack: \[\], index: -1 \}\);[\s\S]*syncCurrentLiveWorkspace\(\)/);
   assert.match(
     appSource,
     /const key = assemblyId \|\| `legacy:\$\{asm\}`/);

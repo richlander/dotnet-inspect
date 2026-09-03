@@ -1066,65 +1066,96 @@ test("the title line advertises the typed Package, Type, and Member path", async
   expect(zone.y + zone.height).toBeLessThanOrEqual(workspace.y);
 });
 
-test("Workspace gives retained packets the pane and keeps Share readable", async ({
+test("Workspace gives live workspaces the pane and keeps Share readable", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/browser/workspace-titlebar.html?workspace=1");
 
-  const list = await box(page, ".workspace-packet-list");
-  const lastPacket = await box(page, ".workspace-packet:last-child");
+  const list = await box(page, ".workspace-list");
+  const lastWorkspace = await box(page, ".workspace-card:last-child");
   const share = await box(page, "#share");
 
   expect(list.height).toBeGreaterThan(200);
-  expect(lastPacket.y + lastPacket.height)
+  expect(lastWorkspace.y + lastWorkspace.height)
     .toBeLessThanOrEqual(list.y + list.height);
   expect(share.width).toBeGreaterThan(40);
   await expect(page.locator("#copy-name")).toHaveCount(0);
   await expect(page.locator("[data-subject-copy]")).toHaveCount(0);
 });
 
-test("Workspace packet selection is observational and Open executes", async ({
+test("live Workspace selection, creation, and removal preserve package isolation", async ({
   page,
 }) => {
   await page.goto("/browser/workspace-titlebar.html?workspace=1");
 
-  const packets = page.locator("[data-workspace-packet]");
-  await expect(packets).toHaveCount(3);
-  expect(await packets.evaluateAll(elements =>
-    elements.map(element => element.getAttribute("data-workspace-packet"))))
+  const workspaces = page.locator("[data-workspace]");
+  await expect(workspaces).toHaveCount(2);
+  expect(await workspaces.evaluateAll(elements =>
+    elements.map(element => element.getAttribute("data-workspace"))))
     .toEqual([
-    "stj-serializer",
-    "stj-serialize-callgraph",
-    "stj-getdecimal-callgraph",
+    "default",
+    "extensions",
   ]);
   const href = page.url();
-  const serialize = page.locator(
-    '[data-workspace-packet="stj-serialize-callgraph"]');
-  await serialize.click();
+  const extensions = page.locator('[data-workspace="extensions"]');
+  await extensions.click();
 
-  await expect(serialize).toBeFocused();
+  await expect(extensions).toBeFocused();
   await expect(page.locator(".workspace-heading h1"))
-    .toHaveText("Serialize call graph");
+    .toHaveText("Workspace 2");
   await expect(page.locator(".subject-path-segment"))
-    .toHaveText("Serialize call graph");
-  await expect(page.locator("body"))
-    .toHaveAttribute("data-workspace-execution-count", "0");
+    .toHaveText("Workspace 2");
+  await expect(page.locator(".workspace-detail-list"))
+    .toContainText("Microsoft.Extensions.DependencyInjection");
+  await expect(page.locator(".workspace-detail-list"))
+    .not.toContainText("System.Text.Json");
   expect(page.url()).toBe(href);
 
-  const getDecimal = page.locator(
-    '[data-workspace-packet="stj-getdecimal-callgraph"]');
-  await getDecimal.click();
-  await expect(getDecimal).toBeFocused();
+  await page.getByRole("button", { name: "New workspace" }).click();
+  const created = page.locator('[data-workspace="workspace-3"]');
+  await expect(workspaces).toHaveCount(3);
+  await expect(created).toBeFocused();
   await expect(page.locator(".workspace-heading h1"))
-    .toHaveText("JsonElement.GetDecimal");
+    .toHaveText("Workspace 3");
+  await expect(page.locator(".workspace-empty"))
+    .toHaveText("No packages are loaded in this workspace.");
   expect(page.url()).toBe(href);
 
-  await page.getByRole("button", { name: "Open workspace" }).click();
+  await page.getByRole("button", { name: "Remove workspace" }).click();
+  await expect(workspaces).toHaveCount(2);
+  await expect(page.locator('[data-workspace="default"]')).toBeFocused();
+  await expect(page.locator(".workspace-heading h1")).toHaveText("Default");
+  await expect(page.locator(".workspace-detail-list"))
+    .toContainText("System.Text.Json");
+});
+
+test("live Workspace history and asynchronous results retain their owner", async ({
+  page,
+}) => {
+  await page.goto("/browser/workspace-titlebar.html?workspace=1");
+
+  await page.evaluate(() => window.beginDelayedWorkspaceLoadProbe());
+  await page.locator('[data-workspace="extensions"]').click();
+  await page.evaluate(() => window.completeDelayedWorkspaceLoadProbe());
   await expect(page.locator("body"))
-    .toHaveAttribute("data-workspace-execution-count", "1");
-  await expect(page.locator("body"))
-    .toHaveAttribute(
-      "data-workspace-execution",
-      "stj-getdecimal-callgraph");
+    .toHaveAttribute("data-workspace-late-load", "rejected");
+  await expect(page.locator(".workspace-detail-list"))
+    .not.toContainText("System.Text.Json");
+
+  await page.goBack();
+  await expect(page.locator(".workspace-heading h1")).toHaveText("Default");
+  await page.evaluate(() => window.restoreUnknownWorkspaceProbe());
+  await expect(page.locator(".workspace-heading h1")).toHaveText("Default");
+
+  await page.goto(
+    "/browser/workspace-titlebar.html?workspace=1&empty-workspace=1#workspace");
+  await expect(page.locator('[data-scope="package"]')).toHaveCount(0);
+  await expect(page.locator('[data-scope="type"]')).toHaveCount(0);
+  await expect(page.locator(".workspace-empty"))
+    .toHaveText("No packages are loaded in this workspace.");
+  await page.reload();
+  await expect(page.locator(".workspace-heading h1")).toHaveText("Default");
+  await expect(page.locator(".workspace-empty"))
+    .toHaveText("No packages are loaded in this workspace.");
 });
