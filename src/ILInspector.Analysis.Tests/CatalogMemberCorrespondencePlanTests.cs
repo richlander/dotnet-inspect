@@ -1780,9 +1780,16 @@ public class CatalogMemberCorrespondencePlanTests
         internal static MissingPolicy Instance { get; } = new();
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            AssemblyBindingSelection.NotFound();
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                AssemblyBindingSelection.NotFound();
+        }
     }
 
     sealed class CoreLibraryPolicy(
@@ -1790,11 +1797,18 @@ public class CatalogMemberCorrespondencePlanTests
     {
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            request.Target is AssemblyBindingTarget.IntrinsicCoreLibrary
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                request.Target is AssemblyBindingTarget.IntrinsicCoreLibrary
                 ? AssemblyBindingSelection.Found(coreLibrary)
                 : AssemblyBindingSelection.NameNotOwned();
+        }
     }
 
     sealed class UnavailablePolicy : IAssemblyBindingPolicy
@@ -1802,11 +1816,18 @@ public class CatalogMemberCorrespondencePlanTests
         internal static UnavailablePolicy Instance { get; } = new();
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            AssemblyBindingSelection.CannotSelect(
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
-                    AssemblyBindingFailureKind.IdentityPolicyRequired));
+                AssemblyBindingFailureKind.IdentityPolicyRequired));
+        }
     }
 
     sealed class ExactPolicy : IAssemblyBindingPolicy
@@ -1822,13 +1843,20 @@ public class CatalogMemberCorrespondencePlanTests
 
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            request.Target is AssemblyBindingTarget.AssemblyReference reference
-            && _assemblies.TryGetValue(
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                request.Target is AssemblyBindingTarget.AssemblyReference reference
+                && _assemblies.TryGetValue(
                 reference.Identity,
                 out ResolvedAssemblyReference? assembly)
                 ? AssemblyBindingSelection.Found(assembly)
                 : AssemblyBindingSelection.NotFound();
+        }
     }
 }

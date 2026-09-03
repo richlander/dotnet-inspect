@@ -166,7 +166,7 @@ public class CallerScopeReachabilityPlanTests
                     target,
                     []);
 
-            Assert.Same(terminal, policy.Select(request));
+            Assert.Same(terminal, policy.Select(request).Selection);
         }
     }
 
@@ -190,7 +190,7 @@ public class CallerScopeReachabilityPlanTests
 
         var unavailable =
             Assert.IsType<AssemblyBindingSelection.Unavailable>(
-                policy.Select(request));
+                policy.Select(request).Selection);
         Assert.Equal(
             AssemblyBindingFailureKind.IdentityPolicyRequired,
             unavailable.Failure.Kind);
@@ -216,7 +216,7 @@ public class CallerScopeReachabilityPlanTests
             AssemblyResolutionScope.Any);
 
         var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-            policy.Select(request));
+            policy.Select(request).Selection);
 
         Assert.Same(root, selected.Assembly);
         Assert.Equal(0, fallback.CallCount);
@@ -247,7 +247,7 @@ public class CallerScopeReachabilityPlanTests
 
         var ambiguous =
             Assert.IsType<AssemblyBindingSelection.Ambiguous>(
-                policy.Select(request));
+                policy.Select(request).Selection);
 
         Assert.Equal([target, root], ambiguous.Assemblies);
         Assert.Equal(1, fallback.CallCount);
@@ -280,7 +280,7 @@ public class CallerScopeReachabilityPlanTests
 
         var unavailable =
             Assert.IsType<AssemblyBindingSelection.Unavailable>(
-                policy.Select(request));
+                policy.Select(request).Selection);
 
         Assert.Equal(
             AssemblyBindingFailureKind.IdentityPolicyRequired,
@@ -558,15 +558,22 @@ public class CallerScopeReachabilityPlanTests
 
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            request.Target
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                request.Target
                 is AssemblyBindingTarget.AssemblyReference reference
                 && _assemblies.TryGetValue(
-                    reference.Identity,
-                    out ResolvedAssemblyReference? assembly)
-                    ? AssemblyBindingSelection.Found(assembly)
-                    : AssemblyBindingSelection.NotFound();
+                reference.Identity,
+                out ResolvedAssemblyReference? assembly)
+                ? AssemblyBindingSelection.Found(assembly)
+                : AssemblyBindingSelection.NotFound();
+        }
     }
 
     sealed class SelectedPolicy(
@@ -575,9 +582,16 @@ public class CallerScopeReachabilityPlanTests
     {
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            AssemblyBindingSelection.Found(selected);
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                AssemblyBindingSelection.Found(selected);
+        }
     }
 
     sealed class FixedPolicy(AssemblyBindingSelection selection)
@@ -587,11 +601,19 @@ public class CallerScopeReachabilityPlanTests
 
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
+        public AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request)
         {
-            CallCount++;
-            return selection;
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore()
+            {
+                CallCount++;
+                return selection;
+
+            }
         }
     }
 }
