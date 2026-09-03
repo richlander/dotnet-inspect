@@ -1679,9 +1679,9 @@ uniformly content-shaped or demand-driven:
 
 Converting the remaining collection into typed, demand-driven, content-shaped
 queries is therefore the migration path for the split, not a follow-up to it.
-`DotnetInspector.Sections` currently contains only the Rows cohort seam; the
-descriptor contract remains in the CLI assembly and is already Markout-free
-apart from its name binding.
+`DotnetInspector.Sections` currently contains the unresolved row-selection
+intent and Rows cohort seams; the descriptor contract remains in the CLI
+assembly and is already Markout-free apart from its name binding.
 
 ## Non-goals
 
