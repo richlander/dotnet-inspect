@@ -567,21 +567,24 @@ public sealed class ResolvedAssemblyReference
         ArgumentNullException.ThrowIfNull(fallbackIdentity);
         ArgumentNullException.ThrowIfNull(provenance);
 
-        Stream? source = openRead();
-        if (source is null || !source.CanRead)
-        {
-            source?.Dispose();
-            throw new IOException(
-                "The assembly opener did not return a readable stream.");
-        }
-
+        Stream? stream = null;
+        PEReader? peReader = null;
         AssemblyReferenceIdentity? identity = null;
         Guid? moduleVersionId = null;
-        using (Stream stream = source)
+        try
         {
+            stream = openRead();
+            if (stream is null || !stream.CanRead)
+            {
+                throw new IOException(
+                    "The assembly opener did not return a readable stream.");
+            }
+
             try
             {
-                using var peReader = new PEReader(stream);
+                peReader = new PEReader(
+                    stream,
+                    PEStreamOptions.LeaveOpen);
                 if (MetadataFormatAdmission.AdmitImage(peReader))
                 {
                     MetadataReader metadata =
@@ -615,29 +618,56 @@ public sealed class ResolvedAssemblyReference
                     or UnsupportedMetadataFormatException
                     or OverflowException)
             {
-                // Admission rejections join the established bad-image
-                // boundary here rather than propagating: this entry point's
-                // contract is to fall back to the caller's identity.
+                OwnedResourceCleanup.DisposeAfterFailure(
+                    ref peReader,
+                    ref stream,
+                    ex);
+                // The descriptor retains the selected image as a rejection carrier.
             }
-        }
 
-        usedFallbackIdentity = identity is null;
-        if (usedFallbackIdentity)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(
-                fallbackIdentity.Name);
+            usedFallbackIdentity = identity is null;
+            if (usedFallbackIdentity)
+            {
+                ArgumentException.ThrowIfNullOrWhiteSpace(
+                    fallbackIdentity.Name);
+            }
+            var registration =
+                new AssemblyAcquisitionRegistration(artifactRegistration);
+            if (moduleVersionId is Guid value)
+                registration.BindModuleVersionId(value);
+            var result = new ResolvedAssemblyReference(
+                registration,
+                identity ?? fallbackIdentity,
+                path: null,
+                openRead,
+                provenance,
+                lastWriteTimeUtc);
+            if (usedFallbackIdentity)
+            {
+                OwnedResourceCleanup.DisposeWithoutReplacingOutcome(
+                    ref peReader,
+                    ref stream);
+            }
+            else
+            {
+                PEReader? readerToDispose = peReader;
+                peReader = null;
+                readerToDispose?.Dispose();
+                Stream? streamToDispose = stream;
+                stream = null;
+                streamToDispose?.Dispose();
+            }
+
+            return result;
         }
-        var registration =
-            new AssemblyAcquisitionRegistration(artifactRegistration);
-        if (moduleVersionId is Guid value)
-            registration.BindModuleVersionId(value);
-        return new ResolvedAssemblyReference(
-            registration,
-            identity ?? fallbackIdentity,
-            path: null,
-            openRead,
-            provenance,
-            lastWriteTimeUtc);
+        catch (Exception ex)
+        {
+            OwnedResourceCleanup.DisposeAfterFailure(
+                ref peReader,
+                ref stream,
+                ex);
+            throw;
+        }
     }
 
     public static bool TryCreateFromPath(

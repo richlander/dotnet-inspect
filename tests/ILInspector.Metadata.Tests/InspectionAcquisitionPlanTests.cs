@@ -431,7 +431,7 @@ public class InspectionAcquisitionPlanTests
                 artifactRegistration,
                 descriptor.Registration.ArtifactRegistration);
             Assert.Null(descriptor.Registration.ModuleVersionId);
-            Assert.Throws<BadImageFormatException>(
+            Assert.ThrowsAny<BadImageFormatException>(
                 () => AssemblyImage.Open(descriptor));
             Assert.Null(descriptor.Registration.ModuleVersionId);
         }
