@@ -34,11 +34,15 @@ standalone exact-lens activation is implemented by
 `StandaloneLensActivation_RejectsDifferentExactSubjectBeforeRegistryResolution`,
 `ExplicitLensResolution_MapsEveryRegistryOutcomeWithoutFallback`, and
 `ExplicitLensResolution_RetainsExactRegistryEvidence`. Workspace and Package
-identity, descriptor composition, subject activation, snapshot installation,
-reconciliation, revision behavior, retained sessions, synchronization, and
-restoration remain unverified until their implementation gates in
+identity as a Navigation subject, snapshot installation, reconciliation,
+revision behavior, retained sessions, synchronization, and restoration remain
+unverified until their implementation gates in
 [Verification](#verification) land. The workspace-owned identity prerequisite
-is tracked by #5508, Registry adoption by #5509, and portable
+is implemented by `InspectionWorkspaceIdentity`; the first package descriptor
+composition and exact view-scoped activation slice is implemented by
+`InspectionWorkspacePackageOccurrenceView` for the Inspect Web and CLI
+consumers. This slice does not install or mutate Navigation state. Registry
+adoption is tracked by #5509, and portable
 Workspace/Package subject projection by #5525.
 
 The concurrency claims are specified separately as executable TLA+ models under
