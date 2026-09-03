@@ -1301,6 +1301,43 @@ test("unexpected terminal reservation survives diagnostic reentrant replacement"
   ]);
 });
 
+test("diagnostic reentrant disposal suppresses only terminal feature publication", async () => {
+  let harness: SessionHarness;
+  let disposeResult: OperationControlResult | undefined;
+  harness = sessionHarness(
+    createOperationAuthorityPage(deterministicOptions()),
+    undefined,
+    () => {
+      disposeResult = harness.session.dispose();
+      return undefined;
+    },
+  );
+  const activeProducer = producer();
+  const handle = started(
+    harness.session.start("work", activeProducer.adapter),
+  );
+
+  activeProducer.attempts[0]?.sink.reportUnexpectedTerminal(
+    "feature-error",
+    "unexpected-failure",
+  );
+
+  assert.deepEqual(disposeResult, { kind: "applied" });
+  assert.deepEqual(await handle.outcome, {
+    kind: "failed",
+    error: "feature-error",
+  });
+  assert.deepEqual(harness.events.map(event => event.kind), [
+    "started",
+    "disposed",
+  ]);
+  assert.equal(harness.diagnostics.length, 1);
+  assert.deepEqual(activeProducer.attempts[0]?.cancellations, []);
+  assert.equal(await promiseSettled(handle.quiesced), false);
+  activeProducer.attempts[0]?.sink.reportQuiesced();
+  assert.equal(await promiseSettled(handle.quiesced), true);
+});
+
 test("unexpected terminal survives throwing diagnostic observation", async () => {
   const observerFailure = new Error("observer");
   const fallbacks: {

@@ -323,9 +323,13 @@ the terminal feature event before delivering the diagnostic. The observer
 therefore sees final authority state: cancellation cannot replace the failure,
 while replacement or disposal may proceed normally. After diagnostic delivery
 or its contained exception, the owner exercises the already-reserved terminal
-event even if reentrancy changed current authority. Physical quiescence remains
-a later independent producer report. `reportUnexpectedFailure` remains the
-diagnostic-only path for a late failure that is not itself a terminal result.
+event even if replacement changed current authority. Reentrant disposal remains
+the stronger feature-publication transition: it publishes its reserved
+`disposed` event and suppresses the pending terminal feature event after
+detaching ordinary publication, without replacing the committed failed outcome
+or diagnostic. Physical quiescence remains a later independent producer
+report. `reportUnexpectedFailure` remains the diagnostic-only path for a late
+failure that is not itself a terminal result.
 
 `OperationId` is opaque. Feature code cannot construct one from a request,
 package identity, display string, or local counter. The page owner atomically
@@ -480,9 +484,13 @@ These variants do not stack: replacement does not additionally publish
 `canceled`. A producer-reported canceled outcome uses `canceled` with its typed
 reason. Each reserved event remains authorized after the outcome or current
 operation changes, publishes after the authority commit, and permits no later
-authority write from that transition. Physical producer completion after
-logical cancellation does not replace the canceled outcome. Duplicate terminal
-reports are producer-contract failures reported diagnostically; they do not
+authority write from that transition. Disposal's atomic feature-publication
+transition is the exception: it suppresses an unexpected-terminal reservation
+that is waiting behind diagnostic delivery and publishes only `disposed`,
+without changing the already-committed failed outcome. Physical producer
+completion after logical cancellation does not replace the canceled outcome.
+Duplicate terminal reports are producer-contract failures reported
+diagnostically; they do not
 resolve the handle again or regain publication authority.
 
 ### Cancellation and supersession
@@ -729,6 +737,9 @@ under the ordinary inspect-web `npm test` gate and include:
   diagnostic reentrancy, rejecting outcome replacement by cancellation,
   preserving its terminal reservation across reentrant replacement, delivering
   diagnostic before terminal publication, and surviving observer failure;
+- diagnostic-reentrant disposal retaining the committed failed outcome and
+  diagnostic while the authoritative `disposed` event suppresses the pending
+  terminal feature reservation and quiescence remains producer-reported;
 - stale atomic unexpected terminal failure remaining diagnostic-only without
   replacing its prior logical cancellation or publishing feature state;
 - unexpected stale failure reaching diagnostics without reaching feature
