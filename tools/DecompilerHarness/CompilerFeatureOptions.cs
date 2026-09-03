@@ -1,7 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
-using ILInspector.Metadata;
+using ILInspector.Decompiler.Pipeline;
 
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -25,8 +25,7 @@ static class CompilerFeatureOptions
     {
         var options = ParseOptions();
         var features = new List<KeyValuePair<string, string>>();
-        if (pe.HasMetadata
-            && AssemblyDetailScanner.ScanAuditMetadata(pe).MemorySafetyRulesVersion is not null)
+        if (pe.HasMetadata && ModuleUsesUpdatedMemorySafetyRules(pe))
         {
             features.Add(new("updated-memory-safety-rules", "true"));
         }
@@ -36,6 +35,19 @@ static class CompilerFeatureOptions
 
         return features.Count == 0 ? options : options.WithFeatures(features);
     }
+
+    /// <summary>
+    /// Recompilation must replay the mode the printer used, so this defers to
+    /// the printer's own predicate rather than deriving the mode independently.
+    /// Any second reader — including the more faithful
+    /// <c>MemorySafetyMetadataIndex</c>, which accepts marker spellings the
+    /// printer ignores — can disagree with the printer and compile output back
+    /// under rules it was not printed with.
+    /// <c>CompilerFeatureOptionsTests.HarnessReplayMatchesPrinterMode</c> is the
+    /// gate.
+    /// </summary>
+    static bool ModuleUsesUpdatedMemorySafetyRules(PEReader pe)
+        => IrImporter.ModuleUsesUpdatedMemorySafetyRules(pe.GetMetadataReader());
 
     static bool ModuleUsesRuntimeAsync(PEReader pe)
     {

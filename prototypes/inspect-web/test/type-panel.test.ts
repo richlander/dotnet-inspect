@@ -24,6 +24,7 @@ import { fakeDom } from "./fake-dom.ts";
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
   value = "";
+  open = false;
   focused = false;
   private readonly listeners = new Map<string, EventListener[]>();
 
@@ -204,6 +205,8 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
       calls.push(`member-jump-trait:${value}`),
     onMemberFilterChange: value => calls.push(`member-filter:${value}`),
     onMemberFilterClear: () => calls.push("member-filter-clear"),
+    onMemberFilterDisclosureToggle: value =>
+      calls.push(`member-filter-disclosure:${value}`),
     onMemberFilterKeyDown: (event, value) => {
       calls.push(`member-filter-key:${event.key}:${value}`);
       return true;
@@ -240,6 +243,9 @@ test("type panel bindings dispatch member filters without eager work", () => {
   root.addAll("[data-member-trait-filter]", allTraits, trait);
   const filter = root.add("#member-filter", new FakeElement());
   filter.value = "parse";
+  const disclosure = root.add(
+    "[data-member-filter-disclosure]",
+    new FakeElement());
   const clear = root.add("#clear-member-filter", new FakeElement());
   const calls: string[] = [];
 
@@ -260,6 +266,8 @@ test("type panel bindings dispatch member filters without eager work", () => {
     "member-trait:isStatic",
   ]);
   filter.dispatch("input");
+  disclosure.open = true;
+  disclosure.dispatch("toggle");
   const arrow = keyboardEvent("ArrowDown");
   dispatchKey(keybindings, filter, arrow);
   clear.dispatch("click");
@@ -268,6 +276,7 @@ test("type panel bindings dispatch member filters without eager work", () => {
     "member-access:protected",
     "member-trait:isStatic",
     "member-filter:parse",
+    "member-filter-disclosure:true",
     "member-filter-key:ArrowDown:parse",
     "member-filter-clear",
   ]);

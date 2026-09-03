@@ -22,6 +22,7 @@ docs/models/artifact-session-group-release/BrokenIncompleteTransfer.cfg=12
 docs/models/artifact-session-group-release/BrokenPartialReceipt.cfg=12
 docs/models/artifact-session-group-release/BrokenTransferDuringAdmission.cfg=12
 docs/models/artifact-session-group-release/Liveness.cfg=0
+docs/models/artifact-session-group-release/ReachabilityOwnerRecoveryRequest.cfg=12
 docs/models/artifact-session-group-release/Safety.cfg=0
 docs/models/assembly-context-group-lifecycle/AssemblyContextGroupReleaseBlocked.cfg=0
 docs/models/assembly-context-group-lifecycle/AssemblyContextGroupReleaseLifecycle.cfg=0
