@@ -1046,22 +1046,7 @@ public sealed class PackageAssemblyContextRealizationTests
             workspace.CloseAsync();
 
         Assert.False(close.IsCompleted);
-        while (true)
-        {
-            try
-            {
-                _ = realization.SurfaceGroup.UseSnapshot(
-                    surfaceParticipant.Participant.Assembly,
-                    static _ => 0);
-                await Task.Yield();
-                cancellationToken.ThrowIfCancellationRequested();
-            }
-            catch (ObjectDisposedException)
-            {
-                break;
-            }
-        }
-        await Task.Yield();
+        realization.Dispose();
         long retainedArtifactLength = 0;
         try
         {
