@@ -2298,17 +2298,39 @@ The currency contract is:
 | Rebinding | No value can reconstruct or rebind it in another Workspace | Only future Workspace membership operations may associate it with retained state |
 | Correspondence | Reference equality proves the same runtime Workspace | Reference equality proves the same issuance; package correspondence additionally uses the exact carried `PackageRootBinding` |
 
-This first slice issues the currencies and enforces their construction
-lifetime. It does not yet claim that an issued occurrence is admitted or
-retained, expose ordered descriptors, define membership transition semantics,
-or implement Navigation adoption. Those remain later slices of #5508, #5583,
-and #5584. The gates are
+`InspectionWorkspace.CreatePackageOccurrenceView` composes an immutable
+ordered view from acquisition-issued package Root bindings. Input order is the
+view order; equal or repeated bindings remain distinct occurrences. An empty
+input produces a typed empty view. Each descriptor exposes package, version,
+and selected framework presentation facts from its exact Root binding and
+carries an opaque action issued for that exact view. Activating the action
+returns the exact `PackageRootOccurrenceBinding` only while the Workspace is
+open and the action belongs to that view. A foreign-view action returns
+`ViewMismatch`; an action whose Workspace has closed returns
+`WorkspaceClosed`.
+
+The action and both runtime identities remain process-local. Browser/Wasm
+lowers an action to an opaque random transport token and resolves that token
+back to the product action before selecting or projecting a package. The CLI
+lowers the same ordered descriptors through Markout. Neither host derives
+activation identity from package text, version, framework, row position, or a
+cache key.
+
+This slice does not define retained membership, add/remove transitions,
+successor selection, persistence, general Navigation snapshots, or
+concurrency semantics. It also does not project non-package Root occurrences
+through this package view. The first CLI acquisition adapter requires a
+package with at least one selected managed assembly; root-only, analyzer-only,
+and tools-only package acquisition is not yet a supported CLI input. Those
+remain consumer-led slices of #5634, #5583, and #5584. The gates are
 `WorkspaceIdentity_IsStableAndExactPerInstance`,
 `PackageOccurrence_IsExactPerIssuanceAndCarriesBinding`,
 `PackageOccurrence_DistinguishesWorkspaceAndBindingGeneration`,
 `NonPackageOccurrence_IsExactAndWorkspaceScoped`,
 `SynchronousClose_StopsOccurrenceIssuanceButKeepsIdentity`, and
-`AsynchronousClose_StopsOccurrenceIssuanceImmediately`.
+`AsynchronousClose_StopsOccurrenceIssuanceImmediately`, plus the
+`PackageOccurrenceView_*` gates for ordering, empty input, repeated bindings,
+exact activation, foreign-view rejection, and closed-Workspace rejection.
 
 ### Workspace composition and query execution
 

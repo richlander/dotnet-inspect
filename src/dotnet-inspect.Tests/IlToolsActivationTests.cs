@@ -816,7 +816,7 @@ public class IlToolsActivationTests
             (
                 "analysis",
                 "dotnet run --project src/ILInspector.Analysis.Tests " +
-                "-c Release -- -trait- \"Speed=Slow\""),
+                "-c Release -- --filter-not-trait \"Speed=Slow\""),
             (
                 "decompiler",
                 "dotnet run --project src/ILInspector.Decompiler.Tests " +

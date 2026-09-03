@@ -81,7 +81,8 @@ public sealed class PackageRootBinding
     public static PackageRootBinding CreateFromSource(
         AcquiredPackageSourcePayload payload,
         string? selectionTargetFramework = null,
-        string? runtimeIdentifier = null)
+        string? runtimeIdentifier = null,
+        string? displayPackageId = null)
     {
         ArgumentNullException.ThrowIfNull(payload);
         if (runtimeIdentifier is not null
@@ -105,6 +106,7 @@ public sealed class PackageRootBinding
         return Create(
             payload,
             payload.Coordinate.PackageId,
+            displayPackageId ?? payload.Coordinate.PackageId,
             payload.Coordinate.Version,
             payload.Content,
             payload.ProducerKey,
@@ -118,12 +120,14 @@ public sealed class PackageRootBinding
     /// </summary>
     public static PackageRootBinding CreateFromResolved(
         AcquiredPackagePayload payload,
-        string? selectionTargetFramework = null)
+        string? selectionTargetFramework = null,
+        string? displayPackageId = null)
     {
         ArgumentNullException.ThrowIfNull(payload);
         return Create(
             payload,
             payload.Coordinate.PackageId,
+            displayPackageId ?? payload.Coordinate.PackageId,
             payload.Coordinate.Version,
             payload.Content,
             payload.ProducerKey,
@@ -134,7 +138,8 @@ public sealed class PackageRootBinding
 
     static PackageRootBinding Create(
         object acquiredPayload,
-        string packageId,
+        string coordinatePackageId,
+        string displayPackageId,
         string packageVersion,
         IPackageContent content,
         string producerKey,
@@ -142,6 +147,14 @@ public sealed class PackageRootBinding
         string? targetFramework,
         string? runtimeIdentifier)
     {
+        if (!displayPackageId.Equals(
+                coordinatePackageId,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                "A package Root display id must identify the acquired package.",
+                nameof(displayPackageId));
+        }
         if (!content.ProducerKey.Equals(producerKey, StringComparison.Ordinal))
         {
             throw new ArgumentException(
@@ -151,7 +164,7 @@ public sealed class PackageRootBinding
 
         var root = new PackageRootRealization(
             content,
-            packageId,
+            displayPackageId,
             packageVersion,
             targetFramework,
             runtimeIdentifier);
@@ -163,7 +176,7 @@ public sealed class PackageRootBinding
         string? effectiveRuntimeIdentifier =
             runtimeIdentifier;
         if (!RealizedMemberCoordinate.Package.TryCreate(
-                packageId,
+                coordinatePackageId,
                 packageVersion,
                 producerKey,
                 effectiveFramework,

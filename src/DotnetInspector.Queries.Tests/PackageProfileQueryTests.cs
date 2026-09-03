@@ -71,6 +71,35 @@ public sealed class PackageProfileQueryTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_ForwardsSharedOperationContext()
+    {
+        var source = new FakePackageSource(
+            [Match("Contoso.Package", "1.0.0")],
+            new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["contoso.package@1.0.0"] = Manifest(
+                    "Contoso.Package",
+                    "1.0.0"),
+            });
+        using var operationContext = new NuGetOperationContext(
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(4),
+            TestContext.Current.CancellationToken);
+
+        _ = await CollectAsync(
+            PackageProfileQuery.ExecuteAsync(
+                source,
+                new PackagePrefixProfileRequest("Contoso."),
+                TestContext.Current.CancellationToken,
+                operationContext));
+
+        Assert.Same(operationContext, source.SearchOperationContext);
+        Assert.Same(
+            operationContext,
+            Assert.Single(source.ManifestOperationContexts));
+    }
+
+    [Fact]
     public async Task ExecuteAsync_ReportsInvalidManifestAndContinues()
     {
         var source = new FakePackageSource(
@@ -490,6 +519,15 @@ public sealed class PackageProfileQueryTests
             init;
         }
         public PackageSourceResultFactory? ManifestResultFactory { get; init; }
+        public NuGetOperationContext? SearchOperationContext
+        {
+            get;
+            private set;
+        }
+        public List<NuGetOperationContext?> ManifestOperationContexts
+        {
+            get;
+        } = [];
         public List<string> ManifestRequests { get; } = [];
         public int PackageRequests { get; private set; }
         public PackageSourceResultIdentity Source => _results.Source;
@@ -506,6 +544,7 @@ public sealed class PackageProfileQueryTests
                 NuGetOperationContext? operationContext = null)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            SearchOperationContext = operationContext;
             PackageSourceResultFactory results =
                 SearchResultFactory ?? _results;
             PackageSourceOperationResult<PackageSearchResult> result =
@@ -526,6 +565,7 @@ public sealed class PackageProfileQueryTests
                 NuGetOperationContext? operationContext = null)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            ManifestOperationContexts.Add(operationContext);
             PackageSourceCoordinate coordinate =
                 PackageSourceCoordinate.Create(packageId, version);
             string key = $"{coordinate.PackageId}@{coordinate.Version}";

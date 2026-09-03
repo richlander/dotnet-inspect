@@ -7,16 +7,24 @@ areas: [extensions, discovery, reachable]
 
 # Extension Methods
 
-> Find extension methods available for a type. The `extensions` command scans platform frameworks and curated packages by default. Use `--reachable` to also discover extensions on types reachable via properties and methods — essential for understanding the full API surface available from a given starting point.
+> Find extension methods available for a type. The `extensions` command scans
+> the implicit platform scope by default. Add `--extensions` or `--aspnetcore`
+> to include those package catalogs. Use `--reachable` to also discover
+> extensions on types reachable via properties and methods — essential for
+> understanding the full API surface available from a given starting point.
+
+[Search scope resolution](../../design/search-scope-resolution.md) defines
+default activation and explicit scope composition.
 
 ## Preconditions
 
-Use an isolated session. The default search includes a curated package set, so
-the first command primes that package metadata cache and requires network.
+Use an isolated session so the explicit package-catalog acquisition in section
+6 does not depend on an existing cache. The `runtime` and `aspnetcore` parts of
+the default platform scope resolve locally. Its `netstandard` reference pack
+may require NuGet acquisition in a cold isolated session.
 
 ```bash
 export DOTNET_INSPECT_ISOLATED=extension-methods
-dotnet-inspect extensions HttpClient -v:q > /dev/null
 ```
 
 ## 1. Find extensions for a type
@@ -95,9 +103,11 @@ dotnet-inspect extensions HttpClient --reachable -n 20
 grep -c '| method |'
 ```
 
-## 3. Scope to platform only
+## 3. Make the platform scope explicit
 
-> Goal: Restrict the search to platform framework assemblies.
+> Goal: Name the same platform framework set explicitly. Bare `--platform` is
+> equivalent to the implicit default when used alone and composes with other
+> explicit source selectors.
 
 ```bash
 dotnet-inspect extensions HttpClient --platform -v:q
@@ -157,12 +167,13 @@ dotnet-inspect extensions Version --platform -v:q
 No extension methods found.
 ```
 
-## 6. Platform-scoped extensions
+## 6. Compose platform and Extensions package scopes
 
-> Goal: The `--platform` flag searches all platform frameworks (runtime, aspnetcore, netstandard).
+> Goal: Search all platform frameworks plus the current Microsoft.Extensions
+> package catalog.
 
 ```bash
-dotnet-inspect extensions IServiceCollection --platform -v:q
+dotnet-inspect extensions IServiceCollection --platform --extensions -v:q
 ```
 
 ```expect

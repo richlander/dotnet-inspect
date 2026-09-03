@@ -306,6 +306,28 @@ public class PackageCompileAssetSelectorTests : IDisposable
     }
 
     [Fact]
+    public void EmptyReferenceGroup_AtRequestedFramework_SuppressesCompatibleLibraryFallback()
+    {
+        IPackageContent content = InMemory(
+            "ref/net10.0/_._",
+            "lib/net8.0/Example.dll");
+
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(content, "Example", "net10.0");
+
+        Assert.False(selection.IsSelected);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.EmptyCompileGroup,
+            selection.Status);
+        Assert.Equal("net10.0", selection.TargetFramework);
+        Assert.Empty(selection.Assets);
+        Assert.Null(selection.DefaultAsset);
+        Assert.Equal(
+            ["lib/net8.0/Example.dll"],
+            selection.CandidateAssets.Select(asset => asset.Path));
+    }
+
+    [Fact]
     public void EmptyReferenceGroup_NearestCompatibleGroupSuppressesLibraryFallback()
     {
         IPackageContent content = InMemory(

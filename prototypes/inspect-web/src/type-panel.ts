@@ -102,6 +102,7 @@ export interface TypePanelBindingActions {
   onMemberCompositionTraitSelect: (trait: string) => void;
   onMemberFilterChange: (value: string) => void;
   onMemberFilterClear: () => void;
+  onMemberFilterDisclosureToggle: (expanded: boolean) => void;
   onMemberFilterKeyDown: (event: KeyboardEvent, value: string) => boolean;
   onMemberGroupOpen: (memberKey: string) => void;
   onMemberKindFilterSelect: (kind: string | undefined) => void;
@@ -246,6 +247,11 @@ export function bindTypePanel(
   memberFilter?.addEventListener(
     "input",
     () => actions.onMemberFilterChange(memberFilter.value));
+  const memberFilterDisclosure =
+    root.querySelector<HTMLDetailsElement>("[data-member-filter-disclosure]");
+  memberFilterDisclosure?.addEventListener(
+    "toggle",
+    () => actions.onMemberFilterDisclosureToggle(memberFilterDisclosure.open));
   if (memberFilter) {
     keybindings.register({
       id: "member-filter.navigate",
