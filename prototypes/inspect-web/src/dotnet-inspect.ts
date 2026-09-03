@@ -165,7 +165,6 @@ import {
   productHomeDemoLocationHref,
   setProductHomeDemoCatalog,
   type ProductHomeDemoId,
-  type ProductHomeDemoResolved,
 } from "./product-home-demos.ts";
 import {
   createSourceInspectionCoordinator,
