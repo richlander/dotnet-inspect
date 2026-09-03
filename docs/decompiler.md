@@ -9,8 +9,8 @@ is *how we know the output is right*, and
 [decompiler-correctness-pipeline.md](decompiler-correctness-pipeline.md) maps the
 test/harness stack into a staged correctness gauntlet.
 [decompiler-symbol-preservation.md](design/decompiler-symbol-preservation.md)
-defines which identifier names are preserved, recoverable, synthesized, or
-irrecoverable.
+defines which identifier names are preserved, recoverable, synthesized,
+unrepresentable, or irrecoverable.
 
 ## Design goal: recognizability
 
@@ -73,7 +73,8 @@ Key properties:
   scopes are its natural input. The
   [name and symbol preservation contract](design/decompiler-symbol-preservation.md)
   separates exact artifact-backed identity, authenticated generated-name
-  recovery, honest synthesis, tracked gaps, and names the artifact erased.
+  recovery, honest synthesis, unrepresentable metadata identities, tracked
+  gaps, and names the artifact erased.
 - **Every stage boundary is a projectable IR.** The default projection is the typed IR tree (`IrPrinter`); the annotated-IL import views (raw/typed/structured, from `IlProjection`) prepend as an opt-in (`--il`). The inspection and verification modes this capture powers are described under *Inspection and verification* below.
 - **Results carry diagnostics, with concrete fidelity levels.** The library returns a result with output, diagnostics, and a fidelity level — never a silent `catch { }` in the library or its hosts. The levels are ordered and concrete, because the product routes on them: `Full` (every construct raised; representable C#), `Partial` (C# containing explicit unrepresentable nodes), `StructuredOnly` (structured control flow over low-level expressions), `IlOnly` (no C# rendering; IL projections still available), `Failed`. IL that has no C# spelling is modeled explicitly in the tree, not forced into plausible text — output degrades honestly, with the reason attached.
 - **Diagnostics get stable IDs from the first PR.** They drive fallback routing and CI triage, so they are machine-readable Roslyn-style identifiers (`DEC0001`-form) with the prose message alongside — never bare strings.

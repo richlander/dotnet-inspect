@@ -71,7 +71,9 @@ public static class MethodImporter
             if (parameter.SequenceNumber > 0)
             {
                 int index = parameter.SequenceNumber - 1;
-                namesByIndex[index] = reader.GetString(parameter.Name);
+                string name = reader.GetString(parameter.Name);
+                if (name.Length > 0)
+                    namesByIndex[index] = name;
                 hasDefaultByIndex[index] = HasDefault(reader, parameter);
                 // A by-ref parameter (`ref`/`in`/`out`) carries the ByRef modifier
                 // at DynamicAttribute flag index 0, so the element dynamic-ness sits

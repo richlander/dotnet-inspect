@@ -9,9 +9,10 @@ The importer separates three roles and makes the metadata lifetime explicit, bec
 - **`MethodBody`** — plain data: IL bytes, exception regions, max stack, local signature. No metadata handles, no lifetime; safe to hold forever.
 - **`MetadataSource`** — `IDisposable` owner of the PE and metadata readers. Everything that resolves tokens borrows from it, and the rule is structural: *no analysis result that escapes a `MetadataSource`'s scope may hold metadata handles* — escaping results must be fully materialized (resolved `TypeRef`s, strings, byte arrays).
 - **`SymbolSource`** — optional PDB-backed facts. The current importer consumes
-  `LocalVariable` names and `LocalScope` ranges. Other Portable PDB tables and
-  custom debug records require explicit typed consumers; their presence alone
-  is not a Decompiler guarantee. The
+  at most one `LocalVariable` name and one `LocalScope`-derived placement fact
+  per IL slot. Scope-qualified names for a reused slot remain a tracked gap
+  (#5617). Other Portable PDB tables and custom debug records require explicit
+  typed consumers; their presence alone is not a Decompiler guarantee. The
   [name and symbol preservation contract](design/decompiler-symbol-preservation.md)
   owns that adoption boundary. Symbol absence changes naming and provenance,
   not the shape of the API, and does not by itself lower decompilation fidelity.

@@ -1,3 +1,7 @@
+using System.Reflection;
+using System.Reflection.Emit;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 
@@ -57,6 +61,52 @@ public class PipelineImporterTests
         Assert.Equal(0, parameter.Type.GenericParameterIndex);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Import_MissingParameterName_SynthesizesOrdinalName(
+        bool defineEmptyParamRow)
+    {
+        string path = EmitMethodWithMissingParameterName(defineEmptyParamRow);
+        try
+        {
+            using (var stream = File.OpenRead(path))
+            using (var pe = new PEReader(stream))
+            {
+                MetadataReader reader = pe.GetMetadataReader();
+                TypeDefinition type = reader.GetTypeDefinition(
+                    reader.TypeDefinitions.Single(handle =>
+                        reader.GetString(reader.GetTypeDefinition(handle).Name)
+                            == "EmptyParamSample"));
+                MethodDefinition method = type.GetMethods()
+                    .Select(reader.GetMethodDefinition)
+                    .Single(candidate => reader.GetString(candidate.Name) == "Echo");
+                ParameterHandle[] parameterHandles = [.. method.GetParameters()];
+
+                Assert.Equal(defineEmptyParamRow ? 1 : 0, parameterHandles.Length);
+                if (defineEmptyParamRow)
+                    Assert.Empty(reader.GetString(reader.GetParameter(parameterHandles[0]).Name));
+
+                var declaration = MetadataDeclarationQuery.GetMethod(reader, type, method);
+                Assert.Equal("arg0", Assert.Single(declaration.Signature.Parameters).Name);
+            }
+
+            using var source = MetadataSource.Open(path);
+            var imported = MethodImporter.Import(source, "EmptyParamSample", "Echo");
+            var function = IrImporter.Import(source, "EmptyParamSample", "Echo");
+
+            Assert.Equal("arg0", Assert.Single(imported!.Signature.Parameters).Name);
+            Assert.Equal("arg0", Assert.Single(function!.Signature.Parameters).Name);
+
+            IrPasses.Run(function);
+            Assert.Equal("return arg0;", CSharpPrinter.Print(function).Output!.TrimEnd());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public void Import_RecoversDefiningMethodRuntimeAsyncFact()
     {
@@ -103,6 +153,31 @@ public class PipelineImporterTests
         Assert.NotNull(handler.CatchType);
         Assert.True(handler.TryLength > 0);
         Assert.True(handler.HandlerLength > 0);
+    }
+
+    static string EmitMethodWithMissingParameterName(bool defineEmptyParamRow)
+    {
+        var assemblyName = new AssemblyName("EmptyParamName");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        var type = module.DefineType("EmptyParamSample", TypeAttributes.Public);
+        var method = type.DefineMethod(
+            "Echo",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(int),
+            [typeof(int)]);
+        if (defineEmptyParamRow)
+            method.DefineParameter(1, ParameterAttributes.None, null);
+        var il = method.GetILGenerator();
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ret);
+        type.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"EmptyParamName-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
     }
 }
 
