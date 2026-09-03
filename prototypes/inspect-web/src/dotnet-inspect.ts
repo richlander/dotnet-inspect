@@ -2162,7 +2162,8 @@ function renderMemberFilterControls(type: AppTypeSurface) {
   const traits = availableMemberTraits(type);
   const activeTrait = traits.find(
     ([property]) => property === state.memberTraitFilter)?.[1];
-  const selectorSummary = [
+  const filterSummary = [
+    state.memberTextFilter ? `text: ${state.memberTextFilter}` : "",
     state.memberKindFilter === "all"
       ? ""
       : state.memberKindFilter.replaceAll("-", " "),
@@ -2172,13 +2173,13 @@ function renderMemberFilterControls(type: AppTypeSurface) {
     activeTrait ?? "",
   ].filter(Boolean).join(" · ") || "All members";
   return `
-    <div class="type-search member-search">
-      <span aria-hidden="true">/</span>
-      <input id="member-filter" aria-label="Filter members and signatures" value="${escapeHtml(state.memberTextFilter)}" placeholder="Filter members and signatures" autocomplete="off" spellcheck="false" />
-      <button class="tiny-button" id="clear-member-filter" title="Clear member filters" aria-label="Clear member filters">×</button>
-    </div>
     <details class="member-filter-disclosure" data-member-filter-disclosure${state.memberFiltersExpanded ? " open" : ""}>
-      <summary><span aria-hidden="true">›</span><strong>Selectors</strong><small>${escapeHtml(selectorSummary)}</small></summary>
+      <summary><span aria-hidden="true">›</span><strong>Filters</strong><small>${escapeHtml(filterSummary)}</small></summary>
+      <div class="type-search member-search">
+        <span aria-hidden="true">/</span>
+        <input id="member-filter" aria-label="Filter members and signatures" value="${escapeHtml(state.memberTextFilter)}" placeholder="Filter members and signatures" autocomplete="off" spellcheck="false" />
+        <button class="tiny-button" id="clear-member-filter" title="Clear member filters" aria-label="Clear member filters">×</button>
+      </div>
       <div class="member-filter-stack">
         <div class="namespace-chips kind-chips" aria-label="Member kind filters">
           <button class="${state.memberKindFilter === "all" ? "active" : ""}" data-member-kind-filter="all" aria-pressed="${state.memberKindFilter === "all"}">all kinds</button>
@@ -4397,10 +4398,7 @@ function renderApiLens(item: AppTypeSurface) {
   return `
     <section class="api-surface" aria-labelledby="api-surface-title">
       <header class="api-surface-head">
-        <div>
-          <span>Type inspector</span>
-          <h1 id="api-surface-title">Public API</h1>
-        </div>
+        <h1 id="api-surface-title">Members</h1>
         <p><strong>${publicGroups.length}</strong> member groups <span>· ${item.members} overloads</span></p>
       </header>
       <div class="member-browser-controls api-surface-controls">${renderMemberFilterControls(publicSurface)}</div>
