@@ -2759,11 +2759,19 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     sourcePageKind !== null && sourcePageSource !== null;
   const apiWorkingSurface =
     activeScope === "type" && state.lens === "api";
+  const currentMember = current ? selectedMember(current) : undefined;
+  const memberOverloadPicker =
+    currentMember !== undefined
+    && currentMember.overloads.length > 1
+    && !selectedConcreteOverload(
+      currentMember.overloads,
+      state.selectedOverloadIndex);
   const memberWorkingSurface =
     activeScope === "member"
     && current !== null
     && currentPendingGraphMember() === null
-    && memberSectionUsesWorkingSurface(state.memberSection);
+    && (memberOverloadPicker
+      || memberSectionUsesWorkingSurface(state.memberSection));
   const annotatedPageContext =
     activeScope === "member"
     && state.memberSection === "annotated"
@@ -4388,15 +4396,6 @@ function renderApiLens(item: AppTypeSurface) {
   }
   const member = selectedMember(item);
   if (member) return renderMember(item, member);
-  if (state.memberBrowseTypeId === item.id) {
-    return `
-      ${typeHeadingHtml(item)}
-      <section class="document-section empty-document">
-        <span class="large-glyph">⌕</span>
-        <h2>No member selected</h2>
-        <p>Adjust the member filters or choose a member from the list.</p>
-      </section>`;
-  }
   const { publicMembers, graphMembers } =
     partitionGraphMembers(item.api);
   const publicSurface = {
@@ -4404,11 +4403,27 @@ function renderApiLens(item: AppTypeSurface) {
     api: publicMembers
   };
   const publicGroups = memberGroups(publicSurface);
+  const visibleGroups = visibleMemberGroups(publicSurface);
+  if (state.memberBrowseTypeId === item.id) {
+    return `
+      <section class="member-surface member-empty-surface" aria-labelledby="member-surface-title">
+        <header class="api-surface-head member-surface-head">
+          <h1 id="member-surface-title">Members</h1>
+          <p>${visibleGroups.length} of ${publicGroups.length} member groups <span>· no member selected</span></p>
+        </header>
+        <div class="member-surface-scroll">
+          <section class="empty-member-section">
+            <span class="large-glyph">⌕</span>
+            <h2>No member selected</h2>
+            <p>Adjust the member filters or choose a member from the list.</p>
+          </section>
+        </div>
+      </section>`;
+  }
   const graphGroups = memberGroups({
     ...item,
     api: graphMembers
   });
-  const visibleGroups = visibleMemberGroups(publicSurface);
   return `
     <section class="api-surface" aria-labelledby="api-surface-title">
       <header class="api-surface-head">
@@ -6711,6 +6726,12 @@ function focusFilter(
     const input = document.querySelector<HTMLInputElement>(
       "#member-filter, #type-filter");
     if (!input) return;
+    const disclosure = input.closest<HTMLDetailsElement>(
+      "[data-member-filter-disclosure]");
+    if (disclosure && !disclosure.open) {
+      state.memberFiltersExpanded = true;
+      disclosure.open = true;
+    }
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
   };

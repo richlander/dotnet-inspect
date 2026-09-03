@@ -230,6 +230,10 @@ active member filters. The collapsed `Filters` row owns member text, kind,
 accessibility, and trait controls. Member rows use the complete remaining
 scroll area. The bottom guidance does not repeat the count.
 
+If active filters exclude the selected member, the detail pane retains a
+full-area Member empty state with the quiet header and adjustment guidance. It
+does not fall back to the inset Type heading or remove the pane's scroll owner.
+
 Opening a member group preserves the same composition. A group with multiple
 overloads renders the exact member name and overload count in the quiet header,
 then gives the overload rows the remaining scroll area. Opening one overload
@@ -246,6 +250,9 @@ the same full-area scroller.
 Member Source and Annotated Source remain the heading-free full-area exceptions
 defined below. Loading and failure states stay visible and do not become
 success-shaped empty surfaces.
+
+At narrow widths, Type and Member header identity and status may elide, but the
+overload total or selected overload ordinal is not selectively hidden.
 
 ### Package query
 
@@ -550,9 +557,13 @@ with the absence of a synthesized `Default feed` control.
    Confirm that the quiet exact-member header remains stable, each section
    scrolls independently below it, and Overview contains no large duplicate
    hero or package-coordinate summary.
-5. Repeat the Type list, overload picker, and selected-overload checks at a
+5. Apply a filter that excludes the selected member and confirm that the detail
+   pane provides a full-area Member empty state and adjustment guidance without
+   returning to Type scope or restoring the inset Type heading.
+6. Repeat the Type list, overload picker, and selected-overload checks at a
    narrow viewport. Confirm that each surface retains its topology and creates
-   no page-level horizontal overflow.
+   no page-level horizontal overflow while preserving the overload total or
+   selected overload ordinal in the rendered status.
 
 ### Source working surface
 

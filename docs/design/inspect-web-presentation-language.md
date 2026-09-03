@@ -167,6 +167,8 @@ does not acquire selector selected styling.
 - The summary is not a selector and does not expose `aria-pressed`.
 - Expanding the region does not move keyboard focus automatically. The user
   may continue to the first selector through ordinary tab order.
+- A keyboard command that focuses the member filter first opens the disclosure
+  and then places focus in the text input.
 - Collapsing the region returns focus to the summary when focus was
   inside the region.
 - A restored or deep-linked filter is summarized while collapsed; it does not
@@ -199,6 +201,10 @@ competing with the subject path. Source is the full-area exception governed by
 it adds no local heading, so the subject zone remains the visible owner of the
 complete hierarchy while the active Source inspector labels the lens panel.
 Metadata retains its detailed type heading.
+
+At narrow widths, API header identity and status may elide visually as complete
+strings. Responsive styling does not selectively remove the overload total or
+ordinal from the rendered or accessible status.
 
 When the snapshot has no effective lens, the UI renders no `tabpanel`. A status
 region references the target heading and its visible `Lens unavailable`
