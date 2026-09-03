@@ -290,11 +290,18 @@ public sealed class AssemblyContextSearchQueryTests
     {
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            AssemblyBindingSelection.CannotSelect(
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
-                    AssemblyBindingFailureKind.CandidateUnavailable));
+                AssemblyBindingFailureKind.CandidateUnavailable));
+        }
     }
 }
 
