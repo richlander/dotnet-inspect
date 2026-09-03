@@ -243,7 +243,9 @@ bounded, explicit relaxation of the partial-rows prohibition above, and it
 applies only to a dependency scan: the emitted edges are sound, but
 completeness is unknown, so the result carries its rejections rather than
 claiming either a complete graph or a certified absence. How a command
-presents a scan that carries rejections is a separate, CLI-owned concern.
+presents a scan that carries rejections is a separate, CLI-owned concern,
+owned by [Uncertified scan results](design/uncertified-scan-results.md); today
+`depends` is its only adopter.
 
 The Analysis, Decompiler, Research, ILDiff, remaining
 Queries, and remaining CLI owners have not adopted it, and no gate yet requires
