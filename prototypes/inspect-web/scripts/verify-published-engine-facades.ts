@@ -86,12 +86,17 @@ function operation(
   name: string,
 ): (...args: readonly unknown[]) => unknown {
   const candidate = facade[name];
-  assert.equal(
-    typeof candidate,
-    "function",
+  assert.ok(
+    isPublishedOperation(candidate),
     `published facade does not export ${name}()`);
   return (...args: readonly unknown[]) =>
     Reflect.apply(candidate, facade, args);
+}
+
+type PublishedOperation = (...args: readonly unknown[]) => unknown;
+
+function isPublishedOperation(value: unknown): value is PublishedOperation {
+  return typeof value === "function";
 }
 
 function requiredFacade(

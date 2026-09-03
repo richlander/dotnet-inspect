@@ -102,33 +102,33 @@ The phases compose as follows:
 ```text
 ts-jsexport process on a developer or CI host
 
-InspectWeb.Engine.dll --read as PE/IL data--> Metadata and Analysis facts
+InspectWeb.Engine.dll --compiled context--> seven rooted export assemblies
                                                     |
                                                     v
-                                          JsExportSurface model
+                                          JsExportSurface models
                                                     |
                                                     v
                                            TypeScript emitter
                                                     |
                                                     v
-                                        inspect-web-engine.ts
+                                      seven inspect-web facades
 
 
 browser execution
 
-inspect-web-engine.js --> dotnet.js / dotnet.runtime.js
+seven facade modules --> dotnet.js / dotnet.runtime.js
                                       |
                                       v
-                             InspectWeb.Engine.dll
+                         seven managed export assemblies
                                       |
                                       v
                          dotnet-inspect product libraries
 ```
 
-The compiler step between the diagrams derives
-`inspect-web-engine.js` from `inspect-web-engine.ts`. Neither the
-`ts-jsexport` executable nor its `ILInspector.JsExportSurface` implementation
-library crosses into the browser execution phase.
+The compiler step between the diagrams derives one JavaScript module from each
+generated TypeScript facade. Neither the `ts-jsexport` executable nor its
+`ILInspector.JsExportSurface` implementation library crosses into the browser
+execution phase.
 
 ## Why this layer generates TypeScript
 
@@ -886,19 +886,21 @@ issue references below.
   prove that inspect-web's runtime dependency closure contains none of
   `ts-jsexport`, `ILInspector.JsExportSurface`, or
   `ILInspector.TypeScriptGeneration`;
-- `eng/generate-inspect-web-engine-facade.sh --check` regenerates inspect-web's
-  checked-in TypeScript source, compiles its `.js` and `.d.ts` artifacts against
-  the SDK-owned `dotnet.d.ts` from the engine's MSBuild-resolved Browser/Wasm
-  runtime pack with host-independent LF output, and proves all three files are
-  current;
+- `eng/generate-inspect-web-engine-facade.sh --check` executes inspect-web's
+  compiled context once, requires the exact seven rooted artifacts and consumer
+  mappings, compiles all seven `.js` and `.d.ts` outputs against the SDK-owned
+  `dotnet.d.ts` from the engine's MSBuild-resolved Browser/Wasm runtime pack
+  with host-independent LF output, and proves all 21 files are current;
 - `verify-engine-facade-runtime.ts` executes the compiler-derived JavaScript
   without a `window` global, proves initialization performs no managed
   operation or entry-point call, and then exercises explicit host
   configuration, synchronous and asynchronous managed operations, and
   `runEntryPoint()`;
-- `verify-published-engine-facade.ts` runs the published Browser/Wasm runtime
-  without a `window` global and proves the production facade carries a
-  synchronous build identity and a genuinely awaited package-version query;
+- `verify-published-engine-facades.ts` runs the published Browser/Wasm runtime
+  without a `window` global and proves all seven production facades initialize
+  over one runtime, dispatch through their own assemblies, invoke the host
+  entry point once, and carry a synchronous build identity plus a genuinely
+  awaited host canary;
 - a set-equality gate proves that supported `[JSExport]` methods and generated
   managed-operation facade functions have exact one-to-one correspondence,
   excluding separately identified `initializeRuntime` and `runEntryPoint`

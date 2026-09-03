@@ -1,6 +1,6 @@
 # Inspect-web JSExport facade partitioning
 
-Status: **proposed** for issue
+Status: **implemented** for issue
 [#4497](https://github.com/richlander/dotnet-inspect/issues/4497).
 
 This is the owning document for the inspect-web production facade partition:
@@ -19,8 +19,8 @@ implemented browser build and deployment procedure.
 
 ## Decision
 
-Inspect-web will replace its one production `InspectWeb.Engine.dll` export
-surface with seven independently generated facade modules:
+Inspect-web replaces its former single `InspectWeb.Engine.dll` export surface
+with seven independently generated facade modules:
 
 | Facade | Managed assembly | Context artifact | Checked-in source | Responsibility |
 | --- | --- | --- | --- | --- |
@@ -177,13 +177,13 @@ This partition does not:
 The export assemblies are L3 browser adapters. Their names describe the
 capability they adapt, not ownership of the underlying product facts.
 
-## Current surface and target inventory
+## Production surface inventory
 
-The current engine contains 45 `[JSExport]` methods across seven source files.
+The seven rooted export assemblies contain 45 `[JSExport]` methods.
 The generated `initializeRuntime()` and `runEntryPoint()` functions are
 generator-owned infrastructure and are not part of that count.
 
-The target inventory below is exhaustive. The compiled
+The inventory below is exhaustive. The compiled
 `InspectWebJsExportContext` is the implementation source of truth for its
 assembly membership.
 `ProductionFacadeContext_DeclaresExactAssemblySet` gates equality between the
