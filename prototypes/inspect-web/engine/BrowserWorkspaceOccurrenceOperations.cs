@@ -21,45 +21,56 @@ internal sealed record BrowserWorkspaceOccurrenceSelection(
 internal static class BrowserWorkspaceOccurrenceOperations
 {
     static BrowserWorkspaceOccurrenceSession? _current;
+    static InFlightQuery? _inFlight;
     static long _generation;
 
     internal static async Task<BrowserWorkspacePackageOccurrenceView>
         QueryAsync(IReadOnlyList<BrowserPackageRequest> requests)
         => await QueryAsync(
             requests,
-            static request => BrowserPackageWorkspace.ResolveAsync(
+            static (request, cancellationToken) =>
+                BrowserPackageWorkspace.ResolveAsync(
                 request.PackageId,
                 request.Version,
-                request.TargetFramework));
+                request.TargetFramework,
+                cancellationToken));
 
     internal static async Task<BrowserWorkspacePackageOccurrenceView>
         QueryAsync(
             IReadOnlyList<BrowserPackageRequest> requests,
-            Func<BrowserPackageRequest, Task<BrowserPackageCoordinate>>
-                resolveAsync)
+            Func<
+                BrowserPackageRequest,
+                CancellationToken,
+                Task<BrowserPackageCoordinate>> resolveAsync)
     {
         ArgumentNullException.ThrowIfNull(requests);
         ArgumentNullException.ThrowIfNull(resolveAsync);
-        long generation = BeginReplacement();
+        InFlightQuery query = BeginQuery();
         var coordinates =
             new List<BrowserPackageCoordinate>(requests.Count);
-        var leases = new BrowserPackageWorkspace.PackageLeaseSet();
         try
         {
             foreach (BrowserPackageRequest request in requests)
             {
                 BrowserPackageCoordinate coordinate =
-                    await resolveAsync(request);
-                leases.Lease(coordinate);
+                    await resolveAsync(request, query.CancellationToken);
+                query.Lease(coordinate);
                 coordinates.Add(coordinate);
             }
 
-            return ReplaceCurrent(coordinates, leases, generation);
+            return ReplaceCurrent(
+                coordinates,
+                query.TakeLeases(),
+                query.Generation);
         }
-        catch
+        catch (OperationCanceledException)
+            when (query.CancellationToken.IsCancellationRequested)
         {
-            leases.Dispose();
-            throw;
+            return SupersededView();
+        }
+        finally
+        {
+            EndQuery(query);
         }
     }
 
@@ -100,13 +111,39 @@ internal static class BrowserWorkspaceOccurrenceOperations
     static long BeginReplacement()
     {
         long generation = ++_generation;
+        CancelInFlight();
         ClearCurrentCore();
         return generation;
+    }
+
+    static InFlightQuery BeginQuery()
+    {
+        long generation = ++_generation;
+        CancelInFlight();
+        ClearCurrentCore();
+        var query = new InFlightQuery(generation);
+        _inFlight = query;
+        return query;
+    }
+
+    static void EndQuery(InFlightQuery query)
+    {
+        if (ReferenceEquals(_inFlight, query))
+            _inFlight = null;
+        query.Dispose();
+    }
+
+    static void CancelInFlight()
+    {
+        InFlightQuery? query = _inFlight;
+        _inFlight = null;
+        query?.Cancel();
     }
 
     internal static void ClearCurrent()
     {
         _generation++;
+        CancelInFlight();
         ClearCurrentCore();
     }
 
@@ -117,11 +154,83 @@ internal static class BrowserWorkspaceOccurrenceOperations
         previous?.Dispose();
     }
 
+    static BrowserWorkspacePackageOccurrenceView SupersededView() =>
+        new([], Superseded: true);
+
     internal static BrowserWorkspaceOccurrenceSelection? Activate(
         string action)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(action);
         return _current?.Activate(action);
+    }
+
+    sealed class InFlightQuery : IDisposable
+    {
+        readonly object _gate = new();
+        readonly CancellationTokenSource _cancellation = new();
+        BrowserPackageWorkspace.PackageLeaseSet? _leases = new();
+        bool _disposed;
+
+        internal InFlightQuery(long generation)
+        {
+            Generation = generation;
+        }
+
+        internal long Generation { get; }
+
+        internal CancellationToken CancellationToken =>
+            _cancellation.Token;
+
+        internal void Lease(BrowserPackageCoordinate coordinate)
+        {
+            CancellationToken.ThrowIfCancellationRequested();
+            lock (_gate)
+            {
+                CancellationToken.ThrowIfCancellationRequested();
+                _leases!.Lease(coordinate);
+            }
+        }
+
+        internal BrowserPackageWorkspace.PackageLeaseSet TakeLeases()
+        {
+            CancellationToken.ThrowIfCancellationRequested();
+            lock (_gate)
+            {
+                CancellationToken.ThrowIfCancellationRequested();
+                BrowserPackageWorkspace.PackageLeaseSet leases = _leases
+                    ?? throw new InvalidOperationException(
+                        "The in-flight Workspace occurrence leases were already transferred.");
+                _leases = null;
+                return leases;
+            }
+        }
+
+        internal void Cancel()
+        {
+            lock (_gate)
+            {
+                if (_disposed)
+                    return;
+                BrowserPackageWorkspace.PackageLeaseSet? leases = _leases;
+                _leases = null;
+                leases?.Dispose();
+                _cancellation.Cancel();
+            }
+        }
+
+        public void Dispose()
+        {
+            lock (_gate)
+            {
+                if (_disposed)
+                    return;
+                _disposed = true;
+                BrowserPackageWorkspace.PackageLeaseSet? leases = _leases;
+                _leases = null;
+                leases?.Dispose();
+                _cancellation.Dispose();
+            }
+        }
     }
 
     sealed class BrowserWorkspaceOccurrenceSession : IDisposable

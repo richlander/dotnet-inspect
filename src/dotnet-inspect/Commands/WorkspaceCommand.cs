@@ -74,8 +74,20 @@ public static class WorkspaceCommand
                 }
 
                 var loaded = (WorkspaceContextLoadOutcome.Loaded)outcome;
-                packageRoots.Add(
-                    loaded.PackageRoots.Single());
+                PackageRootBinding packageRoot =
+                    loaded.PackageRoots.Single();
+                if (!packageRoot.Root.AssetSelection.IsSelected)
+                {
+                    CommandError.Write(
+                        "The Workspace command requires each package to select at least one managed compile assembly.",
+                        [
+                            $"{packageRoot.Root.PackageId}@{packageRoot.Root.PackageVersion}: "
+                            + packageRoot.Root.AssetSelection.Status,
+                        ]);
+                    return 1;
+                }
+
+                packageRoots.Add(packageRoot);
             }
 
             occurrenceView =

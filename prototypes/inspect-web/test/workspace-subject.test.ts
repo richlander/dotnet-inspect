@@ -5,6 +5,7 @@ import {
   focusWorkspace,
   renderWorkspaceSubject,
   renderWorkspaceView,
+  workspaceOccurrenceActionsAreVisible,
 } from "../src/workspace-subject.ts";
 import type { PackageControlPackage } from "../src/package-controls.ts";
 import { fakeDom } from "./fake-dom.ts";
@@ -27,6 +28,40 @@ test("Workspace navigation always displays the Default Workspace", () => {
   assert.match(html, /WORKSPACES[\s\S]*1/);
   assert.match(html, /workspace-card active/);
   assert.match(html, /Default Workspace[\s\S]*2 loaded coordinates/);
+});
+
+test("Workspace occurrence actions are visible only in the rendered Workspace view", () => {
+  const visible = {
+    engineReady: true,
+    scope: "workspace" as const,
+    explorerOpen: false,
+    creditsOpen: false,
+    packageQueryOpen: false,
+    loading: false,
+    error: "",
+    home: false,
+    hasPackage: true,
+  };
+
+  assert.equal(workspaceOccurrenceActionsAreVisible(visible), true);
+  for (const hidden of [
+    { engineReady: false },
+    { explorerOpen: true },
+    { creditsOpen: true },
+    { packageQueryOpen: true },
+    { loading: true },
+    { error: "failed" },
+    { home: true },
+    { hasPackage: false },
+    { scope: "type" as const },
+  ]) {
+    assert.equal(
+      workspaceOccurrenceActionsAreVisible({
+        ...visible,
+        ...hidden,
+      }),
+      false);
+  }
 });
 
 test("Workspace details render product occurrences as opaque actions", () => {

@@ -23,6 +23,32 @@ export interface WorkspaceSubjectBindingActions {
   onRetry: () => void;
 }
 
+export interface WorkspaceOccurrenceVisibility {
+  engineReady: boolean;
+  scope: string;
+  explorerOpen: boolean;
+  creditsOpen: boolean;
+  packageQueryOpen: boolean;
+  loading: boolean;
+  error: string;
+  home: boolean;
+  hasPackage: boolean;
+}
+
+export function workspaceOccurrenceActionsAreVisible(
+  state: WorkspaceOccurrenceVisibility,
+): boolean {
+  return state.engineReady
+    && state.scope === "workspace"
+    && !state.explorerOpen
+    && !state.creditsOpen
+    && !state.packageQueryOpen
+    && !state.loading
+    && !state.error
+    && !state.home
+    && state.hasPackage;
+}
+
 export function renderWorkspaceSubject(
   options: WorkspaceSubjectRenderOptions,
 ): string {

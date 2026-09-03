@@ -5726,7 +5726,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /const revision = workspaceOccurrenceRevision;[\s\S]*superseded = view\.superseded;[\s\S]*revision === workspaceOccurrenceRevision[\s\S]*\(superseded[\s\S]*\|\| revision !== workspaceOccurrenceRevision[\s\S]*\|\| signature !== state\.workspaceOccurrenceSignature\)/);
   assert.match(
     appSource,
-    /if \(state\.engineReady\s*&& scope\(\) !== "workspace"\s*&& \(state\.workspaceOccurrenceSignature\s*\|\| state\.workspaceOccurrences\)\) \{\s*clearWorkspaceOccurrenceView\(\)/);
+    /if \(!workspaceOccurrenceViewIsVisible\(\)\s*&& \(state\.workspaceOccurrenceSignature\s*\|\| state\.workspaceOccurrences\)\) \{\s*clearWorkspaceOccurrenceView\(\)/);
   assert.match(
     appSource,
     /const key = assemblyId \|\| `legacy:\$\{asm\}`/);

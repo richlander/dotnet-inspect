@@ -247,6 +247,7 @@ import {
   focusWorkspace,
   renderWorkspaceSubject,
   renderWorkspaceView as renderWorkspaceViewPure,
+  workspaceOccurrenceActionsAreVisible,
 } from "./workspace-subject.ts";
 import {
   bindDocViewer,
@@ -1992,7 +1993,7 @@ async function queryWorkspaceOccurrenceView() {
     }
   } finally {
     state.workspaceOccurrenceLoading = false;
-    if (scope() === "workspace"
+    if (workspaceOccurrenceViewIsVisible()
       && (superseded
         || revision !== workspaceOccurrenceRevision
         || signature !== state.workspaceOccurrenceSignature)) {
@@ -2016,6 +2017,20 @@ function clearWorkspaceOccurrenceView() {
   state.workspaceOccurrenceSignature = "";
   state.workspaceOccurrences = null;
   state.workspaceOccurrenceError = "";
+}
+
+function workspaceOccurrenceViewIsVisible() {
+  return workspaceOccurrenceActionsAreVisible({
+    engineReady: state.engineReady,
+    scope: scope(),
+    explorerOpen: state.explorer?.open === true,
+    creditsOpen: state.credits,
+    packageQueryOpen: state.packageQueryOpen,
+    loading: state.loading,
+    error: state.error,
+    home: state.home,
+    hasPackage: state.package !== null,
+  });
 }
 
 function activateWorkspacePackageOccurrence(action: string) {
@@ -2710,8 +2725,7 @@ function typeDisplayName(
 
 function render(options: { synchronizeUrl?: boolean } = {}) {
   sourceInspection.cancelHiddenRequest();
-  if (state.engineReady
-    && scope() !== "workspace"
+  if (!workspaceOccurrenceViewIsVisible()
     && (state.workspaceOccurrenceSignature
       || state.workspaceOccurrences)) {
     clearWorkspaceOccurrenceView();

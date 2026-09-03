@@ -5334,7 +5334,7 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task WorkspaceOccurrences_RevokedInflightQueryReturnsSupersededView()
+    public async Task WorkspaceOccurrences_ReplacedInflightQueryCannotRetireReplacement()
     {
         string packageId = $"Gallery.Workspace.Race.{Guid.NewGuid():N}";
         const string version = "1.2.3";
@@ -5368,23 +5368,93 @@ public sealed class BrowserEngineBoundaryTests
                         version,
                         "net11.0"),
                 ],
-                async _ =>
+                async (_, _) =>
                 {
                     resolutionStarted.SetResult();
                     await continueResolution.Task;
                     return coordinate;
                 });
         await resolutionStarted.Task;
-        BrowserWorkspaceOccurrenceOperations.ClearCurrent();
+        BrowserWorkspacePackageOccurrenceView replacement =
+            BrowserWorkspaceOccurrenceOperations.ReplaceCurrent(
+                [coordinate]);
         continueResolution.SetResult();
 
         BrowserWorkspacePackageOccurrenceView view = await query;
 
         Assert.True(view.Superseded);
-        Assert.Single(view.Occurrences);
-        Assert.Null(
+        Assert.Empty(view.Occurrences);
+        Assert.NotNull(
             BrowserWorkspaceOccurrenceOperations.Activate(
-                view.Occurrences[0].Action));
+                replacement.Occurrences[0].Action));
+    }
+
+    [Fact]
+    public async Task WorkspaceOccurrences_RevocationReleasesLeasesBeforeAStalledResolutionCompletes()
+    {
+        string packageId = $"Gallery.Workspace.LeaseRace.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        var handler = new GalleryPackageHandler(
+            packageId,
+            version,
+            Package(
+                [0x01],
+                $"lib/net11.0/{packageId}.dll"));
+        using IPackageSourceClient source = Gallery(handler);
+        BrowserPackageCoordinate coordinate =
+            await BrowserPackageWorkspace.ResolveAsync(
+                packageId,
+                version,
+                "net11.0",
+                source,
+                PackageSourceIdentity.NuGetOrg,
+                TimeSpan.FromSeconds(5));
+        var secondResolutionStarted =
+            new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        var continueResolution =
+            new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        int resolution = 0;
+
+        Task<BrowserWorkspacePackageOccurrenceView> query =
+            BrowserWorkspaceOccurrenceOperations.QueryAsync(
+                [
+                    new BrowserPackageRequest(
+                        packageId,
+                        version,
+                        "net11.0"),
+                    new BrowserPackageRequest(
+                        packageId,
+                        version,
+                        "net11.0"),
+                ],
+                async (_, cancellationToken) =>
+                {
+                    if (Interlocked.Increment(ref resolution) == 1)
+                        return coordinate;
+
+                    secondResolutionStarted.SetResult();
+                    await continueResolution.Task;
+                    return coordinate;
+                });
+        await secondResolutionStarted.Task;
+
+        BrowserWorkspaceOccurrenceOperations.ClearCurrent();
+        using (
+            BrowserPackageWorkspace.ReservePackageDownload(
+                $"workspace.lease.pressure.{Guid.NewGuid():N}@1.0.0",
+                128L * MiB))
+        {
+            Assert.Equal(
+                0,
+                BrowserPackageWorkspace.Stats().Resident);
+        }
+        continueResolution.SetResult();
+
+        BrowserWorkspacePackageOccurrenceView view = await query;
+        Assert.True(view.Superseded);
+        Assert.Empty(view.Occurrences);
     }
 
     [Fact]
