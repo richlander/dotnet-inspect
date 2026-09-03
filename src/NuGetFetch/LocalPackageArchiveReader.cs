@@ -16,8 +16,14 @@ internal sealed record LocalPackageArchive(
 internal static class LocalPackageArchiveReader
 {
     private const uint EndOfCentralDirectorySignature = 0x06054b50;
+    private const uint CentralDirectoryEntrySignature = 0x02014b50;
+    private const uint LocalFileHeaderSignature = 0x04034b50;
     private const int EndOfCentralDirectoryLength = 22;
+    private const int CentralDirectoryEntryLength = 46;
+    private const int LocalFileHeaderLength = 30;
     private const int MaximumZipCommentLength = ushort.MaxValue;
+    private const ushort RelevantLocalFlags =
+        (1 << 0) | (1 << 3) | (1 << 11);
 
     public static async Task<LocalPackageArchive> ReadAsync(
         Stream stream,
@@ -63,57 +69,21 @@ internal static class LocalPackageArchiveReader
             options,
             operation).ConfigureAwait(false);
 
-        stream.Position = 0;
-        operation.ThrowIfExpired();
         try
         {
-            using var archive = new ZipArchive(
-                stream,
-                ZipArchiveMode.Read,
-                leaveOpen: true);
-            operation.ThrowIfExpired();
-            if (archive.Entries.Count != directory.EntryCount)
-            {
-                throw new InvalidDataException(
-                    "The package archive central directory is inconsistent.");
-            }
-
-            ZipArchiveEntry? manifest = null;
-            foreach (ZipArchiveEntry entry in archive.Entries)
-            {
-                operation.ThrowIfExpired();
-                if (!IsRootManifest(entry.FullName))
-                    continue;
-
-                if (manifest is not null)
-                {
-                    throw new InvalidDataException(
-                        "The package archive contains multiple root manifests.");
-                }
-
-                manifest = entry;
-            }
-
-            if (manifest is null)
-            {
-                throw new InvalidDataException(
-                    "The package archive does not contain a root manifest.");
-            }
-            if (manifest.CompressedLength > options.MaxManifestBytes
-                || manifest.Length > options.MaxManifestBytes)
-            {
-                throw new LocalPackageSourceLimitExceededException();
-            }
-
-            ledger.ChargeManifestBytes(manifest.Length);
-            byte[] content = new byte[checked((int)manifest.Length)];
-            await using (Stream manifestStream = manifest.Open())
-            {
-                await ReadExactlyAsync(
-                    manifestStream,
-                    content,
+            CentralDirectoryEntry manifest =
+                await ReadCentralDirectoryEntryAsync(
+                    stream,
+                    directory,
+                    options,
                     operation).ConfigureAwait(false);
-            }
+            byte[] content = await ReadManifestContentAsync(
+                stream,
+                directory,
+                manifest,
+                options,
+                operation).ConfigureAwait(false);
+            ledger.ChargeManifestBytes(content.Length);
 
             operation.ThrowIfExpired();
             return ParseManifest(content);
@@ -200,11 +170,286 @@ internal static class LocalPackageArchiveReader
                     "The package archive central-directory extent is inconsistent.");
             }
 
-            return new ZipDirectory(entryCount, directoryLength);
+            return new ZipDirectory(
+                entryCount,
+                directoryLength,
+                directoryOffset);
         }
 
         throw new InvalidDataException(
             "The package archive has no valid end-of-central-directory record.");
+    }
+
+    private static async Task<CentralDirectoryEntry>
+        ReadCentralDirectoryEntryAsync(
+        Stream stream,
+        ZipDirectory directory,
+        LocalPackageSourceOptions options,
+        NuGetOperationDeadline operation)
+    {
+        var bytes = new byte[checked((int)directory.ByteLength)];
+        stream.Position = directory.Offset;
+        await ReadExactlyAsync(stream, bytes, operation).ConfigureAwait(false);
+
+        int offset = 0;
+        CentralDirectoryEntry? selected = null;
+        for (int index = 0; index < directory.EntryCount; index++)
+        {
+            operation.ThrowIfExpired();
+            if (offset > bytes.Length - CentralDirectoryEntryLength
+                || BinaryPrimitives.ReadUInt32LittleEndian(
+                    bytes.AsSpan(offset))
+                    != CentralDirectoryEntrySignature)
+            {
+                throw new InvalidDataException(
+                    "The package archive central directory is malformed.");
+            }
+
+            ReadOnlySpan<byte> record = bytes.AsSpan(offset);
+            ushort flags =
+                BinaryPrimitives.ReadUInt16LittleEndian(record[8..]);
+            ushort method =
+                BinaryPrimitives.ReadUInt16LittleEndian(record[10..]);
+            uint crc =
+                BinaryPrimitives.ReadUInt32LittleEndian(record[16..]);
+            uint compressedLength =
+                BinaryPrimitives.ReadUInt32LittleEndian(record[20..]);
+            uint expandedLength =
+                BinaryPrimitives.ReadUInt32LittleEndian(record[24..]);
+            ushort nameLength =
+                BinaryPrimitives.ReadUInt16LittleEndian(record[28..]);
+            ushort extraLength =
+                BinaryPrimitives.ReadUInt16LittleEndian(record[30..]);
+            ushort commentLength =
+                BinaryPrimitives.ReadUInt16LittleEndian(record[32..]);
+            ushort disk =
+                BinaryPrimitives.ReadUInt16LittleEndian(record[34..]);
+            uint localHeaderOffset =
+                BinaryPrimitives.ReadUInt32LittleEndian(record[42..]);
+            int recordLength = checked(
+                CentralDirectoryEntryLength
+                + nameLength
+                + extraLength
+                + commentLength);
+            if (recordLength > bytes.Length - offset
+                || disk != 0)
+            {
+                throw new InvalidDataException(
+                    "The package archive central-directory entry is inconsistent.");
+            }
+
+            ReadOnlyMemory<byte> name = bytes.AsMemory(
+                offset + CentralDirectoryEntryLength,
+                nameLength);
+            if (IsRootManifest(name.Span))
+            {
+                if (selected is not null)
+                {
+                    throw new InvalidDataException(
+                        "The package archive contains multiple root manifests.");
+                }
+
+                if (compressedLength > options.MaxManifestBytes
+                    || expandedLength > options.MaxManifestBytes)
+                {
+                    throw new LocalPackageSourceLimitExceededException();
+                }
+
+                selected = new CentralDirectoryEntry(
+                    flags,
+                    method,
+                    crc,
+                    compressedLength,
+                    expandedLength,
+                    localHeaderOffset,
+                    name.ToArray());
+            }
+
+            offset += recordLength;
+        }
+
+        if (offset != bytes.Length)
+        {
+            throw new InvalidDataException(
+                "The package archive central-directory extent is inconsistent.");
+        }
+
+        return selected
+            ?? throw new InvalidDataException(
+                "The package archive does not contain a root manifest.");
+    }
+
+    private static async Task<byte[]> ReadManifestContentAsync(
+        Stream stream,
+        ZipDirectory directory,
+        CentralDirectoryEntry entry,
+        LocalPackageSourceOptions options,
+        NuGetOperationDeadline operation)
+    {
+        if ((entry.Flags & 1) != 0
+            || entry.Method is not 0 and not 8)
+        {
+            throw new InvalidDataException(
+                "The package archive uses an unsupported manifest encoding.");
+        }
+
+        var localHeader = new byte[LocalFileHeaderLength];
+        stream.Position = entry.LocalHeaderOffset;
+        await ReadExactlyAsync(
+            stream,
+            localHeader,
+            operation).ConfigureAwait(false);
+        ushort localFlags =
+            BinaryPrimitives.ReadUInt16LittleEndian(
+                localHeader.AsSpan(6));
+        if (BinaryPrimitives.ReadUInt32LittleEndian(localHeader)
+                != LocalFileHeaderSignature
+            || (localFlags & RelevantLocalFlags)
+                != (entry.Flags & RelevantLocalFlags)
+            || BinaryPrimitives.ReadUInt16LittleEndian(
+                localHeader.AsSpan(8)) != entry.Method)
+        {
+            throw new InvalidDataException(
+                "The package archive local manifest header is inconsistent.");
+        }
+
+        ushort nameLength =
+            BinaryPrimitives.ReadUInt16LittleEndian(
+                localHeader.AsSpan(26));
+        ushort extraLength =
+            BinaryPrimitives.ReadUInt16LittleEndian(
+                localHeader.AsSpan(28));
+        var localName = new byte[nameLength];
+        await ReadExactlyAsync(
+            stream,
+            localName,
+            operation).ConfigureAwait(false);
+        if (!localName.AsSpan().SequenceEqual(entry.Name))
+        {
+            throw new InvalidDataException(
+                "The package archive manifest name is inconsistent.");
+        }
+
+        long dataOffset = checked(
+            (long)entry.LocalHeaderOffset
+            + LocalFileHeaderLength
+            + nameLength
+            + extraLength);
+        if (dataOffset + entry.CompressedLength > directory.Offset)
+        {
+            throw new InvalidDataException(
+                "The package archive manifest extent is inconsistent.");
+        }
+
+        if ((entry.Flags & 8) == 0
+            && (BinaryPrimitives.ReadUInt32LittleEndian(
+                    localHeader.AsSpan(14)) != entry.Crc
+                || BinaryPrimitives.ReadUInt32LittleEndian(
+                    localHeader.AsSpan(18)) != entry.CompressedLength
+                || BinaryPrimitives.ReadUInt32LittleEndian(
+                    localHeader.AsSpan(22)) != entry.ExpandedLength))
+        {
+            throw new InvalidDataException(
+                "The package archive manifest declaration is inconsistent.");
+        }
+
+        var compressed = new byte[checked((int)entry.CompressedLength)];
+        stream.Position = dataOffset;
+        await ReadExactlyAsync(
+            stream,
+            compressed,
+            operation).ConfigureAwait(false);
+        byte[] content = await ExpandAsync(
+            compressed,
+            entry.Method,
+            options.MaxManifestBytes,
+            operation).ConfigureAwait(false);
+        if (content.LongLength != entry.ExpandedLength
+            || ComputeCrc32(content) != entry.Crc)
+        {
+            throw new InvalidDataException(
+                "The package archive manifest content is inconsistent.");
+        }
+
+        return content;
+    }
+
+    private static async Task<byte[]> ExpandAsync(
+        byte[] compressed,
+        ushort method,
+        long maximumBytes,
+        NuGetOperationDeadline operation)
+    {
+        using var input = new MemoryStream(compressed, writable: false);
+        using Stream content = method == 0
+            ? input
+            : new DeflateStream(
+                input,
+                CompressionMode.Decompress,
+                leaveOpen: true);
+        using var output = new MemoryStream();
+        var buffer = new byte[8192];
+        while (true)
+        {
+            operation.ThrowIfExpired();
+            int read;
+            try
+            {
+                read = await content.ReadAsync(
+                    buffer,
+                    operation.OperationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException exception)
+            {
+                operation.ThrowIfExpired();
+                throw new IOException(
+                    "The local package source interrupted manifest decompression.",
+                    exception);
+            }
+
+            if (read == 0)
+                break;
+
+            if (output.Length + read > maximumBytes)
+                throw new LocalPackageSourceLimitExceededException();
+
+            output.Write(buffer, 0, read);
+        }
+
+        operation.ThrowIfExpired();
+        return output.ToArray();
+    }
+
+    private static uint ComputeCrc32(ReadOnlySpan<byte> bytes)
+    {
+        uint crc = uint.MaxValue;
+        foreach (byte value in bytes)
+        {
+            crc = Crc32Table[(byte)(crc ^ value)] ^ (crc >> 8);
+        }
+
+        return ~crc;
+    }
+
+    private static readonly uint[] Crc32Table = CreateCrc32Table();
+
+    private static uint[] CreateCrc32Table()
+    {
+        var table = new uint[256];
+        for (uint index = 0; index < table.Length; index++)
+        {
+            uint value = index;
+            for (int bit = 0; bit < 8; bit++)
+            {
+                value = (value & 1) == 0
+                    ? value >> 1
+                    : (value >> 1) ^ 0xedb88320;
+            }
+
+            table[index] = value;
+        }
+
+        return table;
     }
 
     private static async Task ReadExactlyAsync(
@@ -230,6 +475,11 @@ internal static class LocalPackageArchiveReader
                     "The local package source interrupted an archive read.",
                     exception);
             }
+            catch
+            {
+                operation.ThrowIfExpired();
+                throw;
+            }
 
             if (read == 0)
             {
@@ -243,10 +493,29 @@ internal static class LocalPackageArchiveReader
         operation.ThrowIfExpired();
     }
 
-    private static bool IsRootManifest(string name) =>
-        !name.Contains('/')
-        && !name.Contains('\\')
-        && name.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase);
+    private static bool IsRootManifest(ReadOnlySpan<byte> name)
+    {
+        ReadOnlySpan<byte> suffix = ".nuspec"u8;
+        if (name.Length < suffix.Length
+            || name.Contains((byte)'/')
+            || name.Contains((byte)'\\'))
+        {
+            return false;
+        }
+
+        ReadOnlySpan<byte> ending = name[^suffix.Length..];
+        for (int index = 0; index < suffix.Length; index++)
+        {
+            byte value = ending[index];
+            if (value is >= (byte)'A' and <= (byte)'Z')
+                value = (byte)(value + ('a' - 'A'));
+
+            if (value != suffix[index])
+                return false;
+        }
+
+        return true;
+    }
 
     private static LocalPackageArchive ParseManifest(byte[] content)
     {
@@ -332,5 +601,17 @@ internal static class LocalPackageArchiveReader
         };
     }
 
-    private sealed record ZipDirectory(int EntryCount, long ByteLength);
+    private sealed record ZipDirectory(
+        int EntryCount,
+        long ByteLength,
+        long Offset);
+
+    private sealed record CentralDirectoryEntry(
+        ushort Flags,
+        ushort Method,
+        uint Crc,
+        uint CompressedLength,
+        uint ExpandedLength,
+        uint LocalHeaderOffset,
+        byte[] Name);
 }

@@ -178,10 +178,13 @@ entries exist than the bound can hold, the operation fails
 Archive observation preflights the end-of-central-directory records and the
 declared central-directory extent before constructing an object model that
 materializes entries. It rejects an excessive or inconsistent declaration
-first. The operation then finds exactly one root nuspec, where root means that
-the entry name contains no `/` or `\`, and reads only that entry under its
-compressed and expanded 1 MiB limits, aggregate manifest budget, and operation
-ceiling. XML parsing prohibits DTDs and external resolution.
+first. The operation then finds exactly one root nuspec directly from the
+bounded central-directory records, where root means that the entry name
+contains no `/` or `\`. It checks the matching local header, independently
+expands the stored or deflated bytes, and verifies the exact declared expanded
+length and CRC under the compressed and expanded 1 MiB limits, aggregate
+manifest budget, and operation ceiling. XML parsing prohibits DTDs and
+external resolution.
 
 This is a source-coordinate admission, not full package-content validation.
 Non-manifest entries are not extracted or assigned store paths. A successful
@@ -409,8 +412,8 @@ Implementation is verified by these named Release gates:
   or filesystem-order-dependent partial result.
 - `LocalFolderSource_ArchivePreflightBoundsMaterialization` proves excessive
   central-directory count and size are rejected before archive-entry object
-  materialization; manifest and aggregate-byte cases prove the remaining
-  archive ledger.
+  materialization; hidden expanded bytes, unsupported manifest encodings, and
+  manifest and aggregate-byte cases prove the remaining archive ledger.
 - `LocalFolderSource_ExactOperationsValidateEmbeddedCoordinate` proves a
   renamed archive, malformed nuspec, missing nuspec, and multiple root nuspecs
   cannot produce manifest or payload success.

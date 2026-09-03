@@ -46,6 +46,14 @@ public sealed record LocalPackageSourceOptions
             options.MaxArchiveEntries);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             options.MaxCentralDirectoryBytes);
+        if (options.MaxCentralDirectoryBytes > Array.MaxLength)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(MaxCentralDirectoryBytes),
+                options.MaxCentralDirectoryBytes,
+                "The central-directory limit cannot exceed the maximum array length.");
+        }
+
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             options.MaxManifestBytes);
         if (options.MaxManifestBytes > Array.MaxLength)

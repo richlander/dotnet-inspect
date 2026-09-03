@@ -546,8 +546,20 @@ internal sealed class LocalPackageSourceEngine
     private LocalPackageSourceDirectory GetRoot()
     {
         _operation.ThrowIfExpired();
-        if (!_host.TryGetDirectory(_identity, out var root)
-            || root is null)
+        LocalPackageSourceDirectory? root;
+        bool found;
+        try
+        {
+            found = _host.TryGetDirectory(_identity, out root);
+        }
+        catch
+        {
+            _operation.ThrowIfExpired();
+            throw;
+        }
+
+        _operation.ThrowIfExpired();
+        if (!found || root is null)
         {
             throw new DirectoryNotFoundException(
                 "The local package-source root is unavailable.");
@@ -638,11 +650,17 @@ internal sealed class LocalPackageSourceEngine
         LocalPackageSourceDirectory directory)
     {
         int remaining = _ledger.RemainingDirectoryEntries;
-        if (remaining == 0)
-            throw new LocalPackageSourceLimitExceededException();
-
-        LocalPackageSourceDirectoryListing listing =
-            _host.List(directory, remaining, _operation);
+        LocalPackageSourceDirectoryListing listing;
+        try
+        {
+            listing = _host.List(directory, remaining, _operation);
+        }
+        catch
+        {
+            _operation.ThrowIfExpired();
+            throw;
+        }
+        _operation.ThrowIfExpired();
         int count = checked(
             listing.Directories.Count + listing.Files.Count);
         _ledger.ChargeDirectoryEntries(count);
@@ -669,7 +687,9 @@ internal sealed class LocalPackageSourceEngine
     {
         if (!IsPackageArchive(file.Name)
             || packageId is not null
-                && !CouldNamePackageId(file.Name, packageId))
+                && !file.Name.StartsWith(
+                    packageId + ".",
+                    StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
@@ -697,8 +717,17 @@ internal sealed class LocalPackageSourceEngine
         bool transferStream)
     {
         _operation.ThrowIfExpired();
-        LocalPackageSourceOpenFile opened =
-            _host.OpenRead(candidate.File, _operation);
+        LocalPackageSourceOpenFile opened;
+        try
+        {
+            opened = _host.OpenRead(candidate.File, _operation);
+        }
+        catch
+        {
+            _operation.ThrowIfExpired();
+            throw;
+        }
+        _operation.ThrowIfExpired();
         Stream content = opened.Content;
         bool ownershipTransferred = false;
         try
@@ -709,13 +738,22 @@ internal sealed class LocalPackageSourceEngine
                     "The local package source returned an unusable archive stream.");
             }
 
-            LocalPackageArchive archive =
-                await LocalPackageArchiveReader.ReadAsync(
-                    content,
-                    opened.Length,
-                    _options,
-                    _ledger,
-                    _operation).ConfigureAwait(false);
+            LocalPackageArchive archive;
+            try
+            {
+                archive = await LocalPackageArchiveReader.ReadAsync(
+                        content,
+                        opened.Length,
+                        _options,
+                        _ledger,
+                        _operation)
+                    .ConfigureAwait(false);
+            }
+            catch
+            {
+                _operation.ThrowIfExpired();
+                throw;
+            }
             ValidateLayout(candidate, archive.Coordinate);
             if (candidate.File.ObservedLength is long observedLength
                 && observedLength != opened.Length)
@@ -755,7 +793,18 @@ internal sealed class LocalPackageSourceEngine
         finally
         {
             if (!ownershipTransferred)
-                await content.DisposeAsync().ConfigureAwait(false);
+            {
+                try
+                {
+                    await content.DisposeAsync().ConfigureAwait(false);
+                    _operation.ThrowIfExpired();
+                }
+                catch
+                {
+                    _operation.ThrowIfExpired();
+                    throw;
+                }
+            }
         }
     }
 
@@ -833,25 +882,6 @@ internal sealed class LocalPackageSourceEngine
         && !name.EndsWith(
             ".symbols.nupkg",
             StringComparison.OrdinalIgnoreCase);
-
-    private static bool CouldNamePackageId(
-        string fileName,
-        string packageId)
-    {
-        string prefix = packageId + ".";
-        if (!fileName.StartsWith(
-                prefix,
-                StringComparison.OrdinalIgnoreCase)
-            || fileName.Length
-                <= prefix.Length + ".nupkg".Length)
-        {
-            return false;
-        }
-
-        return NuGetVersion.TryParse(
-            fileName[prefix.Length..^".nupkg".Length],
-            out _);
-    }
 
     private static bool IsCanonicalPackageIdDirectory(
         string name,

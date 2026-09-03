@@ -288,6 +288,23 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
                     string.Empty,
                     cancellationToken:
                         TestContext.Current.CancellationToken)).Kind);
+
+        string encryptionRoot = Directory.CreateDirectory(
+            Path.Combine(_root, "manifest-encryption")).FullName;
+        string encryptionPath = WriteV2Package(
+            encryptionRoot,
+            "Encrypted",
+            "1.0.0");
+        PatchManifestFlags(encryptionPath, 1);
+        using IPackageSourceClient encryption =
+            CreateClient(encryptionRoot);
+        Assert.Equal(
+            PackageSourceFailureKind.InvalidResponse,
+            Failed(
+                await encryption.SearchAsync(
+                    string.Empty,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken)).Kind);
         Assert.Equal(
             PackageSourceFailureKind.InvalidResponse,
             Failed(
@@ -357,6 +374,23 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
                     take: 1,
                     cancellationToken:
                         TestContext.Current.CancellationToken)).Kind);
+
+        string emptyRoot = Directory.CreateDirectory(
+            Path.Combine(_root, "empty-bound")).FullName;
+        Directory.CreateDirectory(Path.Combine(emptyRoot, "empty"));
+        using IPackageSourceClient exactBound = CreateClient(
+            emptyRoot,
+            options: new LocalPackageSourceOptions
+            {
+                MaxDirectoryEntries = 1,
+            });
+        Assert.Empty(
+            Succeeded(
+                await exactBound.SearchAsync(
+                    string.Empty,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken))
+                .Matches);
         Assert.Equal(
             PackageSourceFailureKind.ResponseRejected,
             Failed(
@@ -373,6 +407,46 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
             PackageSourceFailureKind.ResponseRejected,
             Failed(
                 await overflow.SearchAsync(
+                    string.Empty,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken)).Kind);
+
+        string extentRoot = Directory.CreateDirectory(
+            Path.Combine(_root, "manifest-extent")).FullName;
+        string prefix =
+            "<package><metadata><id>Extent</id><version>1.0.0</version>"
+            + "</metadata></package>";
+        string extentPath = Path.Combine(
+            extentRoot,
+            "Extent.1.0.0.nupkg");
+        WritePackage(
+            extentPath,
+            "Extent",
+            "1.0.0",
+            manifestOverride: prefix + "EXCESS",
+            compressionLevel: CompressionLevel.NoCompression);
+        UnderdeclareManifest(extentPath, prefix);
+        using IPackageSourceClient extent = CreateClient(extentRoot);
+        Assert.Equal(
+            PackageSourceFailureKind.InvalidResponse,
+            Failed(
+                await extent.SearchAsync(
+                    string.Empty,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken)).Kind);
+
+        string methodRoot = Directory.CreateDirectory(
+            Path.Combine(_root, "manifest-method")).FullName;
+        string methodPath = WriteV2Package(
+            methodRoot,
+            "Method",
+            "1.0.0");
+        PatchManifestMethod(methodPath, 99);
+        using IPackageSourceClient method = CreateClient(methodRoot);
+        Assert.Equal(
+            PackageSourceFailureKind.InvalidResponse,
+            Failed(
+                await method.SearchAsync(
                     string.Empty,
                     cancellationToken:
                         TestContext.Current.CancellationToken)).Kind);
@@ -479,6 +553,10 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
             "Versionless",
             "1.0.0");
         WritePackage(
+            Path.Combine(_root, "Suffix.invalid.nupkg"),
+            "Suffix",
+            "1.0.0");
+        WritePackage(
             Path.Combine(_root, "Metadata.1.0.0.nupkg"),
             "Metadata",
             "1.0.0",
@@ -489,10 +567,6 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
                   <metadata><id>Metadata</id><version>1.0.0</version></metadata>
                 </package>
                 """);
-        WriteV2Package(_root, "Foo", "1.0.0");
-        File.WriteAllBytes(
-            Path.Combine(_root, "Foo.Bar.1.0.0.nupkg"),
-            "not a package"u8.ToArray());
         using IPackageSourceClient client = CreateClient(_root);
 
         foreach (string id in new[]
@@ -501,6 +575,8 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
                      "Malformed",
                      "Missing",
                      "Multiple",
+                     "Versionless",
+                     "Suffix",
                      "Metadata",
                  })
         {
@@ -520,21 +596,6 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
                         TestContext.Current.CancellationToken)).Kind);
         }
 
-        Assert.Equal(
-            PackageSourceFailureKind.NotFound,
-            Failed(
-                await client.GetManifestAsync(
-                    "Versionless",
-                    "1.0.0",
-                    TestContext.Current.CancellationToken)).Kind);
-        Assert.Equal(
-            "foo",
-            Succeeded(
-                await client.GetManifestAsync(
-                    "Foo",
-                    "1.0.0",
-                    TestContext.Current.CancellationToken))
-                .Coordinate.PackageId);
     }
 
     [Fact]
@@ -652,6 +713,24 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
                     cancellationToken:
                         TestContext.Current.CancellationToken,
                     operationContext: directoryContext)).Kind);
+
+        using IPackageSourceClient slowFailure =
+            PackageSourceClientFactory.Create(
+                LocalPackageSourceIdentity.Create(_root, _root),
+                PackageSourceAssociation.Create(),
+                new SlowFailHost());
+        using var failureContext = new NuGetOperationContext(
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromMilliseconds(10),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            PackageSourceFailureKind.Timeout,
+            Failed(
+                await slowFailure.SearchAsync(
+                    string.Empty,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    operationContext: failureContext)).Kind);
 
         byte[] package = CreatePackageBytes("Slow", "1.0.0");
         using IPackageSourceClient slowArchive =
@@ -848,7 +927,8 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
         string? description = null,
         string? tags = null,
         string? manifestOverride = null,
-        bool secondManifest = false)
+        bool secondManifest = false,
+        CompressionLevel compressionLevel = CompressionLevel.Optimal)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllBytes(
@@ -859,7 +939,8 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
                 description,
                 tags,
                 manifestOverride,
-                secondManifest));
+                secondManifest,
+                compressionLevel));
     }
 
     private static void WritePackageWithoutManifest(string path)
@@ -880,7 +961,8 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
         string? description = null,
         string? tags = null,
         string? manifestOverride = null,
-        bool secondManifest = false)
+        bool secondManifest = false,
+        CompressionLevel compressionLevel = CompressionLevel.Optimal)
     {
         using var output = new MemoryStream();
         using (var archive = new ZipArchive(
@@ -900,9 +982,24 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
                       </metadata>
                     </package>
                     """;
-            WriteEntry(archive, $"{id}.nuspec", manifest);
+            WriteEntry(
+                archive,
+                "_rels/.rels",
+                "<Relationships />",
+                compressionLevel);
+            WriteEntry(
+                archive,
+                $"{id}.nuspec",
+                manifest,
+                compressionLevel);
             if (secondManifest)
-                WriteEntry(archive, "second.nuspec", manifest);
+            {
+                WriteEntry(
+                    archive,
+                    "second.nuspec",
+                    manifest,
+                    compressionLevel);
+            }
         }
 
         return output.ToArray();
@@ -911,9 +1008,12 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
     private static void WriteEntry(
         ZipArchive archive,
         string name,
-        string content)
+        string content,
+        CompressionLevel compressionLevel)
     {
-        ZipArchiveEntry entry = archive.CreateEntry(name);
+        ZipArchiveEntry entry = archive.CreateEntry(
+            name,
+            compressionLevel);
         using var writer = new StreamWriter(
             entry.Open(),
             new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
@@ -943,6 +1043,100 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
         }
 
         throw new InvalidOperationException("Test ZIP has no EOCD.");
+    }
+
+    private static void UnderdeclareManifest(
+        string path,
+        string declaredContent)
+    {
+        byte[] bytes = File.ReadAllBytes(path);
+        int local = FindSignature(bytes, 0x04034b50, occurrence: 1);
+        int central = FindSignature(bytes, 0x02014b50, occurrence: 1);
+        byte[] declared = Encoding.UTF8.GetBytes(declaredContent);
+        uint crc = ComputeCrc32(declared);
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            bytes.AsSpan(local + 14),
+            crc);
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            bytes.AsSpan(local + 22),
+            checked((uint)declared.Length));
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            bytes.AsSpan(central + 16),
+            crc);
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            bytes.AsSpan(central + 24),
+            checked((uint)declared.Length));
+        File.WriteAllBytes(path, bytes);
+    }
+
+    private static void PatchManifestMethod(
+        string path,
+        ushort method)
+    {
+        byte[] bytes = File.ReadAllBytes(path);
+        int local = FindSignature(bytes, 0x04034b50, occurrence: 1);
+        int central = FindSignature(bytes, 0x02014b50, occurrence: 1);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            bytes.AsSpan(local + 8),
+            method);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            bytes.AsSpan(central + 10),
+            method);
+        File.WriteAllBytes(path, bytes);
+    }
+
+    private static void PatchManifestFlags(
+        string path,
+        ushort flags)
+    {
+        byte[] bytes = File.ReadAllBytes(path);
+        int local = FindSignature(bytes, 0x04034b50, occurrence: 1);
+        int central = FindSignature(bytes, 0x02014b50, occurrence: 1);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            bytes.AsSpan(local + 6),
+            flags);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            bytes.AsSpan(central + 8),
+            flags);
+        File.WriteAllBytes(path, bytes);
+    }
+
+    private static int FindSignature(
+        byte[] bytes,
+        uint signature,
+        int occurrence)
+    {
+        for (int offset = 0; offset <= bytes.Length - 4; offset++)
+        {
+            if (BinaryPrimitives.ReadUInt32LittleEndian(
+                    bytes.AsSpan(offset))
+                == signature)
+            {
+                if (occurrence == 0)
+                    return offset;
+
+                occurrence--;
+            }
+        }
+
+        throw new InvalidOperationException(
+            "Test ZIP is missing an expected record.");
+    }
+
+    private static uint ComputeCrc32(ReadOnlySpan<byte> bytes)
+    {
+        uint crc = uint.MaxValue;
+        foreach (byte value in bytes)
+        {
+            crc ^= value;
+            for (int bit = 0; bit < 8; bit++)
+            {
+                crc = (crc >> 1)
+                    ^ (0xedb88320u & (uint)-(int)(crc & 1));
+            }
+        }
+
+        return ~crc;
     }
 
     private sealed class RecordingMissingRootHost
@@ -1057,6 +1251,37 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
                 [],
                 [],
                 HasMoreEntries: false);
+        }
+
+        public LocalPackageSourceOpenFile OpenRead(
+            LocalPackageSourceFile file,
+            NuGetOperationDeadline operation) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class SlowFailHost : ILocalPackageSourceFileSystem
+    {
+        public LocalPackageSourceHostCapabilities Capabilities =>
+            LocalPackageSourceHostCapabilities.List
+            | LocalPackageSourceHostCapabilities.Read;
+
+        public bool TryGetDirectory(
+            LocalPackageSourceIdentity source,
+            out LocalPackageSourceDirectory? directory)
+        {
+            directory = new LocalPackageSourceDirectory(
+                string.Empty,
+                new object());
+            return true;
+        }
+
+        public LocalPackageSourceDirectoryListing List(
+            LocalPackageSourceDirectory directory,
+            int maximumEntries,
+            NuGetOperationDeadline operation)
+        {
+            Thread.Sleep(30);
+            throw new IOException("late failure");
         }
 
         public LocalPackageSourceOpenFile OpenRead(

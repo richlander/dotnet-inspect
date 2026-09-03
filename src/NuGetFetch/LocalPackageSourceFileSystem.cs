@@ -120,7 +120,7 @@ internal sealed class PhysicalLocalPackageSourceFileSystem
         NuGetOperationDeadline operation)
     {
         ArgumentNullException.ThrowIfNull(directory);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumEntries);
+        ArgumentOutOfRangeException.ThrowIfNegative(maximumEntries);
         ArgumentNullException.ThrowIfNull(operation);
         string path = GetPath(directory.Handle);
         var directories = new List<LocalPackageSourceDirectory>();
