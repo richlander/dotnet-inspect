@@ -630,7 +630,12 @@ export function renderSourcePageActions(
 }
 
 export function renderTypeSource(options: RenderTypeSourceOptions): string {
-  const { currentSignature, sourceState, escapeHtml, highlightCSharp } = options;
+  const {
+    currentSignature,
+    sourceState,
+    escapeHtml,
+    highlightCSharp,
+  } = options;
   const fresh = sourceState.typeSourceKey === currentSignature;
   if (sourceState.typeSourceLoading && fresh) {
     return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`;

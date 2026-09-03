@@ -169,11 +169,12 @@ own projection-specific spelling. The ordinary vector display remains `T[]`.
 The `[*]` array marker is not pointer evidence and does not make an
 `ApiMember` unsafe; a separate pointer or function-pointer star still does.
 The opaque structural string used by legacy call-graph correspondence remains
-outside this exact array-kind contract.
+outside this exact array-kind contract and is governed by
+`call-graph-projection.md`.
 `ArrayKindIdentityTests` gates valid, CLR-resolvable synthetic metadata through
 decode, canonical identity, typed shape equality, anchor projection, unsafe
-classification, JSON persistence, exact API comparison, and compatibility of
-Metadata's existing payload-bearing structural output.
+classification, JSON persistence, exact API comparison, and the Metadata-side
+structural payload required by the adjacent Analysis contract.
 
 `ApiMember.HasMethodBody` preserves the nullable MethodDef RVA/body fact beside
 the API member, and `HasRuntimeJsExportWrapperCandidate` preserves whether
