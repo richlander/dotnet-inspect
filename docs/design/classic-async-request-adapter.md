@@ -94,6 +94,8 @@ The following gates enforce the boundary:
 - `InvalidModuleIdentityRemainsVisibleAcquisitionFailure` proves nil,
   out-of-range, and overflow-wrapping module identities cannot become absence
   or crash the ordinary import path;
+- `MalformedModuleIdentityReturnsTypedBodyProductionFailure` proves the shared
+  public body-production boundary preserves those cases as typed failure;
 - `IdenticalSource_ProducesClassicAndRuntimeAsyncPhysicalShapes` proves classic
   lowering forms a request while runtime lowering is filtered; and
 - `TrimmedArtifactWithoutRolePreservation_AuthenticatesAbsentSupport` proves

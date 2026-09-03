@@ -136,6 +136,38 @@ public sealed class ClassicAsyncRequestAdapterTests
             diagnostic => diagnostic.Id == DiagnosticIds.InternalError);
     }
 
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(ushort.MaxValue, false)]
+    [InlineData(0x10000001, true)]
+    public void MalformedModuleIdentityReturnsTypedBodyProductionFailure(
+        int mvidIndex,
+        bool largeGuidHeap)
+    {
+        byte[] image = BuildRuntimeAsyncImage(
+            attributeCount: 1,
+            largeGuidHeap);
+        SetModuleMvid(image, mvidIndex);
+        using var source = MetadataSource.OpenFromPrefetchedImage(
+            "RuntimeAsyncInvalidMvid.dll",
+            ImmutableArray.CreateRange(image));
+
+        MemberBodyProductionResult result = MemberBodyProducer.ProduceBody(
+            source,
+            new MetadataMethodAddress(
+                Guid.NewGuid(),
+                MetadataTokens.MethodDefinitionHandle(1)));
+
+        Assert.Equal(MemberBodyProductionStatus.Failed, result.Status);
+        Assert.Null(result.Body);
+        Assert.Contains(
+            result.Projection.Diagnostics,
+            diagnostic => diagnostic.Id == DiagnosticIds.ContextUnavailable
+                && diagnostic.Message.Contains(
+                    "cannot be validated",
+                    StringComparison.Ordinal));
+    }
+
     static byte[] BuildRuntimeAsyncImage(
         int attributeCount,
         bool largeGuidHeap = false)
