@@ -3,6 +3,9 @@
     <Project Path="eng/DependencyPolicy.Tests/DependencyPolicy.Tests.csproj" />
     <Project Path="eng/DependencyPolicy/DependencyPolicy.csproj" />
   </Folder>
+  <Folder Name="/fixtures/">
+    <Project Path="fixtures/shared/DotnetInspector.Fixtures/DotnetInspector.Fixtures.csproj" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/DiffAsmFixtures.Caller/DiffAsmFixtures.Caller.csproj" />
     <Project Path="src/DiffAsmFixtures.LibA/DiffAsmFixtures.LibA.csproj" />
@@ -126,8 +129,8 @@
     <Project Path="tests/CSharpText.Tests/CSharpText.Tests.csproj" />
     <Project Path="tests/DotnetInspector.AssemblyOnlyHost.Fixture/DotnetInspector.AssemblyOnlyHost.Fixture.csproj" />
     <Project Path="tests/DotnetInspector.CSharpBodySlicer.Tests/DotnetInspector.CSharpBodySlicer.Tests.csproj" />
-    <Project Path="tests/DotnetInspector.Fixtures/DotnetInspector.Fixtures.csproj" />
-    <Project Path="tests/DotnetInspector.Fixtures.Tests/DotnetInspector.Fixtures.Tests.csproj" />
+    <Project Path="tests/DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />
+    <Project Path="tests/DotnetInspector.FixtureInfrastructure.Tests/DotnetInspector.FixtureInfrastructure.Tests.csproj" />
     <Project Path="tests/ILInspector.Metadata.Tests/ILInspector.Metadata.Tests.csproj" />
     <Project Path="tests/ILInspector.JsExportSurface.NamingFixtures/ILInspector.JsExportSurface.NamingFixtures.csproj" />
     <Project Path="tests/ILInspector.JsExportSurface.OperatorFixtures/ILInspector.JsExportSurface.OperatorFixtures.csproj" />

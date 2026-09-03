@@ -36,7 +36,8 @@
     <ProjectReference Include="..\DotnetInspector.RestoredProjectFixtures\DotnetInspector.RestoredProjectFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
     <ProjectReference Include="..\ILInspector.ILDiff\ILInspector.ILDiff.csproj" />
-    <ProjectReference Include="..\..\tests\DotnetInspector.Fixtures\DotnetInspector.Fixtures.csproj" />
+    <ProjectReference Include="..\..\fixtures\shared\DotnetInspector.Fixtures\DotnetInspector.Fixtures.csproj" />
+    <ProjectReference Include="..\..\tests\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
     <ProjectReference Include="..\..\tests\DotnetInspector.PackageManifestCorpus\DotnetInspector.PackageManifestCorpus.csproj" />
   </ItemGroup>
 
