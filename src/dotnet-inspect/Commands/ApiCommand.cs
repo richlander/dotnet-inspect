@@ -501,11 +501,9 @@ public class ApiCommand
                 ? ApiInspectionCatalogRegistry.CreateMemberPipeline(
                     resolvedPlan.Selection.Catalog)
                 : ApiMemberSectionDescriptors.CreatePipeline();
-        bool hasTypeName = !string.IsNullOrWhiteSpace(options.TypeName);
-        bool typeNameIsGlob =
-            hasTypeName
-            && TypeMatcher.IsTypeGlobPattern(options.TypeName!);
-        bool singleTypeMode = options is MemberOptions || (hasTypeName && !typeNameIsGlob);
+        bool singleTypeMode =
+            resolvedPlan.Selection.Catalog
+                != InspectionCatalogIdentity.ApiType;
         var knownSections = singleTypeMode
             ? memberPipeline.SelectableSectionNames
             : typePipeline.SelectableSectionNames;
@@ -554,8 +552,12 @@ public class ApiCommand
         // Both paths still enforce Body Shapes requirements before acquisition.
         if (options is not MemberOptions { MemberSectionsPreResolved: true })
         {
+            bool hasSelection =
+                options.Select is { Length: > 0 }
+                || options.SelectDefault;
             SelectResult selectResult =
                 options.Discover is null
+                || !hasSelection
                     ? resolvedPlan.Selection.ToSelectResult()
                     : SelectResolver.ResolveSelectAsSections(
                         options.Select,
@@ -565,6 +567,9 @@ public class ApiCommand
                             ? memberPipeline.GetCategoryMap()
                             : typePipeline.GetCategoryMap(),
                         selectDefault: options.SelectDefault);
+            bool discoveryOnly =
+                options.Discover is not null
+                && !hasSelection;
             if (ShouldDeferSelectToListing(options, singleTypeMode, selectResult, typePipeline))
             {
                 // `-D` advertised these names and `-S` rejected them, on the same command line: the
@@ -575,8 +580,13 @@ public class ApiCommand
             }
             else
             {
-                if (SelectOutput.WriteUnresolved(selectResult))
+                if (discoveryOnly
+                    ? DiscoverOutput.WriteUnresolvedSections(
+                        selectResult)
+                    : SelectOutput.WriteUnresolved(selectResult))
+                {
                     return (null!, 1);
+                }
                 if (ApplyBodyShapeSelectionRequirements(
                         options,
                         selectResult) is { } bodyShapeError)
@@ -584,7 +594,8 @@ public class ApiCommand
                     CommandError.Write(bodyShapeError);
                     return (null!, 1);
                 }
-                if (selectResult.Sections != null)
+                if (!discoveryOnly
+                    && selectResult.Sections != null)
                 {
                     options = options with
                     {

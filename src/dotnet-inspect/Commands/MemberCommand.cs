@@ -47,6 +47,17 @@ public static class MemberCommand
             return 1;
         }
 
+        bool mayResolveImpliedMember =
+            options.MemberFilter.Count == 0
+            && options.TypeName is { } unresolvedTarget
+            && HasPotentialImpliedMember(unresolvedTarget);
+        if (RejectExactMemberCardinality(
+                options,
+                executionPlan,
+                mayResolveImpliedMember))
+        {
+            return 1;
+        }
         bool catalogIsSyntacticallyResolved =
             options.MemberFilter.Count > 0
             || options.TypeName is { } syntacticTypeName
@@ -63,6 +74,7 @@ public static class MemberCommand
             return 1;
 
         var unresolvedOptions = options;
+        bool memberGestureChanged = false;
         bool catalogNeedsTargetResolution =
             !options.RouterDeferredTypeOrMember
             && options.IncludeSections is null
@@ -209,6 +221,7 @@ public static class MemberCommand
                     unresolvedOptions = mergeOptions;
                 else
                     options = mergeOptions;
+                memberGestureChanged = true;
             }
 
             if (options.RouterDeferredTypeOrMember)
@@ -225,7 +238,8 @@ public static class MemberCommand
             }
 
             if (options.RouterDeferredTypeOrMember
-                || catalogNeedsTargetResolution)
+                || catalogNeedsTargetResolution
+                || memberGestureChanged)
             {
                 if (options.RouterDeferredTypeOrMember
                     && options.ShapeExplicitlySet)
@@ -242,6 +256,13 @@ public static class MemberCommand
                     ResolvedMemberInspectionPlan
                         .FromCompatibilityOptions(
                             planningOptions);
+                if (RejectExactMemberCardinality(
+                        planningOptions,
+                        executionPlan,
+                        mayResolveImpliedMember: false))
+                {
+                    return 1;
+                }
                 if (RejectTotalEffectiveDiscoveryMiss(
                         executionPlan))
                 {
@@ -287,8 +308,7 @@ public static class MemberCommand
                     || options.MemberFilter.Any(MemberFilterHasWildcard)))
             {
                 CommandError.Write(
-                    "--where Kind=... requires one exact member name or selector "
-                    + "(for example, Name:1 or Name~digest).");
+                    "--where Kind=... requires one exact member name or selector.");
                 return 1;
             }
             if (options.BodyKindQuery.HasFilter
@@ -361,6 +381,17 @@ public static class MemberCommand
                         return 1;
                     }
                     effectiveOptions = effectiveOptions with { OverloadIndex = 1 };
+                    if (MemberFilterHasWildcard(autoMemberName))
+                    {
+                        effectiveOptions = effectiveOptions with
+                        {
+                            MemberFilter = new HashSet<string>(
+                                StringComparer.OrdinalIgnoreCase)
+                            {
+                                autoOverloads[0].Name,
+                            },
+                        };
+                    }
                 }
             }
 
@@ -426,7 +457,17 @@ public static class MemberCommand
                         ? $"section '{singleOverloadSections[0]}' requires"
                         : $"sections {string.Join(", ", singleOverloadSections.Select(section => $"'{section}'"))} require";
                     CommandError.Write($"{sectionLabel} a single selected overload for member '{memberName}'.");
-                    CommandError.WriteLine($"Select one overload with {memberName}~<digest> (shown in the Digest column of the member listing), or positionally with {memberName}:1 through {memberName}:{overloads.Count}.");
+                    if (MemberFilterHasWildcard(memberName))
+                    {
+                        CommandError.WriteLine(
+                            $"Replace wildcard '{memberName}' with one exact member name, "
+                            + "then select an overload with Name~<digest> "
+                            + "(shown in the Digest column) or Name:1.");
+                    }
+                    else
+                    {
+                        CommandError.WriteLine($"Select one overload with {memberName}~<digest> (shown in the Digest column of the member listing), or positionally with {memberName}:1 through {memberName}:{overloads.Count}.");
+                    }
                     return 1;
                 }
             }
@@ -966,10 +1007,80 @@ public static class MemberCommand
     private static bool IsPureSelector(string[]? select, string name) =>
         select is { Length: 1 } && select[0].Equals(name, StringComparison.OrdinalIgnoreCase);
 
-    private static List<ApiMember> GetCandidateMembers(ApiType apiType, MemberOptions options, string memberName)
-        => GetTargetCandidates(apiType, options, memberName)
-            .Select(candidate => candidate.Member)
+    private static List<ApiMember> GetCandidateMembers(
+        ApiType apiType,
+        MemberOptions options,
+        string memberName)
+    {
+        if (!MemberFilterHasWildcard(memberName))
+        {
+            return GetTargetCandidates(
+                    apiType,
+                    options,
+                    memberName)
+                .Select(candidate => candidate.Member)
+                .ToList();
+        }
+
+        var filter = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase)
+        {
+            memberName,
+        };
+        IEnumerable<ApiMember> candidates =
+            apiType.Members.Where(member =>
+                TypeMatcher.MatchesMemberFilter(
+                    member.Name,
+                    filter));
+        if (options.KindFilter.Count > 0)
+        {
+            candidates = candidates.Where(member =>
+                options.KindFilter.Contains(member.Kind));
+        }
+        if (options.MemberGenericArity is { } arity)
+        {
+            candidates = candidates.Where(member =>
+                (member.SignatureModel?.TypeParameters.Count ?? 0)
+                == arity);
+        }
+
+        return candidates
+            .OrderBy(member => member.Name, StringComparer.Ordinal)
+            .ThenBy(
+                ApiMemberIdentity.GetMemberSignatureSortKey,
+                StringComparer.Ordinal)
             .ToList();
+    }
+
+    private static bool RejectExactMemberCardinality(
+        MemberOptions options,
+        ResolvedMemberInspectionPlan plan,
+        bool mayResolveImpliedMember)
+    {
+        if (plan.Selection.RequiredTarget
+                != InspectionTargetRequirement.ExactMember
+            || options.MemberFilter.Count == 1
+            || (options.MemberFilter.Count == 0
+                && mayResolveImpliedMember))
+        {
+            return false;
+        }
+
+        CommandError.Write(
+            options.BodyKindQuery.HasFilter
+                ? "--where Kind=... requires one exact member name or selector."
+                : "Exact-member section selection requires exactly one member name.");
+        return true;
+    }
+
+    private static bool HasPotentialImpliedMember(string target)
+    {
+        var (_, memberName) =
+            SharedParsers.SplitTrailingMember(target);
+        return memberName is not null
+            || CSharpText.FqnParser.LastTopLevelDot(
+                target) > 0;
+    }
 
     private static IReadOnlyList<MemberTargetCandidate> GetTargetCandidates(ApiType apiType, MemberOptions options, string memberName)
         => MemberTargetResolver.GetCandidates(

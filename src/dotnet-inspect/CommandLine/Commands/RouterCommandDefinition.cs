@@ -172,6 +172,26 @@ public static class RouterCommandDefinition
                     request);
             }
 
+            bool hasSectionRequest =
+                sourceParseResult.GetResult(opts.Discover)
+                    is { Implicit: false }
+                || sourceParseResult.GetResult(opts.Select)
+                    is { Implicit: false };
+            if (hasSectionRequest)
+            {
+                StructuralDiscoveryRequest commandlessRequest =
+                    StructuralDiscoveryRequest.From(
+                        sourceParseResult,
+                        opts);
+                if (StructuralViewRegistry
+                    .RejectUniversallyInvalidCommandlessRequest(
+                        tokens,
+                        commandlessRequest))
+                {
+                    return 1;
+                }
+            }
+
             var rewritten = await RouterTokenRewriter.RewriteAsync(
                 tokens,
                 sourceOptions,
@@ -683,6 +703,10 @@ public static class RouterCommandDefinition
                 && !StructuralViewRegistry
                     .HasGenericTypeAndGenericTailAmbiguity(target)
                 && !StructuralViewRegistry
+                    .RequiresGenericTailMemberAlternative(
+                        target,
+                        tokens)
+                && !StructuralViewRegistry
                     .HasUnambiguousMemberTail(target))
             {
                 rewritten = ["type", target, .. tail];
@@ -704,6 +728,10 @@ public static class RouterCommandDefinition
                         .HasExplicitGenericTypeTail(target)
                     && !StructuralViewRegistry
                         .HasGenericTypeAndGenericTailAmbiguity(target)
+                    && !StructuralViewRegistry
+                        .RequiresGenericTailMemberAlternative(
+                            target,
+                            tokens)
                     && !StructuralViewRegistry
                         .HasUnambiguousMemberTail(target)
                         ? ["type", target, .. tail]

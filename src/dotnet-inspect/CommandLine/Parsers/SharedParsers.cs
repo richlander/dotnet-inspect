@@ -448,8 +448,12 @@ public static class SharedParsers
             var selector = MemberTargetSelector.Parse(members[i]);
             if (selector.Kind is { Length: > 0 })
                 kindFilter.Add(selector.Kind);
-            if (selector.DigestPrefix is { Length: > 0 })
-                memberDigest = selector.DigestPrefix;
+            if (selector.DigestPrefix is { Length: > 0 } digest
+                && (memberDigest is null
+                    || digest.Length > memberDigest.Length))
+            {
+                memberDigest = digest;
+            }
             if (selector.GenericArity is { } arity)
             {
                 if (genericArity is { } existingArity && existingArity != arity)

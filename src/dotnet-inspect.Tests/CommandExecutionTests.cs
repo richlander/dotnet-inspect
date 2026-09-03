@@ -27690,7 +27690,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("Select value 'Signature' not found.", error);
+        Assert.Contains(
+            "Exact-member section selection requires exactly one member name.",
+            error);
     }
 
     /// <summary>

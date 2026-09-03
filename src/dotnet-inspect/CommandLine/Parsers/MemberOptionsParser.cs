@@ -132,6 +132,9 @@ public static class MemberOptionsParser
             .. optionMembers,
             .. constructorMembers,
         ];
+        error = GetMemberSelectorConflictError(members);
+        if (error is not null)
+            return true;
         if (parseResult.GetResult(args.ShapeOption)
             is { Implicit: false })
         {
@@ -160,8 +163,7 @@ public static class MemberOptionsParser
         bool hasDottedImpliedMember =
             memberFilter.Count == 0
             && !string.IsNullOrWhiteSpace(typeName)
-            && CSharpText.FqnParser.LastTopLevelDot(
-                typeName) > 0;
+            && HasPotentialImpliedMember(typeName);
         if ((index is not null || shorthandIndex is not null)
             && (memberFilter.Count > 1
                 || (memberFilter.Count == 0
@@ -202,13 +204,11 @@ public static class MemberOptionsParser
             options.ParseSelect(parseResult) ?? [];
         bool selectDefault =
             options.ParseSelectDefault(parseResult);
-        bool hasSelection =
-            selectSelectors.Length > 0
-            || selectDefault;
-        string[] sectionSelectors =
-            hasSelection
-                ? selectSelectors
-                : discoverSelectors;
+        var sectionIntent = new InspectionSectionIntent(
+            [.. selectSelectors],
+            selectDefault,
+            [.. discoverSelectors],
+            InspectionDiscoveryMode.Structural);
         InspectionTargetRequirement baseRequirement =
             memberFilter.Count == 0
                 ? InspectionTargetRequirement.Type
@@ -216,17 +216,9 @@ public static class MemberOptionsParser
         SectionDemandClassification demand =
             ApiSectionDemandIndex.Classify(
                 InspectionSurface.Member,
-                [.. sectionSelectors],
-                hasSelection && selectDefault,
+                sectionIntent.DemandSelectors,
+                selectDefault,
                 baseRequirement);
-        if (demand.RequiredTarget
-                == InspectionTargetRequirement.ExactMember
-            && memberFilter.Count > 1)
-        {
-            error = new OptionError(
-                "Exact-member section selection requires exactly one member name.");
-            return true;
-        }
         bool exactMember =
             index is not null
             || shorthandIndex is not null
@@ -234,6 +226,20 @@ public static class MemberOptionsParser
             || bodyKindQuery.HasFilter
             || demand.RequiredTarget
                 == InspectionTargetRequirement.ExactMember;
+        int exactTargetCount =
+            memberFilter.Count == 0
+            && hasDottedImpliedMember
+                ? 1
+                : memberFilter.Count;
+        if (exactMember
+            && exactTargetCount != 1)
+        {
+            error = new OptionError(
+                bodyKindQuery.HasFilter
+                    ? "--where Kind=... requires one exact member name or selector."
+                    : "Exact-member section selection requires exactly one member name.");
+            return true;
+        }
         InspectionCatalogIdentity memberCatalog =
             memberFilter.Count == 0
                 ? InspectionCatalogIdentity.ApiMember
@@ -556,6 +562,12 @@ public static class MemberOptionsParser
         var ctorOnly = parseResult.GetValue(args.CtorOption);
 
         // Process dotted syntax and overload shorthand
+        int? explicitIndex =
+            parseResult.GetValue(args.IndexOption);
+        OptionError? selectorConflictError =
+            GetMemberSelectorConflictError(allMembers);
+        if (selectorConflictError is not null)
+            return new VersionError(selectorConflictError.Value);
         var (dottedTypeFilter, shorthandIndex, memberDigest, memberGenericArity, memberGenericArityConflict, memberKindFilter) =
             SharedParsers.ProcessMemberArguments(
                 allMembers,
@@ -652,7 +664,7 @@ public static class MemberOptionsParser
             NoHeader = parseResult.GetValue(opts.NoHeaders),
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
             CtorOnly = ctorOnly,
-            OverloadIndex = parseResult.GetValue(args.IndexOption) ?? shorthandIndex,
+            OverloadIndex = explicitIndex ?? shorthandIndex,
             OverloadIndexExplicitlySet =
                 parseResult.GetResult(args.IndexOption) is { Implicit: false },
             MemberDigest = memberDigest,
@@ -692,12 +704,23 @@ public static class MemberOptionsParser
         ResolvedMemberInspectionPlan plan =
             ResolvedMemberInspectionPlan
                 .FromCompatibilityOptions(options);
+        string? potentialImpliedMemberTarget =
+            typeName
+            ?? (sourceInputs.Args.Length == 1
+                ? sourceInputs.Args[0]
+                : null);
         if (plan.Selection.RequiredTarget
                 == InspectionTargetRequirement.ExactMember
-            && options.MemberFilter.Count > 1)
+            && options.MemberFilter.Count != 1
+            && !(options.MemberFilter.Count == 0
+                && potentialImpliedMemberTarget is not null
+                && HasPotentialImpliedMember(
+                    potentialImpliedMemberTarget)))
         {
             return new VersionError(
-                "Exact-member section selection requires exactly one member name.");
+                options.BodyKindQuery.HasFilter
+                    ? "--where Kind=... requires one exact member name or selector."
+                    : "Exact-member section selection requires exactly one member name.");
         }
 
         return new Success(options, plan);
@@ -771,9 +794,18 @@ public static class MemberOptionsParser
             && sourceInputs.Args.Length == 1
             && typeName is not null
             && HasMemberSelectorSuffix(typeName);
+        bool positionalFileSource =
+            !sourceInputs.HasExplicitSource
+            && sourceInputs.Args.Length > 1
+            && CommandLineHelpers.TryClassifyAsFilePath(
+                sourceInputs.Args[0],
+                out string? dllPath,
+                out string? nupkgPath)
+            && (dllPath is not null || nupkgPath is not null);
         bool multiArgumentDottedTarget =
             !sourceInputs.HasExplicitSource
-            && sourceInputs.Args.Length > 1;
+            && sourceInputs.Args.Length > 1
+            && !positionalFileSource;
         if (typeName is null
             || (!multiArgumentDottedTarget
                 && !explicitSourceSelectorSplit)
@@ -793,6 +825,60 @@ public static class MemberOptionsParser
 
         positionalMembers.Add(splitMemberName);
         typeName = splitTypeName;
+    }
+
+    private static bool HasPotentialImpliedMember(string typeName)
+    {
+        var (_, memberName) =
+            SharedParsers.SplitTrailingMember(typeName);
+        return memberName is not null
+            || CSharpText.FqnParser.LastTopLevelDot(
+                typeName) > 0;
+    }
+
+    private static OptionError? GetMemberSelectorConflictError(
+        IEnumerable<string> members)
+    {
+        int? overloadIndex = null;
+        string? digestPrefix = null;
+        foreach (string member in members)
+        {
+            MemberTargetSelector selector =
+                MemberTargetSelector.Parse(member);
+            if (selector.OverloadIndex is { } candidateIndex)
+            {
+                if (overloadIndex is { } existingIndex
+                    && existingIndex != candidateIndex)
+                {
+                    return new OptionError(
+                        "A member selection cannot combine different overload selectors.");
+                }
+
+                overloadIndex = candidateIndex;
+            }
+
+            if (selector.DigestPrefix is not { Length: > 0 } candidateDigest)
+                continue;
+            if (digestPrefix is not null
+                && !digestPrefix.StartsWith(
+                    candidateDigest,
+                    StringComparison.OrdinalIgnoreCase)
+                && !candidateDigest.StartsWith(
+                    digestPrefix,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return new OptionError(
+                    "A member selection cannot combine different overload selectors.");
+            }
+
+            if (digestPrefix is null
+                || candidateDigest.Length > digestPrefix.Length)
+            {
+                digestPrefix = candidateDigest;
+            }
+        }
+
+        return null;
     }
 
     internal static OptionError? GetMermaidOptionError(

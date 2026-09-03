@@ -98,7 +98,8 @@ public sealed record MemberGestureIntent(
     ImmutableArray<string> Selectors,
     int? OverloadIndex,
     string? DigestPrefix,
-    int? GenericArity);
+    int? GenericArity,
+    bool ExactBodyTarget);
 
 public sealed record TypeGestureIntent(string? Filter)
 {
@@ -147,7 +148,8 @@ public sealed record ParsedInspectionIntent(
                 [.. options.MemberFilter],
                 memberOptions?.OverloadIndex,
                 memberOptions?.MemberDigest,
-                memberOptions?.MemberGenericArity),
+                memberOptions?.MemberGenericArity,
+                memberOptions?.BodyKindQuery.HasFilter == true),
             new InspectionSectionIntent(
                 [.. options.Select ?? []],
                 options.SelectDefault,
@@ -274,10 +276,14 @@ public sealed record ResolvedMemberInspectionPlan(
             demandSelectors,
             intent.Sections.SelectDefault,
             baseRequirement);
+        InspectionTargetRequirement targetRequirement =
+            intent.Members.ExactBodyTarget
+                ? InspectionTargetRequirement.ExactMember
+                : demand.RequiredTarget;
         InspectionCatalogIdentity catalog = SelectCatalog(
             intent,
             selectCatalogFromDemand
-                ? demand.RequiredTarget
+                ? targetRequirement
                 : baseRequirement);
         ApiInspectionCatalog descriptor = ApiInspectionCatalogRegistry.Get(catalog);
         IReadOnlyList<string> defaultSections =
@@ -308,7 +314,7 @@ public sealed record ResolvedMemberInspectionPlan(
                         miss.IsGlob,
                         miss.ListsAllSections))],
                 SelectResolver.IsAllSelector([.. demandSelectors]),
-                demand.RequiredTarget));
+                targetRequirement));
     }
 
     private static InspectionCatalogIdentity SelectCatalog(

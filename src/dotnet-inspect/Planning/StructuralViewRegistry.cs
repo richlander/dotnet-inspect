@@ -129,6 +129,13 @@ public sealed record StructuralDiscoveryRequest(
     bool Schema,
     IProjectionOptions Projection)
 {
+    public InspectionSectionIntent SectionIntent =>
+        new(
+            [.. Select ?? []],
+            SelectDefault,
+            [.. Discover ?? []],
+            InspectionDiscoveryMode.Structural);
+
     public static StructuralDiscoveryRequest From(
         InspectionOptions options)
         => new(
@@ -469,7 +476,10 @@ public static class StructuralViewRegistry
         }
 
         if (HasExplicitGenericTypeTail(target)
-            && !HasGenericTypeAndGenericTailAmbiguity(target))
+            && !HasGenericTypeAndGenericTailAmbiguity(target)
+            && !RequiresGenericTailMemberAlternative(
+                target,
+                tokens))
         {
             classification = new CommandlessStructuralRoute(
                 Route(
@@ -521,6 +531,22 @@ public static class StructuralViewRegistry
             ContainsOption(tokens, "--package")
             || ContainsOption(tokens, "--platform")
             || ContainsOption(tokens, "--project");
+        string? packageValue =
+            GetOptionValues(tokens, "--package")
+                .FirstOrDefault();
+        string? platformValue =
+            GetOptionValues(tokens, "--platform")
+                .FirstOrDefault();
+        bool isPackageIdentity =
+            packageValue is not null
+            && target.Equals(
+                packageValue,
+                StringComparison.OrdinalIgnoreCase);
+        bool isPlatformIdentity =
+            platformValue is not null
+            && target.Equals(
+                platformValue,
+                StringComparison.OrdinalIgnoreCase);
         string? libraryValue =
             GetOptionValues(tokens, "--library")
                 .FirstOrDefault();
@@ -543,7 +569,27 @@ public static class StructuralViewRegistry
         bool hasTypeFilter =
             new TypeGestureIntent(typeFilter)
                 .SelectsListingCatalog(target);
+        SectionDemandClassification demand =
+            ApiSectionDemandIndex.Classify(
+                InspectionSurface.Commandless,
+                request.SectionIntent.DemandSelectors,
+                request.SelectDefault,
+                InspectionTargetRequirement.MemberSet);
         var routes = new List<StructuralRoute>();
+        if (isPackageIdentity)
+        {
+            routes.Add(
+                Route(
+                    StructuralViewIdentity.Package,
+                    InspectionCatalogIdentity.Package));
+        }
+        if (isPlatformIdentity)
+        {
+            routes.Add(
+                Route(
+                    StructuralViewIdentity.DirectLibrary,
+                    InspectionCatalogIdentity.Library));
+        }
         if (!hasExplicitApiSource)
         {
             routes.Add(
@@ -581,7 +627,12 @@ public static class StructuralViewRegistry
         var (_, impliedMemberName) =
             SharedParsers.SplitTrailingMember(target);
         if (impliedMemberName is null
-            && HasGenericTypeAndGenericTailAmbiguity(target))
+            && (HasGenericTypeAndGenericTailAmbiguity(target)
+                || (demand.RequiredTarget
+                        == InspectionTargetRequirement.ExactMember
+                    && HasExplicitGenericTypeTail(target)
+                    && CSharpText.FqnParser.LastTopLevelDot(
+                        target) > 0)))
         {
             impliedMemberName =
                 target[
@@ -598,20 +649,6 @@ public static class StructuralViewRegistry
                 ?? impliedMemberName!;
             MemberTargetSelector selector =
                 MemberTargetSelector.Parse(impliedMember);
-            bool hasSelection =
-                request.Select is { Length: > 0 }
-                || request.SelectDefault;
-            string[] sectionSelectors =
-                hasSelection
-                    ? request.Select ?? []
-                    : request.Discover ?? [];
-            SectionDemandClassification demand =
-                ApiSectionDemandIndex.Classify(
-                    InspectionSurface.Commandless,
-                    [.. sectionSelectors],
-                    hasSelection
-                    && request.SelectDefault,
-                    InspectionTargetRequirement.MemberSet);
             InspectionCatalogIdentity memberCatalog =
                 selector.OverloadIndex is not null
                 || !string.IsNullOrWhiteSpace(
@@ -1282,14 +1319,7 @@ public static class StructuralViewRegistry
         }
 
         string[] sectionSelectors =
-        [
-            .. GetOptionValues(
-                tokens,
-                "-D",
-                "--discover",
-                "-S",
-                "--select"),
-        ];
+            GetSectionOptionValues(tokens);
         if (ApiSectionDemandIndex.Classify(
                 InspectionSurface.Member,
                 [.. sectionSelectors],
@@ -1352,6 +1382,133 @@ public static class StructuralViewRegistry
                 target[..boundary]);
     }
 
+    internal static bool RequiresGenericTailMemberAlternative(
+        string target,
+        IReadOnlyList<string> tokens)
+    {
+        if (!HasExplicitGenericTypeTail(target)
+            || CSharpText.FqnParser.LastTopLevelDot(target) <= 0)
+        {
+            return false;
+        }
+
+        string[] selectors =
+            GetSectionOptionValues(tokens);
+        return ApiSectionDemandIndex.Classify(
+                InspectionSurface.Commandless,
+                [.. selectors],
+                selectDefault: false,
+                InspectionTargetRequirement.MemberSet)
+            .RequiredTarget
+            == InspectionTargetRequirement.ExactMember;
+    }
+
+    internal static bool RejectUniversallyInvalidCommandlessRequest(
+        string[] tokens,
+        StructuralDiscoveryRequest request)
+    {
+        StructuralSchemaProjection[] projections =
+        [
+            .. CreateCommandlessAlternatives(tokens, request)
+                .Alternatives
+                .Select(alternative =>
+                    Project(alternative.Route)),
+        ];
+        string[] knownSections =
+        [
+            .. projections
+                .SelectMany(projection =>
+                    projection.SelectableSectionNames)
+                .Distinct(StringComparer.OrdinalIgnoreCase),
+        ];
+        string[] defaultSections =
+        [
+            .. projections
+                .SelectMany(projection =>
+                    projection.DefaultSectionNames)
+                .Distinct(StringComparer.OrdinalIgnoreCase),
+        ];
+        Dictionary<string, string[]> categories =
+            MergeCategories(projections);
+        bool hasSelection =
+            request.Select is { Length: > 0 }
+            || request.SelectDefault;
+        SelectResult selection =
+            SelectResolver.ResolveSelectAsSections(
+                request.Select,
+                knownSections,
+                defaultSections,
+                categories,
+                request.SelectDefault);
+        if (hasSelection
+            && IsTotalFailure(selection))
+        {
+            return SelectOutput.WriteUnresolved(selection);
+        }
+
+        if (request.Discover is not { Length: > 0 })
+            return false;
+
+        IReadOnlyList<string> discoverySections =
+            hasSelection
+                ? [.. selection.Sections ?? []]
+                : knownSections;
+        var discoverySet = new HashSet<string>(
+            discoverySections,
+            StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, string[]> discoveryCategories =
+            categories
+                .Select(pair =>
+                    new KeyValuePair<string, string[]>(
+                        pair.Key,
+                        [.. pair.Value.Where(
+                            discoverySet.Contains)]))
+                .Where(pair => pair.Value.Length > 0)
+                .ToDictionary(
+                    pair => pair.Key,
+                    pair => pair.Value,
+                    StringComparer.OrdinalIgnoreCase);
+        SelectResult discovery =
+            SelectResolver.ResolveSelectAsSections(
+                request.Discover,
+                discoverySections,
+                infoSections: [],
+                discoveryCategories,
+                selectDefault: false);
+        return IsTotalFailure(discovery)
+            && SelectOutput.WriteUnresolved(discovery);
+
+        static bool IsTotalFailure(SelectResult result) =>
+            result.Unresolved.Count > 0
+            && result.Sections is null or { Count: 0 };
+
+        static Dictionary<string, string[]> MergeCategories(
+            IEnumerable<StructuralSchemaProjection> projections)
+        {
+            Dictionary<string, string[]> merged =
+                new(StringComparer.OrdinalIgnoreCase);
+            foreach (StructuralSchemaProjection projection
+                     in projections)
+            {
+                foreach (var (name, sections)
+                         in projection.SectionCategories)
+                {
+                    merged[name] =
+                        merged.TryGetValue(
+                            name,
+                            out string[]? existing)
+                            ? [.. existing
+                                .Concat(sections)
+                                .Distinct(
+                                    StringComparer.OrdinalIgnoreCase)]
+                            : sections;
+                }
+            }
+
+            return merged;
+        }
+    }
+
     private static InspectionCatalogIdentity
         GetCommandlessMemberCatalog(
             IReadOnlyList<string> tokens)
@@ -1384,14 +1541,7 @@ public static class StructuralViewRegistry
         }
 
         string[] sectionSelectors =
-        [
-            .. GetOptionValues(
-                tokens,
-                "-D",
-                "--discover",
-                "-S",
-                "--select"),
-        ];
+            GetSectionOptionValues(tokens);
         if (ApiSectionDemandIndex.Classify(
                 InspectionSurface.Member,
                 [.. sectionSelectors],
@@ -1445,4 +1595,22 @@ public static class StructuralViewRegistry
 
         return [.. values];
     }
+
+    private static string[] GetSectionOptionValues(
+        IReadOnlyList<string> tokens)
+        => [
+            .. GetOptionValues(
+                    tokens,
+                    "-D",
+                    "--discover",
+                    "-S",
+                    "-s",
+                    "--select",
+                    "--section")
+                .SelectMany(value =>
+                    value.Split(
+                        ',',
+                        StringSplitOptions.TrimEntries
+                        | StringSplitOptions.RemoveEmptyEntries)),
+        ];
 }

@@ -1312,7 +1312,7 @@ public sealed class InspectionPlanningTests
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
         Assert.Contains(
-            $"Select value '{SectionNames.Signature}' not found.",
+            "Exact-member section selection requires exactly one member name.",
             result.Error);
         Assert.DoesNotContain("File not found", result.Error);
     }
@@ -2162,6 +2162,389 @@ public sealed class InspectionPlanningTests
             "ApiMember] unresolved 'Signature'",
             result.Output);
         Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task EffectiveExactDiscovery_WildcardRequiresUniqueResolvedMember()
+    {
+        var result = await RunAppAsync(
+            "member",
+            "System.String",
+            "-m",
+            "Contains*",
+            "--platform",
+            "System.Private.CoreLib",
+            "-D",
+            SectionNames.Signature,
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "requires a single selected overload",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task EffectiveExactDiscovery_ReplansAfterImpliedMemberMerge()
+    {
+        var result = await RunAppAsync(
+            "member",
+            "System.String.Contains",
+            "-m",
+            "StartsWith",
+            "--platform",
+            "System.Private.CoreLib",
+            "-D",
+            SectionNames.Signature,
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Exact-member section selection requires exactly one member name.",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task EffectiveTypeListing_SelectionConstrainsDiscovery()
+    {
+        var result = await RunAppAsync(
+            "type",
+            "System.String",
+            "--platform",
+            "System.Private.CoreLib",
+            "-t",
+            "*String*",
+            "-S",
+            "Classes",
+            "-D",
+            "Structs",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Section 'Structs' not found.",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task EffectiveTypeDiscovery_RejectsUniversalMissBeforeAcquisition()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+
+        var result = await RunAppAsync(
+            "type",
+            "Missing.Type",
+            "--library",
+            missing,
+            "-D",
+            "DefinitelyNotASection",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "DefinitelyNotASection",
+            result.Error);
+        Assert.DoesNotContain(
+            "File not found",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task StaticBodyPredicate_MultipleMembersRejectBeforeAcquisition()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+
+        var result = await RunAppAsync(
+            "member",
+            "Missing.Type",
+            "-m",
+            "Run",
+            "-m",
+            "Stop",
+            "--library",
+            missing,
+            "--where",
+            "Kind=InvocationExpression",
+            "-D",
+            "--schema",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--where Kind=... requires one exact member name or selector.",
+            result.Error);
+        Assert.DoesNotContain(
+            "File not found",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task CommandlessStaticAll_RetainsExactDiscoveryDemand()
+    {
+        var result = await RunAppAsync(
+            "Missing.Type.Run",
+            "-S",
+            SelectResolver.AllSelector,
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(
+            "[member/member-target/ApiMemberDetail] Signature",
+            result.Output);
+        Assert.DoesNotContain(
+            "[member/member-target/ApiMemberOverload] Signature",
+            result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Theory]
+    [InlineData("-S")]
+    [InlineData("-D")]
+    public async Task CommandlessUniversalMiss_RejectsBeforeTargetResolution(
+        string selectorOption)
+    {
+        var result = await RunAppAsync(
+            "Timer.Start",
+            selectorOption,
+            "DefinitelyNotASection",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "DefinitelyNotASection",
+            result.Error);
+        Assert.DoesNotContain(
+            "matched multiple platform types",
+            result.Error);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExactDiscoveryWithoutMember_RejectsBeforeAcquisition(
+        bool schema)
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+        var args = new List<string>
+        {
+            "member",
+            "MissingType",
+            "--library",
+            missing,
+            "-D",
+            SectionNames.IL,
+        };
+        if (schema)
+            args.Add("--schema");
+        args.AddRange(["--table", "--tips", "q"]);
+
+        var result = await RunAppAsync([.. args]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Exact-member section selection requires exactly one member name.",
+            result.Error);
+        Assert.DoesNotContain(
+            "File not found",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task StaticConflictingDottedOrdinals_AreRejected()
+    {
+        var result = await RunAppAsync(
+            "member",
+            "System.String.Contains:1",
+            "--platform",
+            "System.Private.CoreLib",
+            "-m",
+            "Contains:2",
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "cannot combine different overload selectors",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task CommandlessNonGenericTypeGenericMethodTail_KeepsAlternatives()
+    {
+        string fixture =
+            typeof(MemberGenericSelectorFixture)
+                .Assembly.Location;
+
+        var result = await RunAppAsync(
+            $"{typeof(MemberGenericSelectorFixture).FullName}.GenericChoice<T>",
+            "--library",
+            fixture,
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(
+            "[member/member-target/ApiMemberDetail] Signature",
+            result.Output);
+        Assert.Contains(
+            "[type/type/ApiMember] unresolved 'Signature'",
+            result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Theory]
+    [InlineData("-D", "Signature")]
+    [InlineData("-D", "Signature,IL")]
+    [InlineData("--section", "Signature")]
+    public void GenericMethodTailExactDemand_RecognizesSectionSpellings(
+        string sectionOption,
+        string sections)
+    {
+        string target =
+            $"{typeof(MemberGenericSelectorFixture).FullName}.GenericChoice<T>";
+
+        Assert.True(
+            StructuralViewRegistry
+                .RequiresGenericTailMemberAlternative(
+                    target,
+                    [target, sectionOption, sections]));
+    }
+
+    [Fact]
+    public async Task PositionalPackageStaticDottedTarget_MatchesPackageOption()
+    {
+        string[] projection =
+        [
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--table",
+            "--tips",
+            "q",
+        ];
+        var positional = await RunAppAsync(
+            [
+                "member",
+                "missing-for-schema.nupkg",
+                "Missing.Type",
+                .. projection,
+            ]);
+        var option = await RunAppAsync(
+            [
+                "member",
+                "Missing.Type",
+                "--package",
+                "missing-for-schema.nupkg",
+                .. projection,
+            ]);
+
+        Assert.Equal(option, positional);
+        Assert.Equal(0, positional.Exit);
+    }
+
+    [Fact]
+    public async Task PositionalLibraryStaticDottedTarget_MatchesLibraryOption()
+    {
+        string[] projection =
+        [
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--table",
+            "--tips",
+            "q",
+        ];
+        var positional = await RunAppAsync(
+            [
+                "member",
+                "missing-for-schema.dll",
+                "Missing.Type",
+                .. projection,
+            ]);
+        var option = await RunAppAsync(
+            [
+                "member",
+                "Missing.Type",
+                "--library",
+                "missing-for-schema.dll",
+                .. projection,
+            ]);
+
+        Assert.Equal(option, positional);
+        Assert.Equal(0, positional.Exit);
+    }
+
+    [Fact]
+    public async Task PositionalLibraryEffectiveDottedTarget_MatchesLibraryOption()
+    {
+        string fixture =
+            typeof(MemberGenericSelectorFixture)
+                .Assembly.Location;
+        string target =
+            $"{typeof(MemberGenericSelectorFixture).FullName}.GenericChoice<T>";
+        string[] projection =
+        [
+            "-D",
+            SectionNames.Signature,
+            "--table",
+            "--tips",
+            "q",
+        ];
+        var positional = await RunAppAsync(
+            [
+                "member",
+                fixture,
+                target,
+                .. projection,
+            ]);
+        var option = await RunAppAsync(
+            [
+                "member",
+                target,
+                "--library",
+                fixture,
+                .. projection,
+            ]);
+
+        Assert.Equal(option, positional);
+        Assert.Equal(0, positional.Exit);
     }
 
     [Theory]
