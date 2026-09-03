@@ -148,7 +148,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [GitHub Status Queries](github-status-queries.md) | Querying PR mergeability and CI status without wasting API quota. |
 | [GitHub API Operations](github-api-operations.md) | Correct `gh api` usage for PR/issue metadata changes. |
 | [Stacked PRs](stacked-prs.md) | Mechanics for stacking multiple PRs for a multi-slice issue. |
-| [Agent Session State](agent-session-state.md) | tmux window naming and `@agent`/`@agent_state` publishing mechanics for concurrent agents. |
+| [Agent Session State](agent-session-state.md) | Session themes, post-merge handoff, tmux identity, pane activity, and state publishing mechanics. |
 | [Local Development Environment](dev-environment.md) | NuGet source overrides and file-based throwaway probes. |
 | [Release Workflow](release-workflow.md) | Coordinated package-and-site release process. |
 | [Markout Co-development](markout-co-development.md) | The (rare) peer-checkout workflow for changes spanning Markout and this repo. |
