@@ -567,18 +567,29 @@ public sealed class CallerScopeReachabilityPlan
 
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(AssemblyBindingRequest request)
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
         {
+            AssemblyBindingSelection selection;
             if (request.Target
                 is not AssemblyBindingTarget.AssemblyReference reference)
             {
-                return AssemblyBindingSelection.ValidateForRequest(
+                AssemblyBindingSelectionSnapshot? nonReferenceSnapshot =
+                    _fallback.Select(request);
+                selection = AssemblyBindingSelection.ValidateForRequest(
                     request,
-                    _fallback.Select(request));
+                    nonReferenceSnapshot?.Selection);
+                return new AssemblyBindingSelectionSnapshot(
+                    Version,
+                    selection);
             }
 
             if (_target.Identity.IsEquivalentTo(reference.Identity))
-                return AssemblyBindingSelection.Found(_target);
+            {
+                return new AssemblyBindingSelectionSnapshot(
+                    Version,
+                    AssemblyBindingSelection.Found(_target));
+            }
 
             ImmutableArray<ResolvedAssemblyReference> matches = _roots
                 .Where(
@@ -587,15 +598,20 @@ public sealed class CallerScopeReachabilityPlan
                 .ToImmutableArray();
             if (matches.Length > 0)
             {
-                return matches.Length == 1
+                selection = matches.Length == 1
                     ? AssemblyBindingSelection.Found(matches[0])
                     : AssemblyBindingSelection.Multiple(matches);
+                return new AssemblyBindingSelectionSnapshot(
+                    Version,
+                    selection);
             }
 
+            AssemblyBindingSelectionSnapshot? referenceSnapshot =
+                _fallback.Select(request);
             AssemblyBindingSelection delegated =
                 AssemblyBindingSelection.ValidateForRequest(
                     request,
-                    _fallback.Select(request));
+                    referenceSnapshot?.Selection);
             if (delegated
                 is not AssemblyBindingSelection.Missing
                 {
@@ -603,7 +619,9 @@ public sealed class CallerScopeReachabilityPlan
                         AssemblyBindingMissDisposition.NoNameOwner,
                 })
             {
-                return delegated;
+                return new AssemblyBindingSelectionSnapshot(
+                    Version,
+                    delegated);
             }
 
             bool targetOwnsName = string.Equals(
@@ -623,7 +641,7 @@ public sealed class CallerScopeReachabilityPlan
             if (targetOwnsName)
                 nameOwners = nameOwners.Insert(0, _target);
 
-            return nameOwners.Length switch
+            selection = nameOwners.Length switch
             {
                 0 => delegated,
                 1 => AssemblyBindingSelection.CannotSelect(
@@ -631,6 +649,9 @@ public sealed class CallerScopeReachabilityPlan
                         AssemblyBindingFailureKind.IdentityPolicyRequired)),
                 _ => AssemblyBindingSelection.Multiple(nameOwners),
             };
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                selection);
         }
     }
 }

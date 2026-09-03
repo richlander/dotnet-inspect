@@ -63,6 +63,29 @@ public sealed record AssemblyBindingFailure
 public sealed class AssemblyBindingPolicyVersion;
 
 /// <summary>
+/// One immutable policy answer paired with the exact policy-state version that
+/// produced it.
+/// </summary>
+public sealed class AssemblyBindingSelectionSnapshot
+{
+    public AssemblyBindingSelectionSnapshot(
+        AssemblyBindingPolicyVersion version,
+        AssemblyBindingSelection selection)
+    {
+        ArgumentNullException.ThrowIfNull(version);
+        ArgumentNullException.ThrowIfNull(selection);
+        Version = version;
+        Selection = selection;
+    }
+
+    /// <summary>Gets the policy-state version that produced the selection.</summary>
+    public AssemblyBindingPolicyVersion Version { get; }
+
+    /// <summary>Gets the structured selection produced by that state.</summary>
+    public AssemblyBindingSelection Selection { get; }
+}
+
+/// <summary>
 /// The thing a binding policy is asked to select. This is deliberately
 /// separate from <see cref="TypeResolutionStart"/>, which describes where
 /// type resolution begins, and <see cref="TypeResolutionRequest"/>, which
@@ -364,8 +387,11 @@ public interface IAssemblyBindingPolicy
     /// <summary>Gets the identity of the policy snapshot in use.</summary>
     AssemblyBindingPolicyVersion Version { get; }
 
-    /// <summary>Selects descriptor candidates for one structured request.</summary>
-    AssemblyBindingSelection Select(AssemblyBindingRequest request);
+    /// <summary>
+    /// Selects descriptor candidates and atomically identifies the policy state
+    /// that produced the answer.
+    /// </summary>
+    AssemblyBindingSelectionSnapshot Select(AssemblyBindingRequest request);
 }
 
 /// <summary>
@@ -381,7 +407,7 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
     readonly AssemblyBindingPolicyVersion _version = new();
     readonly ConcurrentDictionary<
         SelectionKey,
-        Lazy<AssemblyBindingSelection>> _selections = new();
+        Lazy<AssemblyBindingSelectionSnapshot>> _selections = new();
 
     public AssemblyReferenceBindingPolicy(IAssemblyReferenceResolver resolver)
     {
@@ -395,7 +421,8 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
             ? bindingPolicy.Version
             : _version;
 
-    public AssemblyBindingSelection Select(AssemblyBindingRequest request)
+    public AssemblyBindingSelectionSnapshot Select(
+        AssemblyBindingRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (_bindingPolicy is { } bindingPolicy)
@@ -404,8 +431,10 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
         var key = SelectionKey.From(request);
         return _selections.GetOrAdd(
             key,
-            _ => new Lazy<AssemblyBindingSelection>(
-                () => SelectLegacy(request),
+            _ => new Lazy<AssemblyBindingSelectionSnapshot>(
+                () => new AssemblyBindingSelectionSnapshot(
+                    _version,
+                    SelectLegacy(request)),
                 LazyThreadSafetyMode.ExecutionAndPublication)).Value;
     }
 

@@ -1752,8 +1752,15 @@ public sealed class MemberCallGraphSessionTests
         public AssemblyBindingPolicyVersion Version { get; } =
             new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            AssemblyBindingSelection.NotFound();
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                AssemblyBindingSelection.NotFound();
+        }
     }
 }
