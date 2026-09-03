@@ -226,10 +226,14 @@ compatibility contract.
 
 Every PR demonstrates the scenario it serves, using a mockup for documentation
 work when no product output exists yet. Post the intended demo early enough to
-change the design and implementation. A good demo makes the goal accessible,
-shows what to notice, and exercises a neighboring case so the implementation
-is not fitted only to the showcase. Follow
-[Lead with the demo](../AGENTS.md#lead-with-the-demo) for the PR contract.
+change the design and implementation. Put `## Demo` above validation in the PR
+body. A good demo shows a real canonical invocation and its output, includes
+before and after for a fix, says what to notice, and exercises a neighboring
+case so the implementation is not fitted only to the showcase.
+
+For a network-accessible inspect-web demo, follow
+[Inspect Web demo hosting](runbooks/inspect-web-demo-hosting.md). A local HTTP
+listener or successful `curl` is not a user-visible demo.
 
 ## Treat critical review feedback as a design question
 

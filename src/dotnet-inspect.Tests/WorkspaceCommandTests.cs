@@ -63,7 +63,7 @@ public sealed class WorkspaceCommandTests
 
             No package occurrences.
 
-            """,
+            """.ReplaceLineEndings(),
             captured.Output);
         Assert.Empty(captured.Error);
     }

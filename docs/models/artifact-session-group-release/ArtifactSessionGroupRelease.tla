@@ -316,6 +316,8 @@ RequestOwnerRelease(g) ==
     /\ g \in ExactDependentGroups
        \/ /\ g = ForeignGroup
           /\ unrelatedAdmitted
+    /\ ~(g = DependentTwo
+         /\ groupCloseStatus[DependentTwo] = "Faulted")
     /\ IF g = DependentOne
        THEN DependentOneRelease!RequestRelease
        ELSE UNCHANGED oneReleaseVars
@@ -440,6 +442,7 @@ StartWorkspaceGroupClose(g) ==
 FaultSecondWorkspaceGroupClose ==
     /\ workspaceState = "ClosingGroups"
     /\ groupCloseStatus[DependentTwo] = "NotStarted"
+    /\ twoRequestedGroup = NoGroup
     /\ groupCloseStatus' =
         [groupCloseStatus EXCEPT ![DependentTwo] = "Faulted"]
     /\ UNCHANGED <<
@@ -654,6 +657,11 @@ ReleaseRequestsCarryOwnerAuthority ==
     \A g \in Groups :
         /\ (RequestedGroup(g) = NoGroup) = (requestIssuer[g] = "None")
         /\ requestIssuer[g] # "ArtifactCleanup"
+
+RecoveryPrecedesPostFaultRequest ==
+    (/\ groupCloseStatus[DependentTwo] = "Faulted"
+     /\ twoRequestedGroup = DependentTwo)
+        => faultRecoveryRequestObserved
 
 ArtifactCleanupResultRemainsVisible ==
     workspaceState = "Closed"

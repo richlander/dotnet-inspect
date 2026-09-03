@@ -117,6 +117,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Inspect Web UI](design/inspect-web-ui.md) | Composition map for the website redesign: redesign summary, product dependencies, document map, cross-document relationships, and reference-product boundary. |
 | [Inspect Web Presentation Language](design/inspect-web-presentation-language.md) | Reusable visual and accessibility language: selector-control states, progressive filter disclosure, shared subject-heading rules, and compact source-provenance presentation. |
 | [Member Source Comparison Query](design/member-source-comparison-query.md) | Presentation-neutral two-endpoint member source acquisition, partial availability, cancellation, and binding-policy consistency. |
+| [Member Source Diff Presentation](design/member-source-diff-presentation.md) | Canonical placement-aligned endpoint projection, AnalysisDiff statistics, Markout lowering, and first adoption by CLI Source Diff. |
 | [Inspect Web SlideStrip](design/inspect-web-slide-strip.md) | Reusable single-region ordered-item control with Label, optional Short Label and Icon, derived Index, whole-strip modes, contiguous windows, edge disclosure, and focus preservation. |
 | [Inspect Web Navigation Presentation](design/inspect-web-navigation-presentation.md) | Rendering and interacting with product-issued coordinate, workspace, subject, hierarchy, Library, lens, and activation descriptors. |
 | [Inspect Web Navigation Consumer](design/inspect-web-navigation-consumer.md) | Browser-side navigation-result consumer model: canonical location, browser history, transition lifecycle, effect authority, synchronization debt, and renderer/destination lifetimes. |
@@ -143,11 +144,12 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Development Practices](development-practices.md) | How convention, design, pathological fixtures, analogous implementations, narrow slices, agent-current compatibility, demos, and review work together. |
 | [Design Scope and Composition](../docs/design-scope.md) | Full mechanics for one-owner-per-design, broad-design gating, TLA+ modeling, and over-broad-design recovery. |
 | [Evidence and Validation](evidence-and-validation.md) | Matching evidence to claims, the style-oracle consultation procedure, and the harness/product boundary. |
+| [Fixture Governance](fixture-governance.md) | Placement, project-boundary axes, catalog metadata, consumer rules, and expectation ownership for compiled fixtures and test-local samples. |
 | [Round Orchestration](round-orchestration.md) | Running an adversarial review round: status discovery, dispatch, reconciliation, carry-forward, and block boundaries. |
 | [GitHub Status Queries](github-status-queries.md) | Querying PR mergeability and CI status without wasting API quota. |
 | [GitHub API Operations](github-api-operations.md) | Correct `gh api` usage for PR/issue metadata changes. |
 | [Stacked PRs](stacked-prs.md) | Mechanics for stacking multiple PRs for a multi-slice issue. |
-| [Agent Session State](agent-session-state.md) | tmux window naming and `@agent`/`@agent_state` publishing mechanics for concurrent agents. |
+| [Agent Session State](agent-session-state.md) | Session themes, post-merge handoff, tmux identity, pane activity, and state publishing mechanics. |
 | [Local Development Environment](dev-environment.md) | NuGet source overrides and file-based throwaway probes. |
 | [Release Workflow](release-workflow.md) | Coordinated package-and-site release process. |
 | [Markout Co-development](markout-co-development.md) | The (rare) peer-checkout workflow for changes spanning Markout and this repo. |
