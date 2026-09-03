@@ -192,7 +192,7 @@ unrelated members such as `review`. In the table, **status members** means
 
 | Status snapshot says | Round transition |
 | --- | --- |
-| PR is merged | Leave the status wait, relinquish ownership, and end. |
+| PR is merged | Leave the status wait, relinquish ownership, perform the [theme handoff](agent-session-state.md#complete-a-merge-with-a-theme-handoff), and end. |
 | PR is closed or draft | Leave the status wait, publish the human action or stopped state, and end. |
 | Base ref changed | Leave the status wait; expire merge authorization and route the unchanged head through candidate formation without inheriting fixed-head evidence. |
 | Head changed | Leave the status wait; disable auto-merge first, handle an already-merged result as terminal, then route the returned head through candidate formation without inheriting fixed-head evidence. |
@@ -430,6 +430,7 @@ prompt:
 
 ```text
 Round <n> is complete for PR <number>.
+- Theme: <one-sentence session theme>.
 - Review models <model-a> and <model-b> were used for adversarial review.
 - Design basis: normative owner <path#section> — <owned claim>; supporting
   <path and role for each model, adjacent contract, constraint, or consumer>.
