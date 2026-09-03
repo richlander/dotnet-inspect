@@ -650,14 +650,13 @@ public static class PackageQuery
                 cancellationToken).ConfigureAwait(false))
         {
             cancellationToken.ThrowIfCancellationRequested();
+            bool sourceWideSearchFailure =
+                profileEvent is PackageProfileEvent.Failure searchFailure
+                && IsSourceWideSearchFailure(searchFailure.Value);
             if (!searchOutcomeObserved)
             {
                 searchOutcomeObserved = true;
-                if (profileEvent is not PackageProfileEvent.Failure
-                    {
-                        Value.Kind: PackageProfileFailureKind.Search
-                            or PackageProfileFailureKind.SearchContract,
-                    })
+                if (!sourceWideSearchFailure)
                 {
                     yield return Progress(
                         PackageQueryProgressPhase.Search,
@@ -794,8 +793,7 @@ public static class PackageQuery
 
                 case PackageProfileEvent.Failure failure:
                     failures++;
-                    if (failure.Value.Kind
-                        is not PackageProfileFailureKind.Search)
+                    if (!sourceWideSearchFailure)
                     {
                         candidates++;
                         yield return Progress(
@@ -827,6 +825,15 @@ public static class PackageQuery
         throw new InvalidOperationException(
             "The package profile stream ended without a completion event.");
     }
+
+    static bool IsSourceWideSearchFailure(PackageProfileFailure failure) =>
+        failure.Kind == PackageProfileFailureKind.Search
+        || failure is
+        {
+            Kind: PackageProfileFailureKind.SearchContract,
+            PackageId: null,
+            Version: null,
+        };
 
     static bool TryMatchManifest(
         PackageQueryPlan plan,

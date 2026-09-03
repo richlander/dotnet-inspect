@@ -1079,6 +1079,13 @@ public sealed class PackageQueryTests
         Assert.Equal(0, summary.Candidates);
         Assert.Equal(1, summary.Failures);
         Assert.Empty(source.ManifestRequests);
+        Assert.Equal(
+            [
+                new PackageQueryProgress(
+                    PackageQueryProgressPhase.Search, 0, 1),
+            ],
+            events.OfType<PackageQueryEvent.Progress>()
+                .Select(item => item.Value));
     }
 
     [Fact]
@@ -1191,6 +1198,19 @@ public sealed class PackageQueryTests
         Assert.Equal(PackageQueryCompletionKind.MatchLimitReached, summary.Completion);
         Assert.Equal(2, summary.Candidates);
         Assert.Equal(1, summary.Failures);
+        Assert.Equal(
+            [
+                new PackageQueryProgress(
+                    PackageQueryProgressPhase.Search, 0, 1),
+                new PackageQueryProgress(
+                    PackageQueryProgressPhase.Search, 1, 1),
+                new PackageQueryProgress(
+                    PackageQueryProgressPhase.Manifest, 1, 2),
+                new PackageQueryProgress(
+                    PackageQueryProgressPhase.Manifest, 2, 2),
+            ],
+            events.OfType<PackageQueryEvent.Progress>()
+                .Select(item => item.Value));
     }
 
     [Fact]
