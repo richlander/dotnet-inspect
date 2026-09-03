@@ -236,6 +236,9 @@ internal sealed class ChangeRoutingPolicy
         else if (BytePattern.MatchesAny(
             path,
             "eng/CiChangeDetection/*",
+            "eng/DependencyPolicy/*",
+            "eng/DependencyPolicy.Tests/*",
+            "eng/dependency-policy.json",
             "eng/package-fixtures/*",
             "eng/package-manifest-corpus.json",
             "eng/verify-package-manifest-corpus.cs",
