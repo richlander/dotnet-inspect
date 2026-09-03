@@ -2,14 +2,20 @@
 
 ## Status
 
-Focused L2 design proposal for
+Focused L2 design for
 [#5187](https://github.com/richlander/dotnet-inspect/issues/5187), adopting the
 row-selection composition pattern locked by
-[Item and line selection composition](item-and-line-limits.md). The current
-product does not implement this contract.
+[Item and line selection composition](item-and-line-limits.md).
 
-All asserted behavior is unverified until the Release gates in
-[Required gates](#required-gates) land.
+Implementation is partial. #5557 implements one already-resolved, one-cohort
+Rows path: request-local sequence-key binding, one named semantic invocation,
+and typed success or strict-failure rebinding. Row-intent resolution,
+projection, Count, source outcomes, and multiple-cohort composition remain
+unimplemented.
+
+Only that implemented subset is verified by its four Release gates in
+[Required gates](#required-gates). Every other asserted behavior remains
+unverified until its named gate lands.
 
 Related designs:
 
@@ -528,7 +534,16 @@ vacuously.
 
 ## Required gates
 
-The implementation must add these named Release gates:
+The one-cohort Rows implementation is enforced by:
+
+| Gate | Contract |
+| --- | --- |
+| `RowsCohortPreservesOwnerIdentityAndSelection` | One cohort preserves declared identity and order through composed semantic selection, including resolver reuse once per reached `Top` stage across row sets. |
+| `RowsCohortBindsStrictFailureAtomically` | A strict semantic failure binds to its exact declared identity and publishes no selected row sets. |
+| `RowsCohortRejectsAmbiguousOrInvalidInput` | Empty cohorts, duplicate identities, and invalid required inputs reject before plausible output; resolver and comparer exceptions propagate unchanged. |
+| `RowsCohortSnapshotsInputsAndResults` | Input and result collection membership and order are snapshots while row values remain caller-owned objects. |
+
+The remaining implementation must add these named Release gates:
 
 | Gate | Contract |
 | --- | --- |

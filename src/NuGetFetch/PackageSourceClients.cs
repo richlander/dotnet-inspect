@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using DotnetInspector.Networking;
 using InertText;
+using NuGetFetch.Plugins;
 using NuGet.Versioning;
 
 namespace NuGetFetch;
@@ -387,6 +388,42 @@ public static partial class PackageSourceClientFactory
     }
 
     /// <summary>
+    /// Adapts the existing desktop source model to a typed runtime client with
+    /// source-scoped plugin authentication.
+    /// </summary>
+    public static IPackageSourceClient CreateWithPluginAuthentication(
+        PackageSource source,
+        PackageSourceAssociation association,
+        PluginAuthenticationContext authenticationContext,
+        NuGetFetchOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(association);
+        if (!Uri.TryCreate(source.Url, UriKind.Absolute, out Uri? endpoint)
+            || endpoint.IsFile)
+        {
+            throw new PackageSourceClientUnavailableException(
+                PackageSourceKind.LocalFolder);
+        }
+        RequireAuthenticationAssociation(
+            association,
+            authenticationContext,
+            endpoint);
+
+        return new NuGetV3PackageSourceClient(
+            CreateResultFactory(
+                endpoint,
+                association,
+                PackageSourceKind.NuGetV3),
+            endpoint,
+            CreateOwnedTransport(
+                endpoint,
+                authenticationContext: authenticationContext),
+            options ?? new NuGetFetchOptions(),
+            source.Credential);
+    }
+
+    /// <summary>
     /// Creates a runtime client from credential-free configuration and optional
     /// ephemeral credentials.
     /// </summary>
@@ -419,6 +456,46 @@ public static partial class PackageSourceClientFactory
                     CreateResultFactory(descriptor, association),
                     descriptor.Endpoint,
                     CreateOwnedTransport(descriptor.Endpoint),
+                    options,
+                    credential),
+            _ => throw new PackageSourceClientUnavailableException(
+                descriptor.Kind),
+        };
+    }
+
+    /// <summary>
+    /// Creates a V3 runtime client with source-scoped plugin authentication.
+    /// </summary>
+    public static IPackageSourceClient CreateWithPluginAuthentication(
+        PackageSourceDescriptor descriptor,
+        PackageSourceAssociation association,
+        PluginAuthenticationContext authenticationContext,
+        NuGetFetchOptions? options = null,
+        PackageSourceCredential? credential = null)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        ArgumentNullException.ThrowIfNull(association);
+        RequireAuthenticationAssociation(
+            association,
+            authenticationContext,
+            descriptor.Endpoint);
+        options ??= new NuGetFetchOptions();
+        if (descriptor.Kind == PackageSourceKind.NuGetGallery)
+        {
+            throw new InvalidOperationException(
+                "The NuGet Gallery source cannot use plugin authentication.");
+        }
+
+        return descriptor.Kind switch
+        {
+            PackageSourceKind.NuGetV3 when descriptor.Endpoint is not null =>
+                new NuGetV3PackageSourceClient(
+                    CreateResultFactory(descriptor, association),
+                    descriptor.Endpoint,
+                    CreateOwnedTransport(
+                        descriptor.Endpoint,
+                        authenticationContext:
+                            authenticationContext),
                     options,
                     credential),
             _ => throw new PackageSourceClientUnavailableException(
@@ -503,7 +580,8 @@ public static partial class PackageSourceClientFactory
         PackageSource source,
         PackageSourceAssociation association,
         HttpMessageHandler transport,
-        NuGetFetchOptions? options = null)
+        NuGetFetchOptions? options = null,
+        PluginAuthenticationContext? authenticationContext = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(association);
@@ -515,13 +593,24 @@ public static partial class PackageSourceClientFactory
                 PackageSourceKind.LocalFolder);
         }
 
+        if (authenticationContext is not null)
+        {
+            RequireAuthenticationAssociation(
+                association,
+                authenticationContext,
+                endpoint);
+        }
+
         return new NuGetV3PackageSourceClient(
             CreateResultFactory(
                 endpoint,
                 association,
                 PackageSourceKind.NuGetV3),
             endpoint,
-            CreateOwnedTransport(endpoint, transport),
+            CreateOwnedTransport(
+                endpoint,
+                transport,
+                authenticationContext),
             options ?? new NuGetFetchOptions(),
             source.Credential);
     }
@@ -531,7 +620,8 @@ public static partial class PackageSourceClientFactory
         PackageSourceAssociation association,
         HttpMessageHandler transport,
         NuGetFetchOptions? options = null,
-        PackageSourceCredential? credential = null)
+        PackageSourceCredential? credential = null,
+        PluginAuthenticationContext? authenticationContext = null)
     {
         ArgumentNullException.ThrowIfNull(descriptor);
         ArgumentNullException.ThrowIfNull(association);
@@ -557,10 +647,21 @@ public static partial class PackageSourceClientFactory
                 descriptor.Kind);
         }
 
+        if (authenticationContext is not null)
+        {
+            RequireAuthenticationAssociation(
+                association,
+                authenticationContext,
+                descriptor.Endpoint);
+        }
+
         return new NuGetV3PackageSourceClient(
             CreateResultFactory(descriptor, association),
             descriptor.Endpoint,
-            CreateOwnedTransport(descriptor.Endpoint!, transport),
+            CreateOwnedTransport(
+                descriptor.Endpoint!,
+                transport,
+                authenticationContext),
             options,
             credential);
     }
@@ -615,11 +716,23 @@ public static partial class PackageSourceClientFactory
 
     private static HttpClient CreateOwnedTransport(
         Uri source,
-        HttpMessageHandler? transport = null)
+        HttpMessageHandler? transport = null,
+        PluginAuthenticationContext? authenticationContext = null)
     {
         bool isBrowser = OperatingSystem.IsBrowser();
+        if (isBrowser && authenticationContext is not null)
+        {
+            throw new PlatformNotSupportedException(
+                "NuGet credential-provider plugins are not supported in Browser/Wasm.");
+        }
+
         HttpMessageHandler handler = transport
             ?? CreateV3TransportHandler(source, isBrowser);
+        if (authenticationContext is not null)
+        {
+            handler = authenticationContext.Bind(handler);
+        }
+
         if (!isBrowser)
         {
             handler = new NuGetCredentialRedirectHandler(handler);
@@ -629,6 +742,32 @@ public static partial class PackageSourceClientFactory
         {
             Timeout = Timeout.InfiniteTimeSpan,
         };
+    }
+
+    private static void RequireAuthenticationAssociation(
+        PackageSourceAssociation association,
+        PluginAuthenticationContext authenticationContext,
+        Uri? endpoint)
+    {
+        ArgumentNullException.ThrowIfNull(authenticationContext);
+        if (authenticationContext.IsRetired)
+        {
+            throw new InvalidOperationException(
+                "The plugin authentication context has retired.");
+        }
+
+        if (!authenticationContext.IsBoundTo(association))
+        {
+            throw new InvalidOperationException(
+                "The plugin authentication context belongs to another package source association.");
+        }
+
+        if (endpoint is not null
+            && !authenticationContext.IsResourceInScope(endpoint))
+        {
+            throw new InvalidOperationException(
+                "The V3 source endpoint is outside the plugin authentication context's resource scope.");
+        }
     }
 
     private static HttpClient CreateGalleryTransport()
