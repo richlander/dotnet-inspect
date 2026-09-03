@@ -742,7 +742,13 @@ test("Annotated Source composition requires a concrete overload and validated se
     /const annotatedWorkingSurface =\s*annotatedPageContext && state\.memberAnnotatedEmbedded !== null;/);
   assert.match(
     appSource,
-    /shell-actions\$\{annotatedPageContext \? " annotated-page-actions" : ""\}/);
+    /class="working-surface-actions"[\s\S]*renderAnnotatedSourcePageActions\(annotatedWorkingSurface\)/);
+  assert.doesNotMatch(
+    appSource,
+    /class="contextual-actions annotated-contextual-actions"/);
+  assert.match(
+    appSource,
+    /class="working-surface-actions" role="group" aria-label="\$\{annotatedPageContext \? "Annotated Source actions" : "Source actions"\}"/);
   assert.match(
     appSource,
     /class="working-surface-actions" role="group" aria-label="\$\{annotatedPageContext \? "Annotated Source actions" : "Source actions"\}"/);
