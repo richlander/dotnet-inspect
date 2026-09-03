@@ -79,12 +79,17 @@ Selection follows these rules:
 5. Ties are resolved by canonical target identity, never JSON property order.
 
 Framework and runtime matching is ordinal and case-insensitive. Version 3
-framework names are correlated through the existing
-`TfmSelector.NormalizeTfm` behavior rather than a second framework parser, so a
-short request matches a long framework-name pivot. Version 4 requests match the
-alias pivot directly. The selected identity uses lowercase invariant normalized
-spelling while the source spelling is retained separately as `InertString`
-evidence.
+framework names are correlated through canonical NuGet framework identity, so
+a short request matches a semantically equal long framework-name pivot.
+Version 4 requests match the alias pivot directly. The selected identity uses
+canonical short-folder spelling while the source spelling is retained
+separately as `InertString` evidence.
+
+Only recognized canonical framework identities participate in default
+framework-priority ordering. A recognized target sorts ahead of an opaque
+target and is ranked through its canonical identity. Opaque framework text is
+never normalized or repaired to infer priority; opaque targets use only their
+deterministic identity tie-breaker.
 
 Because matching collapses case, two target pivots may share one canonical
 target identity. That is detected before selection: the ambiguity fails the
@@ -117,14 +122,43 @@ Every public identity string is one of two safe forms, and no artifact-authored
 text is ever emitted verbatim as identity:
 
 - **canonical typed currency** — a normalized target framework, runtime
-  identifier, package identity, or version that the existing coordinate and
-  framework resolvers already recognize as canonical; or
+  identifier, package identity, or version. Frameworks use NuGet target-
+  framework parsing semantics and canonical short-folder spelling, including
+  platform and platform-version identity; or
 - **an opaque owner token** — `sha256:` followed by a lowercase hexadecimal
   digest over the exact source bytes of the authored text.
 
 The two forms cannot collide because the opaque prefix is outside the canonical
 grammar, and distinct authored text always yields distinct opaque tokens. Two
 different unrecognized frameworks therefore never compare equal.
+
+Long-form framework admission is deliberately stricter than
+`NuGetFramework.Parse`. NuGet owns framework, version, and profile semantics,
+but the query rejects empty, duplicate, or unknown attributes before parsing so
+an ignored attribute cannot make malformed text equal a recognized framework.
+Version text must use non-empty ASCII numeric components separated by single
+dots after at most one optional leading `v` or `V`. Profile text must already
+satisfy the bounded target-token grammar; it is never repaired by removing
+whitespace. NuGet then owns profile interpretation, including ignoring a
+profile for a framework family where NuGet does not retain it.
+
+The query additionally recognizes `Platform` and `PlatformVersion` attributes
+for `.NETCoreApp` version 5 or later because NuGet long-form parsing does not
+retain them. Platform text must be an ASCII alphanumeric token, platform
+version must use non-empty ASCII numeric components separated by single dots
+after at most one optional leading `v` or `V`, and a profile cannot coexist
+with a platform. Signs, whitespace, and empty components are not version
+syntax.
+
+Every admitted non-PCL long form must produce a short-folder spelling that
+parses back to the same full NuGet framework identity. Portable frameworks
+below version 5, NuGet's PCL classification, are the explicit exception because
+NuGet maps equivalent named and component-list profiles to one canonical short
+spelling; they must preserve framework identifier and version, and the
+produced short spelling must be a fixed point under NuGet parsing. These round
+trips prevent framework families, versions, profiles, and distinct platform
+and platform-version pairs from collapsing into one short spelling. Text
+outside these rules remains opaque rather than being repaired.
 
 Root, declaration-group, graph-node, and graph-edge identities are issued
 within that selection:
@@ -163,9 +197,9 @@ Each group carries:
 - its exact authored pivot as owner-issued occurrence identity;
 - a deterministic order key derived from that pivot rather than property
   position;
-- a recognized canonical framework identity when
-  `TfmSelector.NormalizeTfm` and `TfmResolver` establish one; otherwise an
-  explicitly unrecognized owner identity; and
+- a recognized canonical framework identity when NuGet target-framework
+  semantics establish one; otherwise an explicitly unrecognized owner
+  identity; and
 - its artifact-authored framework spelling as `InertString`.
 
 An unrecognized framework is complete declaration evidence. It is not repaired
@@ -226,9 +260,9 @@ resolves to no selected-target node is typed incomplete graph evidence.
 The uniquely corresponding `project.frameworks` group separately supplies the
 authored constraint for a root package edge. The graph phase parses and
 correlates that group for itself, so an unrelated declaration-phase failure
-never destroys usable selected-graph evidence. Version 3 correlation uses the
-existing normalized framework identity, so a short authored group pivot
-correlates with a long target pivot; version 4 uses the alias pivot. No
+never destroys usable selected-graph evidence. Version 3 correlation uses
+canonical NuGet framework identity, so a short authored group pivot correlates
+with a semantically equal long target pivot; version 4 uses the alias pivot. No
 match makes the graph unavailable because direct package constraints cannot be
 established. Multiple matches fail the graph because root identity would be
 ambiguous. The query does not hand-roll general target-framework
@@ -355,8 +389,11 @@ The contract is gated by:
   identical semantic facts and identities;
 - exact default, framework-only, framework-plus-runtime, and
   runtime-targets-only selection over generated runtime-specific targets;
-- schema version 3 normalized selection, declaration correlation, and
+- schema version 3 canonical-framework selection, declaration correlation, and
   root-group correlation;
+- canonical framework identity across NuGet framework families, long and short
+  spellings, and platform-qualified frameworks, with unsupported text
+  remaining opaque;
 - duplicate canonical target identity failing the graph regardless of JSON
   order while leaving the declaration phase usable;
 - authored groups retaining requested ranges and valid empty groups;
