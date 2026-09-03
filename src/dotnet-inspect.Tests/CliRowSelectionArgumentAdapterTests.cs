@@ -262,19 +262,36 @@ public sealed class CliRowSelectionArgumentAdapterTests
         Assert.Equal(2, prefixedLimit.Position);
         Assert.Equal("2", prefixedLimit.Value);
 
-        CliRowSelectionArgumentResult bundledOptions =
-            fixture.Success(
-                [
-                    "demo",
-                    "-abc",
-                    "-n",
-                    "4"
-                ]);
-        CliRowSelectionOccurrence<string> bundledLimit =
-            Assert.Single(
-                bundledOptions.Occurrences);
-        Assert.Equal(2, bundledLimit.Position);
-        Assert.Equal("4", bundledLimit.Value);
+        string responseFile =
+            Path.GetTempFileName();
+        try
+        {
+            File.WriteAllLines(
+                responseFile,
+                ["--head"]);
+            CliRowSelectionArgumentResult literalResponseFile =
+                fixture.Success(
+                    [
+                        "demo",
+                        $"@{responseFile}",
+                        "-n",
+                        "4"
+                    ]);
+            Assert.Equal(
+                [$"@{responseFile}"],
+                Assert.IsType<string[]>(
+                    literalResponseFile.ParseResult.GetValue(
+                        fixture.Positionals)));
+            CliRowSelectionOccurrence<string> responseLimit =
+                Assert.Single(
+                    literalResponseFile.Occurrences);
+            Assert.Equal(2, responseLimit.Position);
+            Assert.Equal("4", responseLimit.Value);
+        }
+        finally
+        {
+            File.Delete(responseFile);
+        }
 
         CliRowSelectionArgumentResult requiredAttachedModifier =
             fixture.Lower(
@@ -575,6 +592,16 @@ public sealed class CliRowSelectionArgumentAdapterTests
         Assert.True(unknown.HasParseErrors);
         Assert.Null(unknown.LoweringResult);
 
+        CliRowSelectionArgumentResult bundled =
+            fixture.Lower(
+                [
+                    "demo",
+                    "-an2"
+                ]);
+        Assert.True(bundled.HasParseErrors);
+        Assert.Empty(bundled.Occurrences);
+        Assert.Null(bundled.LoweringResult);
+
         CliRowSelectionArgumentResult attachedModifier =
             fixture.Lower(
                 [
@@ -726,10 +753,6 @@ public sealed class CliRowSelectionArgumentAdapterTests
                 ModifierOption("-nologo");
             ShortA =
                 ModifierOption("-a");
-            ShortB =
-                ModifierOption("-b");
-            ShortC =
-                ModifierOption("-c");
             Positionals =
                 new("values")
                 {
@@ -754,9 +777,7 @@ public sealed class CliRowSelectionArgumentAdapterTests
                     Optional,
                     Flag,
                     NoLogo,
-                    ShortA,
-                    ShortB,
-                    ShortC
+                    ShortA
                 };
             if (includePositionals)
             {
@@ -811,10 +832,6 @@ public sealed class CliRowSelectionArgumentAdapterTests
         public Option<bool> NoLogo { get; }
 
         public Option<bool> ShortA { get; }
-
-        public Option<bool> ShortB { get; }
-
-        public Option<bool> ShortC { get; }
 
         public Argument<string[]> Positionals { get; }
 

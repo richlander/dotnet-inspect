@@ -128,6 +128,14 @@ internal sealed class CliRowSelectionArgumentResult
 
 internal static class CliRowSelectionArgumentAdapter
 {
+    private static readonly ParserConfiguration
+        ExplicitParserConfiguration =
+            new()
+            {
+                EnablePosixBundling = false,
+                ResponseFileTokenReplacer = null
+            };
+
     public static CliRowSelectionArgumentResult LowerExplicit(
         Command command,
         string[] arguments,
@@ -139,13 +147,15 @@ internal static class CliRowSelectionArgumentAdapter
         ArgumentNullException.ThrowIfNull(bindings);
 
         ParseResult ownershipParse =
-            command.Parse(arguments);
+            command.Parse(
+                arguments,
+                ExplicitParserConfiguration);
         ParsedArgument[] ownershipArguments =
             MapArguments(
                 ownershipParse,
                 arguments);
         NormalizedArguments normalized =
-            NormalizeBareShorthand(
+            NormalizeShortLimitForms(
                 ownershipParse,
                 ownershipArguments,
                 arguments,
@@ -153,7 +163,9 @@ internal static class CliRowSelectionArgumentAdapter
         ParseResult authoritativeParse =
             ReferenceEquals(normalized.Arguments, arguments)
                 ? ownershipParse
-                : command.Parse(normalized.Arguments);
+                : command.Parse(
+                    normalized.Arguments,
+                    ExplicitParserConfiguration);
         ParsedArgument[] authoritativeArguments =
             ReferenceEquals(normalized.Arguments, arguments)
                 ? ownershipArguments
@@ -235,7 +247,7 @@ internal static class CliRowSelectionArgumentAdapter
                 false)
         ];
 
-    private static NormalizedArguments NormalizeBareShorthand(
+    private static NormalizedArguments NormalizeShortLimitForms(
         ParseResult ownershipParse,
         IReadOnlyList<ParsedArgument> ownershipArguments,
         string[] arguments,
@@ -278,7 +290,12 @@ internal static class CliRowSelectionArgumentAdapter
                 break;
             }
 
-            if (!IsBareShorthand(token)
+            if (!TryGetNormalizedLimitValue(
+                    token,
+                    shorthandAlias,
+                    out string? value)
+                || HasOptionToken(
+                    ownershipArguments[index])
                 || IsClaimedByRequiredOption(
                     ownershipArguments[index],
                     ownershipParse))
@@ -307,7 +324,7 @@ internal static class CliRowSelectionArgumentAdapter
 
             rewritten.Add(shorthandAlias);
             positions!.Add(index);
-            rewritten.Add(token[1..]);
+            rewritten.Add(value!);
             positions.Add(index);
         }
 
@@ -348,6 +365,38 @@ internal static class CliRowSelectionArgumentAdapter
 
         return true;
     }
+
+    private static bool TryGetNormalizedLimitValue(
+        string token,
+        string shorthandAlias,
+        out string? value)
+    {
+        if (IsBareShorthand(token))
+        {
+            value = token[1..];
+            return true;
+        }
+
+        if (token.Length > shorthandAlias.Length
+            && token.StartsWith(
+                shorthandAlias,
+                StringComparison.Ordinal)
+            && token[shorthandAlias.Length]
+                is not ('=' or ':'))
+        {
+            value = token[shorthandAlias.Length..];
+            return true;
+        }
+
+        value = null;
+        return false;
+    }
+
+    private static bool HasOptionToken(
+        ParsedArgument argument) =>
+        argument.Tokens.Any(
+            token =>
+                token.Type == TokenType.Option);
 
     private static bool IsClaimedByRequiredOption(
         ParsedArgument argument,
@@ -425,7 +474,7 @@ internal static class CliRowSelectionArgumentAdapter
                 {
                     tokenIndex++;
                 }
-                else if (!TryConsumeExpandedArgument(
+                else if (!TryConsumeDelimitedArgument(
                     argument,
                     tokens,
                     ref tokenIndex))
@@ -445,7 +494,7 @@ internal static class CliRowSelectionArgumentAdapter
         return result;
     }
 
-    private static bool TryConsumeExpandedArgument(
+    private static bool TryConsumeDelimitedArgument(
         string argument,
         IReadOnlyList<Token> tokens,
         ref int tokenIndex)
@@ -470,57 +519,7 @@ internal static class CliRowSelectionArgumentAdapter
             return true;
         }
 
-        if (argument is not ['-', not '-', ..])
-        {
-            return false;
-        }
-
-        int characterIndex = 1;
-        int candidateIndex = tokenIndex;
-        while (candidateIndex < tokens.Count
-            && tokens[candidateIndex]
-                is
-                {
-                    Type: TokenType.Option,
-                    Value: ['-', var optionName]
-                }
-            && characterIndex < argument.Length
-            && argument[characterIndex] == optionName)
-        {
-            candidateIndex++;
-            characterIndex++;
-        }
-
-        if (candidateIndex == tokenIndex)
-        {
-            return false;
-        }
-
-        if (characterIndex < argument.Length
-            && candidateIndex < tokens.Count
-            && tokens[candidateIndex].Type
-                == TokenType.Argument)
-        {
-            string value =
-                argument[characterIndex] is '=' or ':'
-                    ? argument[(characterIndex + 1)..]
-                    : argument[characterIndex..];
-            if (tokens[candidateIndex].Value.Equals(
-                    value,
-                    StringComparison.Ordinal))
-            {
-                candidateIndex++;
-                characterIndex = argument.Length;
-            }
-        }
-
-        if (characterIndex != argument.Length)
-        {
-            return false;
-        }
-
-        tokenIndex = candidateIndex;
-        return true;
+        return false;
     }
 
     private static bool TryGetDelimitedValue(

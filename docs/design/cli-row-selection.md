@@ -124,6 +124,15 @@ raw token's position. The adapter normalizes only when the bound limit option
 actually exposes the `-n` alias. Tokens after `--` are not normalized or
 extracted.
 
+The adapter disables System.CommandLine's POSIX multi-option bundling and
+response-file token replacement for both parse passes. The adapter itself
+normalizes the one documented compact `-nN` form; a broader bundle such as a
+separate short option joined with `-nN` is not an additional spelling in this
+grammar. `@`-prefixed arguments remain literal command input rather than
+introducing a second source-position domain. This deliberate narrowing applies
+to the parse result returned by the adapter and must remain visible in each
+command adoption.
+
 System.CommandLine accepts a boolean attached value such as `--head=true` even
 when an option is declared zero-arity. The adapter records an attached-value
 failure for the four row-selection modifiers from the raw token so the grammar
@@ -553,10 +562,10 @@ The implemented explicit-command argv adapter is enforced by:
 
 | Gate | Property |
 | --- | --- |
-| `CliRowSelectionExplicitTokenOwnershipTests` | Required separated, attached, and parent-bound values remain owned; row-option-shaped required values do not create phantom occurrences; optional and zero-arity options leave a separate bare shorthand available; `--` preserves following positional text. |
+| `CliRowSelectionExplicitTokenOwnershipTests` | Required separated, attached, compact, and parent-bound values remain owned; row-option-shaped required values do not create phantom occurrences; unrelated option prefixes do not steal row occurrences; optional and zero-arity options leave a separate bare shorthand available; response-file-shaped and `--`-following text remain literal positional input. |
 | `CliRowSelectionExplicitBareShorthandTests` | Positive, zero, and overflowing ASCII-decimal shorthand normalize to the common `-n` path with original positions; non-ASCII text is not shorthand; repeats remain distinct occurrences. |
 | `CliRowSelectionExplicitOccurrencePositionTests` | Separated, `=`/`:` attached, and compact values extract typed occurrences at their raw option positions, including one opaque order operand, then preserve semantic order through lowering. |
-| `CliRowSelectionExplicitParseFailureTests` | Authoritative System.CommandLine failures suppress lowering; missing row values and attached modifier values produce structured row-arity failures; following separate tokens remain independently parsed; repeatable one-value-per-token option identities preserve complete repeats for the lowerer's repeated-gesture failure. |
+| `CliRowSelectionExplicitParseFailureTests` | Authoritative System.CommandLine failures, including unsupported POSIX bundles, suppress lowering; missing row values and attached modifier values produce structured row-arity failures; following separate tokens remain independently parsed; repeatable one-value-per-token option identities preserve complete repeats for the lowerer's repeated-gesture failure. |
 | `CliRowSelectionExplicitAdapterCompositionTests` | Raw Window plus bare count and line-unit input composes through the adapter into surviving semantic Window and rendered-line intent with exactly the lowered capabilities. |
 
 The remaining implementation must satisfy:
