@@ -217,7 +217,7 @@ public static class MemberCommand
                     options.Select,
                     actualPipeline.SelectableSectionNames,
                     actualPipeline.InfoSectionNames,
-                    actualPipeline.GetCategoryMap(),
+                    ApiMemberSectionPipelines.GetCategoryMap(actualPipeline),
                     selectDefault: options.SelectDefault);
                 if (SelectOutput.WriteUnresolved(actualSelect))
                     return 1;

@@ -28,7 +28,9 @@ The CLI exposes Finding identity through two explicit member surfaces:
 `Finding Census` is explicit-only and requires one selected body-backed member.
 It does not enter a verbosity preset or category. Requesting it authorizes the
 same body projection and PDB-resolution capability as requesting Annotated
-Source Document.
+Source Document. Category and broad wildcard expansion omit it; a non-exact
+selector that resolves only to Finding Census fails and requires its exact
+section name.
 
 The envelope uses this CLI-owned wire shape:
 

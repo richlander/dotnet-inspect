@@ -353,7 +353,7 @@ public class ApiCommand
             options.Select,
             memberPipeline.SelectableSectionNames,
             memberPipeline.FixedOverviewSectionNames,
-            memberPipeline.GetCategoryMap(),
+            ApiMemberSectionPipelines.GetCategoryMap(memberPipeline),
             selectDefault: options.SelectDefault);
         SelectOutput.WriteUnresolved(result);
         return true;
@@ -414,7 +414,9 @@ public class ApiCommand
             return (null!, DiscoverOutput.Execute(options.Discover, schema,
                 tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
                 sectionCostAnnotations: singleTypeMode ? memberPipeline.GetCostAnnotations() : null,
-                sectionCategories: singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
+                sectionCategories: singleTypeMode
+                    ? ApiMemberSectionPipelines.GetCategoryMap(memberPipeline)
+                    : typePipeline.GetCategoryMap(),
                 projection: options));
         }
 
@@ -466,7 +468,9 @@ public class ApiCommand
                 options.Select,
                 knownSections,
                 bareSelectSections,
-                singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
+                singleTypeMode
+                    ? ApiMemberSectionPipelines.GetCategoryMap(memberPipeline)
+                    : typePipeline.GetCategoryMap(),
                 selectDefault: options.SelectDefault);
             if (ShouldDeferSelectToListing(options, singleTypeMode, selectResult, typePipeline))
             {
@@ -523,7 +527,9 @@ public class ApiCommand
             };
         }
         (options, string? findingCensusSelectionError) =
-            NormalizeFindingCensusSelection(options);
+            NormalizeFindingCensusSelection(
+                options,
+                memberPipeline.SelectableSectionNames);
         if (findingCensusSelectionError is not null)
         {
             CommandError.Write(findingCensusSelectionError);
@@ -669,7 +675,8 @@ public class ApiCommand
     }
 
     private static (ApiOptions Options, string? Error) NormalizeFindingCensusSelection(
-        ApiOptions options)
+        ApiOptions options,
+        IReadOnlyList<string> memberSections)
     {
         if (options.IncludeSections?.Contains(SectionNames.FindingCensus) != true
             || options.ExactIncludeSections?.Contains(SectionNames.FindingCensus) == true)
@@ -677,11 +684,45 @@ public class ApiCommand
             return (options, null);
         }
 
-        if (!SelectResolver.IsAllSelector(options.Select))
+        bool hasNonExactFindingCensusSelector =
+            options.Select?.Any(selector =>
+            {
+                if (selector.StartsWith('@'))
+                    return false;
+                var (matches, _) = SelectResolver.ResolveSingle(
+                    selector,
+                    memberSections);
+                return matches.Count == 1
+                       && matches[0].Equals(
+                           SectionNames.FindingCensus,
+                           StringComparison.OrdinalIgnoreCase);
+            }) == true;
+        if (hasNonExactFindingCensusSelector)
         {
             return (
                 options,
                 $"section '{SectionNames.FindingCensus}' requires an exact -S selector.");
+        }
+
+        bool hasBroadFindingCensusSelector =
+            options.Select?.Any(selector =>
+            {
+                if (selector.StartsWith('@'))
+                    return false;
+                var (matches, _) = SelectResolver.ResolveSingle(
+                    selector,
+                    memberSections);
+                return matches.Count > 1
+                       && matches.Contains(
+                           SectionNames.FindingCensus,
+                           StringComparer.OrdinalIgnoreCase);
+            }) == true;
+        if (!SelectResolver.IsAllSelector(options.Select)
+            && !hasBroadFindingCensusSelector)
+        {
+            return (
+                options,
+                $"section '{SectionNames.FindingCensus}' cannot be selected through a category.");
         }
 
         var sections = new HashSet<string>(
@@ -3313,7 +3354,7 @@ public class ApiCommand
             tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
             verbosity: (int)options.Verbosity, fullSchema: fullSchema,
             sectionCostAnnotations: displayAnnotations,
-            sectionCategories: memberPipeline.GetCategoryMap(),
+            sectionCategories: ApiMemberSectionPipelines.GetCategoryMap(memberPipeline),
             projection: options);
     }
 

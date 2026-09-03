@@ -16691,6 +16691,36 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("\"fact_census_receipt\":", output);
     }
 
+    [Fact]
+    public async Task Member_AllSectionsWildcard_OmitsFindingCensus()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            $"{nameof(FactsTableFixture.BoxInt)}:1",
+            "-S", "*", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Facts", output);
+        Assert.DoesNotContain("## Finding Census", output);
+        Assert.DoesNotContain("\"fact_census_receipt\":", output);
+    }
+
+    [Fact]
+    public async Task Member_AllDiscovery_OmitsFindingCensus()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            $"{nameof(FactsTableFixture.BoxInt)}:1",
+            "-D", "@All", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("| Finding Census |", output);
+    }
+
     [Theory]
     [InlineData()]
     [InlineData("--count")]
@@ -16707,6 +16737,22 @@ public partial class CommandExecutionTests
             .. format,
             "--tips", "q",
         ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "section 'Finding Census' requires an exact -S selector",
+            error);
+    }
+
+    [Fact]
+    public async Task Member_AllPlusFindingCensusGlob_RequiresExactSelector()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            $"{nameof(FactsTableFixture.BoxInt)}:1",
+            "-S", "@All,Finding*", "--json", "--compact", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);

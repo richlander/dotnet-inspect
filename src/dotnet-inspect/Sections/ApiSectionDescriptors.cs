@@ -541,6 +541,17 @@ public static class ApiMemberSectionPipelines
               MemberDigest: null,
               MemberFilter.Count: > 0
            };
+
+    public static IReadOnlyDictionary<string, string[]> GetCategoryMap(
+        SectionPipeline<ApiType> pipeline)
+        => pipeline.GetCategoryMap().ToDictionary(
+            static pair => pair.Key,
+            static pair => pair.Value
+                .Where(static section => !section.Equals(
+                    SectionNames.FindingCensus,
+                    StringComparison.OrdinalIgnoreCase))
+                .ToArray(),
+            StringComparer.OrdinalIgnoreCase);
 }
 
 /// <summary>
