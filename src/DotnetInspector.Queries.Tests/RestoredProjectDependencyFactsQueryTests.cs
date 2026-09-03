@@ -481,6 +481,56 @@ public sealed class RestoredProjectDependencyFactsQueryTests
         Assert.IsType<RestoredProjectGraphResult.Unavailable>(facts.Graph);
     }
 
+    [Theory]
+    [InlineData(".NETCoreApp,Version=v11.0", "net11.0")]
+    [InlineData("UAP,Version=v10.0", "uap10.0")]
+    public void Execute_DefaultSelection_DoesNotGiveOpaqueFrameworkARepairedPriority(
+        string validFramework,
+        string canonicalFramework)
+    {
+        const string malformedFramework =
+            ".NETCoreApp,Version=v99.0,Unknown=value";
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                [malformedFramework] = new JsonObject(),
+                [validFramework] = new JsonObject(),
+            },
+            rootGroups: new JsonObject
+            {
+                [malformedFramework] = new JsonArray(),
+                [validFramework] = new JsonArray(),
+            },
+            frameworks: new JsonObject
+            {
+                [malformedFramework] = new JsonObject
+                {
+                    ["dependencies"] = new JsonObject(),
+                },
+                [canonicalFramework] = new JsonObject
+                {
+                    ["dependencies"] = new JsonObject(),
+                },
+            },
+            version: 3);
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(bytes));
+        RestoredProjectDependencyFacts reordered = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                WithReversedPropertyOrder(bytes)));
+
+        Assert.Equal(canonicalFramework, facts.SelectedTarget!.FrameworkIdentity);
+        Assert.Equal(
+            validFramework,
+            facts.SelectedTarget.SourceFrameworkSpelling.ToString());
+        Assert.True(
+            Assert.IsType<RestoredProjectGraphResult.Available>(
+                facts.Graph).IsComplete);
+        Assert.Equal(Describe(facts), Describe(reordered));
+        Assert.Equal(facts.SelectionIdentity, reordered.SelectionIdentity);
+    }
+
     [Fact]
     public void Execute_SchemaVersion3_CorrelatesShortDeclarationPivotWithLongTargetPivot()
     {

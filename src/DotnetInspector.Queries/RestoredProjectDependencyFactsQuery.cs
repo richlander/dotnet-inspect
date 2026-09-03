@@ -881,7 +881,13 @@ public static class RestoredProjectDependencyFactsQuery
         TargetCandidate[] pool = nonRuntime.Length > 0 ? nonRuntime : [.. candidates];
         return pool.Length == 0
             ? null
-            : TfmSelector.OrderByTfmPriorityDescending(pool, c => c.RawFramework)
+            : pool
+                .OrderByDescending(c => !RestoredProjectIdentityText.IsOpaque(
+                    c.FrameworkIdentity))
+                .ThenByDescending(c =>
+                    RestoredProjectIdentityText.IsOpaque(c.FrameworkIdentity)
+                        ? 0
+                        : TfmSelector.GetTfmPriority(c.FrameworkIdentity))
                 .ThenBy(c => c.IdentityKey, StringComparer.Ordinal)
                 .First();
     }

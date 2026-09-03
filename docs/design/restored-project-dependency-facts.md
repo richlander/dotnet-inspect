@@ -85,6 +85,12 @@ Version 4 requests match the alias pivot directly. The selected identity uses
 canonical short-folder spelling while the source spelling is retained
 separately as `InertString` evidence.
 
+Only recognized canonical framework identities participate in default
+framework-priority ordering. A recognized target sorts ahead of an opaque
+target and is ranked through its canonical identity. Opaque framework text is
+never normalized or repaired to infer priority; opaque targets use only their
+deterministic identity tie-breaker.
+
 Because matching collapses case, two target pivots may share one canonical
 target identity. That is detected before selection: the ambiguity fails the
 graph and selects no target rather than letting JSON property order decide
