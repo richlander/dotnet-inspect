@@ -5,6 +5,11 @@ default applies and expands named search-scope groups into ordered platform
 framework and package sets. `find`, `implements`, `extensions`, and type-mode
 `depends` consume the result.
 
+This is the current behavior contract and reference oracle for the ground-up
+typed search-scope domain tracked by
+[#5602](https://github.com/richlander/dotnet-inspect/issues/5602). It does not
+define that future declaration component or its adoption plan.
+
 [CLI host architecture](../cli-architecture.md) owns parsing, valued
 `--platform` disambiguation, source authorization, operation lifetime,
 diagnostics, and rendering. [Find type-search service](find-search-service.md)
@@ -54,14 +59,12 @@ network authorization, acquisition, matching, result ordering, or rendering.
 
 ## Default activation
 
-With no explicit source indicator, the resolved scope is exactly the platform
-frameworks in this order:
+With no explicit source indicator, the normalizer returns an empty package set
+and exactly these platform frameworks in order:
 
 1. `runtime`
 2. `aspnetcore`
 3. `netstandard`
-
-No package catalog is part of the implicit default.
 
 Any explicit source indicator suppresses that default. An explicit source that
 is empty, unavailable, or produces no matches does not fall back to platform
@@ -124,6 +127,10 @@ a source option without wiring its presence into default suppression is a
 contract violation: an unchanged explicit request would silently acquire
 additional platform sources.
 
+That command-adapter obligation is distinct from the pure normalizer contract.
+The normalizer receives already-lowered flags, coordinates, and presence
+signals; it does not prove that every command supplied them correctly.
+
 ## Obsolete hidden input
 
 The historical `--curated` input duplicated bare `--platform` after the default
@@ -138,22 +145,29 @@ invalid-input guard or reservation is required.
 ## Implementation and gates
 
 `ScopeResolver` implements default activation, explicit group expansion,
-package ordering, and deduplication. Command parsers supply the direct-source
-presence that suppresses the default; they retain the direct values in their
-own option records.
-
-The Release `dotnet-inspect.Tests` suite enforces the contract:
+package ordering, and deduplication. Its pure normalization contract has full
+Release gate coverage:
 
 - `SearchScopeResolutionTests.NoExplicitSource_UsesOnlyPlatformFrameworks`
-  gates the exact default and framework order;
-- `SearchScopeResolutionTests.EachExplicitSourceKind_SuppressesTheDefault`
+  gates the exact empty-input result and framework order;
+- `SearchScopeResolutionTests.EachGroupCombination_ResolvesExactly` gates the
+  complete finite group-flag truth table;
+- `SearchScopeResolutionTests.EachDirectSourceSignal_SuppressesTheDefault`
   gates package, library, package-prefix, and the generic additional-source
   signal consumed by the normalizer;
+- `SearchScopeResolutionTests.ExplicitGroups_ComposeInOrderWithoutDuplicatePackages`
+  gates additive composition, order, first-occurrence preservation, and
+  case-insensitive set semantics; and
+- `SearchScopeResolutionTests.VersionedAndUnversionedPackageCoordinates_RemainDistinct`
+  gates coordinate identity across version presence.
+
+Command parsers supply the direct-source presence consumed by that fully gated
+normalizer and retain direct values in their own option records. Their
+end-to-end wiring has partial Release gate coverage:
+
 - `SearchScopeResolutionTests.EachCommandDirectSource_DoesNotFallBackToPlatform`
   gates library, platform-library, and project wiring on every participating
   command, plus binary-directory wiring on `find`;
-- `SearchScopeResolutionTests.ExplicitGroups_ComposeInOrderWithoutDuplicatePackages`
-  gates additive composition, order, and case-insensitive set semantics;
 - `SearchScopeResolutionTests.ExplicitMissingDirectory_DoesNotFallBackToPlatform`
   and
   `SearchScopeResolutionTests.DependsExplicitSourceMiss_DoesNotFallBackToLibraryMode`
@@ -169,6 +183,12 @@ The Release `dotnet-inspect.Tests` suite enforces the contract:
 - `SearchScopeResolutionTests.CuratedCompatibilityInput_IsNotRegistered`
   gates removal of the redundant hidden input from every participating
   command.
+
+The residual command-adapter matrix is explicitly unverified: the suite does
+not provide one outcome-level non-vacuity case for every explicit package,
+package-prefix, `--extensions`, and `--aspnetcore` path on every participating
+command. This design does not generalize the representative wiring gates into
+that stronger claim.
 
 ## Non-claims
 

@@ -22,12 +22,56 @@ public class SearchScopeResolutionTests
     }
 
     [Theory]
+    [InlineData(false, false, false, true, "none")]
+    [InlineData(true, false, false, true, "none")]
+    [InlineData(false, true, false, false, "extensions")]
+    [InlineData(false, false, true, false, "aspnetcore")]
+    [InlineData(true, true, false, true, "extensions")]
+    [InlineData(true, false, true, true, "aspnetcore")]
+    [InlineData(false, true, true, false, "both")]
+    [InlineData(true, true, true, true, "both")]
+    public void EachGroupCombination_ResolvesExactly(
+        bool platform,
+        bool extensions,
+        bool aspnetcore,
+        bool expectsPlatformFrameworks,
+        string expectedCatalogs)
+    {
+        var scope = ScopeResolver.Resolve(
+            new(platform, extensions, aspnetcore),
+            [],
+            []);
+
+        Assert.Equal(
+            expectsPlatformFrameworks ? ScopeConstants.PlatformFrameworks : [],
+            scope.Frameworks);
+        Assert.Equal(
+            expectedCatalogs switch
+            {
+                "none" => [],
+                "extensions" => ScopeConstants.ExtensionsPackages,
+                "aspnetcore" => ScopeConstants.AspNetCorePackages,
+                "both" =>
+                [
+                    .. ScopeConstants.ExtensionsPackages
+                        .Concat(ScopeConstants.AspNetCorePackages)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                ],
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(expectedCatalogs),
+                    expectedCatalogs,
+                    "Unknown expected catalog combination.")
+            },
+            scope.Packages);
+    }
+
+    [Theory]
     [InlineData("package")]
     [InlineData("library")]
     [InlineData("platform-library")]
     [InlineData("project-or-directory")]
     [InlineData("package-prefix")]
-    public void EachExplicitSourceKind_SuppressesTheDefault(string sourceKind)
+    public void EachDirectSourceSignal_SuppressesTheDefault(string sourceKind)
     {
         string[] packages = sourceKind == "package" ? ["Example.Package"] : [];
         string[] libraries = sourceKind == "library" ? ["Example.dll"] : [];
@@ -68,6 +112,19 @@ public class SearchScopeResolutionTests
         Assert.Equal(expectedPackages, scope.Packages);
         Assert.Equal("Example.Package", scope.Packages[0]);
         Assert.Equal(duplicate, scope.Packages[1]);
+    }
+
+    [Fact]
+    public void VersionedAndUnversionedPackageCoordinates_RemainDistinct()
+    {
+        var scope = ScopeResolver.Resolve(
+            new(),
+            ["Example.Package", "example.package@1.0.0", "EXAMPLE.PACKAGE"],
+            []);
+
+        Assert.Equal(
+            ["Example.Package", "example.package@1.0.0"],
+            scope.Packages);
     }
 
     [Theory]
