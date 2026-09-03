@@ -320,6 +320,14 @@ is not `planned`, or an unsupported schema version. A planner step that does
 not publish a valid plan fails the producer job rather than synthesizing
 fallback selections.
 
+When a selected validation has scoped evidence, the producer uploads the exact
+planner-owned file under the descriptor's artifact name. The consumer
+downloads that named artifact and verifies the descriptor's fixed identity,
+record framing, record count, and SHA-256 before passing the file to the
+validation. Missing, substituted, truncated, or inconsistent evidence fails
+the consumer; it never triggers an independent diff, an empty scope, or a
+whole-repository fallback.
+
 A matrix, if later planned, is another bounded plan field produced by the same
 operation. Matrix jobs do not contribute competing planner outputs because
 GitHub does not guarantee matrix execution order and duplicate output names
@@ -414,10 +422,11 @@ arbitrary future duplicate routing expressions is specified and review-owned,
 not claimed as a persistently enforced repository invariant.
 
 The demo is one planner invocation for the #5347 rename-into-model fixture. Its
-plan selects TLA+ and its scoped evidence contains the planner-assigned changed
-paths; the TLA+ consumer still owns model-directory validation. The neighboring
-inverse fixture produces `tla: false`. A provenance failure produces a visible
-refusal rather than an empty or all-false plan.
+plan selects TLA+, and the TLA+ job verifies and consumes the planner-assigned
+changed paths while retaining ownership of model-directory validation. The
+neighboring inverse fixture produces `tla: false`. An infrastructure-only TLA+
+change transports a valid zero-record scope. A provenance or scope-integrity
+failure remains visible rather than becoming an empty or all-false result.
 
 ### Staged verification
 
@@ -437,9 +446,11 @@ The workflow consumes the planner's compact JSON as its sole
 candidate-relevance output and projects `validations.*` fields for job and
 named in-job selection. GitHub workflow parsing and the live CI run demonstrate
 that transport and projection wiring; the repository does not add a custom
-workflow-expression gate. Scoped-evidence consumption remains **unverified**:
-the TLA+ job is selected by the plan but still acquires its paths independently
-until adoption slice 3.
+workflow-expression gate. The workflow contract verifies that selected TLA+
+scope evidence is uploaded under the plan's artifact identity, downloaded by
+the consumer, checked against the plan's framing, record count, and SHA-256,
+and passed directly to the scoped TLA+ runner without another candidate diff.
+The live CI run demonstrates the artifact actions and cross-job transport.
 
 ## Adoption sequence
 
@@ -460,8 +471,10 @@ Adoption proceeds in focused slices:
    owns the intentional exact-candidate provenance and blocking-refusal
    changes. GitHub workflow parsing, live execution, and review provide its
    wiring evidence rather than a repository-owned YAML expression evaluator.
-3. Move each scoped-path consumer, beginning with TLA+, to planner-produced
-   evidence and remove its independent provenance and path acquisition.
+3. Move each scoped-path consumer to planner-produced evidence and remove its
+   independent provenance and path acquisition. TLA+ is the first consumer:
+   the producer uploads its bounded scope, and the job verifies the descriptor
+   and exact bytes before invoking the scoped runner.
 4. Remove the legacy shell classifier and obsolete structural seams only after
    parity and all planned consumers have transferred.
 
