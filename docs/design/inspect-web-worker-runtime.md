@@ -4,9 +4,21 @@
 
 This document defines the target worker-runtime host and protocol for
 [issue #5093](https://github.com/richlander/dotnet-inspect/issues/5093).
-The design is not yet implemented. Its finite state models establish only the
-abstract properties recorded with those models; the TypeScript, browser, and
-managed gates named below remain required.
+The user approved its inspect-web-only host scope on 2026-09-02. Implementation
+under [issue #5418](https://github.com/richlander/dotnet-inspect/issues/5418)
+is dependency-ordered and partial: the descriptor-safe two-stage wire codec
+foundation is implemented under the focused
+`inspect-web-worker-envelope-validation` sub-gate without allocating epoch or
+operation authority. The runtime core, browser binding, responsiveness, and
+final gates named below remain required.
+
+Its finite state models establish only the abstract properties recorded with
+those models. The engine-to-browser event-stream contract is now defined by
+[the async event-stream owner](engine-browser-async-event-stream.md). Durable
+worker event batches remain a later residual blocked on
+[#5570](https://github.com/richlander/dotnet-inspect/issues/5570) and the
+relevant [#5419](https://github.com/richlander/dotnet-inspect/issues/5419)
+managed handoff.
 
 ## Decision
 
@@ -363,9 +375,21 @@ Every envelope carries:
 
 Operation envelopes also carry the complete operation reference. The receiver
 narrows `MessageEvent.data` from `unknown`, validates own data properties
-without invoking accessors, rejects unsafe integers, and validates bounded
-payload sizes before constructing a typed message. JSON-looking strings remain
-strings unless their feature wire owner authenticates and parses them.
+without invoking accessors, rejects unsafe integers, and constructs the exact
+outer and nested wire variant while retaining feature-owned payload fields as
+`unknown`. The runtime core then validates protocol state and resolves the
+bootstrap consumer or active operation record before invoking that owner's
+bounded codec to construct the typed payload variant. JSON-looking strings
+remain strings unless their feature wire owner authenticates and parses them.
+
+The unbound startup entry accepts only `Initialize`, validates its wire
+structure, version, epoch token, and scalar fields, and then applies the
+consumer bootstrap codec. After binding, every main-to-worker structural
+decode requires the exact expected epoch token, including a duplicate
+`Initialize` retained for state-machine rejection. Worker-to-main structural
+decode likewise performs no global cross-operation payload selection: the
+operation reference selects the active record and its result, error,
+diagnostic, or progress codecs.
 
 The main-to-worker inventory is:
 
@@ -871,6 +895,16 @@ managed, or feature implementation behavior.
 
 ## Required implementation gates
 
+`inspect-web-worker-envelope-validation` is the focused Node TypeScript
+sub-gate for the first dependency-ordered implementation slice. It covers
+direction-specific raw construction for the current closed envelope inventory,
+own-data-property and exact-field validation from `unknown`, wire-scalar
+validity, exact version and expected-epoch checks, exact managed-settlement
+structure, unbound initialization, and owner-selected bounded payload decoding
+as a separate second stage with exact failure paths. It does not select a
+feature adapter, allocate host identity, construct closure or idle-compatible
+authority, implement runtime state, or satisfy `inspect-web-worker-protocol`.
+
 `inspect-web-worker-protocol` is a Release TypeScript gate and must include:
 
 - own-property narrowing of every envelope from `unknown`, with malformed,
@@ -1007,16 +1041,21 @@ unexpected worker loss, and worker-local cache loss across epochs.
 Implementation proceeds without moving operation authority or feature meaning
 into the runtime host:
 
-1. introduce the worker host, protocol parser, and fake-worker Release gates;
-2. adapt the current generated facade bootstrap behind the consumer-owned
+1. introduce the descriptor-safe wire codec under
+   `inspect-web-worker-envelope-validation`;
+2. add the fake-worker runtime core, host authority, and complete
+   `inspect-web-worker-protocol` gate;
+3. adapt the current generated facade bootstrap behind the consumer-owned
    bootstrap operation;
-3. move one long-running source or package inspection through a typed worker
+4. move one long-running source or package inspection through a typed worker
    operation adapter;
-4. connect keyed cancellation, progress, managed settlement, and epoch-work
+5. connect keyed cancellation, progress, managed settlement, and epoch-work
    reporting through their existing owners;
-5. prove real-browser responsiveness and hard realm release; and
-6. migrate additional feature adapters only after each declares its own
-   payload and liveness policy.
+6. prove real-browser responsiveness and hard realm release;
+7. migrate additional feature adapters only after each declares its own
+   payload and liveness policy; and
+8. add durable event batches only after #5566, #5570, and #5419 supply their
+   prerequisite contracts.
 
 The implementation starts from the official .NET 11 Web Worker hosting pattern
 but replaces stringly method invocation with the generated inspect-web facade
