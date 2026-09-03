@@ -45,8 +45,9 @@ The implementation lives in `src/ILInspector.MetadataPrimitives/`:
   meaning *not decoded*. It never produces a partially decoded value.
 - **Defers** work-charging policy to the caller's observer. This design says
   what is charged, not what a budget does with it.
-- **Consumes** `System.Reflection.Metadata` as a *test-time oracle only*. No
-  production path calls `CustomAttribute.DecodeValue`.
+- **Consumes** `System.Reflection.Metadata` as a *test-time oracle only*, once
+  #5288's slice 2 lands. No production path will call
+  `CustomAttribute.DecodeValue`; one still does today.
 
 ## Non-claims
 
@@ -114,9 +115,10 @@ fix, not a behavior to document.
 > **No allocation is ever sized from a declared count that exceeds the
 > remaining bytes.**
 >
-> **D2 — Fail closed, visibly.** A blob the decoder cannot follow yields `null`
-> — never a partial value, never a laundered exception, never a plausible-looking
-> guess. `OutOfMemoryException` has no path to arise.
+> **D2 — Fail closed, visibly.** A blob whose *structure* the decoder cannot
+> follow yields `null` — never a partial value, never a laundered exception,
+> never a plausible-looking guess. No attacker-declared quantity can produce an
+> `OutOfMemoryException`.
 >
 > **D3 — Fidelity.** On output from compilers in the certified range, decoded
 > values equal SRM's.
@@ -224,9 +226,66 @@ malformed metadata, so a caller's refusal and a malformed blob no longer share a
 catch by accident. **A caller's refusal is not a statement about the blob**, and
 it must never be laundered into one.
 
-**`OutOfMemoryException` has no path to arise** because of D1's allocation
-clause, not because it is caught. Catching it would be a fiction: by the time it
-is thrown the allocation has already been attempted.
+**No attacker-declared quantity can produce an `OutOfMemoryException`**, because
+of D1's allocation clause — not because one is caught. Catching it would be a
+fiction: by the time it is thrown the allocation has already been attempted.
+
+State that bound precisely, because the unqualified claim "`OutOfMemoryException`
+has no path to arise" is not achievable and should not be made. `count >
+RemainingBytes → null` bounds a count by the blob it came from; it does not make
+decoding free. A legal `SZARRAY<bool>` of `N` elements occupies about `N` bytes
+of blob and materializes `N` `CustomAttributeTypedArgument<string>` slots of two
+references each, so retained memory is roughly **16×** the blob length on a
+64-bit host. That is a constant multiple, which is exactly what D1's
+retained-memory clause permits, and it is the real ceiling: a sufficiently large
+*legitimate* blob can still exhaust a sufficiently small host. What D1 removes is
+the **amplification** — the twelve-byte blob that asks for tens of gigabytes.
+A host-level memory limit is the host's concern, not this contract's.
+
+Issue #5397 (`TryDecode` swallows `OutOfMemoryException` through a bare catch) is
+therefore **not** moot under the inversion, and this document retains it as a D2
+defect. #5288's slice 4 lists it among the issues to close; that disposition
+assumed OOM had no path at all. Swallowing `OutOfMemoryException` is precisely
+the "laundered exception" D2 forbids, and it stays forbidden whether the OOM came
+from an attack or from a large honest blob.
+
+### The `Int32` enum-width default is a named exception to "refuse; do not defer"
+
+The table above says the decoder refuses what it cannot follow. Enum width
+resolution does the opposite, and the contradiction is deliberate rather than an
+oversight, so it is stated here rather than left for a reader to discover.
+
+When structural, local-name, and trusted-external resolution all fail, the width
+resolves to `Int32` (`EnumUnderlyingPrimitive.cs:59`, `:63`, `:177`, `:287`) and
+the decode continues. **This is a defined total function, not a failure to
+follow.** The decoder always knows how many bytes to consume, so the blob remains
+structurally followable and D2 is not violated — D2 governs structure, which is
+why its statement above says *structure* explicitly.
+
+Refusing instead would be worse, and the reason bounds how much this is worth: an
+enum defined in an assembly the user did not download is the ordinary case, not
+the hostile one. Refusing every unresolvable width would turn a large fraction of
+real attributes into `null`.
+
+Two consequences must be recorded rather than assumed away:
+
+- **A wrong default width is a D3 fidelity defect with real reach.** The width
+  decision relocates the cursor, so an enum that is actually `Int64` decoded as
+  `Int32` mis-reads every subsequent argument, not just its own. It cannot become
+  an unbounded allocation — D1's allocation clause holds independently of the
+  parse — but it can produce a confidently wrong rendering of the whole
+  attribute.
+- **The D2 gate cannot catch it.** "`null` wherever SRM throws" passes, because
+  SRM reaches the same default through the same provider fallback and also
+  succeeds. Any instrument that uses SRM as its oracle is blind to a width both
+  sides guess identically. Establishing this belongs to D3's certified corpus,
+  where the real width is known from the producing compiler, not to a
+  differential test.
+
+**Slice 2 owes a comment fix here.** `EnumUnderlyingPrimitive.cs:16` currently
+justifies the `Int32` default as being chosen "so the skip stays aligned" — a
+paired-walker rationale for an alignment obligation the inversion deletes. The
+default survives; its stated reason does not.
 
 **Nested `object[]` stays legal.** Certified compilers emit `1d 08` and `1d 51`
 inside `object[]`, so the recursive element rule is retained. It is bounded by
@@ -304,8 +363,8 @@ agreement obligation. This design generalizes it.
 
 ### Prior art: there is no upstream bound to inherit
 
-Every mainstream .NET consumer of custom-attribute blobs allocates on the
-attacker-declared count before reading a single element.
+Four of the five mainstream .NET consumers of custom-attribute blobs allocate on
+the attacker-declared count before reading a single element.
 
 | Consumer | Decoder | Bounds the declared count first? |
 | --- | --- | --- |
@@ -601,9 +660,9 @@ encoding.
 
 | Invariant | Gate | State |
 | --- | --- | --- |
-| **D1** | A generative gate varying the attacker-controlled dimensions jointly. Tracked as #5065. | Does not exist. Four hand-written amplification regressions pin four instances; four open defects violate it. |
-| **D2** | Slice 2's differential test: `null` wherever SRM throws, plus every existing guard and reader test green. | Lands with slice 2. |
-| **D3** | The #5148 generator re-targeted from offset agreement to **value equality**, plus the stage-1 corpus below with zero refusals. | #5148 open; stage 1 not landed. |
+| **D1** | A generative gate varying the attacker-controlled dimensions jointly. Tracked as #5733. | Does not exist. Four hand-written amplification regressions pin four instances; four open defects violate it. |
+| **D2** | Slice 2's differential test: `null` wherever SRM throws, plus every existing guard and reader test green. **Blind to the `Int32` width default**, which SRM guesses identically; that belongs to D3. | Lands with slice 2. |
+| **D3** | The #5148 generator re-targeted from offset agreement to **value equality**, plus the stage-1 corpus below with zero refusals. #5065 is retitled to D3 by #5288 slice 4. | #5148 open; stage 1 not landed. |
 
 Until those gates exist, any statement in this document that an invariant
 *holds* is unverified in the sense of [Asserted properties name their
@@ -736,6 +795,7 @@ component.
 | 3 | Every memo is a **single slot keyed on the previous input**, so alternating two values defeats all of them. | D1 | #5130 |
 | 4 | `A` attribute rows sharing one `B`-byte blob are decoded independently, costing `Θ(A × B)` in work and retained values from `Θ(A + B)` of metadata. Absent a shared `MaterializationContext`, each `TryDecode` also rebuilds the type-definition index, adding `Θ(A × T)`. | D1 | #5132 |
 | 5 | A caller observer's `BadImageFormatException` or `ArgumentOutOfRangeException` is caught by the malformed-metadata handler, so a budget stop is mistaken for a malformed blob. | D2 | #5085 |
+| 6 | `TryDecode` swallows `OutOfMemoryException` through a bare catch, which is exactly the laundered exception D2 forbids. | D2 | #5397 |
 
 Gaps 1, 2, and 3 share a root cause worth naming: **memoization was tuned against
 the wrong cost model.** Under the paired-walker design, work the guard cached and
@@ -748,7 +808,8 @@ more often without making it hit on *every distinct input* has not resolved any 
 them. Prefer one coherent change over three local optimizations.
 
 Gap 4 is deliberately excluded from that grouping: it is cross-row, so no per-walk
-memo can address it.
+memo can address it. Gaps 5 and 6 are both D2 laundering defects in the same
+`catch`-shaped surface and should be fixed together.
 
 ### Gaps closed by the inversion
 
@@ -768,13 +829,15 @@ place it.
 | --- | --- |
 | #5288 | This inversion. Slice 2 (the decoder), slice 3 (the D3 gate), and slice 4 (cleanup) are outstanding. |
 | #5047 | Per-element element-type replay; resolve once and loop. Gap 2. |
-| #5065 | The D1 generative gate. |
+| #5065 | The differential oracle. To be **retitled to D3** by #5288 slice 4; it is not D1's gate. |
 | #5085 | An observer exception mistaken for malformed metadata. Gap 5. |
 | #5091 | Quadratic work across declared parameter count and type-definition count. Gap 1. |
 | #5130 | Every memo is a single slot, so alternating input defeats all of them. Gap 3. |
 | #5132 | Quadratic cost across attribute rows sharing one value blob. Gap 4. |
 | #5148 | The differential generator, to be re-targeted from offset agreement to D3 value equality. |
 | #5304 | Stage 2 exhaustive per-position enumeration. |
+| #5397 | `TryDecode` swallows `OutOfMemoryException` through a bare catch. Gap 6, D2. Retained rather than closed; see [D2](#d2--fail-closed-visibly). |
+| #5733 | The D1 generative bounded-cost gate. Filed from review of this slice, because D1 previously named #5065, which does not measure cost. |
 | #4879 | Enum constants whose signature does not match `value__`. Fidelity. |
 | #5062 | Signature decode laundering internal errors into `SignatureRejected`. |
 | #4741 | Product extraction does not yet plan custom-attribute enum names into a frozen type-resolution generation. |
