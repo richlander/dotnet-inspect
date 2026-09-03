@@ -375,3 +375,35 @@ public sealed record CSharpTypePrintResult
     public override int GetHashCode()
         => HashCode.Combine(Units.Length, Diagnostics.Length, Usings.Count);
 }
+
+/// <summary>
+/// The atomic result of printing a complete requested type batch.
+/// </summary>
+public abstract record CSharpTypePrintOutcome
+{
+    private CSharpTypePrintOutcome()
+    {
+    }
+
+    /// <summary>The complete batch was rendered.</summary>
+    public sealed record Printed : CSharpTypePrintOutcome
+    {
+        internal Printed(CSharpTypePrintResult result)
+            => Result = result;
+
+        public CSharpTypePrintResult Result { get; }
+    }
+
+    /// <summary>
+    /// At least one exact declared-type self-name was unrepresentable. This arm
+    /// exposes no source or partial print result.
+    /// </summary>
+    public sealed record NotRendered : CSharpTypePrintOutcome
+    {
+        internal NotRendered(
+            ImmutableArray<CSharpDeclaredTypeSelfNameFailure> selfNameFailures)
+            => SelfNameFailures = selfNameFailures;
+
+        public ImmutableArray<CSharpDeclaredTypeSelfNameFailure> SelfNameFailures { get; }
+    }
+}

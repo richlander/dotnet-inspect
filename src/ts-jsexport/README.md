@@ -21,6 +21,45 @@ dotnet run --project src/ts-jsexport -c Release -- \
 published atomically only after the complete surface is authenticated and
 mapped; an unsupported surface leaves an existing destination unchanged.
 
+To generate a closed set of independent facades in this repository, add a
+project reference to the dependency-free producer contract:
+
+```xml
+<ProjectReference
+  Include="path/to/src/TsJsExport.Contracts/TsJsExport.Contracts.csproj" />
+```
+
+Then declare a compiled context:
+
+```csharp
+using TsJsExport;
+
+[JsExportRoot(typeof(BrowserHostExports))]
+[JsExportRoot(typeof(BrowserPackageExports))]
+internal sealed class BrowserJsExportContext;
+```
+
+Each rooted type anchors its entire assembly, including supported `[JSExport]`
+methods declared by other types. Generate the context into a new directory:
+
+```bash
+dotnet run --project src/ts-jsexport -c Release -- \
+  path/to/Browser.Host.dll \
+  --context Browser.Host.BrowserJsExportContext \
+  --assembly-search-path path/to/publish \
+  --runtime-module ./_framework/dotnet.js \
+  --output generated/facades
+```
+
+The compiled attributes are the authoritative set; search locations only
+resolve their exact assembly identities. The tool does not implicitly scan the
+context assembly's directory. Context generation fails as a whole for missing,
+ambiguous, duplicate, empty, or unsupported roots. The output path must not
+exist, and successful generation writes exactly one canonical
+`<assembly-name>.ts` file per rooted assembly. Consumers own scratch-directory
+cleanup and any final deployment swap. The contract is currently a source-only
+repository project; separately packaging it is future release scope.
+
 The generated module exports:
 
 - readonly producer-owned DTO and enum declarations;

@@ -1,6 +1,7 @@
 src/CSharpText
 src/DotnetInspector.Artifacts
 src/DotnetInspector.Artifacts.Local
+src/DotnetInspector.Artifacts.Workspaces
 src/DotnetInspector.Core
 src/DotnetInspector.CSharpBodySlicer
 src/DotnetInspector.PackageQueries
@@ -27,4 +28,5 @@ src/ILInspector.TypeScriptGeneration
 src/InertText
 src/NuGetFetch
 src/SourceLinkFetch
+src/TsJsExport.Contracts
 src/ts-jsexport

@@ -7,6 +7,7 @@ import {
   encodeBodyTarget,
   filterMemberGroups,
   invalidateMemberCallGraphWork,
+  invalidateSourceDestinationWork,
   memberGroupMatches,
   memberNavTargetIndex,
   memberScopeIsActive,
@@ -253,6 +254,52 @@ test("Call graph invalidation releases every asynchronous owner", () => {
     platformDrillLoading: false,
     platformDrillError: "",
   });
+});
+
+test("source invalidation supersedes package and platform destinations", () => {
+  const state = {
+    memberCallGraphSeq: 4,
+    memberCallGraphLoading: false,
+    memberCallGraphExpanding: false,
+    memberCallGraphKey: "package|type|member",
+    platformDrillLoading: true,
+    platformDrillError: "old platform failure",
+    graphMemberNavigationSeq: 7,
+    graphMemberNavigationTitle: "Target.Run",
+    graphMemberNavigationError: "old package failure",
+    pendingGraphMemberDeepLink: null,
+  };
+
+  invalidateSourceDestinationWork(state);
+
+  assert.equal(state.memberCallGraphSeq, 5);
+  assert.equal(state.graphMemberNavigationSeq, 8);
+  assert.equal(state.platformDrillLoading, false);
+  assert.equal(state.graphMemberNavigationTitle, "");
+  assert.equal(state.graphMemberNavigationError, "");
+  assert.equal(state.pendingGraphMemberDeepLink, null);
+});
+
+test("source invalidation lets an active history restoration finish", () => {
+  const pending = { member: "Run" };
+  const state = {
+    memberCallGraphSeq: 4,
+    memberCallGraphLoading: false,
+    memberCallGraphExpanding: false,
+    memberCallGraphKey: "",
+    platformDrillLoading: true,
+    platformDrillError: "",
+    graphMemberNavigationSeq: 7,
+    graphMemberNavigationTitle: "Target.Run",
+    graphMemberNavigationError: "",
+    pendingGraphMemberDeepLink: pending,
+  };
+
+  invalidateSourceDestinationWork(state);
+
+  assert.equal(state.memberCallGraphSeq, 5);
+  assert.equal(state.graphMemberNavigationSeq, 7);
+  assert.equal(state.pendingGraphMemberDeepLink, pending);
 });
 
 test("library scope round-trips only within the restored package", () => {

@@ -300,10 +300,19 @@ reaching a lock.
 
 Disposal then disposes published groups. A group may already have an active
 callback that has not performed its first lazy content open. Artifact leases
-therefore outlive `Dispose()` and are released only after every dependent group
-reports quiescence. Synchronous disposal may initiate this deferred release; it
-must not invalidate content under an active callback. Cleanup failures compose
-with, and never replace, the active operation failure.
+therefore outlive `Dispose()` and are released only after every exact dependent
+group reports quiescence. The asynchronous `InspectionWorkspace` records this
+association from the published `ArtifactSetSession` and its query lease to the
+workspace-owned group objects whose participants carry registrations minted by
+that session. Ownership transfer requires the complete set of current dependent
+groups; later admission remains available for unrelated work but rejects a new
+group projected from that transferred session. It observes only those groups'
+owner-issued release receipts; an unrelated, foreign, or incomplete group set
+cannot authorize release. Cleanup failures compose with, and never replace,
+group cleanup results in the workspace close report. If coordinated group close
+or its synchronous release request faults, artifact cleanup still runs and its
+failures remain available from the terminal `CloseReport` before the original
+close failure is rethrown.
 
 ### Interaction model
 
@@ -329,14 +338,13 @@ demand's requested generation is also fixed once it arrives; the model does not
 represent a caller re-deriving a different generation when it replans after an
 incompatible admission terminates.
 
-The model checks the design intent stated in the prose above, not the current
-`ArtifactSetSession` implementation. `ArtifactSetSession`'s own doc comment
-states it "does not yet implement workspace-wide reservation, single-flight
-admission, or dependent-group quiescence": today it serves one caller per
-generation with no multi-demand join or incompatible-generation wait, and
-`Dispose()` releases every acquisition lease immediately rather than
-deferring release until dependent groups quiesce. Closing that gap is
-tracked as future implementation work, not a defect this model found.
+The model checks the design intent stated in the prose above. The asynchronous
+`InspectionWorkspace` now owns the exact published-session-to-dependent-group
+association and disposes the session only after all recorded group release
+receipts complete. `ArtifactSetSession` still serves one caller per generation
+with no workspace-wide reservation, multi-demand join, or
+incompatible-generation wait. Closing those admission gaps remains future
+implementation work, not a defect this model found.
 
 TLC 2026.08.21.155922 (rev `9787e65`, from the pinned `tla2tools.jar` v1.8.0 —
 see [`docs/runbooks/tla-plus-setup.md`](../runbooks/tla-plus-setup.md))
@@ -382,20 +390,29 @@ opens, so the target design registers each admitted open atomically with
 generation end, runs its potentially blocking opener after registration, ends
 access immediately at termination, cancels registered openers and an in-flight
 materialization read it owns, and releases acquisition leases only at content
-quiescence. The target configurations pass safety and
-liveness; three committed current-mechanics configurations produce
+quiescence. Source and retained-content openers therefore accept the
+generation owner's cancellation token; a potentially blocking opener must
+observe it promptly without depending on a worker thread. The token is scoped
+to opener execution and detached under the authority gate before a successful
+stream escapes; it is not a returned-stream lifetime signal. Admission stream
+wrappers separately combine generation cancellation with the caller token for
+asynchronous materialization reads. Returned query streams are the
+intentional exception: they remain readable after generation end and pin
+backing leases until disposal. `DisposeAsync` has no timeout and remains
+incomplete for an abandoned query stream; query consumers are required to
+dispose every returned stream. This follows the repository's
+`AssemblyContextGroup` gate-and-active-count release pattern and its
+`NuGetOperationDeadline.DeadlineStream` linked-cancellation pattern, while
+preserving the artifact contract's longer-lived returned stream.
+The target configurations pass safety and liveness; three committed
+current-mechanics configurations produce
 counterexamples showing an open can complete after `EndGeneration`, a
 disposal racing `SealAsync` disposes acquisition leases under an active
 materialization read, and leases can be released while a published
 generation's query stream is open. Its `README.md` records the checked
-bounds, results, assumptions, and the three termination-policy obligations it
-exposes: a registered opener must be owner-interruptible (today
-`OpenReadable` invokes a synchronous `Func<Stream>` with no cancellation or
-bounded-completion contract), an in-flight materialization read must likewise
-be owner-interruptible (today it awaits `Stream.ReadAsync` with only the caller
-token), and abandoned returned query streams need a stated policy (bound the
-wait, or invalidate visibly). These results establish evidence about the
-model, not the implementation.
+bounds, results, assumptions, and the three termination-policy obligations
+enforced by this contract. These results establish evidence about the model,
+not the implementation.
 
 ### Supplemental acquisition bridge
 
@@ -2353,8 +2370,10 @@ The migration is intentionally incremental:
    source-access authorization below core assembly Queries; keep NuGet symbol
    source policy in an optional companion.
 5. **Separate workspace realization.** Move package/platform realization out of
-   core assembly Queries into optional adapters or companion projects, and make
-   retained workspaces own multiple sealed artifact sessions.
+   core assembly Queries into optional adapters or companion projects. The
+   asynchronous workspace now owns exact sealed artifact sessions through their
+   dependent-group release receipts; package/platform realization migration and
+   multi-session host adoption remain outstanding.
 6. **Adapt package acquisition.** Reuse current package stores, source policy,
    package admission, and TFM selection behind a package artifact adapter.
 7. **Move package correspondence.** Have the package adapter mint typed
@@ -2427,7 +2446,22 @@ The target is complete only when tests equivalent to these exist:
 - `ArtifactSetSession_DisposalDuringAcquisitionDisposesLateLease`
 - `ArtifactSetSession_SealRejectsAcquisitionInProgress`
 - `ArtifactSetSession_DisposalDuringSealCannotPublish`
-- `ArtifactSetSession_ReleasesLeasesOnlyAfterDependentGroupsQuiesce`
+- `ArtifactAccess_OpenRegistrationIsAtomicWithGenerationEnd`
+- `ArtifactAccess_RetainedOpenerIsCancelledAfterGateAdmission`
+- `ArtifactAccess_AuthorizationReplacementIsAtomicWithOpenRegistration`
+- `ArtifactAccess_LeaseDisposalIsAtomicWithOpenRegistration`
+- `ArtifactAccess_ReturnedStreamKeepsGenerationAliveUntilDisposed`
+- `ArtifactAccess_RetainedOpenerCancellationEndsAtCallbackReturn`
+- `ArtifactAccess_StreamDisposalFailureStillReportsQuiescence`
+- `ArtifactAccess_MaterializationReadPreservesCallerCancellation`
+- `ArtifactSetSession_ReleasesLeasesOnlyAfterOpenArtifactStreamsQuiesce`
+- `WorkspaceClose_ReleasesArtifactSessionAfterExactDependentGroupQuiesces`
+- `RegisterArtifactSession_RejectsForeignOrIncompleteGroupSet`
+- `WorkspaceClose_ReportsArtifactSessionCleanupFailure`
+- `WorkspaceClose_ReleasesArtifactSessionWhenCoordinatedCloseFaults`
+- `WorkspaceClose_ReleasesArtifactSessionWhenCoordinatedReleaseRequestThrows`
+- `ArtifactSetSession_DisposalCancelsInFlightMaterialization`
+- `ArtifactSetSession_CancellationCallbackFailureDoesNotSkipLeaseCleanup`
 - `ArtifactSetSession_PreservesPrimaryFailureWhenCleanupFails`
 - `SupplementalAcquisition_RequiredCheckpointPreservesSealOutcome`
 - `SupplementalAcquisition_SealUsesCheckpointedSnapshots`
@@ -2551,6 +2585,12 @@ checkpoint, reuse of checkpointed snapshots, finite pre-adapter capacity,
 empty-batch lease ownership, exact visible failure, atomic scoped nonempty
 admission, validation-failure cleanup, termination cleanup, late-diagnostic
 projection, and cancellation preservation.
+The eight named `ArtifactAccess_*` gates and three
+`ArtifactSetSession_*` content-quiescence gates enforce gate-atomic open and
+lease-disposal admission, owner interruption of stalled opening and
+materialization, returned-stream validity through generation end, deferred
+acquisition-lease release, and quiescence reporting even when stream cleanup
+fails.
 `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`
 deletes its temporary source after publication, then passes an
 `ArtifactContentReference`'s guarded published snapshot opener to Metadata, so
@@ -2563,8 +2603,8 @@ explicit-empty-group cases, including typed compile-library absence, package
 documents, manifest dependencies, and no fabricated default assembly.
 
 Workspace-wide admission budgets, single-flight/reentrancy, content digests,
-dependent-group quiescence, and Metadata consumption of workspace roles remain
-unverified.
+assembly-group reporting into session quiescence, and Metadata consumption of
+workspace roles remain unverified.
 
 ## Non-goals
 

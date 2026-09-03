@@ -114,6 +114,35 @@ item into one product-owned kind facet and accepts the returned opaque IDs for
 filtering. Unknown IDs and unclassified producer values fail visibly rather
 than becoming an empty inventory.
 
+### Projected Member declaring identity
+
+When an `ApiMember` is projected beneath a Type other than its metadata
+declaration, `DeclaringTypeDefinitionName` retains the declaration's exact
+`MetadataTypeDefinitionName`. It is the lookup-name currency for consumers that
+must distinguish the declaration from the containing or receiver Type;
+`DeclaringType` remains display text and `DeclaringTypeCanonicalName` remains
+the separate canonical-anchor spelling consumed by `ApiMemberIdentity`.
+
+The typed lookup name and canonical `MemberAnchor` projection originate from
+the same declaring Type, but neither substitutes for the other. A projected
+Member is emitted only when the producer retains the typed declaration name.
+The field is serialized as a structured namespace-plus-segments value and is
+charged to the bounded API-surface retained-text budget. Null remains the
+compatibility shape for a Member declared on its containing Type and for an
+older serialized projection; consumers requiring exact projected declaration
+identity must fail visibly rather than parse either declaring-Type string.
+`DeclaringTypeCanonicalName` identifies a projected row: both declaring
+currencies are absent on a declaration-side Member, while canonical text
+present with typed identity absent is an older or incomplete projection that
+cannot support exact lookup.
+
+This contract is gated by
+`ExtensionAttachmentNameBoundaryTests.AttachedExtension_PreservesTypedDeclaringTypeAndAnchor`,
+`ApiSurfaceExtractorBoundsTests.ProjectedDeclaringTypeIdentityContributesItsOwnRetainedText`,
+`ApiSurfaceRelationshipFailureTests.ExtractSummary_CyclicTypePreservesValidSiblingAndFailure`,
+and
+`ApiOutputFormatterTests.ApiTypeJson_RoundTripsProjectedMemberDeclaringTypeIdentity`.
+
 `ApiTypeShape` is also the currency for a serialized
 `[JsonSerializable(typeof(T))]` root. Its parser accepts only complete
 structural generic argument lists: leading, doubled, and trailing delimiters

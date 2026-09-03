@@ -2859,8 +2859,7 @@ public static class CompileBackSourceComposer
                 IsOverride: false,
                 IsSealed: false,
                 IsAsync: !isConstructor
-                    && (function.RequiresAsyncBodyModifier
-                        || function.IsRuntimeAsync == MetadataFactState.Yes),
+                    && function.RequiresAsyncMethodContext,
                 ConstructorInitializer: targetConstructorInitializer,
                 ExplicitInterfaceMemberName: explicitInterfaceMemberName,
                 RequiresUnsafeModifier: ContainsFixedBufferElementAccess(function))
@@ -3039,7 +3038,7 @@ public static class CompileBackSourceComposer
     static CompileBackSourceResult ComposeCompilationUnit(CompileBackReconstructionPlan plan)
     {
         const string typeNamePlanningLayer = "type name planning";
-        var rendered = new CSharpTypePrinter().PrintBatch(
+        var printOutcome = new CSharpTypePrinter().PrintBatch(
             plan.PrintRequests,
             new CSharpTypePrintOptions
             {
@@ -3049,6 +3048,12 @@ public static class CompileBackSourceComposer
                 ModuleAttributes = plan.Module.ModuleAttributes.Select(attribute => attribute.Text).ToArray(),
                 Usings = plan.Module.Usings,
             });
+        if (printOutcome is CSharpTypePrintOutcome.NotRendered notRendered)
+        {
+            throw new NotSupportedException(
+                $"C# type printing refused {notRendered.SelfNameFailures.Length} exact declared-type self-name(s).");
+        }
+        var rendered = ((CSharpTypePrintOutcome.Printed)printOutcome).Result;
         var enrichedPlan = plan with
         {
             Diagnostics = plan.Diagnostics

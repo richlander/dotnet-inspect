@@ -280,6 +280,121 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void ArtifactFallbackDescriptor_PreservesExactRegistrationAndValidIdentity()
+    {
+        Guid mvid = Guid.NewGuid();
+        byte[] image =
+            BuildSimpleAssembly("ArtifactBound", "Type", mvid);
+        ArtifactAcquisitionRegistration artifactRegistration =
+            RegisterArtifact(
+                () => new MemoryStream(image, writable: false));
+        var fallbackIdentity = new AssemblyReferenceIdentity(
+            "RejectedArtifact",
+            Version: null,
+            Culture: null,
+            PublicKeyToken: null);
+
+        ResolvedAssemblyReference descriptor =
+            ResolvedAssemblyReference
+                .CreateFromArtifactWithFallbackIdentity(
+                    artifactRegistration,
+                    () => new MemoryStream(image, writable: false),
+                    fallbackIdentity,
+                    AssemblyResolutionProvenance.Local("test"),
+                    out bool usedFallbackIdentity);
+
+        Assert.False(usedFallbackIdentity);
+        Assert.Equal("ArtifactBound", descriptor.Identity.Name);
+        Assert.Same(
+            artifactRegistration,
+            descriptor.Registration.ArtifactRegistration);
+        Assert.Equal(mvid, descriptor.Registration.ModuleVersionId);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(descriptor);
+        Assert.Equal(
+            "ArtifactBound",
+            session.AssemblyInfo().AssemblyName);
+    }
+
+    [Fact]
+    public void ArtifactFallbackDescriptor_RetainsRejectedSelectedImages()
+    {
+        var fallbackIdentity = new AssemblyReferenceIdentity(
+            "RejectedArtifact",
+            Version: null,
+            Culture: null,
+            PublicKeyToken: null);
+        AssertRejected([0x01, 0x02, 0x03]);
+        AssertRejected(BuildModuleImage());
+        byte[] nativeImage = BuildNativePeImage();
+        using (var peReader = new PEReader(
+            new MemoryStream(nativeImage, writable: false)))
+        {
+            Assert.False(peReader.HasMetadata);
+        }
+        AssertRejected(nativeImage);
+
+        byte[] emptyMvid =
+            BuildSimpleAssembly(
+                "EmptyMvid",
+                "Type",
+                Guid.Empty);
+        ArtifactAcquisitionRegistration emptyMvidRegistration =
+            RegisterArtifact(
+                () => new MemoryStream(
+                    emptyMvid,
+                    writable: false));
+        ResolvedAssemblyReference emptyMvidDescriptor =
+            ResolvedAssemblyReference
+                .CreateFromArtifactWithFallbackIdentity(
+                    emptyMvidRegistration,
+                    () => new MemoryStream(
+                        emptyMvid,
+                        writable: false),
+                    fallbackIdentity,
+                    AssemblyResolutionProvenance.Local("test"),
+                    out bool emptyMvidUsedFallback);
+        Assert.False(emptyMvidUsedFallback);
+        Assert.Equal(
+            "EmptyMvid",
+            emptyMvidDescriptor.Identity.Name);
+        BadImageFormatException emptyMvidFailure =
+            Assert.Throws<BadImageFormatException>(
+                () => AssemblyImage.Open(emptyMvidDescriptor));
+        Assert.Contains(
+            "empty module version identifier",
+            emptyMvidFailure.Message,
+            StringComparison.Ordinal);
+        Assert.Null(
+            emptyMvidDescriptor.Registration.ModuleVersionId);
+
+        void AssertRejected(byte[] image)
+        {
+            ArtifactAcquisitionRegistration artifactRegistration =
+                RegisterArtifact(
+                    () => new MemoryStream(image, writable: false));
+            ResolvedAssemblyReference descriptor =
+                ResolvedAssemblyReference
+                    .CreateFromArtifactWithFallbackIdentity(
+                        artifactRegistration,
+                        () => new MemoryStream(image, writable: false),
+                        fallbackIdentity,
+                        AssemblyResolutionProvenance.Local("test"),
+                        out bool usedFallbackIdentity);
+
+            Assert.True(usedFallbackIdentity);
+            Assert.Same(fallbackIdentity, descriptor.Identity);
+            Assert.Same(
+                artifactRegistration,
+                descriptor.Registration.ArtifactRegistration);
+            Assert.Null(descriptor.Registration.ModuleVersionId);
+            Assert.Throws<BadImageFormatException>(
+                () => AssemblyImage.Open(descriptor));
+            Assert.Null(descriptor.Registration.ModuleVersionId);
+        }
+    }
+
+    [Fact]
     public void Register_SameDescriptor_IsOneCandidateAndOneInventoryRead()
     {
         byte[] image = SelfBytes();
@@ -1444,12 +1559,12 @@ public class InspectionAcquisitionPlanTests
         {
             contribution = scope.Register(
                 TestArtifactProvenance.Instance,
-                openRead);
+                _ => openRead());
         }
 
         authority.CreateRetainedContent(
             contribution.Registration,
-            openRead);
+            _ => openRead());
         authority.CompleteAdmission(admission);
         return contribution.Registration;
     }
@@ -1679,6 +1794,84 @@ public class InspectionAcquisitionPlanTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    static byte[] BuildNativePeImage()
+    {
+        var image = new byte[0x400];
+        using var stream = new MemoryStream(image, writable: true);
+        using var writer = new BinaryWriter(stream);
+
+        writer.Write((ushort)0x5A4D);
+        stream.Position = 0x3C;
+        writer.Write(0x80);
+        stream.Position = 0x80;
+        writer.Write(0x00004550u);
+        writer.Write((ushort)0x8664);
+        writer.Write((ushort)1);
+        writer.Write(0u);
+        writer.Write(0u);
+        writer.Write(0u);
+        writer.Write((ushort)0xF0);
+        writer.Write((ushort)0x2022);
+        writer.Write((ushort)0x20B);
+        writer.Write((byte)0);
+        writer.Write((byte)0);
+        writer.Write(0x200u);
+        writer.Write(0u);
+        writer.Write(0u);
+        writer.Write(0u);
+        writer.Write(0x1000u);
+        writer.Write(0x140000000ul);
+        writer.Write(0x1000u);
+        writer.Write(0x200u);
+        writer.Write((ushort)6);
+        writer.Write((ushort)0);
+        writer.Write((ushort)0);
+        writer.Write((ushort)0);
+        writer.Write((ushort)6);
+        writer.Write((ushort)0);
+        writer.Write(0u);
+        writer.Write(0x2000u);
+        writer.Write(0x200u);
+        writer.Write(0u);
+        writer.Write((ushort)3);
+        writer.Write((ushort)0x8160);
+        writer.Write(0x100000ul);
+        writer.Write(0x1000ul);
+        writer.Write(0x100000ul);
+        writer.Write(0x1000ul);
+        writer.Write(0u);
+        writer.Write(16u);
+        for (int i = 0; i < 16; i++)
+        {
+            writer.Write(0u);
+            writer.Write(0u);
+        }
+
+        writer.Write(
+            new byte[]
+            {
+                (byte)'.',
+                (byte)'t',
+                (byte)'e',
+                (byte)'x',
+                (byte)'t',
+                0,
+                0,
+                0,
+            });
+        writer.Write(1u);
+        writer.Write(0x1000u);
+        writer.Write(0x200u);
+        writer.Write(0x200u);
+        writer.Write(0u);
+        writer.Write(0u);
+        writer.Write((ushort)0);
+        writer.Write((ushort)0);
+        writer.Write(0x60000020u);
+        image[0x200] = 0xC3;
+        return image;
     }
 
     static void UpdateMaximum(ref int target, int value)

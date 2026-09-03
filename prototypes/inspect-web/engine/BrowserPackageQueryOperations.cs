@@ -22,10 +22,14 @@ namespace InspectWeb.Engine
                             {
                                 PackageQueryFacetTier.Nuspec =>
                                     BrowserPackageQueryFacetTier.Nuspec,
+                                PackageQueryFacetTier.PackageContent =>
+                                    BrowserPackageQueryFacetTier.PackageContent,
                                 _ => throw new InvalidOperationException(
                                     "Unknown package-query facet tier."),
                             },
-                            facet.SelectionGroupId)),
+                            facet.SelectionGroupId,
+                            facet.DisplayGroupId,
+                            facet.DisplayGroupLabel)),
                 ]);
 
         internal static async Task<BrowserPackageQueryEvent> ExecuteAsync(
@@ -34,6 +38,25 @@ namespace InspectWeb.Engine
             int maximumCandidates,
             int maximumMatches,
             bool includePrerelease,
+            Action<BrowserPackageQueryEvent> emit,
+            CancellationToken cancellationToken)
+            => await ExecuteAsync(
+                prefix,
+                facetIds,
+                maximumCandidates,
+                maximumMatches,
+                includePrerelease,
+                contentProvider: null,
+                emit,
+                cancellationToken).ConfigureAwait(false);
+
+        internal static async Task<BrowserPackageQueryEvent> ExecuteAsync(
+            string prefix,
+            string[] facetIds,
+            int maximumCandidates,
+            int maximumMatches,
+            bool includePrerelease,
+            IPackageQueryContentProvider? contentProvider,
             Action<BrowserPackageQueryEvent> emit,
             CancellationToken cancellationToken)
         {
@@ -56,6 +79,7 @@ namespace InspectWeb.Engine
             await foreach (PackageQueryEvent queryEvent in PackageQuery.ExecuteAsync(
                 BrowserPackageWorkspace.Gallery,
                 plan,
+                contentProvider,
                 cancellationToken).ConfigureAwait(false))
             {
                 BrowserPackageQueryEvent projected = Project(queryEvent);
@@ -83,6 +107,8 @@ namespace InspectWeb.Engine
                         {
                             PackageQueryFacetTier.Nuspec =>
                                 BrowserPackageQueryFacetTier.Nuspec,
+                            PackageQueryFacetTier.PackageContent =>
+                                BrowserPackageQueryFacetTier.PackageContent,
                             _ => throw new InvalidOperationException(
                                 "Unknown package-query match tier."),
                         },
@@ -94,7 +120,7 @@ namespace InspectWeb.Engine
                         ],
                         match.Value.Package.TotalDownloads,
                         match.Value.Package.Verified,
-                        match.Value.Package.Producer.Value),
+                        match.Value.Package.Source.Producer.Display.ToString()),
                     Failure: null,
                     Completion: null),
             PackageQueryEvent.Failure failure =>
@@ -104,19 +130,23 @@ namespace InspectWeb.Engine
                     Failure: new BrowserPackageQueryFailure(
                         failure.Value.PackageId,
                         failure.Value.Version,
-                        failure.Value.Producer.Value,
+                        failure.Value.Source.Producer.Display.ToString(),
                         failure.Value.Kind switch
                         {
-                            PackageProfileFailureKind.Search =>
+                            PackageQueryFailureKind.Search =>
                                 BrowserPackageQueryFailureKind.Search,
-                            PackageProfileFailureKind.SearchContract =>
+                            PackageQueryFailureKind.SearchContract =>
                                 BrowserPackageQueryFailureKind.SearchContract,
-                            PackageProfileFailureKind.ManifestAcquisition =>
+                            PackageQueryFailureKind.ManifestAcquisition =>
                                 BrowserPackageQueryFailureKind.ManifestAcquisition,
-                            PackageProfileFailureKind.ManifestContract =>
+                            PackageQueryFailureKind.ManifestContract =>
                                 BrowserPackageQueryFailureKind.ManifestContract,
-                            PackageProfileFailureKind.InvalidManifest =>
+                            PackageQueryFailureKind.InvalidManifest =>
                                 BrowserPackageQueryFailureKind.InvalidManifest,
+                            PackageQueryFailureKind.PackageContentAcquisition =>
+                                BrowserPackageQueryFailureKind.PackageContentAcquisition,
+                            PackageQueryFailureKind.PackageContentEvaluation =>
+                                BrowserPackageQueryFailureKind.PackageContentEvaluation,
                             _ => throw new InvalidOperationException(
                                 "Unknown package-query failure kind."),
                         },
@@ -129,7 +159,7 @@ namespace InspectWeb.Engine
                     Failure: null,
                     Completion: new BrowserPackageQueryCompletion(
                         completed.Value.Prefix.ToString(),
-                        completed.Value.Producer.Value,
+                        completed.Value.Source.Producer.Display.ToString(),
                         completed.Value.CandidateLimit,
                         completed.Value.MatchLimit,
                         completed.Value.Candidates,
@@ -196,12 +226,15 @@ public static partial class InspectionEngine
             await BrowserPackageWorkspace.RunPackageOperationAsync(
             async deadline =>
             {
+                var contentProvider =
+                    new BrowserPackageQueryContentProvider(deadline);
                 return await BrowserPackageQueryOperations.ExecuteAsync(
                     prefix,
                     facetIds,
                     maximumCandidates,
                     maximumMatches,
                     includePrerelease,
+                    contentProvider,
                     queryEvent => eventSink.SetProperty(
                         "event",
                         BrowserPackageQueryOperations.Serialize(queryEvent)),
@@ -212,5 +245,25 @@ public static partial class InspectionEngine
         return JsonSerializer.Serialize(
             completed,
             BrowserJsonContext.Default.BrowserPackageQueryEvent);
+    }
+}
+
+namespace InspectWeb.Engine
+{
+    [SupportedOSPlatform("browser")]
+    internal sealed class BrowserPackageQueryContentProvider(
+        BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline)
+        : IPackageQueryContentProvider
+    {
+        public ValueTask<PackageQueryContentResult> GetContentAsync(
+            PackageProfileMatch package,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
+                package,
+                BrowserPackageWorkspace.Gallery,
+                deadline);
+        }
     }
 }

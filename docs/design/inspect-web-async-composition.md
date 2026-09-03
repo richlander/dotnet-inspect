@@ -21,9 +21,9 @@ The generated inspect-web facade and authenticated synchronous delegate support
 have landed through
 [#5003](https://github.com/richlander/dotnet-inspect/issues/5003) and
 [#5005](https://github.com/richlander/dotnet-inspect/issues/5005).
-The operation-authority, worker-runtime, and managed-operation-bridge product
-components have not landed. Their composed behavior therefore remains
-**unverified**.
+The operation-authority product component and its first Type Source adoption
+are implemented. The worker-runtime and managed-operation-bridge product
+components have not landed, so their composed behavior remains **unverified**.
 
 ## Composition responsibility
 
@@ -317,7 +317,7 @@ owner's evidence cannot stand in for another owner's behavior.
 
 | Claimed behavior | Owner and gate | Current status |
 | --- | --- | --- |
-| One logical outcome, current-view publication, cancellation, stale-event suppression, and quiescence | [Operation-authority model and `inspect-web-operation-authority` Release TypeScript gate](inspect-web-operation-authority.md#required-implementation-gate) | Abstract model checked; product component and gate **unverified** |
+| One logical outcome, current-view publication, cancellation, stale-event suppression, and quiescence | [Operation-authority model and `inspect-web-operation-authority` Release TypeScript gate](inspect-web-operation-authority.md#required-implementation-gate) | Abstract model checked; product component, gate, and first Type Source adoption implemented |
 | Worker message validity, epoch containment, readiness, liveness, draining, and realm release | [Worker-runtime models and `inspect-web-worker-protocol` plus `inspect-web-worker-lifecycle` Release gates](inspect-web-worker-runtime.md#required-implementation-gates) | Abstract models checked; product components and gates **unverified** |
 | DOM responsiveness while representative managed CPU work runs | Worker-runtime owner and [`inspect-web-worker-responsiveness` real-browser gate](inspect-web-worker-runtime.md#required-implementation-gates) | **Unverified** |
 | Keyed managed cancellation, exact reason, callback release, managed quiescence, shared-waiter detachment, and epoch-work handoff | [Managed-bridge model and `inspect-web-managed-operation-bridge` Release browser-host gate](inspect-web-managed-operation-bridge.md#required-implementation-gate) | Abstract model checked; product component and gate **unverified** |

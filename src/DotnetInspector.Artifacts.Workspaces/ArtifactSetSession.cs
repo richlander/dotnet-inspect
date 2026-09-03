@@ -98,8 +98,7 @@ public abstract class ArtifactSetPublicationOutcome
 /// The session invokes source adapters sequentially, materializes every
 /// contribution into owner-private bounded memory, and retains successful
 /// acquisition leases until disposal. This slice does not yet implement
-/// workspace-wide reservation, single-flight admission, or dependent-group
-/// quiescence.
+/// workspace-wide reservation or single-flight admission.
 /// Materialization, publication, mutation, open, and lease-lifetime behavior
 /// are gated by <c>ArtifactSetSession_SealingRequiresMaterializedBoundedContent</c>,
 /// <c>ArtifactSetSession_SealedGenerationCannotMutate</c>,
@@ -115,6 +114,9 @@ public abstract class ArtifactSetPublicationOutcome
 /// termination completion is gated by
 /// <c>ArtifactSetSession_ConcurrentTerminationWaitsForCleanup</c> and
 /// <c>ArtifactSetSession_ConcurrentAbortAndDisposalShareCleanup</c>.
+/// Content-access quiescence is gated by
+/// <c>ArtifactSetSession_ReleasesLeasesOnlyAfterOpenArtifactStreamsQuiesce</c>
+/// and <c>ArtifactSetSession_DisposalCancelsInFlightMaterialization</c>.
 /// </remarks>
 public sealed class ArtifactSetSession : IAsyncDisposable
 {
@@ -852,6 +854,16 @@ public sealed class ArtifactSetSession : IAsyncDisposable
 
             return new ArtifactSetPublicationOutcome.Published();
         }
+        catch (OperationCanceledException) when (IsDisposed())
+        {
+            IReadOnlyList<Exception> cleanupFailures =
+                await AbortAsync().ConfigureAwait(false);
+            var disposed = new ObjectDisposedException(
+                nameof(ArtifactSetSession),
+                "The artifact session was disposed while sealing was in progress.");
+            AttachCleanupFailures(disposed, cleanupFailures);
+            throw disposed;
+        }
         catch (OperationCanceledException ex)
         {
             IReadOnlyList<Exception> cleanupFailures =
@@ -1255,7 +1267,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         RetainedArtifactContent retained =
             _authority.CreateRetainedContent(
                 contribution.Registration,
-                () => OpenSnapshot(snapshot));
+                _ => OpenSnapshot(snapshot));
         return new PublishedArtifact(
             contribution.Descriptor,
             contribution.Registration,
@@ -1476,12 +1488,27 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         {
             try
             {
-                _authority.EndGeneration();
+                var failures = new List<Exception>();
+                try
+                {
+                    await _authority.EndGenerationAsync()
+                        .ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    failures.Add(ex);
+                }
                 _admissionLease.Dispose();
-                IReadOnlyList<Exception> failures =
+                IReadOnlyList<Exception> leaseFailures =
                     await DisposeLeasesAsync().ConfigureAwait(false);
-                RecordCleanupFailures(failures);
-                starter.SetResult(failures);
+                failures.AddRange(leaseFailures);
+                IReadOnlyList<Exception> cleanupFailures =
+                    failures.Count == 0
+                        ? []
+                        : new ReadOnlyCollection<Exception>(
+                            failures);
+                RecordCleanupFailures(cleanupFailures);
+                starter.SetResult(cleanupFailures);
             }
             catch (Exception ex)
             {

@@ -409,6 +409,22 @@ public sealed class IrFunction : IrNode
     internal bool IsMetadataBacked { get; set; }
 
     /// <summary>
+    /// True when a consumer embedding this body in a C# method declaration must
+    /// provide an <c>async</c> context. Runtime-async metadata establishes the
+    /// context even when no <c>await</c> survives; classic async establishes it
+    /// only after reconstruction installs an async body contract.
+    /// <para>
+    /// Gated by
+    /// <c>ValidityShellNoiseTests.RuntimeAsyncNoAwaitShell_UsesMetadataAsyncContext</c>
+    /// and
+    /// <c>ValidityShellNoiseTests.OrdinaryTaskReturningShell_DoesNotInferAsyncFromReturnType</c>.
+    /// </para>
+    /// </summary>
+    public bool RequiresAsyncMethodContext =>
+        RequiresAsyncBodyModifier
+        || IsRuntimeAsync == MetadataFactState.Yes;
+
+    /// <summary>
     /// Appends a local slot (and its source name) and returns its index. Used by
     /// raising passes that introduce a variable absent from the original IL — e.g.
     /// <see cref="ILInspector.Decompiler.Pipeline.IteratorReconstructionPass"/>

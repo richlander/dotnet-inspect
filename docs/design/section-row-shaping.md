@@ -496,7 +496,7 @@ planning, the delegated result contract, completion-evidence binding, and the
 non-vacuous optimized-execution gates. L2 accepts an optimized result only
 when it is observationally equivalent to the complete reference contracts in
 [Row query and ordering](row-query-order.md#logical-composition) and
-[Semantic row selection](semantic-row-selection.md#reference-semantics-and-optimized-execution).
+[Semantic row selection](semantic-row-selection.md#reference-evaluator-and-alternative-interpretation).
 That includes their predicate, baseline-order, callback, exception-identity,
 resolver-cardinality, caching, and failure-precedence observations. Comparer
 call count and pair order remain excluded exactly where the semantic owner

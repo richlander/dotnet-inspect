@@ -619,6 +619,71 @@ public class InspectionDefinitionTests
     }
 
     [Fact]
+    public void WorkspaceContextAddress_UsesExactOrdinalValueEquality()
+    {
+        var first = new WorkspaceContextAddress("workspace", "context");
+        var equal = new WorkspaceContextAddress("workspace", "context");
+
+        Assert.Equal(first, equal);
+        Assert.NotEqual(
+            first,
+            new WorkspaceContextAddress("Workspace", "context"));
+        Assert.NotEqual(
+            first,
+            new WorkspaceContextAddress("workspace", "Context"));
+        Assert.Throws<ArgumentException>(
+            () => new WorkspaceContextAddress("", "context"));
+        Assert.Throws<ArgumentException>(
+            () => new WorkspaceContextAddress("workspace", " "));
+    }
+
+    [Fact]
+    public void ResolveScenario_IssuesContextAddressesAndDescriptors()
+    {
+        var member = new DefinitionMemberCoordinate.PackageCoordinate(
+            "P",
+            "1.0.0",
+            "net10.0");
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(new WorkspaceDefinition(
+            1,
+            "workspace",
+            [
+                new WorkspaceContextDefinition(
+                    "first",
+                    framework: "net10.0",
+                    members: [member]),
+                new WorkspaceContextDefinition(
+                    "second",
+                    framework: "net10.0",
+                    runtimeIdentifier: "linux-x64",
+                    members: [member]),
+            ]));
+        registry.Add(new ScenarioDefinition(
+            1,
+            "scenario",
+            workspace: "workspace",
+            context: "second"));
+
+        ResolvedScenario resolved = registry.ResolveScenario("scenario");
+
+        Assert.Equal(
+            [
+                new WorkspaceContextAddress("workspace", "first"),
+                new WorkspaceContextAddress("workspace", "second"),
+            ],
+            resolved.Contexts.Select(context => context.Address));
+        Assert.Equal("first", resolved.Contexts[0].Descriptor.Name);
+        Assert.Equal("net10.0", resolved.Contexts[0].Descriptor.Framework);
+        Assert.Null(resolved.Contexts[0].Descriptor.RuntimeIdentifier);
+        Assert.Equal("linux-x64", resolved.Contexts[1].Descriptor.RuntimeIdentifier);
+        Assert.Same(resolved.Contexts[1], resolved.SelectedContext);
+        Assert.Same(
+            resolved.Contexts[1].Descriptor,
+            resolved.SelectedContext!.Descriptor);
+    }
+
+    [Fact]
     public void Registry_RecordsAndScenarios_AreEnumerationSnapshots()
     {
         var registry = new InspectionDefinitionRegistry();
