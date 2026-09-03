@@ -947,6 +947,54 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
             async () =>
                 await readCancellationPayload.Content.DisposeAsync());
 
+        using var racingCancellationContext = new NuGetOperationContext(
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(1),
+            TestContext.Current.CancellationToken);
+        var racingCancellationHost = new MemoryHost(
+            "RacingCancellation.1.0.0.nupkg",
+            CreatePackageBytes("RacingCancellation", "1.0.0"));
+        using IPackageSourceClient racingCancellationClient =
+            PackageSourceClientFactory.Create(
+                LocalPackageSourceIdentity.Create(_root, _root),
+                PackageSourceAssociation.Create(),
+                racingCancellationHost);
+        PackageSourcePayload racingCancellationPayload = Succeeded(
+            await racingCancellationClient.GetPackageAsync(
+                "RacingCancellation",
+                "1.0.0",
+                TestContext.Current.CancellationToken,
+                racingCancellationContext));
+        using var racingCancellation = new CancellationTokenSource();
+        racingCancellationHost.Stream!.CancelBeforeReadFailure =
+            racingCancellation;
+        racingCancellationHost.Stream.FailReads = true;
+        PackageSourceStreamException racingFailure =
+            await Assert.ThrowsAsync<PackageSourceStreamException>(
+                async () =>
+                    await racingCancellationPayload.Content.ReadExactlyAsync(
+                        new byte[1],
+                        racingCancellation.Token));
+        Assert.True(racingCancellation.IsCancellationRequested);
+        Assert.Equal(
+            PackageSourceFailureKind.Transport,
+            racingFailure.Kind);
+        racingCancellationHost.Stream.FailReads = false;
+        using var innerCancellation = new CancellationTokenSource();
+        racingCancellationHost.Stream.CancelBeforeReadFailure =
+            innerCancellation;
+        OperationCanceledException innerCancellationError =
+            await Assert.ThrowsAsync<OperationCanceledException>(
+                async () =>
+                    await racingCancellationPayload.Content.ReadExactlyAsync(
+                        new byte[1],
+                        innerCancellation.Token));
+        Assert.Equal(
+            innerCancellation.Token,
+            innerCancellationError.CancellationToken);
+        racingCancellationHost.Stream.CancelBeforeReadFailure = null;
+        await racingCancellationPayload.Content.DisposeAsync();
+
         using var eofContext = new NuGetOperationContext(
             TimeSpan.FromSeconds(1),
             TimeSpan.FromMilliseconds(100),
@@ -975,8 +1023,80 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
         await Task.Delay(
             TimeSpan.FromMilliseconds(150),
             TestContext.Current.CancellationToken);
+        eofPayload.Content.Seek(0, SeekOrigin.Current);
+        eofPayload.Content.Position = eofPayload.Content.Position;
         Assert.Equal(-1, eofPayload.Content.ReadByte());
         await eofPayload.Content.DisposeAsync();
+
+        using var seekContext = new NuGetOperationContext(
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromMilliseconds(500),
+            TestContext.Current.CancellationToken);
+        byte[] seekPackage = CreatePackageBytes("Seek", "1.0.0");
+        var seekHost = new MemoryHost(
+            "Seek.1.0.0.nupkg",
+            seekPackage);
+        using IPackageSourceClient seekClient =
+            PackageSourceClientFactory.Create(
+                LocalPackageSourceIdentity.Create(_root, _root),
+                PackageSourceAssociation.Create(),
+                seekHost);
+        PackageSourcePayload seekPayload = Succeeded(
+            await seekClient.GetPackageAsync(
+                "Seek",
+                "1.0.0",
+                TestContext.Current.CancellationToken,
+                seekContext));
+        await seekPayload.Content.ReadExactlyAsync(
+            new byte[seekPackage.Length],
+            TestContext.Current.CancellationToken);
+        Assert.Equal(-1, seekPayload.Content.ReadByte());
+        seekPayload.Content.Position = 0;
+        await Task.Delay(
+            TimeSpan.FromMilliseconds(600),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            PackageSourceFailureKind.Timeout,
+            Assert.Throws<PackageSourceStreamException>(
+                () => seekPayload.Content.ReadByte()).Kind);
+        await Assert.ThrowsAsync<PackageSourceStreamException>(
+            async () => await seekPayload.Content.DisposeAsync());
+
+        using var concurrentDisposalContext = new NuGetOperationContext(
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(1),
+            TestContext.Current.CancellationToken);
+        var concurrentDisposalHost = new MemoryHost(
+            "ConcurrentDisposal.1.0.0.nupkg",
+            CreatePackageBytes("ConcurrentDisposal", "1.0.0"));
+        using IPackageSourceClient concurrentDisposalClient =
+            PackageSourceClientFactory.Create(
+                LocalPackageSourceIdentity.Create(_root, _root),
+                PackageSourceAssociation.Create(),
+                concurrentDisposalHost);
+        PackageSourcePayload concurrentDisposalPayload = Succeeded(
+            await concurrentDisposalClient.GetPackageAsync(
+                "ConcurrentDisposal",
+                "1.0.0",
+                TestContext.Current.CancellationToken,
+                concurrentDisposalContext));
+        concurrentDisposalHost.Stream!.ReleaseReadOnDisposal = true;
+        Task<int> outstandingRead =
+            concurrentDisposalPayload.Content.ReadAsync(
+                new byte[1],
+                TestContext.Current.CancellationToken).AsTask();
+        await concurrentDisposalHost.Stream.ReadStarted;
+        Task concurrentDisposal =
+            concurrentDisposalPayload.Content.DisposeAsync().AsTask();
+        PackageSourceStreamException concurrentDisposalFailure =
+            await Assert.ThrowsAsync<PackageSourceStreamException>(
+                async () => await outstandingRead);
+        Assert.Equal(
+            PackageSourceFailureKind.Transport,
+            concurrentDisposalFailure.Kind);
+        await concurrentDisposal;
+        Assert.Throws<ObjectDisposedException>(
+            () => concurrentDisposalPayload.Content.ReadByte());
 
         using IPackageSourceClient duplicateCleanup =
             PackageSourceClientFactory.Create(
@@ -1599,10 +1719,18 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
     private sealed class FaultableMemoryStream(byte[] content)
         : MemoryStream(content, writable: false)
     {
+        private readonly TaskCompletionSource _readStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _releaseRead =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public bool FailReads { get; set; }
         public bool FailDisposal { get; set; }
         public TimeSpan ReadDelay { get; set; }
         public CancellationToken DisposalWaitToken { get; set; }
+        public CancellationTokenSource? CancelBeforeReadFailure { get; set; }
+        public bool ReleaseReadOnDisposal { get; set; }
+        public Task ReadStarted => _readStarted.Task;
 
         public override int Read(byte[] buffer, int offset, int count)
         {
@@ -1631,6 +1759,33 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
             return base.ReadByte();
         }
 
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (ReleaseReadOnDisposal)
+            {
+                _readStarted.TrySetResult();
+                await _releaseRead.Task.ConfigureAwait(false);
+                return 0;
+            }
+
+            if (ReadDelay > TimeSpan.Zero)
+            {
+                await Task.Delay(
+                    ReadDelay,
+                    cancellationToken);
+            }
+
+            CancelBeforeReadFailure?.Cancel();
+            if (FailReads)
+                throw new IOException("read failed");
+
+            return await base.ReadAsync(
+                buffer,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         protected override void Dispose(bool disposing)
         {
             base.Dispose(disposing);
@@ -1640,6 +1795,12 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
 
         public override async ValueTask DisposeAsync()
         {
+            if (ReleaseReadOnDisposal)
+            {
+                _releaseRead.TrySetResult();
+                await Task.Delay(20).ConfigureAwait(false);
+            }
+
             if (DisposalWaitToken.CanBeCanceled)
             {
                 try

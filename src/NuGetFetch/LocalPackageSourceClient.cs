@@ -1036,7 +1036,7 @@ internal sealed class LocalPackagePayloadStream : Stream
     private readonly NuGetOperationDeadline _operation;
     private readonly PackageSourceResultIdentity _source;
     private int _disposed;
-    private int _deadlineCompleted;
+    private int _endOfStream;
 
     public LocalPackagePayloadStream(
         Stream inner,
@@ -1055,10 +1055,10 @@ internal sealed class LocalPackagePayloadStream : Stream
     public override long Position
     {
         get => Execute(() => _inner.Position);
-        set => Execute(() =>
+        set => ResumeAfterEndOfStream(() =>
         {
             _inner.Position = value;
-            return 0;
+            return _inner.Position;
         });
     }
 
@@ -1070,19 +1070,22 @@ internal sealed class LocalPackagePayloadStream : Stream
     public override int Read(Span<byte> buffer)
     {
         ThrowIfUnavailable();
+        int read;
         try
         {
-            int read = _inner.Read(buffer);
-            ThrowIfDeadlineExpired();
-            if (read == 0 && !buffer.IsEmpty)
-                CompleteDeadline();
-
-            return read;
+            read = _inner.Read(buffer);
         }
         catch (Exception exception) when (IsStreamFailure(exception))
         {
-            throw Translate(exception);
+            throw TranslateReadFailure(exception);
         }
+
+        ThrowIfDisposedDuringRead();
+        ThrowIfDeadlineUnavailable();
+        if (read == 0 && !buffer.IsEmpty)
+            ObserveEndOfStream();
+
+        return read;
     }
 
     public override async ValueTask<int> ReadAsync(
@@ -1092,30 +1095,38 @@ internal sealed class LocalPackagePayloadStream : Stream
         ThrowIfDisposed();
         cancellationToken.ThrowIfCancellationRequested();
         ThrowIfDeadlineUnavailable();
+        int read;
         try
         {
-            using CancellationTokenSource? linked = IsDeadlineCompleted
+            using CancellationTokenSource? linked = IsAtEndOfStream
                 ? null
                 : CancellationTokenSource.CreateLinkedTokenSource(
                     cancellationToken,
                     _operation.OperationToken);
-            int read = await _inner.ReadAsync(
+            read = await _inner.ReadAsync(
                 buffer,
                 linked?.Token ?? cancellationToken).ConfigureAwait(false);
-            cancellationToken.ThrowIfCancellationRequested();
-            ThrowIfDeadlineExpired();
-            if (read == 0 && !buffer.IsEmpty)
-                CompleteDeadline();
-
-            return read;
         }
         catch (Exception exception) when (IsStreamFailure(exception))
         {
-            if (cancellationToken.IsCancellationRequested)
+            if (IsDisposed)
+                throw StreamFailure(exception, cleanupFailed: false);
+            if (exception is OperationCanceledException
+                && cancellationToken.IsCancellationRequested)
+            {
                 throw new OperationCanceledException(cancellationToken);
+            }
 
             throw Translate(exception);
         }
+
+        ThrowIfDisposedDuringRead();
+        cancellationToken.ThrowIfCancellationRequested();
+        ThrowIfDeadlineUnavailable();
+        if (read == 0 && !buffer.IsEmpty)
+            ObserveEndOfStream();
+
+        return read;
     }
 
     public override Task<int> ReadAsync(
@@ -1133,7 +1144,7 @@ internal sealed class LocalPackagePayloadStream : Stream
             zeroIsEndOfStream: false);
 
     public override long Seek(long offset, SeekOrigin origin) =>
-        Execute(() => _inner.Seek(offset, origin));
+        ResumeAfterEndOfStream(() => _inner.Seek(offset, origin));
 
     public override void Flush()
     {
@@ -1244,19 +1255,49 @@ internal sealed class LocalPackagePayloadStream : Stream
         bool zeroIsEndOfStream)
     {
         ThrowIfUnavailable();
+        int result;
         try
         {
-            int result = action();
-            ThrowIfDeadlineExpired();
-            if (zeroIsEndOfStream ? result == 0 : result < 0)
-                CompleteDeadline();
-
-            return result;
+            result = action();
         }
         catch (Exception exception) when (IsStreamFailure(exception))
         {
-            throw Translate(exception);
+            throw TranslateReadFailure(exception);
         }
+
+        ThrowIfDisposedDuringRead();
+        ThrowIfDeadlineUnavailable();
+        if (zeroIsEndOfStream ? result == 0 : result < 0)
+            ObserveEndOfStream();
+
+        return result;
+    }
+
+    private long ResumeAfterEndOfStream(Func<long> action)
+    {
+        ThrowIfDisposed();
+        if (!IsAtEndOfStream)
+            ThrowIfDeadlineUnavailable();
+
+        long position;
+        bool resumed;
+        try
+        {
+            position = action();
+            resumed = position < _inner.Length;
+        }
+        catch (Exception exception) when (IsStreamFailure(exception))
+        {
+            throw TranslateReadFailure(exception);
+        }
+
+        if (resumed)
+        {
+            Volatile.Write(ref _endOfStream, 0);
+            ThrowIfDeadlineUnavailable();
+        }
+
+        return position;
     }
 
     private void ThrowIfUnavailable()
@@ -1264,11 +1305,6 @@ internal sealed class LocalPackagePayloadStream : Stream
         ThrowIfDisposed();
         ThrowIfDeadlineUnavailable();
     }
-
-    private void ThrowIfDisposed() =>
-        ObjectDisposedException.ThrowIf(
-            Volatile.Read(ref _disposed) != 0,
-            this);
 
     private void ThrowIfDeadlineUnavailable()
     {
@@ -1288,23 +1324,49 @@ internal sealed class LocalPackagePayloadStream : Stream
 
     private void ThrowIfDeadlineExpired()
     {
-        if (IsDeadlineCompleted)
+        if (IsAtEndOfStream)
             return;
 
         _operation.ThrowIfExpired();
     }
 
-    private bool IsDeadlineCompleted =>
-        Volatile.Read(ref _deadlineCompleted) != 0;
+    private bool IsAtEndOfStream =>
+        Volatile.Read(ref _endOfStream) != 0;
 
-    private void CompleteDeadline()
+    private void ObserveEndOfStream()
     {
-        if (Interlocked.Exchange(ref _deadlineCompleted, 1) == 0)
-            _operation.Dispose();
+        Volatile.Write(ref _endOfStream, 1);
+    }
+
+    private void ThrowIfDisposedDuringRead()
+    {
+        if (IsDisposed)
+        {
+            throw StreamFailure(
+                new ObjectDisposedException(
+                    nameof(LocalPackagePayloadStream)),
+                cleanupFailed: false);
+        }
+    }
+
+    private Exception TranslateReadFailure(Exception exception) =>
+        IsDisposed
+            ? StreamFailure(exception, cleanupFailed: false)
+            : Translate(exception);
+
+    private bool IsDisposed =>
+        Volatile.Read(ref _disposed) != 0;
+
+    private void ThrowIfDisposed()
+    {
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
     }
 
     private Exception Translate(Exception exception)
     {
+        if (IsDisposed)
+            return StreamFailure(exception, cleanupFailed: false);
+
         try
         {
             ThrowIfDeadlineExpired();
