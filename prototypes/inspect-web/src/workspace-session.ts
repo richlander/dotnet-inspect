@@ -168,22 +168,13 @@ export type WorkspaceHistoryMembershipStatus =
 export function workspaceHistoryMembershipStatus<TPackage>(
   session: LiveWorkspaceSession<TPackage>,
   historyState: unknown,
-  requestedPackageKeys: readonly string[],
-  packageKey: (value: TPackage) => string,
-  exact: boolean,
+  matchesCurrentMembership: (packages: readonly TPackage[]) => boolean,
 ): WorkspaceHistoryMembershipStatus {
   const workspaceId = workspaceHistoryId(historyState);
   const workspace = session.workspaces.find(
     candidate => candidate.id === workspaceId);
   if (!workspace) return "unassociated";
-  const currentPackageKeys = workspace.packages.map(packageKey);
-  const matches = exact
-    ? currentPackageKeys.length === requestedPackageKeys.length
-      && currentPackageKeys.every(
-        (key, index) => key === requestedPackageKeys[index])
-    : requestedPackageKeys.every(
-        requested => currentPackageKeys.includes(requested));
-  return matches ? "current" : "stale";
+  return matchesCurrentMembership(workspace.packages) ? "current" : "stale";
 }
 
 export function rememberedLiveWorkspaceHref<TPackage>(

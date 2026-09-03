@@ -1136,6 +1136,9 @@ test("live Workspace history and asynchronous results retain their owner", async
   page,
 }) => {
   await page.goto("/browser/workspace-titlebar.html?workspace=1");
+  await page.evaluate(() => window.restoreFloatingWorkspaceHistoryProbe());
+  await expect(page.locator("body"))
+    .toHaveAttribute("data-workspace-floating-history-membership", "current");
 
   await page.evaluate(() => window.beginDelayedWorkspaceLoadProbe());
   await page.locator('[data-workspace="extensions"]').click();

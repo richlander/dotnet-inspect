@@ -465,10 +465,14 @@ Workspace from history metadata. The URL continues to carry the product-owned
 portable view state. For a known live Workspace, its current membership is
 authoritative: an older history entry may restore a view only while its
 required coordinate remains present, and an exact multi-coordinate entry may
-restore only while its ordered membership still matches. Otherwise the Browser
-replaces that stale entry with the current live projection instead of undoing a
-later add, replacement, or explicit Close. An absent or unknown Workspace ID
-has no live membership authority, so its URL may restore into Default.
+restore only while its ordered membership still matches. Floating packet
+coordinates match the resolved live coordinate they retained rather than
+becoming literal `latest` or empty pins. A compatible entry activates the
+retained package model and applies its view without reacquisition. Otherwise
+the Browser replaces that stale entry with the current live projection instead
+of undoing a later add, replacement, or explicit Close. An absent or unknown
+Workspace ID has no live membership authority, so its URL may restore into
+Default.
 Session-only canonical return locations used by routed surfaces such as Package
 query are retained per browser-session Workspace ID; selecting one Workspace
 cannot expose another Workspace's canonical snapshot through a return link.
@@ -516,11 +520,12 @@ this same test file are recorded in
   the composition-root assertions in `spotlight-identity.test.ts` jointly cover
   two Workspaces with overlapping coordinates, a delayed acquisition across an
   A-to-B-to-A switch, cancellation of an empty or partially acquired
-  restoration, Back and Forward between their history entries, rejection of a
-  closed coordinate from an older associated entry, absent and unknown history
-  Workspace IDs, per-Workspace canonical return locations, Query and Credits
-  history-adoption ordering, generation-gated runtime acquisition, and
-  `/#workspace` refresh. The Browser harness runs the
+  restoration, Back and Forward between their history entries, retained-model
+  activation without reacquisition, resolution-aware floating packet
+  membership, rejection of a closed coordinate from an older associated entry,
+  absent and unknown history Workspace IDs, per-Workspace canonical return
+  locations, Query and Credits history-adoption ordering, generation-gated
+  runtime acquisition, and `/#workspace` refresh. The Browser harness runs the
   production Workspace collection and renderer/binder helpers rather than the
   full Wasm application; the composition-root assertions pin their production
   wiring. Together they prove that late work changes neither the selected nor

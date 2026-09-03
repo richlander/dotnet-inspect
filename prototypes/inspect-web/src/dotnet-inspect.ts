@@ -6860,9 +6860,11 @@ function workbenchModalOwnsFocus() {
     || state.memberAnnotatedModal !== null;
 }
 
-function resolvedWorkspaceShareTabs():
+function resolvedWorkspaceShareTabs(
+  packages: readonly AppPackage[] = state.packages,
+):
 BrowserWorkspaceShareState["tabs"] {
-  return state.packages.map((pkg, index) => ({
+  return packages.map((pkg, index) => ({
     id: `t${index}`,
     kind: pkg.isRuntimePack ? "group" : "package",
     source: pkg.isRuntimePack ? ":Platform" : pkg.id,
@@ -11593,41 +11595,45 @@ function dismissModalsForRoutedNavigation() {
   return dismissedAnnotatedSourceModal;
 }
 
-function requestedHistoryPackageKeys(
+function workspaceLocationMatchesPackageMembership(
   loc: ParsedLocation,
-): { keys: string[]; exact: boolean } | null {
-  if (loc.tabs?.length) {
-    return {
-      keys: loc.tabs.map(tab => packageIdentityKey({
-        id: tab.id,
-        version: tab.version,
-        activeFramework: tab.framework,
-      })),
-      exact: true,
-    };
+  packages: readonly AppPackage[],
+): boolean {
+  if (loc.tabs?.length && loc.shareState) {
+    return workspaceShareTabsMatchResolved(
+      loc.shareState.tabs,
+      resolvedWorkspaceShareTabs(packages));
   }
-  if (!loc.package || !loc.version || !loc.framework) return null;
-  return {
-    keys: [packageIdentityKey({
-      id: loc.package,
-      version: loc.version,
-      activeFramework: loc.framework,
-    })],
-    exact: false,
-  };
+  if (loc.tabs?.length) return workspaceCoordinatesMatch(packages, loc.tabs);
+  return packages.some(
+    packageModel => packageCoordinateMatchesLocation(packageModel, loc));
+}
+
+function workspaceLocationTargetPackage(
+  loc: ParsedLocation,
+  packages: readonly AppPackage[],
+): AppPackage | null {
+  const shareState = loc.shareState;
+  if (loc.tabs?.length && shareState) {
+    const activeIndex = shareState.tabs.findIndex(
+      tab => tab.id === shareState.activeTabId);
+    return activeIndex >= 0 ? packages[activeIndex] ?? null : null;
+  }
+  return packages.find(
+    packageModel => packageCoordinateMatchesLocation(packageModel, loc))
+    ?? null;
 }
 
 function historyRequestsStaleWorkspaceMembership(
   loc: ParsedLocation,
 ): boolean {
-  const request = requestedHistoryPackageKeys(loc);
-  if (!request) return false;
+  if (!(loc.tabs?.length)
+    && (!loc.package || !loc.version || !loc.framework)) return false;
   return workspaceHistoryMembershipStatus(
     state.workspaceSession,
     history.state,
-    request.keys,
-    packageIdentityKey,
-    request.exact) === "stale";
+    packages => workspaceLocationMatchesPackageMembership(loc, packages))
+      === "stale";
 }
 
 function reconcileLiveWorkspaceHistoryMembership() {
@@ -11773,7 +11779,8 @@ window.addEventListener("popstate", () => {
       "Restoring workspace history");
     return;
   }
-  if (loc.tabs?.length && !workspaceCoordinatesMatch(state.packages, loc.tabs)) {
+  if (loc.tabs?.length
+    && !workspaceLocationMatchesPackageMembership(loc, state.packages)) {
     observeAsync(
       restoreWorkspaceFromLocation(
         loc,
@@ -11783,9 +11790,9 @@ window.addEventListener("popstate", () => {
       "Restoring workspace history");
     return;
   }
+  const retainedTarget = workspaceLocationTargetPackage(loc, state.packages);
   if (loc.tabs?.length) {
-    const target = state.packages.find(candidate =>
-      packageCoordinateMatchesLocation(candidate, loc));
+    const target = retainedTarget;
     if (!target) {
       observeAsync(
         restoreWorkspaceFromLocation(
@@ -11797,10 +11804,14 @@ window.addEventListener("popstate", () => {
       return;
     }
     activatePackage(target, { resetAccessibility: true });
+  } else if (loc.package && retainedTarget) {
+    activatePackage(retainedTarget, { resetAccessibility: true });
   }
   state.home = false;
   applyLocationView(loc);
-  const samePackage = packageCoordinateMatchesLocation(state.package, loc);
+  const samePackage = retainedTarget
+    ? state.package === retainedTarget
+    : packageCoordinateMatchesLocation(state.package, loc);
   if (samePackage || !loc.package) {
     if (isRuntimePackId(state.package.id)) {
       // Back/forward within the platform: re-scope to the target library (or the

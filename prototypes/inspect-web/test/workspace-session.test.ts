@@ -113,33 +113,27 @@ test("history cannot restore stale membership into an associated live Workspace"
     workspaceHistoryMembershipStatus(
       session,
       associated,
-      ["Package.A"],
-      value => value,
-      false),
+      packages => packages.includes("Package.A")),
     "current");
   assert.equal(
     workspaceHistoryMembershipStatus(
       session,
       associated,
-      ["Package.A"],
-      value => value,
-      true),
+      packages =>
+        packages.length === 1
+        && packages[0] === "Package.A"),
     "stale");
   assert.equal(
     workspaceHistoryMembershipStatus(
       session,
       associated,
-      ["Package.Closed"],
-      value => value,
-      false),
+      packages => packages.includes("Package.Closed")),
     "stale");
   assert.equal(
     workspaceHistoryMembershipStatus(
       session,
       withWorkspaceHistoryId(null, "unknown"),
-      ["Package.Closed"],
-      value => value,
-      false),
+      packages => packages.includes("Package.Closed")),
     "unassociated");
 });
 

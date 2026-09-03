@@ -5684,7 +5684,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /clearWorkspacePackages\(\);\s+render\(\);/);
   assert.match(
     appSource,
-    /if \(loc\.tabs\?\.length && !workspaceCoordinatesMatch\(state\.packages, loc\.tabs\)\) \{\s+observeAsync\(\s*restoreWorkspaceFromLocation/);
+    /if \(loc\.tabs\?\.length\s+&& !workspaceLocationMatchesPackageMembership\(loc, state\.packages\)\) \{\s+observeAsync\(\s*restoreWorkspaceFromLocation/);
   assert.match(
     appSource,
     /for \(const packageModel of discarded\)\s+releasePackageModelCaches\(packageModel\);/);
@@ -5765,7 +5765,10 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /workspaceForHistory\(\s*state\.workspaceSession,\s*history\.state\)/);
   assert.match(
     appSource,
-    /function historyRequestsStaleWorkspaceMembership\([\s\S]*workspaceHistoryMembershipStatus\(\s*state\.workspaceSession,\s*history\.state,[\s\S]*=== "stale"/);
+    /function workspaceLocationMatchesPackageMembership\([\s\S]*workspaceShareTabsMatchResolved\(\s*loc\.shareState\.tabs,\s*resolvedWorkspaceShareTabs\(packages\)\)[\s\S]*function historyRequestsStaleWorkspaceMembership\([\s\S]*workspaceHistoryMembershipStatus\(\s*state\.workspaceSession,\s*history\.state,\s*packages => workspaceLocationMatchesPackageMembership\(loc, packages\)\)[\s\S]*=== "stale"/);
+  assert.match(
+    appSource,
+    /const retainedTarget = workspaceLocationTargetPackage\(loc, state\.packages\);[\s\S]*if \(loc\.tabs\?\.length\) \{[\s\S]*activatePackage\(target, \{ resetAccessibility: true \}\);\s*\} else if \(loc\.package && retainedTarget\) \{\s*activatePackage\(retainedTarget, \{ resetAccessibility: true \}\);\s*\}[\s\S]*const samePackage = retainedTarget\s*\? state\.package === retainedTarget[\s\S]*else \{\s*observeAsync\(\s*loadPackage\(loc\.package/);
   assert.match(
     appSource,
     /function reconcileLiveWorkspaceHistoryMembership\(\) \{[\s\S]*workspaceLocation\.replace\(href, workspaceHistoryState\(history\.state\)\);[\s\S]*syncCurrentLiveWorkspace\(\);[\s\S]*render\(\{ synchronizeUrl: false \}\)/);

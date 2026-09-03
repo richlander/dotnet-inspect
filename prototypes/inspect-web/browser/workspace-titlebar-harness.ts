@@ -38,7 +38,10 @@ import {
   workspaceHistoryMembershipStatus,
   workspaceOperationIsCurrent,
 } from "../src/workspace-session.ts";
-import { createNavigationSequence } from "../src/workspace-navigation.ts";
+import {
+  createNavigationSequence,
+  workspaceShareTabsMatchResolved,
+} from "../src/workspace-navigation.ts";
 
 declare global {
   interface Window {
@@ -49,6 +52,7 @@ declare global {
     completeDelayedWorkspaceLoadProbe: () => void;
     supersedeWorkspaceRestorationProbe: () => void;
     restoreClosedWorkspaceHistoryProbe: () => void;
+    restoreFloatingWorkspaceHistoryProbe: () => void;
     restoreMissingWorkspaceProbe: () => void;
     restoreUnknownWorkspaceProbe: () => void;
   }
@@ -543,10 +547,45 @@ window.restoreClosedWorkspaceHistoryProbe = () => {
     workspaceHistoryMembershipStatus(
       workspaceSession,
       withWorkspaceHistoryId(null, "default"),
-      [`${requested.id}@${requested.version}::${requested.activeFramework}`],
-      packageModel =>
-        `${packageModel.id}@${packageModel.version}::${packageModel.activeFramework}`,
-      false);
+      packages => packages.some(
+        packageModel =>
+          packageModel.id === requested.id
+          && packageModel.version === requested.version
+          && packageModel.activeFramework === requested.activeFramework));
+};
+window.restoreFloatingWorkspaceHistoryProbe = () => {
+  const requested = coordinates[0];
+  if (!requested) throw new Error("The floating-package fixture is missing.");
+  const session =
+    createLiveWorkspaceSession<(typeof coordinates)[number]>("floating");
+  updateSelectedLiveWorkspace(session, {
+    packages: [requested],
+    activePackageKey:
+      `${requested.id}@${requested.version}::${requested.activeFramework}`,
+    shareBasis: null,
+    navigation: { stack: [], index: -1 },
+  });
+  document.body.dataset.workspaceFloatingHistoryMembership =
+    workspaceHistoryMembershipStatus(
+      session,
+      withWorkspaceHistoryId(null, "floating"),
+      packages => workspaceShareTabsMatchResolved(
+        [{
+          id: "t0",
+          kind: "package",
+          source: requested.id,
+          version: null,
+          framework: null,
+          runtimeIdentifier: null,
+        }],
+        packages.map((packageModel, index) => ({
+          id: `t${index}`,
+          kind: "package",
+          source: packageModel.id,
+          version: packageModel.version,
+          framework: packageModel.activeFramework,
+          runtimeIdentifier: null,
+        }))));
 };
 window.restoreUnknownWorkspaceProbe = () => {
   const workspace = workspaceForHistory(

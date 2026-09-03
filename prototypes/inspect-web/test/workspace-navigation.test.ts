@@ -33,6 +33,12 @@ import type {
   BrowserWorkspaceShareEncodeResult,
   BrowserWorkspaceShareState,
 } from "../src/inspect-web-engine.d.ts";
+import {
+  createLiveWorkspaceSession,
+  updateSelectedLiveWorkspace,
+  withWorkspaceHistoryId,
+  workspaceHistoryMembershipStatus,
+} from "../src/workspace-session.ts";
 
 interface TestView {
   id: string;
@@ -605,6 +611,55 @@ test("canonical tabs must remain distinct and ordered after resolution", () => {
       requested,
       [resolved[1]!, resolved[0]!]),
     false);
+});
+
+test("floating canonical tabs match their resolved live Workspace membership", () => {
+  const floating = workspaceState({
+    tabs: [
+      {
+        id: "t0",
+        kind: "package",
+        source: "Example.First",
+        version: null,
+        framework: "net10.0",
+        runtimeIdentifier: null,
+      },
+      {
+        id: "t1",
+        kind: "group",
+        source: ":Platform",
+        version: null,
+        framework: null,
+        runtimeIdentifier: null,
+      },
+    ],
+  });
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot("https://inspect.example/?w=floating"),
+    () => decoded(floating));
+  const resolved = floating.tabs.map(tab => ({
+    ...tab,
+    version: tab.version ?? "10.0.10",
+    framework: tab.framework ?? "net10.0",
+  }));
+  const session =
+    createLiveWorkspaceSession<BrowserWorkspaceShareState["tabs"][number]>(
+      "default-id");
+  updateSelectedLiveWorkspace(session, {
+    packages: resolved,
+    activePackageKey: "t1",
+    shareBasis: null,
+    navigation: { stack: [], index: -1 },
+  });
+
+  assert.ok(parsed.shareState);
+  assert.equal(
+    workspaceHistoryMembershipStatus(
+      session,
+      withWorkspaceHistoryId(null, "default-id"),
+      packages =>
+        workspaceShareTabsMatchResolved(parsed.shareState!.tabs, packages)),
+    "current");
 });
 
 test("missing Platform reacquisition retains only an aligned canonical pin", () => {

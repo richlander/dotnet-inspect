@@ -422,7 +422,9 @@ unknown session ID targets Default and never creates a phantom Workspace.
 History restores a view within the live Workspace's current membership; it
 does not restore an older membership set. When an associated entry requires a
 closed or replaced coordinate, the Browser reconciles that entry to the
-current Workspace surface instead of reacquiring the stale coordinate.
+current Workspace surface instead of reacquiring the stale coordinate. A
+compatible entry activates its retained package model without reacquisition;
+floating packet pins match the concrete live coordinates they resolved to.
 
 An empty Workspace has the canonical session route `/#workspace`. It renders
 the ordinary Workspace shell, inventory, Search action, and empty package
