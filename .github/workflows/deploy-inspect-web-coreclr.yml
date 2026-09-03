@@ -11,50 +11,50 @@ permissions:
   actions: read
   contents: read
 
-concurrency:
-  group: >-
-    ${{ github.event.workflow_run.conclusion == 'success'
-    && github.event.workflow_run.head_branch == 'main'
-    && github.event.workflow_run.event == 'push'
-    && 'deploy-inspect-web-coreclr-staging'
-    || format('deploy-inspect-web-coreclr-ineligible-{0}', github.run_id) }}
-  cancel-in-progress: true
-
 env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   DOTNET_NOLOGO: true
   DOTNET_SDK_VERSION: '11.0.100-preview.7.26381.103'
 
 jobs:
-  build:
-    name: Build CoreCLR staging artifact
+  publish:
+    name: Build and publish latest CoreCLR staging
     if: >-
       github.event.workflow_run.conclusion == 'success'
       && github.event.workflow_run.head_branch == 'main'
       && github.event.workflow_run.event == 'push'
+    concurrency:
+      group: deploy-inspect-web-coreclr-staging
+      cancel-in-progress: true
+    environment:
+      name: inspect-web-coreclr-staging
+      url: https://coreclr.dotnet-inspect.ca
     runs-on: ubuntu-26.04
     steps:
-      - name: Verify newest eligible staging run
+      - name: Resolve latest successful staging run
+        id: latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TRIGGERING_RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           set -euo pipefail
-          latest_run_id=$(
+          latest=$(
             gh api --method GET \
               "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-inspect-web.yml/runs" \
               -f branch=main \
               -f event=push \
               -f status=success \
               -f per_page=100 \
-              --jq '.workflow_runs | max_by(.run_number) | .id // empty'
+              --jq '.workflow_runs | max_by(.run_number) | [.id, .head_sha] | @tsv'
           )
-          test -n "$latest_run_id"
-          test "$latest_run_id" = "$TRIGGERING_RUN_ID"
+          IFS=$'\t' read -r run_id head_sha <<< "$latest"
+          test -n "$run_id"
+          test -n "$head_sha"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ steps.latest.outputs.head_sha }}
 
       - name: Download compiler-async staging artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -63,7 +63,7 @@ jobs:
           path: artifacts/inspect-web-compiler-publish
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ steps.latest.outputs.run_id }}
           digest-mismatch: error
 
       - name: Setup .NET
@@ -100,7 +100,7 @@ jobs:
             -c Release \
             --output artifacts/inspect-web-coreclr-publish \
             -p:VersionPrefix="$version" \
-            -p:SourceRevisionId="${{ github.event.workflow_run.head_sha }}" \
+            -p:SourceRevisionId="${{ steps.latest.outputs.head_sha }}" \
             -p:BuildTimestampUtc="$built_at" \
             -p:Features=runtime-async=on \
             -p:UseMonoRuntime=false \
@@ -255,25 +255,6 @@ jobs:
           retention-days: 30
           include-hidden-files: true
 
-  deploy:
-    name: Publish CoreCLR staging
-    needs: build
-    if: >-
-      github.event.workflow_run.conclusion == 'success'
-      && github.event.workflow_run.head_branch == 'main'
-      && github.event.workflow_run.event == 'push'
-    environment:
-      name: inspect-web-coreclr-staging
-      url: https://coreclr.dotnet-inspect.ca
-    runs-on: ubuntu-26.04
-    steps:
-      - name: Download CoreCLR staged site artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: inspect-web-coreclr-site
-          path: artifacts/inspect-web-coreclr-publish
-          digest-mismatch: error
-
       - name: Verify CoreCLR staged site artifact
         shell: bash
         run: |
@@ -387,7 +368,7 @@ jobs:
       - name: Verify newest eligible staging run
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TRIGGERING_RUN_ID: ${{ github.event.workflow_run.id }}
+          SELECTED_RUN_ID: ${{ steps.latest.outputs.run_id }}
         run: |
           set -euo pipefail
           latest_run_id=$(
@@ -400,7 +381,7 @@ jobs:
               --jq '.workflow_runs | max_by(.run_number) | .id // empty'
           )
           test -n "$latest_run_id"
-          test "$latest_run_id" = "$TRIGGERING_RUN_ID"
+          test "$latest_run_id" = "$SELECTED_RUN_ID"
 
       - name: Deploy to CoreCLR staging
         uses: Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9 # v1

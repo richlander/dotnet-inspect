@@ -507,11 +507,17 @@ expected all-or-nothing inverse. A receipt for only `InspectWeb.Engine.dll` is
 incomplete after partitioning even if its local counts are correct.
 
 CoreCLR staging follows only the highest-run-number successful `main`/`push`
-run of the compiler-async staging workflow. It checks that exact upstream run
-identity before doing build work and again immediately before deployment.
-Workflow-level newest-wins cancellation handles overlapping eligible
-completions; the identity checks also reject a later rerun of an older
-successful staging run while permitting a retry of the current latest run.
+run of the compiler-async staging workflow. A successful completion is a
+wakeup, not deployment authority: after entering one static job-level
+concurrency group, the atomic build-and-deploy job resolves the current highest
+successful run and uses that run's exact artifact and head SHA. It checks the
+selected identity again immediately before deployment. A later rerun of an
+older successful staging run may restart the job, but the restarted job still
+builds and deploys the current highest successful run instead of the older
+wakeup. A newer failed, cancelled, or in-progress run does not make older
+successful evidence false; its later successful completion supplies the
+superseding wakeup. Failed, cancelled, manual, and non-`main` completions do
+not enter the group.
 
 The deployment smoke initializes every module, which acquires its exact
 assembly export root and validates every expected runtime path, then invokes
