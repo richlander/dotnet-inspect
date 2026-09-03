@@ -1052,6 +1052,21 @@ public sealed record BrowserWorkspacePackage(
     string Version,
     string Framework);
 
+public sealed record BrowserWorkspacePackageOccurrence(
+    string Action,
+    string Package,
+    string Version,
+    string Framework);
+
+public sealed record BrowserWorkspacePackageOccurrenceView(
+    BrowserWorkspacePackageOccurrence[] Occurrences,
+    bool Superseded);
+
+public sealed record BrowserWorkspacePackageOccurrenceActivation(
+    bool Activated,
+    bool Superseded,
+    BrowserPackageSurface? Package);
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserPackageSurface))]
 [JsonSerializable(typeof(BrowserMemberSurface))]
@@ -1077,6 +1092,8 @@ public sealed record BrowserWorkspacePackage(
 [JsonSerializable(typeof(BrowserSource))]
 [JsonSerializable(typeof(BrowserCallGraph))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
+[JsonSerializable(typeof(BrowserWorkspacePackageOccurrenceView))]
+[JsonSerializable(typeof(BrowserWorkspacePackageOccurrenceActivation))]
 [JsonSerializable(typeof(BrowserTypeCandidate[]))]
 [JsonSerializable(typeof(BrowserTypeSearchHit[]))]
 [JsonSerializable(typeof(string[]))]

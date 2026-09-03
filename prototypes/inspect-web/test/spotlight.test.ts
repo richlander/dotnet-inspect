@@ -341,6 +341,10 @@ test("workspace Spotlight exposes commands as a dedicated scope", () => {
   assert.match(html, /aria-activedescendant="spotlight-result-0"/);
   assert.match(html, /id="spotlight-result-0"/);
   assert.match(html, /data-sl-index="0"/);
+  assert.match(
+    html,
+    /class="spotlight-foot"[^>]*>[\s\S]*<kbd>Ctrl P<\/kbd> search/,
+  );
   assert.match(html, />type</);
   assert.doesNotMatch(html, /data-sl-pkg-load/);
 });

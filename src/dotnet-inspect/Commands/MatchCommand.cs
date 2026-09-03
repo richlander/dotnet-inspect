@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using DotnetInspector.Inspectors;
@@ -28,8 +29,43 @@ public static class MatchCommand
 {
     public const string Name = "match";
 
+    /// <summary>
+    /// Names the discovery-only option a pairwise invocation supplied, or <c>null</c> when it
+    /// supplied none. The parse layer rejects a missing second selector before
+    /// <see cref="ExecuteAsync"/> runs, so both sites must consult this: otherwise the caller who
+    /// wrote one selector and a discovery flag -- the caller who most clearly meant discovery --
+    /// is told to supply a second selector instead of to add <c>--similar</c>.
+    /// </summary>
+    internal static string? DiscoveryOnlyFlag(
+        bool assemblyWide,
+        int? top,
+        int? maximumResults,
+        int? maximumMethods)
+        => assemblyWide ? "--assembly-wide"
+            : top is not null ? "--top"
+            : maximumResults is not null ? "--max-results"
+            : maximumMethods is not null ? "--max-methods"
+            : null;
+
+    internal static void WriteDiscoveryOnlyError(string flag)
+        => CommandError.Write($"{flag} applies to discovery; add --similar.");
+
     public static async Task<int> ExecuteAsync(MatchOptions options)
     {
+        if (options.Similar)
+            return await MatchDiscovery.ExecuteAsync(options);
+
+        // The discovery options share this options object. Pairwise comparison honors none of
+        // them, so accepting them would silently ignore a scope or limit the caller asked for.
+        string? discoveryOnly = DiscoveryOnlyFlag(
+            options.AssemblyWide, options.Top, options.MaximumResults, options.MaximumMethods);
+
+        if (discoveryOnly is not null)
+        {
+            WriteDiscoveryOnlyError(discoveryOnly);
+            return 1;
+        }
+
         if (string.IsNullOrEmpty(options.LeftSelector) || string.IsNullOrEmpty(options.RightSelector))
         {
             CommandError.Write("match requires two method selectors (Type.Member).");
@@ -58,7 +94,8 @@ public static class MatchCommand
         {
             var loaded = ApiServices.LoadFullApi(
                 source.SearchPath, source.RuntimeAssemblyPath, options.PackagePath, source.PackageName,
-                source.ApiSource, source.ApiVersion, source.SelectedTfm, logger, options);
+                source.ApiSource, source.ApiVersion, source.SelectedTfm, logger, options,
+                source.PackageExtractPath);
             if (loaded == null)
             {
                 CommandError.Write("Could not extract API from library.");
@@ -84,12 +121,26 @@ public static class MatchCommand
             // metadata tokens that index that *target* assembly, not loaded.ApiDllPath — comparing
             // them against the wrong image would silently reinterpret an unrelated MethodDef row
             // (issue #4304 Slice 3 review). Require both selectors to originate from the same file.
-            if (!string.Equals(left.OriginAssemblyPath, right.OriginAssemblyPath, StringComparison.Ordinal))
+            if (!SameImage(left.OriginAssemblyPath, right.OriginAssemblyPath))
             {
                 CommandError.Write(
                     $"'{options.LeftSelector}' and '{options.RightSelector}' resolve to different assemblies "
-                        + $"({Path.GetFileName(left.OriginAssemblyPath)} vs {Path.GetFileName(right.OriginAssemblyPath)}); "
+                        + $"({DistinguishingImageNames(left.OriginAssemblyPath, right.OriginAssemblyPath)}); "
                         + "match compares two methods within one retained assembly.");
+                return 1;
+            }
+
+            // A raw token names a row number, and a row number absent from the image the caller
+            // named is a selector error rather than an internal fault. Without this, the
+            // comparison reached analysis's handle validation and surfaced a raw framework
+            // resource key ("Arg_ParamName_Name") with no mention of the offending token.
+            // Named selectors resolved to a real member, so only raw tokens need asking.
+            string? tokenError =
+                MethodTokenOutsideImage(left, options.LeftSelector)
+                    ?? MethodTokenOutsideImage(right, options.RightSelector);
+            if (tokenError is not null)
+            {
+                CommandError.Write(tokenError);
                 return 1;
             }
 
@@ -156,7 +207,94 @@ public static class MatchCommand
         }
     }
 
-    internal readonly record struct ResolvedSelector(int? Token, string? Display, string? OriginAssemblyPath, string? Error);
+    internal readonly record struct ResolvedSelector(
+        int? Token,
+        string? Display,
+        string? OriginAssemblyPath,
+        string? Error,
+        ApiType? DeclaringType = null);
+
+    /// <summary>
+    /// Canonicalizes an image path so two spellings of one file compare equal. A selector's origin
+    /// is a physical-file identity, and it arrives by two routes: a forwarded type carries the
+    /// defining image's recorded path, and a resolved type carries the extraction path. A raw
+    /// token contributes no third route — it is anchored to the caller's own --library by
+    /// construction. <c>./Foo.dll</c> and its absolute path name one file, so comparing raw
+    /// spellings reports one image as two — which rejects a valid pairwise pair and stops
+    /// discovery from suppressing its own seed. Lexical only; it deliberately does not resolve
+    /// symlinks.
+    /// </summary>
+    internal static string CanonicalImagePath(string path) => Path.GetFullPath(path);
+
+    /// <summary>
+    /// Reports whether two spellings name one image.
+    /// <see cref="CanonicalImagePath"/> already reconciles the spelling differences that ordinary
+    /// callers produce — a relative path, a <c>./</c> prefix, or a redundant separator — so an
+    /// ordinal comparison of canonical paths answers the question these callers actually ask.
+    /// <para>
+    /// Both origins reaching a comparison derive from one <c>--library</c>, so they differ only
+    /// when type forwarding resolves a selector to the assembly that defines it. Case-only
+    /// spellings of one file cannot reach here, because nothing in the command constructs a second
+    /// spelling of the caller's own path. That is what makes an ordinal comparison sufficient
+    /// rather than merely cheap: earlier revisions asked the volume whether two spellings named
+    /// one file, and the question is undecidable from path text.
+    /// </para>
+    /// </summary>
+    internal static bool SameImage(string? left, string? right)
+    {
+        if (left is null || right is null)
+            return left is null && right is null;
+
+        return string.Equals(
+            Path.TrimEndingDirectorySeparator(CanonicalImagePath(left)),
+            Path.TrimEndingDirectorySeparator(CanonicalImagePath(right)),
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Reports a selector error when a raw token names no row in the image it resolved against.
+    /// Returns null for a named selector, which resolved through a member that exists by
+    /// construction, and for a token that does name a row.
+    /// </summary>
+    static string? MethodTokenOutsideImage(ResolvedSelector resolved, string? spelling)
+    {
+        if (spelling is null
+            || !MatchDiscovery.TryParseMethodToken(spelling, out int token)
+            || resolved.OriginAssemblyPath is not string image)
+        {
+            return null;
+        }
+
+        using var source = MetadataSource.OpenWithoutSymbols(image);
+        return source.ContainsMethodDefinition(token)
+            ? null
+            : $"'{spelling}' is not a MethodDef row in {Path.GetFileName(image)}. "
+                + "A metadata token addresses a row in one image; use the token exactly as "
+                + "`match --similar` printed it, against the assembly that printed it.";
+    }
+
+    /// <summary>
+    /// Reports whether <paramref name="type"/> owns the metadata rows it projects in
+    /// <paramref name="image"/>. A type reached through a type forwarder carries tokens that index
+    /// the assembly defining it, so it must not name a row in the image the caller opened. A type
+    /// with no recorded source came from that image's own tables.
+    /// </summary>
+    internal static bool DefinesOwnRows(ApiType type, string image)
+        => type.SourceAssemblyPath is null || SameImage(type.SourceAssemblyPath, image);
+
+    /// <summary>
+    /// Names two distinct images so the reader can tell them apart. File names alone are the
+    /// readable form, but two different directories can hold the same file name, and an error that
+    /// prints one name twice explains nothing; fall back to full paths in that case.
+    /// </summary>
+    static string DistinguishingImageNames(string? left, string? right)
+    {
+        string leftName = Path.GetFileName(left) ?? "";
+        string rightName = Path.GetFileName(right) ?? "";
+        return string.Equals(leftName, rightName, StringComparison.OrdinalIgnoreCase)
+            ? $"{CanonicalImagePath(left!)} vs {CanonicalImagePath(right!)}"
+            : $"{leftName} vs {rightName}";
+    }
 
     /// <summary>
     /// Resolves a <c>Type.Member</c> selector to the unique <see cref="ApiMember.MetadataToken"/>
@@ -165,8 +303,73 @@ public static class MatchCommand
     /// </summary>
     internal static ResolvedSelector ResolveSelector(ApiSurface api, string apiDllPath, string selector)
     {
+        // A MethodDef token addresses a row directly, so it resolves without a name. This is what
+        // makes a discovery row addressable here: an overloaded member and a property with both
+        // accessors have no unambiguous Type.Member spelling, but they always have a token, and
+        // `match --similar` prints one on every row for exactly this purpose.
+        //
+        // A raw token indexes exactly one image: the one the caller named with --library. It is
+        // never re-attributed to some other image by searching for a row number that matches,
+        // because a MethodDef token is a table row index rather than an identity — small, dense,
+        // and repeated across every assembly. The merged surface also carries type-forwarded types
+        // whose tokens index the assembly that *defines* them, so a scan of api.Types can bind a
+        // token to a foreign image and compare a method the caller never named. Type-forwarding
+        // resolution states the invariant normatively: forwarding never remaps a terminal token
+        // onto the starting facade or authorizes a consumer to interpret it against another image
+        // (docs/design/type-forwarding-resolution.md, "Evidence and correspondence stay separate").
+        // Discovery keeps its half of the promise by naming the image whose tokens it printed.
+        if (MatchDiscovery.TryParseMethodToken(selector, out int methodToken))
+        {
+            string tokenImage = CanonicalImagePath(apiDllPath);
+
+            // Display only. Restricted to types this image defines, so a forwarded type never
+            // lends its name to a row it does not own; an unnamed row still resolves, because the
+            // projected surface does not cover every MethodDef.
+            ApiType? tokenType = api.Types.FirstOrDefault(
+                type => DefinesOwnRows(type, tokenImage)
+                    && type.Members.Any(
+                        member => MatchDiscovery.MemberTokens(member).Contains(methodToken)));
+
+            return new ResolvedSelector(
+                methodToken,
+                tokenType is null
+                    ? $"MethodDef 0x{methodToken:X8}"
+                    : $"{tokenType.FullName} MethodDef 0x{methodToken:X8}",
+                tokenImage,
+                null,
+                tokenType);
+        }
+
         var lookup = ApiTypeLookupService.LookupType(api, selector);
-        if (!lookup.Found || lookup.ImpliedMember is null)
+        if (!lookup.Found)
+        {
+            if (TryGetForwardedTypeFailure(
+                    api,
+                    selector,
+                    out ApiSurfaceInspectionFailure? forwardingFailure,
+                    out string? forwardedType))
+            {
+                string target = forwardingFailure.DependencyAssembly is null
+                    ? ""
+                    : " Target: "
+                        + AssemblyIdentityFormatter.Format(
+                            forwardingFailure.DependencyAssembly)
+                        + ".";
+                return new ResolvedSelector(
+                    null,
+                    null,
+                    null,
+                    $"Forwarded type '{forwardedType}' could not be resolved: "
+                        + $"{forwardingFailure.Kind}.{target}");
+            }
+
+            return new ResolvedSelector(
+                null,
+                null,
+                null,
+                $"'{selector}' must name a Type.Member selector (e.g. MyType.MyMethod).");
+        }
+        if (lookup.ImpliedMember is null)
         {
             return new ResolvedSelector(
                 null,
@@ -229,8 +432,111 @@ public static class MatchCommand
         // apiType.SourceAssemblyPath for a type resolved through a type forwarder, otherwise the
         // extraction dll (apiDllPath). Comparing a forwarded type's token against apiDllPath would
         // silently reinterpret an unrelated MethodDef row in the wrong image.
-        var originAssemblyPath = apiType.SourceAssemblyPath ?? apiDllPath;
-        return new ResolvedSelector(MethodToken(candidates[0]), $"{apiType.FullName}.{memberName}", originAssemblyPath, null);
+        var originAssemblyPath = CanonicalImagePath(apiType.SourceAssemblyPath ?? apiDllPath);
+        return new ResolvedSelector(
+            MethodToken(candidates[0]),
+            $"{apiType.FullName}.{memberName}",
+            originAssemblyPath,
+            null,
+            apiType);
+    }
+
+    static bool TryGetForwardedTypeFailure(
+        ApiSurface api,
+        string selector,
+        [NotNullWhen(true)] out ApiSurfaceInspectionFailure? failure,
+        [NotNullWhen(true)] out string? typeName)
+    {
+        var candidates = api.InspectionFailures
+            .Where(candidate =>
+                candidate.Operation.Equals(
+                    "resolve forwarded type",
+                    StringComparison.Ordinal)
+                && !candidate.AffectedTypeDefinitions.IsDefaultOrEmpty)
+            .SelectMany(candidate =>
+                candidate.AffectedTypeDefinitions.Select(
+                    affected => (
+                        Failure: candidate,
+                        Name: affected.ToMetadataFullName())))
+            .ToArray();
+        if (candidates.Length == 0)
+        {
+            failure = null;
+            typeName = null;
+            return false;
+        }
+
+        int searchEnd = selector.Length;
+        for (int probes = 0; probes < 64 && searchEnd > 0; probes++)
+        {
+            int dot = FqnParser.LastTopLevelDot(selector[..searchEnd]);
+            if (dot <= 0)
+                break;
+
+            int typeEnd = dot;
+            string member = selector[(dot + 1)..];
+            MemberTargetSelector memberSelector =
+                MemberTargetSelector.Parse(member);
+            if (string.IsNullOrWhiteSpace(memberSelector.Name))
+            {
+                failure = null;
+                typeName = null;
+                return false;
+            }
+
+            if (typeEnd > 1 && selector[typeEnd - 1] == '.')
+            {
+                if (!(memberSelector.Name.Equals(
+                        ".ctor",
+                        StringComparison.OrdinalIgnoreCase)
+                    || memberSelector.Name.Equals(
+                        "cctor",
+                        StringComparison.OrdinalIgnoreCase)
+                    || memberSelector.Name.Equals(
+                        ".cctor",
+                        StringComparison.OrdinalIgnoreCase)))
+                {
+                    failure = null;
+                    typeName = null;
+                    return false;
+                }
+
+                typeEnd--;
+                if (typeEnd > 0 && selector[typeEnd - 1] == '.')
+                {
+                    failure = null;
+                    typeName = null;
+                    return false;
+                }
+            }
+
+            (ApiSurfaceInspectionFailure Failure, string Name)[] matches =
+                [.. candidates.Where(candidate =>
+                    TypeMatcher.MatchesTypeFilter(
+                        candidate.Name,
+                        selector[..typeEnd]))];
+            if (matches.Length > 0)
+            {
+                if (matches.Length != 1)
+                {
+                    failure = null;
+                    typeName = null;
+                    return false;
+                }
+
+                (ApiSurfaceInspectionFailure Failure, string Name) matched =
+                    matches[0];
+                failure = matched.Failure;
+                typeName = matched.Name;
+                return true;
+            }
+
+            searchEnd = dot;
+        }
+
+        failure = null;
+        typeName = null;
+        return false;
     }
 
     /// <summary>

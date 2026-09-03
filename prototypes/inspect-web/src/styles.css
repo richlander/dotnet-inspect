@@ -168,8 +168,8 @@ body {
 
 .title-navigation {
   display: flex;
-  flex: 0 4 370px;
-  max-width: 370px;
+  flex: 0 4 284px;
+  max-width: 284px;
   min-width: 0;
   margin-left: auto;
   gap: 6px;
@@ -315,8 +315,8 @@ body {
 .scope-switch button.scope-seg:hover { color: var(--text); background: rgba(127,127,127,.12); }
 .scope-switch button.scope-seg.active { color: #fff; background: var(--accent); border-bottom-color: transparent; }
 .lens-separator { flex: none; width: 1px; height: 17px; background: var(--line); margin: 0 4px; }
-.workspace-packet-list { min-height: 0; overflow: auto; padding: 8px; }
-.workspace-packet {
+.workspace-list { min-height: 0; overflow: auto; padding: 8px; }
+.workspace-card {
   display: block;
   width: 100%;
   padding: 10px;
@@ -325,27 +325,18 @@ body {
   color: var(--muted);
   text-align: left;
 }
-.workspace-packet:hover { border-color: var(--line); background: rgba(127,127,127,.08); }
-.workspace-packet.active { border-color: var(--line-strong); background: var(--panel-active); }
-.workspace-packet strong,
-.workspace-packet span,
-.workspace-packet small { display: block; overflow: hidden; text-overflow: ellipsis; }
-.workspace-packet strong { color: var(--text); font: 11px var(--mono); }
-.workspace-packet span { margin-top: 4px; color: var(--muted); font-size: 11px; }
-.workspace-packet small { margin-top: 5px; color: var(--dim); font: 9px var(--mono); }
-.workspace-packet-empty { margin: 12px 8px; color: var(--dim); font-size: 11px; line-height: 1.5; }
+.workspace-card:hover { border-color: var(--line); background: rgba(127,127,127,.08); }
+.workspace-card.active { border-color: var(--line-strong); background: var(--panel-active); }
+.workspace-card strong,
+.workspace-card span,
+.workspace-card small { display: block; overflow: hidden; text-overflow: ellipsis; }
+.workspace-card strong { color: var(--text); font: 11px var(--mono); }
+.workspace-card span { margin-top: 4px; color: var(--muted); font-size: 11px; }
+.workspace-card small { margin-top: 5px; color: var(--dim); font: 9px var(--mono); }
+.workspace-empty { margin: 12px 8px; color: var(--dim); font-size: 11px; line-height: 1.5; }
 .workspace-overview { max-width: 900px; margin-top: 28px; }
 .workspace-overview p { color: var(--muted); line-height: 1.6; }
-.workspace-packet-introduction {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 20px;
-}
-.workspace-packet-introduction p { margin: 0; font-size: 14px; }
-.workspace-packet-introduction button { flex: none; padding: 8px 14px; }
-.workspace-packet-section { margin-top: 14px; }
+.workspace-section { margin-top: 14px; }
 .workspace-detail-list { list-style: none; margin: 0; padding: 0; }
 .workspace-detail-list li {
   display: grid;
@@ -362,6 +353,24 @@ body {
 .workspace-detail-list.loaded li { grid-template-columns: 110px minmax(0, 1fr) auto auto; }
 .workspace-detail-list.loaded li.active > strong { color: var(--accent); }
 .workspace-detail-list.loaded button { padding: 3px 7px; }
+.workspace-detail-list.loaded li.workspace-occurrence-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.workspace-occurrence {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+.workspace-occurrence:hover > strong { color: var(--accent); }
+.workspace-occurrence > span { color: var(--dim); font: 9px var(--mono); text-transform: uppercase; }
+.workspace-occurrence > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 12px var(--mono); }
+.workspace-occurrence > small { color: var(--muted); font: 10px var(--mono); }
 .workspace-view-details { margin: 0; }
 .workspace-view-details div {
   display: grid;
@@ -447,7 +456,7 @@ body {
   flex: 1 1 auto;
   width: auto;
   min-width: 0;
-  max-width: 300px;
+  max-width: 224px;
   height: 28px;
   display: flex;
   align-items: center;
@@ -476,12 +485,6 @@ body {
   white-space: nowrap;
 }
 .title-search-label-compact { display: none; }
-.title-search kbd {
-  flex: none;
-  margin-left: auto;
-  color: var(--dim);
-  font: 9px var(--mono);
-}
 .application-menu-slot {
   align-self: stretch;
   display: grid;
@@ -1485,7 +1488,6 @@ kbd {
   .type-heading { grid-template-columns: 35px minmax(0, 1fr); }
   .type-badge { width: 35px; height: 35px; }
   .type-heading p { grid-column: 1 / -1; }
-  .workspace-packet-introduction { align-items: flex-start; flex-direction: column; gap: 10px; }
   .workspace-detail-list li,
   .workspace-detail-list.loaded li {
     grid-template-columns: minmax(0, 1fr) auto;
@@ -1493,18 +1495,23 @@ kbd {
   }
   .workspace-detail-list li > span { grid-column: 1 / -1; }
   .workspace-detail-list li > small { grid-column: 1; }
+  .workspace-occurrence {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 5px 10px;
+  }
+  .workspace-occurrence > span { grid-column: 1 / -1; }
+  .workspace-occurrence > small { grid-column: 1; }
   .workspace-view-details div { grid-template-columns: 80px minmax(0, 1fr); }
 }
 
-@container title-navigation (max-width: 269px) {
+@container title-navigation (max-width: 280px) {
   .title-search {
     flex: none;
     width: auto;
     padding: 0 10px;
   }
   .title-search-glyph,
-  .title-search-label-full,
-  .title-search kbd { display: none; }
+  .title-search-label-full { display: none; }
   .title-search-label-compact { display: inline; }
 }
 
@@ -1617,12 +1624,19 @@ kbd {
 .spotlight-empty { padding: 26px 14px; color: var(--dim); font: 12px var(--mono); text-align: center; }
 .spotlight-foot {
   display: flex;
-  gap: 16px;
+  flex-wrap: wrap;
+  column-gap: 16px;
+  row-gap: 6px;
   justify-content: flex-end;
   padding: 8px 14px;
   border-top: 1px solid var(--line);
   color: var(--dim);
   font: 10px var(--mono);
+}
+.spotlight-foot span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 @keyframes spotlight-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes spotlight-rise { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
