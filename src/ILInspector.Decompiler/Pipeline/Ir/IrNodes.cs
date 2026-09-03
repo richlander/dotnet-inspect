@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 
+using ILInspector.MetadataPrimitives;
+
 using Inverse = ILInspector.Decompiler.Pipeline.InverseArchitecture;
 
 namespace ILInspector.Decompiler.Pipeline;
@@ -65,6 +67,9 @@ public sealed record MethodRef(
     ImmutableArray<TypeRef> ParameterTypes,
     bool HasThis)
 {
+    internal MetadataMethodAddress? ExactDefinitionAddress { get; init; }
+    internal object? ExactDefinitionAcquisitionGuard { get; init; }
+
     /// <summary>
     /// What <see cref="ILInspector.Decompiler.Pipeline.LocalFunctionRaisingPass"/> decided
     /// about this reference to a compiler-synthesized local function. That pass is the
@@ -400,6 +405,9 @@ public sealed class IrFunction : IrNode
     public MetadataFactState CompilerGenerated { get; set; } = MetadataFactState.Unknown;
     public MetadataFactState DeclaringTypeCompilerGenerated { get; set; } = MetadataFactState.Unknown;
     public MetadataFactState IsRuntimeAsync { get; set; } = MetadataFactState.Unknown;
+    internal ClassicAsyncRequestAdapterResult? ClassicAsyncRequest
+        { get; set; }
+    internal bool IsMetadataBacked { get; set; }
 
     /// <summary>
     /// True when a consumer embedding this body in a C# method declaration must

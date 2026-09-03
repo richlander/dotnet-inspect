@@ -1180,7 +1180,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     ?? "";
   assert.match(
     shellControlsSource,
-    /export function bindWorkbenchShell\([\s\S]*\[data-subject-copy\][\s\S]*#share[\s\S]*#dismiss-notice[\s\S]*#retry-notice[\s\S]*#dismiss-package-notice[\s\S]*#nav-back[\s\S]*#nav-forward[\s\S]*#open-search[\s\S]*#help[\s\S]*export function focusWorkbenchSearch\([\s\S]*#open-search/);
+    /export function bindWorkbenchShell\([\s\S]*\[data-subject-copy\][\s\S]*#application-menu-button[\s\S]*#application-menu[\s\S]*\[data-application-action\][\s\S]*#dismiss-notice[\s\S]*#retry-notice[\s\S]*#dismiss-package-notice[\s\S]*#nav-back[\s\S]*#nav-forward[\s\S]*#open-search[\s\S]*export function focusWorkbenchSearch\([\s\S]*#open-search/);
   assert.match(
     shellControlsSource,
     /export function bindHomeShell\([\s\S]*#home-theme[\s\S]*#dismiss-notice[\s\S]*#home-credits[\s\S]*\[data-home-demo\]/);
@@ -1204,13 +1204,13 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /app\.innerHTML = `[\s\S]*bindLoadErrorShell\(document, loadErrorShellActions\)/);
   assert.match(
     workbenchActions,
-    /onCopySubjectSegment: index => \{[\s\S]*currentInspectedSubjectPath\(\)\[index\][\s\S]*copyText\(segment\.label, `\$\{segment\.kind\} name copied`\)[\s\S]*onDismissNotice: dismissQueryNotice,\n  onDismissPackageNotice:/);
+    /onApplicationAction: dispatchApplicationAction,\s*onCopySubjectSegment: index => \{[\s\S]*currentInspectedSubjectPath\(\)\[index\][\s\S]*copyText\(segment\.label, `\$\{segment\.kind\} name copied`\)[\s\S]*onDismissNotice: dismissQueryNotice,\n  onDismissPackageNotice:/);
   assert.match(
     workbenchActions,
-    /onDismissPackageNotice: \(\) => \{[\s\S]*pkg\.inspectionErrors = \[\];[\s\S]*pkg\.inspectionError = "";[\s\S]*render\(\);\s*\},\n  onHelp:/);
+    /onDismissPackageNotice: \(\) => \{[\s\S]*pkg\.inspectionErrors = \[\];[\s\S]*pkg\.inspectionError = "";[\s\S]*render\(\);\s*\},\n  onNavigateBack:/);
   assert.match(
     workbenchActions,
-    /onHelp: \(\) => showToast\([\s\S]*onNavigateBack: navBack,[\s\S]*onNavigateForward: navForward,[\s\S]*onRetryNotice: \(\) => \{[\s\S]*state\.queryNoticeRetryAction;[\s\S]*if \(retryAction\) observeAction\(retryAction, "Retrying the inspection"\);[\s\S]*onSearch: \(\) => openSpotlight\(\),[\s\S]*onShare: \(\) => void share\(\)/);
+    /onNavigateBack: navBack,[\s\S]*onNavigateForward: navForward,[\s\S]*onRetryNotice: \(\) => \{[\s\S]*state\.queryNoticeRetryAction;[\s\S]*if \(retryAction\) observeAction\(retryAction, "Retrying the inspection"\);[\s\S]*onSearch: \(\) => openSpotlight\(\)/);
   assert.match(
     homeActions,
     /onDemo: runHomeDemo,\s*onDismissNotice: dismissQueryNotice,\s*onOpenCredits: openCredits,\s*onToggleTheme: toggleTheme/);
@@ -1229,6 +1229,56 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /#(?:retry-load|error-package-query|error-package-input|toggle-error-detail)|"\.load-error-detail"/);
 });
 
+test("keyboard help projects available global and current graph bindings", () => {
+  const openKeyboardHelp =
+    appSource.match(/function openKeyboardHelp\(\) \{[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    openKeyboardHelp,
+    /querySelector<HTMLElement>\("\.graph-viewport"\)[\s\S]*keybindings\.availableBindingsFor\(\)[\s\S]*keybindings\.availableBindingsFor\(graphViewport\)[\s\S]*state\.keyboardHelp = true/);
+  assert.match(
+    shellControlsSource,
+    /\["graph\.zoom", "Zoom the current graph"\][\s\S]*\["graph\.pan-horizontal", "Pan the current graph horizontally"\][\s\S]*\["graph\.pan-vertical", "Pan the current graph vertically"\]/);
+  assert.match(
+    appSource,
+    /const inspectionNavigationIsAvailable = \(\) =>\s*workspaceKeyboardContextIsActive\(\) && scope\(\) !== "workspace"/);
+  const drillInBinding =
+    appSource.match(/keybindings\.register\(\{\s*id: "workspace\.drill-in"[\s\S]*?\n}\);/)?.[0]
+    ?? "";
+  assert.match(
+    drillInBinding,
+    /available: workspaceKeyboardContextIsActive/);
+  assert.match(drillInBinding, /run: \(\) => \{\s*drillIn\(\);/);
+  assert.match(
+    appSource,
+    /const workspaceHistoryBackIsAvailable = \(\) =>\s*workspaceKeyboardContextIsActive\(\) && navigationHistory\.canBack\(\)/);
+  assert.match(
+    appSource,
+    /const workspaceHistoryForwardIsAvailable = \(\) =>\s*workspaceKeyboardContextIsActive\(\) && navigationHistory\.canForward\(\)/);
+  assert.match(
+    appSource,
+    /\["ArrowLeft", navBack, workspaceHistoryBackIsAvailable\][\s\S]*\["ArrowRight", navForward, workspaceHistoryForwardIsAvailable\][\s\S]*available,/);
+});
+
+test("delayed Share completion preserves newer focus ownership", () => {
+  const share =
+    appSource.match(/async function share\(\) \{[\s\S]*?\n}/)?.[0] ?? "";
+  assert.match(
+    share,
+    /const focusOwner = captureApplicationMenuFocusOwner\(document\)/);
+  assert.match(
+    share,
+    /requestAnimationFrame\(\(\) =>\s*restoreApplicationMenuFocusIfOwned\(document, focusOwner\)\)/);
+});
+
+test("deferred Spotlight focus preserves newer Application-menu focus", () => {
+  const focusTypeList =
+    appSource.match(/function focusTypeList\([\s\S]*?\n}/)?.[0] ?? "";
+  assert.equal(
+    focusTypeList.match(/applicationMenuOwnsFocus\(document\)/g)?.length,
+    2);
+});
+
 test("the title line advertises the typed target above the subject strip", () => {
   const renderNode = functionDeclaration("render");
   const subjectPathNode = functionDeclaration("inspectedSubjectPath");
@@ -1244,7 +1294,7 @@ test("the title line advertises the typed target above the subject strip", () =>
 
   assert.match(
     render,
-    /workbenchShellHtml\(\{[\s\S]*inspectedTargetHtml:[\s\S]*class="inspected-target"[\s\S]*renderInspectedSubjectIcon\(pkg\)[\s\S]*class="subject-path"[\s\S]*titleNavigationHtml:[\s\S]*class="title-navigation"[\s\S]*id="nav-back"[\s\S]*id="nav-forward"[\s\S]*id="open-search"[\s\S]*<header class="subject-zone"[\s\S]*renderScopeBar\(\)[\s\S]*class="shell-actions[\s\S]*id="share"[\s\S]*id="open-settings"[\s\S]*id="help"[\s\S]*<main id="subject-panel" class="workspace"/);
+    /workbenchShellHtml\(\{[\s\S]*inspectedTargetHtml:[\s\S]*class="inspected-target"[\s\S]*renderInspectedSubjectIcon\(pkg\)[\s\S]*class="subject-path"[\s\S]*titleNavigationHtml:[\s\S]*class="title-navigation"[\s\S]*id="nav-back"[\s\S]*id="nav-forward"[\s\S]*id="open-search"[\s\S]*<header class="subject-zone"[\s\S]*class="subject-inspector-region"[\s\S]*renderScopeBar\(\)[\s\S]*renderApplicationMenuButton\(\)[\s\S]*<main id="subject-panel" class="workspace"[\s\S]*renderApplicationMenu\(true\)/);
   assert.doesNotMatch(render, /id="copy-name"|id="taste-btn"/);
   assert.doesNotMatch(
     render,
@@ -1683,13 +1733,13 @@ test("typed settings panel owns its rendered control bindings", () => {
         && node.name === "bindSettingsPanel").length,
     3);
   const eventBinderCalls = callExpressionsNamed(appSyntax, "bindSettingsPanelEvents");
-  assert.equal(eventBinderCalls.length, 3);
+  assert.equal(eventBinderCalls.length, 2);
   assert.equal(
     syntaxNodes(
       appSyntax,
       node => node.type === "Identifier"
         && node.name === "bindSettingsPanelEvents").length,
-    4);
+    3);
   const settingsBinders: readonly (readonly [
     DeclaredFunction,
     string,
@@ -1697,7 +1747,6 @@ test("typed settings panel owns its rendered control bindings", () => {
   ])[] = [
     [bindEvents, "workbench settings binder", "bindScopeBarEvents"],
     [bindHomeEvents, "home settings binder", "bindStatusBarEvents"],
-    [renderSettings, "settings view binder", null],
   ];
   for (const [owner, description, predecessor] of settingsBinders) {
     assert.equal(
@@ -1723,27 +1772,20 @@ test("typed settings panel owns its rendered control bindings", () => {
   assert.equal(
     directWorkbenchCalls.indexOf("bindSettingsPanelEvents"),
     directWorkbenchCalls.indexOf("bindScopeBarEvents") + 1);
-  assert.equal(renderSettings.body.body.length, 2);
-  const [renderStatement, bindStatement] = renderSettings.body.body;
-  assert.ok(renderStatement !== undefined && bindStatement !== undefined);
+  assert.equal(renderSettings.body.body.length, 1);
+  const [renderStatement] = renderSettings.body.body;
+  assert.ok(renderStatement !== undefined);
   assert.ok(
-    renderStatement.type === "ExpressionStatement",
-    `settings view must render first, found ${renderStatement.type}`);
-  const renderExpression = renderStatement.expression;
+    renderStatement.type === "ReturnStatement",
+    `settings view must return markup, found ${renderStatement.type}`);
+  const renderCall = renderStatement.argument;
   assert.ok(
-    renderExpression.type === "AssignmentExpression",
-    `settings view render must be an assignment, found ${renderExpression.type}`);
-  assert.equal(renderExpression.operator, "=");
-  assert.equal(sourceText(renderExpression.left), "app.innerHTML");
-  const renderCall = renderExpression.right;
-  assert.ok(
-    renderCall.type === "CallExpression",
-    `settings view must assign a call, found ${renderCall.type}`);
+    renderCall?.type === "CallExpression",
+    `settings view must return a call, found ${renderCall?.type ?? "nothing"}`);
   assert.ok(
     renderCall.callee.type === "Identifier",
     `settings view call must name a function, found ${renderCall.callee.type}`);
   assert.equal(renderCall.callee.name, "renderSettingsView");
-  assert.ok(directCallExpression(bindStatement, "bindSettingsPanelEvents"));
 
   const innerSettingsCall = onlyCallExpressionNamed(appSyntax, "bindSettingsPanel");
   assert.equal(
@@ -1777,29 +1819,13 @@ test("typed settings panel owns its rendered control bindings", () => {
     /\bquerySelector(?:All)?\b|\baddEventListener\b/);
   assert.match(
     settingsPanelSource,
-    /export function bindSettingsPanel\([\s\S]*#settings-close[\s\S]*#home-settings[\s\S]*#open-settings[\s\S]*\.settings-seg\[data-theme\][\s\S]*\.settings-taste \[data-taste\][\s\S]*#settings-taste-clear/);
+    /export function bindSettingsPanel\([\s\S]*#settings-close[\s\S]*#home-settings[\s\S]*#settings-backdrop[\s\S]*#settings-dialog[\s\S]*\.settings-seg\[data-theme\][\s\S]*\.settings-taste \[data-taste\][\s\S]*#settings-taste-clear/);
   assert.doesNotMatch(
     settingsPanelSource,
     /#taste-btn|#taste-popover|#taste-clear|renderTastePopover|onTasteOpenToggle/);
-  const nonSettingsPanelSource = productionTypeScriptSources
-    .filter(({ path }) => path.replaceAll("\\", "/") !== "settings-panel.ts")
-    .map(({ source }) => source)
-    .join("\n");
-  const entrySelectorAccess =
-    /(?:querySelector(?:All)?\s*(?:<[^>\n]+>)?|getElementById)\s*\(\s*(["'`])#?(?:home-settings|open-settings)\1\s*\)/g;
-  assert.equal(nonSettingsPanelSource.match(entrySelectorAccess)?.length ?? 0, 0);
-  assert.equal(settingsPanelSource.match(entrySelectorAccess)?.length, 2);
-  for (const selector of ["#home-settings", "#open-settings"]) {
-    const selectorToken = new RegExp(`${selector}(?![-\\w])`, "g");
-    assert.equal(
-      nonSettingsPanelSource.match(selectorToken)?.length ?? 0,
-      0,
-      selector);
-    assert.equal(
-      settingsPanelSource.match(selectorToken)?.length,
-      1,
-      selector);
-  }
+  assert.doesNotMatch(
+    productionTypeScriptSources.map(({ source }) => source).join("\n"),
+    /#open-settings/);
   assert.doesNotMatch(
     productionTypeScriptSources.map(({ source }) => source).join("\n"),
     /#taste-btn|#taste-popover|#taste-clear|tasteOpen/);
@@ -2667,7 +2693,7 @@ test("malformed package routes use the contained restore failure path", () => {
     /function clearWorkspaceRouteFailure\(recoveryUrl\?: string\) \{\s*if \(failedWorkspaceUrlState\?\.kind !== "route"\) return true;\s*if \(!recoverWorkspaceRouteFailure\(\s*failedWorkspaceUrlState,\s*location,\s*url => workspaceLocation\.replace\(url, history\.state\),\s*recoveryUrl\)\) \{\s*return false;\s*\}\s*failedWorkspaceUrlState = null;\s*return true;\s*\}[\s\S]*function dismissQueryNotice\(\) \{\s*const routeFailureOnHome =\s*failedWorkspaceUrlState\?\.kind === "route" && state\.home;\s*state\.queryNotice = "";\s*state\.queryNoticeRetryAction = null;\s*if \(!clearWorkspaceRouteFailure\(routeFailureOnHome \? "\/" : undefined\)\) \{\s*render\(\);\s*return;\s*\}\s*failedWorkspaceUrlState = null;\s*render\(\);\s*\}/);
   assert.match(
     appSource,
-    /const workbenchShellActions: WorkbenchShellBindingActions = \{\s*onCopySubjectSegment: index => \{[\s\S]*onDismissNotice: dismissQueryNotice,/);
+    /const workbenchShellActions: WorkbenchShellBindingActions = \{\s*onApplicationAction: dispatchApplicationAction,\s*onCopySubjectSegment: index => \{[\s\S]*onDismissNotice: dismissQueryNotice,/);
   assert.match(
     appSource,
     /const homeShellActions: HomeShellBindingActions = \{\s*onDemo: runHomeDemo,\s*onDismissNotice: dismissQueryNotice,/);
@@ -2883,7 +2909,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /const navigationSeq = navigationSequence\.begin\(\);\s*let leftPackageQueryForWorkspaceSuccessor = false;\s*const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\)/);
   assert.match(
     appSource,
-    /function dismissModalsForRoutedNavigation\(\) \{\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
+    /function dismissModalsForRoutedNavigation\(\) \{\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.keyboardHelp = false;\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
   assert.match(
     route,
     /dismissModalsForRoutedNavigation\(\);\s*navigationSequence\.begin\(\)/);
@@ -2965,7 +2991,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /function restorePackageQueryWorkspaceFocus\(\) \{\s*const navigationSeq = packageQueryWorkspaceFocusNavigationSeq;[\s\S]*navigationSequence\.isCurrent\(navigationSeq\)[\s\S]*afterCurrentNavigationFrame\(\(\) => \{\s*if \(!focusLevelOneHeading\(\)\) \{\s*document\.querySelector<HTMLElement>\("#type-list"\)\?\.focus\(\)/);
   assert.match(
     appSource,
-    /bindEvents\(\);\s*if \(scopeBarOwnsFocus\) \{\s*let restored = false;\s*if \(scopeBarFocus\) \{\s*scopeBarBinding\?\.revealFocusTarget\(scopeBarFocus\);\s*restored = restoreScopeBarFocus\(document, scopeBarFocus\);\s*\}\s*if \(!restored\) \{\s*document\.querySelector<HTMLElement>\("\.brand"\)\s*\?\.focus\(\{ preventScroll: true \}\);\s*\}\s*app\.removeAttribute\("tabindex"\);\s*\}\s*restorePackageQueryReturnFocus\(\);\s*restorePackageQueryWorkspaceFocus\(\)/);
+    /bindEvents\(\);[\s\S]*if \(scopeBarOwnsFocus\) \{\s*let restored = false;\s*if \(scopeBarFocus\) \{\s*scopeBarBinding\?\.revealFocusTarget\(scopeBarFocus\);\s*restored = restoreScopeBarFocus\(document, scopeBarFocus\);\s*\}\s*if \(!restored\) \{\s*document\.querySelector<HTMLElement>\("\.brand"\)\s*\?\.focus\(\{ preventScroll: true \}\);\s*\}\s*app\.removeAttribute\("tabindex"\);\s*\}\s*restorePackageQueryReturnFocus\(\);\s*restorePackageQueryWorkspaceFocus\(\)/);
   assert.match(
     popstate,
     /leftPackageQueryForWorkspaceSuccessor =\s*!state\.packageQueryReturnFocusPending;[\s\S]*if \(leftPackageQueryForWorkspaceSuccessor\) \{\s*packageQueryWorkspaceFocusNavigationSeq = navigationSeq/);
@@ -3201,18 +3227,15 @@ test("Metadata composition excludes graph-projected implementation members", () 
 });
 
 test("settings keep a viewport-bounded scroll region", () => {
-  const settingsPageRule =
-    stylesSource.match(/\.settings-page\s*\{([^}]*)\}/s)?.[1] ?? "";
+  const settingsDialogRule =
+    stylesSource.match(/\.application-dialog\s*\{([^}]*)\}/s)?.[1] ?? "";
   const settingsMainRule =
     stylesSource.match(/\.settings-main\s*\{([^}]*)\}/s)?.[1] ?? "";
   assert.match(
-    settingsPageRule,
-    /(?:^|\n)\s*height: 100vh;/);
-  assert.doesNotMatch(
-    settingsPageRule,
-    /(?:^|\n)\s*min-height:/);
+    settingsDialogRule,
+    /(?:^|\n)\s*max-height: min\(760px, calc\(100vh - 24px\)\);/);
   assert.match(
-    settingsPageRule,
+    settingsDialogRule,
     /(?:^|\n)\s*grid-template-rows: auto minmax\(0, 1fr\);/);
   assert.match(
     settingsMainRule,
@@ -3887,8 +3910,11 @@ test("decompiled source discloses the PDB-source limitation", () => {
   assert.doesNotMatch(html, /<img/);
   assert.match(html, /&lt;img/);
   assert.match(
+    typePanelSource,
+    /renderSourceResult[\s\S]*pdbSourceLimitationHtml\(source\)/);
+  assert.match(
     appSource,
-    /pdbSourceLimitationHtml\(state\.memberSource\)/);
+    /state\.memberSource\s*\?\s*renderSourceResult\(\{/);
 });
 
 test("history never applies a selection to another coordinate", () => {

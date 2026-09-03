@@ -1,4 +1,7 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata.Ecma335;
+
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -6,8 +9,10 @@ namespace ILInspector.Decompiler.Pipeline;
 /// Reconstructs classic async state-machine kickoffs (runtime-async=off) back to
 /// async bodies. The source logic lives in <c>&lt;M&gt;d__N.MoveNext</c>; the public
 /// kickoff only initializes the state machine and returns the builder's task.
-/// This pass imports the sibling <c>MoveNext</c>, recovers the fixture-backed
-/// await shapes, and replaces the kickoff body with the source-shaped body.
+/// Product imports carry Metadata's authenticated relationship and exact
+/// execution MethodDef; tokenless synthetic IR retains a shape-only test seam.
+/// The pass recovers the fixture-backed await shapes and replaces the kickoff
+/// body with the source-shaped body.
 /// </summary>
 public sealed class ClassicAsyncReconstructionPass : IIrPass
 {
@@ -20,8 +25,20 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
         if (context.ImportMethodBody is null)
             return;
+        ClassicAsyncRequestSeed? request =
+            (function.ClassicAsyncRequest as
+                ClassicAsyncRequestAdapterResult.RequestAvailable)?.Request;
+        if (function.IsMetadataBacked && request is null)
+            return;
         if (!TryGetKickoff(function, out var kickoff))
             return;
+        if (request is not null
+            && !MatchesStateMachine(
+                kickoff.StateMachineType,
+                request.Relationship.StateMachineType))
+        {
+            return;
+        }
 
         var moveNextMethod = new MethodRef(
             kickoff.StateMachineType,
@@ -29,6 +46,15 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             TypeRef.CoreLib("System", "Void"),
             [],
             HasThis: true);
+        if (request is not null)
+        {
+            moveNextMethod = moveNextMethod with
+            {
+                ExactDefinitionAddress = request.ExecutionMethod,
+                ExactDefinitionAcquisitionGuard =
+                    request.AcquisitionGuard,
+            };
+        }
         var moveNextPasses = IrPasses.ForReconstruction<ClassicAsyncReconstructionPass>();
         if (!context.TryImportAndRunMethodBody(
                 moveNextMethod,
@@ -71,6 +97,22 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
     }
 
     sealed record Kickoff(TypeRef StateMachineType, int StateMachineLocal, int SourceOffset);
+
+    static bool MatchesStateMachine(
+        TypeRef observed,
+        MetadataTypeDefinitionAddress expected)
+    {
+        if (observed.Kind == TypeRefKind.GenericInstance
+            && observed.ElementType is { } definition)
+        {
+            observed = definition;
+        }
+
+        return observed.DefinitionModuleVersionId == expected.ModuleVersionId
+            && !observed.DefinitionHandle.IsNil
+            && MetadataTokens.GetToken(observed.DefinitionHandle)
+                == expected.Definition.Value;
+    }
 
     enum ReconstructionResult
     {
