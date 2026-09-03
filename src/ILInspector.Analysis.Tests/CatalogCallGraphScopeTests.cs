@@ -735,17 +735,25 @@ public class CatalogCallGraphScopeTests
 
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
+        public AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request)
         {
-            SelectionCount++;
-            return request.Target
-                is AssemblyBindingTarget.AssemblyReference reference
-                && _roots.TryGetValue(
-                    reference.Identity,
-                    out ResolvedAssemblyReference? root)
-                        ? AssemblyBindingSelection.Found(root)
-                        : inner.Select(request);
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore()
+            {
+                SelectionCount++;
+                return request.Target
+                    is AssemblyBindingTarget.AssemblyReference reference
+                    && _roots.TryGetValue(
+                        reference.Identity,
+                        out ResolvedAssemblyReference? root)
+                            ? AssemblyBindingSelection.Found(root)
+                            : inner.Select(request).Selection;
+
+            }
         }
     }
 
@@ -755,10 +763,17 @@ public class CatalogCallGraphScopeTests
 
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            AssemblyBindingSelection.CannotSelect(
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
-                    AssemblyBindingFailureKind.CandidateUnavailable));
+                AssemblyBindingFailureKind.CandidateUnavailable));
+        }
     }
 }

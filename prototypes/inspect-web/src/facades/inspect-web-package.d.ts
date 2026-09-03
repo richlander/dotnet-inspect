@@ -230,9 +230,31 @@ export interface BrowserTypeSurface {
     readonly api: ReadonlyArray<BrowserMemberSurface>;
     readonly platformPack: string | null;
 }
+export interface BrowserWorkspacePackage {
+    readonly package: string;
+    readonly version: string;
+    readonly framework: string;
+}
+export interface BrowserWorkspacePackageOccurrence {
+    readonly action: string;
+    readonly package: string;
+    readonly version: string;
+    readonly framework: string;
+}
+export interface BrowserWorkspacePackageOccurrenceActivation {
+    readonly activated: boolean;
+    readonly superseded: boolean;
+    readonly package: BrowserPackageSurface | null;
+}
+export interface BrowserWorkspacePackageOccurrenceView {
+    readonly occurrences: ReadonlyArray<BrowserWorkspacePackageOccurrence>;
+    readonly superseded: boolean;
+}
 export declare function initializeRuntime(): Promise<void>;
 export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]): Promise<number>;
+export declare function activateWorkspacePackageOccurrence(action: string): BrowserWorkspacePackageOccurrenceActivation;
 export declare function cancelPackageQuery(): void;
+export declare function clearWorkspacePackageOccurrences(): void;
 export declare function getPackageDocument(packageId: string, version: string, path: string): Promise<BrowserPackageDocumentContent>;
 export declare function listPackageQueryFacets(): BrowserPackageQueryFacetCatalog;
 export declare function loadRuntimePack(targetFramework: string, platformVersion: string): Promise<string>;
@@ -243,6 +265,7 @@ export declare function queryMemberDocumentation(packageId: string, version: str
 export declare function queryPackage(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageSurface>;
 export declare function queryPackageDependencies(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserPackageDependencies>;
 export declare function queryPackageVersions(packageId: string): Promise<ReadonlyArray<string>>;
+export declare function queryWorkspacePackageOccurrences(workspaceJson: string): Promise<BrowserWorkspacePackageOccurrenceView>;
 export declare function resolvePackageDependencyVersion(packageId: string, declaredRange: string | null): Promise<string>;
 export declare function runPackageQuery(prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, eventSink: unknown): Promise<BrowserPackageQueryEvent>;
 export declare function searchTypes(query: string, candidatesJson: string): ReadonlyArray<BrowserTypeSearchHit>;

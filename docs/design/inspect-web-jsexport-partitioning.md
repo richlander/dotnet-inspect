@@ -179,7 +179,7 @@ capability they adapt, not ownership of the underlying product facts.
 
 ## Production surface inventory
 
-The seven rooted export assemblies contain 45 `[JSExport]` methods.
+The seven rooted export assemblies contain 48 `[JSExport]` methods.
 The generated `initializeRuntime()` and `runEntryPoint()` functions are
 generator-owned infrastructure and are not part of that count.
 
@@ -203,9 +203,11 @@ calls. `ConfigureHost` configures shared `InspectWeb.Engine.Core` policy before 
 entry point starts application work. `AsyncLoweringCanary` remains the
 deployment smoke's deterministic awaited operation.
 
-### Package facade: 14 exports
+### Package facade: 17 exports
 
+- `ActivateWorkspacePackageOccurrence`
 - `CancelPackageQuery`
+- `ClearWorkspacePackageOccurrences`
 - `GetPackageDocument`
 - `ListPackageQueryFacets`
 - `LoadRuntimePack`
@@ -216,11 +218,13 @@ deployment smoke's deterministic awaited operation.
 - `QueryPackage`
 - `QueryPackageDependencies`
 - `QueryPackageVersions`
+- `QueryWorkspacePackageOccurrences`
 - `ResolvePackageDependencyVersion`
 - `RunPackageQuery`
 - `SearchTypes`
 
 This facade owns browser adaptation for package and platform acquisition,
+ordered workspace package occurrences and their opaque activation actions,
 package-query streaming, package-shipped documents, package dependency
 coordinates, and the API surface initially loaded for a package or platform.
 `SearchTypes` stays here because it ranks candidates from that loaded package
@@ -586,14 +590,14 @@ contracts that issue #4497 does not need.
 ## Implementation sequence
 
 The binding cutover is atomic. The current generated module acquires only
-`InspectWeb.Engine`, validates all 45 managed paths during initialization, and
+`InspectWeb.Engine`, validates all 48 managed paths during initialization, and
 supplies the application's declarations and runtime calls. Moving an export
 before replacing that module leaves a stale path; regenerating the monolith
 after the move removes the operation before its consumer has migrated.
 
 One cutover PR therefore:
 
-1. introduces the six capability export assemblies and moves all 45 exports and
+1. introduces the six capability export assemblies and moves all 48 exports and
    their DTO closures to their final assemblies;
 2. declares the seven roots in `InspectWebJsExportContext`, then generates the
    complete context once and compiles, verifies, lints, and drift-checks every
@@ -625,7 +629,7 @@ The partition is implemented when all of the following hold:
 1. `ProductionFacadeContext_DeclaresExactAssemblySet` reads the compiled
    `InspectWebJsExportContext` and proves its root identities equal the seven
    expected managed assemblies.
-2. `ProductionFacadePartition_AssignsEveryJsExportExactlyOnce` derives 45
+2. `ProductionFacadePartition_AssignsEveryJsExportExactlyOnce` derives 48
    current exports across the seven expected assemblies with no omission or
    duplicate.
 3. `ProductionFacadeProjects_HaveAcyclicOwnerReferences` proves the host,

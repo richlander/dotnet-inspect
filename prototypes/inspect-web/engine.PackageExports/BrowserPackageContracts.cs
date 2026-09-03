@@ -206,6 +206,26 @@ public sealed record BrowserPackageCacheStats(
     int Workspaces,
     long ResidentBytes);
 
+public sealed record BrowserWorkspacePackage(
+    string Package,
+    string Version,
+    string Framework);
+
+public sealed record BrowserWorkspacePackageOccurrence(
+    string Action,
+    string Package,
+    string Version,
+    string Framework);
+
+public sealed record BrowserWorkspacePackageOccurrenceView(
+    BrowserWorkspacePackageOccurrence[] Occurrences,
+    bool Superseded);
+
+public sealed record BrowserWorkspacePackageOccurrenceActivation(
+    bool Activated,
+    bool Superseded,
+    BrowserPackageSurface? Package);
+
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryFacetTier>))]
 public enum BrowserPackageQueryFacetTier
 {
@@ -359,6 +379,9 @@ public sealed record BrowserDependencyCoordinateMatch(
 [JsonSerializable(typeof(BrowserPackageQueryFacetCatalog))]
 [JsonSerializable(typeof(BrowserPackageQueryEvent))]
 [JsonSerializable(typeof(BrowserPackageDependencies))]
+[JsonSerializable(typeof(BrowserWorkspacePackage[]))]
+[JsonSerializable(typeof(BrowserWorkspacePackageOccurrenceView))]
+[JsonSerializable(typeof(BrowserWorkspacePackageOccurrenceActivation))]
 [JsonSerializable(typeof(BrowserDependencyCoordinateCandidate[]))]
 [JsonSerializable(typeof(BrowserDependencyCoordinateMatch))]
 [JsonSerializable(typeof(BrowserTypeCandidate[]))]

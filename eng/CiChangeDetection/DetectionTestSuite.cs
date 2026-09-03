@@ -984,6 +984,25 @@ internal static class DetectionTestSuite
             selected: "code",
             notSelected: "docs");
 
+        foreach (string dependencyPolicyInput in new[]
+        {
+            "eng/dependency-policy.json",
+            "eng/DependencyPolicy/PolicyEvaluator.cs",
+            "eng/DependencyPolicy.Tests/PolicyEvaluatorTests.cs",
+        })
+        {
+            Dictionary<string, string> dependencyPolicy = RunDetection(
+                repository,
+                body,
+                "pull_request",
+                dependencyPolicyInput,
+                outputs);
+            AssertRouting(
+                dependencyPolicy,
+                selected: "code",
+                notSelected: "docs");
+        }
+
         Dictionary<string, string> workflow = RunDetection(
             repository,
             body,

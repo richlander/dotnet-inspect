@@ -190,12 +190,25 @@ public static class PackageCompileAssetSelector
                     TfmResolver.GetTfmPriority(framework.ToLowerInvariant()))
                 .ThenBy(framework => framework, StringComparer.OrdinalIgnoreCase),
         ];
-        string? selectedFramework = string.IsNullOrWhiteSpace(targetFramework)
-            ? frameworks[0]
-            : frameworks.FirstOrDefault(
+        string? selectedFramework;
+        if (string.IsNullOrWhiteSpace(targetFramework))
+        {
+            selectedFramework = frameworks[0];
+        }
+        else
+        {
+            selectedFramework = frameworks.FirstOrDefault(
                 framework => framework.Equals(
                     targetFramework,
                     StringComparison.OrdinalIgnoreCase));
+            if (selectedFramework is null
+                && emptyReferenceGroups.Contains(
+                    targetFramework,
+                    StringComparer.OrdinalIgnoreCase))
+            {
+                selectedFramework = targetFramework;
+            }
+        }
         if (selectedFramework is null)
         {
             return new PackageCompileAssetSelection(

@@ -34,9 +34,25 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "PackageExports");
+        value = $ownDataProperty(value, "ActivateWorkspacePackageOccurrence.304094707");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027PackageExports.ActivateWorkspacePackageOccurrence.304094707\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "PackageExports");
         value = $ownDataProperty(value, "CancelPackageQuery.19325221");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027PackageExports.CancelPackageQuery.19325221\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "PackageExports");
+        value = $ownDataProperty(value, "ClearWorkspacePackageOccurrences.19325221");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027PackageExports.ClearWorkspacePackageOccurrences.19325221\u0027 is not callable.");
         }
     }
     {
@@ -122,6 +138,14 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "PackageExports");
+        value = $ownDataProperty(value, "QueryWorkspacePackageOccurrences.976702342");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027PackageExports.QueryWorkspacePackageOccurrences.976702342\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "PackageExports");
         value = $ownDataProperty(value, "ResolvePackageDependencyVersion.451505237");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027PackageExports.ResolvePackageDependencyVersion.451505237\u0027 is not callable.");
@@ -165,8 +189,16 @@ export function initializeRuntime() {
 export function runEntryPoint(mainAssemblyName, args) {
     return $requireRuntime().runMain(mainAssemblyName, args);
 }
+export function activateWorkspacePackageOccurrence(action) {
+    const $result = $requireManagedExports()["PackageExports"]["ActivateWorkspacePackageOccurrence.304094707"](action);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
 export function cancelPackageQuery() {
     return $requireManagedExports()["PackageExports"]["CancelPackageQuery.19325221"]();
+}
+export function clearWorkspacePackageOccurrences() {
+    return $requireManagedExports()["PackageExports"]["ClearWorkspacePackageOccurrences.19325221"]();
 }
 export async function getPackageDocument(packageId, version, path) {
     const $result = await $requireManagedExports()["PackageExports"]["GetPackageDocument.1001223652"](packageId, version, path);
@@ -211,6 +243,11 @@ export async function queryPackageDependencies(packageId, version, targetFramewo
 }
 export async function queryPackageVersions(packageId) {
     const $result = await $requireManagedExports()["PackageExports"]["QueryPackageVersions.976702342"](packageId);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
+export async function queryWorkspacePackageOccurrences(workspaceJson) {
+    const $result = await $requireManagedExports()["PackageExports"]["QueryWorkspacePackageOccurrences.976702342"](workspaceJson);
     const $parsed = JSON.parse($result);
     return $parsed;
 }

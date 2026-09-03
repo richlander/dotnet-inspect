@@ -268,9 +268,35 @@ export interface BrowserTypeSurface {
   readonly platformPack: string | null;
 }
 
+export interface BrowserWorkspacePackage {
+  readonly package: string;
+  readonly version: string;
+  readonly framework: string;
+}
+
+export interface BrowserWorkspacePackageOccurrence {
+  readonly action: string;
+  readonly package: string;
+  readonly version: string;
+  readonly framework: string;
+}
+
+export interface BrowserWorkspacePackageOccurrenceActivation {
+  readonly activated: boolean;
+  readonly superseded: boolean;
+  readonly package: BrowserPackageSurface | null;
+}
+
+export interface BrowserWorkspacePackageOccurrenceView {
+  readonly occurrences: ReadonlyArray<BrowserWorkspacePackageOccurrence>;
+  readonly superseded: boolean;
+}
+
 type $ManagedExports = {
   readonly "PackageExports": {
+    readonly "ActivateWorkspacePackageOccurrence.304094707": (action: string) => string;
     readonly "CancelPackageQuery.19325221": () => void;
+    readonly "ClearWorkspacePackageOccurrences.19325221": () => void;
     readonly "GetPackageDocument.1001223652": (packageId: string, version: string, path: string) => Promise<string>;
     readonly "ListPackageQueryFacets.1310674786": () => string;
     readonly "LoadRuntimePack.451505237": (targetFramework: string, platformVersion: string) => Promise<string>;
@@ -281,6 +307,7 @@ type $ManagedExports = {
     readonly "QueryPackage.1001223652": (packageId: string, version: string, targetFramework: string) => Promise<string>;
     readonly "QueryPackageDependencies.1579276339": (packageId: string, version: string, targetFramework: string, assemblyId: string) => Promise<string>;
     readonly "QueryPackageVersions.976702342": (packageId: string) => Promise<string>;
+    readonly "QueryWorkspacePackageOccurrences.976702342": (workspaceJson: string) => Promise<string>;
     readonly "ResolvePackageDependencyVersion.451505237": (packageId: string, declaredRange: string | null) => Promise<string>;
     readonly "RunPackageQuery.287304775": (prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, eventSink: unknown) => Promise<string>;
     readonly "SearchTypes.271973316": (query: string, candidatesJson: string) => string;
@@ -324,9 +351,25 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "ActivateWorkspacePackageOccurrence.304094707");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027PackageExports.ActivateWorkspacePackageOccurrence.304094707\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "PackageExports");
     value = $ownDataProperty(value, "CancelPackageQuery.19325221");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027PackageExports.CancelPackageQuery.19325221\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "ClearWorkspacePackageOccurrences.19325221");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027PackageExports.ClearWorkspacePackageOccurrences.19325221\u0027 is not callable.");
     }
   }
   {
@@ -412,6 +455,14 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "QueryWorkspacePackageOccurrences.976702342");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027PackageExports.QueryWorkspacePackageOccurrences.976702342\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "PackageExports");
     value = $ownDataProperty(value, "ResolvePackageDependencyVersion.451505237");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027PackageExports.ResolvePackageDependencyVersion.451505237\u0027 is not callable.");
@@ -462,8 +513,18 @@ export function runEntryPoint(
   return $requireRuntime().runMain(mainAssemblyName, args);
 }
 
+export function activateWorkspacePackageOccurrence(action: string): BrowserWorkspacePackageOccurrenceActivation {
+  const $result = $requireManagedExports()["PackageExports"]["ActivateWorkspacePackageOccurrence.304094707"](action);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserWorkspacePackageOccurrenceActivation;
+}
+
 export function cancelPackageQuery(): void {
   return $requireManagedExports()["PackageExports"]["CancelPackageQuery.19325221"]();
+}
+
+export function clearWorkspacePackageOccurrences(): void {
+  return $requireManagedExports()["PackageExports"]["ClearWorkspacePackageOccurrences.19325221"]();
 }
 
 export async function getPackageDocument(packageId: string, version: string, path: string): Promise<BrowserPackageDocumentContent> {
@@ -520,6 +581,12 @@ export async function queryPackageVersions(packageId: string): Promise<ReadonlyA
   const $result = await $requireManagedExports()["PackageExports"]["QueryPackageVersions.976702342"](packageId);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as ReadonlyArray<string>;
+}
+
+export async function queryWorkspacePackageOccurrences(workspaceJson: string): Promise<BrowserWorkspacePackageOccurrenceView> {
+  const $result = await $requireManagedExports()["PackageExports"]["QueryWorkspacePackageOccurrences.976702342"](workspaceJson);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserWorkspacePackageOccurrenceView;
 }
 
 export async function resolvePackageDependencyVersion(packageId: string, declaredRange: string | null): Promise<string> {

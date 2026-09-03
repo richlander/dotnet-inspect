@@ -412,27 +412,36 @@ public sealed class PackageAssemblyContextRoles : IDisposable
     {
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
+        public AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request)
         {
             ArgumentNullException.ThrowIfNull(request);
+            AssemblyBindingSelection selection;
             if (request.Target
                 is AssemblyBindingTarget.IntrinsicCoreLibrary)
             {
-                return AssemblyBindingSelection.CannotSelect(
+                selection = AssemblyBindingSelection.CannotSelect(
                     new AssemblyBindingFailure(
                         AssemblyBindingFailureKind.UnsupportedScope));
+                return new AssemblyBindingSelectionSnapshot(
+                    Version,
+                    selection);
             }
             if (request.Target
                     is not AssemblyBindingTarget.AssemblyReference reference)
             {
-                return AssemblyBindingSelection.Invalid(
+                selection = AssemblyBindingSelection.Invalid(
                     new AssemblyBindingFailure(
                         AssemblyBindingFailureKind.InvalidPolicyResult));
+                return new AssemblyBindingSelectionSnapshot(
+                    Version,
+                    selection);
             }
             if (request.Scope == AssemblyResolutionScope.Platform)
             {
-                return AssemblyBindingSelection.NameNotOwned();
+                return new AssemblyBindingSelectionSnapshot(
+                    Version,
+                    AssemblyBindingSelection.NameNotOwned());
             }
 
             ImmutableArray<ResolvedAssemblyReference> matches =
@@ -441,7 +450,7 @@ public sealed class PackageAssemblyContextRoles : IDisposable
                     assembly => assembly.Identity.IsEquivalentTo(
                         reference.Identity)),
             ];
-            return matches.Length switch
+            selection = matches.Length switch
             {
                 0 => assemblies.Any(assembly =>
                         string.Equals(
@@ -453,6 +462,9 @@ public sealed class PackageAssemblyContextRoles : IDisposable
                 1 => AssemblyBindingSelection.Found(matches[0]),
                 _ => AssemblyBindingSelection.Multiple(matches),
             };
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                selection);
         }
     }
 }
