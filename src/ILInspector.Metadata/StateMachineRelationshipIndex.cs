@@ -185,22 +185,6 @@ public sealed class StateMachineRelationshipIndex
             or InvalidOperationException
             or OverflowException;
 
-    static Guid ReadModuleVersionId(MetadataReader reader)
-    {
-        GuidHandle handle = reader.GetModuleDefinition().Mvid;
-        int index = MetadataTokens.GetHeapOffset(handle);
-        int heapSize = reader.GetHeapSize(HeapIndex.Guid);
-        if (handle.IsNil
-            || index <= 0
-            || (long)index * 16 > heapSize)
-        {
-            throw new BadImageFormatException(
-                "The module MVID does not reference a complete GUID heap entry.");
-        }
-
-        return reader.GetGuid(handle);
-    }
-
     static StateMachineRelationshipIndex Failed(
         MetadataReader reader,
         StateMachineRelationshipFailureKind kind,
@@ -211,7 +195,7 @@ public sealed class StateMachineRelationshipIndex
         int typeRows = 0;
         try
         {
-            moduleVersionId = ReadModuleVersionId(reader);
+            moduleVersionId = MetadataModuleIdentity.ReadVersionId(reader);
         }
         catch (Exception ex) when (
             IsRecoverableMetadataFailure(ex))
@@ -305,7 +289,7 @@ public sealed class StateMachineRelationshipIndex
             _remainingNameWork = nameWorkBudget;
             _remainingSignatureWork = signatureWorkBudget;
             _rejectionWorkObserved = rejectionWorkObserved;
-            _moduleVersionId = ReadModuleVersionId(reader);
+            _moduleVersionId = MetadataModuleIdentity.ReadVersionId(reader);
             _typeDefinitions =
                 MetadataTypeDefinitionIndex.Create(
                     reader,

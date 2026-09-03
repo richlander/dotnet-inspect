@@ -33,7 +33,15 @@ internal sealed class NuGetCredentialRedirectHandler(
                 {
                     if (redirectedRequest is not null)
                     {
+                        HttpRequestMessage? responseRequest =
+                            response.RequestMessage;
                         response.RequestMessage = request;
+                        if (!ReferenceEquals(
+                                responseRequest,
+                                redirectedRequest))
+                        {
+                            responseRequest?.Dispose();
+                        }
                     }
 
                     return response;
@@ -54,17 +62,28 @@ internal sealed class NuGetCredentialRedirectHandler(
                 }
                 finally
                 {
+                    HttpRequestMessage? responseRequest =
+                        response.RequestMessage;
                     response.Dispose();
+                    if (!ReferenceEquals(
+                            responseRequest,
+                            current))
+                    {
+                        responseRequest?.Dispose();
+                    }
                 }
 
-                redirectedRequest?.Dispose();
-                redirectedRequest = CreateRedirectRequest(
-                    request,
+                HttpRequestMessage? previousRedirect =
+                    redirectedRequest;
+                HttpRequestMessage nextRedirect = CreateRedirectRequest(
+                    current,
                     target,
                     SameOrigin(credentialOrigin, target)
                         ? authorization
                         : null);
-                current = redirectedRequest;
+                redirectedRequest = nextRedirect;
+                current = nextRedirect;
+                previousRedirect?.Dispose();
             }
         }
         finally

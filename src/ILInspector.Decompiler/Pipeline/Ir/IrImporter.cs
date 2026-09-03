@@ -64,6 +64,34 @@ public static class IrImporter
     /// </summary>
     public static IrFunction? Import(MetadataSource source, MethodRef method)
     {
+        if (method.ExactDefinitionAddress is { } exactAddress)
+        {
+            try
+            {
+                if (!ReferenceEquals(
+                        method.ExactDefinitionAcquisitionGuard,
+                        source.AcquisitionGuard)
+                    || !exactAddress.BelongsTo(source.Reader))
+                {
+                    return null;
+                }
+
+                int row = MetadataTokens.GetRowNumber(exactAddress.Handle);
+                return row > 0
+                    && row <= source.Reader.GetTableRowCount(
+                        TableIndex.MethodDef)
+                        ? Import(source, exactAddress.Handle)
+                        : null;
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                return CrashFunction(
+                    method.Name,
+                    method.DeclaringType.Name,
+                    ex);
+            }
+        }
+
         TypeRef type = ImporterType(method);
         if (type.DefinitionName is not { } exactName)
             return Import(source, ImporterTypeName(type), method.Name);
@@ -620,6 +648,8 @@ public static class IrImporter
             CompilerGenerated = method.CompilerGenerated,
             DeclaringTypeCompilerGenerated = method.DeclaringTypeCompilerGenerated,
             IsRuntimeAsync = method.IsRuntimeAsync,
+            ClassicAsyncRequest = method.ClassicAsyncRequest,
+            IsMetadataBacked = method.IsMetadataBacked,
         };
         var span = method.Body.IL.AsSpan();
         var leaders = FindLeaders(span, method.Body.Handlers);
