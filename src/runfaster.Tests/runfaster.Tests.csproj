@@ -22,7 +22,7 @@
     <ProjectReference Include="..\runfaster\runfaster.csproj" />
     <ProjectReference Include="..\dotnet-inspect\dotnet-inspect.csproj" />
     <ProjectReference Include="Fixtures\RunFaster.AllocationFixture\RunFaster.AllocationFixture.csproj" ReferenceOutputAssembly="true" />
-    <ProjectReference Include="..\..\tests\DotnetInspector.Fixtures\DotnetInspector.Fixtures.csproj" />
+    <ProjectReference Include="..\..\tests\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -236,7 +236,7 @@ if [ ! -f "$DECOMPILER_SKIP_PROJECTS_FILE" ]; then
 else
   while IFS= read -r project || [ -n "$project" ]; do
     case "$project" in
-      src/*|tests/*|tools/*) ;;
+      fixtures/*|src/*|tests/*|tools/*) ;;
       *) DECOMPILER_SKIP_PROJECTS_READY=false; break ;;
     esac
     case "/$project/" in
@@ -360,6 +360,7 @@ while IFS= read -r -d '' file; do
     # unrelated tools stay on the regular code lane.
     src/NetworkDestinationPolicy.cs|src/UnionPolyfill.cs) CODE=true; WEB=true ;;
     src/*) CODE=true ;;
+    fixtures/*) CODE=true ;;
     tests/ILInspector.MetadataPrimitives.PlatformProbe/*) CODE=true; WEB=true ;;
     tests/DotnetInspector.Artifacts.Local.PlatformProbe/*) CODE=true; WEB=true ;;
     tests/ILInspector.JsExportSurface.TypeScriptFixtures/*) CODE=true; WEB=true ;;
@@ -553,7 +554,7 @@ while IFS= read -r -d '' file; do
     global.json) DECOMPILER=true ;;
     *.props|*.targets|*.slnx) DECOMPILER=true ;;
     .github/workflows/ci.yml) DECOMPILER=true ;;
-    src/*|tests/*|tools/*)
+    fixtures/*|src/*|tests/*|tools/*)
       if ! skips_decompiler_project "$file"; then
         DECOMPILER=true
       fi
