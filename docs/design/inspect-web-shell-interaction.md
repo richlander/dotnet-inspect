@@ -321,10 +321,12 @@ Spotlight as the one search experience for:
 - platform inputs; and
 - commands.
 
-The title-line Search control advertises the search scope in its expanded label
-and transfers focus to Spotlight's editable input when activated. Its compact
-`Search` label and hidden responsive states do not change the keyboard shortcut
-or Spotlight behavior.
+The title-line Search control uses the compact expanded label `Search symbols`
+and transfers focus to Spotlight's editable input when activated. Packages,
+loaded coordinates, platform inputs, and commands remain available inside the
+same Spotlight experience; the shorter shell label does not narrow its scope.
+Its compact `Search` label and hidden responsive states do not change the
+keyboard shortcut or Spotlight behavior.
 
 Coordinate activation always opens the coordinate menu. That menu contains an
 explicit `Search packages` action that closes the menu and opens Spotlight in

@@ -469,7 +469,7 @@ app.innerHTML = `
           </div>
           <button id="open-search" class="title-search" type="button" aria-haspopup="dialog">
             <span class="title-search-glyph" aria-hidden="true">⌕</span>
-            <span class="title-search-label title-search-label-full">Search types, members, packages</span>
+            <span class="title-search-label title-search-label-full">Search symbols</span>
             <span class="title-search-label title-search-label-compact">Search</span>
             <kbd>Ctrl P</kbd>
           </button>

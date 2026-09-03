@@ -168,8 +168,8 @@ body {
 
 .title-navigation {
   display: flex;
-  flex: 0 4 370px;
-  max-width: 370px;
+  flex: 0 4 240px;
+  max-width: 240px;
   min-width: 0;
   margin-left: auto;
   gap: 6px;
@@ -447,7 +447,7 @@ body {
   flex: 1 1 auto;
   width: auto;
   min-width: 0;
-  max-width: 300px;
+  max-width: 180px;
   height: 28px;
   display: flex;
   align-items: center;
@@ -1496,7 +1496,7 @@ kbd {
   .workspace-view-details div { grid-template-columns: 80px minmax(0, 1fr); }
 }
 
-@container title-navigation (max-width: 269px) {
+@container title-navigation (max-width: 219px) {
   .title-search {
     flex: none;
     width: auto;
