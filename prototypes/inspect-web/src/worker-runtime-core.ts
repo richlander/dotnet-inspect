@@ -173,6 +173,7 @@ export type WorkerRuntimeEpochStartResult =
         | "bootstrap-invalid"
         | "bootstrap-oversized"
         | "epoch-active"
+        | "host-disposed"
         | "epoch-token-exhausted"
         | "worker-creation-failed";
       readonly detail?: unknown;
@@ -589,6 +590,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
   readonly #unsubscribeClock: () => void;
   readonly #unsubscribeLifecycle: () => void;
   #current: MainEpoch<TDiagnostic> | null = null;
+  #disposed = false;
 
   constructor(
     options: WorkerRuntimeHostOptions<TBootstrap, TDiagnostic>,
@@ -670,6 +672,8 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
   }
 
   dispose(): void {
+    if (this.#disposed) return;
+    this.#disposed = true;
     this.#unsubscribeClock();
     this.#unsubscribeLifecycle();
     const epoch = this.#current;
@@ -725,6 +729,8 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
   }
 
   start(bootstrap: TBootstrap): WorkerRuntimeEpochStartResult {
+    if (this.#disposed)
+      return { kind: "rejected", reason: "host-disposed" };
     const current = this.#current;
     if (current !== null && current.phase !== "closed")
       return { kind: "rejected", reason: "epoch-active" };
@@ -824,6 +830,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       bootstrap: encoded.value,
       idleHeartbeatIntervalMilliseconds:
         this.#options.idleHeartbeatIntervalMilliseconds,
+      idleAllowanceMilliseconds: this.#idleAllowance(),
     });
     if (initialization.kind === "failed") {
       return {
@@ -1794,8 +1801,11 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       const now = this.#options.clock.now();
       if (epoch.phase === "suspect") epoch.watchdogStageOrigin = now;
       else epoch.lastTaskEvidenceOrigin = now;
+      epoch.hadUnboundedAllowance = false;
+      return;
     }
     epoch.hadUnboundedAllowance = unbounded;
+    this.#evaluateTime();
   }
 
   #currentAllowance(
@@ -1995,11 +2005,11 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       return;
     }
     epoch.closure = closure;
-    if (closure.kind === "unexpected-failure")
-      this.#reportFailure(closure.failure);
     epoch.phase = "draining";
     epoch.drainDeadline = this.#options.clock.now()
       + this.#options.drainBudgetMilliseconds;
+    if (closure.kind === "unexpected-failure")
+      this.#reportFailure(closure.failure);
 
     for (const record of epoch.operations.values())
       this.#reportOperationClosure(record, closure);
@@ -2149,13 +2159,53 @@ interface FakeWorkerBootstrapAdapter<TBootstrap> {
 
 export interface FakeWorkerOperationContext {
   readonly operation: WorkerWireOperationReference;
-  readonly cache: Map<string, unknown>;
+  readonly cache: FakeWorkerEpochCache;
   startEpochWork(
     producerClass: string,
     sequence: number,
     advertisedAllowance?: WorkerLivenessAllowance,
   ): boolean;
   finishEpochWork(sequence: number): boolean;
+}
+
+export interface FakeWorkerEpochCache {
+  readonly size: number;
+  get(key: string): unknown;
+  set(key: string, value: unknown): boolean;
+  has(key: string): boolean;
+  delete(key: string): boolean;
+}
+
+class RevocableFakeWorkerEpochCache implements FakeWorkerEpochCache {
+  readonly #entries = new Map<string, unknown>();
+  #active = true;
+
+  get size(): number {
+    return this.#entries.size;
+  }
+
+  get(key: string): unknown {
+    return this.#active ? this.#entries.get(key) : undefined;
+  }
+
+  set(key: string, value: unknown): boolean {
+    if (!this.#active) return false;
+    this.#entries.set(key, value);
+    return true;
+  }
+
+  has(key: string): boolean {
+    return this.#active && this.#entries.has(key);
+  }
+
+  delete(key: string): boolean {
+    return this.#active && this.#entries.delete(key);
+  }
+
+  revoke(): void {
+    this.#active = false;
+    this.#entries.clear();
+  }
 }
 
 export interface FakeWorkerOperationRegistration<
@@ -2337,7 +2387,7 @@ interface FakeActiveOperation {
 export class FakeWorkerRuntime<TBootstrap, TDiagnostic>
 implements WorkerRuntimeTransportBinding, WorkerRuntimeSource {
   readonly source: WorkerRuntimeSource = this;
-  readonly cache = new Map<string, unknown>();
+  readonly #cache = new RevocableFakeWorkerEpochCache();
   readonly receivedMessages: unknown[] = [];
   readonly emittedMessages: RawWorkerToMainEnvelope[] = [];
   readonly #options: FakeWorkerRuntimeOptions<TBootstrap, TDiagnostic>;
@@ -2363,6 +2413,10 @@ implements WorkerRuntimeTransportBinding, WorkerRuntimeSource {
 
   get terminateCount(): number {
     return this.#terminateCount;
+  }
+
+  get cache(): FakeWorkerEpochCache {
+    return this.#cache;
   }
 
   get activeOperationCount(): number {
@@ -2407,7 +2461,7 @@ implements WorkerRuntimeTransportBinding, WorkerRuntimeSource {
     this.#handlers = null;
     this.#active.clear();
     this.#epochWork.clear();
-    this.cache.clear();
+    this.#cache.revoke();
   }
 
   emitHeartbeat(): void {
@@ -2439,7 +2493,10 @@ implements WorkerRuntimeTransportBinding, WorkerRuntimeSource {
     sequence: number,
     advertisedAllowance?: WorkerLivenessAllowance,
   ): boolean {
-    if (!this.#ready || this.#failed || this.#epochToken === null) return false;
+    if (this.#terminated
+      || !this.#ready
+      || this.#failed
+      || this.#epochToken === null) return false;
     const registered = this.#options.producerClasses.allowance(producerClass);
     if (!Number.isSafeInteger(sequence)
       || sequence <= 0
@@ -2474,7 +2531,10 @@ implements WorkerRuntimeTransportBinding, WorkerRuntimeSource {
   }
 
   finishEpochWork(sequence: number): boolean {
-    if (!this.#ready || this.#failed || this.#epochToken === null) return false;
+    if (this.#terminated
+      || !this.#ready
+      || this.#failed
+      || this.#epochToken === null) return false;
     if (!this.#epochWork.delete(sequence)) {
       this.#declareFailure({
         kind: "invalid-epoch-work-finish",
@@ -2504,6 +2564,15 @@ implements WorkerRuntimeTransportBinding, WorkerRuntimeSource {
     this.#epochToken = decoded.value.epochToken;
     this.#idleHeartbeatIntervalMilliseconds
       = decoded.value.idleHeartbeatIntervalMilliseconds;
+    if (decoded.value.idleAllowanceMilliseconds
+      !== this.#options.producerClasses.idleAllowanceMilliseconds) {
+      this.#startupFailed({
+        kind: "producer-class-idle-allowance-mismatch",
+        expected: decoded.value.idleAllowanceMilliseconds,
+        actual: this.#options.producerClasses.idleAllowanceMilliseconds,
+      });
+      return;
+    }
     let bootstrap: void | Promise<void>;
     try {
       bootstrap = this.#options.bootstrap.bootstrap(decoded.value.bootstrap);

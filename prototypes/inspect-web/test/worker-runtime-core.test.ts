@@ -113,6 +113,8 @@ interface HarnessOptions {
   readonly startupBudgetMilliseconds?: number;
   readonly controlResponseGraceMilliseconds?: number;
   readonly drainBudgetMilliseconds?: number;
+  readonly failure?: (failure: WorkerRuntimeFailure<TestDiagnostic>) => void;
+  readonly workerProducerClassIdleAllowanceMilliseconds?: number;
 }
 
 interface ProducerClassDefinition {
@@ -233,8 +235,11 @@ function mainRegistration(
 
 function createProducerClasses(
   definitions: readonly ProducerClassDefinition[],
+  idleAllowanceMilliseconds = 10,
 ): WorkerProducerClassRegistry {
-  const producerClasses = new WorkerProducerClassRegistry(10);
+  const producerClasses = new WorkerProducerClassRegistry(
+    idleAllowanceMilliseconds,
+  );
   for (const definition of definitions) {
     producerClasses.register(
       definition.name,
@@ -276,7 +281,10 @@ function createHarness(options: HarnessOptions = {}): TestHarness {
       })),
       ...(options.cancel === undefined ? {} : { cancel: options.cancel }),
     });
-    const workerClasses = createProducerClasses(producerClassDefinitions);
+    const workerClasses = createProducerClasses(
+      producerClassDefinitions,
+      options.workerProducerClassIdleAllowanceMilliseconds ?? 10,
+    );
     workerProducerClasses.push(workerClasses);
     workers.push(new FakeWorkerRuntime({
       scheduler: environment,
@@ -312,6 +320,7 @@ function createHarness(options: HarnessOptions = {}): TestHarness {
     callbacks: {
       failure: failure => {
         failures.push(failure);
+        options.failure?.(failure);
         return undefined;
       },
       diagnostic: diagnostic => {
@@ -1176,6 +1185,7 @@ test("worker admission consumes newer sequences before ID, kind, or payload vali
     kind: "initialize",
     bootstrap: "bootstrap",
     idleHeartbeatIntervalMilliseconds: 10,
+    idleAllowanceMilliseconds: 10,
   });
   await environment.flushAsync();
   postWorker(worker, {
@@ -1256,6 +1266,7 @@ test("invalid payload is Rejected without Accepted and a legal sequence gap rema
     kind: "initialize",
     bootstrap: "bootstrap",
     idleHeartbeatIntervalMilliseconds: 10,
+    idleAllowanceMilliseconds: 10,
   });
   await environment.flushAsync();
   postWorker(worker, {
@@ -2403,6 +2414,19 @@ test("bounded epoch-work topology recomputes from retained task evidence origin"
   assert.equal(harness.host.snapshot().phase, "suspect");
 });
 
+test("bounded topology shrink immediately evaluates an elapsed watchdog deadline", async () => {
+  const harness = createHarness();
+  await startReady(harness);
+  assert.equal(harness.workers[0]!.startEpochWork("speculative", 1), true);
+  assert.equal(harness.host.snapshot().activeEpochWork, 1);
+
+  harness.environment.advanceActive(20);
+  assert.equal(harness.host.snapshot().phase, "ready");
+  assert.equal(harness.workers[0]!.finishEpochWork(1), true);
+
+  assert.equal(harness.host.snapshot().phase, "suspect");
+});
+
 test("unbounded work disables silence judgment and final close grants one bounded interval", async () => {
   const settlement = deferred<TestSettlement>();
   const harness = createHarness({
@@ -2680,6 +2704,36 @@ test("speculative producer lease releases while cache survives until restart", a
   });
 });
 
+test("hard termination revokes retained fake-worker operation contexts", async () => {
+  const settlement = deferred<TestSettlement>();
+  const retainedContext: {
+    current: FakeWorkerOperationContext | null;
+  } = { current: null };
+  const harness = createHarness({
+    invoke: (_input, context) => {
+      retainedContext.current = context;
+      return settlement.promise;
+    },
+  });
+  await startReady(harness);
+  const operationSession = session(harness.adapter);
+  started(operationSession.session.start("input", harness.adapter));
+  await harness.environment.flushAsync();
+  const context = retainedContext.current;
+  if (context === null)
+    throw new Error("Expected a retained operation context.");
+
+  harness.host.restart();
+
+  assert.equal(
+    context.startEpochWork("speculative", 1),
+    false,
+  );
+  assert.equal(context.cache.set("late", "value"), false);
+  assert.equal(harness.workers[0]!.activeEpochWorkCount, 0);
+  assert.equal(harness.workers[0]!.cache.size, 0);
+});
+
 test("idle-compatible capabilities are opaque and only issued within the idle bound", () => {
   const registry = new WorkerProducerClassRegistry(10);
   const compatible = registry.register(
@@ -2751,6 +2805,66 @@ test("runtime host requires producer classes for its exact idle allowance", () =
     }),
     /must use the host idle allowance/,
   );
+});
+
+test("worker startup rejects a different producer-class idle allowance", async () => {
+  const harness = createHarness({
+    workerProducerClassIdleAllowanceMilliseconds: 100,
+  });
+
+  assert.equal(harness.host.start("bootstrap").kind, "started");
+  await harness.environment.flushAsync();
+
+  assert.equal(harness.failures[0]?.kind, "startup");
+  assert.equal(harness.host.snapshot().phase, "closed");
+});
+
+test("failure notification cannot reentrantly admit a new operation", async () => {
+  let harness: TestHarness;
+  let retry: OperationStartResult<string, string, WorkerRuntimePreparationError>
+    | null = null;
+  harness = createHarness({
+    failure: () => {
+      const operationSession = session(harness.adapter);
+      retry = operationSession.session.start("retry", harness.adapter);
+    },
+  });
+  await startReady(harness);
+
+  harness.workers[0]!.emitRaw({ malformed: true });
+
+  assert.deepEqual(retry, {
+    kind: "rejected",
+    reason: {
+      kind: "producer-rejected",
+      error: { kind: "epoch-unavailable" },
+    },
+  });
+  assert.equal(
+    harness.workers[0]!.receivedMessages.filter(message =>
+      typeof message === "object"
+      && message !== null
+      && Object.getOwnPropertyDescriptor(message, "kind")?.value === "start"
+    ).length,
+    0,
+  );
+});
+
+test("disposed hosts reject restart and remain quiescent", async () => {
+  const harness = createHarness();
+  await startReady(harness);
+
+  harness.host.dispose();
+  harness.host.dispose();
+
+  assert.equal(harness.host.snapshot().phase, "closed");
+  assert.equal(harness.workers[0]!.terminateCount, 1);
+  assert.deepEqual(harness.host.start("replacement"), {
+    kind: "rejected",
+    reason: "host-disposed",
+  });
+  harness.environment.advanceActive(1_000);
+  assert.equal(harness.failures.length, 0);
 });
 
 test("first closure identity and producer outcome survive later faults and draining crash", async () => {

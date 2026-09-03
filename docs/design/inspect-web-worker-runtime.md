@@ -300,9 +300,11 @@ both the source object and epoch; matching message text from another source is
 stale.
 
 The first main-to-worker envelope supplies the protocol version, epoch token,
-structured-clone-safe bootstrap input, and the expected idle-heartbeat policy.
-The worker validates that envelope before beginning the consumer-owned
-bootstrap operation. A duplicate initialization envelope is an epoch protocol
+structured-clone-safe bootstrap input, the expected idle-heartbeat interval,
+and the total idle allowance after host scheduling tolerance. The worker
+validates that its producer-class registry uses that exact total allowance
+before beginning the consumer-owned bootstrap operation. A mismatch is visible
+startup failure. A duplicate initialization envelope is an epoch protocol
 failure.
 
 The bootstrap operation owns its concrete steps. This runtime owner requires
@@ -801,6 +803,10 @@ revocation. Realm release claims that worker code and operation-scoped
 callbacks can no longer run. It does not claim immediate browser-process
 memory reclamation.
 
+Disposing the runtime host is terminal. It closes any current epoch, revokes
+its clock and lifecycle subscriptions, and rejects every later epoch start
+rather than creating work whose deadlines can no longer be evaluated.
+
 Creating a replacement worker is explicit retry policy. It allocates a new
 epoch and new operation assignments. Messages and identities from the old
 epoch remain stale and are never replayed into the replacement.
@@ -927,6 +933,8 @@ deterministic scheduling rather than a real browser worker. It includes:
   invalid traffic failing rather than producing stale diagnostics;
 - synchronous `Initialize` send failure rejecting the epoch start after
   preserving failure reporting, realm release, and token non-reuse;
+- terminal host disposal rejecting later starts after closing the current
+  realm and lifecycle subscriptions;
 - heterogeneous main and fake-worker operation catalogs whose independently
   typed registrations retain narrow producer adapters, per-operation boundary
   mappings and diagnostic codecs, and fail closed on an absent record while
@@ -984,8 +992,10 @@ deterministic scheduling rather than a real browser worker. It includes:
   operation and epoch-work release before the bounded fallback;
 - registered idle-compatible producer classes receiving opaque capabilities,
   with separately constructed equivalent main and worker registries accepting
-  legitimate leases while unregistered classes, unknown allowances, or
-  over-budget classes fail or require epoch-work leases as appropriate;
+  legitimate leases, initialization rejecting a worker registry configured for
+  a different total idle allowance, and unregistered classes, unknown
+  allowances, or over-budget classes failing or requiring epoch-work leases as
+  appropriate;
 - current-epoch invalid ordering as protocol failure and old-epoch messages as
   stale no-ops;
 - failure-complete sink notification and record release when adapter callbacks
