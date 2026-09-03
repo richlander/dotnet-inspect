@@ -12,6 +12,7 @@ internal static partial class WorkflowContract
             "markdownlint",
             "skill-gate",
             "test",
+            "dependency-policy",
             "build-net10",
             "decompiler-gates",
             "csharp-diff-smoke",
@@ -35,7 +36,78 @@ internal static partial class WorkflowContract
         }
 
         ValidateConsumerStepGuards(jobs, jobNames);
+        ValidateDependencyPolicyJob(jobs);
         ValidateIlDiffTestStep(jobs);
+    }
+
+    private static void ValidateDependencyPolicyJob(YamlMappingNode jobs)
+    {
+        YamlMappingNode job = GetRequiredMapping(
+            jobs,
+            "dependency-policy",
+            "jobs");
+        RequireExactKeys(
+            job,
+            ["needs", "if", "runs-on", "timeout-minutes", "steps"],
+            "jobs.dependency-policy");
+        RequireScalarValue(
+            job,
+            "needs",
+            "changes",
+            "jobs.dependency-policy");
+        RequireScalarValue(
+            job,
+            "if",
+            "fromJSON(needs.changes.outputs.plan).validations.dependencyPolicy",
+            "jobs.dependency-policy");
+        RequireScalarValue(
+            job,
+            "runs-on",
+            "ubuntu-24.04",
+            "jobs.dependency-policy");
+        RequireScalarValue(
+            job,
+            "timeout-minutes",
+            "20",
+            "jobs.dependency-policy");
+
+        YamlSequenceNode steps = GetRequiredSequence(
+            job,
+            "steps",
+            "jobs.dependency-policy");
+        if (steps.Children.Count != 5)
+        {
+            throw new InvalidOperationException(
+                "jobs.dependency-policy must contain exactly five steps.");
+        }
+
+        YamlMappingNode build = RequireMapping(
+            steps.Children[3],
+            "jobs.dependency-policy Build step");
+        RequireScalarValue(
+            build,
+            "name",
+            "Build",
+            "jobs.dependency-policy Build step");
+        RequireScalarValue(
+            build,
+            "run",
+            "dotnet build dotnet-inspect.slnx -c Release",
+            "jobs.dependency-policy Build step");
+
+        YamlMappingNode validate = RequireMapping(
+            steps.Children[4],
+            "jobs.dependency-policy Validate dependency policy step");
+        RequireScalarValue(
+            validate,
+            "name",
+            "Validate dependency policy",
+            "jobs.dependency-policy Validate dependency policy step");
+        RequireScalarValue(
+            validate,
+            "run",
+            "dotnet run --project eng/DependencyPolicy -c Release --no-build",
+            "jobs.dependency-policy Validate dependency policy step");
     }
 
     private static void ValidateIlDiffTestStep(YamlMappingNode jobs)

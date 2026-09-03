@@ -214,6 +214,50 @@ readers all use that same check. Compatibility path and stream factories remain
 available while their callers migrate; they do not manufacture an artifact
 registration.
 
+Compatibility selection classifies metadata once a path or readable stream is
+opened. `ResolvedAssemblyReference.SelectFromPath` and `SelectFromStream`
+return an `AssemblyDescriptorSelectionResult`: `Ready` carries the selected
+descriptor, `Descriptorless` identifies an image with no usable managed
+assembly identity because it is an unrecognized non-PE image, including a
+DOS-signature image whose DOS header does not resolve to a PE signature, a
+structurally valid native image, or a managed netmodule. Once the DOS header
+resolves to a PE signature, `Rejected` carries an `InvalidImage` failure for
+invalid subsequent PE or CLR structure, or when managed metadata cannot yield
+a usable assembly identity. I/O, authorization, and opener-contract failures
+remain visible exceptions. Consumers must not decode PE metadata or inspect
+exception text to recreate the three-way classification.
+
+The existing nullable factories are shims over this result while preserving
+their exact compatibility behavior: they return the descriptor, return `null`
+for images with no managed metadata, retain the prior non-assembly exception
+for managed netmodules, and retain `null` for a recognized assembly with no
+usable identity or a structural PE/CLR rejection that has no original decode
+exception. Other `Rejected` results rethrow the original metadata-decode
+exception. Typed consumers receive `Descriptorless` for managed netmodules and
+`Rejected` for structural PE/CLR failures and unusable managed-assembly
+metadata or identity.
+Artifact-backed factories intentionally retain their existing nullable
+classification as well as their separate registration and MVID semantics;
+this compatibility correction does not change artifact selection.
+
+`LibraryCommand` in #5594 is the named direct consumer. Existing production
+path and stream callers consume the corrected classification through the
+nullable shims while they migrate. The stream entry point remains
+browser/Wasm-compatible; browser layering prohibits host code from calling
+these descriptor-selection entry points directly, gated by
+`BrowserEngineLayeringTests.BanListForbidsEverySessionAndImageDoor`. The
+selection contract is gated by
+`SelectFromPath_ReturnsDescriptorWithSelectedProvenance`,
+`DescriptorSelection_ClassifiesDescriptorlessImages`,
+`PathFactories_BlankAssemblyName_IsRejected`,
+`DescriptorSelection_RejectsMalformedManagedMetadata`,
+`DescriptorSelection_RejectsMalformedMetadataSection`,
+`DescriptorSelection_RejectsUnmappableCorHeader`,
+`DescriptorSelection_PreservesLegacyMetadataExceptionType`,
+`SelectFromStream_UsesTheSameTypedClassification`, and
+`SelectFromStream_InvalidOpenerRemainsVisible`,
+`SelectFromPath_UnreadableInputRemainsVisible`.
+
 The compatibility package-role path continues to use
 `CreateFromStreamWithFallbackIdentity`.
 `CreateFromArtifactWithFallbackIdentity` is its artifact-backed peer for a
