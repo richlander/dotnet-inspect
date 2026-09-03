@@ -25,7 +25,7 @@ namespace NuGetFetch.Tests;
 /// export DOTNET_INSPECT_TEST_AZDO_FEED=https://pkgs.dev.azure.com/ORG/PROJECT/_packaging/FEED/nuget/v3/index.json
 /// export DOTNET_INSPECT_TEST_AZDO_TOKEN=&lt;PAT with Packaging read, or an Entra access token&gt;
 /// export DOTNET_INSPECT_TEST_AZDO_PACKAGE=Markout          # optional
-/// dotnet run --project src/NuGetFetch.Tests -c Release -- -trait "Network=Live"
+/// dotnet run --project src/NuGetFetch.Tests -c Release -- --filter-trait "Network=Live"
 /// </code>
 /// <para>
 /// The token is read from the environment and never written to a config file, so no secret
