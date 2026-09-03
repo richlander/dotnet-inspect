@@ -637,7 +637,7 @@ jobs:
         run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release
 
       - name: Run fixture catalog tests
-        run: dotnet run --project tests/DotnetInspector.Fixtures.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.FixtureInfrastructure.Tests -c Release
 
       - name: Run services tests
         run: dotnet run --project src/DotnetInspector.Services.Tests -c Release
