@@ -78,7 +78,11 @@ substrates, and inspection producers that will extend that space.
   failures, and producer-owned diff presentation.
 - `src/ILInspector.Instructions/` is the shared IL decode + EH-aware basic-block substrate (one decoder the analyzer and decompiler converge onto); see [instruction substrate](design/instruction-substrate.md).
 - `src/ILInspector.Text/` provides the reusable `TextFindings` API for exact, ordered line inspection and generic text comparison on the shared Finding spine.
-- `src/DotnetInspector.Packages/` handles NuGet package extraction, package/source caches, feeds, symbol package acquisition, and version resolution.
+- `src/DotnetInspector.Packages/` handles NuGet package extraction,
+  package/source caches, feeds, symbol package acquisition, version resolution,
+  and the product-owned
+  [Package Set Registry](design/package-set-registry.md) for stable named-set
+  identity, discovery, and ordered package-coordinate membership.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
   companion. It consumes package realization proofs and package-neutral core
   queries without adding package identity or acquisition policy to those core
@@ -279,6 +283,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [View Facet Registry](design/view-facet-registry.md): stable product-owned
   inspection-facet identities, labels, order, structural applicability,
   discovery, and typed resolution outcomes.
+- [Package Set Registry](design/package-set-registry.md): stable product-owned
+  package-set identities, labels, purposes, order, static discovery, exact
+  lookup, and immutable ordered package-coordinate membership.
 - [Inspection subject navigation](design/inspection-subject-navigation.md):
   host-neutral Workspace, Package or non-package Root, Library, Type, and
   Member descriptors, availability, initial recommendations, transitions,
