@@ -64,7 +64,6 @@ public static class CommandLineBuilder
     internal static string[] PlatformFrameworkNames => ScopeConstants.PlatformFrameworks;
     internal static string[] ExtensionsScopePackages => ScopeConstants.ExtensionsPackages;
     internal static string[] AspNetCoreScopePackages => ScopeConstants.AspNetCorePackages;
-    internal static string[] CuratedScopePackages => ScopeConstants.CuratedPackages;
 
     /// <summary>
     /// Pre-processes args and rewrites line-window shorthand only when the active

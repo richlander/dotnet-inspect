@@ -38,6 +38,17 @@ public record PackageExtractionResult(
     string? ProducerKey = null)
 {
     /// <summary>
+    /// Sources that reported a version selected from a floating or wildcard coordinate.
+    /// </summary>
+    public IReadOnlyList<string>? SelectedVersionSourceUrls { get; init; }
+
+    /// <summary>
+    /// Whether the ambient package-specific source policy already names only the selected
+    /// version's reporting sources.
+    /// </summary>
+    public bool SelectedVersionUsesOriginalSources { get; init; }
+
+    /// <summary>
     /// Tool wrapper packages traversed before reaching this inspectable payload,
     /// ordered from the requested package to the final redirect hop.
     /// </summary>
@@ -182,6 +193,65 @@ public static class PackageExtractor
     // store. A host-neutral consumer reuses IPackageStore/IPackageContent
     // directly rather than this extractor.
     private static readonly IPackageStore s_packageStore = new FileSystemPackageStore();
+
+    /// <summary>
+    /// Selects the first exact cached package that the current source policy
+    /// authorizes and the normal payload admission contract accepts.
+    /// </summary>
+    public static string? TryGetAdmittedCachedPackagePath(
+        string packageName,
+        string version,
+        NuGetSourceOptions? sourceOptions,
+        IReadOnlyList<string>? globalPackageRoots = null)
+    {
+        if (!IsValidPackageId(packageName)
+            || !TryNormalizePackageVersion(
+                version,
+                out string normalizedVersion))
+        {
+            return null;
+        }
+
+        string normalizedName = packageName.ToLowerInvariant();
+        normalizedVersion = normalizedVersion.ToLowerInvariant();
+        PackageSourceAuthorization authorization =
+            new SourcePolicyPackageSourceAuthorization(sourceOptions)
+                .AuthorizeSourcesFor(normalizedName);
+        if (authorization.Sources.Count == 0)
+            return null;
+
+        string[] sourceKeys =
+        [
+            .. authorization.Sources.Select(
+                source => NuGetCache.GetSourceKey(source.Url)),
+        ];
+        foreach (CachedPackage cached in NuGetCache.EnumerateCachedPackageContent(
+                     normalizedName,
+                     normalizedVersion,
+                     sourceKeys,
+                     globalPackagesPaths: globalPackageRoots))
+        {
+            string expectedNupkg = Path.Combine(
+                cached.ExtractPath,
+                $"{normalizedName}.{normalizedVersion}.nupkg");
+            var content = new FileSystemPackageContent(
+                cached.ExtractPath,
+                File.Exists(expectedNupkg) ? expectedNupkg : null,
+                fromCache: true,
+                cached.ProducerKey,
+                cached.RequiresArchiveTreeMatch);
+            if (PackageContentAdmission.EvaluateFileSystem(
+                    content,
+                    PackagePayloadLimits.Default,
+                    CancellationToken.None)
+                == PackageContentAdmission.Outcome.Admissible)
+            {
+                return cached.ExtractPath;
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>
     /// Extracts a package from a local .nupkg file or downloads from NuGet sources.
@@ -367,6 +437,10 @@ public static class PackageExtractor
             NuGetSourceResolver.ResolveAuthorizedSources(
                 sourceOptions,
                 sources);
+        IReadOnlyList<string> originalAuthorizedSourceKeys =
+            NuGetSourceResolver.SourceKeys(authorizedSources);
+        IReadOnlyList<string>? selectedVersionSourceUrls = null;
+        bool selectedVersionUsesOriginalSources = false;
         IReadOnlyList<string> cachedVersions = version == null
             ? NuGetCache.GetCachedVersions(
                 packageName,
@@ -391,6 +465,11 @@ public static class PackageExtractor
 
             version = resolution.Version;
             authorizedSources = resolution.ReportingSources;
+            selectedVersionSourceUrls =
+                [.. resolution.ReportingSources.Select(source => source.Url)];
+            selectedVersionUsesOriginalSources =
+                originalAuthorizedSourceKeys.SequenceEqual(
+                    NuGetSourceResolver.SourceKeys(resolution.ReportingSources));
         }
 
         // Get version if not specified
@@ -454,6 +533,11 @@ public static class PackageExtractor
 
             version = resolved.Coordinate.Version;
             authorizedSources = resolved.Coordinate.Sources;
+            selectedVersionSourceUrls =
+                [.. resolved.Coordinate.Sources.Select(source => source.Url)];
+            selectedVersionUsesOriginalSources =
+                originalAuthorizedSourceKeys.SequenceEqual(
+                    NuGetSourceResolver.SourceKeys(resolved.Coordinate.Sources));
         }
 
         // Normalize to lowercase for NuGet API
@@ -493,7 +577,14 @@ public static class PackageExtractor
                 $"Package '{packageName}' version '{version}' resolved from an unauthorized producer.");
         }
 
-        return outcome;
+        return outcome.Result is { } selectedResult
+            ? selectedResult with
+            {
+                SelectedVersionSourceUrls = selectedVersionSourceUrls,
+                SelectedVersionUsesOriginalSources =
+                    selectedVersionUsesOriginalSources,
+            }
+            : outcome;
     }
 
     private static string DescribeCachedVersionFallback(

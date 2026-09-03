@@ -108,6 +108,32 @@ internal partial class MatchImplementationDocumentCompactJsonContext : JsonSeria
 {
 }
 
+/// <summary>
+/// Serialization contract for <c>match --similar --json</c>
+/// (<see cref="MatchDiscoveryDocument"/>). Structured output retains every query-returned
+/// candidate, outcome, blocker, limit, and receipt; <c>--top</c> bounds rendered text only.
+/// </summary>
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(MatchDiscoveryDocument))]
+internal partial class MatchDiscoveryDocumentJsonContext : JsonSerializerContext
+{
+}
+
+/// <inheritdoc cref="MatchDiscoveryDocumentJsonContext"/>
+[JsonSourceGenerationOptions(
+    WriteIndented = false,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(MatchDiscoveryDocument))]
+internal partial class MatchDiscoveryDocumentCompactJsonContext : JsonSerializerContext
+{
+}
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
 [JsonSerializable(typeof(PackageFileJsonRow))]
 internal partial class PackageFileJsonRowContext : JsonSerializerContext

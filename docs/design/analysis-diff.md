@@ -41,8 +41,8 @@ presentation contract without making any of them co-owners.
 The concrete initial consumers are:
 
 - [CLI Source Diff](https://github.com/richlander/dotnet-inspect/issues/5527),
-  which will consume a producer-owned source-text analysis diff for factual
-  statistics and lower the complete detailed text view to Markout; and
+  which consumes a producer-owned source-text analysis diff for factual
+  statistics and lowers the complete detailed text view to Markout; and
 - [Inspect Web](https://github.com/richlander/dotnet-inspect/issues/5528),
   which will consume the same typed relations and portable subject composition
   in browser/Wasm while keeping interaction state host-owned.

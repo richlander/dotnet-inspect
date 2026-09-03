@@ -250,7 +250,8 @@ public static class ApiOutputFormatter
         {
             IncludeSections = includeSections,
             IncludeDescription = effectiveVerbosity != Verbosity.Quiet && !ShouldRenderMemberDetailContext(options),
-            Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
+            Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields),
+            TextDiffContextLines = effectiveVerbosity >= Verbosity.Detailed ? null : 3
         };
     }
 
