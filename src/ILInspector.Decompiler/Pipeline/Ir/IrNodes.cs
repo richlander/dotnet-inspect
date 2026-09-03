@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 
+using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
 using Inverse = ILInspector.Decompiler.Pipeline.InverseArchitecture;
@@ -209,6 +210,15 @@ public sealed record MethodRef(
     public MetadataFactState RequiresUnsafeFact { get; init; } = MetadataFactState.Unknown;
 
     /// <summary>
+    /// The callee module's normalized memory-safety model. Invalid states are
+    /// retained so fidelity accounting can visibly decline instead of treating a
+    /// direct member attribute as authoritative outside a supported module model.
+    /// </summary>
+    public MemorySafetyRulesState? MemorySafetyRulesState { get; init; }
+    public bool MemorySafetyRulesUnavailable { get; init; }
+    public bool MemorySafetyContractUnavailable { get; init; }
+
+    /// <summary>
     /// Metadata SpecialName evidence (accessors, operators, constructors). Exact
     /// for MethodDefs; unresolved MemberRefs carry no flags, so the importer may
     /// infer this from compiler-reserved names only to preserve spellability
@@ -415,6 +425,7 @@ public sealed class IrFunction : IrNode
     public MetadataFactState CompilerGenerated { get; set; } = MetadataFactState.Unknown;
     public MetadataFactState DeclaringTypeCompilerGenerated { get; set; } = MetadataFactState.Unknown;
     public MetadataFactState IsRuntimeAsync { get; set; } = MetadataFactState.Unknown;
+    public bool RequiresUnsafeContract { get; set; }
     internal ClassicAsyncRequestAdapterResult? ClassicAsyncRequest
         { get; set; }
     internal bool IsMetadataBacked { get; set; }

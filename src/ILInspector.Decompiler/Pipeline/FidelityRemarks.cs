@@ -46,8 +46,40 @@ public static class FidelityRemarks
 
     static IEnumerable<DecompilerFidelityCause> Enumerate(IrFunction function)
     {
+        var consumedMembers = new List<ConsumedMemberEvidence>();
+        var reportedMethods = new HashSet<MethodRef>();
         foreach (var node in function.Descendants.Prepend(function))
         {
+            consumedMembers.Clear();
+            reportedMethods.Clear();
+            ConsumedMemberEvidence.AddFrom(node, consumedMembers);
+            foreach (ConsumedMemberEvidence evidence in consumedMembers)
+            {
+                if (evidence.Method is not MethodRef method
+                    || !reportedMethods.Add(method)
+                    || method.MemorySafetyRulesState is not
+                        (MemorySafetyRulesState.Unsupported
+                            or MemorySafetyRulesState.Malformed
+                            or MemorySafetyRulesState.Conflicting)
+                        && !method.MemorySafetyRulesUnavailable
+                        && !method.MemorySafetyContractUnavailable)
+                {
+                    continue;
+                }
+
+                string contractState = method.MemorySafetyRulesUnavailable
+                    ? "unavailable module rules"
+                    : method.MemorySafetyContractUnavailable
+                        ? "an unavailable member contract"
+                        : $"{method.MemorySafetyRulesState!.Value} module rules";
+                yield return Cause(
+                    DiagnosticIds.InvalidCalleeMemorySafetyRules,
+                    LocationOf(node),
+                    node,
+                    $"consumes {method.DeclaringType.ToDisplayString()}.{method.Name} with {contractState}",
+                    DecompilerFidelityDiscriminators.InvalidCalleeMemorySafetyRules);
+            }
+
             switch (node)
             {
                 case UnsupportedNode u:

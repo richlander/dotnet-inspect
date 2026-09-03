@@ -11,26 +11,75 @@ internal readonly record struct ParameterRefKindResult(
 
 internal readonly record struct RequiresUnsafeContractResult(
     MetadataFactState State,
-    bool IsExplicit);
+    bool IsExplicit,
+    bool HasNormalizedContract,
+    MemorySafetyRulesState? RulesState,
+    bool RulesUnavailable,
+    bool ContractUnavailable);
 
 internal static class MethodDefinitionFacts
 {
     internal static RequiresUnsafeContractResult RequiresUnsafeContract(
         MemorySafetyMetadataIndex? index,
         EntityHandle member)
-        => index?.GetMemberContract(member) switch
+    {
+        if (index is null)
+            return new(
+                MetadataFactState.Unknown,
+                IsExplicit: false,
+                HasNormalizedContract: false,
+                RulesState: null,
+                RulesUnavailable: false,
+                ContractUnavailable: false);
+
+        MemorySafetyRulesState? rulesState = index.Rules switch
+        {
+            MemorySafetyRulesResult.Available available => available.State,
+            _ => null,
+        };
+        bool rulesUnavailable = index.Rules is MemorySafetyRulesResult.Unavailable;
+        MemorySafetyMemberContractResult contract =
+            index.GetMemberContract(member);
+
+        return contract switch
         {
             MemorySafetyMemberContractResult.None
                 when index.Rules is MemorySafetyRulesResult.Available
                 {
                     State: MemorySafetyRulesState.Updated,
-                } => new(MetadataFactState.No, IsExplicit: false),
+                } => new(
+                    MetadataFactState.No,
+                    IsExplicit: false,
+                    HasNormalizedContract: true,
+                    rulesState,
+                    rulesUnavailable,
+                    ContractUnavailable: false),
             MemorySafetyMemberContractResult.Implicit =>
-                new(MetadataFactState.Yes, IsExplicit: false),
+                new(
+                    MetadataFactState.Yes,
+                    IsExplicit: false,
+                    HasNormalizedContract: true,
+                    rulesState,
+                    rulesUnavailable,
+                    ContractUnavailable: false),
             MemorySafetyMemberContractResult.Explicit =>
-                new(MetadataFactState.Yes, IsExplicit: true),
-            _ => new(MetadataFactState.Unknown, IsExplicit: false),
+                new(
+                    MetadataFactState.Yes,
+                    IsExplicit: true,
+                    HasNormalizedContract: true,
+                    rulesState,
+                    rulesUnavailable,
+                    ContractUnavailable: false),
+            _ => new(
+                MetadataFactState.Unknown,
+                IsExplicit: false,
+                HasNormalizedContract: true,
+                rulesState,
+                rulesUnavailable,
+                ContractUnavailable:
+                    contract is MemorySafetyMemberContractResult.Unavailable),
         };
+    }
 
     internal static ParameterRefKindResult ReadParameterRefKinds(
         MetadataReader reader,

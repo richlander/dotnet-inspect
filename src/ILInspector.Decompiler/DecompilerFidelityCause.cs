@@ -20,6 +20,7 @@ public static class DecompilerFidelityDiscriminators
     public const string LambdaHolderTypeName = "lambda-holder-type-name";
     public const string LambdaMethodName = "lambda-method-name";
     public const string LocalFunctionMethodName = "local-function-method-name";
+    public const string InvalidCalleeMemorySafetyRules = "invalid-callee-memory-safety-rules";
     public const string PinnedLocal = "pinned-local";
     public const string PrivateImplementationDetailsType = "private-implementation-details-type";
     public const string StateMachineTypeName = "state-machine-type-name";

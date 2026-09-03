@@ -5,6 +5,7 @@ using System.Linq;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 using ILInspector.Research;
 
 using Microsoft.CodeAnalysis;
@@ -119,6 +120,48 @@ public class UnsafeEmitterTests
         var output = DecompileNew(nameof(NewFixtures.InvokeFunctionPointer));
 
         Assert.Contains("callback(x)", FirstUnsafeBlockBody(output));
+    }
+
+    [Fact]
+    public void UpdatedRules_UnavailableCalleeContractDoesNotInventUnsafeContext()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var pointer = TypeRef.Pointer(int32);
+        var callee = new MethodRef(
+            TypeRef.Definition("Dependency", "Fixtures", "Library"),
+            "GetPointer",
+            pointer,
+            [],
+            HasThis: false)
+        {
+            MemorySafetyRulesState = MemorySafetyRulesState.Updated,
+            MemorySafetyContractUnavailable = true,
+        };
+        var block = new Block(0);
+        block.Add(new ExpressionStatement(
+            new Call(callee, isVirtual: false, [])));
+        block.Add(new Return(null));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "Call",
+            TypeRef.Definition("Consumer", "Fixtures", "Consumer"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        DecompilerResult result = CSharpPrinter.Print(function);
+
+        Assert.DoesNotContain("unsafe", result.Output);
+        Assert.False(result.RequiresUnsafeBodyModifier);
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
     }
 
     [Fact]
@@ -309,7 +352,7 @@ public class UnsafeEmitterTests
     }
 
     [Fact]
-    public void UnsafeBodyModifierFact_TracksSkipLocalsInitStackAlloc()
+    public void UnsafeBodyModifierFact_UpdatedSkipLocalsInitUsesExplicitBlock()
     {
         var unsafeResult = DecompileResult(
             typeof(NewFixtures).Assembly.Location,
@@ -320,7 +363,8 @@ public class UnsafeEmitterTests
             typeof(NewFixtures).FullName!,
             nameof(NewFixtures.StackAllocDefault));
 
-        Assert.True(unsafeResult.RequiresUnsafeBodyModifier);
+        Assert.Contains("unsafe", unsafeResult.Output);
+        Assert.False(unsafeResult.RequiresUnsafeBodyModifier);
         Assert.False(safeResult.RequiresUnsafeBodyModifier);
     }
 

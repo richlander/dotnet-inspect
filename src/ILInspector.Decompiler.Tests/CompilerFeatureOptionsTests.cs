@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.Decompiler.Pipeline;
@@ -534,6 +535,78 @@ public class CompilerFeatureOptionsTests
             additionalReferences: [libraryReference]);
     }
 
+    [Fact]
+    public void UnsupportedDependencyMemorySafetyRules_DeclinesWithoutPromotingDirectAttribute()
+    {
+        var options = new CSharpParseOptions(LanguageVersion.Preview)
+            .WithFeatures([
+                new KeyValuePair<string, string>(
+                    "updated-memory-safety-rules",
+                    "true"),
+            ]);
+        using var library = Compile(
+            """
+            public static class Library
+            {
+                public static unsafe int Risky() => 1;
+
+                public static int Call()
+                {
+                    unsafe { return Risky(); }
+                }
+            }
+            """,
+            options,
+            assemblyName: "UnsupportedRulesLibrary");
+        MetadataReference libraryReference =
+            MetadataReference.CreateFromImage(library.Image);
+        using var caller = Compile(
+            """
+            public static class Consumer
+            {
+                public static int M()
+                {
+                    unsafe { return Library.Risky(); }
+                }
+            }
+            """,
+            options,
+            assemblyName: "UnsupportedRulesConsumer",
+            additionalReferences: [libraryReference]);
+
+        byte[] unsupportedLibrary =
+            WithMemorySafetyRulesVersion(library.Image, version: 99);
+        DecompilerResult result = DecompileWithSibling(
+            "UnsupportedRulesLibrary.dll",
+            unsupportedLibrary,
+            "UnsupportedRulesConsumer.dll",
+            caller.Image,
+            "Consumer",
+            "M");
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.DoesNotContain("unsafe", result.Output);
+
+        using var sameAssemblySource = MetadataSource.OpenFromPrefetchedImage(
+            "UnsupportedRulesLibrary.dll",
+            ImmutableArray.Create(unsupportedLibrary));
+        var function = IrImporter.Import(
+            sameAssemblySource,
+            "Library",
+            "Call");
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+        var call = Assert.Single(function.Descendants.OfType<Call>());
+
+        Assert.Equal(MetadataFactState.Unknown, call.Callee.RequiresUnsafeFact);
+        Assert.Equal(
+            MemorySafetyRulesState.Unsupported,
+            call.Callee.MemorySafetyRulesState);
+        var sameAssemblyResult = CSharpPrinter.Print(function);
+        Assert.Equal(DecompilationFidelity.Partial, sameAssemblyResult.Fidelity);
+        Assert.DoesNotContain("unsafe", sameAssemblyResult.Output);
+    }
+
     static DecompilerResult DecompileWithSibling(
         string libraryName,
         byte[] libraryImage,
@@ -602,6 +675,38 @@ public class CompilerFeatureOptionsTests
             stream,
             new PEReader(stream, PEStreamOptions.LeaveOpen),
             diagnostics);
+    }
+
+    static byte[] WithMemorySafetyRulesVersion(byte[] image, int version)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var pe = new PEReader(stream);
+        var reader = pe.GetMetadataReader();
+        var index = MemorySafetyMetadataIndex.Create(reader);
+        var observation = Assert.Single(index.Rules.Observations);
+        Assert.Equal(MemorySafetyRulesObservationState.Decoded, observation.State);
+        Assert.Equal(2, observation.Version);
+        var attribute = reader.GetCustomAttribute(
+            (CustomAttributeHandle)MetadataTokens.EntityHandle(
+                observation.AttributeToken));
+        byte[] original = reader.GetBlobBytes(attribute.Value);
+        Assert.Equal(
+            [1, 0, 2, 0, 0, 0, 0, 0],
+            original);
+
+        var offsets = new List<int>();
+        for (int offset = 0; offset <= image.Length - original.Length; offset++)
+        {
+            if (image.AsSpan(offset, original.Length).SequenceEqual(original))
+                offsets.Add(offset);
+        }
+
+        int valueOffset = Assert.Single(offsets);
+        byte[] mutated = [.. image];
+        BitConverter.TryWriteBytes(
+            mutated.AsSpan(valueOffset + 2, sizeof(int)),
+            version);
+        return mutated;
     }
 
     sealed class CompiledAssembly(

@@ -89,10 +89,16 @@ module-level `MemorySafetyRulesAttribute`. Under those rules the member `unsafe`
 modifier no longer makes a method body an unsafe context, so `CSharpPrinter`
 emits explicit, minimally scoped `unsafe { }` blocks around the operations that
 still need one. For a legacy module (no attribute) it normally emits no blocks
-because the member modifier supplies the context. An async body is the exception:
-because C# forbids `await` in a member-level unsafe context, legacy async output
-uses the same explicit block boundaries and does not derive an `unsafe` modifier
-from body operations.
+because the member modifier supplies the context. A body with a surviving
+reconstructed `await` is the exception: because C# forbids `await` in a
+member-level unsafe context, that legacy output uses the same explicit block
+boundaries and does not derive an `unsafe` modifier from body operations.
+Runtime-async metadata without a surviving `await` retains the legal
+member-level modifier when its body requires unsafe context. This handoff is
+gated by
+`ValidityShellNoiseTests.RuntimeAsyncNoAwaitUnsafeRts_PreservesUnsafeContextWithoutFloor`;
+the equivalent property and event-accessor handoff is gated by
+`ValidityShellNoiseTests.AccessorRts_PreservesUnsafeBodyContextWithoutFloor`.
 
 An operation needs a block when it is:
 
@@ -101,9 +107,9 @@ An operation needs a block when it is:
 - a call carrying an enforced *requires-unsafe* contract: an implicit legacy
   pointer contract is enforced for either caller model, while an explicit V2
   `RequiresUnsafeAttribute` contract is enforced only for a V2 caller;
-- a call whose normalized callee contract is unavailable and whose signature
+- a cross-assembly call whose callee metadata is unresolved and whose signature
   contains a pointer or function pointer (the conservative compatibility
-  fallback for unresolved cross-assembly callees);
+  fallback when no normalized contract exists);
 - a `stackalloc` converted to a `Span<T>`/`ReadOnlySpan<T>` with no initializer in
   a `[SkipLocalsInit]` body (the stack space is uninitialized).
 
@@ -118,6 +124,17 @@ the caller. In particular, a V2 callee without `RequiresUnsafeAttribute` has no
 caller requirement even when its signature contains pointers, for both legacy
 and V2 callers. The caller model controls only whether an explicit V2 contract
 is enforced.
+
+When a consumed member's module marker is unsupported, malformed, conflicting,
+or unavailable, the decompiler preserves that normalized state and declines
+from Full fidelity. It does not promote a direct member attribute into an
+authoritative contract outside a supported module model. A member-level
+contract that is itself malformed, ambiguous, or otherwise unavailable also
+declines rather than using pointer shape to invent a V2 caller requirement.
+`CompilerFeatureOptionsTests.UnsupportedDependencyMemorySafetyRules_DeclinesWithoutPromotingDirectAttribute`
+gates the compiler-produced dependency case, and
+`FidelityRemarksTests.Collect_InvalidCalleeMemorySafetyRules_ReportsDec0015`
+gates the invalid-state census.
 
 Await reconstruction stands down when either the awaited operand or an implicit
 await-pattern member requires unsafe context because C# forbids `await` inside

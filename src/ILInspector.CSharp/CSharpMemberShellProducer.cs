@@ -77,6 +77,7 @@ public sealed record CSharpMemberShellSpec(
     string? ExplicitInterfaceMemberName = null,
     string? DeclarationSignature = null,
     bool RequiresUnsafeModifier = false,
+    bool UsesUpdatedMemorySafetyRules = false,
     string? SiblingBody = null,
     int? MetadataToken = null,
     int? GetterToken = null,
@@ -616,7 +617,13 @@ public static class CSharpMemberShellProducer
         => CSharpAccessorBody.Block(source) with { IsReplacementTarget = true };
 
     static bool RequiresUnsafe(CSharpMemberShellSpec spec)
-        => (spec.ReturnType is { } returnType
+    {
+        if (spec.DeclarationSignature?.StartsWith("fixed ", StringComparison.Ordinal) == true)
+            return true;
+        if (spec.UsesUpdatedMemorySafetyRules)
+            return false;
+
+        return (spec.ReturnType is { } returnType
                 && CSharpFormatter.TypeRequiresUnsafeModifier(returnType))
             || spec.Parameters.Any(parameter =>
                 CSharpFormatter.TypeRequiresUnsafeModifier(parameter.Type))
@@ -627,8 +634,8 @@ public static class CSharpMemberShellProducer
                 && spec.SiblingBody is { } siblingBody
                 && CSharpFormatter.RequiresUnsafeModifier(siblingBody))
             || (spec.ConstructorInitializer is { } initializer
-                && CSharpFormatter.RequiresUnsafeModifier(initializer))
-            || spec.DeclarationSignature?.StartsWith("fixed ", StringComparison.Ordinal) == true;
+                && CSharpFormatter.RequiresUnsafeModifier(initializer));
+    }
 
     static string RequiredBody(CSharpMemberShellSpec spec)
         => spec.Body ?? throw new ArgumentException(

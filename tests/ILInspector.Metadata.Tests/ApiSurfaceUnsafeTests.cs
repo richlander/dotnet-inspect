@@ -1,6 +1,11 @@
+extern alias legacyunsafe;
+
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
 
+using NewAccessorFixtures = ILInspector.Decompiler.Fixtures.NewUnsafe.AccessorContractFixtures;
+using LegacyFixtures = legacyunsafe::ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures;
 using NewFixtures = ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures;
 
 namespace ILInspector.Metadata.Tests;
@@ -46,10 +51,76 @@ public sealed class ApiSurfaceUnsafeTests
     }
 
     [Fact]
-    public void PointerSignatureMember_IsUnsafe()
+    public void UpdatedPointerSignatureMember_WithoutContract_IsNotUnsafe()
     {
-        // `void* p` parameter — caught by the signature pointer check.
-        Assert.True(Method(nameof(NewFixtures.FreePointer)).IsUnsafe);
+        Assert.False(Method(nameof(NewFixtures.FreePointer)).IsUnsafe);
+    }
+
+    [Fact]
+    public void UpdatedAccessorSpecificContract_MakesPropertyUnsafe()
+    {
+        using var stream = File.OpenRead(
+            typeof(NewAccessorFixtures).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle typeHandle = reader.TypeDefinitions.Single(
+            handle => reader.GetString(
+                reader.GetTypeDefinition(handle).Name)
+                == typeof(NewAccessorFixtures).Name);
+        PropertyDefinitionHandle propertyHandle =
+            reader.GetTypeDefinition(typeHandle).GetProperties().Single();
+        PropertyAccessors accessors =
+            reader.GetPropertyDefinition(propertyHandle).GetAccessors();
+        var index = MemorySafetyMetadataIndex.Create(reader);
+
+        Assert.IsType<MemorySafetyMemberContractResult.None>(
+            index.GetMemberContract(propertyHandle));
+        Assert.IsType<MemorySafetyMemberContractResult.Explicit>(
+            index.GetMemberContract(accessors.Getter));
+
+        ApiMember property = Type(typeof(NewAccessorFixtures)).Members.Single(
+            member => member.Name == nameof(NewAccessorFixtures.Property));
+        Assert.True(property.IsUnsafe);
+    }
+
+    [Fact]
+    public void UnsupportedRules_KeepCompatibilityWithoutPromotingDirectAttribute()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(NewFixtures).Assembly.Location);
+        ChangeMemorySafetyRulesVersion(
+            image,
+            originalVersion: 2,
+            replacementVersion: 99);
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+
+        ApiSurface surface =
+            ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        ApiType type = surface.Types.Single(
+            candidate => candidate.FullName == typeof(NewFixtures).FullName);
+
+        Assert.False(type.Members.Single(
+            member => member.Name == nameof(NewFixtures.Risky)
+                && member.Kind == "method").IsUnsafe);
+        Assert.True(type.Members.Single(
+            member => member.Name == nameof(NewFixtures.FreePointer)
+                && member.Kind == "method").IsUnsafe);
+        Assert.Contains(
+            surface.InspectionFailures,
+            failure => failure.Operation
+                    == ApiSurfaceInspectionFailure.MemorySafetyContractOperation
+                && failure.Kind == nameof(MemorySafetyRulesState.Unsupported));
+    }
+
+    [Fact]
+    public void LegacyPointerSignatureMember_HasImplicitUnsafeContract()
+    {
+        ApiMember method = Type(typeof(LegacyFixtures)).Members.First(
+            member => member.Name == nameof(LegacyFixtures.FreePointer)
+                && member.Kind == "method");
+
+        Assert.True(method.IsUnsafe);
     }
 
     [Fact]
@@ -100,6 +171,21 @@ public sealed class ApiSurfaceUnsafeTests
     {
         // No pointer and not declared unsafe at the member level.
         Assert.False(Method(nameof(NewFixtures.StackAllocDefault)).IsUnsafe);
+    }
+
+    static void ChangeMemorySafetyRulesVersion(
+        byte[] image,
+        int originalVersion,
+        int replacementVersion)
+    {
+        byte[] original =
+            [1, 0, (byte)originalVersion, 0, 0, 0, 0, 0];
+        int offset = image.AsSpan().IndexOf(original);
+        Assert.True(offset >= 0, "MemorySafetyRulesAttribute blob not found.");
+        Assert.Equal(
+            -1,
+            image.AsSpan(offset + original.Length).IndexOf(original));
+        image[offset + 2] = (byte)replacementVersion;
     }
 }
 

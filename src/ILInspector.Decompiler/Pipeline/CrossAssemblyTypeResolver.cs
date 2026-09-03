@@ -156,14 +156,19 @@ internal sealed class CrossAssemblyTypeResolver
         bool needsRefKinds = NeedsParameterRefKinds(callee);
         bool needsGenerated = NeedsGeneratedFacts(callee);
         bool needsUnsafe = resolveRequiresUnsafe
-            && callee.RequiresUnsafeFact == MetadataFactState.Unknown;
+            && callee.RequiresUnsafeFact == MetadataFactState.Unknown
+            && !callee.MemorySafetyContractUnavailable;
+        bool needsMemorySafety =
+            callee.MemorySafetyRulesState is null
+            && !callee.MemorySafetyRulesUnavailable;
         bool needsExtension = NeedsExtensionFacts(callee);
         bool needsDelegate = NeedsDelegateFact(callee);
         bool needsOperator = NeedsOperatorFact(callee);
         bool needsAccessor = NeedsAccessorFact(callee);
         bool needsReturnDynamic = NeedsReturnDynamicFact(callee);
         bool needsReturnArrayElementDynamic = NeedsReturnArrayElementDynamicFact(callee);
-        if (!needsRefKinds && !needsGenerated && !needsUnsafe && !needsExtension && !needsDelegate
+        if (!needsRefKinds && !needsGenerated && !needsUnsafe && !needsMemorySafety
+            && !needsExtension && !needsDelegate
             && !needsOperator && !needsAccessor && !needsReturnDynamic
             && !needsReturnArrayElementDynamic)
             return callee;
@@ -201,6 +206,15 @@ internal sealed class CrossAssemblyTypeResolver
                 && needsUnsafe
                     ? resolved.RequiresUnsafeFact
                     : callee.RequiresUnsafeFact,
+            MemorySafetyRulesState = needsUnsafe || needsMemorySafety
+                ? resolved.MemorySafetyRulesState
+                : callee.MemorySafetyRulesState,
+            MemorySafetyRulesUnavailable = needsUnsafe || needsMemorySafety
+                ? resolved.MemorySafetyRulesUnavailable
+                : callee.MemorySafetyRulesUnavailable,
+            MemorySafetyContractUnavailable = needsUnsafe || needsMemorySafety
+                ? resolved.MemorySafetyContractUnavailable
+                : callee.MemorySafetyContractUnavailable,
             ReturnIsDynamic = needsReturnDynamic ? resolved.ReturnIsDynamic : callee.ReturnIsDynamic,
             ReturnArrayElementIsDynamic = needsReturnArrayElementDynamic
                 ? resolved.ReturnArrayElementIsDynamic
@@ -911,7 +925,7 @@ internal sealed class CrossAssemblyTypeResolver
                     requiresUnsafeContract.State;
                 bool requiresUnsafe =
                     requiresUnsafeContract.IsExplicit;
-                if (requiresUnsafeFact == MetadataFactState.Unknown
+                if (!requiresUnsafeContract.HasNormalizedContract
                     && MethodDefinitionFacts.HasRequiresUnsafeAttribute(
                         reader,
                         method))
@@ -923,6 +937,9 @@ internal sealed class CrossAssemblyTypeResolver
                     parameterRefKinds,
                     requiresUnsafe,
                     requiresUnsafeFact,
+                    requiresUnsafeContract.RulesState,
+                    requiresUnsafeContract.RulesUnavailable,
+                    requiresUnsafeContract.ContractUnavailable,
                     MethodDefinitionFacts.ReturnDynamicFact(
                         reader,
                         method,
@@ -1925,6 +1942,9 @@ internal sealed class CrossAssemblyTypeResolver
         ParameterRefKindResult ParameterRefKinds,
         bool RequiresUnsafe,
         MetadataFactState RequiresUnsafeFact,
+        MemorySafetyRulesState? MemorySafetyRulesState,
+        bool MemorySafetyRulesUnavailable,
+        bool MemorySafetyContractUnavailable,
         MetadataFactState ReturnIsDynamic,
         MetadataFactState ReturnArrayElementIsDynamic,
         MetadataFactState CompilerGenerated,

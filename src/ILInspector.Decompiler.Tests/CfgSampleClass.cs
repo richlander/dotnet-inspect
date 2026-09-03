@@ -4628,6 +4628,25 @@ public class CfgSampleClass
     }
 #pragma warning restore CS1998, CS9123
 
+    public unsafe int UnsafeGetter
+    {
+        get
+        {
+            int value = 42;
+            return *(&value);
+        }
+    }
+
+    public unsafe event Action UnsafeChanged
+    {
+        add
+        {
+            int local = 0;
+            _ = *(&local);
+        }
+        remove { }
+    }
+
     public static async System.Threading.Tasks.Task<int> AwaitOnce(System.Threading.Tasks.Task<int> t)
     {
         int x = await t;

@@ -709,3 +709,11 @@ public static class UnsafeFixtures
         return sum;
     }
 }
+
+public sealed class AccessorContractFixtures
+{
+    public int Property
+    {
+        unsafe get => 42;
+    }
+}

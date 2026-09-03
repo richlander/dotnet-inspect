@@ -652,6 +652,7 @@ public static class IrImporter
             CompilerGenerated = method.CompilerGenerated,
             DeclaringTypeCompilerGenerated = method.DeclaringTypeCompilerGenerated,
             IsRuntimeAsync = method.IsRuntimeAsync,
+            RequiresUnsafeContract = method.RequiresUnsafeContract.IsExplicit,
             ClassicAsyncRequest = method.ClassicAsyncRequest,
             IsMetadataBacked = method.IsMetadataBacked,
         };
@@ -2415,6 +2416,10 @@ public static class IrImporter
                     HasRefReadOnlyParameters = parameterRefKinds.HasRefReadOnlyParameters,
                     RequiresUnsafe = requiresUnsafe,
                     RequiresUnsafeFact = requiresUnsafeFact,
+                    MemorySafetyRulesState = requiresUnsafeContract.RulesState,
+                    MemorySafetyRulesUnavailable = requiresUnsafeContract.RulesUnavailable,
+                    MemorySafetyContractUnavailable =
+                        requiresUnsafeContract.ContractUnavailable,
                     CompilerGenerated = FactState(methodCompilerGenerated),
                     DeclaringTypeCompilerGenerated = FactState(typeCompilerGenerated),
                     DeclaringTypeIsDelegate = IsDelegateConstructorShape(methodName, signature.Header.IsInstance, signature.ParameterTypes)
@@ -2486,6 +2491,10 @@ public static class IrImporter
                     HasRefReadOnlyParameters = memberFacts.ParameterRefKinds.HasRefReadOnlyParameters,
                     RequiresUnsafe = memberFacts.RequiresUnsafe.IsExplicit,
                     RequiresUnsafeFact = memberFacts.RequiresUnsafe.State,
+                    MemorySafetyRulesState = memberFacts.RequiresUnsafe.RulesState,
+                    MemorySafetyRulesUnavailable = memberFacts.RequiresUnsafe.RulesUnavailable,
+                    MemorySafetyContractUnavailable =
+                        memberFacts.RequiresUnsafe.ContractUnavailable,
                     IsOperator = memberFacts.IsOperator,
                     CompilerGenerated = memberFacts.CompilerGenerated,
                     DeclaringTypeCompilerGenerated = memberFacts.DeclaringTypeCompilerGenerated,
@@ -2665,7 +2674,13 @@ public static class IrImporter
                 fallbackRefKinds,
                 MetadataFactState.Unknown,
                 MetadataFactState.Unknown,
-                new(MetadataFactState.Unknown, IsExplicit: false),
+                new(
+                    MetadataFactState.Unknown,
+                    IsExplicit: false,
+                    HasNormalizedContract: false,
+                    RulesState: null,
+                    RulesUnavailable: false,
+                    ContractUnavailable: false),
                 MetadataFactState.Unknown,
                 MetadataFactState.Unknown,
                 MetadataFactState.Unknown);
@@ -2712,7 +2727,13 @@ public static class IrImporter
             fallbackRefKinds,
             MetadataFactState.Unknown,
             MetadataFactState.Unknown,
-            new(MetadataFactState.Unknown, IsExplicit: false),
+            new(
+                MetadataFactState.Unknown,
+                IsExplicit: false,
+                HasNormalizedContract: false,
+                RulesState: null,
+                RulesUnavailable: false,
+                ContractUnavailable: false),
             MetadataFactState.Unknown,
             MetadataFactState.Unknown,
             typeCompilerGenerated);
@@ -2728,11 +2749,17 @@ public static class IrImporter
             MethodDefinitionFacts.RequiresUnsafeContract(
                 memorySafety,
                 methodHandle);
-        return contract.State == MetadataFactState.Unknown
+        return !contract.HasNormalizedContract
             && MethodDefinitionFacts.HasRequiresUnsafeAttribute(
                 reader,
                 method)
-                ? new(MetadataFactState.Yes, IsExplicit: true)
+                ? new(
+                    MetadataFactState.Yes,
+                    IsExplicit: true,
+                    HasNormalizedContract: false,
+                    RulesState: null,
+                    RulesUnavailable: false,
+                    ContractUnavailable: false)
                 : contract;
     }
 

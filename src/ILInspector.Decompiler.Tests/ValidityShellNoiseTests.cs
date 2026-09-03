@@ -83,6 +83,52 @@ public class ValidityShellNoiseTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public void RuntimeAsyncNoAwaitUnsafeRts_PreservesUnsafeContextWithoutFloor()
+    {
+        Type fixtureType = typeof(CfgSampleClass);
+        var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            fixtureType.Assembly.Location,
+            [new ReturnToSender.RequestedTarget(
+                fixtureType.FullName!,
+                nameof(CfgSampleClass.RuntimeAsyncNoAwaitUnsafe),
+                Overload: 0)]));
+
+        Assert.True(
+            result.Source.Contains(
+                "unsafe async Task RuntimeAsyncNoAwaitUnsafe",
+                StringComparison.Ordinal),
+            result.Source);
+        Assert.False(result.UsedCompileBackFloor, result.Detail);
+        Assert.NotEqual(
+            FidelityCheck.CompileBackStatus.RecompileFail,
+            result.Status);
+    }
+
+    [Theory]
+    [InlineData("get_UnsafeGetter", "unsafe int UnsafeGetter")]
+    [InlineData("add_UnsafeChanged", "unsafe void add_UnsafeChanged")]
+    [Trait("Speed", "Slow")]
+    public void AccessorRts_PreservesUnsafeBodyContextWithoutFloor(
+        string methodName,
+        string declaration)
+    {
+        Type fixtureType = typeof(CfgSampleClass);
+        var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            fixtureType.Assembly.Location,
+            [new ReturnToSender.RequestedTarget(
+                fixtureType.FullName!,
+                methodName,
+                Overload: 0)]));
+
+        Assert.Contains(declaration, result.Source);
+        Assert.False(result.UsedCompileBackFloor, result.Detail);
+        Assert.NotEqual(
+            FidelityCheck.CompileBackStatus.RecompileFail,
+            result.Status);
+    }
+
+    [Fact]
     public void OrdinaryTaskReturningShell_DoesNotInferAsyncFromReturnType()
     {
         TypeRef task = TypeRef.CoreLib(

@@ -505,7 +505,8 @@ public static class CompileBackSourceComposer
                 closure.Roots,
                 closure.Facts,
                 closure.MemberRequirements,
-                request.BodyPolicy),
+                request.BodyPolicy,
+                request.TargetBody.RequiresUnsafeModifier),
             PropertySetterArtifactRequest setter => ComposePropertySetter(
                 request.AssemblyPath,
                 request.Reader,
@@ -520,7 +521,8 @@ public static class CompileBackSourceComposer
                 request.SignatureText,
                 closure.Roots,
                 closure.Facts,
-                closure.MemberRequirements),
+                closure.MemberRequirements,
+                request.TargetBody.RequiresUnsafeModifier),
             EventAccessorArtifactRequest eventAccessor => ComposeEventAccessor(
                 request.AssemblyPath,
                 request.Reader,
@@ -537,7 +539,10 @@ public static class CompileBackSourceComposer
                 closure.Facts,
                 closure.MemberRequirements,
                 eventAccessor.SiblingAccessorBody?.Source,
-                request.BodyPolicy),
+                request.BodyPolicy,
+                request.TargetBody.RequiresUnsafeModifier
+                    || eventAccessor.SiblingAccessorBody?.RequiresUnsafeModifier
+                        == true),
             MethodArtifactRequest => ComposeMethod(
                 request.AssemblyPath,
                 request.CompilationClosure,
@@ -553,7 +558,8 @@ public static class CompileBackSourceComposer
                 closure.Roots,
                 closure.Facts,
                 closure.MemberRequirements,
-                request.TargetBody.ConstructorChain),
+                request.TargetBody.ConstructorChain,
+                request.TargetBody.RequiresUnsafeModifier),
             _ => throw new ArgumentException($"Unknown artifact request type '{request.GetType().FullName}'.", nameof(request)),
         };
 
@@ -1090,7 +1096,8 @@ public static class CompileBackSourceComposer
         IReadOnlySet<TypeDefinitionHandle> closureRoots,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements,
-        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected)
+        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected,
+        bool targetBodyRequiresUnsafeModifier = false)
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var property = reader.GetPropertyDefinition(targetProperty);
@@ -1153,7 +1160,10 @@ public static class CompileBackSourceComposer
                     : [new CompileBackFact("metadata", "target-property-getter", reader.GetString(reader.GetMethodDefinition(targetGetter).Name))],
                 propertyDeclaration.Attributes,
                 MetadataDeclarationQuery.GetMethod(reader, targetTypeDef, getter, getterSignature).Signature.ReturnAttributes,
-                ExplicitInterfaceMemberName: explicitInterfaceMemberName)
+                ExplicitInterfaceMemberName: explicitInterfaceMemberName,
+                RequiresUnsafeModifier:
+                    targetBodyRequiresUnsafeModifier
+                    || function.RequiresUnsafeContract)
         };
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetType);
 
@@ -1181,7 +1191,11 @@ public static class CompileBackSourceComposer
         }
         AddExplicitInterfacePropertyDeclaration(requirements, reader, targetTypeDef, targetGetter);
 
-        var production = TypeProducer.Produce(reader, requirements, diagnostics);
+        var production = TypeProducer.Produce(
+            reader,
+            requirements,
+            diagnostics,
+            function.UsesUpdatedMemorySafetyRules);
         var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
             Usings: BuildUsings(function),
@@ -2537,7 +2551,8 @@ public static class CompileBackSourceComposer
         string signatureText,
         IReadOnlySet<TypeDefinitionHandle> closureRoots,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
-        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements)
+        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements,
+        bool targetBodyRequiresUnsafeModifier = false)
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var property = reader.GetPropertyDefinition(targetProperty);
@@ -2588,7 +2603,10 @@ public static class CompileBackSourceComposer
                         new CompileBackFact("metadata", "auto-property", propertyName)
                     ]
                     : [new CompileBackFact("metadata", "target-property-setter", reader.GetString(setter.Name))],
-                ExplicitInterfaceMemberName: explicitInterfaceMemberName)
+                ExplicitInterfaceMemberName: explicitInterfaceMemberName,
+                RequiresUnsafeModifier:
+                    targetBodyRequiresUnsafeModifier
+                    || function.RequiresUnsafeContract)
         };
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetType);
 
@@ -2615,7 +2633,11 @@ public static class CompileBackSourceComposer
         }
         AddExplicitInterfacePropertyDeclaration(requirements, reader, targetTypeDef, targetSetter);
 
-        var production = TypeProducer.Produce(reader, requirements, diagnostics);
+        var production = TypeProducer.Produce(
+            reader,
+            requirements,
+            diagnostics,
+            function.UsesUpdatedMemorySafetyRules);
         var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
             Usings: BuildUsings(function),
@@ -2647,7 +2669,8 @@ public static class CompileBackSourceComposer
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements,
         string? siblingAccessorBody = null,
-        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected)
+        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected,
+        bool targetBodyRequiresUnsafeModifier = false)
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var eventDefinition = reader.GetEventDefinition(targetEvent);
@@ -2698,7 +2721,10 @@ public static class CompileBackSourceComposer
                 targetBody,
                 [new CompileBackFact("metadata", "target-event-accessor", reader.GetString(accessor.Name))],
                 MemberAttributes(reader, eventDefinition.GetCustomAttributes()),
-                RequiresUnsafeModifier: ContainsFixedBufferElementAccess(function),
+                RequiresUnsafeModifier:
+                    ContainsFixedBufferElementAccess(function)
+                    || targetBodyRequiresUnsafeModifier
+                    || function.RequiresUnsafeContract,
                 ExplicitInterfaceMemberName: explicitEvent?.QualifiedName,
                 SiblingTargetBody: siblingAccessorBody)
         };
@@ -2745,7 +2771,11 @@ public static class CompileBackSourceComposer
         }
         AddExplicitInterfaceEventDeclaration(requirements, reader, explicitEvent);
 
-        var production = TypeProducer.Produce(reader, requirements, diagnostics);
+        var production = TypeProducer.Produce(
+            reader,
+            requirements,
+            diagnostics,
+            function.UsesUpdatedMemorySafetyRules);
         var module = new CompileBackModuleRequirement(
             Usings: BuildUsings(function),
             AssemblyAttributes: [],
@@ -2775,7 +2805,8 @@ public static class CompileBackSourceComposer
         IReadOnlySet<TypeDefinitionHandle> closureRoots,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements,
-        string? constructorChain = null)
+        string? constructorChain = null,
+        bool targetBodyRequiresUnsafeModifier = false)
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var method = reader.GetMethodDefinition(targetMethod);
@@ -2862,7 +2893,10 @@ public static class CompileBackSourceComposer
                     && function.RequiresAsyncMethodContext,
                 ConstructorInitializer: targetConstructorInitializer,
                 ExplicitInterfaceMemberName: explicitInterfaceMemberName,
-                RequiresUnsafeModifier: ContainsFixedBufferElementAccess(function))
+                RequiresUnsafeModifier:
+                    ContainsFixedBufferElementAccess(function)
+                    || targetBodyRequiresUnsafeModifier
+                    || function.RequiresUnsafeContract)
         ];
         if (externalExplicitInterfaceMethod is { AdditionalInterfaceStubs.Count: > 0 })
         {
@@ -3019,7 +3053,11 @@ public static class CompileBackSourceComposer
             }
         }
 
-        var production = TypeProducer.Produce(reader, requirements, diagnostics);
+        var production = TypeProducer.Produce(
+            reader,
+            requirements,
+            diagnostics,
+            function.UsesUpdatedMemorySafetyRules);
         var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
             Usings: BuildUsings(function),
@@ -3073,12 +3111,15 @@ public static class CompileBackSourceComposer
 
     static CSharpMemberPolicy ToMemberPolicy(
         CompileBackMemberRequirement requirement,
-        int primaryConstructorParameterCount)
+        int primaryConstructorParameterCount,
+        bool usesUpdatedMemorySafetyRules)
         => CSharpMemberShellProducer.BuildPolicy(
-            ToMemberShellSpec(requirement),
+            ToMemberShellSpec(requirement, usesUpdatedMemorySafetyRules),
             primaryConstructorParameterCount);
 
-    static CSharpMemberShellSpec ToMemberShellSpec(CompileBackMemberRequirement requirement)
+    static CSharpMemberShellSpec ToMemberShellSpec(
+        CompileBackMemberRequirement requirement,
+        bool usesUpdatedMemorySafetyRules)
         => new(
             Name: requirement.Identity.Method,
             Kind: requirement.Kind switch
@@ -3145,6 +3186,7 @@ public static class CompileBackSourceComposer
             ExplicitInterfaceMemberName: requirement.ExplicitInterfaceMemberName,
             DeclarationSignature: requirement.DeclarationSignature,
             RequiresUnsafeModifier: requirement.RequiresUnsafeModifier,
+            UsesUpdatedMemorySafetyRules: usesUpdatedMemorySafetyRules,
             SiblingBody: requirement.SiblingTargetBody,
             MetadataToken: requirement.MetadataToken,
             GetterToken: requirement.GetterToken,
@@ -4180,9 +4222,30 @@ public static class CompileBackSourceComposer
             var typeDef = reader.GetTypeDefinition(typeHandle);
             var typeIdentity = CompileBackTypeIdentity.FromDefinition(reader, typeDef);
             if (TryFindPropertyForAccessor(reader, typeDef, methodRef) is { } propertyHandle)
-                return PropertyRequirement(reader, typeDef, typeIdentity, propertyHandle, methodRef.Name);
+            {
+                var requirement = PropertyRequirement(
+                    reader,
+                    typeDef,
+                    typeIdentity,
+                    propertyHandle,
+                    methodRef.Name);
+                return requirement is null ? null : requirement with
+                {
+                    RequiresUnsafeModifier = methodRef.RequiresUnsafe,
+                };
+            }
             if (TryFindMethod(reader, typeDef, methodRef) is { } methodHandle)
-                return MethodRequirement(reader, typeDef, typeIdentity, methodHandle);
+            {
+                var requirement = MethodRequirement(
+                    reader,
+                    typeDef,
+                    typeIdentity,
+                    methodHandle);
+                return requirement is null ? null : requirement with
+                {
+                    RequiresUnsafeModifier = methodRef.RequiresUnsafe,
+                };
+            }
             return null;
         }
 
@@ -4266,7 +4329,8 @@ public static class CompileBackSourceComposer
         public static TypeProduction Produce(
             MetadataReader reader,
             IReadOnlyList<CompileBackTypeRequirement> requirements,
-            List<CompileBackPlanningDiagnostic> diagnostics)
+            List<CompileBackPlanningDiagnostic> diagnostics,
+            bool usesUpdatedMemorySafetyRules)
         {
             var requests = new List<CSharpTypePrintRequest>();
             var producedRequirements = new List<CompileBackTypeRequirement>();
@@ -4305,7 +4369,8 @@ public static class CompileBackSourceComposer
                     rootRequirement,
                     requirementsByMetadataName,
                     producedRequirements,
-                    diagnostics);
+                    diagnostics,
+                    usesUpdatedMemorySafetyRules);
                 requests.Add(TypeShellProducer.BuildPrintRequest(reader, rootSpec));
             }
 
@@ -4652,7 +4717,8 @@ public static class CompileBackSourceComposer
             CompileBackTypeRequirement requirement,
             IReadOnlyDictionary<string, CompileBackTypeRequirement> requirementsByMetadataName,
             List<CompileBackTypeRequirement> producedRequirements,
-            List<CompileBackPlanningDiagnostic> diagnostics)
+            List<CompileBackPlanningDiagnostic> diagnostics,
+            bool usesUpdatedMemorySafetyRules)
         {
             var typeDef = reader.GetTypeDefinition(handle);
             var kind = requirement.RequiredKind;
@@ -4691,7 +4757,10 @@ public static class CompileBackSourceComposer
                 .Select(ToApiParameter)
                 .ToArray() ?? [];
             var policies = members
-                .Select(member => ToMemberPolicy(member, primaryConstructorParameters.Length))
+                .Select(member => ToMemberPolicy(
+                    member,
+                    primaryConstructorParameters.Length,
+                    usesUpdatedMemorySafetyRules))
                 .ToArray();
 
             return new CSharpTypeShellSpec(
@@ -4712,7 +4781,8 @@ public static class CompileBackSourceComposer
                     requirementsByMetadataName,
                     includeMemberSurface,
                     producedRequirements,
-                    diagnostics));
+                    diagnostics,
+                    usesUpdatedMemorySafetyRules));
         }
 
         static void AddRequiredInterfaceProperties(
@@ -4911,7 +4981,8 @@ public static class CompileBackSourceComposer
             IReadOnlyDictionary<string, CompileBackTypeRequirement> requirementsByMetadataName,
             bool includeMemberSurface,
             List<CompileBackTypeRequirement> producedRequirements,
-            List<CompileBackPlanningDiagnostic> diagnostics)
+            List<CompileBackPlanningDiagnostic> diagnostics,
+            bool usesUpdatedMemorySafetyRules)
         {
             var nestedTypes = new List<CSharpTypeShellSpec>();
             foreach (var nestedHandle in typeDef.GetNestedTypes())
@@ -4944,7 +5015,8 @@ public static class CompileBackSourceComposer
                     nestedRequirement,
                     requirementsByMetadataName,
                     producedRequirements,
-                    diagnostics));
+                    diagnostics,
+                    usesUpdatedMemorySafetyRules));
             }
 
             if (HasGeneratedCallSiteCache(reader, typeDef))
@@ -4967,7 +5039,8 @@ public static class CompileBackSourceComposer
                             SourceFacts: [new CompileBackFact("metadata", "generated-dynamic-delegate", identity.FullName)]),
                         requirementsByMetadataName,
                         producedRequirements,
-                        diagnostics));
+                        diagnostics,
+                        usesUpdatedMemorySafetyRules));
                 }
             }
 

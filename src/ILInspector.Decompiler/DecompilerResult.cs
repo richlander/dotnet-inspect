@@ -267,6 +267,14 @@ public static class DiagnosticIds
     /// <c>fixed</c> statement and has no faithful C# declaration spelling.
     /// </summary>
     public const string UnraisedPinnedLocal = "DEC0014";
+
+    /// <summary>
+    /// A consumed member has an invalid or unavailable memory-safety contract,
+    /// or belongs to a module whose memory-safety rules are invalid or
+    /// unavailable. Such a reference may be rejected before ordinary
+    /// unsafe-context rules can be applied.
+    /// </summary>
+    public const string InvalidCalleeMemorySafetyRules = "DEC0015";
 }
 
 /// <summary>

@@ -378,7 +378,8 @@ public sealed partial class CSharpPrinter
             ConstructorChain = _constructorChain,
             FieldInitializers = _fieldInitializers,
             RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
-            RequiresUnsafeBodyModifier = !_containsAwaitExpression
+            RequiresUnsafeBodyModifier = !function.UsesUpdatedMemorySafetyRules
+                && !_containsAwaitExpression
                 && function.Descendants.Prepend(function).Any(NeedsUnsafeBodyModifier),
             ContainsAwaitExpression = _containsAwaitExpression,
             BodyIsSingleExpressionBody = BodyIsSingleExpressionBody(function, output),
@@ -3120,6 +3121,7 @@ public sealed partial class CSharpPrinter
                 ? _newMemorySafetyRules
                 : method.RequiresUnsafeFact == MetadataFactState.Yes
                     || method.RequiresUnsafeFact == MetadataFactState.Unknown
+                        && !method.MemorySafetyContractUnavailable
                         && SignatureRequiresUnsafe(method));
 
     bool MethodsRequireUnsafe(IEnumerable<MethodRef?> methods)

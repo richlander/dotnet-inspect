@@ -492,6 +492,105 @@ public static class ApiSurfaceExtractor
             ? null
             : materializationContext.Observe;
         Action<int> observeAttributeMaterialize = materializationContext.Observe;
+        MemorySafetyMetadataIndex? memorySafety = null;
+        bool memorySafetyRulesFailureReported = false;
+        var memorySafetyMemberFailures = new HashSet<int>();
+
+        MemorySafetyMetadataIndex MemorySafety()
+        {
+            // Bounded extraction has already admitted the image's complete metadata-row
+            // census above; the index applies its own row and name-work safety bounds.
+            if (memorySafety is not null)
+                return memorySafety;
+
+            memorySafety = MemorySafetyMetadataIndex.Create(reader);
+            if (!memorySafetyRulesFailureReported)
+            {
+                switch (memorySafety.Rules)
+                {
+                    case MemorySafetyRulesResult.Available
+                    {
+                        State: MemorySafetyRulesState.Unsupported
+                            or MemorySafetyRulesState.Malformed
+                            or MemorySafetyRulesState.Conflicting
+                    } available:
+                        ReportMemorySafetyFailure(
+                            subjectToken: 1,
+                            available.State.ToString(),
+                            $"The module has {available.State.ToString().ToLowerInvariant()} memory-safety rules.");
+                        memorySafetyRulesFailureReported = true;
+                        break;
+                    case MemorySafetyRulesResult.Unavailable unavailable:
+                        ReportMemorySafetyFailure(
+                            subjectToken: 1,
+                            unavailable.Failure.Kind.ToString(),
+                            unavailable.Failure.Detail);
+                        memorySafetyRulesFailureReported = true;
+                        break;
+                }
+            }
+
+            return memorySafety;
+        }
+
+        void ReportMemorySafetyFailure(
+            int subjectToken,
+            string kind,
+            string detail)
+        {
+            var failure = new ApiSurfaceInspectionFailure(
+                ApiSurfaceInspectionFailure.MemorySafetyContractOperation,
+                subjectToken,
+                MetadataTypeNameFailureMechanism.Metadata,
+                kind,
+                detail);
+            budget?.RetainInspectionFailure(failure);
+            surface.InspectionFailures.Add(failure);
+        }
+
+        bool RequiresUnsafeDeclaration(EntityHandle member)
+        {
+            if (member.IsNil)
+                return false;
+
+            MemorySafetyMetadataIndex index = MemorySafety();
+            MemorySafetyMemberContractResult contract =
+                index.GetMemberContract(member);
+            if (contract is MemorySafetyMemberContractResult.Unavailable unavailable
+                && index.Rules is not MemorySafetyRulesResult.Unavailable
+                && unavailable.Failure.Kind
+                    is not MemorySafetyMemberContractFailureKind.ConflictingRules)
+            {
+                int token = MetadataTokens.GetToken(member);
+                if (memorySafetyMemberFailures.Add(token))
+                {
+                    ReportMemorySafetyFailure(
+                        token,
+                        unavailable.Failure.Kind.ToString(),
+                        unavailable.Failure.Detail);
+                }
+            }
+
+            return contract is MemorySafetyMemberContractResult.Implicit
+                or MemorySafetyMemberContractResult.Explicit;
+        }
+
+        bool AnyRequiresUnsafeDeclaration(
+            EntityHandle member,
+            EntityHandle firstAccessor,
+            EntityHandle secondAccessor)
+        {
+            bool memberRequiresUnsafe =
+                RequiresUnsafeDeclaration(member);
+            bool firstAccessorRequiresUnsafe =
+                RequiresUnsafeDeclaration(firstAccessor);
+            bool secondAccessorRequiresUnsafe =
+                RequiresUnsafeDeclaration(secondAccessor);
+            return memberRequiresUnsafe
+                || firstAccessorRequiresUnsafe
+                || secondAccessorRequiresUnsafe;
+        }
+
         ApiAssemblyIdentity? currentAssemblyIdentity = reader.IsAssembly
             ? ApiAssemblyIdentity.FromDefinition(
                 reader,
@@ -1127,11 +1226,7 @@ public static class ApiSurfaceExtractor
                         method.GetGenericParameters().Count,
                     HasMethodBody =
                         method.RelativeVirtualAddress != 0,
-                    IsUnsafe = HasUnsafeSignature(signature.Text)
-                        || AttributeReader.HasRequiresUnsafeAttribute(
-                            reader,
-                            methodCustomAttributes,
-                            observeDecodeWork),
+                    IsUnsafe = RequiresUnsafeDeclaration(methodHandle),
                     Accessibility = isExplicitInterfaceImplementation && !isOperator ? null : GetAccessibility(methodAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
@@ -1342,7 +1437,10 @@ public static class ApiSurfaceExtractor
                     IsAbstract = isAbstractProperty,
                     IsOverride = isOverrideProperty,
                     IsSealed = isSealedProperty,
-                    IsUnsafe = HasUnsafeSignature(propertySignature.Text),
+                    IsUnsafe = AnyRequiresUnsafeDeclaration(
+                        propHandle,
+                        accessors.Getter,
+                        accessors.Setter),
                     Accessibility = GetAccessibility(bestAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
@@ -1560,6 +1658,7 @@ public static class ApiSurfaceExtractor
                     IsStatic = (field.Attributes & FieldAttributes.Static) != 0,
                     IsReadOnly = (field.Attributes & FieldAttributes.InitOnly) != 0,
                     IsConst = (field.Attributes & FieldAttributes.Literal) != 0,
+                    IsUnsafe = RequiresUnsafeDeclaration(fieldHandle),
                     Accessibility = GetFieldAccessibility(fieldAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
@@ -1794,6 +1893,7 @@ public static class ApiSurfaceExtractor
                     IsAbstract = (adderAttributes & MethodAttributes.Abstract) != 0,
                     IsOverride = isOverrideEvent,
                     IsSealed = isOverrideEvent && (adderAttributes & MethodAttributes.Final) != 0,
+                    IsUnsafe = RequiresUnsafeDeclaration(eventHandle),
                     Accessibility = GetAccessibility(adderAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
@@ -5048,32 +5148,6 @@ public static class ApiSurfaceExtractor
             budget?.RetainSurfaceFilteredRuntimeJsExportFact(fact);
             surface.FilteredRuntimeJsExportFacts.Add(fact);
         }
-    }
-
-    /// <summary>
-    /// Checks if a method signature contains unsafe constructs (pointers). This
-    /// catches members whose signature renders a pointer; members declared
-    /// <c>unsafe</c> with no pointer in the signature are detected separately via
-    /// <see cref="AttributeReader.HasRequiresUnsafeAttribute"/>.
-    /// </summary>
-    private static bool HasUnsafeSignature(string? signature)
-    {
-        if (string.IsNullOrEmpty(signature))
-            return false;
-
-        for (int i = 0; i < signature.Length; i++)
-        {
-            if (signature[i] == '*'
-                && (i == 0
-                    || i == signature.Length - 1
-                    || signature[i - 1] != '['
-                    || signature[i + 1] != ']'))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     internal static long CountRetainedText(ApiType type)
