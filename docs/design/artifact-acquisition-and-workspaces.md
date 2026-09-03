@@ -337,12 +337,15 @@ The shipped artifact-session lifetime handoff is checked separately by
 Its [model guide](../models/artifact-session-group-release/README.md) records
 the bounded two-dependent-group topology, three named group-release owner
 instances, exact transfer-set and receipt joins, the coordinated-close fault
-path that requires the stored group reference to issue a fresh owner request,
-and focused controls for incomplete, duplicate, foreign, partial, stranded,
-and unreported outcomes. It preserves the product's join currency as the
-exact artifact-session registration, complete dependent-group set, and each
-group's owner-issued terminal receipt/result. The model establishes those
-bounded interaction properties, not implementation conformance.
+path that retains artifact resources until an adjacent owner requests and
+settles the missing physical release, reachability for the retained-pending
+state, and focused controls for incomplete, duplicate, foreign, partial,
+unauthorized-release, and unreported outcomes. It preserves the product's join
+currency as the exact artifact-session registration, complete dependent-group
+set, release-request origin, and each group's owner-issued terminal
+receipt/result. Artifact cleanup observes those receipts but never becomes a
+second physical-release authority. The model establishes those bounded
+interaction properties, not implementation conformance.
 
 The admission model abstracts away budget arithmetic, adapter identity,
 content digests, and query-lease authorization, and it bounds the state space

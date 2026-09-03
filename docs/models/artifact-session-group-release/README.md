@@ -22,17 +22,20 @@ The consumer preserves the product's join currency:
 
 - the exact transferred artifact-session registration;
 - the complete exact set of current group identities projected from it;
-- each group's owner-issued request, terminal receipt, and receipt result; and
+- the modeled release-request origin for each group;
+- each group's owner-issued terminal receipt and receipt result; and
 - artifact cleanup and terminal report publication after every exact receipt.
 
 The workspace-level close result and the group owner's terminal receipt are
 separate currencies. Normally workspace close requests a group release and
 observes that receipt. A bounded fault path instead settles the second
 workspace-level close result as faulted without requesting its group owner.
-Artifact cleanup must then use the stored exact dependent-group identity to
-request and await that owner's terminal receipt. This is the case in which the
-stored association is load-bearing rather than an idempotent happy-path
-recheck.
+Artifact cleanup enters a safe retained state and can only observe the stored
+owner-issued receipt. An explicit adjacent-owner recovery action may later
+request release; only after that owner reaches terminal physical settlement
+may artifact cleanup release the query lease and session. The stored
+association is therefore load-bearing for exact settlement observation, never
+a fallback physical-release authority.
 
 The modeled interactions are:
 
@@ -42,7 +45,8 @@ The modeled interactions are:
 - an unrelated group admitted after transfer;
 - workspace close requesting and observing every current group;
 - a workspace-level group-close fault with no owner request;
-- artifact cleanup re-requesting every stored dependent group;
+- artifact cleanup waiting with the session retained and no owner receipt;
+- an adjacent owner later requesting release after that fault;
 - independent successful or failed group receipts;
 - query-lease/session cleanup only after both exact dependent receipts;
 - artifact cleanup failure visibility even when group close faults.
@@ -58,6 +62,8 @@ The model does not cover:
   concrete reference-equality implementation used to derive the set;
 - group callbacks, images, resources, or quiescence internals beyond one
   owner-supplied boolean per group;
+- a workspace-level result fault after the owner request has started; the
+  bounded fault path covers failure before that request;
 - exception payloads, cleanup-failure ordering, close-report serialization,
   or thread scheduling;
 - later session-related group rejection, which remains gated by
@@ -71,9 +77,11 @@ The bounded TLC results establish properties of this model. Existing
 ## Composition boundary
 
 The consumer binds each owner module's `Group` parameter to one exact group
-identity and invokes the imported request and completion actions as the sole
-writers on ordinary paths. It supplies that group's quiescence bit to
-`SafetySpec` and rechecks all three projected owner behaviors.
+identity. Workspace close and the explicit adjacent-owner recovery transition
+invoke imported request actions; physical settlement invokes imported
+completion actions. Artifact cleanup only reads the owner state. The consumer
+supplies each group's quiescence bit to `SafetySpec` and rechecks all three
+projected owner behaviors.
 
 The imported completion/request and completion/result invariants remain useful
 focused diagnostics, but are implied by behavior refinement and are not
@@ -91,21 +99,29 @@ terminal receipt cannot authorize release for the second exact dependency.
 | `TransferUsesDistinctGroups` | Transfer input does not repeat one group reference. |
 | `TransferWaitsForCompletedAdmissions` | Transfer does not compute its exact current set while a group admission remains incomplete. |
 | `ArtifactReleaseWaitsForExactReceipts` | Query-lease/session cleanup starts only after both exact dependent owners issue terminal receipts. |
+| `ReleaseRequestsCarryOwnerAuthority` | Every imported owner request has a recorded issuer, and artifact cleanup is never that issuer. |
 | `ArtifactCleanupResultRemainsVisible` | Terminal close publishes the artifact cleanup result, including failure. |
 | `GroupCloseFailureRemainsVisible` | Terminal close preserves whether any workspace-level group close faulted. |
 | `Dependent*CompletionMatchesRequest` and `Dependent*CompletionCarriesResult` | Each exact owner issues a receipt only for its requested group and publishes identity/result together. |
 | `ForeignCompletionMatchesRequest` and `ForeignCompletionCarriesResult` | The unrelated owner issues its own exact, result-bearing receipt. |
 | `Dependent*BehaviorRefinesOwner` and `ForeignBehaviorRefinesOwner` | Each projected request/completion behavior refines its owner module's `SafetySpec`. |
-| `ClosingWorkspaceEventuallyCloses` | Once close starts, weak fairness drives group settlement, artifact cleanup, and terminal report publication. |
-| `FaultedGroupCloseEventuallyCleansArtifacts` | A faulted workspace-level group result cannot strand the artifact session; the stored exact group request still drives cleanup. |
+| `ClosingWorkspaceEventuallySettles` | Once close starts, weak fairness reaches either terminal close or the safe retained state awaiting an adjacent-owner request. |
+| `RecoveredFaultedGroupCloseEventuallyCleansArtifacts` | Once the adjacent owner requests the faulted group's release, weakly fair physical settlement eventually permits artifact cleanup. |
+
+Neither `SafetySpec` nor `Spec` assumes adjacent-owner recovery. They include
+the valid pending state in which workspace group close has faulted, the exact
+physical receipt is absent, and artifact resources remain retained. The
+recovered-fault liveness property begins only after the adjacent owner has
+issued that request.
 
 ## Configurations
 
 | Configuration | Purpose |
 | --- | --- |
 | `Safety.cfg` | Checks the complete bounded safety graph and all three imported owner refinements. |
-| `Liveness.cfg` | Checks terminal close and artifact cleanup after a faulted group-close result. |
-| `ReachabilityFaultRecoveryRequest.cfg` | Demonstrates the artifact registration requesting the exact owner after workspace-level close faults before making that request. |
+| `Liveness.cfg` | Checks close reaching either terminal completion or the safe retained wait, plus cleanup after the adjacent owner has requested the faulted group. |
+| `ReachabilityFaultedSettlementWait.cfg` | Demonstrates a faulted workspace close waiting safely with no physical owner request and the artifact session retained. |
+| `ReachabilityOwnerRecoveryRequest.cfg` | Demonstrates the adjacent owner requesting the exact group after workspace-level close faults before making that request. |
 | `ReachabilityAlreadyTerminalTransfer.cfg` | Demonstrates transfer accepting a complete set that includes an already-terminal group. |
 | `ReachabilityUnrelatedAfterTransfer.cfg` | Demonstrates unrelated admission remaining available after transfer. |
 | `ReachabilityMixedReceiptResults.cfg` | Demonstrates artifact cleanup after the two exact owners return different terminal results. |
@@ -115,7 +131,7 @@ terminal receipt cannot authorize release for the second exact dependency.
 | `BrokenTransferDuringAdmission.cfg` | Transfers while one admission is incomplete; it must violate the stable-current-set precondition. |
 | `BrokenForeignReceipt.cfg` | Uses another owner's genuine receipt in place of the second dependency; it must violate exact-receipt authorization. |
 | `BrokenPartialReceipt.cfg` | Releases after only one of two exact receipts; it must violate all-dependent authorization. |
-| `BrokenMissingDependentRequest.cfg` | Omits the second stored request after its workspace-level close result faults; it must violate cleanup progress. |
+| `BrokenArtifactCleanupReleaseAuthority.cfg` | Attributes the missing dependent request to artifact cleanup; it must violate the request-issuer authority boundary. |
 | `BrokenImportedReceiptLifecycle.cfg` | Completes an owner before its supplied quiescence condition; it must violate imported behavior refinement. |
 | `BrokenGroupCloseFaultOmission.cfg` | Publishes successful close after a group-close fault; it must violate failure visibility. |
 | `BrokenCleanupOmission.cfg` | Drops a failed artifact cleanup result from terminal close; it must violate report visibility. |
@@ -143,11 +159,12 @@ cd docs/models/artifact-session-group-release
 TLA_LIBRARY="$PWD/../assembly-context-group-lifecycle"
 
 for config in Safety Liveness \
-  ReachabilityFaultRecoveryRequest ReachabilityAlreadyTerminalTransfer \
+  ReachabilityFaultedSettlementWait ReachabilityOwnerRecoveryRequest \
+  ReachabilityAlreadyTerminalTransfer \
   ReachabilityUnrelatedAfterTransfer ReachabilityMixedReceiptResults \
   BrokenForeignTransfer BrokenIncompleteTransfer BrokenDuplicateTransfer \
   BrokenTransferDuringAdmission BrokenForeignReceipt BrokenPartialReceipt \
-  BrokenMissingDependentRequest BrokenImportedReceiptLifecycle \
+  BrokenArtifactCleanupReleaseAuthority BrokenImportedReceiptLifecycle \
   BrokenGroupCloseFaultOmission BrokenCleanupOmission; do
   java -XX:+UseParallelGC "-DTLA-Library=$TLA_LIBRARY" \
     -cp /path/to/tla2tools.jar tlc2.TLC \
@@ -165,29 +182,31 @@ SHA-256
 
 | Configuration | Result | Generated states | Distinct states | Maximum depth |
 | --- | --- | ---: | ---: | ---: |
-| `Safety.cfg` | No error | 30,637 | 9,003 | 23 |
-| `Liveness.cfg` | No error | 30,637 | 9,003 | 23 |
-| `ReachabilityFaultRecoveryRequest.cfg` | `NoFaultRecoveryRequestObserved` violated | 4,422 | 1,675 | 10 |
-| `ReachabilityAlreadyTerminalTransfer.cfg` | `NoAlreadyTerminalTransferObserved` violated | 143 | 85 | 5 |
+| `Safety.cfg` | No error | 74,452 | 24,247 | 23 |
+| `Liveness.cfg` | No error | 74,452 | 24,247 | 23 |
+| `ReachabilityFaultedSettlementWait.cfg` | `NoFaultedSettlementWaitObserved` violated | 2,831 | 1,253 | 9 |
+| `ReachabilityOwnerRecoveryRequest.cfg` | `NoOwnerRecoveryRequestObserved` violated | 5,456 | 2,250 | 10 |
+| `ReachabilityAlreadyTerminalTransfer.cfg` | `NoAlreadyTerminalTransferObserved` violated | 143 | 87 | 5 |
 | `ReachabilityUnrelatedAfterTransfer.cfg` | `NoUnrelatedAfterTransferObserved` violated | 31 | 23 | 4 |
-| `ReachabilityMixedReceiptResults.cfg` | `NoMixedReceiptCleanupObserved` violated | 21,124 | 6,238 | 14 |
+| `ReachabilityMixedReceiptResults.cfg` | `NoMixedReceiptCleanupObserved` violated | 26,293 | 8,998 | 13 |
 | `BrokenForeignTransfer.cfg` | `TransferUsesCompleteExactSet` violated | 6 | 6 | 2 |
 | `BrokenIncompleteTransfer.cfg` | `TransferUsesCompleteExactSet` violated | 6 | 6 | 2 |
 | `BrokenDuplicateTransfer.cfg` | `TransferUsesDistinctGroups` violated | 6 | 6 | 2 |
 | `BrokenTransferDuringAdmission.cfg` | `TransferWaitsForCompletedAdmissions` violated | 8 | 7 | 3 |
-| `BrokenForeignReceipt.cfg` | `ArtifactReleaseWaitsForExactReceipts` violated | 29,435 | 8,189 | 18 |
-| `BrokenPartialReceipt.cfg` | `ArtifactReleaseWaitsForExactReceipts` violated | 11,419 | 3,747 | 12 |
-| `BrokenMissingDependentRequest.cfg` | `FaultedGroupCloseEventuallyCleansArtifacts` violated | 30,237 | 8,683 | 23 |
+| `BrokenForeignReceipt.cfg` | `ArtifactReleaseWaitsForExactReceipts` violated | 54,681 | 17,215 | 16 |
+| `BrokenPartialReceipt.cfg` | `ArtifactReleaseWaitsForExactReceipts` violated | 5,457 | 2,251 | 10 |
+| `BrokenArtifactCleanupReleaseAuthority.cfg` | `ReleaseRequestsCarryOwnerAuthority` violated | 5,457 | 2,251 | 10 |
 | `BrokenImportedReceiptLifecycle.cfg` | Imported owner action property violated | 17 | 15 | 3 |
-| `BrokenGroupCloseFaultOmission.cfg` | `GroupCloseFailureRemainsVisible` violated | 25,229 | 7,205 | 15 |
-| `BrokenCleanupOmission.cfg` | `ArtifactCleanupResultRemainsVisible` violated | 25,230 | 7,206 | 15 |
+| `BrokenGroupCloseFaultOmission.cfg` | `GroupCloseFailureRemainsVisible` violated | 37,710 | 12,377 | 14 |
+| `BrokenCleanupOmission.cfg` | `ArtifactCleanupResultRemainsVisible` violated | 37,711 | 12,378 | 14 |
 
 The positive safety and liveness runs explored the complete bounded state
 graph. The fault-recovery trace settles the second workspace-level group close
-as faulted with no owner request, enters artifact cleanup, and then requests
-that exact owner from the stored dependency. Its paired liveness mutation
-reaches the same fault but cannot release the artifact session after omitting
-that request.
+as faulted with no owner request and enters artifact cleanup while retaining
+the session. The neighboring recovery trace then lets the adjacent owner
+request that exact group; owner-issued terminal settlement permits cleanup.
+The focused authority mutation instead lets artifact cleanup issue the request
+and violates `ReleaseRequestsCarryOwnerAuthority`.
 
 The foreign-receipt trace admits the unrelated group, drives its owner through
 request, quiescence, completion, and workspace observation, faults the second

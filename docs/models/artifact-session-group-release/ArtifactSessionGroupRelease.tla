@@ -2,16 +2,15 @@
 (***************************************************************************)
 (* Models the shipped InspectionWorkspace handoff from one transferred     *)
 (* artifact session to the complete exact set of dependent group-release   *)
-(* receipts. The workspace first settles its group-close results, then the  *)
-(* artifact registration re-requests every stored group and waits for each *)
-(* owner-issued terminal receipt before releasing the query lease/session. *)
+(* receipts. The workspace requests release through each group's recorded  *)
+(* owner. Artifact cleanup only observes physical terminal settlement; it   *)
+(* never becomes another release authority.                                *)
 (*                                                                         *)
 (* Two exact dependent groups and one unrelated group bound the set-valued *)
 (* join. Each group consumes one named AssemblyContextGroup release-owner   *)
-(* instance. A faulted workspace-level close result may settle without      *)
-(* requesting the underlying group owner; the artifact registration's exact *)
-(* stored reference is then the only path that can drive that owner to its  *)
-(* terminal receipt.                                                       *)
+(* instance. A faulted workspace-level request may settle without requesting *)
+(* the underlying group owner. Artifact state then remains retained until an *)
+(* explicit adjacent-owner recovery request reaches terminal settlement.    *)
 (***************************************************************************)
 EXTENDS FiniteSets, TLC
 
@@ -21,7 +20,7 @@ CONSTANTS
     ForeignGroup,
     NoGroup,
     AllowOwnerCompletionBeforeQuiescence,
-    SkipSecondDependentRequest,
+    AllowArtifactCleanupRequest,
     AllowTransferDuringAdmission
 
 ReleaseResults == {"Succeeded", "Failed"}
@@ -37,7 +36,7 @@ ASSUME
     /\ IsFiniteSet(ReleaseResults)
     /\ NoReleaseResult \notin ReleaseResults
     /\ AllowOwnerCompletionBeforeQuiescence \in BOOLEAN
-    /\ SkipSecondDependentRequest \in BOOLEAN
+    /\ AllowArtifactCleanupRequest \in BOOLEAN
     /\ AllowTransferDuringAdmission \in BOOLEAN
 
 WorkspaceStates == {"Open", "ClosingGroups", "CleaningArtifacts", "Closed"}
@@ -46,6 +45,8 @@ GroupCloseStates ==
 ArtifactStates == {"Retained", "Released"}
 CleanupResults == {"None", "Succeeded", "Failed"}
 CloseOutcomes == {"None", "Succeeded", "Faulted"}
+RequestIssuers ==
+    {"None", "WorkspaceClose", "AdjacentOwner", "ArtifactCleanup"}
 
 VARIABLES
     workspaceState,
@@ -57,7 +58,7 @@ VARIABLES
     transferredSecond,
     groupCloseStatus,
     groupQuiescent,
-    artifactRequests,
+    requestIssuer,
     artifactState,
     artifactCleanupResult,
     reportedArtifactCleanupResult,
@@ -80,11 +81,30 @@ VARIABLES
 consumerVars == <<
     workspaceState, admissionInFlight, unrelatedAdmitted,
     distinctTransferWitness, transferred, transferredFirst, transferredSecond,
-    groupCloseStatus, groupQuiescent, artifactRequests, artifactState,
+    groupCloseStatus, groupQuiescent, requestIssuer, artifactState,
     artifactCleanupResult, reportedArtifactCleanupResult, closeOutcome,
     transferAdmissionWitness, faultRecoveryRequestObserved,
     alreadyTerminalTransferObserved, unrelatedAfterTransferObserved,
     mixedReceiptCleanupObserved
+    >>
+
+consumerVarsExceptRequestIssuer == <<
+    workspaceState, admissionInFlight, unrelatedAdmitted,
+    distinctTransferWitness, transferred, transferredFirst, transferredSecond,
+    groupCloseStatus, groupQuiescent, artifactState,
+    artifactCleanupResult, reportedArtifactCleanupResult, closeOutcome,
+    transferAdmissionWitness, faultRecoveryRequestObserved,
+    alreadyTerminalTransferObserved,
+    unrelatedAfterTransferObserved, mixedReceiptCleanupObserved
+    >>
+
+consumerVarsExceptRequestIssuerAndFaultRecovery == <<
+    workspaceState, admissionInFlight, unrelatedAdmitted,
+    distinctTransferWitness, transferred, transferredFirst, transferredSecond,
+    groupCloseStatus, groupQuiescent, artifactState,
+    artifactCleanupResult, reportedArtifactCleanupResult, closeOutcome,
+    transferAdmissionWitness, alreadyTerminalTransferObserved,
+    unrelatedAfterTransferObserved, mixedReceiptCleanupObserved
     >>
 
 oneReleaseVars ==
@@ -176,7 +196,7 @@ TypeOK ==
     /\ transferredSecond \in Groups \cup {NoGroup}
     /\ groupCloseStatus \in [Groups -> GroupCloseStates]
     /\ groupQuiescent \in [Groups -> BOOLEAN]
-    /\ artifactRequests \subseteq Groups
+    /\ requestIssuer \in [Groups -> RequestIssuers]
     /\ artifactState \in ArtifactStates
     /\ artifactCleanupResult \in CleanupResults
     /\ reportedArtifactCleanupResult \in CleanupResults
@@ -206,7 +226,7 @@ Init ==
     /\ transferredSecond = NoGroup
     /\ groupCloseStatus = [g \in Groups |-> "NotStarted"]
     /\ groupQuiescent = [g \in Groups |-> FALSE]
-    /\ artifactRequests = {}
+    /\ requestIssuer = [g \in Groups |-> "None"]
     /\ artifactState = "Retained"
     /\ artifactCleanupResult = "None"
     /\ reportedArtifactCleanupResult = "None"
@@ -228,7 +248,7 @@ StartAdmission ==
     /\ UNCHANGED <<
         workspaceState, unrelatedAdmitted, distinctTransferWitness, transferred,
         transferredFirst, transferredSecond, groupCloseStatus,
-        groupQuiescent, artifactRequests, artifactState,
+        groupQuiescent, requestIssuer, artifactState,
         artifactCleanupResult, reportedArtifactCleanupResult, closeOutcome,
         transferAdmissionWitness, faultRecoveryRequestObserved,
         alreadyTerminalTransferObserved, unrelatedAfterTransferObserved,
@@ -246,7 +266,7 @@ CompleteUnrelatedAdmission ==
     /\ UNCHANGED <<
         workspaceState, distinctTransferWitness, transferred, transferredFirst,
         transferredSecond, groupCloseStatus, groupQuiescent,
-        artifactRequests, artifactState, artifactCleanupResult,
+        requestIssuer, artifactState, artifactCleanupResult,
         reportedArtifactCleanupResult, closeOutcome,
         transferAdmissionWitness, faultRecoveryRequestObserved,
         alreadyTerminalTransferObserved, mixedReceiptCleanupObserved,
@@ -272,7 +292,7 @@ TransferCore(first, second) ==
     /\ UNCHANGED <<
         workspaceState, admissionInFlight, unrelatedAdmitted,
         groupCloseStatus, groupQuiescent,
-        artifactRequests, artifactState, artifactCleanupResult,
+        requestIssuer, artifactState, artifactCleanupResult,
         reportedArtifactCleanupResult, closeOutcome,
         faultRecoveryRequestObserved, unrelatedAfterTransferObserved,
         mixedReceiptCleanupObserved, ownerVars
@@ -305,7 +325,21 @@ RequestOwnerRelease(g) ==
     /\ IF g = ForeignGroup
        THEN ForeignGroupRelease!RequestRelease
        ELSE UNCHANGED foreignReleaseVars
-    /\ UNCHANGED consumerVars
+    /\ requestIssuer' = [requestIssuer EXCEPT ![g] = "AdjacentOwner"]
+    /\ UNCHANGED consumerVarsExceptRequestIssuer
+
+RecoverFaultedGroupRelease ==
+    /\ workspaceState = "CleaningArtifacts"
+    /\ groupCloseStatus[DependentTwo] = "Faulted"
+    /\ twoRequestedGroup = NoGroup
+    /\ DependentTwoRelease!RequestRelease
+    /\ requestIssuer' =
+        [requestIssuer EXCEPT ![DependentTwo] = "AdjacentOwner"]
+    /\ faultRecoveryRequestObserved' = TRUE
+    /\ UNCHANGED <<
+        consumerVarsExceptRequestIssuerAndFaultRecovery,
+        oneReleaseVars, foreignReleaseVars
+        >>
 
 GroupBecomesQuiescent(g) ==
     /\ g \in Groups
@@ -315,7 +349,7 @@ GroupBecomesQuiescent(g) ==
     /\ UNCHANGED <<
         workspaceState, admissionInFlight, unrelatedAdmitted,
         distinctTransferWitness, transferred, transferredFirst,
-        transferredSecond, groupCloseStatus, artifactRequests,
+        transferredSecond, groupCloseStatus, requestIssuer,
         artifactState, artifactCleanupResult,
         reportedArtifactCleanupResult, closeOutcome,
         transferAdmissionWitness, faultRecoveryRequestObserved,
@@ -355,7 +389,7 @@ BeginWorkspaceClose ==
     /\ UNCHANGED <<
         admissionInFlight, unrelatedAdmitted, distinctTransferWitness,
         transferred, transferredFirst, transferredSecond, groupCloseStatus,
-        groupQuiescent, artifactRequests, artifactState,
+        groupQuiescent, requestIssuer, artifactState,
         artifactCleanupResult, reportedArtifactCleanupResult, closeOutcome,
         transferAdmissionWitness, faultRecoveryRequestObserved,
         alreadyTerminalTransferObserved, unrelatedAfterTransferObserved,
@@ -389,10 +423,14 @@ StartWorkspaceGroupClose(g) ==
         ELSE /\ foreignRequestedGroup = ForeignGroup
              /\ UNCHANGED foreignReleaseVars
        ELSE UNCHANGED foreignReleaseVars
+    /\ requestIssuer' =
+        IF RequestedGroup(g) = NoGroup
+        THEN [requestIssuer EXCEPT ![g] = "WorkspaceClose"]
+        ELSE requestIssuer
     /\ UNCHANGED <<
         workspaceState, admissionInFlight, unrelatedAdmitted,
         distinctTransferWitness, transferred, transferredFirst,
-        transferredSecond, groupQuiescent, artifactRequests, artifactState,
+        transferredSecond, groupQuiescent, artifactState,
         artifactCleanupResult, reportedArtifactCleanupResult, closeOutcome,
         transferAdmissionWitness, faultRecoveryRequestObserved,
         alreadyTerminalTransferObserved, unrelatedAfterTransferObserved,
@@ -407,7 +445,7 @@ FaultSecondWorkspaceGroupClose ==
     /\ UNCHANGED <<
         workspaceState, admissionInFlight, unrelatedAdmitted,
         distinctTransferWitness, transferred, transferredFirst,
-        transferredSecond, groupQuiescent, artifactRequests, artifactState,
+        transferredSecond, groupQuiescent, requestIssuer, artifactState,
         artifactCleanupResult, reportedArtifactCleanupResult, closeOutcome,
         transferAdmissionWitness, faultRecoveryRequestObserved,
         alreadyTerminalTransferObserved, unrelatedAfterTransferObserved,
@@ -430,7 +468,7 @@ ObserveWorkspaceGroupReceipt(g) ==
     /\ UNCHANGED <<
         workspaceState, admissionInFlight, unrelatedAdmitted,
         distinctTransferWitness, transferred, transferredFirst,
-        transferredSecond, groupQuiescent, artifactRequests, artifactState,
+        transferredSecond, groupQuiescent, requestIssuer, artifactState,
         artifactCleanupResult, reportedArtifactCleanupResult, closeOutcome,
         transferAdmissionWitness, faultRecoveryRequestObserved,
         alreadyTerminalTransferObserved, unrelatedAfterTransferObserved,
@@ -444,54 +482,30 @@ BeginArtifactCleanup ==
     /\ UNCHANGED <<
         admissionInFlight, unrelatedAdmitted, distinctTransferWitness,
         transferred, transferredFirst, transferredSecond, groupCloseStatus,
-        groupQuiescent, artifactRequests, artifactState,
+        groupQuiescent, requestIssuer, artifactState,
         artifactCleanupResult, reportedArtifactCleanupResult, closeOutcome,
         transferAdmissionWitness, faultRecoveryRequestObserved,
         alreadyTerminalTransferObserved, unrelatedAfterTransferObserved,
         mixedReceiptCleanupObserved, ownerVars
         >>
 
-RequestDependentRelease(g) ==
+ArtifactCleanupRequestsRelease ==
+    /\ AllowArtifactCleanupRequest
     /\ workspaceState = "CleaningArtifacts"
-    /\ g \in RegisteredGroups
-    /\ g \notin artifactRequests
-    /\ ~(SkipSecondDependentRequest
-         /\ g = DependentTwo
-         /\ twoRequestedGroup = NoGroup)
-    /\ artifactRequests' = artifactRequests \cup {g}
-    /\ faultRecoveryRequestObserved' =
-        (faultRecoveryRequestObserved
-         \/ /\ g = DependentTwo
-            /\ groupCloseStatus[DependentTwo] = "Faulted"
-            /\ twoRequestedGroup = NoGroup)
-    /\ IF g = DependentOne
-       THEN
-        IF oneRequestedGroup = NoGroup
-        THEN DependentOneRelease!RequestRelease
-        ELSE /\ oneRequestedGroup = DependentOne
-             /\ UNCHANGED oneReleaseVars
-       ELSE UNCHANGED oneReleaseVars
-    /\ IF g = DependentTwo
-       THEN
-        IF twoRequestedGroup = NoGroup
-        THEN DependentTwoRelease!RequestRelease
-        ELSE /\ twoRequestedGroup = DependentTwo
-             /\ UNCHANGED twoReleaseVars
-       ELSE UNCHANGED twoReleaseVars
-    /\ IF g = ForeignGroup
-       THEN
-        IF foreignRequestedGroup = NoGroup
-        THEN ForeignGroupRelease!RequestRelease
-        ELSE /\ foreignRequestedGroup = ForeignGroup
-             /\ UNCHANGED foreignReleaseVars
-       ELSE UNCHANGED foreignReleaseVars
+    /\ groupCloseStatus[DependentTwo] = "Faulted"
+    /\ twoRequestedGroup = NoGroup
+    /\ DependentTwoRelease!RequestRelease
+    /\ requestIssuer' =
+        [requestIssuer EXCEPT ![DependentTwo] = "ArtifactCleanup"]
     /\ UNCHANGED <<
         workspaceState, admissionInFlight, unrelatedAdmitted,
         distinctTransferWitness, transferred, transferredFirst,
         transferredSecond, groupCloseStatus, groupQuiescent, artifactState,
         artifactCleanupResult, reportedArtifactCleanupResult, closeOutcome,
-        transferAdmissionWitness, alreadyTerminalTransferObserved,
-        unrelatedAfterTransferObserved, mixedReceiptCleanupObserved
+        transferAdmissionWitness, faultRecoveryRequestObserved,
+        alreadyTerminalTransferObserved,
+        unrelatedAfterTransferObserved, mixedReceiptCleanupObserved,
+        oneReleaseVars, foreignReleaseVars
         >>
 
 ReleaseArtifactSessionCore(result) ==
@@ -509,26 +523,23 @@ ReleaseArtifactSessionCore(result) ==
         workspaceState, admissionInFlight, unrelatedAdmitted,
         distinctTransferWitness, transferred, transferredFirst,
         transferredSecond, groupCloseStatus, groupQuiescent,
-        artifactRequests, reportedArtifactCleanupResult, closeOutcome,
+        requestIssuer, reportedArtifactCleanupResult, closeOutcome,
         transferAdmissionWitness, faultRecoveryRequestObserved,
         alreadyTerminalTransferObserved, unrelatedAfterTransferObserved,
         ownerVars
         >>
 
 ReleaseArtifactSession ==
-    /\ artifactRequests = ExactDependentGroups
     /\ AllExactReceiptsTerminal
     /\ \E result \in ReleaseResults :
         ReleaseArtifactSessionCore(result)
 
 ReleaseAfterPartialReceipt ==
-    /\ artifactRequests = ExactDependentGroups
     /\ oneCompletedGroup = DependentOne
     /\ twoCompletedGroup = NoGroup
     /\ ReleaseArtifactSessionCore("Succeeded")
 
 ReleaseWithForeignReceipt ==
-    /\ artifactRequests = ExactDependentGroups
     /\ oneCompletedGroup = DependentOne
     /\ twoCompletedGroup = NoGroup
     /\ foreignCompletedGroup = ForeignGroup
@@ -545,7 +556,7 @@ FinalizeWorkspaceCore(reportedResult, finalOutcome) ==
     /\ UNCHANGED <<
         admissionInFlight, unrelatedAdmitted, distinctTransferWitness,
         transferred, transferredFirst, transferredSecond, groupCloseStatus,
-        groupQuiescent, artifactRequests, artifactState,
+        groupQuiescent, requestIssuer, artifactState,
         artifactCleanupResult, transferAdmissionWitness,
         faultRecoveryRequestObserved, alreadyTerminalTransferObserved,
         unrelatedAfterTransferObserved, mixedReceiptCleanupObserved,
@@ -584,7 +595,8 @@ Next ==
     \/ \E g \in Groups : AdvanceWorkspaceGroupClose(g)
     \/ \E g \in Groups : ObserveWorkspaceGroupReceipt(g)
     \/ BeginArtifactCleanup
-    \/ \E g \in Groups : RequestDependentRelease(g)
+    \/ RecoverFaultedGroupRelease
+    \/ ArtifactCleanupRequestsRelease
     \/ ReleaseArtifactSession
     \/ FinalizeWorkspace
 
@@ -595,7 +607,6 @@ Fairness ==
     /\ \A g \in Groups : WF_vars(AdvanceWorkspaceGroupClose(g))
     /\ \A g \in Groups : WF_vars(ObserveWorkspaceGroupReceipt(g))
     /\ WF_vars(BeginArtifactCleanup)
-    /\ \A g \in Groups : WF_vars(RequestDependentRelease(g))
     /\ WF_vars(ReleaseArtifactSession)
     /\ WF_vars(FinalizeWorkspace)
 
@@ -639,6 +650,11 @@ TransferWaitsForCompletedAdmissions ==
 ArtifactReleaseWaitsForExactReceipts ==
     artifactState = "Released" => AllExactReceiptsTerminal
 
+ReleaseRequestsCarryOwnerAuthority ==
+    \A g \in Groups :
+        /\ (RequestedGroup(g) = NoGroup) = (requestIssuer[g] = "None")
+        /\ requestIssuer[g] # "ArtifactCleanup"
+
 ArtifactCleanupResultRemainsVisible ==
     workspaceState = "Closed"
         => reportedArtifactCleanupResult = artifactCleanupResult
@@ -676,20 +692,31 @@ ForeignBehaviorRefinesOwner ==
 
 (***************************************************************************)
 (* Liveness properties. Close is caller-initiated; once it starts, weak     *)
-(* fairness requires group settlement, exact receipt recovery after a fault,*)
-(* artifact cleanup, report publication, and terminal close.               *)
+(* fairness reaches terminal close or the safe retained wait for an owner.  *)
+(* After an owner request exists, settlement and cleanup remain live.       *)
 (***************************************************************************)
-ClosingWorkspaceEventuallyCloses ==
-    workspaceState = "ClosingGroups" ~> workspaceState = "Closed"
+ClosingWorkspaceEventuallySettles ==
+    workspaceState = "ClosingGroups"
+        ~> \/ workspaceState = "Closed"
+           \/ /\ workspaceState = "CleaningArtifacts"
+              /\ groupCloseStatus[DependentTwo] = "Faulted"
+              /\ twoRequestedGroup = NoGroup
+              /\ artifactState = "Retained"
 
-FaultedGroupCloseEventuallyCleansArtifacts ==
-    groupCloseStatus[DependentTwo] = "Faulted"
+RecoveredFaultedGroupCloseEventuallyCleansArtifacts ==
+    (/\ groupCloseStatus[DependentTwo] = "Faulted"
+     /\ twoRequestedGroup = DependentTwo)
         ~> artifactState = "Released"
 
 (***************************************************************************)
 (* Reachability probes. Their configurations negate these observations.    *)
 (***************************************************************************)
-NoFaultRecoveryRequestObserved == ~faultRecoveryRequestObserved
+NoOwnerRecoveryRequestObserved == ~faultRecoveryRequestObserved
+NoFaultedSettlementWaitObserved ==
+    ~(/\ workspaceState = "CleaningArtifacts"
+      /\ groupCloseStatus[DependentTwo] = "Faulted"
+      /\ twoRequestedGroup = NoGroup
+      /\ artifactState = "Retained")
 NoAlreadyTerminalTransferObserved == ~alreadyTerminalTransferObserved
 NoUnrelatedAfterTransferObserved == ~unrelatedAfterTransferObserved
 NoMixedReceiptCleanupObserved == ~mixedReceiptCleanupObserved
