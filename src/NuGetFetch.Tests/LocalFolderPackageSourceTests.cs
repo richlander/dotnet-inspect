@@ -825,6 +825,26 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
                         TestContext.Current.CancellationToken,
                     operationContext: failureContext)).Kind);
 
+        var lateOpenHost = new LateOpenHost();
+        using IPackageSourceClient lateOpen =
+            PackageSourceClientFactory.Create(
+                LocalPackageSourceIdentity.Create(_root, _root),
+                PackageSourceAssociation.Create(),
+                lateOpenHost);
+        using var lateOpenContext = new NuGetOperationContext(
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromMilliseconds(10),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            PackageSourceFailureKind.Timeout,
+            Failed(
+                await lateOpen.SearchAsync(
+                    string.Empty,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    operationContext: lateOpenContext)).Kind);
+        Assert.True(lateOpenHost.ContentDisposed);
+
         byte[] package = CreatePackageBytes("Slow", "1.0.0");
         using IPackageSourceClient slowArchive =
             PackageSourceClientFactory.Create(
@@ -1654,6 +1674,62 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
             LocalPackageSourceFile file,
             NuGetOperationDeadline operation) =>
             new(new SlowReadMemoryStream(content), content.Length);
+    }
+
+    private sealed class LateOpenHost : ILocalPackageSourceFileSystem
+    {
+        private TrackingDisposalStream? _content;
+
+        public bool ContentDisposed => _content?.Disposed ?? false;
+
+        public LocalPackageSourceHostCapabilities Capabilities =>
+            LocalPackageSourceHostCapabilities.List
+            | LocalPackageSourceHostCapabilities.Read;
+
+        public bool TryGetDirectory(
+            LocalPackageSourceIdentity source,
+            out LocalPackageSourceDirectory? directory)
+        {
+            directory = new LocalPackageSourceDirectory(
+                string.Empty,
+                new object());
+            return true;
+        }
+
+        public LocalPackageSourceDirectoryListing List(
+            LocalPackageSourceDirectory directory,
+            int maximumEntries,
+            NuGetOperationDeadline operation) =>
+            new(
+                [],
+                [
+                    new LocalPackageSourceFile(
+                        "LateOpen.1.0.0.nupkg",
+                        new object()),
+                ],
+                HasMoreEntries: false);
+
+        public LocalPackageSourceOpenFile OpenRead(
+            LocalPackageSourceFile file,
+            NuGetOperationDeadline operation)
+        {
+            Thread.Sleep(30);
+            _content = new TrackingDisposalStream();
+            return new LocalPackageSourceOpenFile(_content, 0);
+        }
+    }
+
+    private sealed class TrackingDisposalStream : MemoryStream
+    {
+        public bool Disposed { get; private set; }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                Disposed = true;
+
+            base.Dispose(disposing);
+        }
     }
 
     private sealed class MemoryHost : ILocalPackageSourceFileSystem

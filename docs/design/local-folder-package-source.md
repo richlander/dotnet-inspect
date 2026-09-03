@@ -424,9 +424,10 @@ Implementation is verified by these named Release gates:
   absence.
 - `LocalFolderSource_ContextBoundsEveryOperation` proves caller cancellation
   identity, terminal operation timeout, and checks during directory, archive,
-  manifest, payload, and transferred-stream cleanup work. It also proves
-  pre-call and racing per-read cancellation precedence, reversible EOF and seek
-  reactivation, and source-bound reads released by concurrent disposal.
+  manifest, payload, late-open cleanup, and transferred-stream cleanup work. It
+  also proves pre-call and racing per-read cancellation precedence, reversible
+  EOF and seek reactivation, and source-bound reads released by concurrent
+  disposal.
 - `LocalFolderSource_PayloadTransfersValidatedStreamOwnership` proves the
   returned stream is the validated stream, remains caller-owned after client
   disposal, and translates later read and disposal failures with exact source

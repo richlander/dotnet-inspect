@@ -731,11 +731,11 @@ internal sealed class LocalPackageSourceEngine
             _operation.ThrowIfExpired();
             throw;
         }
-        _operation.ThrowIfExpired();
         Stream content = opened.Content;
         bool ownershipTransferred = false;
         try
         {
+            _operation.ThrowIfExpired();
             if (!content.CanRead || !content.CanSeek)
             {
                 throw new IOException(
