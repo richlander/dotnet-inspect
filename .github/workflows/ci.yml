@@ -142,7 +142,7 @@ jobs:
           fi
           jq -e '
             type == "object"
-            and .schemaVersion == 1
+            and .schemaVersion == 2
             and .status == "planned"
           ' <<< "$plan" > /dev/null
           printf 'plan=%s\n' "$plan" >> "$GITHUB_OUTPUT"
@@ -651,7 +651,7 @@ jobs:
       # token that CI — and any fork PR — does not have. Everything that can be proven with an
       # in-memory transport, including the whole credential-mechanism matrix, runs here.
       - name: Run NuGetFetch tests (offline)
-        run: dotnet run --project src/NuGetFetch.Tests -c Release -- -trait- "Network=Live"
+        run: dotnet run --project src/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
 
       # InertText sits below every other project, so a regression here reaches every assembly
       # that prints artifact-derived text. The gates are pure and fast — a full BMP sweep and a
@@ -775,6 +775,39 @@ jobs:
           echo "::error::The authenticated GitHub Packages fixture test failed." >&2
           echo "This lane cannot certify hosted fixture consumption. See the fixture test step." >&2
           exit 1
+
+  # Pull-request and merge-group candidates validate dependency policy in the
+  # full test job above. Pushes to main need a focused second look at the
+  # composed tree: two independently green PRs can introduce a forbidden edge
+  # only when both are present, and the full test matrix intentionally skips
+  # post-merge runs.
+  dependency-policy:
+    needs: changes
+    if: fromJSON(needs.changes.outputs.plan).validations.dependencyPolicy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Build
+        run: dotnet build dotnet-inspect.slnx -c Release
+
+      - name: Validate dependency policy
+        run: dotnet run --project eng/DependencyPolicy -c Release --no-build
 
   # net10.0 fallback build coverage. The official non-AOT "any" package targets
   # the net10.0 LTS floor (Directory.Build.props), but the full test lane builds
@@ -1357,10 +1390,11 @@ jobs:
       - inspect-web
       - skill-gate
       - test
+      - dependency-policy
       - tla-plus
       # Path-gated jobs report `skipped` when their input class is absent; all
-      # expensive jobs except inspect-web also skip on pushes to main. That
-      # passes the gate by design; the allow list below distinguishes
+      # expensive jobs except inspect-web and dependency-policy skip on pushes
+      # to main. That passes the gate by design; the allow list below distinguishes
       # "correctly not run" from "ran and failed".
       - build-net10
       - decompiler-gates

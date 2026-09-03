@@ -326,6 +326,7 @@ internal static class ChangePlanTestSuite
             ValidationSelections selections =
                 ValidationSelections.FromRouting(all, kind);
             if (!(selections.Test
+                && !selections.DependencyPolicy
                 && selections.CSharpDiffSmoke
                 && selections.DecompilerGates
                 && selections.Markdownlint
@@ -346,6 +347,7 @@ internal static class ChangePlanTestSuite
         ValidationSelections pushed =
             ValidationSelections.FromRouting(all, PlanEventKind.Push);
         if (pushed.Test
+            || !pushed.DependencyPolicy
             || pushed.CSharpDiffSmoke
             || pushed.DecompilerGates
             || pushed.IlDiffSmoke
@@ -412,6 +414,7 @@ internal static class ChangePlanTestSuite
             PlanRefusalCategory.PlanSerialization,
             () => new ValidationSelections(
                 test: false,
+                dependencyPolicy: false,
                 cSharpDiffSmoke: false,
                 decompilerGates: false,
                 markdownlint: false,
@@ -519,7 +522,7 @@ internal static class ChangePlanTestSuite
             policy);
 
         const string Golden =
-            "{\"schemaVersion\":1,\"status\":\"planned\",\"provenance\":"
+            "{\"schemaVersion\":2,\"status\":\"planned\",\"provenance\":"
             + "{\"kind\":\"pullRequestSyntheticCandidate\",\"baseObjectId\":"
             + "\"1111111111111111111111111111111111111111\","
             + "\"candidateObjectId\":"
@@ -527,6 +530,7 @@ internal static class ChangePlanTestSuite
             + "{\"recordCount\":2,\"sha256\":"
             + "\"e2942177c268e91967eeb66ed6c48b8e8e426158f30a8f3371de8322"
             + "439a2a05\"},\"validations\":{\"test\":false,"
+            + "\"dependencyPolicy\":false,"
             + "\"csharpDiffSmoke\":false,\"decompilerGates\":false,"
             + "\"markdownlint\":true,\"ilDiffSmoke\":false,"
             + "\"ilRoundTrip\":false,\"pack\":false,\"buildNet10\":false,"
@@ -626,12 +630,12 @@ internal static class ChangePlanTestSuite
                     "\"status\": \"planned\"")),
             ("non-canonical property order",
                 text.Replace(
-                    "{\"schemaVersion\":1,\"status\":\"planned\"",
-                    "{\"status\":\"planned\",\"schemaVersion\":1")),
+                    "{\"schemaVersion\":2,\"status\":\"planned\"",
+                    "{\"status\":\"planned\",\"schemaVersion\":2")),
             ("escaped member name",
                 text.Replace("schemaVersion", "schema\\u0056ersion")),
             ("non-canonical number",
-                text.Replace("\"schemaVersion\":1", "\"schemaVersion\":1e0")),
+                text.Replace("\"schemaVersion\":2", "\"schemaVersion\":2e0")),
             ("control character", $"\n{text}"),
             ("truncated document", text[..^1]),
             ("unknown member",
@@ -639,13 +643,13 @@ internal static class ChangePlanTestSuite
             ("missing member", text.Replace(",\"diagnostics\":[]", "")),
             ("duplicate member",
                 text.Replace(
-                    "\"schemaVersion\":1",
-                    "\"schemaVersion\":1,\"schemaVersion\":1")),
+                    "\"schemaVersion\":2",
+                    "\"schemaVersion\":2,\"schemaVersion\":2")),
             ("mistyped boolean", text.Replace("\"test\":false", "\"test\":0")),
             ("mistyped count",
                 text.Replace("\"recordCount\":1", "\"recordCount\":\"1\"")),
             ("unsupported version",
-                text.Replace("\"schemaVersion\":1", "\"schemaVersion\":2")),
+                text.Replace("\"schemaVersion\":2", "\"schemaVersion\":3")),
             ("unsupported status",
                 text.Replace("\"planned\"", "\"refused\"")),
             ("invalid digest",
