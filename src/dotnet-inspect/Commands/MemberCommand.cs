@@ -849,6 +849,7 @@ public static class MemberCommand
         SectionNames.AppliedTaste,
         SectionNames.AnnotatedSource,
         SectionNames.AnnotatedSourceDocument,
+        SectionNames.FindingCensus,
         SectionNames.PdbSource,
         SectionNames.SourceDiff,
         SectionNames.Calls,
@@ -908,6 +909,7 @@ public static class MemberCommand
                && (sections.Contains(SectionNames.DecompiledSource)
                    || sections.Contains(SectionNames.AnnotatedSource)
                    || sections.Contains(SectionNames.AnnotatedSourceDocument)
+                   || sections.Contains(SectionNames.FindingCensus)
                    || sections.Contains(SectionNames.BodyShapes)
                    || sections.Contains(SectionNames.Facts));
     }

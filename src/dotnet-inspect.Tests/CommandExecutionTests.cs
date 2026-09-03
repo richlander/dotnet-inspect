@@ -15808,6 +15808,27 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public void Member_FindingCensus_AuthorizesPdbResolution()
+    {
+        var type = new ApiType
+        {
+            Name = "Fixture",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var options = new MemberOptions
+        {
+            OverloadIndex = 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.FindingCensus,
+            },
+        };
+
+        Assert.True(MemberCommand.NeedsMemberSourceResolution(type, options));
+    }
+
+    [Fact]
     public async Task Member_HostileIlOperand_StaysInsideMarkdownAndJsonCodeSections()
     {
         const string injected = "public int Injected() => 42; //";
@@ -16524,7 +16545,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(FactsTableFixture).FullName!,
             "--library", TestAssemblyPath,
-            $"{nameof(FactsTableFixture.BoxInt)}:1",
+            nameof(FactsTableFixture.BoxInt),
             "-S", "Finding Census", "--tips", "q");
 
         Assert.Equal(0, exit);
@@ -16581,7 +16602,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("requires one selected body-backed member", error);
+        Assert.Contains("requires a single selected overload", error);
     }
 
     [Theory]
@@ -16630,6 +16651,29 @@ public partial class CommandExecutionTests
         Assert.Contains(
             "section 'Finding Census' must be the only selected section under --json",
             error);
+    }
+
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("-n", "5")]
+    [InlineData("--rows", "1")]
+    [InlineData("--fields", "Member")]
+    [InlineData("--columns", "Member")]
+    public async Task Member_AllSelector_ProjectionDoesNotBecomeFindingCensusProjection(
+        params string[] projection)
+    {
+        var (exit, _, error) = await RunAppAsync(
+        [
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            $"{nameof(FactsTableFixture.BoxInt)}:1",
+            "-S", "@All",
+            .. projection,
+            "--tips", "q",
+        ]);
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("indivisible document payload", error);
     }
 
     [Fact]
@@ -20319,6 +20363,9 @@ public partial class CommandExecutionTests
         // declaration while preserving the non-empty guard for probed sections. The generated
         // no-SourceLink overload fixture gates this distinction without depending on checkout
         // source acquisition (#3464).
+        if (section == SectionNames.FindingCensus)
+            return true;
+
         if (IsNoMemberTypeDiscoveryCommand(command))
             return !TypeUnprobedDiscoverySections.Contains(section);
 

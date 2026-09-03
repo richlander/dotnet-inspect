@@ -3827,6 +3827,7 @@ public class ApiCommand
 
     private static bool IsInvalidFindingCensusProjection(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.FindingCensus) == true
+           && HasExplicitFindingCensusSelector(options)
            && (options.Count
                || options.Tabular
                || options.Tsv
