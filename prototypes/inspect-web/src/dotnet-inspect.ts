@@ -2739,6 +2739,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
         : null;
   const sourceWorkingSurface =
     sourcePageKind !== null && sourcePageSource !== null;
+  const apiWorkingSurface =
+    activeScope === "type" && state.lens === "api";
   const annotatedPageContext =
     activeScope === "member"
     && state.memberSection === "annotated"
@@ -2828,7 +2830,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
         ${renderNavPane(current, visible)}
 
         <section class="detail-pane">
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -4378,11 +4380,17 @@ function renderApiLens(item: AppTypeSurface) {
   });
   const visibleGroups = visibleMemberGroups(publicSurface);
   return `
-    ${typeHeadingHtml(item)}
-    <section class="document-section">
-      <div class="section-title"><h2>Public API</h2><span>${publicGroups.length} member groups · ${item.members} overloads</span></div>
-      <div class="member-browser-controls">${renderMemberFilterControls(publicSurface)}</div>
-      <div class="api-list">${visibleGroups.map(group => {
+    <section class="api-surface" aria-labelledby="api-surface-title">
+      <header class="api-surface-head">
+        <div>
+          <span>Type inspector</span>
+          <h1 id="api-surface-title">Public API</h1>
+        </div>
+        <p><strong>${publicGroups.length}</strong> member groups <span>· ${item.members} overloads</span></p>
+      </header>
+      <div class="member-browser-controls api-surface-controls">${renderMemberFilterControls(publicSurface)}</div>
+      <div class="api-surface-scroll">
+        <div class="api-list api-surface-list">${visibleGroups.map(group => {
         const overload = group.overloads[0];
         if (!overload)
           throw new Error(`Member group '${group.key}' did not contain an overload.`);
@@ -4392,24 +4400,29 @@ function renderApiLens(item: AppTypeSurface) {
           <code>${highlight(overload.signature)}</code>
           <small>${group.overloads.length === 1 ? escapeHtml(group.kind) : `${group.overloads.length} overloads`}</small>
         </button>`;
-      }).join("") || '<div class="empty-list">No declared public members match these filters.</div>'}</div>
-    </section>
-    ${graphGroups.length
-      ? `<section class="document-section">
-          <div class="section-title"><h2>Graph-discovered implementation members</h2><span>${graphGroups.reduce((count, group) => count + group.overloads.length, 0)} projected</span></div>
-          <div class="api-list">${graphGroups.map(group => {
-            const overload = group.overloads[0];
-            if (!overload)
-              throw new Error(`Member group '${group.key}' did not contain an overload.`);
-            return `
-            <button class="api-row" data-member="${escapeHtml(group.key)}">
-              <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
-              <code>${highlight(overload.signature)}</code>
-              <small>${group.overloads.length === 1 ? "implementation" : `${group.overloads.length} implementations`}</small>
-            </button>`;
-          }).join("")}</div>
-        </section>`
-      : ""}`;
+        }).join("") || '<div class="empty-list">No declared public members match these filters.</div>'}</div>
+        ${graphGroups.length
+          ? `<section class="api-surface-secondary">
+              <div class="section-title"><h2>Graph-discovered implementation members</h2><span>${graphGroups.reduce((count, group) => count + group.overloads.length, 0)} projected</span></div>
+              <div class="api-list">${graphGroups.map(group => {
+                const overload = group.overloads[0];
+                if (!overload)
+                  throw new Error(`Member group '${group.key}' did not contain an overload.`);
+                return `
+                <button class="api-row" data-member="${escapeHtml(group.key)}">
+                  <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
+                  <code>${highlight(overload.signature)}</code>
+                  <small>${group.overloads.length === 1 ? "implementation" : `${group.overloads.length} implementations`}</small>
+                </button>`;
+              }).join("")}</div>
+            </section>`
+          : ""}
+      </div>
+      <footer class="api-surface-footer">
+        <span>${visibleGroups.length} of ${publicGroups.length} member groups visible</span>
+        <span>Select a row to inspect its API</span>
+      </footer>
+    </section>`;
 }
 
 function renderMember(type: AppTypeSurface, member: AppMemberGroup) {

@@ -808,6 +808,7 @@ kbd {
 .detail-scroll.annotated-working-surface {
   display: block;
 }
+.detail-scroll.api-working-surface { min-height: 0; overflow: hidden; padding: 0; }
 
 .type-heading {
   display: grid;
@@ -880,6 +881,19 @@ kbd {
 .api-row:hover { background: var(--panel-raised); }
 .api-row code { overflow: hidden; color: var(--text); font: 12px/1.5 var(--mono); white-space: nowrap; text-overflow: ellipsis; }
 .api-row small { color: var(--dim); font: 10px var(--mono); }
+.api-surface { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: auto auto minmax(0, 1fr) 34px; background: var(--bg); }
+.api-surface-head { min-width: 0; min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.api-surface-head > div { min-width: 0; }
+.api-surface-head > div > span { color: var(--dim); font: 10px var(--mono); text-transform: uppercase; }
+.api-surface-head h1 { margin: 2px 0 0; font-size: 18px; letter-spacing: -.025em; }
+.api-surface-head p { flex: none; display: flex; align-items: baseline; gap: 6px; margin: 0; color: var(--dim); font: 10px var(--mono); }
+.api-surface-head p strong { color: var(--text); font-size: 13px; font-weight: 500; }
+.api-surface-controls { margin: 0; border: 0; border-bottom: 1px solid var(--line); }
+.api-surface-scroll { min-width: 0; min-height: 0; overflow: auto; padding-bottom: 24px; }
+.api-surface-list { border: 0; }
+.api-surface-list .api-row { padding-inline: 16px; }
+.api-surface-secondary { padding: 24px 16px 0; }
+.api-surface-footer { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 12px; border-top: 1px solid var(--line); background: var(--panel); color: var(--dim); font: 10px var(--mono); }
 .member-icon { border-color: var(--line-strong); color: var(--blue); }
 .member-back {
   margin: 0 0 13px;
@@ -1482,6 +1496,9 @@ kbd {
   .type-browser { grid-template-rows: 40px 38px auto auto minmax(0, 1fr); }
   .member-nav { grid-template-rows: 40px 34px 38px auto 24px minmax(0, 1fr); }
   .detail-scroll { padding: 22px 18px 60px; }
+  .api-surface-head { min-height: 56px; padding-inline: 12px; }
+  .api-surface-head p span,
+  .api-surface-footer span:last-child { display: none; }
   .type-heading { grid-template-columns: 35px minmax(0, 1fr); }
   .type-badge { width: 35px; height: 35px; }
   .type-heading p { grid-column: 1 / -1; }
