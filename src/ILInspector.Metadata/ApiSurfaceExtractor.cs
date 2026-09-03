@@ -3392,7 +3392,8 @@ public static class ApiSurfaceExtractor
                 attributeMaterialize))
             .ToArray();
         string[] parameterNames = CSharpParameterNames.Allocate(
-            parameterInfos.Select(info => info.name).ToArray());
+            parameterInfos.Select(info => info.name).ToArray(),
+            context.MethodParameters);
         for (int i = 0; i < paramTypes.Length; i++)
         {
             // Apply nullability to this parameter's type tree

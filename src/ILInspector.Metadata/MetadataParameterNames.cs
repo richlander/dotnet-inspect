@@ -15,7 +15,8 @@ public static class MetadataParameterNames
     public static string[] Resolve(
         MetadataReader reader,
         ParameterHandleCollection parameterHandles,
-        int parameterCount)
+        int parameterCount,
+        IEnumerable<string>? reservedNames = null)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentOutOfRangeException.ThrowIfNegative(parameterCount);
@@ -32,6 +33,6 @@ public static class MetadataParameterNames
             }
         }
 
-        return CSharpParameterNames.Allocate(artifactNames);
+        return CSharpParameterNames.Allocate(artifactNames, reservedNames);
     }
 }

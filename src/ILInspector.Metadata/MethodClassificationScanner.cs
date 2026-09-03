@@ -488,7 +488,12 @@ public static class MethodClassificationScanner
             var context = GenericContext.ForMethod(reader, typeDef, method);
             var sig = GuardedSignatureText.MethodText(reader, method, context)
                 .GetValueOrThrow();
-            return SignatureRenderer.RenderDecodedSignature(reader, method, methodName, sig);
+            return SignatureRenderer.RenderDecodedSignature(
+                reader,
+                method,
+                methodName,
+                sig,
+                context);
         }
         catch
         {

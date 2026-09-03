@@ -17,6 +17,12 @@ public class UnspeakableNameFidelityTests
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Boolean = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef Action = TypeRef.CoreLib("System", "Action");
+    static readonly TypeRef FuncIntInt = TypeRef.GenericInstance(
+        TypeRef.CoreLib("System", "Func`2"),
+        [Int32, Int32]);
+    static readonly TypeRef FuncIntFuncInt = TypeRef.GenericInstance(
+        TypeRef.CoreLib("System", "Func`2"),
+        [Int32, FuncIntInt]);
     static readonly TypeRef Target = TypeRef.Definition("Synthetic", "Samples", "Target");
 
     static IrFunction Function(ImmutableArray<TypeRef> locals, BlockContainer body)
@@ -507,6 +513,33 @@ public class UnspeakableNameFidelityTests
     }
 
     [Fact]
+    public void ParameterConflictingWithMethodGenericParameter_DegradesToPartial()
+    {
+        var signature = new MethodSignature(
+            Int32,
+            [new Parameter("value", Int32)],
+            HasThis: false,
+            GenericParameterCount: 1)
+        {
+            GenericParameterNames = ["value"],
+        };
+        var function = new IrFunction(
+            "M",
+            Target,
+            signature,
+            [],
+            Container(new Return(new LoadArgument(0, "value", Int32))));
+
+        var issue = CSharpSpellability.InspectUnrepresentableMetadataName(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Equal(
+            DecompilerFidelityDiscriminators.UnspellableParameterName,
+            issue?.Discriminator);
+        Assert.Contains("method generic parameter", issue?.Reason);
+    }
+
+    [Fact]
     public void UnspellableRetainedLocalName_DegradesToPartial()
     {
         var function = Function(
@@ -539,6 +572,59 @@ public class UnspeakableNameFidelityTests
 
         Assert.Equal(withoutSymbols, withSymbols);
         Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void LocalConflictingWithParameter_DegradesToPartial()
+    {
+        var function = Function(
+            Void,
+            [new Parameter("value", Int32)],
+            [Int32],
+            Container(
+                new StoreLocal(0, Int32, new Constant(1, Int32)),
+                new Return(null)));
+        function.LocalNames = ["value"];
+
+        var issue = CSharpSpellability.InspectUnrepresentableMetadataName(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Equal(
+            DecompilerFidelityDiscriminators.UnspellableLocalName,
+            issue?.Discriminator);
+        Assert.Contains("conflicts with a parameter", issue?.Reason);
+    }
+
+    [Fact]
+    public void LocalConflictingWithMethodGenericParameter_DegradesToPartial()
+    {
+        var signature = new MethodSignature(
+            Void,
+            [],
+            HasThis: false,
+            GenericParameterCount: 1)
+        {
+            GenericParameterNames = ["value"],
+        };
+        var function = new IrFunction(
+            "M",
+            Target,
+            signature,
+            [Int32],
+            Container(
+                new StoreLocal(0, Int32, new Constant(1, Int32)),
+                new Return(null)))
+        {
+            LocalNames = ["value"],
+        };
+
+        var issue = CSharpSpellability.InspectUnrepresentableMetadataName(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Equal(
+            DecompilerFidelityDiscriminators.UnspellableLocalName,
+            issue?.Discriminator);
+        Assert.Contains("method generic parameter", issue?.Reason);
     }
 
     [Theory]
@@ -601,6 +687,199 @@ public class UnspeakableNameFidelityTests
             usesUpdatedMemorySafetyRules: false,
             skipLocalsInit: false,
             Container(new Return(null)));
+        var function = Function([], Container(statement, new Return(null)));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void RaisedLambdaParameterMatchingOuterParameter_StaysFull()
+    {
+        var lambda = new Lambda(
+            FuncIntInt,
+            [new Parameter("value", Int32)],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Container(new Return(new LoadArgument(0, "value", Int32))));
+        var function = Function(
+            FuncIntInt,
+            [new Parameter("value", Int32)],
+            [],
+            Container(new Return(lambda)));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Null(CSharpSpellability.InspectUnrepresentableMetadataName(lambda));
+    }
+
+    [Fact]
+    public void RaisedLocalFunctionParameterMatchingOuterParameter_StaysFull()
+    {
+        var localFunction = new LocalFunctionStatement(
+            "Local",
+            Void,
+            [new Parameter("value", Int32)],
+            isStatic: true,
+            locals: [],
+            localNames: [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Container(new Return(null)));
+        var function = Function(
+            Void,
+            [new Parameter("value", Int32)],
+            [],
+            Container(localFunction, new Return(null)));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Null(
+            CSharpSpellability.InspectUnrepresentableMetadataName(
+                localFunction));
+    }
+
+    [Fact]
+    public void RaisedLambdaParameterMatchingParentLambda_StaysFull()
+    {
+        var inner = new Lambda(
+            FuncIntInt,
+            [new Parameter("value", Int32)],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Container(new Return(new LoadArgument(0, "value", Int32))));
+        var outer = new Lambda(
+            FuncIntFuncInt,
+            [new Parameter("value", Int32)],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Container(new Return(inner)));
+        var function = Function(
+            FuncIntFuncInt,
+            [],
+            [],
+            Container(new Return(outer)));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Null(CSharpSpellability.InspectUnrepresentableMetadataName(inner));
+    }
+
+    [Fact]
+    public void SameNamedParametersInSiblingLambdas_StayFull()
+    {
+        Lambda LambdaWithValueParameter() => new(
+            FuncIntInt,
+            [new Parameter("value", Int32)],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Container(new Return(new LoadArgument(0, "value", Int32))));
+
+        var function = Function(
+            [FuncIntInt, FuncIntInt],
+            Container(
+                new StoreLocal(0, FuncIntInt, LambdaWithValueParameter()),
+                new StoreLocal(1, FuncIntInt, LambdaWithValueParameter()),
+                new Return(null)));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void RaisedLambdaUnreferencedLocal_DoesNotLowerFidelity()
+    {
+        var lambda = new Lambda(
+            Action,
+            [],
+            [Int32],
+            ["bad-name"],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Container(new Return(null)));
+        var function = Function(Action, [], [], Container(new Return(lambda)));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void RaisedLocalFunctionUnreferencedLocal_DoesNotLowerFidelity()
+    {
+        var statement = new LocalFunctionStatement(
+            "Local",
+            Void,
+            [],
+            isStatic: true,
+            locals: [Int32],
+            localNames: ["bad-name"],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Container(new Return(null)));
+        var function = Function([], Container(statement, new Return(null)));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void RaisedLambdaReferencedUnspellableLocal_DegradesToPartial()
+    {
+        var lambda = new Lambda(
+            Action,
+            [],
+            [Int32],
+            ["bad-name"],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Container(
+                new StoreLocal(0, Int32, new Constant(1, Int32)),
+                new Return(null)));
+        var function = Function(Action, [], [], Container(new Return(lambda)));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void RaisedLambdaReferencedLocalMatchingOwnParameter_DegradesToPartial()
+    {
+        var lambda = new Lambda(
+            Action,
+            [new Parameter("value", Int32)],
+            [Int32],
+            ["value"],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Container(
+                new StoreLocal(0, Int32, new Constant(1, Int32)),
+                new Return(null)));
+        var function = Function(Action, [], [], Container(new Return(lambda)));
+
+        var issue = CSharpSpellability.InspectUnrepresentableMetadataName(lambda);
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Equal(
+            DecompilerFidelityDiscriminators.UnspellableLocalName,
+            issue?.Discriminator);
+        Assert.Contains("conflicts with a parameter", issue?.Reason);
+    }
+
+    [Fact]
+    public void RaisedLocalFunctionReferencedUnspellableLocal_DegradesToPartial()
+    {
+        var statement = new LocalFunctionStatement(
+            "Local",
+            Void,
+            [],
+            isStatic: true,
+            locals: [Int32],
+            localNames: ["bad-name"],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Container(
+                new StoreLocal(0, Int32, new Constant(1, Int32)),
+                new Return(null)));
         var function = Function([], Container(statement, new Return(null)));
 
         Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);

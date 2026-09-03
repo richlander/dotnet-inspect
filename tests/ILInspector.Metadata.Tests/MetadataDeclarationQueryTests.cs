@@ -121,7 +121,100 @@ public sealed class MetadataDeclarationQueryTests
                     reader,
                     method,
                     "Sum",
-                    signature));
+                    signature,
+                    GenericContext.ForMethod(reader, type, method)));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void ParameterNameResolution_ReservesMethodGenericParameterName()
+    {
+        string path = EmitMethodWithGenericParameterCollision(
+            methodGenericParameter: true);
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            var reader = peReader.GetMetadataReader();
+            var type = reader.GetTypeDefinition(
+                reader.TypeDefinitions.Single(handle =>
+                    reader.GetString(reader.GetTypeDefinition(handle).Name)
+                        == "GenericParameterSample"));
+            var method = type.GetMethods()
+                .Select(reader.GetMethodDefinition)
+                .Single(candidate => reader.GetString(candidate.Name) == "Echo");
+            var context = GenericContext.ForMethod(reader, type, method);
+            var signature = GuardedSignatureText.MethodText(
+                    reader,
+                    method,
+                    context)
+                .GetValueOrThrow();
+
+            Assert.Equal(
+                ["arg0_1"],
+                MetadataParameterNames.Resolve(
+                    reader,
+                    method.GetParameters(),
+                    1,
+                    context.MethodParameters));
+            Assert.Equal(
+                "int Echo<arg0>(int arg0_1)",
+                SignatureRenderer.RenderDecodedSignature(
+                    reader,
+                    method,
+                    "Echo<arg0>",
+                    signature,
+                    context));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void ParameterNameResolution_DoesNotReserveTypeGenericParameterName()
+    {
+        string path = EmitMethodWithGenericParameterCollision(
+            methodGenericParameter: false);
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            var reader = peReader.GetMetadataReader();
+            var type = reader.GetTypeDefinition(
+                reader.TypeDefinitions.Single(handle =>
+                    reader.GetString(reader.GetTypeDefinition(handle).Name)
+                        == "GenericParameterSample"));
+            var method = type.GetMethods()
+                .Select(reader.GetMethodDefinition)
+                .Single(candidate => reader.GetString(candidate.Name) == "Echo");
+            var context = GenericContext.ForMethod(reader, type, method);
+            var signature = GuardedSignatureText.MethodText(
+                    reader,
+                    method,
+                    context)
+                .GetValueOrThrow();
+
+            Assert.Equal(
+                ["arg0"],
+                MetadataParameterNames.Resolve(
+                    reader,
+                    method.GetParameters(),
+                    1,
+                    context.MethodParameters));
+            Assert.Equal(
+                "int Echo(int arg0)",
+                SignatureRenderer.RenderDecodedSignature(
+                    reader,
+                    method,
+                    "Echo",
+                    signature,
+                    context));
         }
         finally
         {
@@ -397,6 +490,34 @@ public sealed class MetadataDeclarationQueryTests
         string path = Path.Combine(
             Path.GetTempPath(),
             $"ParameterRows-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
+    static string EmitMethodWithGenericParameterCollision(
+        bool methodGenericParameter)
+    {
+        var assemblyName = new AssemblyName("GenericParameterCollision");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        var type = module.DefineType("GenericParameterSample", TypeAttributes.Public);
+        if (!methodGenericParameter)
+            type.DefineGenericParameters("arg0");
+        var method = type.DefineMethod(
+            "Echo",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(int),
+            [typeof(int)]);
+        if (methodGenericParameter)
+            method.DefineGenericParameters("arg0");
+        var il = method.GetILGenerator();
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ret);
+        type.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"GenericParameterCollision-{Guid.NewGuid():N}.dll");
         assembly.Save(path);
         return path;
     }

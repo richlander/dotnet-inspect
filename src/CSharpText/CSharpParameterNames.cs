@@ -8,9 +8,12 @@ public static class CSharpParameterNames
 {
     /// <summary>
     /// Replaces absent or empty names with <c>arg{ordinal}</c>, reserving all
-    /// surviving artifact names before choosing collision-free fallbacks.
+    /// surviving artifact names and caller-supplied declaration binders before
+    /// choosing collision-free fallbacks.
     /// </summary>
-    public static string[] Allocate(IReadOnlyList<string?> artifactNames)
+    public static string[] Allocate(
+        IReadOnlyList<string?> artifactNames,
+        IEnumerable<string>? reservedNames = null)
     {
         ArgumentNullException.ThrowIfNull(artifactNames);
 
@@ -26,7 +29,9 @@ public static class CSharpParameterNames
         if (!hasMissingName)
             return result;
 
-        var reserved = new HashSet<string>(StringComparer.Ordinal);
+        var reserved = reservedNames is null
+            ? new HashSet<string>(StringComparer.Ordinal)
+            : new HashSet<string>(reservedNames, StringComparer.Ordinal);
         foreach (string? name in result)
         {
             if (name is not null)

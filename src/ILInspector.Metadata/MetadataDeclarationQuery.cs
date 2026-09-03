@@ -396,7 +396,11 @@ public static class MetadataDeclarationQuery
                 ReturnAttributes = ReturnAttributes(reader, method.GetParameters()).ToList(),
                 MemberName = methodName,
                 TypeParameters = typeParameters.ToList(),
-                Parameters = MethodParameters(reader, method, signature).ToList(),
+                Parameters = MethodParameters(
+                    reader,
+                    method,
+                    signature,
+                    typeParameters.Select(parameter => parameter.Name)).ToList(),
             },
             RenderMemberAttributes(reader, method.GetCustomAttributes()));
     }
@@ -693,8 +697,13 @@ public static class MetadataDeclarationQuery
     static IReadOnlyList<ApiParameter> MethodParameters(
         MetadataReader reader,
         MethodDefinition method,
-        MethodSignature<string> signature)
-        => Parameters(reader, method.GetParameters(), signature.ParameterTypes);
+        MethodSignature<string> signature,
+        IEnumerable<string> methodTypeParameterNames)
+        => Parameters(
+            reader,
+            method.GetParameters(),
+            signature.ParameterTypes,
+            methodTypeParameterNames);
 
     static IReadOnlyList<ApiParameter> PropertyParameters(
         MetadataReader reader,
@@ -705,12 +714,14 @@ public static class MetadataDeclarationQuery
     static IReadOnlyList<ApiParameter> Parameters(
         MetadataReader reader,
         ParameterHandleCollection parameterHandles,
-        IReadOnlyList<string> parameterTypes)
+        IReadOnlyList<string> parameterTypes,
+        IEnumerable<string>? reservedNames = null)
     {
         string[] parameterNames = MetadataParameterNames.Resolve(
             reader,
             parameterHandles,
-            parameterTypes.Count);
+            parameterTypes.Count,
+            reservedNames);
         var parameters = new List<ApiParameter>();
         for (var index = 0; index < parameterTypes.Count; index++)
         {

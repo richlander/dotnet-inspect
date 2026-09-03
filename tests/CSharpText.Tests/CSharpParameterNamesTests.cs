@@ -17,4 +17,14 @@ public sealed class CSharpParameterNamesTests
 
         Assert.Equal(["class", "A\u0301", " "], names);
     }
+
+    [Fact]
+    public void Allocate_ReservesDeclarationBindersForSynthesizedNamesOnly()
+    {
+        string[] names = CSharpParameterNames.Allocate(
+            [null, "arg1"],
+            ["arg0", "arg1"]);
+
+        Assert.Equal(["arg0_1", "arg1"], names);
+    }
 }

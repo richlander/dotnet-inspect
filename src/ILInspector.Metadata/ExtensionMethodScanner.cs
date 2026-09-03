@@ -743,13 +743,19 @@ public static class ExtensionMethodScanner
         MetadataReader reader,
         TypeDefinition typeDef,
         MethodDefinition method,
-        GenericContext? context)
+        GenericContext context)
     {
         string name = reader.GetString(method.Name);
         var signature = GuardedSignatureText.MethodText(reader, method, context)
             .GetValueOrThrow();
 
         // First parameter is the extension receiver, rendered with a 'this ' prefix.
-        return SignatureRenderer.RenderDecodedSignature(reader, method, name, signature, extensionThis: true);
+        return SignatureRenderer.RenderDecodedSignature(
+            reader,
+            method,
+            name,
+            signature,
+            context,
+            extensionThis: true);
     }
 }

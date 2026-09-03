@@ -66,7 +66,8 @@ public static class MethodImporter
         string[] parameterNames = MetadataParameterNames.Resolve(
             reader,
             method.GetParameters(),
-            decoded.ParameterTypes.Length);
+            decoded.ParameterTypes.Length,
+            methodGenericParameterNames);
         var hasDefaultByIndex = new Dictionary<int, bool>();
         var dynamicByIndex = new Dictionary<int, bool>();
         var arrayElementDynamicByIndex = new Dictionary<int, MetadataFactState>();

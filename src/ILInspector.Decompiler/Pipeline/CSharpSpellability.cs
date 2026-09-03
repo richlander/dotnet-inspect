@@ -70,10 +70,15 @@ internal static class CSharpSpellability
 
         return node switch
         {
-            IrFunction function => ScopedNamesIssue(
+            IrFunction function => ParameterNamesIssue(
                 function.Signature.Parameters,
-                function.LocalNames,
-                function.EliminatedLocalSlots),
+                function.Signature.GenericParameterNames)
+                ?? LocalNamesIssue(
+                    function.LocalNames,
+                    function.EliminatedLocalSlots,
+                    function.Signature.Parameters
+                        .Select(parameter => parameter.Name)
+                        .Concat(function.Signature.GenericParameterNames)),
             Call call => MethodIssue(call.Callee),
             NewObject newObject => ConstructorIssue(newObject.Constructor),
             AddressOfMethod address => MethodGroupTargetIssue(address.Method),
@@ -94,20 +99,30 @@ internal static class CSharpSpellability
             DeconstructionTarget target => DeconstructionTargetIssue(target),
             RecursivePropertyDeclarationPattern pattern => PropertyIssue(pattern.PropertyName),
             EventSubscription subscription => PropertyIssue(subscription.EventName),
-            Lambda lambda => ScopedNamesIssue(lambda.Parameters, lambda.LocalNames),
+            Lambda lambda => ParameterNamesIssue(lambda.Parameters)
+                ?? NestedLocalNamesIssue(
+                    lambda.LocalNames,
+                    lambda.Parameters,
+                    lambda.Body),
             LocalFunctionStatement statement => LocalFunctionIssue(statement.Name)
-                ?? ScopedNamesIssue(statement.Parameters, statement.LocalNames),
+                ?? ParameterNamesIssue(statement.Parameters)
+                ?? NestedLocalNamesIssue(
+                    statement.LocalNames,
+                    statement.Parameters,
+                    statement.Body),
             LocalFunctionInvocation invocation => LocalFunctionIssue(invocation.Name),
             _ => null,
         };
     }
 
-    static NameIssue? ScopedNamesIssue(
+    static NameIssue? ParameterNamesIssue(
         ImmutableArray<Parameter> parameters,
-        ImmutableArray<string?> localNames,
-        IReadOnlySet<int>? eliminatedLocalSlots = null)
+        IEnumerable<string>? reservedNames = null)
     {
         var parameterNames = new HashSet<string>(StringComparer.Ordinal);
+        HashSet<string>? reserved = reservedNames is null
+            ? null
+            : new HashSet<string>(reservedNames, StringComparer.Ordinal);
         foreach (var parameter in parameters)
         {
             if (!HasLosslessBodyIdentifierSpelling(parameter.Name))
@@ -122,13 +137,36 @@ internal static class CSharpSpellability
                     DecompilerFidelityDiscriminators.UnspellableParameterName,
                     $"duplicate parameter name '{parameter.Name}' has no lossless C# binding");
             }
+            if (reserved?.Contains(parameter.Name) == true)
+            {
+                return Issue(
+                    DecompilerFidelityDiscriminators.UnspellableParameterName,
+                    $"parameter name '{parameter.Name}' conflicts with a method generic parameter");
+            }
         }
 
+        return null;
+    }
+
+    static NameIssue? LocalNamesIssue(
+        ImmutableArray<string?> localNames,
+        IReadOnlySet<int>? eliminatedLocalSlots = null,
+        IEnumerable<string>? reservedNames = null,
+        IrNode? retainedScope = null)
+    {
+        HashSet<string>? reserved = reservedNames is null
+            ? null
+            : new HashSet<string>(reservedNames, StringComparer.Ordinal);
         for (var index = 0; index < localNames.Length; index++)
         {
             string? name = localNames[index];
             if (name is null || eliminatedLocalSlots?.Contains(index) == true)
                 continue;
+            if (retainedScope is not null
+                && !IrFunction.LocalSlotReferencesInScope(retainedScope, index).Any())
+            {
+                continue;
+            }
             if (!HasLosslessBodyIdentifierSpelling(name))
             {
                 return new NameIssue(
@@ -136,10 +174,26 @@ internal static class CSharpSpellability
                     $"local name '{name}' has no lossless C# spelling",
                     DecompilerFidelityLocation.AtLocal(index));
             }
+            if (reserved?.Contains(name) == true)
+            {
+                return new NameIssue(
+                    DecompilerFidelityDiscriminators.UnspellableLocalName,
+                    $"local name '{name}' conflicts with a parameter or method generic parameter",
+                    DecompilerFidelityLocation.AtLocal(index));
+            }
         }
 
         return null;
     }
+
+    static NameIssue? NestedLocalNamesIssue(
+        ImmutableArray<string?> localNames,
+        ImmutableArray<Parameter> parameters,
+        BlockContainer body)
+        => LocalNamesIssue(
+            localNames,
+            reservedNames: parameters.Select(parameter => parameter.Name),
+            retainedScope: body);
 
     static bool HasLosslessBodyIdentifierSpelling(string name)
         => CSharpIdentifier.IsIdentifierLike(name)

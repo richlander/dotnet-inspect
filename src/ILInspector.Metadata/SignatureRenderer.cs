@@ -19,6 +19,7 @@ internal static class SignatureRenderer
         MethodDefinition method,
         string name,
         MethodSignature<string> signature,
+        GenericContext context,
         bool extensionThis = false)
     {
         var paramHandles = method.GetParameters();
@@ -26,7 +27,8 @@ internal static class SignatureRenderer
         string[] parameterNames = MetadataParameterNames.Resolve(
             reader,
             paramHandles,
-            paramTypes.Length);
+            paramTypes.Length,
+            context.MethodParameters);
 
         List<string> parameters = [];
         for (int i = 0; i < paramTypes.Length; i++)

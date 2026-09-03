@@ -1282,7 +1282,12 @@ public class PdbContext : IDisposable
             var context = GenericContext.ForMethod(reader, type, method);
             var signature = GuardedSignatureText.MethodText(reader, method, context)
                 .GetValueOrThrow();
-            return SignatureRenderer.RenderDecodedSignature(reader, method, methodName, signature);
+            return SignatureRenderer.RenderDecodedSignature(
+                reader,
+                method,
+                methodName,
+                signature,
+                context);
         }
         catch
         {

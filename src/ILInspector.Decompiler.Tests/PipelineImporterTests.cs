@@ -180,6 +180,122 @@ public class PipelineImporterTests
     }
 
     [Fact]
+    public void Import_SynthesizedParameterName_DoesNotCollideWithMethodGenericParameter()
+    {
+        string path = EmitMethodWithGenericParameterCollision();
+        try
+        {
+            using (var stream = File.OpenRead(path))
+            using (var pe = new PEReader(stream))
+            {
+                MetadataReader reader = pe.GetMetadataReader();
+                TypeDefinition type = reader.GetTypeDefinition(
+                    reader.TypeDefinitions.Single(handle =>
+                        reader.GetString(reader.GetTypeDefinition(handle).Name)
+                            == "GenericParameterSample"));
+                MethodDefinition method = type.GetMethods()
+                    .Select(reader.GetMethodDefinition)
+                    .Single(candidate => reader.GetString(candidate.Name) == "Echo");
+
+                var declaration = MetadataDeclarationQuery.GetMethod(reader, type, method);
+                Assert.Equal(
+                    "arg0_1",
+                    Assert.Single(declaration.Signature.Parameters).Name);
+
+                var surface = ApiSurfaceExtractor.Extract(pe, includeAll: true);
+                var surfaceType = Assert.Single(
+                    surface.Types,
+                    candidate => candidate.Name == "GenericParameterSample");
+                var surfaceMethod = Assert.Single(
+                    surfaceType.Members,
+                    candidate => candidate.Name == "Echo");
+                Assert.Equal(
+                    "int Echo<arg0>(int arg0_1)",
+                    surfaceMethod.Signature);
+            }
+
+            using var source = MetadataSource.Open(path);
+            var function = IrImporter.Import(
+                source,
+                "GenericParameterSample",
+                "Echo");
+
+            Assert.Equal(
+                "arg0_1",
+                Assert.Single(function!.Signature.Parameters).Name);
+            Assert.Equal(
+                ["arg0"],
+                function.Signature.GenericParameterNames);
+
+            IrPasses.Run(function);
+            Assert.Equal(
+                "return arg0_1;",
+                CSharpPrinter.Print(function).Output!.TrimEnd());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void BodylessUnrepresentableParameter_ExposesCurrentDeclarationGap()
+    {
+        string path = EmitBodylessMethodWithUnrepresentableParameter();
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var pe = new PEReader(stream);
+            MetadataReader reader = pe.GetMetadataReader();
+            TypeDefinition type = reader.GetTypeDefinition(
+                reader.TypeDefinitions.Single(handle =>
+                    reader.GetString(reader.GetTypeDefinition(handle).Name)
+                        == "BodylessParameterSample"));
+            MethodDefinition[] methods = type.GetMethods()
+                .Select(reader.GetMethodDefinition)
+                .ToArray();
+            MethodDefinition method = methods.Single(candidate =>
+                reader.GetString(candidate.Name) == "Echo");
+
+            Assert.Equal(0, method.RelativeVirtualAddress);
+            using var source = MetadataSource.Open(path);
+            Assert.Null(MethodImporter.Import(
+                source,
+                "BodylessParameterSample",
+                "Echo"));
+
+            var surface = ApiSurfaceExtractor.Extract(pe, includeAll: true);
+            var surfaceType = Assert.Single(
+                surface.Types,
+                candidate => candidate.Name == "BodylessParameterSample");
+            var surfaceMethod = Assert.Single(
+                surfaceType.Members,
+                candidate => candidate.Name == "Echo");
+            var genericSurfaceMethod = Assert.Single(
+                surfaceType.Members,
+                candidate => candidate.Name == "GenericEcho");
+            Assert.Equal(
+                "int Echo(int bad-name)",
+                surfaceMethod.Signature);
+            Assert.Equal(
+                "int GenericEcho<arg0>(int arg0)",
+                genericSurfaceMethod.Signature);
+            Assert.Contains(
+                "int Echo(int bad-name)",
+                new ILInspector.CSharp.CSharpFormatter()
+                    .FormatMember(surfaceType, surfaceMethod));
+            Assert.Contains(
+                "int GenericEcho<arg0>(int arg0)",
+                new ILInspector.CSharp.CSharpFormatter()
+                    .FormatMember(surfaceType, genericSurfaceMethod));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Import_RecoversDefiningMethodRuntimeAsyncFact()
     {
         using var source = MetadataSource.Open(typeof(RuntimeAsyncAwaiterFixtures).Assembly.Location);
@@ -355,6 +471,63 @@ public class PipelineImporterTests
         string path = Path.Combine(
             Path.GetTempPath(),
             $"CollidingParamName-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
+    static string EmitMethodWithGenericParameterCollision()
+    {
+        var assemblyName = new AssemblyName("GenericParameterCollision");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        var type = module.DefineType("GenericParameterSample", TypeAttributes.Public);
+        var method = type.DefineMethod(
+            "Echo",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(int),
+            [typeof(int)]);
+        method.DefineGenericParameters("arg0");
+        var il = method.GetILGenerator();
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ret);
+        type.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"GenericParameterCollision-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
+    static string EmitBodylessMethodWithUnrepresentableParameter()
+    {
+        var assemblyName = new AssemblyName("BodylessParameter");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        var type = module.DefineType(
+            "BodylessParameterSample",
+            TypeAttributes.Public | TypeAttributes.Abstract);
+        var method = type.DefineMethod(
+            "Echo",
+            MethodAttributes.Public | MethodAttributes.Abstract | MethodAttributes.Virtual,
+            typeof(int),
+            [typeof(int)]);
+        method.DefineParameter(1, ParameterAttributes.None, "bad-name");
+        var genericMethod = type.DefineMethod(
+            "GenericEcho",
+            MethodAttributes.Public | MethodAttributes.Abstract | MethodAttributes.Virtual,
+            typeof(int),
+            [typeof(int)]);
+        genericMethod.DefineGenericParameters("arg0");
+        genericMethod.DefineParameter(
+            1,
+            ParameterAttributes.None,
+            "arg0");
+        type.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"BodylessParameter-{Guid.NewGuid():N}.dll");
         assembly.Save(path);
         return path;
     }
