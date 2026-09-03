@@ -37,6 +37,9 @@ import {
   createCSharpRangeHighlighter,
 } from "../src/csharp-highlighting.ts";
 import {
+  prismCSharp,
+} from "../src/prism-csharp.ts";
+import {
   validateDocument,
 } from "../src/document-model.ts";
 import { sampleDocument as sampleDocumentFixture } from "../../annotated-source-viewer/src/sample-document.js";
@@ -146,7 +149,7 @@ function renderAndFocus(
           highlightCSharp: (source, tokenizationSource, excludedRanges) =>
             createCSharpRangeHighlighter(
               source,
-              window.Prism,
+              prismCSharp,
               escapeHtml,
               tokenizationSource,
               excludedRanges,
@@ -162,7 +165,7 @@ function renderAndFocus(
           highlightCSharp: (source, tokenizationSource, excludedRanges) =>
             createCSharpRangeHighlighter(
               source,
-              window.Prism,
+              prismCSharp,
               escapeHtml,
               tokenizationSource,
               excludedRanges,

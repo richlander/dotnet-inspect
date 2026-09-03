@@ -830,9 +830,13 @@ as an adoption. Overrides need reading separately because Oxlint keeps them as
 their own array rather than folding them into the top-level rules.
 That resolved read pins rule *options* as one set alongside the severities: a
 rule left enabled but given options that exempt the code it was enabled for
-reports nothing while every severity reads exactly as before. The `node:test`
-`test` call is the only option-borne exemption in the project, so any second one
-fails there. Plugin *settings* are pinned the same way and for the same reason,
+reports nothing while every severity reads exactly as before. Two option-borne
+exemptions exist, so a third fails there. The `node:test` `test` call is not a
+floating promise, and Prism ships each language grammar as a module whose only
+effect is registering itself onto the core, so the import has nothing to bind;
+`import/no-unassigned-import` allows exactly `prismjs/components/*` and still
+reports an unassigned import anywhere else. Plugin *settings* are pinned the
+same way and for the same reason,
 except that they reach a whole family at once — `settings.jsdoc.ignorePrivate`
 exempts every `@private` symbol from every jsdoc rule without touching a
 severity. The settings assertion is differential: it compares this project's
@@ -1006,38 +1010,46 @@ under `/api/*`, which carry whatever headers the function sets for itself. The
 MSDL proxy is such a function, so these four headers do not cover its responses.
 Giving the proxy its own headers is tracked in #5119.
 
-The second property is whether the third-party digests in `index.html` still
-describe what the CDN serves. `require-sri` enforces that a cross-origin
-subresource *carries* a digest, and that is the whole of what a linter can see;
-whether the digest is still current lives on the network and changes without any
-commit here. `scripts/check-sri-freshness.ts` re-fetches each pinned URL and
-compares hashes, reading the pins out of the document so they cannot drift from
-what the site actually loads.
+The second property is that the documents load nothing from another origin at
+all. `require-sri` enforces that a cross-origin subresource *carries* a digest,
+and that is the whole of what a linter can see.
+`scripts/check-no-cross-origin-subresources.ts` enforces the stronger property
+that there is no such subresource to carry one.
 
-Be precise about what that buys, because it is not a security control. SRI is
-the security control and the browser enforces it: a stale pin means the browser
-*refuses* the bytes, so nothing unexpected runs. What goes wrong is that the
-subresource silently disappears — on this site, syntax highlighting stops
-working — with nothing to say why. This is a maintenance signal, and it is
-scheduled weekly rather than gating pull requests, because reaching jsDelivr is
-required and an outage there is not a defect in somebody's change.
+That check replaced a weekly one. The site used to load Prism from jsDelivr, so
+the open question was whether the committed digests still described what the CDN
+served — a fact about the network, not about the source tree, which changed
+without any commit here. Answering it meant re-fetching each pinned URL, which
+meant running on a schedule, because an unreachable jsDelivr is not a defect in
+somebody's pull request. Prism is now an ordinary dependency the bundler
+resolves, so there is no third-party subresource left to drift and no digest
+left to re-pin.
 
-It reads the document with html-validate's own parser — the same parser that
-lints the file — rather than with a pattern, so the two cannot disagree about
-what the markup contains. It resolves URLs the way a browser does and follows
-the SRI metadata grammar, so valid markup does not produce false drift. It also
-separates the two ways it can fail: a stale pin is fixed by re-pinning, an
-unreachable CDN is not a pin problem at all, and filing the second under the
-first sends somebody looking for drift that is not there.
+What replaced it is stronger rather than weaker, and the difference is worth
+being precise about. Freshness was a maintenance signal: SRI is the security
+control, the browser enforces it, and a stale pin means the browser *refuses*
+the bytes, so nothing unexpected runs. What went wrong was that the subresource
+silently disappeared — on this site, syntax highlighting stopped working — with
+nothing to say why. Containment is a different kind of property: the shipped
+documents reach no origin but their own, so there is no third-party fetch to be
+tampered with, blocked, or observed in the first place. It is also decidable
+offline, so it runs on every pull request through `npm run lint` instead of once
+a week.
 
-The check that matters most is the cheapest one. Finding *no* pinned
-subresources exits as inconclusive rather than as success, because this script
-exists to check them and finding none means the markup shape changed underneath
-it. Without that, every later refactor of `index.html` would quietly turn the
-weekly run into a green light for nothing.
+It reads documents with html-validate's own parser — the same parser that lints
+them — rather than with a pattern, so the two cannot disagree about what the
+markup contains. It resolves URLs the way a browser does, so `//cdn.example/x.js`
+is caught as readily as an `https://` spelling, and it skips `<noscript>` and
+`<template>` content because a browser does not fetch it.
+
+A check whose passing condition is "found nothing" has to prove it looked.
+Finding no documents, or no subresources in any of them, exits as inconclusive
+rather than as success, because every document here loads at least a stylesheet
+or a module. Without that, a refactor of `index.html` would quietly turn the
+check into a green light for nothing.
 
 Both of those checks read markup, and that is also their limit. `require-sri`
-and the freshness check each look at `<script>` and `<link>` elements, so a
+and the cross-origin check each look at `<script>` and `<link>` elements, so a
 library loaded by `import("https://cdn.example/lib.js")` is invisible to both --
 a dynamic import is not markup. Three runtime libraries used to load exactly
 that way: mermaid, marked, and DOMPurify. They carried no digest, and both
@@ -1087,9 +1099,11 @@ clean today. It will sometimes fail for a build tool rather than for shipped
 code; that is the accepted trade against a narrower gate whose description has
 to be exactly right, and three times was not.
 
-What remains on a CDN is the three Prism scripts in `index.html`. Those are
-markup, they carry digests, and the freshness check reads them -- so the
-coverage claim and the actual surface now describe the same set.
+Nothing remains on a CDN. Prism was the last third-party subresource in
+`index.html` and it is now bundled like the other three, so the coverage claim
+and the actual surface describe the same set: the empty one. That is what lets
+`scripts/check-no-cross-origin-subresources.ts` state the property positively
+rather than checking digests on an exception.
 
 A Content-Security-Policy is still outstanding, because the generated
 `<script type="importmap">` needs a per-build hash before `script-src` can be
