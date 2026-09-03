@@ -100,6 +100,10 @@ test("the Application menu owns global actions and modal focus return", async ({
   await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
   await expect(page.locator("#settings-title")).toBeFocused();
   await expect(page.locator(".workbench")).toHaveAttribute("inert", "");
+  await page.keyboard.press("Enter");
+  await expect(page.locator("body")).not.toHaveAttribute(
+    "data-drill-in",
+    "true");
   await page.keyboard.press("Shift+Tab");
   await expect(page.getByRole("button", { name: "Light" })).toBeFocused();
   await page.keyboard.press("Escape");
@@ -110,8 +114,17 @@ test("the Application menu owns global actions and modal focus return", async ({
   await page.getByRole("menuitem", { name: "Keyboard help" }).click();
   await expect(page.getByRole("dialog", { name: "Keyboard help" })).toBeVisible();
   await expect(page.locator("#keyboard-help-title")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("body")).not.toHaveAttribute(
+    "data-drill-in",
+    "true");
   await page.locator("#keyboard-help-close").click();
   await expect(button).toBeFocused();
+  await page.locator("#inspector-panel").evaluate(element =>
+    element.setAttribute("tabindex", "-1"));
+  await page.locator("#inspector-panel").focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("body")).toHaveAttribute("data-drill-in", "true");
 
   await button.click();
   await items.first().click();
@@ -183,6 +196,15 @@ test("Keyboard help reflects current command availability and surface", async ({
     .toBeVisible();
   await expect(page.getByText("Leave the current member or subject"))
     .toHaveCount(0);
+  await expect(page.getByText("Go back")).toHaveCount(0);
+  await expect(page.getByText("Go forward")).toHaveCount(0);
+
+  await page.goto(
+    "/browser/workspace-titlebar.html?package=1&history-back=1");
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: "Keyboard help" }).click();
+  await expect(page.getByText("Go back")).toHaveCount(2);
+  await expect(page.getByText("Go forward")).toHaveCount(0);
 
   await page.goto("/browser/workspace-titlebar.html?workspace=1");
   await page.getByRole("button", { name: "Application menu" }).click();

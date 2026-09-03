@@ -1245,8 +1245,19 @@ test("keyboard help projects available global and current graph bindings", () =>
   const drillInBinding =
     appSource.match(/keybindings\.register\(\{\s*id: "workspace\.drill-in"[\s\S]*?\n}\);/)?.[0]
     ?? "";
-  assert.doesNotMatch(drillInBinding, /available:/);
+  assert.match(
+    drillInBinding,
+    /available: workspaceKeyboardContextIsActive/);
   assert.match(drillInBinding, /run: \(\) => \{\s*drillIn\(\);/);
+  assert.match(
+    appSource,
+    /const workspaceHistoryBackIsAvailable = \(\) =>\s*workspaceKeyboardContextIsActive\(\) && navigationHistory\.canBack\(\)/);
+  assert.match(
+    appSource,
+    /const workspaceHistoryForwardIsAvailable = \(\) =>\s*workspaceKeyboardContextIsActive\(\) && navigationHistory\.canForward\(\)/);
+  assert.match(
+    appSource,
+    /\["ArrowLeft", navBack, workspaceHistoryBackIsAvailable\][\s\S]*\["ArrowRight", navForward, workspaceHistoryForwardIsAvailable\][\s\S]*available,/);
 });
 
 test("delayed Share completion preserves newer focus ownership", () => {

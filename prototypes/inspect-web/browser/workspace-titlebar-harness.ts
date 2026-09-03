@@ -80,6 +80,8 @@ const annotatedMode = params.has("annotated");
 const sourceMode = params.has("source");
 const graphMode = params.has("graph");
 const limitationMode = params.has("limitation");
+const historyBackMode = params.has("history-back");
+const historyForwardMode = params.has("history-forward");
 const longMode = params.has("long");
 const defaultPackageIcon =
   "https://nuget.org/Content/gallery/img/default-package-icon-256x256.png";
@@ -382,6 +384,28 @@ harnessKeybindings.register({
   priority: 100,
   run: () => true,
 });
+for (const [key, available] of [
+  ["ArrowLeft", () => historyBackMode],
+  ["ArrowRight", () => historyForwardMode],
+] as const) {
+  harnessKeybindings.register({
+    id: `workspace.history-alt-${key}`,
+    key,
+    available,
+    modifiers: { alt: true },
+    allowExtraModifiers: true,
+    priority: 100,
+    run: () => true,
+  });
+  harnessKeybindings.register({
+    id: `workspace.history-shift-${key}`,
+    key,
+    available,
+    modifiers: { shift: true },
+    priority: 100,
+    run: () => true,
+  });
+}
 harnessKeybindings.register({
   id: "workspace.drill-in",
   key: "Enter",
@@ -440,8 +464,8 @@ app.innerHTML = `
       titleNavigationHtml: `
         <nav class="title-navigation" aria-label="Search and history">
           <div class="nav-history">
-            <button id="nav-back" disabled aria-label="Back">←</button>
-            <button id="nav-forward" disabled aria-label="Forward">→</button>
+            <button id="nav-back" ${historyBackMode ? "" : "disabled"} aria-label="Back">←</button>
+            <button id="nav-forward" ${historyForwardMode ? "" : "disabled"} aria-label="Forward">→</button>
           </div>
           <button id="open-search" class="title-search" type="button" aria-haspopup="dialog">
             <span class="title-search-glyph" aria-hidden="true">⌕</span>
@@ -548,6 +572,27 @@ function handleApplicationAction(action: ApplicationAction): void {
   }
   setApplicationDialog(applicationDialog === action ? null : action);
 }
+
+const harnessDispatchKeybindings = new KeybindingRegistry();
+harnessDispatchKeybindings.register({
+  id: "workspace.drill-in",
+  key: "Enter",
+  available: () => applicationDialog === null,
+  allowExtraModifiers: true,
+  priority: 100,
+  when: event => !event.metaKey
+    && !event.ctrlKey
+    && !event.altKey
+    && !(event.target instanceof Element
+      && event.target.matches(
+        "button, a[href], input, select, textarea, summary, "
+        + "[role=button], [role=link], [role=checkbox]")),
+  run: () => {
+    document.body.dataset.drillIn = "true";
+    return true;
+  },
+});
+harnessDispatchKeybindings.attach(document);
 
 const workbenchShellActions: WorkbenchShellBindingActions = {
   onApplicationAction: handleApplicationAction,

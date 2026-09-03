@@ -10963,6 +10963,10 @@ const workspaceDrillOutIsAvailable = () =>
   && (navMode() === "member" || !state.atPackageRoot);
 const inspectionNavigationIsAvailable = () =>
   workspaceKeyboardContextIsActive() && scope() !== "workspace";
+const workspaceHistoryBackIsAvailable = () =>
+  workspaceKeyboardContextIsActive() && navigationHistory.canBack();
+const workspaceHistoryForwardIsAvailable = () =>
+  workspaceKeyboardContextIsActive() && navigationHistory.canForward();
 
 keybindings.register({
   id: "metadata-explorer.dismiss",
@@ -11205,14 +11209,14 @@ keybindings.register({
   },
 });
 
-for (const [key, action] of [
-  ["ArrowLeft", navBack],
-  ["ArrowRight", navForward],
+for (const [key, action, available] of [
+  ["ArrowLeft", navBack, workspaceHistoryBackIsAvailable],
+  ["ArrowRight", navForward, workspaceHistoryForwardIsAvailable],
 ] as const) {
   keybindings.register({
     id: `workspace.history-alt-${key}`,
     key,
-    available: workspaceKeyboardContextIsActive,
+    available,
     modifiers: { alt: true },
     allowExtraModifiers: true,
     priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
@@ -11225,7 +11229,7 @@ for (const [key, action] of [
   keybindings.register({
     id: `workspace.history-shift-${key}`,
     key,
-    available: workspaceKeyboardContextIsActive,
+    available,
     modifiers: { shift: true },
     priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
     when: () => !isTextEntry(),
@@ -11280,6 +11284,7 @@ keybindings.register({
 keybindings.register({
   id: "workspace.drill-in",
   key: "Enter",
+  available: workspaceKeyboardContextIsActive,
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
   when: event => !isTextEntry()
