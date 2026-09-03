@@ -21,6 +21,8 @@ This is a focused browser-consumer design. It consumes:
   [Analysis diff](analysis-diff.md);
 - multi-subject composition, where applicable, from
   [Comparison document](comparison-document.md);
+- source provenance and action semantics from
+  [Inspect Web presentation language](inspect-web-presentation-language.md);
 - worker operation ownership from
   [Inspect Web worker runtime](inspect-web-worker-runtime.md); and
 - page placement and responsive composition from
@@ -62,8 +64,8 @@ The comparison query:
 4. returns explicit endpoint availability and failure information;
 5. when both endpoint texts are available, calls
    `TextFindings.CreateAnalysisDiff`; and
-6. lowers that analysis through
-   `TextAnalysisDiffPresentation.CreateMappedTextDiff`.
+6. returns a presentation-neutral result containing endpoint evidence and the
+   complete `AnalysisDiff<string>`.
 
 The query owns acquisition order, retained-image lifetime, binding-policy
 validation, and the association between the two endpoint texts. It must reuse
@@ -78,8 +80,8 @@ requests remain unchanged and do not acquire or decompile a second endpoint.
 The JS export returns one closed browser DTO rooted in `BrowserJsonContext`.
 The DTO contains:
 
-- Before and After source descriptors with provider, provenance, optional URL,
-  text, and final-line-terminator state;
+- Before and After source descriptors with provider, provenance, optional
+  producer-authorized browse URL, text, and final-line-terminator state;
 - explicit comparison availability or failure;
 - browser-consumer accounting with added and removed counts plus separate Before
   and After cardinalities for changed and moved populations;
@@ -89,8 +91,11 @@ The DTO contains:
 
 The browser-local DTO is an adaptation boundary, not a parallel analytical
 model. It carries only closed JSON shapes that source-generated serialization
-and `ts-jsexport` can project. The browser projection owns the accounting policy
-and computes it directly from `AnalysisDiff<string>` relations:
+and `ts-jsexport` can project. At this non-L1 boundary, the adapter lowers the
+query's analysis through
+`TextAnalysisDiffPresentation.CreateMappedTextDiff`. The browser projection
+owns the accounting policy and computes it directly from
+`AnalysisDiff<string>` relations:
 
 - additions and removals count their one-sided endpoint populations;
 - changed counts retain separate Before and After cardinalities;
@@ -101,6 +106,10 @@ Statistics are never reconstructed from mapped ranges. The mapped endpoint
 line sequences are authoritative for rendered rows and relation coordinates.
 Raw endpoint text remains available for copy and provenance operations; the
 browser does not split it again to build the diff.
+
+Only a product-issued browse URL may populate the browse field or enable an
+Open action. A raw SourceLink resolved URL, fetch URL, or successful acquisition
+does not establish browse authorization and is not exposed as an Open target.
 
 The mapped ranges are the shared rendering shape. The browser may arrange
 those ranges into interactive DOM for unified or side-by-side presentation,
@@ -135,7 +144,8 @@ The working-surface action region contains:
 - a Unified / Side by side mode selector;
 - Previous and Next change actions;
 - a change position such as `2 of 7`; and
-- endpoint-specific Open actions when an endpoint has a URL.
+- endpoint-specific Open actions when an endpoint has a producer-authorized
+  browse URL.
 
 The content begins with a compact factual summary such as `+4 -2 changed 3 → 5
 moved 1 → 1`, followed by the complete diff. Changed and moved are explicitly
@@ -237,7 +247,8 @@ The delivery names the following Release gates:
   unequal changed, moved, and overlapping changed-plus-moved populations, and
   prove mapped ranges come from `TextAnalysisDiffPresentation`;
 - browser boundary tests prove the closed DTO survives source-generated JSON
-  and generated TypeScript without unknown members;
+  and generated TypeScript without unknown members, and prove that a raw
+  resolved or fetch URL does not enable Open;
 - worker tests prove request identity, cancellation, stale-result suppression,
   and typed failure settlement;
 - browser renderer tests prove all relation shapes, multi-change navigation,
