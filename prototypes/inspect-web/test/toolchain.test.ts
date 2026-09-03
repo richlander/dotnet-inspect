@@ -22,6 +22,7 @@ import {
 } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
+import { scan } from "../scripts/check-no-cross-origin-subresources.ts";
 import {
   supportedAnalysisHosts,
   verifyAnalysisHost,
@@ -2897,4 +2898,126 @@ test("the site artifact rejects a missing Vite output", (context) => {
     () => verifySiteArtifact(site),
     /manifest references missing asset 'assets\/index\.js'/,
   );
+});
+
+// The containment guard replaced a weekly network check with a per-PR one, so it is the
+// only thing standing behind "the shipped documents reach no origin but their own".
+// Round 1 (Sol, seats A and B) found it enforcing a narrower property than it claimed:
+// it examined only the elements Subresource Integrity applies to, and it resolved
+// relative URLs against the origin rather than the document's `<base>`. Both were
+// reachable by ordinary markup that passed html-validate. These cases pin the claim
+// itself -- every load the browser performs -- rather than the element list that
+// happened to implement it.
+async function scanFixture(documents: Readonly<Record<string, string>>) {
+  const root = mkdtempSync(join(tmpdir(), "cross-origin-"));
+  try {
+    for (const [name, contents] of Object.entries(documents)) {
+      const file = join(root, name);
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, contents);
+    }
+    return await scan(root);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+}
+
+const sameOriginPage = (body: string) =>
+  `<!DOCTYPE html><html lang="en"><head><title>t</title>`
+  + `<link rel="stylesheet" href="/src/styles.css">`
+  + `</head><body>${body}</body></html>`;
+
+test("the containment guard sees every load, not only the SRI-eligible ones", async () => {
+  // Each of these is a real browser fetch that carries no integrity attribute, so an
+  // SRI-shaped element list cannot see any of them.
+  const cases = [
+    ['<img alt="p" src="https://cdn.example/p.png">', "img"],
+    ['<iframe src="https://cdn.example/f.html"></iframe>', "iframe"],
+    ['<video poster="https://cdn.example/p.jpg"></video>', "video"],
+    ['<object data="https://cdn.example/o.swf"></object>', "object"],
+    ['<img alt="p" src="/a.png" srcset="/a.png 1x, https://cdn.example/b.png 2x">', "img"],
+  ] as const;
+
+  for (const [markup, element] of cases) {
+    const result = await scanFixture({ "index.html": sameOriginPage(markup) });
+    const crossOrigin = result.subresources.filter(subresource => subresource.crossOrigin);
+    assert.equal(crossOrigin.length, 1, `expected one cross-origin load for ${markup}`);
+    assert.equal(crossOrigin[0]?.element, element);
+    assert.equal(crossOrigin[0]?.url.startsWith("https://cdn.example/"), true);
+  }
+});
+
+test("the containment guard resolves relative URLs against the document base", async () => {
+  // `index.html` already ships a `<base href="/">`, so this is the shipped shape rather
+  // than a hypothetical one. A base pointing elsewhere redirects every relative fetch in
+  // the document without any URL in the markup looking cross-origin.
+  const redirected = await scanFixture({
+    "index.html":
+      `<!DOCTYPE html><html lang="en"><head><title>t</title>`
+      + `<base href="https://cdn.example/assets/">`
+      + `<script src="probe.js"></script>`
+      + `</head><body></body></html>`,
+  });
+
+  const script = redirected.subresources.find(subresource => subresource.element === "script");
+  assert.equal(script?.url, "https://cdn.example/assets/probe.js");
+  assert.equal(script?.crossOrigin, true);
+  assert.equal(redirected.baseUrls[0]?.crossOrigin, true);
+
+  const local = await scanFixture({
+    "index.html":
+      `<!DOCTYPE html><html lang="en"><head><title>t</title>`
+      + `<base href="/"><script src="probe.js"></script>`
+      + `</head><body></body></html>`,
+  });
+  assert.equal(local.subresources.some(subresource => subresource.crossOrigin), false);
+});
+
+test("the containment guard reads CSS it cannot otherwise see through", async () => {
+  // A stylesheet's `url()` is a fetch that no markup parse can reach. The guard asserts
+  // the construct is absent rather than growing a CSS parser, so introducing one is a
+  // deliberate change here instead of a silent hole.
+  const inStylesheet = await scanFixture({
+    "index.html": sameOriginPage(""),
+    "src/styles.css": ".x { background: url(https://cdn.example/b.png); }",
+  });
+  assert.deepEqual(inStylesheet.cssFetches, ["src/styles.css"]);
+
+  const inline = await scanFixture({
+    "index.html": sameOriginPage('<div style="background:url(https://cdn.example/b.png)"></div>'),
+  });
+  assert.equal(inline.cssFetches.length, 1);
+
+  const clean = await scanFixture({
+    "index.html": sameOriginPage(""),
+    "src/styles.css": ".x { color: red; }",
+  });
+  assert.deepEqual(clean.cssFetches, []);
+});
+
+test("the containment guard ignores inert markup and non-fetching URLs", async () => {
+  // Reporting these would make the guard cry wolf, and a guard that cries wolf gets
+  // relaxed. `<template>` and `<noscript>` content is not fetched on load, `data:` and
+  // `#fragment` reach no network, and a link is a destination rather than a load.
+  const result = await scanFixture({
+    "index.html": sameOriginPage(
+      '<noscript><img alt="p" src="https://cdn.example/a.png"></noscript>'
+      + '<template><img alt="p" src="https://cdn.example/b.png"></template>'
+      + '<img alt="p" src="data:image/gif;base64,R0lGOD">'
+      + '<a href="https://example.com/docs">docs</a>'),
+  });
+  assert.deepEqual(result.subresources.filter(subresource => subresource.crossOrigin), []);
+  assert.deepEqual(result.cssFetches, []);
+});
+
+test("the containment guard holds the shipped documents", async () => {
+  // The non-vacuity claim: the real project must present documents and subresources to
+  // examine, so a passing run cannot mean the extraction stopped seeing markup.
+  const root = resolve(fileURLToPath(new URL("../", import.meta.url)));
+  const result = await scan(root);
+  assert.ok(result.documents.length > 0, "no documents discovered");
+  assert.ok(result.subresources.length > 0, "no subresources discovered");
+  assert.deepEqual(result.subresources.filter(subresource => subresource.crossOrigin), []);
+  assert.deepEqual(result.baseUrls.filter(base => base.crossOrigin), []);
+  assert.deepEqual(result.cssFetches, []);
 });

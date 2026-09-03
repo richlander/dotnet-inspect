@@ -1038,9 +1038,31 @@ a week.
 
 It reads documents with html-validate's own parser — the same parser that lints
 them — rather than with a pattern, so the two cannot disagree about what the
-markup contains. It resolves URLs the way a browser does, so `//cdn.example/x.js`
-is caught as readily as an `https://` spelling, and it skips `<noscript>` and
-`<template>` content because a browser does not fetch it.
+markup contains. It resolves URLs the way a browser does: against the document's
+effective `<base href>` rather than against the origin, so a base pointing
+elsewhere cannot redirect an innocent-looking relative URL past the check, and
+`//cdn.example/x.js` is caught as readily as an `https://` spelling. It skips
+`<noscript>` and `<template>` content, `data:` and `#fragment` URLs, and
+navigation targets such as `<a href>`, because a browser does not fetch any of
+those on load.
+
+What it examines is every element and attribute the browser *fetches*, which is
+deliberately not the set Subresource Integrity applies to. SRI covers scripts and
+a few link relations because those are the things it can hash; the claim here is
+about every load the document causes, so `<img>`, `<iframe>`, `<object data>`,
+`poster` and the comma-separated candidates inside `srcset` are all read too,
+even though no digest could ever be attached to them. Scoping this check to the
+SRI-eligible elements was the first version's mistake: it described the property
+in terms of a neighbouring tool's reach instead of the property itself, and
+round 1 found ordinary markup that passed while the browser still fetched from
+another origin.
+
+CSS fetches as well — `url()`, `@import` and `@font-face` all reach the network —
+and no markup parse can see through a stylesheet. Rather than grow a CSS parser
+for a project whose stylesheets contain none of those constructs, the check
+asserts their absence, in `.css` files, `<style>` blocks and `style` attributes
+alike. That keeps the claim honest: adding one is then a deliberate change here
+rather than a silent gap.
 
 A check whose passing condition is "found nothing" has to prove it looked.
 Finding no documents, or no subresources in any of them, exits as inconclusive
