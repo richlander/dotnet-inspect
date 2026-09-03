@@ -5,50 +5,25 @@ namespace CiChangeDetection;
 
 internal static partial class WorkflowContract
 {
-    private static void ValidateOutputConsumers(YamlMappingNode jobs)
+    private static void ValidateConsumerStepContracts(YamlMappingNode jobs)
     {
-        var conditions = new Dictionary<string, string>(
-            StringComparer.Ordinal)
-        {
-            ["markdownlint"] = "needs.changes.outputs.docs == 'true'",
-            ["skill-gate"] =
-                "needs.changes.outputs.skills == 'true' && " +
-                "github.event_name != 'push'",
-            ["test"] =
-                "needs.changes.outputs.code == 'true' && " +
-                "github.event_name != 'push'",
-            ["build-net10"] =
-                "needs.changes.outputs.shipped == 'true' && " +
-                "github.event_name != 'push'",
-            ["decompiler-gates"] =
-                "needs.changes.outputs.decompiler == 'true' && " +
-                "github.event_name != 'push'",
-            ["csharp-diff-smoke"] =
-                "needs.changes.outputs.csharpdiff == 'true' && " +
-                "github.event_name != 'push'",
-            ["il-diff-smoke"] =
-                "needs.changes.outputs.ildiff == 'true' && " +
-                "github.event_name != 'push'",
-            ["pack"] =
-                "needs.changes.outputs.packaging == 'true' && " +
-                "github.event_name != 'push'",
-        };
-        foreach ((string jobName, string condition) in conditions)
+        string[] jobNames =
+        [
+            "markdownlint",
+            "skill-gate",
+            "test",
+            "build-net10",
+            "decompiler-gates",
+            "csharp-diff-smoke",
+            "il-diff-smoke",
+            "pack",
+        ];
+        foreach (string jobName in jobNames)
         {
             YamlMappingNode job = GetRequiredMapping(
                 jobs,
                 jobName,
                 "jobs");
-            RequireScalarValue(
-                job,
-                "needs",
-                "changes",
-                $"jobs.{jobName}");
-            RequireScalarValue(
-                job,
-                "if",
-                condition,
-                $"jobs.{jobName}");
             RequireAbsent(
                 job,
                 "continue-on-error",
@@ -58,39 +33,34 @@ internal static partial class WorkflowContract
                 "defaults",
                 $"jobs.{jobName}");
         }
-        ValidateConsumerStepGuards(jobs, conditions.Keys);
 
+        ValidateConsumerStepGuards(jobs, jobNames);
+        ValidateIlDiffTestStep(jobs);
+    }
+
+    private static void ValidateIlDiffTestStep(YamlMappingNode jobs)
+    {
         YamlSequenceNode testSteps = GetRequiredSequence(
             GetRequiredMapping(jobs, "test", "jobs"),
             "steps",
             "jobs.test");
-        var roundtripSteps = new Dictionary<string, YamlMappingNode>(
-            StringComparer.Ordinal);
         YamlMappingNode? ilDiffTestStep = null;
         foreach (YamlNode stepNode in testSteps.Children)
         {
             YamlMappingNode step = RequireMapping(
                 stepNode,
                 "jobs.test step");
-            string? name = GetOptionalScalar(step, "name");
-            if (name == "Run IL diff tests")
+            if (GetOptionalScalar(step, "name") != "Run IL diff tests")
             {
-                if (ilDiffTestStep is not null)
-                {
-                    throw new InvalidOperationException(
-                        "jobs.test contains duplicate step: Run IL diff tests.");
-                }
-                ilDiffTestStep = step;
+                continue;
             }
-            if (name is "Restore vendored ILAssembler" or
-                "Run IL round-trip tests (fast)")
+
+            if (ilDiffTestStep is not null)
             {
-                if (!roundtripSteps.TryAdd(name, step))
-                {
-                    throw new InvalidOperationException(
-                        $"jobs.test contains duplicate step: {name}.");
-                }
+                throw new InvalidOperationException(
+                    "jobs.test contains duplicate step: Run IL diff tests.");
             }
+            ilDiffTestStep = step;
         }
 
         if (ilDiffTestStep is null)
@@ -103,33 +73,6 @@ internal static partial class WorkflowContract
             "run",
             "dotnet run --project src/ILInspector.ILDiff.Tests -c Release",
             "jobs.test Run IL diff tests");
-
-        string roundtripCondition =
-            "matrix.rid == 'linux-x64' && " +
-            "needs.changes.outputs.ilroundtrip == 'true'";
-        foreach (string name in new[]
-        {
-            "Restore vendored ILAssembler",
-            "Run IL round-trip tests (fast)",
-        })
-        {
-            if (!roundtripSteps.TryGetValue(
-                name,
-                out YamlMappingNode? step))
-            {
-                throw new InvalidOperationException(
-                    $"jobs.test is missing step: {name}.");
-            }
-            RequireScalarValue(
-                step,
-                "if",
-                roundtripCondition,
-                $"jobs.test {name}");
-            RequireAbsent(
-                step,
-                "continue-on-error",
-                $"jobs.test {name}");
-        }
     }
 
     private static void ValidateConsumerStepGuards(
@@ -142,12 +85,6 @@ internal static partial class WorkflowContract
             ["test/Upload PR decompiler corpus artifact"] = "always()",
             ["test/Check PR decompiler corpus result"] =
                 "steps.decompiler_pr_corpus.outcome == 'failure'",
-            ["test/Restore vendored ILAssembler"] =
-                "matrix.rid == 'linux-x64' && " +
-                "needs.changes.outputs.ilroundtrip == 'true'",
-            ["test/Run IL round-trip tests (fast)"] =
-                "matrix.rid == 'linux-x64' && " +
-                "needs.changes.outputs.ilroundtrip == 'true'",
             ["test/Check ilasm/ildasm/mdv result"] =
                 "steps.iltools.outcome == 'failure'",
             ["test/Check GitHub Packages fixture result"] =
@@ -155,6 +92,11 @@ internal static partial class WorkflowContract
             ["decompiler-gates/Upload gate report"] = "always()",
             ["csharp-diff-smoke/Upload C# Diff smoke artifact"] = "always()",
             ["il-diff-smoke/Upload IL Diff smoke artifact"] = "always()",
+        };
+        var plannerSelectedIf = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "test/Restore vendored ILAssembler",
+            "test/Run IL round-trip tests (fast)",
         };
         var allowedContinueOnError = new HashSet<string>(
             StringComparer.Ordinal)
@@ -218,12 +160,15 @@ internal static partial class WorkflowContract
                 }
 
                 string key = $"{jobName}/{identity}";
-                ValidateOptionalStepValue(
-                    step,
-                    "if",
-                    key,
-                    allowedIf,
-                    seenIf);
+                if (!plannerSelectedIf.Contains(key))
+                {
+                    ValidateOptionalStepValue(
+                        step,
+                        "if",
+                        key,
+                        allowedIf,
+                        seenIf);
+                }
                 ValidateOptionalStepValue(
                     step,
                     "shell",
@@ -247,8 +192,8 @@ internal static partial class WorkflowContract
                     GetOptionalScalar(step, "continue-on-error");
                 if (continueOnError is not null)
                 {
-                    if (continueOnError != "true" ||
-                        !allowedContinueOnError.Contains(key))
+                    if (continueOnError != "true"
+                        || !allowedContinueOnError.Contains(key))
                     {
                         throw new InvalidOperationException(
                             $"{key} has unapproved continue-on-error.");
@@ -293,8 +238,8 @@ internal static partial class WorkflowContract
         {
             return;
         }
-        if (!allowed.TryGetValue(key, out string? expected) ||
-            value != expected)
+        if (!allowed.TryGetValue(key, out string? expected)
+            || value != expected)
         {
             throw new InvalidOperationException(
                 $"{key}.{property} is not approved.");

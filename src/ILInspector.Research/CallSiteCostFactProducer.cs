@@ -1,5 +1,6 @@
 using ILInspector.Analysis;
 using ILInspector.Decompiler.Annotations;
+using ILInspector.Findings;
 
 namespace ILInspector.Research;
 
@@ -19,7 +20,7 @@ sealed class CallSiteCostFactProducer : IResearchFactProducer
         ResearchFactRequirements.ForAssembly(
             LibraryBodyAnalysisFeatures.Allocations);
 
-    public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context)
+    public IReadOnlyList<Finding<IAnnotation>> Produce(ResearchFactContext context)
     {
         if (context.Assembly is not { } assembly || context.Imported.MetadataToken == 0)
             return [];
@@ -27,7 +28,7 @@ sealed class CallSiteCostFactProducer : IResearchFactProducer
         if (callSites.IsEmpty)
             return [];
 
-        var facts = new List<Annotation>();
+        var facts = new List<Finding<IAnnotation>>();
         foreach (var finding in callSites)
         {
             var call = finding.Payload;
@@ -39,7 +40,12 @@ sealed class CallSiteCostFactProducer : IResearchFactProducer
             assembly.LeverageByToken.TryGetValue(calleeToken, out var leverage);
             if (!IsHighValue(call, signals, leverage))
                 continue;
-            facts.Add(new Annotation(CalleeCost, call.ILOffset, Detail(call.Callee, signals, leverage, call.InLoop)));
+            facts.Add(ResearchFactFinding.Project(
+                finding,
+                new Annotation(
+                    CalleeCost,
+                    call.ILOffset,
+                    Detail(call.Callee, signals, leverage, call.InLoop))));
         }
         return facts;
     }

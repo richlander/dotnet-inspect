@@ -40,7 +40,8 @@ internal abstract class TypeNode
 
     /// <summary>
     /// Whether this node or a descendant carries identity that <see cref="Render"/>
-    /// erases: a custom modifier, pinned wrapper, or function-pointer header.
+    /// erases: literal array delimiters in an exact metadata name, a non-SZ
+    /// array, custom modifier, pinned wrapper, or function-pointer header.
     /// </summary>
     internal virtual bool HasStructuralPayload => false;
 
@@ -346,11 +347,24 @@ internal sealed class NamedTypeNode(
     public override bool IsReferenceType => isReferenceType;
     public override long EstimatedRenderedLength => name.Length + 1L;
 
+    internal override bool HasStructuralPayload =>
+        metadataName is not null
+        && StructuralTypeIdentity.RequiresArrayNamePayload(
+            metadataName.Namespace,
+            metadataName.Segments);
+
     public override string Render(bool canonicalTuples)
     {
         string effective = IsDynamic ? "dynamic" : name;
         return IsReferenceType && IsNullableAnnotated ? $"{effective}?" : effective;
     }
+
+    internal override string StructuralIdentity()
+        => metadataName is null
+            ? base.StructuralIdentity()
+            : StructuralTypeIdentity.Named(
+                metadataName.Namespace,
+                metadataName.Segments);
 
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
     {
@@ -387,6 +401,12 @@ internal sealed class GenericTypeNode(
     public ImmutableArray<TypeNode> Arguments => arguments;
     public override bool IsReferenceType => isReferenceType;
     public override bool IsDegraded => degradedGenericType || arguments.Any(argument => argument.IsDegraded);
+    internal override bool HasStructuralPayload =>
+        arguments.Any(argument => argument.HasStructuralPayload)
+        || (metadataName is not null
+            && StructuralTypeIdentity.RequiresArrayNamePayload(
+                metadataName.Namespace,
+                metadataName.Segments));
     public override long EstimatedRenderedLength => estimatedRenderedLength;
 
     internal override string StructuralIdentity()
@@ -533,14 +553,20 @@ internal sealed class MDArrayTypeNode(
         arrayLowerBounds.IsDefault ? [] : arrayLowerBounds;
     public override bool IsReferenceType => true;
     public override bool IsDegraded => elementType.IsDegraded;
-    internal override bool HasStructuralPayload => elementType.HasStructuralPayload;
+    internal override bool HasStructuralPayload =>
+        rank == 1 || elementType.HasStructuralPayload;
     public override long EstimatedRenderedLength =>
         Math.Min(
             int.MaxValue,
             elementType.EstimatedRenderedLength + Math.Max(rank, 0L) + 2);
 
     internal override string StructuralIdentity()
-        => $"{elementType.StructuralIdentity()}[{new string(',', Math.Max(rank - 1, 0))}]";
+    {
+        string dimensions = rank == 1
+            ? "*"
+            : new string(',', Math.Max(rank - 1, 0));
+        return $"{elementType.StructuralIdentity()}[{dimensions}]";
+    }
 
     public override string Render(bool canonicalTuples)
     {
