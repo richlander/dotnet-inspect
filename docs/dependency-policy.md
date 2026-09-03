@@ -140,6 +140,12 @@ project closure and the fail-closed collision, target-output, metadata, and
 reference-decoding boundaries. The final command evaluates the real Release
 project and assembly graphs.
 
+Pull-request and merge-group candidates run both the tests and real policy in
+the Release test job. Every push to `main` also builds the Release graph and
+runs the real policy in a focused post-merge job. That post-merge gate catches
+interactions between independently validated PRs without repeating the complete
+test suite, and `ci-required` includes its result.
+
 ## Non-claims
 
 The tool does not inspect source text, public API ownership beyond assembly
