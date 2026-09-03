@@ -101,10 +101,27 @@ jobs:
           set -euo pipefail
           evidence_directory="${RUNNER_TEMP}/ci-plan"
           mkdir -p "$evidence_directory"
-          event_name="${GITHUB_EVENT_NAME//_/-}"
+          case "$GITHUB_EVENT_NAME" in
+            pull_request)
+              event_name="pull-request"
+              base_sha=$(git rev-parse --verify 'HEAD^1')
+              ;;
+            merge_group)
+              event_name="merge-group"
+              base_sha="$CI_EVENT_BASE_SHA"
+              ;;
+            push)
+              event_name="push"
+              base_sha="$CI_EVENT_BASE_SHA"
+              ;;
+            *)
+              echo "Unsupported CI planning event: $GITHUB_EVENT_NAME" >&2
+              exit 1
+              ;;
+          esac
           plan=$(
             dotnet run eng/ci-plan.cs -- "$event_name" \
-              --base "$CI_BASE_SHA" \
+              --base "$base_sha" \
               --candidate "$GITHUB_SHA" \
               --evidence-directory "$evidence_directory" \
               --repository "$GITHUB_WORKSPACE"
@@ -123,7 +140,7 @@ jobs:
           # The runner honors BASH_ENV even with --noprofile and --norc.
           # Clear inherited workflow/job values before executing this gate.
           BASH_ENV: ""
-          CI_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          CI_EVENT_BASE_SHA: ${{ github.event.merge_group.base_sha || github.event.before }}
 
   # Lint markdown files
   markdownlint:

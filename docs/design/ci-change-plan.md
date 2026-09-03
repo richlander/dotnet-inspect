@@ -102,7 +102,10 @@ worktree that is not the candidate is a refusal.
 The pull-request relation is deliberately current-base-to-synthetic-candidate,
 not GitHub's documented three-dot workflow path-filter relation. Default
 pull-request checkout validates `refs/pull/<number>/merge`; routing must describe
-that same candidate.
+that same candidate. The workflow derives the current base from the checked
+candidate's first parent rather than `pull_request.base.sha`, whose event value
+may lag the base tree GitHub used to construct the merge candidate. The planner
+requires that first-parent identity and refuses a mismatched base endpoint.
 
 ## Changed-path evidence
 
@@ -378,6 +381,8 @@ The planner implementation gate must also cover:
 - invalidly encoded path bytes;
 - a valid empty diff;
 - missing and inconsistent provenance;
+- a stale pull-request event base that differs from the checked candidate's
+  first parent;
 - unavailable endpoint trees;
 - malformed or truncated changed-path evidence;
 - policy-data absence and invalidity;
