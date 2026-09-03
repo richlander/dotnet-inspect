@@ -13,9 +13,9 @@ focused owners; this document places them.
 
 This owner defines:
 
-- which working surfaces exist (Source, Annotated Source, Package query,
-  Diagnostics) and their page-level placement relative to Type/Member
-  navigation;
+- which working surfaces exist (Type API, Member API, Source, Annotated Source,
+  Package query, Diagnostics) and their page-level placement relative to
+  Type/Member navigation;
 - the `/query` route's placement and layout, including placement of its
   per-row `Open in workspace` action;
 - Source and Annotated Source pane placement and independent scrolling;
@@ -199,14 +199,53 @@ these named browser tests in `workspace-titlebar.spec.ts`:
 
 ## Working surfaces
 
-Source, Annotated Source, and Diagnostics are working surfaces rather than
-documents inset inside a general page. This redesign does not change Metadata
-viewer composition.
+Type API, Member API, Source, Annotated Source, and Diagnostics are working
+surfaces rather than documents inset inside a general page. This redesign does
+not change Metadata viewer composition.
 
 The package-query surface's internal query behavior remains owned by
 `package-query-experience.md`; product facet identities, ordering, evidence,
 failures, and completion remain owned by `package-query-cli.md`. Its former
 package-tab placement stays superseded.
+
+### Type and Member API
+
+Type API and Member API use the full area to the right of Type or Member
+navigation. They do not retain a centered document column, a large subject
+hero, or repeated package, library, namespace, and target-framework context.
+The persistent subject path remains the owner of that hierarchy.
+
+The Type API surface contains:
+
+```text
+Members                         visible / total groups · overloads
+Filters                                            active restrictions
+member rows
+                                                  select-row guidance
+```
+
+`Members` and its count use the same quiet label hierarchy as the navigation
+pane rather than competing with the subject path. The count changes with the
+active member filters. The collapsed `Filters` row owns member text, kind,
+accessibility, and trait controls. Member rows use the complete remaining
+scroll area. The bottom guidance does not repeat the count.
+
+Opening a member group preserves the same composition. A group with multiple
+overloads renders the exact member name and overload count in the quiet header,
+then gives the overload rows the remaining scroll area. Opening one overload
+keeps the exact member name in that header with its kind and overload ordinal.
+Overview, Call graph, and Facts scroll below it.
+
+Member Overview retains package documentation, declaration copying, stable
+identity, parameters, returns, exceptions, and applicability. It removes the
+large documentation-style title and the repeated Namespace, Assembly, Package,
+and framework summary because the subject path already supplies that
+orientation. Call graph and Facts retain their owned result semantics and use
+the same full-area scroller.
+
+Member Source and Annotated Source remain the heading-free full-area exceptions
+defined below. Loading and failure states stay visible and do not become
+success-shaped empty surfaces.
 
 ### Package query
 
@@ -495,6 +534,25 @@ outcomes.
 `InspectWebPackageSourceSettingsTests.RendersEnablementAndSelectionWithoutDefaultFeed`
 gates enabled, disabled, selected, and unselected source descriptors together
 with the absence of a synthesized `Default feed` control.
+
+### Type and Member API working surfaces
+
+1. Open a Type API surface with no member filters and confirm that the quiet
+   header, collapsed Filters row, member list, and bottom guidance exactly fill
+   the inspector pane without page overflow.
+2. Apply member text and selector filters and confirm that the header reports
+   the live visible/total group count, the collapsed summary discloses the
+   restrictions, and no second result-count row or footer count appears.
+3. Open a member group with multiple overloads and confirm that the exact
+   member name and overload count remain in the quiet header while the overload
+   rows own the scroll area.
+4. Open one overload and switch between Overview, Call graph, and Facts.
+   Confirm that the quiet exact-member header remains stable, each section
+   scrolls independently below it, and Overview contains no large duplicate
+   hero or package-coordinate summary.
+5. Repeat the Type list, overload picker, and selected-overload checks at a
+   narrow viewport. Confirm that each surface retains its topology and creates
+   no page-level horizontal overflow.
 
 ### Source working surface
 

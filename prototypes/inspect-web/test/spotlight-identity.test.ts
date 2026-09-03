@@ -4264,7 +4264,10 @@ test("pending graph-member restoration is bound to its exact view", () => {
     /else if \(disposition === "graph"[\s\S]*?state\.selectedMemberKey = deep\.member;[\s\S]*?state\.selectedBodyTarget = deep\.graphTarget;[\s\S]*?viewSignature: viewSignature\(\)/);
   assert.match(
     appSource,
-    /function renderLens\([^)]*\) \{[\s\S]*?graphMemberPendingMatchesView\([\s\S]*?return renderGraphMemberPendingHtml\(item, title\)/);
+    /function currentPendingGraphMember\(\) \{[\s\S]*?graphMemberPendingMatchesView\([\s\S]*?viewSignature\(\)/);
+  assert.match(
+    appSource,
+    /function renderApiLens\([^)]*\) \{\s*const pending = currentPendingGraphMember\(\);[\s\S]*?return renderGraphMemberPendingHtml\(item, title\)/);
   assert.match(
     appSource,
     /async function restorePendingGraphMember\([\s\S]*type\.id !== pending\.type[\s\S]*declaring type is no longer available[\s\S]*loadGraphMemberSurface/);
@@ -4758,6 +4761,38 @@ test("type API reports the filtered member count once in its header", () => {
     renderApi,
     /<p>\$\{visibleGroups\.length} of \$\{publicGroups\.length} member groups/);
   assert.doesNotMatch(renderApi, /member-filter-result/);
+  assert.doesNotMatch(renderApi, /member groups visible/);
+});
+
+test("member API uses full-area overload and selected-member surfaces", () => {
+  const renderMember =
+    appSource.match(/function renderMember\([\s\S]*?\n}\n\n\/\/ The annotated section/)?.[0]
+    ?? "";
+  assert.match(
+    renderMember,
+    /class="member-surface member-overload-surface"[\s\S]*?<h1 id="member-surface-title">\$\{escapeHtml\(member\.name\)}<\/h1>[\s\S]*?\$\{member\.overloads\.length} overloads/);
+  assert.match(
+    renderMember,
+    /class="member-surface-scroll"[\s\S]*?class="api-list api-surface-list member-surface-list"/);
+  assert.match(
+    renderMember,
+    /class="api-surface-footer member-surface-footer"[\s\S]*?id="member-back"[\s\S]*?Choose an overload to inspect/);
+  assert.match(
+    renderMember,
+    /if \(!memberSectionUsesWorkingSurface\(state\.memberSection\)\) return content;[\s\S]*?class="member-surface"[\s\S]*?<p>\$\{escapeHtml\(member\.kind\)} <span>· \$\{overloadIndex \+ 1} of \$\{member\.overloads\.length}<\/span><\/p>/);
+  assert.doesNotMatch(renderMember, /class="learn-title"/);
+  assert.doesNotMatch(
+    renderMember,
+    /<dt>Namespace:<\/dt>|<dt>Assembly:<\/dt>|<dt>Package:<\/dt>/);
+  assert.match(
+    appSource,
+    /const memberWorkingSurface =[\s\S]*?currentPendingGraphMember\(\) === null[\s\S]*?memberSectionUsesWorkingSurface\(state\.memberSection\)/);
+  assert.match(
+    stylesSource,
+    /\.detail-scroll\.api-working-surface,\s*\.detail-scroll\.member-working-surface \{[^}]*overflow: hidden;[^}]*padding: 0;/s);
+  assert.match(
+    stylesSource,
+    /\.member-surface \{[^}]*height: 100%;[^}]*grid-template-rows: 40px minmax\(0, 1fr\);/s);
 });
 
 test("graph member projections stay transport- and package-bounded", () => {

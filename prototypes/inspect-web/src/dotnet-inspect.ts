@@ -32,7 +32,6 @@ import {
   packageForView,
   packageIdentityKey,
   packageLenses,
-  parameterTitleHtml,
   partitionGraphMembers,
   platformPackForGraphAssembly,
   platformPackFromProvenance,
@@ -2309,6 +2308,12 @@ function memberSourceHasConcreteOverload() {
       state.selectedOverloadIndex));
 }
 
+function memberSectionUsesWorkingSurface(section: MemberSection) {
+  return section === "overview"
+    || section === "call-graph"
+    || section === "facts";
+}
+
 function currentSourceOperationKind() {
   return activeSourceOperationKind(
     state,
@@ -2754,6 +2759,11 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     sourcePageKind !== null && sourcePageSource !== null;
   const apiWorkingSurface =
     activeScope === "type" && state.lens === "api";
+  const memberWorkingSurface =
+    activeScope === "member"
+    && current !== null
+    && currentPendingGraphMember() === null
+    && memberSectionUsesWorkingSurface(state.memberSection);
   const annotatedPageContext =
     activeScope === "member"
     && state.memberSection === "annotated"
@@ -2843,7 +2853,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
         ${renderNavPane(current, visible)}
 
         <section class="detail-pane">
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -4341,6 +4351,17 @@ function renderTypeSourceHtml(item: AppTypeSurface) {
   });
 }
 
+function currentPendingGraphMember() {
+  const pending = state.pendingGraphMemberDeepLink;
+  return pending
+    && graphMemberPendingMatchesView(
+      pending,
+      packageIdentityKey(state.package),
+      viewSignature())
+    ? pending
+    : null;
+}
+
 function renderLens(item: AppTypeSurface | null | undefined) {
   if (scope() === "workspace") return renderWorkspaceView();
   if (state.atPackageRoot) return renderPackageView();
@@ -4358,12 +4379,8 @@ function renderLens(item: AppTypeSurface | null | undefined) {
 }
 
 function renderApiLens(item: AppTypeSurface) {
-  const pending = state.pendingGraphMemberDeepLink;
-  if (pending
-    && graphMemberPendingMatchesView(
-      pending,
-      packageIdentityKey(state.package),
-      viewSignature())) {
+  const pending = currentPendingGraphMember();
+  if (pending) {
     const title =
       state.graphMemberNavigationTitle
       || `${typeDisplayName(item)}.${pending.target.memberName}`;
@@ -4429,7 +4446,6 @@ function renderApiLens(item: AppTypeSurface) {
           : ""}
       </div>
       <footer class="api-surface-footer">
-        <span>${visibleGroups.length} of ${publicGroups.length} member groups visible</span>
         <span>Select a row to inspect its API</span>
       </footer>
     </section>`;
@@ -4444,19 +4460,25 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     && selectedOverloadIndex < member.overloads.length;
   if (member.overloads.length > 1 && !hasSelectedOverload) {
     return `
-      <button class="member-back" id="member-back">← ${escapeHtml(typeDisplayName(type))}</button>
-      <section class="overload-picker">
-        <p class="eyebrow">${escapeHtml(member.kind)} group</p>
-        <h1>${escapeHtml(member.name)}</h1>
-        <p>Choose a specific overload to inspect.</p>
-        <div class="api-list">
-          ${member.overloads.map((overload, index) => `
-            <button class="api-row overload-row" data-overload="${index}">
-              <span class="member-icon">${index + 1}</span>
-              <code>${highlight(overload.signature)}</code>
-              <small>open →</small>
-            </button>`).join("")}
+      <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
+        <header class="api-surface-head member-surface-head">
+          <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
+          <p>${member.overloads.length} overloads <span>· ${escapeHtml(member.kind)}</span></p>
+        </header>
+        <div class="member-surface-scroll">
+          <div class="api-list api-surface-list member-surface-list">
+            ${member.overloads.map((overload, index) => `
+              <button class="api-row overload-row" data-overload="${index}">
+                <span class="member-icon">${index + 1}</span>
+                <code>${highlight(overload.signature)}</code>
+                <small>open →</small>
+              </button>`).join("")}
+          </div>
         </div>
+        <footer class="api-surface-footer member-surface-footer">
+          <button class="member-back" id="member-back">← ${escapeHtml(typeDisplayName(type))}</button>
+          <span>Choose an overload to inspect</span>
+        </footer>
       </section>`;
   }
   const overloadIndex = hasSelectedOverload ? selectedOverloadIndex ?? 0 : 0;
@@ -4473,21 +4495,10 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   const documentationError = documentationState.error;
   let content;
   if (state.memberSection === "overview") {
-    const pageKind = member.kind === "constructor" ? "Constructor" : `${member.kind.slice(0, 1).toUpperCase()}${member.kind.slice(1)}`;
     const parameters = overload.parameters ?? [];
     content = `
       <article class="learn-overview">
-        <header class="learn-title">
-          <p>${escapeHtml(type.namespace)}</p>
-          <h1>${escapeHtml(typeDisplayName(type))}.${escapeHtml(member.name)}${parameterTitleHtml(parameters)} ${escapeHtml(pageKind)}</h1>
-          <span>${escapeHtml(pkg.id)} · ${escapeHtml(pkg.activeFramework)}</span>
-        </header>
-        <section class="learn-section definition-section">
-          <dl class="definition-list">
-            <div><dt>Namespace:</dt><dd>${escapeHtml(type.namespace || "global")}</dd></div>
-            <div><dt>Assembly:</dt><dd>${escapeHtml(type.assembly)}</dd></div>
-            <div><dt>Package:</dt><dd>${escapeHtml(pkg.id)} v${escapeHtml(pkg.version)}</dd></div>
-          </dl>
+        <section class="learn-section member-overview-intro">
           ${documentationLoading
             ? '<p class="docs-loading">Loading package documentation…</p>'
             : documentationError
@@ -4623,9 +4634,17 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   } else {
     assertNever(state.memberSection, "member section");
   }
+  if (!memberSectionUsesWorkingSurface(state.memberSection)) return content;
   // The member-mode strip (Overview / Call graph / Facts / Source / Annotated) now lives in
   // the top scope+lens bar, so the detail view renders only the section content itself.
-  return content;
+  return `
+    <section class="member-surface" aria-labelledby="member-surface-title">
+      <header class="api-surface-head member-surface-head">
+        <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
+        <p>${escapeHtml(member.kind)} <span>· ${overloadIndex + 1} of ${member.overloads.length}</span></p>
+      </header>
+      <div class="member-surface-scroll">${content}</div>
+    </section>`;
 }
 
 // The annotated section renders the product's portable AnnotatedSourceDocument directly: canonical
