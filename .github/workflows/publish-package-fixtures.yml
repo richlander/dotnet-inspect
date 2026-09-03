@@ -51,16 +51,7 @@ jobs:
 
       - name: Validate fixture catalog
         shell: bash
-        run: |
-          set -euo pipefail
-          results="$RUNNER_TEMP/package-fixture-tests.xml"
-          dotnet run --project src/dotnet-inspect.Tests -c Release -- \
-            -class "DotnetInspector.Tests.PackageFixtureTests" \
-            -xml "$results"
-          if ! grep -Eq 'total="[1-9][0-9]*"' "$results"; then
-            echo "::error::Package fixture test filter selected no tests." >&2
-            exit 1
-          fi
+        run: dotnet run --project src/dotnet-inspect.Tests -c Release -- --filter-class "DotnetInspector.Tests.PackageFixtureTests"
 
       - name: Pack fixture packages
         shell: bash

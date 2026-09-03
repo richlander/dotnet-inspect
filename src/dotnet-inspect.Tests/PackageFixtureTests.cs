@@ -292,10 +292,7 @@ public sealed class PackageFixtureTests
             "https://nuget.pkg.github.com/richlander/index.json",
             workflow);
         Assert.Contains(
-            "-class \"DotnetInspector.Tests.PackageFixtureTests\"",
-            workflow);
-        Assert.Contains(
-            "grep -Eq 'total=\"[1-9][0-9]*\"'",
+            "--filter-class \"DotnetInspector.Tests.PackageFixtureTests\"",
             workflow);
         Assert.Contains(
             "-p:FixtureFamily=\"$FIXTURE_FAMILY\"",

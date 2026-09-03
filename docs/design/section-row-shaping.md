@@ -9,11 +9,12 @@ row-selection composition pattern locked by
 
 Implementation is partial. #5557 implements one already-resolved, one-cohort
 Rows path: request-local sequence-key binding, one named semantic invocation,
-and typed success or strict-failure rebinding. Row-intent resolution,
-projection, Count, source outcomes, and multiple-cohort composition remain
-unimplemented.
+and typed success or strict-failure rebinding. #5625 adds the immutable typed
+selection-operation intent received before schema and order resolution.
+Row-intent association and resolution, projection, Count, source outcomes, and
+multiple-cohort composition remain unimplemented.
 
-Only that implemented subset is verified by its four Release gates in
+Only those implemented subsets are verified by their named Release gates in
 [Required gates](#required-gates). Every other asserted behavior remains
 unverified until its named gate lands.
 
@@ -41,6 +42,8 @@ outcomes.
 
 This design owns:
 
+- the typed unresolved semantic-selection operation intent received from
+  higher-level consumers;
 - stable declared-row-set identities and their ordered binding;
 - the mapping between those identities and semantic `RowSequenceKey` tokens;
 - the distinction between membership projection and cell projection;
@@ -66,6 +69,31 @@ This design does not own:
 
 Those adjacent owners provide typed inputs or consume typed results without
 redefining L2 row shaping.
+
+## Unresolved selection-operation intent
+
+Before schema and order resolution, L2 receives one immutable ordered sequence
+of typed `Head`, `Tail`, `Window`, and `Top` operation intent. Counts and present
+one-based inclusive Window bounds are positive, and a closed Window's end does
+not precede its start. A boundless Window remains the semantic identity
+operation; the CLI grammar separately rejects the boundless `--rows ..`
+spelling.
+
+`Top` may carry one opaque caller-issued ranking-order operand or may omit it
+for later default-ranking resolution. The operand is typed but unresolved: its
+value is neither a semantic resolved-order identity nor authority to treat a
+baseline order as ranking. L2 does not infer an operand from display text.
+
+The intent sequence preserves operation order and snapshots its collection
+membership. It contains no row values and can be constructed and inspected
+without semantic execution. This implemented input contract does not yet bind
+intent to row sets, schemas, predicates, effective order, or executable
+`RowSelectionPlan` stages.
+
+This is distinct from the semantic `RowSelectionStage` because unresolved
+intent must represent `Top` without a resolved order identity. It reuses the
+semantic owner's stage-kind identities and matching operand constraints rather
+than redefining their meaning.
 
 ## Declared row sets
 
@@ -533,6 +561,14 @@ path makes no optimization claim and does not satisfy a conditional gate
 vacuously.
 
 ## Required gates
+
+The unresolved selection-intent input contract is enforced by:
+
+| Gate | Contract |
+| --- | --- |
+| `RowSelectionIntentConsumerExercisesDeclaration` | A non-friend consumer constructs and inspects every operation kind, closed, prefix, suffix, and boundless Window shapes, Top with and without an opaque ranking operand, and wrong-kind access without row values or execution. |
+| `RowSelectionIntentRejectsInvalidOperands` | Nonpositive counts or present bounds, reversed Windows, null explicit ranking operands, null operation collections, null entries, and null appends reject at construction. |
+| `RowSelectionIntentSnapshotsAreImmutable` | Intent creation snapshots ordered membership, append leaves the prior intent unchanged, and every exposed operation collection is read-only. |
 
 The one-cohort Rows implementation is enforced by:
 
