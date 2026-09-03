@@ -20,9 +20,9 @@ The exact claim is:
 > terminal definition registration through the sealed Queries-to-Research
 > population receipt to that exact participant's resolved Research attempt.
 
-The composition retains the caller-designated root attempt and the complete
-Metadata forwarding outcome. It adds no participant and changes no Research
-attempt.
+The composition retains the caller-designated root attempt and a
+capability-free projection of the complete Metadata forwarding outcome. It
+adds no participant and changes no Research attempt.
 
 The supporting contracts have these roles:
 
@@ -67,7 +67,7 @@ selection scope.
 | --- | --- |
 | The root defines the declaring type and its Research attempt is `Resolved`. | The root attempt remains the effective endpoint. Metadata forwarding hops are empty. |
 | The root forwards the declaring type, Metadata reaches a terminal definition in an already admitted participant, and that participant's exact Research attempt is `Resolved`. | The terminal attempt becomes the effective endpoint. The root's `Unavailable/DeclaringTypeForwarded` attempt and the complete ordered forwarding path remain visible evidence. |
-| Metadata cannot reach a terminal definition. | Composition is typed unavailable and retains the exact Metadata outcome. No effective endpoint is published. |
+| Metadata cannot reach a terminal definition. | Composition is typed unavailable and retains a capability-free projection of the exact Metadata outcome. No effective endpoint is published. |
 | Metadata reaches a definition whose acquisition registration is not one sealed input in this group and side. | Composition is rejected as a correspondence failure. A same-named participant cannot substitute. |
 | The terminal participant is admitted only as reference evidence, or its Research attempt is not `Resolved`. | Composition is typed unavailable and retains that exact attempt. |
 | The terminal attempt's Research domain-side census is blocked. | Composition is typed unavailable. A locally resolved attempt does not override Research's domain health. |
@@ -143,17 +143,29 @@ remains represented:
   evidence from different workspace realizations or policy snapshots;
 - acquisition registrations identify the root and terminal physical
   participants;
-- the exact Metadata outcome retains its catalog-local definition and complete
-  forwarding path;
+- the exact Metadata outcome is consumed while the group is live, and its
+  capability-free projection retains the classification, catalog-local
+  definition evidence, and complete forwarding path;
 - the population receipt supplies the only Queries-to-Research identity map;
   and
 - the domain id, census, and attempt id identify one existing terminal
   Research result without bypassing domain-local blocking.
 
 The inert receipt retains materialized subjects, opaque ids, classification,
-the exact Metadata outcome, and the exact root and effective Research attempts.
-It retains no group, participant, image opener, resolver, stream, callback,
-lease, or cleanup authority.
+a Queries-owned `WorkspaceTypeResolutionEvidence` projection, and the exact
+root and effective Research attempts. The projection preserves the Metadata
+outcome arm and the facts needed by this contract: terminal acquisition
+registration and durable definition identity/address for success, ordered
+forwarding-hop source registrations and typed declaration/target/scope
+evidence, or materialized typed non-success evidence. It does not retain the
+`TypeResolutionOutcome`, `TypeForwardingHop`, `ResolvedAssemblyCandidate`, or
+`ResolvedAssemblyReference` objects, because those object graphs can expose an
+image-opening callback or retain snapshot content.
+
+The receipt retains no group, participant, image opener, resolver, stream,
+callback, lease, or cleanup authority. Projection is semantic preservation of
+the owner-issued outcome, not retention or reconstruction of Metadata's
+capability-bearing object graph.
 
 ## Validation order
 
@@ -219,8 +231,9 @@ A forwarded composition requires:
 
 The effective attempt is the terminal attempt. The root attempt is not
 rewritten, discarded, or relabeled as locally resolved. The receipt carries
-both attempts and the exact Metadata outcome so a later consumer can explain
-why the physical endpoint differs from the designated facade.
+both attempts and the complete capability-free Metadata evidence projection
+so a later consumer can explain why the physical endpoint differs from the
+designated facade.
 
 A chain may return to no prior participant. Cycle and hop-budget behavior
 remain Metadata-owned and arrive as typed non-success outcomes rather than a
@@ -232,7 +245,8 @@ Expected non-success is closed into two Queries-owned categories:
 
 - `Unavailable` means valid owner outcomes supplied no usable effective
   implementation attempt or supplied a blocked terminal domain-side census. It
-  retains the exact Metadata or Research outcome that stopped composition.
+  retains the capability-free Metadata projection or exact inert Research
+  outcome that stopped composition.
 - `Rejected` means the supplied owner-issued evidence could not form the exact
   association chain: foreign root, missing or duplicate population member,
   invalid receipt, unsupported exact-address scope, wrong side, scope, or
@@ -372,7 +386,9 @@ implementation assemblies:
 ```text
 Before effective domain: ContractsImplementation
 After effective domain: ReplacementImplementation
-Research correspondence: SelectionDrift
+Before-domain correspondence: BeforeOnly
+After-domain correspondence: AfterOnly
+Effective-attempt pair: none
 Comparison work item: none
 ```
 
