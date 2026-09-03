@@ -126,6 +126,22 @@ The two forms cannot collide because the opaque prefix is outside the canonical
 grammar, and distinct authored text always yields distinct opaque tokens. Two
 different unrecognized frameworks therefore never compare equal.
 
+Long-form framework admission is deliberately stricter than
+`NuGetFramework.Parse`. NuGet owns framework, version, and profile semantics,
+but the query rejects empty, duplicate, or unknown attributes before parsing so
+an ignored attribute cannot make malformed text equal a recognized framework.
+Profile text must already satisfy the bounded target-token grammar; it is never
+repaired by removing whitespace.
+
+The query additionally recognizes `Platform` and `PlatformVersion` attributes
+for `.NETCoreApp` version 5 or later because NuGet long-form parsing does not
+retain them. Platform text must be an ASCII alphanumeric token, platform
+version must parse as a version, and a profile cannot coexist with a platform.
+The resulting framework is canonical only when its short-folder spelling
+parses back to the same full NuGet framework identity. This round trip prevents
+distinct platform and platform-version pairs from collapsing into one short
+spelling. Text outside these rules remains opaque rather than being repaired.
+
 Root, declaration-group, graph-node, and graph-edge identities are issued
 within that selection:
 

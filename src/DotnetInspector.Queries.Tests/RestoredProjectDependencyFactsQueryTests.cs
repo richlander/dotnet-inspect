@@ -297,6 +297,12 @@ public sealed class RestoredProjectDependencyFactsQueryTests
     [InlineData(
         ".NETCoreApp,Version=v8.0,Platform=unsupported",
         "net8.0-unsupported")]
+    [InlineData(
+        ".NETCoreApp,Version=v8",
+        "net8.0")]
+    [InlineData(
+        ".NETPortable,Version=v0.0,Profile=net45+win8",
+        "portable-net45+win8")]
     public void Execute_SchemaVersion3_NuGetLongFormSemanticsRemainCanonical(
         string longFramework,
         string shortFramework)
@@ -370,6 +376,39 @@ public sealed class RestoredProjectDependencyFactsQueryTests
                 facts.Graph).IsComplete);
         Assert.Equal(Describe(facts), Describe(reordered));
         Assert.Equal(facts.SelectionIdentity, reordered.SelectionIdentity);
+    }
+
+    [Fact]
+    public void Execute_SchemaVersion3_AmbiguousPlatformSpellingDoesNotMatchAnotherIdentity()
+    {
+        const string longFramework =
+            ".NETCoreApp,Version=v8.0,Platform=foo2,PlatformVersion=1.0";
+        const string differentShortFramework = "net8.0-foo21.0";
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                [longFramework] = new JsonObject(),
+            },
+            rootGroups: new JsonObject
+            {
+                [longFramework] = new JsonArray(),
+            },
+            frameworks: new JsonObject
+            {
+                [differentShortFramework] = new JsonObject
+                {
+                    ["dependencies"] = new JsonObject(),
+                },
+            },
+            version: 3);
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                bytes,
+                new RestoredProjectTargetRequest(differentShortFramework)));
+
+        Assert.Null(facts.SelectedTarget);
+        Assert.IsType<RestoredProjectGraphResult.Unavailable>(facts.Graph);
     }
 
     [Fact]

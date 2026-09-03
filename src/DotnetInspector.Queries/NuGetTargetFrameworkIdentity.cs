@@ -18,6 +18,7 @@ static class NuGetTargetFrameworkIdentity
         try
         {
             NuGetFramework framework;
+            bool requirePlatformRoundTrip = false;
             if (source.Contains(',', StringComparison.Ordinal))
             {
                 if (!TryReadLongFormAttributes(
@@ -44,6 +45,7 @@ static class NuGetTargetFrameworkIdentity
                         framework.Version,
                         platform.ToLowerInvariant(),
                         platformVersion ?? FrameworkConstants.EmptyVersion);
+                    requirePlatformRoundTrip = true;
                 }
             }
             else
@@ -65,6 +67,10 @@ static class NuGetTargetFrameworkIdentity
                         FrameworkConstants.FrameworkIdentifiers.Portable,
                         StringComparison.Ordinal)
                     && HasUnsupportedComponent(shortFolder))
+                || (requirePlatformRoundTrip
+                    && !NuGetFrameworkFullComparer.Instance.Equals(
+                        framework,
+                        NuGetFramework.ParseFolder(shortFolder)))
                 || !PackageCoordinateResolver.IsAcquisitionTargetText(shortFolder))
                 return false;
 
@@ -114,11 +120,7 @@ static class NuGetTargetFrameworkIdentity
 
             if (parts[0].Equals("Version", StringComparison.OrdinalIgnoreCase))
             {
-                hasVersion = Version.TryParse(
-                    value.TrimStart('v', 'V'),
-                    out _);
-                if (!hasVersion)
-                    return false;
+                hasVersion = true;
             }
             else if (parts[0].Equals(
                 "Profile",
@@ -126,7 +128,7 @@ static class NuGetTargetFrameworkIdentity
             {
                 hasProfile = true;
                 if (!string.Equals(rawValue, value, StringComparison.Ordinal)
-                    || !IsQualifierToken(value))
+                    || !PackageCoordinateResolver.IsAcquisitionTargetText(value))
                 {
                     return false;
                 }
