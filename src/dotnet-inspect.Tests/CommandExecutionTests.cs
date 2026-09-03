@@ -16677,6 +16677,45 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_AllSelector_OmitsFindingCensus()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            $"{nameof(FactsTableFixture.BoxInt)}:1",
+            "-S", "@All", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("## Finding Census", output);
+        Assert.DoesNotContain("\"fact_census_receipt\":", output);
+    }
+
+    [Theory]
+    [InlineData()]
+    [InlineData("--count")]
+    [InlineData("--json")]
+    public async Task Member_FindingCensusGlob_RequiresExactSelector(
+        params string[] format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+        [
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            $"{nameof(FactsTableFixture.BoxInt)}:1",
+            "-S", "Finding*",
+            .. format,
+            "--tips", "q",
+        ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "section 'Finding Census' requires an exact -S selector",
+            error);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_SelectFidelityCauses_ReportsCompleteEmptyCensus()
     {
         var (exit, output, error) = await RunAppAsync(

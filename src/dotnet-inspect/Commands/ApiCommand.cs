@@ -522,6 +522,13 @@ public class ApiCommand
                 ExactIncludeSectionsOverride = selectResult.ExactSections,
             };
         }
+        (options, string? findingCensusSelectionError) =
+            NormalizeFindingCensusSelection(options);
+        if (findingCensusSelectionError is not null)
+        {
+            CommandError.Write(findingCensusSelectionError);
+            return (null!, 1);
+        }
         if (options is
             {
                 BodyKindQuery.HasFilter: true,
@@ -659,6 +666,29 @@ public class ApiCommand
         };
 
         return (new PreambleResult(options, typePipeline, memberPipeline), null);
+    }
+
+    private static (ApiOptions Options, string? Error) NormalizeFindingCensusSelection(
+        ApiOptions options)
+    {
+        if (options.IncludeSections?.Contains(SectionNames.FindingCensus) != true
+            || options.ExactIncludeSections?.Contains(SectionNames.FindingCensus) == true)
+        {
+            return (options, null);
+        }
+
+        if (!SelectResolver.IsAllSelector(options.Select))
+        {
+            return (
+                options,
+                $"section '{SectionNames.FindingCensus}' requires an exact -S selector.");
+        }
+
+        var sections = new HashSet<string>(
+            options.IncludeSections,
+            StringComparer.OrdinalIgnoreCase);
+        sections.Remove(SectionNames.FindingCensus);
+        return (options with { IncludeSections = sections }, null);
     }
 
     internal static string? ApplyBodyShapeSelectionRequirements(
