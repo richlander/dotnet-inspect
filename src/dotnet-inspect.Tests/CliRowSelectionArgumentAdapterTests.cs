@@ -389,6 +389,20 @@ public sealed class CliRowSelectionArgumentAdapterTests
             nonAscii.Arguments);
         Assert.Empty(nonAscii.Occurrences);
 
+        CliRowSelectionArgumentResult nonAsciiCompact =
+            fixture.Lower(
+                [
+                    "demo",
+                    "-n١"
+                ]);
+        Assert.Equal(
+            [
+                "demo",
+                "-n١"
+            ],
+            nonAsciiCompact.Arguments);
+        Assert.Empty(nonAsciiCompact.Occurrences);
+
         Fixture withoutShorthand =
             new(limitName: "--limit");
         CliRowSelectionArgumentResult unavailable =
@@ -601,6 +615,41 @@ public sealed class CliRowSelectionArgumentAdapterTests
         Assert.True(bundled.HasParseErrors);
         Assert.Empty(bundled.Occurrences);
         Assert.Null(bundled.LoweringResult);
+
+        CliRowSelectionArgumentResult limitFirstBundle =
+            fixture.Lower(
+                [
+                    "demo",
+                    "-na2"
+                ]);
+        Assert.True(limitFirstBundle.HasParseErrors);
+        Assert.Empty(limitFirstBundle.Occurrences);
+        Assert.Null(limitFirstBundle.LoweringResult);
+
+        CliRowSelectionFailure bundledLimitValue =
+            fixture.LoweringFailure(
+                [
+                    "demo",
+                    "-n",
+                    "-an2"
+                ]);
+        Assert.Equal(
+            CliRowSelectionFailureReason.MalformedValue,
+            bundledLimitValue.Reason);
+
+        CliRowSelectionArgumentResult compactInsteadOfValue =
+            fixture.Lower(
+                [
+                    "demo",
+                    "-n",
+                    "-n2"
+                ]);
+        Assert.NotNull(
+            compactInsteadOfValue.ArgumentFailure);
+        Assert.Equal(
+            CliRowSelectionArgumentFailureReason.MissingValue,
+            compactInsteadOfValue.ArgumentFailure.Reason);
+        Assert.Null(compactInsteadOfValue.LoweringResult);
 
         CliRowSelectionArgumentResult attachedModifier =
             fixture.Lower(

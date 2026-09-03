@@ -349,21 +349,11 @@ internal static class CliRowSelectionArgumentAdapter
 
     private static bool IsBareShorthand(string token)
     {
-        if (token.Length < 2
-            || token[0] != '-')
-        {
-            return false;
-        }
-
-        for (int index = 1; index < token.Length; index++)
-        {
-            if (!char.IsAsciiDigit(token[index]))
-            {
-                return false;
-            }
-        }
-
-        return true;
+        return token.Length >= 2
+            && token[0] == '-'
+            && IsAsciiDigits(
+                token,
+                1);
     }
 
     private static bool TryGetNormalizedLimitValue(
@@ -377,12 +367,9 @@ internal static class CliRowSelectionArgumentAdapter
             return true;
         }
 
-        if (token.Length > shorthandAlias.Length
-            && token.StartsWith(
-                shorthandAlias,
-                StringComparison.Ordinal)
-            && token[shorthandAlias.Length]
-                is not ('=' or ':'))
+        if (IsCompactShortLimitToken(
+                token,
+                shorthandAlias))
         {
             value = token[shorthandAlias.Length..];
             return true;
@@ -390,6 +377,38 @@ internal static class CliRowSelectionArgumentAdapter
 
         value = null;
         return false;
+    }
+
+    private static bool IsCompactShortLimitToken(
+        string token,
+        string shorthandAlias) =>
+        token.StartsWith(
+            shorthandAlias,
+            StringComparison.Ordinal)
+        && IsAsciiDigits(
+            token,
+            shorthandAlias.Length);
+
+    private static bool IsAsciiDigits(
+        string token,
+        int startIndex)
+    {
+        if (startIndex >= token.Length)
+        {
+            return false;
+        }
+
+        for (int index = startIndex;
+            index < token.Length;
+            index++)
+        {
+            if (!char.IsAsciiDigit(token[index]))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool HasOptionToken(
@@ -587,7 +606,8 @@ internal static class CliRowSelectionArgumentAdapter
                         parseResult,
                         parsedArguments,
                         normalized.Arguments,
-                        bound.Option))
+                        bound.Option,
+                        bindings.Limit))
                 {
                     return MissingValueFailure(
                         bound.Kind,
@@ -619,7 +639,8 @@ internal static class CliRowSelectionArgumentAdapter
         ParseResult parseResult,
         IReadOnlyList<ParsedArgument> parsedArguments,
         IReadOnlyList<string> arguments,
-        Option option)
+        Option option,
+        Option limit)
     {
         if (!TryGetExactOptionAlias(
                 token,
@@ -636,12 +657,14 @@ internal static class CliRowSelectionArgumentAdapter
             || arguments[index + 1] == "--"
             || IsKnownOptionToken(
                 arguments[index + 1],
-                parseResult);
+                parseResult,
+                limit);
     }
 
     private static bool IsKnownOptionToken(
         string token,
-        ParseResult parseResult)
+        ParseResult parseResult,
+        Option limit)
     {
         for (CommandResult? command = parseResult.CommandResult;
             command is not null;
@@ -651,7 +674,8 @@ internal static class CliRowSelectionArgumentAdapter
                     option =>
                         IsOptionToken(
                             token,
-                            option)))
+                            option,
+                            limit)))
             {
                 return true;
             }
@@ -683,7 +707,8 @@ internal static class CliRowSelectionArgumentAdapter
 
     private static bool IsOptionToken(
         string token,
-        Option option)
+        Option option,
+        Option limit)
     {
         foreach (string alias in Aliases(option))
         {
@@ -703,7 +728,15 @@ internal static class CliRowSelectionArgumentAdapter
             }
 
             if (token[alias.Length] is '=' or ':'
-                || IsShortAlias(alias))
+                || (ReferenceEquals(
+                        option,
+                        limit)
+                    && alias.Equals(
+                        "-n",
+                        StringComparison.Ordinal)
+                    && IsCompactShortLimitToken(
+                        token,
+                        alias)))
             {
                 return true;
             }
