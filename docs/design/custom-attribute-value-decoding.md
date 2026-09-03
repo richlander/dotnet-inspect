@@ -194,7 +194,7 @@ a fixture built for that purpose, which is the differential oracle's job
 
 | Invariant | Holds today? | Basis |
 | --- | --- | --- |
-| **I1 — Alignment** | Believed to hold on the resolver-supplied path; unverified | Pinned by example only. One example is now a captured real-world artifact: see the classification pair above. The resolver-less overload is explicitly out of scope. The `System.Type` classification precondition was removed by #5393: both sides now call one predicate, and both are pinned to it behaviorally -- the provider by `SharedClassificationRuleTests`, the guard by `GuardClassifiesExactlyAsTheSharedRule` in `CustomAttributeValueGuardTests`. Running only the former leaves the guard half unexercised. |
+| **I1 — Alignment** | Believed to hold on the resolver-supplied path; unverified | Pinned by example only. One example is now a captured real-world artifact: see the classification pair above. The resolver-less overload is explicitly out of scope. The `System.Type` classification precondition was removed by #5393: both sides now call one predicate, and both are pinned to it behaviorally -- the provider by `SharedClassificationRuleTests`, the guard by `GuardClassifiesExactlyAsTheSharedRule` in `CustomAttributeValueGuardTests`, which crosses the shared corpus with each metadata layout the guard renders through. Running only the former leaves the guard half unexercised. |
 | **I2 — Bounding the decoder** | **No.** Violated by #5098 | SRM's per-argument re-derivation of the generic context is not bounded by anything the guard checks. |
 | **I3 — Bounding ourselves** | **No.** Violated by #5091, #5047, #5130, and #5132 | Four independent amplifications on our own side, spanning one walk and the cross-row loop. |
 
@@ -832,6 +832,18 @@ classifying `"System.Type "` differently from the provider, since only the
 provider's corpus carried the whitespace cases. A third test keeps the census
 from passing vacuously if the definition disappears.
 
+One corpus is necessary but not sufficient, because the guard does not reach
+the comparison down a single path. It renders a `TypeDefinition` through
+`GetTypeNameFromDefinition` and every other handle through `GetTypeName`, and
+either row may carry the name split across its namespace and name columns or
+carried whole and dotted in the name column alone. Those render identically and
+nothing obliges an author to choose the split form -- an attacker authoring the
+row will not. Round 7 found three of those four layouts unpinned: restricting
+the definition branch to rows with a populated namespace column left all 2,459
+metadata tests green while the guard read four enum bytes where SRM read a
+`SerString`. The guard pin now crosses the corpus with all four layouts.
+Varying the input is not coverage if the branch is what varies.
+
 An earlier version of the declared-site check also analyzed what each site
 returned, so that a shared call made in a branch nobody takes, or handed a name
 rewritten first, was rejected. That analysis was removed once behavioral checks
@@ -849,10 +861,15 @@ complaint. The pin was buildable the whole time, and building it closed the
 asymmetry rather than documenting it.
 
 Stated exactly: both classification sites are pinned to the shared rule
-behaviorally, no file under `src` spells the rule outside its definition, and
-the sites that merely consume a provider-produced name are listed. What none of
-it proves is that a wholly new site cannot classify without either spelling the
-literal or joining the declared list.
+behaviorally over a fixed corpus, the guard across every metadata layout it
+renders through, no file under `src` spells the rule outside its definition,
+and the sites that merely consume a provider-produced name are listed. What
+none of it proves is that a wholly new site cannot classify without either
+spelling the literal or joining the declared list, nor that a site rewritten to
+accept some further name outside the corpus would be caught: `|| name ==
+"System.Type2"` bolted on beside the shared call passes everything here. That
+is the same excluded actor the returned-value analysis was removed for, and it
+is recorded as a limit rather than defended against.
 
 ### Frozen cross-assembly enum-width adapter
 

@@ -1377,9 +1377,12 @@ public static class CustomAttributeValueGuard
         // Classify through the one shared rule, so this side cannot drift from
         // ArgTypeProvider.IsSystemType. Both sides are pinned behaviorally:
         // GuardClassifiesExactlyAsTheSharedRule drives IsSafeToDecode over
-        // built images whose parameter type is a case variant of System.Type
-        // -- shapes a real compiler emits and an attacker can author freely --
-        // and fails if this comparison stops agreeing with the shared rule.
+        // built images and fails if this comparison stops agreeing with the
+        // shared rule. It crosses the corpus with every layout reachable
+        // below -- TypeRef and TypeDef, each carrying the name split across
+        // the namespace and name columns or dotted in the name column alone --
+        // because the two branches here render separately, and a pin that
+        // builds only one of them leaves the other free to diverge.
         //
         // Do not charge through the observer: ResolveEnum already charges when
         // the product path supplies a name oracle, and this check must not

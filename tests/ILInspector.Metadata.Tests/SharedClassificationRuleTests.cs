@@ -37,10 +37,24 @@ namespace ILInspector.Metadata.Tests;
 /// with rendered names, and
 /// <c>CustomAttributeValueGuardTests.GuardClassifiesExactlyAsTheSharedRule</c>
 /// drives the guard's public verdict over built images and reads the
-/// classification back out of the charge. Every escape found in review — an
-/// independent predicate, the shared call made on a path nobody takes, the
-/// shared call handed a rewritten name, a comparison bolted on beside the
-/// shared call — fails one of them.
+/// classification back out of the charge. The guard side crosses every input
+/// with every metadata layout it classifies through -- <c>TypeRef</c> and
+/// <c>TypeDef</c>, each with the name split across the namespace and name
+/// columns or carried dotted in the name column alone -- because the guard
+/// renders those down separate branches, and round 7 found that pinning one
+/// branch leaves the others free to diverge.
+/// </para>
+/// <para>
+/// What that catches, stated without inflation: any divergence reachable on a
+/// corpus input, in any of those layouts. An independent predicate, the shared
+/// call made on a path nobody takes, and the shared call handed a rewritten
+/// name all fail it, because each changes the answer for a name already in the
+/// corpus. A comparison bolted on beside the shared call fails it only when
+/// the name it adds is itself in the corpus -- <c>|| name == "System.Type2"</c>
+/// passes every check here while making the two sides genuinely disagree. That
+/// is a deliberate limit, not an oversight: it needs a contributor writing a
+/// broken delegation on purpose, which is the actor the censuses below already
+/// decline to defend against.
 /// </para>
 /// <para>
 /// An earlier version of this gate said the guard could not be pinned that
@@ -64,11 +78,13 @@ namespace ILInspector.Metadata.Tests;
 /// shape first.
 /// </para>
 /// <para>
-/// Stated exactly: both classification sites are pinned behaviorally, no file
-/// under <c>src</c> spells the rule outside its definition, and the sites that
-/// consume a provider-produced name are listed. What none of it proves is that
-/// a wholly new site cannot classify without either spelling the literal or
-/// joining the list below.
+/// Stated exactly: both classification sites are pinned behaviorally over a
+/// fixed corpus -- the guard across every metadata layout it renders through
+/// -- no file under <c>src</c> spells the rule outside its definition, and the
+/// sites that consume a provider-produced name are listed. What none of it
+/// proves is that a wholly new site cannot classify without either spelling
+/// the literal or joining the list below, nor that a site rewritten to accept
+/// some name outside the corpus would be caught.
 /// </para>
 /// </remarks>
 public class SharedClassificationRuleTests
@@ -207,7 +223,12 @@ public class SharedClassificationRuleTests
     /// divergence this rule exists to prevent, hidden by an asymmetric test.
     /// Add a case here and both pins take it.
     /// </remarks>
-    public static TheoryData<string> ClassificationCorpus =>
+    // The one corpus. Both behavioral pins draw from it, because round 6 found
+    // that separately maintained lists produce a hole shaped exactly like
+    // coverage: with only this side carrying the whitespace cases,
+    // Matches(name?.Trim()) in the guard passed the entire suite while
+    // classifying " System.Type" differently from the provider.
+    public static readonly string[] ClassificationInputs =
     [
         "System.Type",
         "system.type",
@@ -222,6 +243,8 @@ public class SharedClassificationRuleTests
         "Type",
         "object",
     ];
+
+    public static TheoryData<string> ClassificationCorpus => [.. ClassificationInputs];
 
     [Theory]
     [MemberData(nameof(ClassificationCorpus))]

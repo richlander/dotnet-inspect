@@ -1786,18 +1786,15 @@ public sealed class CustomAttributeValueGuardTests
     /// </para>
     /// </remarks>
     [Theory]
-    [MemberData(
-        nameof(SharedClassificationRuleTests.ClassificationCorpus),
-        MemberType = typeof(SharedClassificationRuleTests))]
-    public void GuardClassifiesExactlyAsTheSharedRule(string rendered)
+    [MemberData(nameof(ClassificationCorpusByRowShape))]
+    public void GuardClassifiesExactlyAsTheSharedRule(
+        string rendered,
+        ClassificationRowShape shape)
     {
         const int ElementCount = 100_000_000;
-        int split = rendered.LastIndexOf('.');
-        string ns = split < 0 ? string.Empty : rendered[..split];
-        string name = split < 0 ? rendered : rendered[(split + 1)..];
 
         using var image = Open(
-            BuildClassificationProbeImage(ns, name, ElementCount));
+            BuildClassificationProbeImage(rendered, ElementCount, shape));
         CustomAttribute attribute = FirstAttribute(image.Reader);
         int charged = 0;
         CustomAttributeValueGuard.IsSafeToDecode(
@@ -1811,9 +1808,60 @@ public sealed class CustomAttributeValueGuardTests
         Assert.Equal(SystemTypeArgumentName.Matches(rendered), readAsSystemType);
     }
 
-    // The dotted/nested images above with the classified name parameterized,
-    // so one shape serves every case in GuardClassifiesExactlyAsTheSharedRule.
+    /// <summary>
+    /// The shared corpus crossed with every metadata layout the guard
+    /// classifies through.
+    /// </summary>
+    /// <remarks>
+    /// Coverage has to cross the input with the branch rather than only vary
+    /// the input; see <see cref="ClassificationRowShape"/> for the gap this
+    /// closed.
+    /// </remarks>
+    public static TheoryData<string, ClassificationRowShape>
+        ClassificationCorpusByRowShape
+    {
+        get
+        {
+            var data = new TheoryData<string, ClassificationRowShape>();
+            foreach (string rendered in
+                SharedClassificationRuleTests.ClassificationInputs)
+            {
+                foreach (ClassificationRowShape shape in
+                    Enum.GetValues<ClassificationRowShape>())
+                {
+                    data.Add(rendered, shape);
+                }
+            }
+
+            return data;
+        }
+    }
+
+    // The dotted/nested images above with the classified name and its metadata
+    // layout parameterized, so one shape serves every case in
+    // GuardClassifiesExactlyAsTheSharedRule.
     static byte[] BuildClassificationProbeImage(
+        string rendered,
+        int elementCount,
+        ClassificationRowShape shape)
+    {
+        bool dotted = shape is ClassificationRowShape.ReferenceDotted
+            or ClassificationRowShape.DefinitionDotted;
+
+        // A dotted row puts the whole name in the name column and leaves the
+        // namespace column nil. Nothing obliges an author to split it, and an
+        // attacker authoring the row will not.
+        int split = dotted ? -1 : rendered.LastIndexOf('.');
+        string ns = split < 0 ? string.Empty : rendered[..split];
+        string name = split < 0 ? rendered : rendered[(split + 1)..];
+
+        return shape is ClassificationRowShape.DefinitionCanonical
+            or ClassificationRowShape.DefinitionDotted
+            ? BuildClassificationProbeImageFromDefinition(ns, name, elementCount)
+            : BuildClassificationProbeImageFromReference(ns, name, elementCount);
+    }
+
+    static byte[] BuildClassificationProbeImageFromReference(
         string ns,
         string name,
         int elementCount)
@@ -1838,13 +1886,72 @@ public sealed class CustomAttributeValueGuardTests
                 parameters.AddParameter().Type().SZArray().Int32();
             },
             parameterCount: 2);
+        AddAttributedType(
+            metadata,
+            constructor,
+            BuildClassificationProbeValue(elementCount));
+        return Serialize(metadata);
+    }
+
+    // The same probe with the parameter type supplied as a TypeDefinition in
+    // this image rather than a TypeReference to another assembly, so the
+    // guard's TypeDefinition branch is exercised. The definition must occupy a
+    // known row before its handle can be encoded into the constructor
+    // signature, so the rows are laid out deliberately: <Module> is row 1, the
+    // probe type is row 2, and the attributed type is row 3.
+    static byte[] BuildClassificationProbeImageFromDefinition(
+        string ns,
+        string name,
+        int elementCount)
+    {
+        var metadata = CreateMetadata("ClassificationProbeDefinition");
+        TypeDefinitionHandle probe = MetadataTokens.TypeDefinitionHandle(2);
+        MemberReferenceHandle constructor = AddConstructor(
+            metadata,
+            parameters =>
+            {
+                parameters.AddParameter().Type().Type(probe, isValueType: false);
+                parameters.AddParameter().Type().SZArray().Int32();
+            },
+            parameterCount: 2);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle declared = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            ns.Length == 0 ? default : metadata.GetOrAddString(ns),
+            metadata.GetOrAddString(name),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        Assert.Equal(probe, declared);
+        TypeDefinitionHandle attributed = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Attributed"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddCustomAttribute(
+            attributed,
+            constructor,
+            metadata.GetOrAddBlob(BuildClassificationProbeValue(elementCount)));
+        return Serialize(metadata);
+    }
+
+    static BlobBuilder BuildClassificationProbeValue(int elementCount)
+    {
         var value = new BlobBuilder();
         value.WriteUInt16(1);
         value.WriteSerializedString(string.Empty);
         value.WriteInt32(elementCount);
         value.WriteUInt16(0);
-        AddAttributedType(metadata, constructor, value);
-        return Serialize(metadata);
+        return value;
     }
 
     static byte[] BuildLegalSystemTypeImage()
