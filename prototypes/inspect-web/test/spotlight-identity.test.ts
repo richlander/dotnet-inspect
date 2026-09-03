@@ -1239,6 +1239,17 @@ test("keyboard help projects available global and current graph bindings", () =>
   assert.match(
     shellControlsSource,
     /\["graph\.zoom", "Zoom the current graph"\][\s\S]*\["graph\.pan-horizontal", "Pan the current graph horizontally"\][\s\S]*\["graph\.pan-vertical", "Pan the current graph vertically"\]/);
+  assert.match(
+    appSource,
+    /const inspectionNavigationIsAvailable = \(\) =>\s*workspaceKeyboardContextIsActive\(\) && scope\(\) !== "workspace"/);
+});
+
+test("deferred Spotlight focus preserves newer Application-menu focus", () => {
+  const focusTypeList =
+    appSource.match(/function focusTypeList\([\s\S]*?\n}/)?.[0] ?? "";
+  assert.equal(
+    focusTypeList.match(/applicationMenuOwnsFocus\(document\)/g)?.length,
+    2);
 });
 
 test("the title line advertises the typed target above the subject strip", () => {

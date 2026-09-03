@@ -26,6 +26,7 @@ setProductHomeDemoCatalog([
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
+  readonly offsetWidth = 180;
   readonly ownerDocument: FakeRoot;
   readonly scrollHeight = 105;
   readonly style: Record<string, string> = {};

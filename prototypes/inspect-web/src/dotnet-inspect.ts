@@ -1596,11 +1596,13 @@ function isInteractiveElement(element: Element | null) {
 function focusTypeList(generation = spotlightFocusGeneration) {
   if (generation !== spotlightFocusGeneration
       || state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen
-      || isTextEntry()) return;
+      || state.settings || state.keyboardHelp
+      || applicationMenuOwnsFocus(document) || isTextEntry()) return;
   afterCurrentNavigationFrame(() => {
     if (generation !== spotlightFocusGeneration
         || state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen
-        || isTextEntry()) return;
+        || state.settings || state.keyboardHelp
+        || applicationMenuOwnsFocus(document) || isTextEntry()) return;
     document.querySelector<HTMLElement>("#type-list")?.focus();
   });
 }
@@ -10957,6 +10959,8 @@ const spotlightContextIsActive = () =>
 const workspaceDrillOutIsAvailable = () =>
   workspaceKeyboardContextIsActive()
   && (navMode() === "member" || !state.atPackageRoot);
+const inspectionNavigationIsAvailable = () =>
+  workspaceKeyboardContextIsActive() && scope() !== "workspace";
 
 keybindings.register({
   id: "metadata-explorer.dismiss",
@@ -11189,7 +11193,7 @@ keybindings.register({
 keybindings.register({
   id: "workspace.focus-filter",
   key: "f",
-  available: workspaceKeyboardContextIsActive,
+  available: inspectionNavigationIsAvailable,
   modifiers: { commandOrControl: true },
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
@@ -11233,7 +11237,7 @@ for (const [key, action] of [
 keybindings.register({
   id: "workspace.select-lens",
   key: ["1", "2", "3", "4", "5", "6", "7", "8", "9"],
-  available: workspaceKeyboardContextIsActive,
+  available: inspectionNavigationIsAvailable,
   allowExtraModifiers: true,
   preventDefault: false,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
@@ -11248,7 +11252,7 @@ keybindings.register({
 keybindings.register({
   id: "workspace.navigate-vertical",
   key: ["ArrowUp", "ArrowDown"],
-  available: workspaceKeyboardContextIsActive,
+  available: inspectionNavigationIsAvailable,
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
   when: event => !isTextEntry()
@@ -11263,7 +11267,7 @@ keybindings.register({
 keybindings.register({
   id: "workspace.navigate-horizontal",
   key: ["ArrowLeft", "ArrowRight"],
-  available: workspaceKeyboardContextIsActive,
+  available: inspectionNavigationIsAvailable,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
   when: () => !isTextEntry(),
   run: event => {
@@ -11274,7 +11278,7 @@ keybindings.register({
 keybindings.register({
   id: "workspace.drill-in",
   key: "Enter",
-  available: workspaceKeyboardContextIsActive,
+  available: inspectionNavigationIsAvailable,
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
   when: event => !isTextEntry()
@@ -11306,7 +11310,7 @@ keybindings.register({
 keybindings.register({
   id: "workspace.focus-filter-slash",
   key: "/",
-  available: workspaceKeyboardContextIsActive,
+  available: inspectionNavigationIsAvailable,
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
   when: () => !isTextEntry(),

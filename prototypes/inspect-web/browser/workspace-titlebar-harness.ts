@@ -351,8 +351,32 @@ harnessKeybindings.register({
 harnessKeybindings.register({
   id: "workspace.drill-out-escape",
   key: "Escape",
-  available: () => !packageMode,
+  available: () => !packageMode && !workspaceMode,
   allowExtraModifiers: true,
+  priority: 100,
+  run: () => true,
+});
+harnessKeybindings.register({
+  id: "workspace.focus-filter",
+  key: "f",
+  available: () => !workspaceMode,
+  modifiers: { commandOrControl: true },
+  allowExtraModifiers: true,
+  priority: 100,
+  run: () => true,
+});
+harnessKeybindings.register({
+  id: "workspace.select-lens",
+  key: ["1", "2", "3"],
+  available: () => !workspaceMode,
+  allowExtraModifiers: true,
+  priority: 100,
+  run: () => true,
+});
+harnessKeybindings.register({
+  id: "workspace.navigate-horizontal",
+  key: ["ArrowLeft", "ArrowRight"],
+  available: () => !workspaceMode,
   priority: 100,
   run: () => true,
 });

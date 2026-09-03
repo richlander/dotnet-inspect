@@ -126,6 +126,24 @@ test("the Application menu owns global actions and modal focus return", async ({
   expect(await page.locator("#application-menu").evaluate(menu =>
     menu.scrollHeight > menu.clientHeight)).toBe(true);
   await page.keyboard.press("Escape");
+
+  await page.setViewportSize({ width: 400, height: 520 });
+  await button.click();
+  const visualHeight = await page.evaluate(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) throw new Error("Visual viewport is unavailable.");
+    Object.defineProperty(
+      viewport,
+      "height",
+      { configurable: true, value: 120 });
+    viewport.dispatchEvent(new Event("resize"));
+    return viewport.height;
+  });
+  const visualPopup = await box(page, "#application-menu");
+  expect(visualPopup.y).toBeGreaterThanOrEqual(0);
+  expect(visualPopup.y + visualPopup.height)
+    .toBeLessThanOrEqual(visualHeight);
+  await page.keyboard.press("Escape");
 });
 
 test("Keyboard help reflects current command availability and surface", async ({
@@ -136,6 +154,18 @@ test("Keyboard help reflects current command availability and surface", async ({
   await page.getByRole("menuitem", { name: "Keyboard help" }).click();
   await expect(page.getByText("Search types, members, and packages"))
     .toBeVisible();
+  await expect(page.getByText("Leave the current member or subject"))
+    .toHaveCount(0);
+
+  await page.goto("/browser/workspace-titlebar.html?workspace=1");
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: "Keyboard help" }).click();
+  await expect(page.getByText("Search types, members, and packages"))
+    .toBeVisible();
+  await expect(page.getByText("Focus the current list filter")).toHaveCount(0);
+  await expect(page.getByText("Select a subject or inspector")).toHaveCount(0);
+  await expect(page.getByText("Move across subjects or inspectors"))
+    .toHaveCount(0);
   await expect(page.getByText("Leave the current member or subject"))
     .toHaveCount(0);
 

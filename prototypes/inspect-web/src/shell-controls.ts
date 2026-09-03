@@ -156,24 +156,44 @@ function setApplicationMenuOpen(
   if (!open) return;
   const rect = button.getBoundingClientRect();
   const view = button.ownerDocument.defaultView;
-  const viewportHeight = view?.innerHeight ?? 600;
+  const visualViewport = view?.visualViewport;
+  const viewportTop = visualViewport?.offsetTop ?? 0;
+  const viewportLeft = visualViewport?.offsetLeft ?? 0;
+  const viewportHeight =
+    visualViewport?.height ?? view?.innerHeight ?? 600;
+  const viewportWidth =
+    visualViewport?.width ?? view?.innerWidth ?? rect.right;
+  const viewportBottom = viewportTop + viewportHeight;
+  const viewportRight = viewportLeft + viewportWidth;
   const margin = 8;
   const gap = 4;
   const availableBelow = Math.max(
     0,
-    viewportHeight - rect.bottom - gap - margin);
-  const availableAbove = Math.max(0, rect.top - gap - margin);
+    viewportBottom - rect.bottom - gap - margin);
+  const availableAbove = Math.max(
+    0,
+    rect.top - gap - margin - viewportTop);
   const menuHeight = menu.scrollHeight;
   const placeBelow = availableBelow >= menuHeight
     || (availableAbove < menuHeight && availableBelow >= availableAbove);
-  menu.style.top = placeBelow ? `${rect.bottom + gap}px` : "auto";
-  menu.style.bottom = placeBelow
-    ? "auto"
-    : `${viewportHeight - rect.top + gap}px`;
-  menu.style.right = `${Math.max(
-    margin,
-    (view?.innerWidth ?? rect.right) - rect.right,
+  menu.style.top = `${placeBelow
+    ? rect.bottom + gap
+    : Math.max(
+        viewportTop + margin,
+        rect.top - gap - Math.min(menuHeight, availableAbove))
+  }px`;
+  menu.style.bottom = "auto";
+  const menuWidth = menu.offsetWidth;
+  const minimumLeft = viewportLeft + margin;
+  const maximumLeft = Math.max(
+    minimumLeft,
+    viewportRight - margin - menuWidth);
+  menu.style.left = `${Math.min(
+    Math.max(rect.right - menuWidth, minimumLeft),
+    maximumLeft,
   )}px`;
+  menu.style.right = "auto";
+  menu.style.maxWidth = `${Math.max(0, viewportWidth - 2 * margin)}px`;
   menu.style.maxHeight =
     `${placeBelow ? availableBelow : availableAbove}px`;
 }
