@@ -1,5 +1,6 @@
 using ILInspector.Analysis;
 using ILInspector.Decompiler.Annotations;
+using ILInspector.Findings;
 
 namespace ILInspector.Research;
 
@@ -17,7 +18,7 @@ sealed class CallSiteSemanticsFactProducer : IResearchFactProducer
         ResearchFactRequirements.ForAssembly(
             LibraryBodyAnalysisFeatures.MethodEvidence);
 
-    public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context)
+    public IReadOnlyList<Finding<IAnnotation>> Produce(ResearchFactContext context)
     {
         if (context.Assembly is not { } assembly || context.Imported.MetadataToken == 0)
             return [];
@@ -25,7 +26,7 @@ sealed class CallSiteSemanticsFactProducer : IResearchFactProducer
         if (callSites.IsEmpty)
             return [];
 
-        var facts = new List<Annotation>();
+        var facts = new List<Finding<IAnnotation>>();
         foreach (var finding in callSites)
         {
             var call = finding.Payload;
@@ -36,11 +37,22 @@ sealed class CallSiteSemanticsFactProducer : IResearchFactProducer
             var signals = assembly.Signals.GetValueOrDefault(calleeToken, MethodSignals.None);
             var exceptionTypes = DomainExceptionTypes(signals);
             if (exceptionTypes.Count > 0)
-                facts.Add(new Annotation(CalleeSemantics, call.ILOffset, ExceptionDetail(exceptionTypes)));
+            {
+                facts.Add(ResearchFactFinding.Project(
+                    finding,
+                    new Annotation(
+                        CalleeSemantics,
+                        call.ILOffset,
+                        ExceptionDetail(exceptionTypes))));
+            }
 
             var unsafeDetail = UnsafeDetail(assembly, calleeToken);
             if (unsafeDetail is not null)
-                facts.Add(new Annotation(CalleeSafety, call.ILOffset, unsafeDetail));
+            {
+                facts.Add(ResearchFactFinding.Project(
+                    finding,
+                    new Annotation(CalleeSafety, call.ILOffset, unsafeDetail)));
+            }
         }
         return facts;
     }

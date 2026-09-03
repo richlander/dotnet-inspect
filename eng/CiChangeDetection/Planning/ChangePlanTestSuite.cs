@@ -844,6 +844,18 @@ internal static class ChangePlanTestSuite
                 PlanEventKind.MergeGroup,
                 emptyCandidate,
                 candidate);
+        _ = GitCandidateReader.ResolveProvenance(
+            fixture.Root,
+            PlanEventKind.PullRequestSyntheticCandidate,
+            emptyCandidate,
+            candidate);
+        AssertRefusal(
+            PlanRefusalCategory.CandidateMismatch,
+            () => GitCandidateReader.ResolveProvenance(
+                fixture.Root,
+                PlanEventKind.PullRequestSyntheticCandidate,
+                emptyBase,
+                candidate));
         ChangeEvidence evidence =
             GitCandidateReader.ReadChanges(fixture.Root, provenance);
         string rendered = GitFixtureRepository.Render(evidence);
