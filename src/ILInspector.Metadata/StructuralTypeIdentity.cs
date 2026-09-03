@@ -168,7 +168,9 @@ public static class StructuralTypeIdentity
         return result.ToString();
     }
 
-    static string Named(string @namespace, IEnumerable<string> metadataSegments)
+    internal static string Named(
+        string @namespace,
+        IEnumerable<string> metadataSegments)
     {
         string typeName = string.Join(
             '.',
@@ -180,6 +182,25 @@ public static class StructuralTypeIdentity
             ? typeName
             : $"{Escape(@namespace, escapeDot: false)}.{typeName}";
     }
+
+    internal static bool RequiresArrayNamePayload(
+        string @namespace,
+        IEnumerable<string> metadataSegments)
+    {
+        if (ContainsArrayDelimiter(@namespace))
+            return true;
+
+        foreach (string segment in metadataSegments)
+        {
+            if (ContainsArrayDelimiter(segment))
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool ContainsArrayDelimiter(string value)
+        => value.Contains('[') || value.Contains(']');
 
     static string EscapeSegment(
         string value,

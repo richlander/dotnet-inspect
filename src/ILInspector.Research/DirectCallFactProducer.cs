@@ -1,5 +1,6 @@
 using ILInspector.Analysis;
 using ILInspector.Decompiler.Annotations;
+using ILInspector.Findings;
 
 namespace ILInspector.Research;
 
@@ -16,24 +17,28 @@ sealed class DirectCallFactProducer : IResearchFactProducer
         [ResearchFactRegistry.CallRelationshipDescriptorId];
     public IReadOnlyList<string> DependsOn => [];
 
-    public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context)
+    public IReadOnlyList<Finding<IAnnotation>> Produce(ResearchFactContext context)
     {
         IReadOnlyList<DirectCall> calls = context.CallSites
             ?? throw new InvalidOperationException(
                 "Direct call relationship facts require supplied call-site evidence.");
-        return calls.Count == 0
-            ? []
-            :
-            [
-                .. calls
-                    .OrderBy(call => call.ILOffset)
-                    .ThenBy(call => call.OperandToken)
-                    .Select(call => new Annotation<DirectCall>(
+        if (calls.Count == 0)
+            return [];
+
+        var subject = ResearchMemberIdentity.SubjectFromMethod(calls[0].Caller);
+        return
+        [
+            .. AnalysisFindings.InspectCallSites(
+                    calls,
+                    new FindingSubject(subject.Id, subject.Display))
+                .Select(finding => ResearchFactFinding.Project(
+                    finding,
+                    new Annotation<DirectCall>(
                         CallEdge,
-                        call.ILOffset,
-                        call,
+                        finding.Payload.ILOffset,
+                        finding.Payload,
                         Formatter: static occurrence =>
-                            occurrence.Callee.ToQualifiedDisplayString())),
-            ];
+                            occurrence.Callee.ToQualifiedDisplayString()))),
+        ];
     }
 }
