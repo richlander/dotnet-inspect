@@ -461,6 +461,51 @@ public sealed class ResolvedAssemblyReference
         AssemblyResolutionProvenance provenance,
         out bool usedFallbackIdentity,
         DateTime? lastWriteTimeUtc = null)
+        => CreateFromStreamWithFallbackIdentityCore(
+            artifactRegistration: null,
+            openRead,
+            fallbackIdentity,
+            provenance,
+            out usedFallbackIdentity,
+            lastWriteTimeUtc);
+
+    /// <summary>
+    /// Projects one authorized artifact registration into an assembly
+    /// descriptor, retaining decoded assembly identity and a non-empty MVID
+    /// when available, or a fallback identity when identity cannot be decoded.
+    /// </summary>
+    /// <remarks>
+    /// The fallback keeps a selected malformed, native, or module image visible
+    /// as a rejection carrier while preserving exact artifact correspondence.
+    /// An empty-MVID assembly keeps its decoded identity with no bound MVID.
+    /// Neither case is successful assembly evidence; artifact-backed opens
+    /// still validate and reject the image.
+    /// </remarks>
+    public static ResolvedAssemblyReference CreateFromArtifactWithFallbackIdentity(
+        ArtifactAcquisitionRegistration artifactRegistration,
+        Func<Stream> openRead,
+        AssemblyReferenceIdentity fallbackIdentity,
+        AssemblyResolutionProvenance provenance,
+        out bool usedFallbackIdentity,
+        DateTime? lastWriteTimeUtc = null)
+    {
+        ArgumentNullException.ThrowIfNull(artifactRegistration);
+        return CreateFromStreamWithFallbackIdentityCore(
+            artifactRegistration,
+            openRead,
+            fallbackIdentity,
+            provenance,
+            out usedFallbackIdentity,
+            lastWriteTimeUtc);
+    }
+
+    static ResolvedAssemblyReference CreateFromStreamWithFallbackIdentityCore(
+        ArtifactAcquisitionRegistration? artifactRegistration,
+        Func<Stream> openRead,
+        AssemblyReferenceIdentity fallbackIdentity,
+        AssemblyResolutionProvenance provenance,
+        out bool usedFallbackIdentity,
+        DateTime? lastWriteTimeUtc)
     {
         ArgumentNullException.ThrowIfNull(openRead);
         ArgumentNullException.ThrowIfNull(fallbackIdentity);
@@ -475,6 +520,7 @@ public sealed class ResolvedAssemblyReference
         }
 
         AssemblyReferenceIdentity? identity = null;
+        Guid? moduleVersionId = null;
         using (Stream stream = source)
         {
             try
@@ -490,7 +536,21 @@ public sealed class ResolvedAssemblyReference
                             AssemblyReferenceIdentity.FromAssemblyDefinition(
                                 metadata);
                         if (!string.IsNullOrWhiteSpace(candidate.Name))
+                        {
                             identity = candidate;
+                            if (artifactRegistration is not null)
+                            {
+                                ModuleDefinition module =
+                                    metadata.GetModuleDefinition();
+                                Guid candidateModuleVersionId =
+                                    metadata.GetGuid(module.Mvid);
+                                if (candidateModuleVersionId != Guid.Empty)
+                                {
+                                    moduleVersionId =
+                                        candidateModuleVersionId;
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -501,7 +561,17 @@ public sealed class ResolvedAssemblyReference
         }
 
         usedFallbackIdentity = identity is null;
-        return Create(
+        if (usedFallbackIdentity)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(
+                fallbackIdentity.Name);
+        }
+        var registration =
+            new AssemblyAcquisitionRegistration(artifactRegistration);
+        if (moduleVersionId is Guid value)
+            registration.BindModuleVersionId(value);
+        return new ResolvedAssemblyReference(
+            registration,
             identity ?? fallbackIdentity,
             path: null,
             openRead,
