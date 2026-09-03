@@ -2,7 +2,8 @@
 
 [Making your work findable](../AGENTS.md#making-your-work-findable) states the
 binding rules: every window identifies its PR, current state, and any decision
-it needs. This document owns the tmux mechanics and the reasoning behind them.
+it needs, while its pane title reports current activity. This document owns the
+tmux mechanics and the reasoning behind them.
 
 ## Resume a session
 
@@ -13,7 +14,8 @@ Before continuing:
    re-check the PR per
    [Canonical round flow](../AGENTS.md#canonical-round-flow). Do not pull or
    rebase a pushed branch to catch up.
-2. Rename the window and re-announce the PR as described below.
+2. Rename the window, update the pane title, and re-announce the PR as
+   described below.
 3. State which case applies:
 
 - **Mid-stream:** continue, but handle conflicts, failed gates, or moved bases
@@ -53,6 +55,23 @@ temporary suffixes:
 | --- | --- |
 | `-blocked` | waiting on a human decision |
 | `-conflict` | in conflict recovery |
+
+## Set the pane title for current activity
+
+```sh
+tmux select-pane -t "${TMUX_PANE:?}" -T "reviewing pr<number>"
+```
+
+The window name is stable identity; the pane title is live activity. Copilot
+sets a title at startup, which is a useful baseline but often becomes stale.
+Replace it at the start of work, after every resume, and at meaningful phase
+changes. Use a short factual phrase such as `reviewing pr4405`, `running tests
+for pr4405`, or `waiting for checks on pr4405`; do not churn the title for
+individual commands.
+
+Always target `"${TMUX_PANE:?}"` for the same ownership reason as
+`rename-window`. The pane title is human-facing status displayed by tmux; tools
+must continue to read `@agent` and `@agent_state` rather than scraping it.
 
 ## Publish your state where tooling can read it
 

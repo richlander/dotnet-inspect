@@ -98,6 +98,11 @@ states the binding rules.
 - **Rename the window** to `pr<number>` (or `i<number>` before a PR exists),
   always targeting `"${TMUX_PANE:?}"`, and keep it stable except for a
   `-blocked` or `-conflict` suffix.
+- **Update the pane title** with concise current activity, always targeting
+  `"${TMUX_PANE:?}"`. Accept Copilot's startup title only as the initial
+  fallback; replace it at the start of work, after every resume, and at
+  meaningful phase changes with
+  `tmux select-pane -t "${TMUX_PANE:?}" -T "<current activity>"`.
 - **Announce PR identity** — the literal token `PR #<number>` or `PR <number>`,
   plus branch or expected head — at the start of work, after every resume, and
   at every round start. Round completions use the
