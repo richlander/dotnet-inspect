@@ -145,6 +145,11 @@ boundary from text to typed identity. Grammar-invalid text is rejected there
 and never reaches registry lookup. Consumers treat a successfully constructed
 value as opaque and use exact typed equality.
 
+`PackageSetIds` publishes the canonical typed values for the initial product
+sets. Product adapters map known controls and CLI flags through those values
+rather than reparsing registry-owned string literals. `TryCreate` remains the
+boundary for a value arriving as text from a supported caller or transport.
+
 Exact registry lookup accepts only a `PackageSetId`. A grammar-valid but
 unregistered identity returns a typed unknown result. Titles, summaries, CLI
 option names, and package prefixes are not identity and are never lookup
@@ -157,9 +162,10 @@ the stated purpose; order and membership changes are observable product
 changes requiring focused evidence.
 
 Package-set identity does not make membership immutable across product
-releases. A consumer requiring a reproducible workspace retains the selected
-descriptor snapshot or the exact coordinates produced by realization rather
-than assuming a later registry build has identical membership.
+releases. A consumer requiring reproducible membership retains the selected
+descriptor snapshot rather than assuming a later registry build has identical
+membership. A reproducible workspace retains the exact coordinates produced by
+realization because a descriptor may contain floating package coordinates.
 
 ## Membership validation
 
@@ -248,10 +254,12 @@ They do not copy registry membership or infer a set from an ID prefix.
 ### CLI
 
 During staged adoption, `--extensions` maps exactly to
-`package-set.microsoft-extensions` and `--aspnetcore` maps exactly to
-`package-set.aspnetcore`. The CLI continues to own those spellings and their
-diagnostics. A future generic `--package-set` option is a separate CLI design,
-not implied by registry discoverability.
+`PackageSetIds.MicrosoftExtensions` and `--aspnetcore` maps exactly to
+`PackageSetIds.AspNetCore`. The corresponding serialized identities are
+`package-set.microsoft-extensions` and `package-set.aspnetcore`. The CLI
+continues to own its option spellings and diagnostics. A future generic
+`--package-set` option is a separate CLI design, not implied by registry
+discoverability.
 
 ### Browser workspace
 
@@ -314,6 +322,7 @@ non-friend consumer project.
 | `PackageSetRegistryTests.InvalidRegistrationsFailBeforePublication` | Malformed or duplicate IDs, duplicate order, invalid or target-specific coordinates, and within-set duplicate coordinates reject complete internal registry construction rather than publishing a shortened catalog. |
 | `PackageSetRegistryTests.DescriptorAndMembershipAreImmutableSnapshots` | Caller collection mutation and returned-collection use cannot change registry metadata, membership, or order. |
 | `PackageSetRegistryTests.InvalidTextDoesNotConstructAnIdentity` | Case variants, labels, CLI spellings, whitespace, and other non-canonical text fail the identity-construction boundary. |
+| `PackageSetRegistryTests.WellKnownIdsResolveToInitialDescriptors` | Product adapters can use canonical typed initial IDs without parsing literals, and each resolves to the matching enumerated descriptor. |
 | `PackageSetRegistryTests.UnknownIdentityDoesNotAliasOrSelectADefault` | A well-formed unregistered identity returns typed unknown and does not resolve by neighboring identity, label, or default. |
 | `PackageSetRegistryConsumerTests.PublicSurfaceSupportsDiscoveryAndLookup` | A non-friend consumer references only the supported public surface to enumerate, select, and inspect a package set without CLI, source, acquisition, or workspace types. |
 
