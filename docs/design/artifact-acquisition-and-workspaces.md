@@ -2364,11 +2364,14 @@ ArtifactRootPreparationReceipt
   Preparation             ArtifactRootPreparationIdentity
   CandidateSet            ArtifactRootCandidateSetIdentity
   Deadline
+  Cancellation
   State                   Prepared | Publishing | Published | Released
 
 ArtifactRootPublicationPlan
   Workspace               InspectionWorkspaceIdentity
   ExpectedComposition     ArtifactRootCompositionGenerationIdentity
+  Deadline
+  Cancellation
   DesiredRoots            ordered ArtifactRootPublicationEntry sequence
   Preparation             optional ArtifactRootPreparationReceipt
   Participant             ArtifactRootScopePublicationParticipant
@@ -2396,6 +2399,9 @@ row order.
 The receipt begins `Prepared`. `ReleaseArtifactRootPreparation` is idempotent:
 it changes `Prepared` to `Released`, releases every provisional resource and
 budget reservation, and returns `NoEffect` for an already released receipt.
+Once publication changes it to `Publishing`, the publication operation owns
+the only authority to publish or release the batch. A concurrent explicit
+release returns typed `PreparationPublishing` without draining staging.
 `Published` is terminal and cannot be released through preparation authority.
 A foreign-Workspace, unknown, or forged receipt is rejected without affecting
 another receipt.
@@ -2414,13 +2420,19 @@ receipt. Every prepared entry must appear exactly once, every desired
 correspondence must be unique, and no entry may be both retained and adopted.
 Current Roots omitted from the complete desired set retire if publication
 commits. An empty desired set supports Clear without requiring an empty
-preparation receipt.
+preparation receipt. A plan always carries its own finite deadline and
+cancellation authority. When a receipt is present, its Workspace, deadline,
+cancellation authority, and candidate set must match the plan; when absent,
+the plan cannot contain an `Adopt` entry.
 
 `ArtifactRootCompositionGenerationIdentity` is an opaque, process-local,
-non-reused identity for one current physical Root composition. It changes on
-every successful Root publication, including a logical publication that
-retains an equal physical set. Equality proves only the same publication
-issuance. It is not a scope revision, query lease, or access grant.
+non-reused identity for one current physical Root composition epoch. It changes
+on every change to current physical Root admission, including owner-internal
+retirement and replacement settlement, and on a logical publication that
+retains an equal physical set. Every such transition observes the runtime
+composition gate. Equality proves that neither a physical-composition change
+nor another scope-requested publication has intervened; it is not a scope
+revision, query lease, or access grant.
 
 The `ArtifactRootScopePublicationParticipant` is a sealed host-neutral contract
 implemented only by Workspace Scope and Expansion. It is not a plugin or a
@@ -2429,6 +2441,14 @@ logical base revision, operation and candidate identities, and a complete
 resource-free candidate publication. Artifact Acquisition treats that
 candidate as opaque and cannot inspect membership, order, expansion policy,
 closure, operation results, or Navigation intent.
+
+The participant is process-local and single-use. A plan rejected before
+`PrepareCommit` leaves the participant available. Invoking `PrepareCommit`
+consumes it: a refusal or discarded token is terminal, and an invoked token is
+terminally committed. Reusing the same participant returns a typed
+`ParticipantAlreadyConsumed` result. A separately constructed equivalent
+participant still carries the same expected logical base revision and is
+refused after the first publication advances that revision.
 
 The participant exposes two owner-defined steps:
 
@@ -2443,34 +2463,42 @@ The participant exposes two owner-defined steps:
 
 The runtime Workspace composition gate is one asynchronous exclusion boundary
 shared by Root publication, scope current-state publication, and new artifact
-query entry. Waiting for the gate does not block a thread and is compatible
-with single-threaded Browser/Wasm. The final commit region is synchronous and
-non-yielding.
+query entry. Owner-internal current Root retirement and replacement publication
+also observe this gate and advance the physical-composition identity. Waiting
+for the gate does not block a thread and is compatible with single-threaded
+Browser/Wasm. The final commit region is synchronous and non-yielding.
 
 `PublishArtifactRootComposition` applies this order:
 
-1. Before consuming the receipt, validate the operation shape, Workspace
-   identity, finite deadline, candidate-set identity, entry uniqueness, and
-   receipt/plan correspondence. A malformed or foreign plan is rejected and
-   leaves a matching `Prepared` receipt under caller ownership.
+1. Before consuming an optional receipt, validate the operation shape,
+   Workspace identity, finite plan deadline, cancellation authority, entry
+   uniqueness, and receipt/plan correspondence. A receipt-free plan containing
+   `Adopt`, or a receipt-backed plan that does not use every prepared entry
+   exactly once, is malformed. Rejection leaves a matching `Prepared` receipt
+   and an unused participant under caller ownership.
 2. Enter the exact runtime Workspace composition gate. Revalidate that the
-   Workspace is open, the expected composition generation is current, every
-   retained generation reference is current, the receipt is still `Prepared`,
-   and admission budgets still permit the complete desired set.
-3. Change a matching receipt to `Publishing`, privately stage the complete new
-   physical composition, and construct unpublished candidate
-   `ArtifactRootScopeProjection` values for the desired Roots. Nothing is
+   plan still applies in this order: a present receipt's state, the open
+   Workspace, cancellation and deadline, expected composition generation,
+   every retained generation reference, then admission budgets for the complete
+   desired set. Receipt-state precedence ensures retry reports
+   `PreparationAlreadyPublished`, `PreparationReleased`, or
+   `PreparationPublishing`; a nonterminal receipt must be `Prepared`.
+3. Change a matching receipt to `Publishing` when one exists, privately stage
+   the complete new physical composition, and construct unpublished candidate
+   `ArtifactRootScopeProjection` values for the desired Roots. A receipt-free
+   plan stages only retained or empty composition. Nothing is
    query-admissible, current, returned, or retainable yet.
 4. Ask the participant to prepare its commit from the exact current composition
    and ordered projected Roots. A stale scope candidate, supersession,
-   participant refusal, cancellation, or deadline expiry releases all staging,
-   changes the receipt to `Released`, and preserves both current states.
+   consumed participant, participant refusal, cancellation, or deadline expiry
+   releases all staging, changes a present receipt to `Released`, and
+   preserves both current states.
 5. Recheck cancellation, deadline, retained generation currentness, and
    composition identity. Then invoke the participant's no-fail commit token,
    swap the staged physical composition into current query admission, assign a
    fresh composition-generation identity, make the candidate projections valid
-   for that new current composition, and change the receipt to `Published` in
-   one non-yielding critical region.
+   for that new current composition, and change a present receipt to
+   `Published` in one non-yielding critical region.
 6. Exit the gate with both current pointers changed or neither changed. Return
    the participant's complete scope-operation result and exact published Root
    projections.
@@ -2489,11 +2517,13 @@ transaction; the design does not add a broad exception-catching or durable
 journaling protocol.
 
 Cancellation or deadline expiry before the final recheck releases the
-preparation. After the non-yielding commit starts, publication wins and returns
-`Published`; cancellation cannot turn a committed composition into a
-cancelled result. A second publish attempt with the same receipt returns a
-typed `PreparationAlreadyPublished` or `PreparationReleased` outcome and
-cannot repeat scope publication.
+preparation when one exists. After the non-yielding commit starts, publication
+wins and returns `Published`; cancellation cannot turn a committed composition
+into a cancelled result. A second publish attempt with the same receipt returns
+a typed `PreparationAlreadyPublished` or `PreparationReleased` outcome. A
+receipt-free retry with the same participant returns
+`ParticipantAlreadyConsumed`; an equivalent new participant is refused by its
+stale logical base revision. None can repeat scope publication.
 
 The named consumer is Workspace Scope and Expansion in #5701. Add, Replace,
 Remove, Clear, expansion-policy edits, and dependency expansion remain that
@@ -2512,6 +2542,9 @@ The required pathological cases are:
 | Removed Root has an admitted query lease | No new query enters after publication; the existing lease drains normally |
 | Participant refuses after physical staging | Staging releases before gate exit; both old current states remain observable |
 | Receipt is submitted twice after publication | Typed `PreparationAlreadyPublished`; no second adoption or scope publication |
+| Clear without a preparation receipt | Plan deadline and cancellation govern the operation; the single-use participant and logical base revision prevent replay |
+| Explicit release races a publishing receipt | Typed `PreparationPublishing`; publication alone publishes or releases the staged batch |
+| Unrelated Root replacement settles while a plan waits | Physical-composition identity advances; the stale plan cannot retire or overwrite the replacement |
 | Receipt deadline expires while waiting for the gate | Receipt releases; no prepared resource remains retained |
 | Browser package bytes back an abandoned receipt | Bytes become collectible after release and lower-level preparation leases drain |
 | Single-threaded Browser/Wasm waits for another publication | Asynchronous exclusion waits without blocking the host thread; the final commit does not yield |
@@ -2522,10 +2555,12 @@ The target Release gates are:
 | --- | --- |
 | `ArtifactRootPreparation_IsCompleteOrReleasesAll` | One requested batch returns one complete receipt or typed failure after every provisional resource releases. |
 | `ArtifactRootPreparation_BindsExactWorkspaceCandidateAndDeadline` | A receipt cannot cross Workspace, candidate set, preparation occurrence, or finite deadline. |
-| `ArtifactRootPreparation_ReleaseIsIdempotentAndTerminal` | Explicit release or owner-observed deadline drains the complete prepared batch once; repeated release has no effect and publication cannot follow. |
+| `ArtifactRootPreparation_ReleaseIsIdempotentAndTerminal` | Explicit release of Prepared or owner-observed deadline drains the complete prepared batch once; repeated release has no effect, Publishing returns a typed non-release result, and publication cannot follow a completed release. |
 | `ArtifactRootPreparation_TerminalReceiptRetainsNoResources` | Retaining a Published or Released receipt prolongs neither provisional nor current physical resources. |
 | `ArtifactRootPublication_ValidatesCompleteDesiredSetBeforeConsumption` | Malformed, duplicate, foreign, or mismatched plans are rejected before consuming a matching prepared receipt. |
 | `ArtifactRootPublication_StalePhysicalOrLogicalCandidateCannotCommit` | Stale composition, generation, scope base, supersession, budget, cancellation, and deadline checks preserve both current states. |
+| `ArtifactRootPublication_CompositionIdentityCoversEveryPhysicalChange` | Owner-internal Root retirement or replacement and scope-requested publication all advance one gate-observed physical-composition identity. |
+| `ArtifactRootPublication_ReceiptFreePlanCommitsOrRefusesOnce` | Empty and retain-only plans use plan deadline/cancellation plus a single-use participant and cannot repeat logical publication. |
 | `ArtifactRootPublication_OldOrNewCompositionIsObserved` | Scope reads and query entries observe either the complete old logical/physical pair or the complete new pair, never a half-state. |
 | `ArtifactRootPublication_ParticipantRefusalReleasesStaging` | A typed participant refusal after staging publishes nothing and releases every provisional resource. |
 | `ArtifactRootPublication_ReceiptPublishesAtMostOnce` | A receipt has one terminal Published or Released outcome and cannot duplicate adoption or logical publication. |
