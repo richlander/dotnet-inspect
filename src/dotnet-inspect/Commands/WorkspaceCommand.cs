@@ -76,10 +76,11 @@ public static class WorkspaceCommand
                 var loaded = (WorkspaceContextLoadOutcome.Loaded)outcome;
                 PackageRootBinding packageRoot =
                     loaded.PackageRoots.Single();
-                if (!packageRoot.Root.AssetSelection.IsSelected)
+                if (packageRoot.Root.AssetSelection.Status
+                    == PackageCompileAssetSelectionStatus.EmptyCompileGroup)
                 {
                     CommandError.Write(
-                        "The Workspace command requires each package to select at least one managed compile assembly.",
+                        "The Workspace command does not support packages with an explicit empty compile group for the target framework.",
                         [
                             $"{packageRoot.Root.PackageId}@{packageRoot.Root.PackageVersion}: "
                             + packageRoot.Root.AssetSelection.Status,

@@ -167,9 +167,55 @@ public sealed class WorkspaceCommandTests
         Assert.Equal(1, captured.ExitCode);
         Assert.Empty(captured.Output);
         Assert.Contains(
-            "requires each package to select at least one managed compile assembly",
+            "does not support packages with an explicit empty compile group",
             captured.Error);
         Assert.Contains("EmptyCompileGroup", captured.Error);
+    }
+
+    [Fact]
+    public async Task CompatibleCompileGroup_RendersTheRequestedFramework()
+    {
+        const string assetFramework = "net8.0";
+        var store = new InMemoryPackageStore();
+        string sourceKey = NuGetCache.GetSourceKey(Source.Url);
+        byte[] assembly =
+            await File.ReadAllBytesAsync(
+                typeof(WorkspaceCommandTests).Assembly.Location,
+                TestContext.Current.CancellationToken);
+        byte[] package = SnupkgPdbReaderTests.MakeSnupkg(
+            ($"{PackageId}.nuspec", "<package />"u8.ToArray()),
+            ($"lib/{assetFramework}/dotnet-inspect.Tests.dll", assembly));
+        using (var stream = new MemoryStream(package))
+        {
+            await store.CommitAsync(
+                PackageId,
+                Version,
+                sourceKey,
+                stream,
+                TestContext.Current.CancellationToken);
+        }
+
+        using var client = new HttpClient(new FailingHandler());
+        var captured = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packages = [$"{PackageId}@{Version}"],
+                    Tfm = Framework,
+                },
+                new WorkspaceContextLoadOptions
+                {
+                    HttpClient = client,
+                    SourceAuthorization =
+                        new UniformPackageSourceAuthorization([Source]),
+                    PackageStore = store,
+                },
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Contains(PackageId, captured.Output);
+        Assert.Contains(Framework, captured.Output);
+        Assert.Empty(captured.Error);
     }
 
     sealed class FailingHandler : HttpMessageHandler
