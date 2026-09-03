@@ -1471,6 +1471,7 @@ test("typed type panel owns its rendered control bindings", () => {
     binding,
     /bindTypePanel\(document, \{/);
   assert.doesNotMatch(clearFilters, /libraryScope/);
+  assert.doesNotMatch(clearFilters, /focusFilter/);
   assert.match(
     clearFilters,
     /state\.accessibilityFilter = defaultAccessibilityFilter\(state\.package\)/);

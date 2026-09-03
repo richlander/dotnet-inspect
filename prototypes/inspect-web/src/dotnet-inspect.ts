@@ -5240,7 +5240,6 @@ function bindTypePanelEvents() {
       state.kindFilter = "";
       state.accessibilityFilter = defaultAccessibilityFilter(state.package);
       render();
-      focusFilter({ immediate: true });
     },
     onCopyAnchor: anchor => {
       const type = selectedType();

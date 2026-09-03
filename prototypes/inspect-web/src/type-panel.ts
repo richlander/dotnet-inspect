@@ -190,9 +190,10 @@ export function bindTypePanel(
   root.querySelector("#nav-to-types")?.addEventListener(
     "click",
     actions.onShowTypes);
-  root.querySelector("#clear-filter")?.addEventListener(
-    "click",
-    actions.onClearFilters);
+  root.querySelector("#clear-filter")?.addEventListener("click", () => {
+    actions.onClearFilters();
+    root.querySelector<HTMLElement>("#clear-filter")?.focus();
+  });
   root.querySelector("#clear-member-filter")?.addEventListener(
     "click",
     actions.onMemberFilterClear);

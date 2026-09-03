@@ -342,6 +342,7 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
     "filter:json",
     "list:End",
   ]);
+  assert.equal(clear.focused, true);
   assert.equal(forwardedListEvent, listKey.event);
   assert.equal(listKey.state.prevented, false);
 });
