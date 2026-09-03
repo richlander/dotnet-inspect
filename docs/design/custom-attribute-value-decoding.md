@@ -7,27 +7,28 @@ separate blob, in a separate table — says how wide each value is. Decoding one
 requires reading two attacker-supplied structures together and agreeing about
 where every element begins and ends.
 
-This document owns the contract that makes that safe.
+**We own that decode.** This document owns the contract that makes it safe.
 
-**Status: descriptive, with known gaps.** The invariants below are the contract
-this component is held to, not a description of what it currently guarantees.
-Eight verified divergences are open against it, listed under [Known
-gaps](#known-gaps). Treat any statement that an invariant *holds* as unverified
-until the differential oracle of issue #5065 exists.
+**Status: prescriptive, ahead of the implementation.** This document states the
+contract established by [#5288](https://github.com/richlander/dotnet-inspect/issues/5288),
+which inverts this subsystem's relationship to `System.Reflection.Metadata`.
+Slice 1 is this document; the decoder itself is slice 2. Until slice 2 lands,
+`AttributeDecoder` still calls `CustomAttribute.DecodeValue` behind
+`CustomAttributeValueGuard`, and the paired-walker hazards described under
+[How this design changed](#how-this-design-changed) are still live in the code.
+Read every invariant below as the target the implementation is held to, not as
+a description of what ships today.
 
 The same caution applies to this document's **detail-level claims** — the
-mechanism tables, cited line numbers, and failure-semantics rows. They were
-established by reading, and adversarial review has twice corrected rows that
-reading got wrong. They are checked by no gate. #5065 is the instrument that
-would verify them mechanically; until it exists, verify against the code
-before relying on any specific row.
+mechanism tables and cited behaviors. They were established by reading, and
+adversarial review has repeatedly corrected rows that reading got wrong. Verify
+against the code before relying on any specific row.
 
 ## Responsibility
 
-This design owns the safety contract for decoding custom-attribute
-values from untrusted metadata: what `CustomAttributeValueGuard` promises,
-what `AttributeDecoder` may assume from it, how enum widths are resolved, and
-what must remain true of the two together.
+This design owns the safety contract for decoding custom-attribute values from
+untrusted metadata: what the decoder promises, how enum widths are resolved,
+what it refuses, and what must remain true of its cost and its output.
 
 The implementation lives in `src/ILInspector.MetadataPrimitives/`:
 `CustomAttributeValueGuard.cs`, `AttributeDecoder.cs`, and
@@ -36,14 +37,16 @@ The implementation lives in `src/ILInspector.MetadataPrimitives/`:
 ## Boundaries
 
 - **Consumes** an owner-issued `MetadataReader` and `CustomAttribute` value.
-  Acquiring that value from a handle belongs upstream.
-  Acquisition, image lifetime, and provenance belong to their owners.
+  Acquiring that value from a handle belongs upstream. Acquisition, image
+  lifetime, and provenance belong to their owners.
 - **Consumes** `SignatureBlobGuard` for structural signature bounds. This design
   does not redefine that component's depth policy or failure semantics.
 - **Produces** either a decoded `CustomAttributeValue<string>` or a null result
   meaning *not decoded*. It never produces a partially decoded value.
 - **Defers** work-charging policy to the caller's observer. This design says
   what is charged, not what a budget does with it.
+- **Consumes** `System.Reflection.Metadata` as a *test-time oracle only*. No
+  production path calls `CustomAttribute.DecodeValue`.
 
 ## Non-claims
 
@@ -52,9 +55,12 @@ The implementation lives in `src/ILInspector.MetadataPrimitives/`:
 - Not a defense against local actors, our own code, or other contributors. See
   [Trust boundaries](untrusted-data-threat-model.md#trust-boundaries).
 - Not a promise that attribute values are *correct*, only that reading them
-  cannot be turned into an unbounded or out-of-bounds operation.
-- Does not own the `SZARRAY` element-replay redesign tracked in issue #5047.
-  This document states the invariants that redesign must preserve.
+  cannot be turned into an unbounded or out-of-bounds operation, and that on
+  output from compilers in the certified range they match SRM's.
+- Not a promise that our decoder matches SRM on **illegal** input. There the
+  obligation is D1 and D2 only.
+- Not a change to any caller's API or output shape. The decoder produces the
+  same `CustomAttributeValue<string>` it produces today.
 
 ## The trust boundary
 
@@ -63,13 +69,238 @@ The implementation lives in `src/ILInspector.MetadataPrimitives/`:
 | **Actor** | Whoever authored a package, symbol, or assembly the user inspects. Publishing to a public feed is enough; no local access is needed. |
 | **Input path** | `CustomAttribute.Value` (the value blob) together with the constructor signature blob reached through the attribute's constructor handle, plus the `TypeDef`/`TypeRef` rows those signatures name. |
 | **Affected boundary** | `AttributeDecoder`, and every caller that renders, indexes, counts, or searches attribute values. |
-| **Containment invariants** | Three, stated below. |
+| **Containment invariants** | Three — D1, D2, D3 — stated below. |
 | **Enforcement gate** | Stated below. |
 
 The tool never executes inspected code, so the realistic damage is not code
 execution but resource exhaustion and misread memory: a small download that
 costs disproportionate CPU or memory, or a decode that reads a length from the
 wrong offset.
+
+## The format's adversarial properties
+
+State these before stating any invariant. Each property is a fact about
+ECMA-335 §II.23.3, and each one forces a specific obligation on the decoder.
+An invariant that does not trace back to a row here is decoration.
+
+| Property | Consequence for the design |
+| --- | --- |
+| **Not self-describing.** The value blob and the constructor signature are read together. | Two cursors inside one walker. A signature-side error still relocates every value read. |
+| **Inconsistently self-describing.** Named arguments, boxed values, and `object[]` elements carry inline types; fixed arguments do not. | Enumerate the domain **per position**. The same logical type has different bytes depending on where it appears. |
+| **Width depends on name resolution, possibly cross-assembly.** | You cannot skip a value you do not understand. Resolution is part of the decoder, not a caller callback. |
+| **Declared counts drive allocation.** | D1's allocation clause is a separate obligation, not a consequence of correct parsing. |
+| **No internal framing and no resync point.** | Decoding is all-or-nothing. There is no partial-recovery design. |
+| **One cursor, and it is ours.** | Consumption is directly observable to a test. The previous design's central testability problem — that over-consumption was invisible from SRM-side signals — does not arise. |
+
+The third and fourth rows together are the heart of this component. Because
+width depends on resolution, a resolution mistake relocates the cursor; because
+counts drive allocation, a relocated cursor can read an allocation size out of
+the middle of a string. Those two facts multiply, and the design must break the
+product rather than trusting either factor alone. That is why D1's allocation
+clause is stated independently of parsing correctness: it must hold *even when
+the cursor is in the wrong place*.
+
+## The containment invariants
+
+Three properties must hold together. They are independent: any one can break
+while the others hold.
+
+They are stated as **targets**. Each is normative — a violation is a defect to
+fix, not a behavior to document.
+
+> **D1 — Bounded.** Total work is near-linear in the size of the metadata the
+> decoder is given, across every attacker-controlled cardinality *jointly*.
+> Retained memory is at most a constant multiple of the value blob's length.
+> **No allocation is ever sized from a declared count that exceeds the
+> remaining bytes.**
+>
+> **D2 — Fail closed, visibly.** A blob the decoder cannot follow yields `null`
+> — never a partial value, never a laundered exception, never a plausible-looking
+> guess. `OutOfMemoryException` has no path to arise.
+>
+> **D3 — Fidelity.** On output from compilers in the certified range, decoded
+> values equal SRM's.
+
+D1 is about cost. D2 is about what happens when the input wins. D3 is about
+being right on input that is not an attack.
+
+### D1 — Bounded
+
+D1 has two clauses that are usually conflated, and separating them is the point
+of the invariant.
+
+**The cost clause** is the old I3, unchanged: near-linear aggregate work across
+declared element counts, declared parameter counts, generic arity, distinct
+handles and names, the number of rows a failed resolution scans, the number of
+attribute rows decoded from one image, and the size of a blob shared across
+many rows — *jointly*, because the attacker chooses them together. Bounding each
+dimension separately is not sufficient.
+
+D1 is deliberately stated over aggregate cost rather than per-element
+repetition. "Perform this work once per distinct input" is the right *fix* for
+the amplifications found so far, but it is the wrong *invariant*, because it is
+satisfied by a walk that is still quadratic. A constructor declaring `P` fixed
+arguments, each naming a distinct unresolvable `TypeRef`, resolved against an
+image holding `T` type definitions, costs `Θ(P × T)` on metadata of size
+`Θ(P + T)` — because `EnumUnderlyingPrimitive.TryFindDefinition` scans every
+definition, and each comparison is itself a recursive structural match. Every
+handle is resolved exactly once. No count is repeated. The walk is still
+quadratic. Tracked as issue #5091.
+
+**The allocation clause** — no allocation sized from a declared count exceeding
+the remaining bytes — is the reason this component exists at all, and it is
+stated separately because it must hold *unconditionally*, including on a blob
+the decoder is misreading. Every element of every array costs at least one byte
+in the blob, at every position, so a count larger than `RemainingBytes` is
+unsatisfiable regardless of what the elements turn out to be. Refuse it before
+sizing anything.
+
+**Charging is now materialization accounting.** Under the previous design the
+`beforeMaterialize` observer reported work the guard had *declined* to do, so a
+large charge could appear next to a refusal, which misled three separate
+reviewers. With one walker that actually materializes, the charge means what
+its name says: this is what we are about to allocate. Keep it, and keep it
+before the allocation.
+
+**Charging is not an escape hatch for the cost clause.** The observer is
+optional and frequently absent, and `Charge` returns immediately when it is
+null. Work that is charged to nobody is unbounded work. A cost may be delegated
+to an observer only where a caller is guaranteed to be present and its refusal
+is guaranteed to stop the walk.
+
+**Element-type replay is the principal cost hazard.** Elements of an `SZARRAY`
+share one element type, which appears once in the signature; the walker replays
+it by rewinding the signature offset and re-parsing per element. Any work
+reachable from element-type parsing is therefore multiplied by an
+attacker-chosen count, on input the decoder *accepts*, so no refusal bounds it.
+Four separate amplifications of this shape have been found and fixed
+individually — a re-materialized type name, a re-validated constructor
+`TypeSpec`, a replayed custom-modifier chain, and a re-skipped nested
+descendant, the last measured at a 537× multiplier. Each is pinned by its own
+hand-written test — `ArrayElementCustomModifiers_AreSkippedOncePerArray`,
+`GenericParameterArrayElements_ResolveTheTypeSpecOnce`,
+`SignatureTypedArrayElements_RenderTheTypeNameOncePerHandle`, and
+`EnumArrayElements_ResolveTheWidthOncePerName`. Four tests named for four scars
+is the signature of a missing invariant, and none of them would catch the
+fifth; that is why D1 is stated as a contract with a gate rather than left as
+review discipline. Issue #5047 tracks resolving the element type once and
+looping, which is the shape SRM already uses.
+
+> **Standing rule.** Work introduced into element-type parsing is per-element
+> work. Before adding a resolution, materialization, or validation step
+> reachable from fixed-argument processing, establish that it is memoized or
+> that it is cheap enough to be paid an attacker-chosen number of times.
+
+### D2 — Fail closed, visibly
+
+The decoder's output is a value or `null`. There is no third state, no partial
+result, and no exception that escapes as a decode outcome.
+
+**Refuse; do not defer.** This is the sharpest change from the previous design,
+which deliberately returned "safe" for a dozen conditions on the reasoning that
+SRM's failure would be catchable and precise while ours would be a guess. There
+is no SRM to defer to now, so every one of those conditions becomes `null`:
+
+| Condition | Result |
+| --- | --- |
+| A read runs out of bytes at any structural position | `null` |
+| Unknown fixed-argument element code | `null` |
+| Unsupported serialized type form | `null` |
+| Invalid named-argument kind | `null` |
+| A `TypeSpec`-typed enum | `null` |
+| `MVAR` (a method generic parameter), complete or truncated | `null` |
+| A jagged fixed argument | `null` |
+| A generic constructor header | `null` |
+| Serialized nesting past `MaxSerializedDepth` | `null` |
+| A declared count exceeding the remaining bytes | `null` |
+| A caller observer raising to stop the walk | propagates; never becomes a value |
+
+The last row is the residue of issue #5085. Under the previous design a
+`BadImageFormatException` or `ArgumentOutOfRangeException` raised by a caller's
+observer was caught by the public boundary's malformed-metadata handler and
+converted into *approval* — a caller's budget stop became a decision that the
+blob was safe. With one walker there is one catch boundary and one outcome for
+malformed metadata, so a caller's refusal and a malformed blob no longer share a
+catch by accident. **A caller's refusal is not a statement about the blob**, and
+it must never be laundered into one.
+
+**`OutOfMemoryException` has no path to arise** because of D1's allocation
+clause, not because it is caught. Catching it would be a fiction: by the time it
+is thrown the allocation has already been attempted.
+
+**Nested `object[]` stays legal.** Certified compilers emit `1d 08` and `1d 51`
+inside `object[]`, so the recursive element rule is retained. It is bounded by
+`MaxSerializedDepth`, which is argued against that observed producer shape as
+well as against hostile input — a depth bound chosen only against attackers
+would be free to be far tighter and would then refuse real attributes.
+
+### D3 — Fidelity
+
+On output from compilers in the certified range, our decoded values equal SRM's.
+
+SRM is the oracle, not a counterpart. A disagreement is a **fidelity bug**: the
+value we print is wrong. It is never a safety bug, because nothing about SRM's
+behavior bounds ours. This is the entire benefit of the inversion, and it is
+worth stating in exactly those terms, because under the previous design the same
+disagreement was a fail-open in which we had already told a caller the blob was
+safe.
+
+D3 is scoped to legal producer output on purpose. Outside the certified range
+the obligation drops from *decode correctly* to *refuse safely* — D1 and D2 with
+no fidelity claim. See [Certification bounds](#certification-bounds).
+
+## How this design changed
+
+This section records the inversion so that a reader who finds the old shape in
+the code, in a test name, or in a linked issue can place it. It is history, not
+contract.
+
+**The previous design was a paired walker.** `CustomAttributeValueGuard` walked
+the value blob and discarded the values, then handed the blob to
+`CustomAttribute.DecodeValue`. Its central invariant, I1, required that the two
+walkers skip exactly the same bytes. A second invariant, I2, required the guard
+to bound quantities that drove *SRM's* cost.
+
+**I1 and I2 are deleted, not weakened.** I1 has no second party. I2's allocation
+half is D1's last clause; its time half — SRM's `Θ(P × G)` per-argument re-skip
+of the generic context, filed as #5098 — disappears because SRM never runs. I3
+survives verbatim as D1's cost clause.
+
+**Why the old shape was the root cause.** I1 is a differential property of two
+parsers where the second is external, changes across runtime versions, exposes
+no cursor, and allocates from the declared count with no hook. Confirmed against
+dotnet/runtime `main` on 2026-09-03: `DecodeArrayArgument` reads the `Int32`,
+checks only `-1`, `0`, and `< 0`, and calls `ImmutableArray.CreateBuilder(count)`;
+`DecodeNamedArguments` does the same on the `UInt16`. dotnet/runtime#57531 asked
+for a bound and was closed as a caller obligation.
+
+Worse, I1 was only establishable in one direction. Every available signal —
+provider call sequence, decoded values, an appended sentinel — was an observation
+of *SRM*, and SRM's behavior does not depend on where the guard landed. A guard
+that over-consumed simply ran out of bytes, reported truncation, and was mapped
+to "safe"; provider calls, values, and sentinel all matched the aligned case
+exactly. An oracle cannot report where its counterpart stopped reading. The
+direction that was invisible was precisely the one in which the guard had
+already said yes.
+
+The cost of keeping two walkers aligned by inspection was eight recorded gaps, a
+six-round oracle PR that never converged (#5148), and seven rounds on a six-line
+change (#5450) in which every round found a hole in the previous round's gate and
+none found a product defect.
+
+**The unexamined premise.** The previous document argued that the repository's
+preferred structural-containment shape — a constrained type whose construction
+establishes an invariant — was unavailable here "because the operation is inside
+SRM." The operation does not have to be inside SRM. That premise, not any
+individual gap, was the root cause.
+
+**The withdrawn conclusion.** The prior-art survey below concluded that a
+pre-walk charging declared counts before SRM allocates was "the only available
+mitigation." That conclusion is withdrawn. The survey's own table names the other
+mitigation twice: Roslyn owns its decoder, and CoreCLR's `ParseCaValue` appends
+into a dynamic array rather than sizing one upfront. Issue #5341 already states
+the principle for narrow sites — a walker that *replaces* the decode carries no
+agreement obligation. This design generalizes it.
 
 ### Prior art: there is no upstream bound to inherit
 
@@ -91,263 +322,31 @@ correct here, where the assembly author is the adversary and the tool inspects
 whatever a public feed serves.
 
 `BlobReader.RemainingBytes` is public and would answer the question, but no
-decode path consults it before sizing an allocation. So the pre-walk in this
-component is not redundant with an upstream check; there is no upstream check.
-That absence is a closed decision rather than an oversight: dotnet/runtime#57531
-asked for exactly such a check — "a way to detect this problem prior to
-allocating the array" — and was closed without one, on the position that the
-consumer's `ICustomAttributeTypeProvider` should have prevented the misread.
+decode path consults it before sizing an allocation. So D1's allocation clause is
+not redundant with an upstream check; there is no upstream check. That absence is
+a closed decision rather than an oversight: dotnet/runtime#57531 asked for
+exactly such a check — "a way to detect this problem prior to allocating the
+array" — and was closed without one.
 
-## The containment invariants
+Read the table for what it says about *ownership*, not only about bounds. Two of
+the five consumers own their decoder, and the one that bounds the count is the
+one that never sizes an allocation from it. Owning the decode and bounding the
+allocation are the same decision.
 
-Three properties must hold together. They are independent: any one can break
-while the others hold, and each has produced a real defect.
+**Reported outside this repository.** The narrow upstream fix — in
+`DecodeArrayArgument`, before `CreateBuilder`, `if (count > blobReader.RemainingBytes)
+throw new BadImageFormatException();` — is sound for every element type with zero
+API change. It does not reach the pinned runtime, so it is not this repository's
+fix.
 
-They are stated as **targets**. Each is normative — a violation is a defect to
-fix, not a behavior to document — but none is currently established by a gate,
-and two have open violations.
+### Worked example: dotnet/runtime#57531
 
-> **I1 — Alignment.** For any blob the guard reports safe, on every path where
-> SRM's `CustomAttributeDecoder` continues decoding, the guard must have
-> skipped exactly the bytes SRM consumes.
->
-> **I2 — Bounding the decoder.** Before SRM runs, the guard must have refused
-> every attacker-declared quantity that drives SRM's *cost* — both what it
-> **allocates** (`SZArray` element counts, named-argument counts) and what it
-> **spends** (nesting depth, and repeated work SRM performs per fixed
-> argument). This holds regardless of whether the two walkers agree about where
-> those quantities live.
->
-> **I3 — Bounding ourselves.** The guard's own total cost must stay near-linear
-> in the size of the metadata it is given, across *every* attacker-controlled
-> cardinality together — declared element counts, declared parameter counts,
-> distinct handles and names, and the size of the tables a resolution scans.
-> Bounding each dimension separately is not sufficient, because the attacker
-> chooses them jointly.
+This case motivated the original guard and still motivates D1's allocation
+clause, so it is retained. What changed is what it *proves*.
 
-I1 is about *agreement*; I2 is about *what the decode costs*; I3 is about *what
-asking costs*.
-
-**I1's surface is argument type classification, not only enum width.** The
-width question — how many bytes an enum-typed argument occupies — is the most
-frequent way the walkers disagree, but it is not the boundary of the invariant.
-Deciding *whether* an argument is an enum at all is part of the same agreement,
-because SRM reaches `GetUnderlyingEnumType` only after
-`ICustomAttributeTypeProvider.IsSystemType` returns `false`. A `System.Type`
-argument misclassified as an enum is read as four bytes instead of a
-length-prefixed `SerString`, and every subsequent field is read from the wrong
-offset — the identical failure mode as a wrong width, reached through a
-different decision.
-
-dotnet/runtime#57531 is that case in the wild, and it is worth stating in
-concrete terms because it bounds how much the classification decision is worth.
-In `Kentico.Content.Web.Mvc.dll`, misclassifying the `System.Type` argument of
-`RegisterPageBuilderLocalizationResourceAttribute` consumes the `SerString`
-length byte and the first three characters of the type name, so the following
-`string[]` element count is read from the middle of that name — `"tico"`,
-`0x6F636974`, 1,868,786,036 declared slots. At
-`CustomAttributeValueGuard.DeclaredSlotCharge` that is 28,515 MiB, which is the
-28,517 MiB the reporter observed. The blob is entirely legal; only the
-classification is wrong.
-
-The upstream issue was closed without adding a bound. The reporter was scanning
-nuget.org with `System.Reflection.Metadata` 5.0.0 and counted the problem in
-"over 3000 packages on NuGet.org (and 8000 contained assemblies)", a list that
-includes Microsoft's own `Microsoft.ML.*` assemblies. The closing comment
-attributed the failure to the consumer's provider and named a mechanism: a
-stated suspicion that the affected attributes carried "enums that have an
-underlying type that is not `Int32`".
-
-That mechanism does not fit this attribute. In
-`Kentico.Xperience.AspNet.Mvc5.Libraries` 13.0.18 the constructor is
-`RegisterPageBuilderLocalizationResourceAttribute(System.Type markedType,
-params string[] cultureCodes)`, which declares no enum parameter at all, so a
-declared non-`Int32` enum cannot be what desynchronizes this argument. That
-says nothing about the other reported assemblies, which this account does not
-examine.
-
-Both mechanisms are still present, in the order the section above gives them.
-Classification is the trigger: `IsSystemType` answers `false` for a genuine
-`System.Type`. Width is the cost: SRM then consults `GetUnderlyingEnumType`,
-whose hardcoded `Int32` moves the cursor four bytes. The enum width that drifts
-this blob is the provider's default answer for a type that is not an enum, not
-an underlying type the attribute declared. That is the evidence for stating
-I1's surface as classification and not width alone.
-
-`CustomAttributeValueGuardTests`'s
-`SystemTypeArgumentReadAsEnum_ChargesTheAmplifiedCount_AndIsUnsafe` is the gate
-for the refusal, paired with
-`SystemTypeArgument_FromShippedAttribute_DecodesAndStaysBounded` for the
-fidelity half. Both run over the captured 80-byte blob and differ only in the
-first parameter's declared type; neither materializes the amplified array,
-because the charge is asserted through `beforeMaterialize` and `DecodeValue` is
-never called on the misclassified image.
-
-Read the refusal gate for what it proves. `DeclaredSlotCharge` saturates at
-`int.MaxValue` for any count above 134,217,727, and all four plausible misread
-widths land on four bytes of this type name that exceed it, so the charge
-assertion cannot distinguish the offset named above from a different misread.
-It gates amplification-and-refusal; the offset itself is pinned separately, as
-an assertion over the captured bytes. Discriminating the width by outcome needs
-a fixture built for that purpose, which is the differential oracle's job
-(#5065), not this captured blob's.
-
-| Invariant | Holds today? | Basis |
-| --- | --- | --- |
-| **I1 — Alignment** | Believed to hold on the resolver-supplied path, and only for a caller whose `System.Type` classification matches the guard's; unverified | Pinned by example only. One example is now a captured real-world artifact: see the classification pair above. The resolver-less overload is explicitly out of scope, and the classification precondition is gap 8; see [Known gaps](#known-gaps). |
-| **I2 — Bounding the decoder** | **No.** Violated by #5098 | SRM's per-argument re-derivation of the generic context is not bounded by anything the guard checks. |
-| **I3 — Bounding ourselves** | **No.** Violated by #5091, #5047, #5130, and #5132 | Four independent amplifications on our own side, spanning one walk and the cross-row loop. |
-
-**I2 and I3 are the same question asked of two different parties, and the guard
-is not the expensive one by default.** It is tempting to bound only our own
-work, since that is the code we own. But the guard exists to make SRM's decode
-safe, so an input that is cheap for the guard and quadratic for SRM is a
-failure of this component even though every line of the guard ran in linear
-time. Worse, the guard's own optimizations can *hide* such a case: memoizing a
-lookup that SRM repeats makes the guard fast and leaves the decoder slow, and
-nothing in the guard's own profile shows it.
-
-I2 is the reason this component exists at all. SRM reads a declared `Int32`
-`SZArray` count or `UInt16` named-argument count and allocates an
-`ImmutableArray` builder from it immediately — before reading any element, and
-before any further callback through which that count could be observed or
-charged. Four attacker-chosen bytes can therefore request a gigabyte-scale
-builder, and the blob-length charge on the value heap never sees that
-amplification. No amount of cursor agreement prevents this.
-
-**I2 covers SRM's time as well as its memory, and the time case is the one this
-guard is most likely to miss.** SRM re-derives each fixed argument's type from
-the constructor's generic context independently: it passes its context reader
-*by value* per argument and re-skips the preceding generic arguments each time.
-A constructor with `P` fixed arguments all spelled `VAR (G-1)`, against an
-instantiation carrying `G` generic arguments, therefore costs SRM `Θ(P × G)` on
-metadata of size `Θ(P + G)`.
-
-The guard does not experience that cost, because it memoizes the located
-argument offset and reuses it. Guard work is `Θ(P + G)`, I1 holds — both sides
-select the same type — I3 holds, and the blob is approved. This is precisely
-the case where an optimization on our side conceals an amplification on theirs.
-Tracked as issue #5098.
-
-I3 exists because a guard that refuses an attack expensively has not prevented
-it. The guard walks each declared element, so any work placed on the
-per-element path is multiplied by an attacker-chosen count *before* the refusal
-that count would eventually trigger.
-
-**I3 is deliberately stated over aggregate cost rather than per-element
-repetition.** "Perform this work once per distinct input" is the right *fix*
-for the four amplifications found so far, but it is the wrong *invariant*,
-because it is satisfied by a walk that is still quadratic. A constructor
-declaring `P` fixed arguments, each naming a distinct unresolvable `TypeRef`,
-resolved against an image holding `T` type definitions, costs `Θ(P × T)` on
-metadata of size `Θ(P + T)` — because `EnumUnderlyingPrimitive.TryFindDefinition`
-scans every definition, and each comparison is itself a recursive structural
-match. Every handle is resolved exactly once. No count is repeated. I1 and I2
-both hold. The signature-node cap bounds `P`, but two capped dimensions
-multiplied are still billions of comparisons. Tracked as issue #5091.
-
-**Charging is not an escape hatch for I3.** The `beforeMaterialize` observer is
-optional and is frequently absent, and `Charge` returns immediately when it is
-null. Work that is "charged" to nobody is unbounded work. A cost may be
-delegated to an observer only where a caller is guaranteed to be present and
-its refusal is guaranteed to stop the walk — which, per issue #5085, is not
-currently true either.
-
-Defects therefore fall into four categories:
-
-- **Fidelity.** Both walkers use the same wrong width. Output is wrong; nothing
-  is unsafe. They still agree where every element ends, so the guard's bounds
-  still bound the decode.
-- **Divergence (I1).** The walkers use *different* widths for the same value.
-  From the first divergent element onward the guard validates different bytes
-  than the decoder reads. An array length the guard never saw becomes a length
-  the decoder acts on — and the guard already said the blob was safe, so
-  nothing downstream is looking.
-- **Aligned but unbounded (I2).** The walkers agree perfectly and the blob is
-  still an amplification. Delete the remaining-byte count check and both sides
-  still locate the same count at the same offset; the guard reports `Truncated`
-  — which becomes `true` — and SRM allocates from that count before reading
-  elements. Agreement is preserved and the attack succeeds.
-- **Aligned, bounded, and expensive (I3).** The guard refuses correctly and
-  cheaply *for SRM*, having already spent attacker-multiplied effort reaching
-  that refusal. Nothing about the cursor, the declared counts, or SRM's
-  behavior records that the guard did the work.
-
-The third and fourth categories are why I1 alone is not the contract. A gate
-that checks only offset agreement passes the unbounded case.
-
-Both divergence and unboundedness are fail-opens, and both fail open precisely
-*because* the guard succeeded. That is why either is treated as severe even
-when the visible symptom is only a wrong number in output.
-
-### I1 is conditional, and the condition is load-bearing
-
-I1 is scoped to paths where SRM continues decoding, because the guard
-deliberately accepts blobs SRM will reject. A generic constructor header is the
-clearest case: the guard consumes the arity and keeps walking, while SRM
-rejects `header.IsGeneric` right after the value prolog and consumes nothing
-further.
-
-That is not a violation. The guard's job on such a blob is to hand it to a
-decoder that fails closed and catchably, not to predict the failure. Stating
-I1 unconditionally would make every such intentional acceptance look like a
-defect and would make the enforcement gate report false failures.
-
-**`TypeSpec`-spelled enums are the same shape, with a cost attached.** A
-`CLASS`/`VALUETYPE` element type carries a `TypeDefOrRefOrSpec` coded index,
-which can name a `TypeSpecification`. The guard accepts whatever handle it
-reads. Structural enum resolution recognizes only definitions and references,
-so a `TypeSpec` falls to the name path, where `TypeResolver` *decodes the
-specification signature* to render a name. SRM does the opposite: it admits
-only `TypeDefinition` and `TypeReference` to the provider and throws
-`BadImageFormatException` for every other handle kind.
-
-So for this spelling the guard performs real decoding work that SRM never
-performs, and SRM rejects before the provider is consulted. I1 is satisfied
-vacuously — SRM does not continue — but the guard has done unbounded work on a
-blob that was never going to decode. Alternating two distinct `TypeSpec`
-handles across `P` parameters defeats the single-slot handle memo and re-decodes
-a large shared specification blob each time, which is an I3 case reached
-entirely through a spelling the grammar did not previously generate.
-
-The lesson generalizes: **every handle kind the guard accepts but SRM refuses is
-simultaneously an I1 exemption and an I3 exposure.** Enumerate them
-deliberately rather than discovering them.
-
-### Why agreement is hard here
-
-The second walker is not ours. `System.Reflection.Metadata` owns the decode; we
-own only the guard. We cannot change SRM's parse, we cannot read its cursor,
-and it can change between runtime versions. Agreement has to be re-established
-by construction rather than assumed.
-
-Two consequences follow, and both are load-bearing:
-
-1. **Share the decision, do not re-implement it.** Wherever the reading rule
-   depends on resolving a name or a handle — the `System.Type` classification
-   as much as the width that follows it — the two walkers must reach it
-   through the same handle and the same resolution function, or through the
-   same provider instance — never through two implementations believed to be
-   equivalent. The next section states which mechanism applies where, because
-   no two of them are the same: a resolved handle shares the handle and the
-   resolution functions, a serialized name shares the provider instance, and
-   classification shares its rendering while duplicating the final
-   `"System.Type"` predicate. That last duplication is gap 8.
-2. **Fail open to SRM only where we genuinely cannot judge.** Where the guard
-   *runs out of bytes*, or a parser exception reaches the public boundary, it
-   hands the blob to SRM rather than inventing a judgment, because SRM's own
-   failure is catchable and ours would be a guess. This does **not** extend to
-   forms the guard positively identifies as unsupported: an unrecognized
-   element code or an unsupported serialized form is refused, not deferred.
-   Widening the rule past that distinction would convert a deliberate refusal
-   into approval.
-
-#### Type agreement is a resource property, not only a fidelity one
-
-`dotnet/runtime#57531` is the worked example, filed against SRM in August 2021
-by a NuGet engineer scanning packages on nuget.org — the same tool category as
-this one. A shipping package on the feed drove the reporter's scanner to a
-28,517 MiB allocation:
+The issue was filed against SRM in August 2021 by a NuGet engineer scanning
+packages on nuget.org — the same tool category as this one. A shipping package on
+the feed drove the reporter's scanner to a 28,517 MiB allocation:
 
 ```text
 Reading attribute 'RegisterPageBuilderLocalizationResourceAttribute'... found bad image format!
@@ -355,642 +354,205 @@ Memory is at 28517.114097595215 MB
 BIG MEMORY!
 ```
 
-The reporter's provider resolved every enum as `Int32`:
+The mechanism, in concrete terms. In `Kentico.Content.Web.Mvc.dll`, the
+constructor is `RegisterPageBuilderLocalizationResourceAttribute(System.Type
+markedType, params string[] cultureCodes)`. The reporter's provider answered
+`false` for `IsSystemType` on the first argument, so SRM took the enum path,
+consulted `GetUnderlyingEnumType`, and got a hardcoded `Int32`. Four bytes were
+consumed where a length-prefixed `SerString` should have been: the length byte
+and the first three characters of the type name. The following `string[]` element
+count was then read from the middle of that name — `"tico"`, `0x6F636974`,
+1,868,786,036 declared slots, which at the guard's per-slot charge is 28,515 MiB.
+**The blob is entirely legal. Only the classification is wrong.**
 
-```csharp
-public PrimitiveTypeCode GetUnderlyingEnumType(object type) => PrimitiveTypeCode.Int32;
-```
+The reporter counted the problem in "over 3000 packages on NuGet.org (and 8000
+contained assemblies)", a list that includes Microsoft's own `Microsoft.ML.*`
+assemblies. The closing comment attributed the failure to the consumer's provider
+and suspected "enums that have an underlying type that is not `Int32`". That
+mechanism does not fit this attribute: the constructor declares no enum parameter
+at all. Classification is the trigger; width is only what the drift costs once
+classification is already wrong.
 
-The issue was closed on exactly that basis: an incorrect `GetUnderlyingEnumType`
-makes the decoder consume the wrong number of bytes, the cursor drifts, and a
-later field is then read as an array count. The pre-allocation itself was never
-changed, and the current source still has no length check.
+**What this proves under the current design.** Not that two walkers must agree —
+there is one walker now. It proves that **a resolution mistake and an unbounded
+allocation are separable failures, and only the second one is catastrophic.**
+Our decoder can misclassify this argument exactly as the reporter's provider did.
+The consequence would be a wrong rendered value for the attribute — a D3 fidelity
+defect, visible and fixable. It could not become a 28 GiB allocation, because the
+count read out of the middle of `"tico"` exceeds the remaining bytes of an 80-byte
+blob and D1's allocation clause refuses it without consulting the parse at all.
 
-That closing account names the right code path but not the trigger. As the I1
-statement above records, the offending argument is a `System.Type`, and SRM
-consults `GetUnderlyingEnumType` only because `IsSystemType` returned `false`
-first. The hardcoded `Int32` is what the drift *costs* once the classification
-is already wrong; it is not what makes the argument enter the enum path. A
-provider that classified `System.Type` correctly would never reach the width
-decision for this argument, whatever it returned. Read the two together:
-classification selects the reading rule, and width then determines how far the
-cursor moves.
+That is the argument for stating the allocation clause independently rather than
+deriving it from correct parsing. `CustomAttributeValueGuardTests`'s
+`SystemTypeArgumentReadAsEnum_ChargesTheAmplifiedCount_AndIsUnsafe` gates the
+refusal over the captured 80-byte blob, paired with
+`SystemTypeArgument_FromShippedAttribute_DecodesAndStaysBounded` for the fidelity
+half; the two differ only in the first parameter's declared type.
 
-Two things follow. A disagreement about either — which rule applies, or how many
-bytes it consumes — does not merely produce a wrong value; it relocates every
-subsequent read, so it can convert a valid blob into a multi-gigabyte
-allocation request. And the published position of the decoder's owner is that
-this agreement is a **caller obligation**. I1 is therefore load-bearing for I2,
-and the asymmetry recorded as Gap 5 is a bound defect rather than a fidelity
-nicety.
+Read the refusal gate for what it proves and no more. The per-slot charge
+saturates at `int.MaxValue` for any count above 134,217,727, and all four
+plausible misread widths land on four bytes of this type name that exceed it, so
+the charge assertion cannot distinguish the offset named above from a different
+misread. It gates amplification-and-refusal; the offset itself is pinned
+separately as an assertion over the captured bytes.
 
-Roslyn, which maintains its own decoder rather than calling SRM, resolves the
-same two width paths — the value-side serialized name and the signature-side
-type — through a single symbol-model lookup, and treats an unresolvable
-underlying type as a hard failure (`throw new UnsupportedSignatureContent()`)
-rather than defaulting to `Int32`. That is the same discipline stated as
-consequence 1 above, reached independently by the other production decoder.
+## Classification is a display-name comparison, not an identity test
 
-## Known gaps
+Deciding whether a fixed argument is a `System.Type` selects the reading rule: a
+length-prefixed `SerString` if it is, the enum width if it is not. With one
+walker this decision is made once, in one place, so it can no longer *diverge*.
+It can still be *wrong*, and the ways it can be wrong are worth recording,
+because the previous design's seven-round attempt to share this predicate
+established them.
 
-Each row is a **verified** divergence between the contract above and the
-component's current behavior. They are listed rather than omitted, because a
-design document describing only intended behavior would misrepresent a
-component with eight open violations.
+The comparison is against the rendered string `"System.Type"`. That is not an
+identity test, and two distinct facts make the gap real rather than theoretical:
 
-| # | Gap | Invariant | Issue |
-| --- | --- | --- | --- |
-| 1 | SRM re-derives each fixed argument's type from the generic context independently, costing `Θ(P × G)`. The guard memoizes the offset and never experiences it, so it approves. | I2 | #5098 |
-| 2 | A failed resolution scans every type definition, so `P` distinct unresolvable arguments cost `Θ(P × T)`. This applies to **both** the handle path and the resolver-less serialized-name path (`TryFindDefinition`). | I3 | #5091 |
-| 3 | `SZARRAY` element types are re-parsed once per element rather than once per array. | I3 | #5047 |
-| 4 | An observer exception is caught by the malformed-metadata handler, turning a caller's budget stop into an approval — and, through `TypeResolver`, absorbing it silently into a default width. | Failure semantics | #5085 |
-| 5 | The resolver-less `IsSafeToDecode` overload resolves widths through a different order, so its `true` does not carry I1 for a caller decoding with a resolver-backed provider. | I1 scope | #5120 |
-| 6 | Every memo in the guard is a **single slot keyed on the previous input**, so alternating two values defeats all four — including a guard-side `Θ(P × G)` that mirrors gap 1. | I3 | #5130 |
-| 7 | `A` attribute rows sharing one `B`-byte blob are guarded and decoded independently, costing `Θ(A × B)` in work and retained values from `Θ(A + B)` of metadata. Absent a shared `MaterializationContext`, each `TryDecode` also builds a fresh provider and rebuilds the type-definition index, adding `Θ(A × T)`. | I3 | #5132 |
-| 8 | The guard and `ArgTypeProvider` render the argument's type name through the same resolver functions, but each applies its own `"System.Type"` comparison, so the predicate can diverge. A caller whose provider classifies differently receives `true` for a blob that then drifts. | I1 | #5393 |
+- **Four metadata layouts render identically.** The name may arrive on a
+  `TypeReference` or a `TypeDefinition` row, and on either row it may be split
+  across the namespace and name columns (`System` + `Type`) or spelled dotted in
+  the name column with the namespace nil (`System.Type`, namespace nil). All four
+  render `System.Type`. A test that pins one layout leaves the other three
+  unexercised, which was demonstrated by a mutation that left 2,459 tests green
+  while genuinely diverging. Note that the axis is the **name layout**, not the
+  row kind: crossing by `TypeReference`/`TypeDefinition` alone does not catch it,
+  because splitting `System` + `Type` keeps the namespace column populated on
+  both.
+- **An assembly may define its own `System.Type`.** `namespace System { public
+  enum TYPE }` compiles clean, and nothing prevents a hostile assembly from
+  defining a type that renders exactly `System.Type` and is not the framework's.
 
-Gaps 1, 2, 3, and 6 share a root cause worth naming: **the guard and SRM
-memoize different things.** Where the guard caches work SRM repeats, the guard is fast
-and the decode is quadratic (gap 1). Where the guard repeats work it could
-cache, the guard is quadratic and the decode is fine (gaps 2 and 3). Neither
-side's profile reveals the other's cost, which is why all four were found by
-reading rather than by measurement. Evaluate any fix against **both** walkers.
+Both are **D3 fidelity** concerns, and neither is a safety concern, because D1's
+allocation clause holds independently of how this predicate answers. Record them
+here so that a future reader does not re-derive the safety framing the inversion
+removed.
 
-Gaps 5 and 8 are **API-shape hazards rather than live defects**:
-`AttributeDecoder` is the only production caller, it always supplies the
-resolver, and its `ArgTypeProvider.IsSystemType` agrees with the guard's
-internal test. They are recorded because the surface permits the unsafe
-composition and nothing prevents it. I1 is therefore scoped to the
-resolver-supplied overload throughout this document, and additionally assumes a
-caller whose classification matches the guard's; see
-[Resolution order](#resolution-order-and-what-int32-actually-means).
+## Enum width resolution
 
-Gap 8 is the sharper of the two, because it is the rule stated above turned on
-its own component — though the divergence is narrower than a second
-classification path. Both sides render the name from the same handle through
-the same resolver functions; only the final `"System.Type"` comparison is
-written twice. Classification also runs first and selects which reading rule
-applies, so even that one duplicated predicate is the one that opens the larger
-hole. See
-[Classification](#classification-shared-rendering-duplicated-predicate).
+Enum width resolution is unchanged by the inversion except that it now has **one
+consumer**. Handle-first structural resolution, then the name resolver, then
+`Int32`.
 
-Gaps 1, 2, 4, 5, 6, 7, and 8 were all found while writing or reviewing this document,
-against a component that had already been through eight rounds of
-defect-driven review. That is the argument for the oracle below: reading finds
-these one at a time, and only after somebody thinks to look.
+`Int32` is the **last** fallback, not the answer for every unknown name. Say
+"resolves to `Int32` when structural, local-name, and trusted-external
+resolution all fail" rather than "unknown names resolve to `Int32`."
 
-## Enforcement gate
-
-**Current state: `unverified`.** All three invariants are currently supported
-only by `tests/ILInspector.Metadata.Tests/CustomAttributeValueGuardTests.cs`,
-which pins individual hostile shapes by example. That is a regression suite,
-not a gate: it proves the shapes somebody already thought of, and every
-divergence found so far was found by a reviewer imagining a new one.
-
-**Required gate:** a differential oracle, tracked as issue #5065, that
-generates inputs over the grammar below, runs both walkers, and asserts I1, I2,
-and I3 separately, across both the metadata axes and the observer axis. A gate
-that asserts only offset agreement passes both the unbounded and the expensive
-attack; a gate defined only over generated metadata cannot see gap 4 at all.
-
-**This specification is itself partial.** Seven of the eight known gaps were
-found by reading rather than by any gate, and six of them were found after
-this document's first draft — including two found by reviewing this very
-section. That is evidence the enumeration below is incomplete rather than
-evidence it is done. Treat it as the starting corpus for the oracle, not as a
-closed description of the input space.
-
-### Generated grammar
-
-The generator must cover, and must be able to combine:
-
-- **Fixed-argument types:** each primitive; `string`; `object` (boxed);
-  `System.Type` as a serialized name; `SZARRAY` of each of these; and `VAR`
-  where generic substitution applies. **`MVAR` is a refusal case, not a
-  substitution case** — `ProcessGenericParameter` returns `Unsafe` for a method
-  generic parameter before locating anything, and SRM handles only type
-  parameters, so `MVAR` must be generated as a negative case and must not
-  appear in the alternating-index cost cases below.
-- **Enum spellings:** the handle forms and the serialized (`0x55`) name form,
-  each independently, because they resolve differently. The handle forms must
-  be generated with **both** `ELEMENT_TYPE_VALUETYPE` and
-  `ELEMENT_TYPE_CLASS`, each with a `TypeDef`, a `TypeRef`, a **`TypeSpec`**,
-  and a **nil** handle. The guard routes both spellings through the same path
-  and accepts every handle kind, while SRM admits only `TypeDef` and `TypeRef`;
-  metadata is untrusted, so the gate cannot assume an enum is spelled legally.
-- **Nesting:** boxed and `SZARRAY` nesting at, just below, and just above
-  `MaxSerializedDepth`.
-- **Custom-modifier chains** preceding element types, at and above the
-  signature depth bound.
-- **Named arguments:** fields and properties, including the serialized-enum and
-  array-typed forms.
-- **Declared counts:** valid, zero, negative, `-1`, and counts far exceeding
-  the remaining bytes.
-- **Malformed extensions:** truncation at every structural offset; unknown
-  element-type codes; a generic constructor header.
-- **Metadata states:** distinct `TypeDef` rows that render to one display name;
-  a `TypeRef` whose flattened spelling collides with a local definition;
-  unresolvable `TypeRef`s; nested-type chains deeper than the match bound.
-
-### Observing SRM's consumption
-
-SRM does not expose its cursor, so the gate must establish consumption from
-observable consequences rather than by reading an offset. Three observables
-are available together, and the design requires all three:
-
-1. **Provider call sequence.** SRM calls the supplied
-   `ICustomAttributeTypeProvider` for each type it resolves. Recording the
-   ordered calls yields the decoder's parse path, which the guard's own walk
-   can be compared against directly.
-2. **Decoded values.** The fixed and named argument values SRM returns say
-   which bytes it interpreted and as what width.
-3. **Boundary discrimination — and its limit.** A single sentinel appended at
-   the offset the guard skipped to is **not sufficient**, because it only
-   detects the case where SRM consumes *farther* than the guard. Neither the
-   guard nor SRM rejects trailing bytes, so when the guard skips farther than
-   SRM, the sentinel lies in data SRM never reads: the decode succeeds with
-   exactly the provider calls and values the aligned case would produce.
-
-**These three observables cannot establish I1 by themselves, and no arrangement
-of them can.** They are all observations of *SRM*, and SRM's behavior does not
-depend on where the guard landed. Making a boundary "consequential" — requiring
-a following argument that decodes only at the correct offset — constrains the
-decoder, not the guard: if SRM is correct it decodes correctly, and a guard that
-over-consumed simply runs out of bytes, returns `Result.Truncated`, and is
-mapped to `true` by `Check(...) != Result.Unsafe`. Provider calls, decoded
-values, and any sentinel all match the aligned case exactly.
-
-So guard-over-consumption is invisible to every SRM-side signal. The asymmetry
-is structural: SRM is the oracle, and an oracle cannot report where its
-*counterpart* stopped reading.
-
-**The gate therefore requires the guard's own final offset to be observable to
-the test.** That is a testability requirement on this component, not a property
-of the generated input — an internal or test-visible boundary trace that the
-oracle compares against SRM's reconstructed consumption. Without it, I1 can be
-established in one direction only, and the direction it misses is the one where
-the guard has already said `true`.
-
-I2 is checked separately and does not depend on these, but it needs **two**
-assertions, because I2 covers both what SRM allocates and what it spends:
-
-- **Allocation.** A blob whose declared quantities exceed the remaining bytes
-  is refused *before* `DecodeValue` is invoked at all. This is a direct
-  property of the generated input and the guard's return value.
-- **Time.** A blob that costs SRM asymptotically more work than its own size is
-  refused. This one is **not** observable from the three signals above — gap 1
-  uses entirely valid counts and lawful bytes, and SRM's per-argument
-  re-derivation of the generic context happens inside `SkipType` without any
-  provider callback, so it produces no observable trace at all.
-
-The time half therefore needs a **deterministic policy oracle**, not an
-observation: a model of the work SRM would perform for the generated shape,
-against which the guard's refusal is asserted. It is the only invariant of the
-three that must be gated against a *model* of the decoder rather than against
-the decoder itself, because the cost it bounds is invisible from outside.
-
-**This oracle is not yet specified, and the sketch an earlier revision gave was
-not implementable.** That sketch made cost a function of parameter count,
-generic arity, and the `VAR` index sequence. Those are insufficient. `SkipType`
-re-derivation cost depends on the complete *shapes* of the arguments preceding
-the one being skipped — pointers, arrays, function pointers, custom modifiers,
-and nested generic instantiations all recurse or loop
-(`CustomAttributeDecoder.cs:422-505`). Two blobs with identical counts, arity,
-and index sequences can differ in cost by orders of magnitude. Neither a unit
-of work nor a refusal threshold is defined anywhere in this document.
-
-Specifying that oracle is open work, tracked with the gate itself under #5065.
-
-Specifying I2 as "refuses over-large declared counts" alone, as an earlier
-draft did, is exactly the check that gap 1 passes.
-
-I3 is checked separately as well, and cannot be observed from SRM at all. It is
-also the hardest of the three to gate, because a one-dimensional check is
-misleading: raising a single declared count while holding everything else fixed
-is exactly the measurement that the existing per-element memoization already
-passes, and it is blind to the quadratic described above.
-
-The gate must therefore vary the attacker-controlled dimensions **jointly**, at
-minimum:
-
-- declared `SZArray` element counts,
-- declared constructor parameter counts,
-- **the constructor's generic arity**, which multiplies against parameter count
-  on both sides — `Θ(P × G)` for SRM per gap 1, and for the guard too under the
-  next item,
-- **the *sequence* of `VAR` indices, and of handles and names, not merely how
-  many appear.** Every memo in the guard is a single slot keyed on the
-  *previous* input, so a run of identical values is cheap while two values in
-  alternation evict on every step. For argument location that restarts the skip
-  from argument zero, giving `Θ(P × G)` guard-side; the same shape defeats the
-  enum-name, enum-handle, and `System.Type` memos. Only the repeating shape is
-  currently tested, which is why gap 6 (#5130) passes all four existing
-  amplification regressions.
-- the number of *distinct* handles and names referenced,
-- the number of rows in the tables a failed resolution scans,
-- the number of attributes decoded from one image, and
-- **the size of a blob shared across many attribute rows.** `A` attribute rows
-  may name one `B`-byte value blob, which the blob heap stores once; each row
-  is nevertheless guarded and decoded independently, so `Θ(A + B)` of metadata
-  yields `Θ(A × B)` of work and retained value.
-
-A dimension list is not enough on its own: several of these are only
-adversarial in combination with a particular *arrangement*, not at a particular
-*size*. The generator must therefore control shape as well as magnitude.
-
-and assert that total work — signature reparses, name renderings, definition
-scans, enum-width resolutions, and structural match steps — stays near-linear
-in total metadata size across the product of those dimensions, not merely flat
-along any one of them.
-
-Four existing tests, each named for the defect it pins, assert the
-one-dimensional property one instance at a time. The gate must generalize them
-*and* cover the dimension none of them measures.
-
-Seed the corpus with the regressions already found by hand so the gate is
-demonstrably non-vacuous, and pin any failing seed as an ordinary case.
-
-### Observer states
-
-The three axes above are all defined over *generated metadata*. That leaves a
-gap the gate as first specified could not close: the `beforeMaterialize`
-observer is a second untrusted-ish input, supplied by the caller, and the
-guard's behavior depends on how it returns. Gap 4 lives entirely in this axis,
-so a gate blind to it cannot catch the defect this document names.
-
-The generator must therefore cross every metadata case with the observer
-states:
-
-- **absent** (`null`) — the common case, and the one that makes "charging" no
-  bound at all,
-- **non-throwing**, recording charges,
-- **throwing `BadImageFormatException`**, and
-- **throwing `ArgumentOutOfRangeException`**,
-
-at the regions that can absorb such an exception. An earlier revision of this
-section claimed four such regions; that claim was wrong, and the correction
-matters because it changes what the gap actually is:
-
-| Region | Where | Effect on an observer exception |
-| --- | --- | --- |
-| The guard's public boundary | `CustomAttributeValueGuard.IsSafeToDecode:85-97` | Caught; returns `true`. The walk stops, but the refusal is inverted. |
-| `TypeResolver` reference and definition paths | `TypeResolver.cs:107`, `:250` | **Does not absorb.** The observer is invoked *before* the surrounding `try`, and the catching overloads never receive it. The exception propagates to the public boundary above. |
-| `TypeResolver` exported-type path | `TypeResolver.cs:546`, `:551` | **Not reachable.** `GetTypeName` dispatches only `TypeRef`, `TypeDef`, and `TypeSpec`. |
-| `SignatureDecoder.Decode`, reached for `TypeSpec` names | `SignatureDecodeResult.cs:148-176` | Absorbs, but see below. |
-| The bound type-name provider | `AttributeDecoder.cs:532-542`, `:285-288` | **Does not absorb.** It wraps the failure and rethrows. |
-
-So there is exactly **one** inversion, not a family of them: an observer
-exception reaches the guard's public catch and returns `true`. The walk stops;
-the refusal is inverted. That is gap 4, and it is bad enough on its own.
-
-The `TypeSpec` path is the only one that absorbs mid-resolution, and it cannot
-produce an I1 divergence here: SRM rejects a `TypeSpec` coded handle in a
-custom-attribute blob before ever calling the provider, as this document states
-under [Handle-typed enums](#handle-typed-enums-same-handle-same-resolution-function--when-it-resolves).
-
-An earlier revision claimed that a budget stop could manufacture a genuine I1
-divergence by substituting a default width mid-resolution. **It cannot.** That
-claim was recorded on #5085 and has been retracted there.
-
-The assertion is not merely that the guard returns something reasonable. It is
-that **an observer that throws to stop the walk never produces `true`, and is
-never silently absorbed into a default width.** A caller's refusal is not a
-statement about the blob, and turning one into an approval is the inversion gap
-4 records.
-
-Until that gate exists, any statement in this document that any invariant
-*holds* is unverified in the sense of [Asserted properties name their
-gate](../evidence-and-validation.md#asserted-properties-name-their-gate). Statements about
-what the invariants *require* are normative regardless.
-
-A TLA+ model is not the right instrument here, and the repository's existing
-model is the useful contrast.
-[`docs/models/package-realization-admission/`](../models/package-realization-admission/README.md)
-models exact-request-keyed admission and lease-scoped lifetime: genuinely
-stateful, concurrent, and full of interleavings a test cannot enumerate. That
-is what TLA+ is for.
-
-This property is the opposite shape. It is a differential property of two
-*sequential* parsers over one grammar, with no concurrency and no scheduling,
-where the second parser is an external binary whose parse we cannot model
-faithfully — and a model of SRM that we wrote ourselves would re-introduce
-exactly the "two implementations believed to be equivalent" error this design
-forbids. Generating real blobs and running the real decoder is both cheaper and
-more honest.
-
-## Shape: a paired walker, and what that costs
-
-The repository's preferred containment shape is structural: a constrained type
-whose construction establishes an invariant, threaded through the object model
-so the compiler preserves it — `InertText.InertString` for values. A weaker
-but related shape centralizes parsing at a named boundary without carrying a
-type: `HardenedJson`, which returns an ordinary `JsonDocument`. The threat
-model distinguishes the two at
-[Untrusted JSON rejects duplicate properties](untrusted-data-threat-model.md#untrusted-json-rejects-duplicate-properties).
-
-This component cannot take that shape, and the reason is worth stating plainly
-so it is not mistaken for an oversight. Structural containment works when we
-own the operation being contained. Here the operation is inside SRM. We cannot
-wrap `DecodeValue` in a type that makes desynchronization unrepresentable,
-because the thing that must not desynchronize is SRM's internal cursor.
-
-What we have instead is a **paired walker**: a second parser that must track an
-external one byte for byte. That shape has a permanent cost, and the cost is
-that agreement is not compiler-checked. Any edit to our walker, and any change
-in SRM across runtime versions, can break agreement while every build and every
-existing test still passes.
-
-Two mitigations follow directly, and they are requirements, not suggestions:
-
-- **Share the decision rather than re-deriving it**, by handle-and-function or
-  by provider instance depending on the path, so the pairing is expressed
-  structurally wherever it can be. See
-  [How the two walkers reach the same width](#how-the-two-walkers-reach-the-same-width).
-- **Gate the rest generatively**, because what cannot be compiler-checked must
-  be searched for. See issue #5065.
-
-## How the two walkers reach the same width
-
-Width agreement is established by *two different mechanisms* depending on how
-the enum is spelled. Conflating them is the mistake this section exists to
-prevent.
-
-### Handle-typed enums: same handle, same resolution function — when it resolves
+### Handle-typed enums resolve from the handle
 
 When an argument is spelled `ELEMENT_TYPE_VALUETYPE` or `ELEMENT_TYPE_CLASS`
-followed by a coded handle, the guard first attempts to resolve the width
-**directly from the handle** — `EnumUnderlyingPrimitive.TryResolveDefinition`,
-then `FromDefinition`. On that path it does not consult the caller's resolver.
-SRM later reaches `ArgTypeProvider`, whose pending-handle path calls those same
-two functions on the same handle. This holds for `TypeDef` and `TypeRef`
-handles only. A `TypeSpec` never reaches the provider: SRM's
-`CustomAttributeDecoder` accepts only `TypeDef` and `TypeRef` and otherwise
-throws, so the guard's `TypeSpec` name decoding has no SRM counterpart to agree
-with.
+followed by a coded handle, the width is resolved **directly from the handle** —
+`EnumUnderlyingPrimitive.TryResolveDefinition`, then `FromDefinition`.
 
-Agreement here comes from a shared *handle and resolution function*, not from a
-shared object. That is deliberate, and routing this path through a resolver
-would break it: a resolver is keyed by name, a name is a flattened spelling,
-and a flattened spelling discards the resolution scope that distinguishes two
+Keeping this path handle-keyed is load-bearing, and routing it through a resolver
+would break it: a resolver is keyed by name, a name is a flattened spelling, and
+a flattened spelling discards the resolution scope that distinguishes two
 definitions or an external reference from a local type. Issue #4914 was exactly
 that collapse.
 
-**But the handle path is not unconditionally structural.** When
-`TryResolveDefinition` fails — an unresolvable or external `TypeRef` is the
-ordinary case — the guard renders the handle to a name and calls the caller's
-resolver, and `ArgTypeProvider` falls through to its own name index and then to
-the same resolver. So an unresolved handle-typed enum is resolved by the
-*serialized-name* mechanism described next, and inherits its requirements,
-including referential stability. Treating every handle-typed enum as
-structurally resolved is wrong in exactly the population most likely to be
-hostile: references into assemblies that are absent or attacker-named.
+Distinct definitions can render to one string. A nested type joins its declaring
+type with `.`, exactly as a namespace joins a type name, so a nested `Kind`
+declared in `Samples.E` and a top-level `Kind` in namespace `Samples.E` both
+render `Samples.E.Kind`. A reference additionally carries a resolution scope that
+its flattened spelling discards. Any name-keyed index must therefore drop one
+colliding definition. `NestedTypeNameCollision_GuardSkipMatchesDecodeWidth` gates
+both handle forms and `CollidingTypeDefNames_EachResolveTheirOwnWidth` gates the
+premise.
 
-The structural path must stay handle-keyed; the fallback must be recognized as
-a name path and held to the name path's rules.
+Structural matching walks a reference's nested scope chain but does not consult
+its terminal assembly or module scope, so a reference whose chain matches a
+definition in this reader resolves to that definition even when it nominally
+denotes another assembly. That is long-standing behavior, gated by
+`TypeRefEnumMatchingLocalInt64_SeesFollowingArrayCount`.
 
 > **Rule.** The handle path must stay handle-keyed. Do not "simplify" it to go
 > through the resolver.
 
-### Serialized-name enums: same provider instance
+**The handle path is not unconditionally structural.** When `TryResolveDefinition`
+fails — an unresolvable or external `TypeRef` is the ordinary case — the decoder
+renders the handle to a name and falls through to the name path, inheriting its
+rules. Treating every handle-typed enum as structurally resolved is wrong in
+exactly the population most likely to be hostile: references into assemblies that
+are absent or attacker-named.
 
-When an argument is spelled as a serialized enum (`0x55`) and a `SerString`,
-the width must come from a name. Here `AttributeDecoder.TryDecode` constructs
-one `ArgTypeProvider` and uses it twice: it passes
-`provider.GetUnderlyingEnumType` to the guard as the guard's resolver, then
-passes the *same provider instance* to `attribute.DecodeValue(provider)`.
+### Serialized-name enums resolve by projected name
 
-Two rules preserve agreement on this path:
+When an argument is spelled as a serialized enum (`0x55`) and a `SerString`, the
+width must come from a name.
 
-- **Name projection must match before the oracle is consulted.** SRM resolves a
-  blob-authored serialized name through `GetTypeFromSerializedName` *before*
-  asking for its underlying type. A guard that consults the width oracle with
-  the raw `SerString` asks a different question whenever the two spellings
-  normalize differently — for example when a name only parses after its
-  assembly suffix is removed. The guard composes the same two steps for this
-  reason.
-- **A caller-supplied resolver must be referentially stable for the
-  operation.** `ArgTypeProvider.GetUnderlyingEnumType` *invokes* the supplied
-  delegate; the guard and SRM invoke it in separate phases. A resolver that
-  returns different widths for the same name across those phases reintroduces
-  divergence even though both calls went through one provider. Product
-  resolvers are pure lookups over a fixed table, which satisfies this; the
-  requirement is stated because nothing enforces it.
+**Name projection happens before the width lookup.** A blob-authored serialized
+name is reflection syntax; the width table is keyed on metadata spellings. The
+projection (`ProjectSerializedEnumName`) is applied first, which matters for names
+that only parse once an assembly suffix is removed. This was previously required
+so that the guard and SRM asked the same question; it is now simply the correct
+question to ask.
 
-`BindEnumWidthResolver` normalizes a bare resolver by wrapping it in an
-`ArgTypeProvider` so a direct `IsSafeToDecode(..., resolver)` call asks the
-projected question rather than the raw one. It is **normalization, not
-enforcement**: it cannot make a later `DecodeValue` use the provider it built,
-and it cannot make a stateful resolver stable. Same-provider decoding is
-guaranteed only on the `TryDecode` path, which is the supported product path.
-The resolver-less overload is a conservative test-only path.
+A handle-derived name is an exact metadata spelling, and metadata names may
+contain characters a reflection type name treats as escapes, so it is matched by
+its exact spelling before its reflection-normalized one. A blob-authored name is
+reflection syntax whose escapes are meaningful — `E\+Kind` names the metadata type
+`E+Kind`, not one spelled with a backslash — so it is normalized first and never
+matched verbatim.
 
-### Classification: shared rendering, duplicated predicate
+That classification belongs to a **single pending lookup, not to a spelling.**
+The provider records only that the name it produced most recently came from the
+blob, and clears that mark when it produces a handle-derived name. Remembering
+spellings instead would let a blob-authored occurrence change how a later
+handle-derived occurrence of the same spelling resolves, making a consumed width
+depend on argument order.
 
-The two mechanisms above concern width. Classification — whether an argument is
-a `System.Type` at all — is a third case, and it is neither fully shared nor
-fully independent.
+A repeated enum name resolves once rather than once per array element, because
+the element count is attacker-chosen and per-element resolution is the
+amplification D1 exists to prevent.
+`EnumArrayElements_ResolveTheWidthOncePerName` and
+`EscapedTypeDefEnumName_GuardSkipMatchesDecodeWidth` gate these.
 
-The *rendering* is shared. Both sides turn the same handle into a name through
-the same functions: `TypeResolver.GetTypeNameFromDefinition` for a `TypeDef`
-and `TypeResolver.GetTypeName` for a `TypeRef`. The guard does this in
-`IsSrmSystemType`; SRM reaches the same two functions through
-`ArgTypeProvider.GetTypeFromDefinition` and `GetTypeFromReference`. A
-definition that renders one way for one side renders the same way for the
-other.
+### The two resolution paths are not symmetric
 
-The *predicate* is not shared. The guard compares that rendered name to
-`"System.Type"` itself; SRM asks `ArgTypeProvider.IsSystemType`, which makes
-its own comparison. One rule, spelled twice, in two files, with nothing holding
-the two spellings equal. That narrow duplication is the whole of gap 8, filed
-as #5393 — which means the repair is to share the predicate, not to build a
-second classification path or add a classifier parameter.
+**A fixture exercising one path proves nothing about the other.** Issue #4914 was
+a name-path collapse: distinct type definitions that rendered to the same display
+name shared one index entry. The fix resolves definition-typed enums from their
+handle. Any change to either path must state which path it changes and must not
+assume symmetry between them.
 
-Narrow is not the same as harmless. What a classification disagreement costs
-when it happens is the `dotnet/runtime#57531` case described earlier in this
-document.
+A cross-assembly `TypeRef` that fails structural resolution can still match a
+*local* definition whose flattened spelling collides with it, and take that
+definition's width. The inspected image therefore has some influence over the
+width chosen for a name it does not define. Under the inversion this is a **D3
+fidelity** risk with no safety component;
+`ExternalReferenceCollidingWithNestedName_IsRefusedNotDecoded` pins the case.
 
 ### Frozen cross-assembly enum-width adapter
 
 Custom-attribute enum width can consume one frozen
 [`TypeResolutionContext`](type-forwarding-resolution.md) through
-`TypeResolutionEnumWidth`: planned serialized names become structured
-requests, `Resolve` locates an already-retained defining image, and the
-resolved definition's authenticated kind plus
+`TypeResolutionEnumWidth`: planned serialized names become structured requests,
+`Resolve` locates an already-retained defining image, and the resolved
+definition's authenticated kind plus
 `TypeResolutionContext.TryGetEnumUnderlyingType` establish a sealed
-core-library-derived `System.Enum` definition and read its single valid
-`value__` field without exposing a reader. Reflection-name escapes are
-projected back to exact metadata namespace and type segments, and the
-pre-decode guard applies SRM's own serialized-name projection before consulting
-the width table, so a name that only parses once its assembly suffix is removed
-cannot give the guard and the decoder different widths. Unplanned, unbound,
+core-library-derived `System.Enum` definition and read its single valid `value__`
+field without exposing a reader. Reflection-name escapes are projected back to
+exact metadata namespace and type segments.
+
+Explicit assembly qualifiers stay constraints rather than widening to wildcards:
+an explicit `Culture=neutral` is spelled so it cannot match a culture-specific
+candidate, and an explicit `PublicKeyToken=null` names an unsigned assembly.
+Because an empty token reads as a wildcard during binding, the adapter records it
+on the request and then drops a resolved candidate that turned out to be signed,
+keeping the qualifier a constraint without changing the identity contract that
+`AssemblyDependencyResolver` and `MetadataSource` also consume. The qualifier
+constrains the assembly the reference bound to, so when forwarding hops were
+followed the narrowing inspects the first hop's source rather than the terminal
+definition.
+
+A definition that is not a CLI-valid enum — unsealed, not directly derived from
+`System.Enum`, generic, carrying a non-public, non-special, or literal `value__`,
+or carrying a non-literal static field — supplies no width. Unplanned, unbound,
 malformed, or callback-ambiguous names stay `Int32`.
-
-Explicit assembly qualifiers stay constraints rather than widening to
-wildcards: an explicit `Culture=neutral` is spelled so it cannot match a
-culture-specific candidate, and an explicit `PublicKeyToken=null` names an
-unsigned assembly. Because an empty token reads as a wildcard during binding,
-the adapter records it on the request and then drops a resolved candidate that
-turned out to be signed, keeping the qualifier a constraint without changing
-the identity contract that `AssemblyDependencyResolver` and `MetadataSource`
-also consume. The qualifier constrains the assembly the reference bound to, so
-when forwarding hops were followed the narrowing inspects the first hop's
-source rather than the terminal definition. A definition that is not a
-CLI-valid enum -- unsealed, not directly derived from `System.Enum`, generic,
-carrying a non-public, non-special, or literal `value__`, or carrying a
-non-literal static field -- supplies no width.
-
-An argument whose signature names a type by handle is resolved from the
-definition that handle denotes, on both sides, never from its rendered name. A
-definition handle denotes itself; a reference is matched structurally, by name
-and resolution scope. Distinct definitions can render to one string: a nested
-type joins its declaring type with `.`, exactly as a namespace joins a type
-name, so a nested `Kind` declared in `Samples.E` and a top-level `Kind` in
-namespace `Samples.E` both render `Samples.E.Kind`. A reference additionally
-carries a resolution scope that its flattened spelling discards. Any
-name-keyed index must therefore drop one colliding definition, and routing
-either side through a name would let the guard and the decode select different
-definitions and skip different widths. Both sides ask
-`EnumUnderlyingPrimitive.TryResolveDefinition` about the same handle and take
-the width from the definition it returns;
-`NestedTypeNameCollision_GuardSkipMatchesDecodeWidth` gates both handle forms
-and `CollidingTypeDefNames_EachResolveTheirOwnWidth` gates the premise. A
-supplied name resolver never overrides a definition the signature already
-named, on either side. Structural matching walks a reference's nested scope
-chain but does not consult its terminal assembly or module scope, so a
-reference whose chain matches a definition in this reader resolves to that
-definition even when it nominally denotes another assembly. That is
-long-standing behavior, gated by
-`TypeRefEnumMatchingLocalInt64_SeesFollowingArrayCount`, and it is what keeps
-this side aligned with a decode that would otherwise reach the same local
-definition through its rendered name. A reference whose chain matches no
-definition here resolves by name as before.
-
-A name that has no pending handle -- a reference to a type this reader does not
-define, or a name the blob authored -- is looked up by spelling, and that
-lookup depends on where the name came from. A handle-derived name is an exact
-metadata spelling that reaches the provider verbatim, and metadata names may
-contain characters a reflection type name treats as escapes, so it is matched
-by its exact spelling before its reflection-normalized one. A blob-authored
-name is reflection syntax whose escapes are meaningful -- `E\+Kind` names the
-metadata type `E+Kind`, not one spelled with a backslash -- so it is normalized
-first and never matched verbatim. Both sides of the guard/decode pair classify
-a name the same way, so the two remain aligned either way. That classification
-belongs to a single pending lookup, not to a spelling: the provider records
-only that the name it produced most recently came from the blob, and clears
-that mark when it produces a handle-derived name. Remembering spellings instead
-would let a blob-authored occurrence change how a later handle-derived
-occurrence of the same spelling resolves, making a consumed width depend on
-argument order. The guard also resolves a repeated enum name once rather than
-once per array element, because the element count is attacker-chosen and
-per-element parsing is the amplification the guard exists to prevent.
 
 Product extract does not yet collect custom-attribute enum names into a
 generation; that remains residual on
 [#4741](https://github.com/richlander/dotnet-inspect/issues/4741).
-`TypeResolutionEnumWidthTests` gates the adapter, and
-`CustomAttributeValueGuardTests` gates guard/decoder width alignment through
-`EscapedTypeDefEnumName_GuardSkipMatchesDecodeWidth` and
-`EnumArrayElements_ResolveTheWidthOncePerName`.
-
-### Resolution order, and what `Int32` actually means
-
-`ResolveEnum` tries the structural definition path first and consults the
-name-keyed resolver only when that fails. `Int32` is the **last** fallback, not
-the answer for every unknown name.
-
-**Resolution is a 2×2 matrix, not two orders.** `enumUnderlyingType` is an
-optional parameter, and the enum may be spelled either as a handle or as a
-serialized name. Those two axes are independent, and all four cells behave
-differently:
-
-| | **With a resolver** (product path) | **Without a resolver** (bare overload) |
-| --- | --- | --- |
-| **Handle-spelled** (`ResolveEnum`) | Structural `TryResolveDefinition`, then the provider's name-keyed resolution over the local `TypeDefinitionsByName` index and any trusted external width table, then `Int32`. | Structural `TryResolveDefinition`, then `FromHandle` — which for a `TypeRef` **scans every type definition** via `TryFindDefinition` — then `Int32`. No name index. |
-| **Serialized-name** (`ResolveEnumName`) | `ProjectSerializedEnumName`, then the provider. Never touches the definition table directly. | `FromSerializedName` → `TryFromSerializedName` → `TryFindDefinition`, which **also scans every type definition**, then `Int32`. |
-
-Two corrections to the intuitive reading follow, and both matter:
-
-- The resolver-less path is **not** "structural, then give up." Both of its
-  cells reach a full linear scan of the definition table. That scan is the
-  source of the `Θ(P × T)` cost in gap 2.
-- The resolver-supplied *serialized* cell is the only one that never consults
-  local definitions itself; it delegates entirely to the provider. So "the
-  guard consults the definition table" is true in three cells out of four, and
-  false in the one the product actually uses for serialized names.
-
-The handle/resolver-less divergence is pinned by an existing regression: the
-bare overload reaches a different width than product `TryDecode` for the same
-blob. Anyone reasoning about alignment must therefore say **which cell** they
-mean. The resolver-less column is not a simplified product path; it is a
-different resolution order, and only the resolver-supplied column is the one
-SRM's provider mirrors. I1 is scoped accordingly — see gap 5.
-
-The middle step of the product path matters for threat modelling: a
-cross-assembly `TypeRef` that fails structural resolution can still match a
-*local* definition whose flattened spelling collides with it, and take that
-definition's width. The inspected image therefore has some influence over the
-width chosen for a name it does not define. This is currently a **fidelity**
-risk rather than a divergence, because both walkers reach the same definition
-through the same shared index —
-`ExternalReferenceCollidingWithNestedName_IsRefusedNotDecoded` pins exactly
-that case, with both sides agreeing on eight bytes and the blob refused on the
-count.
-
-Say "resolves to `Int32` when structural, local-name, and trusted-external
-resolution all fail" rather than "unknown names resolve to `Int32`."
-
-## The two width-resolution paths are not symmetric
-
-**A fixture exercising one path proves nothing about the other.** Issue #4914
-was a name-path collapse — distinct type definitions that render to the same
-display name shared one index entry, so the guard could resolve a width from
-the wrong definition while the decoder resolved from the handle. The fix
-resolves definition-typed enums from their handle. Issue #4992 asks whether the
-same collapse remains reachable on the blob-authored name path; it is open and
-explicitly unproven.
-
-Any change to either path must state which path it changes and must not assume
-symmetry between them.
-
-## The walk
-
-The guard walks the value blob iteratively on an explicit heap-allocated work
-stack rather than recursively, so a deeply nested blob cannot overflow the
-native stack before any bound is consulted.
-
-Elements of an `SZARRAY` share one element type, which appears once in the
-signature. The guard replays it: `ProcessSzArrayElements` rewinds
-`_signature.Offset` to the element's `SignatureStart` and re-parses the element
-type for every element, restoring the signature offset once the last element is
-done.
-
-**This replay is the component's principal hazard, and it is what I3 exists to
-bound.** Any work reachable from element-type parsing is multiplied by an
-attacker-chosen element count, on input the guard *accepts* — so no refusal
-bounds it. Four separate amplifications of this shape have been found and fixed
-individually (a re-materialized type name, a re-validated constructor
-`TypeSpec`, a replayed custom-modifier chain, and a re-skipped nested
-descendant, the last measured at a 537x multiplier). The structure that
-produced all four remains.
-
-Each of those four is now pinned by its own hand-written test —
-`ArrayElementCustomModifiers_AreSkippedOncePerArray`,
-`GenericParameterArrayElements_ResolveTheTypeSpecOnce`,
-`SignatureTypedArrayElements_RenderTheTypeNameOncePerHandle`, and
-`EnumArrayElements_ResolveTheWidthOncePerName`. Four tests named for the four
-scars is the signature of a missing invariant: each was written after the fact,
-and none of them would catch the fifth. That is why I3 is stated as a contract
-and given a gate rather than left as review discipline.
-
-SRM does not do this: it resolves an `ArgumentTypeInfo` once and then loops.
-Issue #5047 tracks converging on that shape.
-
-Until it lands, this is a standing rule for anyone editing the guard:
-
-> **Work introduced into element-type parsing is per-element work.** Before
-> adding a resolution, materialization, or validation step reachable from
-> `ProcessFixedArg`, establish that it is memoized or that it is cheap enough
-> to be paid an attacker-chosen number of times.
+`TypeResolutionEnumWidthTests` gates the adapter.
 
 ## Bounds, and what each one actually does
 
@@ -999,31 +561,25 @@ the same kind of bound and they do not have the same consequence.
 
 | Bound | Value | Effect |
 | --- | --- | --- |
-| `CustomAttributeValueGuard.MaxSerializedDepth` | `SignatureBlobGuard.DefaultMaxDepth` (512) | **Refuses.** Boxed/`SZARRAY` nesting past this depth returns `Unsafe`, so the blob is never handed to SRM. |
-| `EnumUnderlyingPrimitive.MaxNestingDepth` | 128 | **Stops matching, then falls back.** `Matches` returns `false` past this depth. On the resolver-supplied product path, resolution then continues down the name path. On the resolver-less overload it does not: `ResolveEnum` calls `FromHandle`, which falls back directly to `Int32` (`EnumUnderlyingPrimitive.cs:168-177`). The decode is not refused either way. |
+| `MaxSerializedDepth` | `SignatureBlobGuard.DefaultMaxDepth` (512) | **Refuses.** Boxed/`SZARRAY` nesting past this depth yields `null`. |
+| `EnumUnderlyingPrimitive.MaxNestingDepth` | 128 | **Stops matching, then falls back.** `Matches` returns `false` past this depth; resolution continues down the name path. The decode is not refused. |
 
-`MaxSerializedDepth` is a safety bound. `MaxNestingDepth` is a termination
-bound on a recursive structural comparison, protecting against an uncatchable
-native stack overflow. Exceeding it does not refuse anything; it degrades
-structural matching to name-based resolution.
+`MaxSerializedDepth` is a safety bound. `MaxNestingDepth` is a termination bound
+on a recursive structural comparison, protecting against an uncatchable native
+stack overflow. Exceeding it does not refuse anything; it degrades structural
+matching to name-based resolution.
 
-On the resolver-supplied path that degradation is **symmetric** — both walkers lose structural matching at
-the same depth and fall back the same way — which is why alignment survives it.
-`NestingDeeperThanTheMatchBound_GuardSkipMatchesDecodeWidth` pins a successful
-product decode at depth 200 for exactly this reason.
+> **Do not describe `MaxNestingDepth` as refusing a decode.**
 
-> **Do not describe `MaxNestingDepth` as refusing a decode.** If a future change
-> makes the fallback asymmetric, this bound becomes a divergence source rather
-> than a safe degradation.
-
-`MaxSerializedDepth` also caps chains the guard walks, which has a practical
+`MaxSerializedDepth` also caps chains the decoder walks, which has a practical
 consequence for tests: a fixture built with more than 512 custom modifiers is
 refused before any behavior under test is reached.
 
-### What a declared count can claim
+The decoder walks the value blob iteratively on an explicit heap-allocated work
+stack rather than recursively, so a deeply nested blob cannot overflow the native
+stack before any bound is consulted.
 
-The bounds above are ours. The ceilings that make them necessary are SRM's, and
-they are not uniform:
+### What a declared count can claim
 
 | Declared count | Read as | Ceiling | Slot |
 | --- | --- | --- | --- |
@@ -1039,116 +595,188 @@ constructor signature rather than the value blob, but in a hostile assembly that
 signature is attacker-written too, so it is bounded only by the compressed-integer
 encoding.
 
-### Charging is refusal accounting, not materialization
+## Enforcement gates
 
-The guard reports work through a `beforeMaterialize` observer *before* doing
-it, so a large charge can appear next to a `false` result. That pairing means
-"this is what the blob claimed, and we declined," not "this was allocated."
+**Current state: `unverified` for all three.**
 
-Reading a large charge as evidence of materialization has misled three separate
-reviewers. State it explicitly in any new charging code.
-
-The guard contains no `throw` for budget purposes; a caller's observer raises.
-How that exception travels depends on where it was raised and what type it is,
-and the combination is not clean:
-
-- **Provider callbacks are wrapped** in `MaterializationObserverException` and
-  rethrown, because an exception crossing SRM's callback boundary would
-  otherwise be swallowed by SRM's own catch behavior and turn a budget stop
-  into a silent decode failure. This applies during `DecodeValue` and also when
-  the guard drives the provider.
-- **Direct guard-side observer calls are not wrapped**, so the exception type
-  decides the outcome. Most types propagate. But `BadImageFormatException` and
-  `ArgumentOutOfRangeException` are caught by the public boundary's
-  malformed-metadata handlers and converted to `true` — meaning an observer
-  that raises either type to stop the walk instead **approves the blob**, and
-  SRM then runs.
-
-> That last case is a real hazard, not a documentation detail: it makes a
-> caller's budget stop indistinguishable from a malformed-blob deferral. The
-> two concerns should not share a catch. Tracked as issue #5085.
-
-## Failure semantics
-
-The guard's return value is not "is this blob well-formed." It is "is it safe
-to let SRM try." Both `true` and `false` are reached deliberately, and *where*
-a malformed state is detected decides which one you get.
-
-| Condition | Result | Why |
+| Invariant | Gate | State |
 | --- | --- | --- |
-| Value-walk read runs out of bytes (`Result.Truncated`) | `true` | SRM's failure is catchable and precise; ours would be a guess. Let the decoder own the error. |
-| Truncation in the constructor `TypeSpec` **prologue** — region A, from the blob start through the generic argument count | `true` | `ResolveConstructorInstantiation` returns `Safe` with `found == false` at each of its truncation points, and the caller propagates that. |
-| **Detected** failure while stepping over a preceding generic argument — region B, arguments `0` through `parameterIndex - 1` | `false` | `TrySkipSrmAttributeType` reports failure rather than a plausible offset, and `LocateGenericArgument` maps that to `Unsafe`. |
-| Truncation of the **selected** generic argument's own type — region C, e.g. a `CLASS` whose coded index is cut off | `true` | `BlobReader.ReadTypeHandle()` returns a **nil handle** rather than throwing. The nil handle flows through `SkipNamedType`, resolves to the default `Int32`, and the walk either skips four bytes or reports `Truncated`. Both map to `true`. No exception, and no public catch, is involved. |
-| A **substituted** `VAR` in the selected generic argument — also region C | `false` | `ProcessGenericParameter` clears `_substituteGenerics` before re-entering, so a second substitution reaches the element switch as an unrecognized form and returns `Unsafe`. Re-entering on the same `TypeSpec` would otherwise overflow the stack. |
-| A **complete** `MVAR` that the walk actually examines | `false` | `ProcessGenericParameter` returns `Unsafe` for `methodParameter`, and SRM likewise handles only type parameters. Method generic parameters are refused, never substituted. |
-| An `MVAR` whose index byte is **truncated** | `true` | `ProcessGenericParameter` returns `Safe` on `RemainingBytes < 1` *before* it reads the index and tests `methodParameter` (`:681-687`). |
-| An `MVAR` among the **trailing** generic arguments — region D | `true` | `LocateGenericArgument` skips only arguments `0..parameterIndex-1` (`:748`), so arguments after the selected one are never examined. |
-| Truncation in a generic argument **after** the selected index — region D | *not examined* | `LocateGenericArgument` skips only `0` through `parameterIndex - 1` and stops. Bytes after the selected argument are never read by the guard, so their state cannot affect its result. |
-| Unknown fixed-argument element code, unsupported serialized type, invalid named-argument kind | `false` | The guard positively classifies these as forms it cannot track. It refuses rather than walking blind alongside a decoder it can no longer follow. |
-| Declared count exceeds what the remaining bytes can describe | `false` | Invariant I2. The count is the amplification vector and must be refused before SRM allocates from it. |
-| Serialized nesting past `MaxSerializedDepth` | `false` | Refuse rather than truncate. |
-| `TypeDefinitionIndexException` raised while building the type-definition index during guard-side name fallback | `false` | The walk never finished, so a later `DecodeValue` with a different provider must not run. Note this is raised lazily when the bound delegate is *invoked*, not when the resolver is bound, so prefix values may already have been walked and charged. |
-| `BadImageFormatException` / `ArgumentOutOfRangeException` **reaching the public boundary** | `true` | Same reasoning as truncation: hand it to SRM. Also catches observer exceptions of these types; see the hazard above. |
-| The same exceptions **caught inside one of this guard's own parsing helpers** | `false` | A helper that cannot complete its own read has lost track of the blob; it reports failure rather than returning a plausible offset. |
-| `BadImageFormatException` caught inside **`SignatureBlobGuard.IsSafeToDecode`** | `true` | That component deliberately returns `true` for truncated-but-shallow blobs: the depth check is what it owns, and a truncated blob is shallow up to the truncation. This guard propagates that `true`. |
+| **D1** | A generative gate varying the attacker-controlled dimensions jointly. Tracked as #5065. | Does not exist. Four hand-written amplification regressions pin four instances; four open defects violate it. |
+| **D2** | Slice 2's differential test: `null` wherever SRM throws, plus every existing guard and reader test green. | Lands with slice 2. |
+| **D3** | The #5148 generator re-targeted from offset agreement to **value equality**, plus the stage-1 corpus below with zero refusals. | #5148 open; stage 1 not landed. |
 
-Three consequences worth stating for anyone editing this:
+Until those gates exist, any statement in this document that an invariant
+*holds* is unverified in the sense of [Asserted properties name their
+gate](../evidence-and-validation.md#asserted-properties-name-their-gate).
+Statements about what the invariants *require* are normative regardless.
 
-- "Unrecognized" is not one outcome. A form the guard *positively identifies*
-  as unsupported refuses; a read that simply *runs out of bytes* defers to SRM.
-- **The generic-argument regions do not partition cleanly by offset, and an
-  earlier draft's claim that they did was wrong.** Region C alone produces
-  *both* results depending on *what* is malformed rather than *where*:
-  truncation of the selected type throws and yields `true`, while a substituted
-  `VAR` yields `false`. Region D is not examined at all, so a generator can
-  place arbitrary garbage after the selected argument without changing the
-  guard's answer. The partition is therefore by **role in the walk** — prologue,
-  skipped predecessor, selected type, unread suffix — and the outcome within a
-  region still depends on the malformation. State both coordinates when adding
-  a case.
-- **"Helper catches produce `false`" is not a general rule.** It holds for this
-  guard's own parsing helpers. It does *not* hold for
-  `SignatureBlobGuard.IsSafeToDecode`, whose catch deliberately returns `true`,
-  nor for `TypeResolver`, which absorbs both exception types on every
-  name-rendering path and returns a `null` name that becomes a default width.
-  Adding a catch changes the contract, so state which behavior you intend and
-  which component owns the decision.
+### What the D1 gate must vary
 
-The deliberate `true` results are the reason this component is easy to misread.
-They are *not* fail-open in the safety sense, because they hand the blob to a
-decoder that will itself fail closed and catchably. The genuine fail-opens are
-a `true` reached by skipping the wrong bytes (I1), a `true` reached without
-refusing an attacker-declared quantity (I2), and — as #5085 shows — a `true`
-reached because the *caller's own* attempt to stop the walk was mistaken for a
-malformed blob.
+A one-dimensional check is misleading: raising a single declared count while
+holding everything else fixed is exactly the measurement the existing
+per-element memoization already passes. The gate must vary jointly, at minimum:
+
+- declared `SZArray` element counts;
+- declared constructor parameter counts;
+- the constructor's generic arity;
+- **the *sequence* of `VAR` indices, and of handles and names, not merely how
+  many appear.** Every memo in the decoder is a single slot keyed on the
+  *previous* input, so a run of identical values is cheap while two values in
+  alternation evict on every step. Only the repeating shape is currently tested,
+  which is why issue #5130 passes all four existing amplification regressions;
+- the number of *distinct* handles and names referenced;
+- the number of rows in the tables a failed resolution scans;
+- the number of attributes decoded from one image; and
+- the size of a blob shared across many attribute rows. `A` attribute rows may
+  name one `B`-byte value blob, which the blob heap stores once; each row is
+  nevertheless decoded independently, so `Θ(A + B)` of metadata yields `Θ(A × B)`
+  of work and retained value.
+
+A dimension list is not enough on its own: several of these are only adversarial
+in combination with a particular *arrangement*, not at a particular *size*. The
+generator must control shape as well as magnitude, and must assert that total
+work — signature reparses, name renderings, definition scans, enum-width
+resolutions, and structural match steps — stays near-linear in total metadata size
+across the product of those dimensions, not merely flat along any one of them.
+
+Seed the corpus with the regressions already found by hand so the gate is
+demonstrably non-vacuous, and pin any failing seed as an ordinary case.
+
+### What the D2 and D3 gates must generate
+
+The generator must cover, and be able to combine:
+
+- **Fixed-argument types:** each primitive; `string`; `object` (boxed);
+  `System.Type` as a serialized name; `SZARRAY` of each of these; and `VAR` where
+  generic substitution applies. `MVAR` is a **refusal** case, not a substitution
+  case, and must not appear in the cost cases above.
+- **Enum spellings:** the handle forms and the serialized (`0x55`) name form, each
+  independently, because they resolve differently. The handle forms must be
+  generated with **both** `ELEMENT_TYPE_VALUETYPE` and `ELEMENT_TYPE_CLASS`, each
+  with a `TypeDef`, a `TypeRef`, a `TypeSpec`, and a nil handle. Metadata is
+  untrusted, so the gate cannot assume an enum is spelled legally.
+- **Classification layouts:** `System.Type` reached through each of the four
+  metadata layouts named under
+  [Classification](#classification-is-a-display-name-comparison-not-an-identity-test),
+  and a hostile assembly-defined type rendering the same string.
+- **Nesting:** boxed and `SZARRAY` nesting at, just below, and just above
+  `MaxSerializedDepth`.
+- **Custom-modifier chains** preceding element types, at and above the signature
+  depth bound.
+- **Named arguments:** fields and properties, including the serialized-enum and
+  array-typed forms.
+- **Declared counts:** valid, zero, negative, `-1`, and counts far exceeding the
+  remaining bytes.
+- **Malformed extensions:** truncation at every structural offset; unknown
+  element-type codes; a generic constructor header.
+- **Metadata states:** distinct `TypeDef` rows that render to one display name; a
+  `TypeRef` whose flattened spelling collides with a local definition;
+  unresolvable `TypeRef`s; nested-type chains deeper than the match bound.
+- **Observer states:** absent (`null`) — the common case, and the one that makes
+  charging no bound at all — non-throwing and recording, and throwing. The
+  assertion is that an observer raising to stop the walk never yields a value and
+  is never absorbed into a default width.
+
+**A TLA+ model is not the right instrument here**, and the repository's existing
+model is the useful contrast.
+[`docs/models/package-realization-admission/`](../models/package-realization-admission/README.md)
+models exact-request-keyed admission and lease-scoped lifetime: genuinely
+stateful, concurrent, and full of interleavings a test cannot enumerate. This
+property is a fidelity property of one sequential parser over one grammar, with no
+concurrency and no scheduling. Generating real blobs and running the real decoder
+is both cheaper and more honest.
+
+## Certification bounds
+
+Two version axes, behaving oppositely.
+
+**SRM** is the oracle, not the counterpart. It is pinned de facto by TFM
+(`net10.0`, statically linked in the AOT build). Pinning it states which decoder
+D3 is measured against; it no longer under-specifies a safety invariant, which is
+what pinning it would have done under the previous design.
+
+**The producer toolchain** cannot narrow D1 or D2, because the adversary does not
+use an SDK. It narrows D3: the must-approve set is what compilers in the certified
+range actually emit, and everything outside it drops from *decode correctly* to
+*refuse safely*.
+
+| Claim | Domain | Narrowable by producer version? |
+| --- | --- | --- |
+| D1, D2 | all byte sequences | No |
+| D3 fidelity | real producer output, against a pinned SRM | Yes |
+| No spurious refusal | real producer output, certified SDK range | Yes |
+
+**Stage 1** sweeps every custom attribute in a pinned real-package corpus built by
+SDKs in the certified range and asserts zero refusals and value equality with SRM,
+reusing the baseline machinery under `tools/DecompilerHarness/corpus/`. **Stage 2**
+(#5304) is the exhaustive per-position enumeration with `MustApprove` /
+`MustRefuse` / `KnownGap` dispositions; after the inversion its obligation outside
+the certified set is D1 and D2 only.
+
+> **The certified range must never leak into the decoder's code.** It is a claim
+> about what we certify, not a license to skip a check because no real SDK emits a
+> shape.
+
+Failure direction: a future SDK emitting a spelling outside the certified set
+produces a refused legitimate attribute — a fidelity regression, not a safety one.
+Certification is versioned and re-runnable, so adding SDK N+1 is a corpus run, not
+a redesign.
+
+## Known gaps
+
+Each row is a **verified** divergence between the contract above and the
+component's current behavior. They are listed rather than omitted, because a
+design document describing only intended behavior would misrepresent the
+component.
+
+| # | Gap | Invariant | Issue |
+| --- | --- | --- | --- |
+| 1 | A failed resolution scans every type definition, so `P` distinct unresolvable arguments cost `Θ(P × T)`. Applies to **both** the handle path and the serialized-name path (`TryFindDefinition`). | D1 | #5091 |
+| 2 | `SZARRAY` element types are re-parsed once per element rather than once per array. | D1 | #5047 |
+| 3 | Every memo is a **single slot keyed on the previous input**, so alternating two values defeats all of them. | D1 | #5130 |
+| 4 | `A` attribute rows sharing one `B`-byte blob are decoded independently, costing `Θ(A × B)` in work and retained values from `Θ(A + B)` of metadata. Absent a shared `MaterializationContext`, each `TryDecode` also rebuilds the type-definition index, adding `Θ(A × T)`. | D1 | #5132 |
+| 5 | A caller observer's `BadImageFormatException` or `ArgumentOutOfRangeException` is caught by the malformed-metadata handler, so a budget stop is mistaken for a malformed blob. | D2 | #5085 |
+
+Gaps 1, 2, and 3 share a root cause worth naming: **memoization was tuned against
+the wrong cost model.** Under the paired-walker design, work the guard cached and
+SRM repeated made the guard look fast while the decode stayed quadratic, and work
+the guard repeated made the guard quadratic while the decode was fine. Neither
+side's profile revealed the other's, which is why these were found by reading
+rather than by measurement. With one walker there is one profile, and that is a
+real simplification — but the fixes are still owed, and a fix that makes a memo hit
+more often without making it hit on *every distinct input* has not resolved any of
+them. Prefer one coherent change over three local optimizations.
+
+Gap 4 is deliberately excluded from that grouping: it is cross-row, so no per-walk
+memo can address it.
+
+### Gaps closed by the inversion
+
+Retained so that a reader who finds these issues, or a test named for one, can
+place it.
+
+| Former gap | Was | Disposition |
+| --- | --- | --- |
+| SRM re-derives each fixed argument's type from the generic context, costing `Θ(P × G)`; the guard memoized the offset and never experienced it. | I2 (#5098) | **Moot.** SRM never runs. |
+| The resolver-less `IsSafeToDecode` overload resolves widths in a different order, so its `true` does not carry I1. | I1 scope (#5120) | **Moot.** There is no alignment claim to carry. |
+| The guard and `ArgTypeProvider` each apply their own `"System.Type"` comparison, so the predicate can diverge. | I1 (#5393) | **Moot.** One decoder, one predicate. Recorded as a fidelity caution under [Classification](#classification-is-a-display-name-comparison-not-an-identity-test). |
+| Whether the #4914 width-alignment collapse remains reachable on the blob-authored name path. | I1 (#4992) | **Moot as an alignment question.** The name path's own collapse risk is retained as a D3 concern under [The two resolution paths are not symmetric](#the-two-resolution-paths-are-not-symmetric). |
 
 ## Open work
 
 | Issue | Concern |
 | --- | --- |
-| #4992 | Whether the width-alignment collapse fixed on the handle path remains reachable on the blob-authored name path. Open and unproven. |
-| #5047 | Per-element element-type replay; resolve once and loop, as SRM does. Gap 3. |
-| #5065 | The differential oracle named above as this design's enforcement gate. |
-| #5085 | An observer exception can be caught as malformed metadata and turned into an approval. Gap 4. Found while reviewing this document. |
-| #5091 | Quadratic guard work across declared parameter count and type-definition count. Gap 2. Found while reviewing this document. |
-| #5098 | Blobs that cost SRM quadratic work across parameter count and generic arity, which the guard's memoization hides. Gap 1. Found while reviewing this document. |
-| #5120 | The resolver-less `IsSafeToDecode` overload does not carry I1. Gap 5. Found while reviewing this document. |
-| #5130 | Every memo is a single slot, so alternating input defeats all four. Gap 6. Found while reviewing this document. |
-| #5132 | Quadratic cost across attribute rows sharing one value blob. Gap 7. Found while reviewing this document. |
-| #5393 | The guard re-implements the `System.Type` classification rather than sharing it. Gap 8. Found while reviewing this document. |
+| #5288 | This inversion. Slice 2 (the decoder), slice 3 (the D3 gate), and slice 4 (cleanup) are outstanding. |
+| #5047 | Per-element element-type replay; resolve once and loop. Gap 2. |
+| #5065 | The D1 generative gate. |
+| #5085 | An observer exception mistaken for malformed metadata. Gap 5. |
+| #5091 | Quadratic work across declared parameter count and type-definition count. Gap 1. |
+| #5130 | Every memo is a single slot, so alternating input defeats all of them. Gap 3. |
+| #5132 | Quadratic cost across attribute rows sharing one value blob. Gap 4. |
+| #5148 | The differential generator, to be re-targeted from offset agreement to D3 value equality. |
+| #5304 | Stage 2 exhaustive per-position enumeration. |
 | #4879 | Enum constants whose signature does not match `value__`. Fidelity. |
 | #5062 | Signature decode laundering internal errors into `SignatureRejected`. |
 | #4741 | Product extraction does not yet plan custom-attribute enum names into a frozen type-resolution generation. |
 
 Issue #5067 tracks this space as a whole.
-
-The amplification gaps are not independent cleanups. Gaps 1, 2, 3, and 6 are one
-question — *which side pays for a lookup, and is the answer stable under
-adversarial ordering* — asked in four places. A fix that only moves cost from
-the guard to the decoder, or that makes a memo hit more often without making it
-hit on *every distinct input*, has not resolved any of them. Prefer one coherent
-change evaluated against both walkers over four local optimizations.
-
-Gap 7 is deliberately excluded from that grouping: it is cross-row, so no
-per-walk memo can address it.
