@@ -3,7 +3,6 @@ import {
   activeSourceOperationKind,
   assemblyDescriptorForType,
   assertNever,
-  pdbSourceLimitationHtml,
   callGraphAssemblyIdentityMatches,
   callGraphDiagnosticsMessage,
   callGraphTargetMatchesType,
@@ -287,6 +286,8 @@ import {
   bindTypePanel,
   renderGraphMemberPending,
   renderMemberNav,
+  renderSourcePageActions,
+  renderSourceResult,
   renderTypeMetadata,
   renderTypeNav,
   renderTypeSource,
@@ -2844,8 +2845,33 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     state.lens = "api";
   }
   state.typeCursor = Math.min(state.typeCursor, Math.max(visible.length - 1, 0));
+  const activeScope = scope();
+  const sourcePageKind =
+    activeScope === "type" && state.lens === "source"
+      ? "type"
+      : activeScope === "member"
+        && state.memberSection === "source"
+        && memberSourceHasConcreteOverload()
+        ? "member"
+        : null;
+  const currentTypeSourceSignature = current
+    ? typeSourceSignature(
+        current,
+        currentPackage(),
+        state.taste,
+        memberRequestKey)
+    : "";
+  const sourcePageSource =
+    sourcePageKind === "member"
+      ? state.memberSource
+      : sourcePageKind === "type"
+        && state.typeSourceKey === currentTypeSourceSignature
+        ? state.typeSource
+        : null;
+  const sourceWorkingSurface =
+    sourcePageKind !== null && sourcePageSource !== null;
   const annotatedPageContext =
-    scope() === "member"
+    activeScope === "member"
     && state.memberSection === "annotated"
     && memberSourceHasConcreteOverload();
   const annotatedWorkingSurface =
@@ -2889,14 +2915,29 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
 
       <header class="subject-zone" aria-label="Subjects and inspectors">
         ${renderScopeBar()}
-        <nav class="shell-actions${annotatedPageContext ? " annotated-page-actions" : ""}" aria-label="Application">
-          <button id="share" type="button">Share</button>
-          ${annotatedPageContext
-            ? renderAnnotatedSourcePageActions(annotatedActionsEnabled)
+        <div class="shell-actions${annotatedPageContext ? " annotated-page-actions" : ""}${sourcePageKind ? " source-page-actions" : ""}">
+          ${annotatedPageContext || sourcePageKind
+            ? `<div class="working-surface-actions" role="group" aria-label="${annotatedPageContext ? "Annotated Source actions" : "Source actions"}">
+                ${annotatedPageContext
+                  ? renderAnnotatedSourcePageActions(annotatedActionsEnabled)
+                  : ""}
+                ${sourcePageKind
+                  ? renderSourcePageActions({
+                      source: sourcePageSource,
+                      copyButtonId: sourcePageKind === "member"
+                        ? "copy-source"
+                        : "copy-type-source",
+                      escapeHtml,
+                    })
+                  : ""}
+              </div>`
             : ""}
-          <button id="open-settings" type="button">Settings</button>
-          <button id="help" type="button" aria-label="Keyboard help">?</button>
-        </nav>
+          <nav class="legacy-application-actions" aria-label="Application">
+            <button id="share" type="button">Share</button>
+            <button id="open-settings" type="button">Settings</button>
+            <button id="help" type="button" aria-label="Keyboard help">?</button>
+          </nav>
+        </div>
       </header>
 
       <div class="notice-stack">
@@ -2923,7 +2964,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
         ${renderNavPane(current, visible)}
 
         <section class="detail-pane">
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -4485,9 +4526,7 @@ function renderLens(item: AppTypeSurface | null | undefined) {
   if (!item) return "";
   switch (state.lens) {
     case "source":
-      return `
-      ${typeHeadingHtml(item)}
-      ${renderTypeSourceHtml(item)}`;
+      return renderTypeSourceHtml(item);
     case "metadata":
       return `${typeHeadingHtml(item)}${renderTypeMetadataHtml(item)}`;
     case "api":
@@ -4746,10 +4785,11 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     content = state.memberSourceLoading
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`
       : state.memberSource
-        ? `<section class="document-section source-result">
-            <div class="source-provenance"><strong>${state.memberSource.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span>${escapeHtml(state.memberSource.provenance)}</span>${state.memberSource.url ? `<a href="${escapeHtml(state.memberSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}${pdbSourceLimitationHtml(state.memberSource)}<button id="copy-source" type="button">copy</button></div>
-            <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.memberSource.text)}</code></pre>
-          </section>`
+        ? renderSourceResult({
+            source: state.memberSource,
+            escapeHtml,
+            highlightCSharp,
+          })
         : `<section class="document-section empty-member-section"><h2>Source query failed</h2><p>${escapeHtml(state.memberSourceError || "No source result was returned.")}</p></section>`;
   } else {
     assertNever(state.memberSection, "member section");
