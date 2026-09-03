@@ -628,8 +628,8 @@ public static class StructuralViewRegistry
             || memberSelectorsCanFilterType)
         {
             bool exactTypeGesture =
-                hasTypeMarker && !hasTypeFilter
-                || exactGenericType;
+                !hasTypeFilter
+                && (hasTypeMarker || exactGenericType);
             if (!exactTypeGesture)
             {
                 routes.Add(
