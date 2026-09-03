@@ -14,10 +14,12 @@ internal static class UnsafeAwaitOperand
     public static bool RequiresUnsafeContext(
         IrNode root,
         bool usesUpdatedMemorySafetyRules)
-        => RequiresUnsafeContext(root)
+        => ContainsUnsafeOperation(root, usesUpdatedMemorySafetyRules)
             || !usesUpdatedMemorySafetyRules && ContainsPointerSyntax(root);
 
-    public static bool RequiresUnsafeContext(IrNode root)
+    static bool ContainsUnsafeOperation(
+        IrNode root,
+        bool usesUpdatedMemorySafetyRules)
     {
         var evidence = new List<ConsumedMemberEvidence>();
         foreach (var node in root.Descendants.Prepend(root))
@@ -41,8 +43,9 @@ internal static class UnsafeAwaitOperand
                 || node is EventSubscription subscription && IsPointerReceiver(subscription.Instance)
                 || node is LocalFunctionInvocation invocation
                     && (invocation.RequiresUnsafe
-                        || ContainsPointer(invocation.ReturnType)
-                        || invocation.ParameterTypes.Any(ContainsPointer)
+                        || !usesUpdatedMemorySafetyRules
+                            && (ContainsPointer(invocation.ReturnType)
+                                || invocation.ParameterTypes.Any(ContainsPointer))
                         || ArgumentsRenderPointerDereference(
                             invocation.Arguments,
                             invocation.ParameterTypes)))
@@ -53,15 +56,23 @@ internal static class UnsafeAwaitOperand
             evidence.Clear();
             ConsumedMemberEvidence.AddFrom(node, evidence);
             if (evidence.Any(item => item.Method is { } method
-                && (method.RequiresUnsafe
-                    || ContainsPointer(method.ReturnType)
-                    || method.ParameterTypes.Any(ContainsPointer))))
+                && MethodRequiresUnsafe(method, usesUpdatedMemorySafetyRules)))
             {
                 return true;
             }
         }
         return false;
     }
+
+    internal static bool MethodRequiresUnsafe(
+        MethodRef method,
+        bool usesUpdatedMemorySafetyRules)
+        => method.RequiresUnsafe
+            || method.RequiresUnsafeFact == MetadataFactState.Yes
+            || (!usesUpdatedMemorySafetyRules
+                || method.RequiresUnsafeFact == MetadataFactState.Unknown)
+            && (ContainsPointer(method.ReturnType)
+                || method.ParameterTypes.Any(ContainsPointer));
 
     static bool CallRendersPointerDereference(Call call)
     {

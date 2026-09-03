@@ -194,7 +194,12 @@ internal sealed class CrossAssemblyTypeResolver
             HasRefReadOnlyParameters = needsRefKinds && resolved.ParameterRefKinds.State != ParameterRefKindFacts.Unknown
                 ? resolved.ParameterRefKinds.HasRefReadOnlyParameters
                 : callee.HasRefReadOnlyParameters,
-            RequiresUnsafe = callee.RequiresUnsafe || (needsUnsafe && resolved.RequiresUnsafe),
+            RequiresUnsafe = callee.RequiresUnsafe
+                || needsUnsafe && resolved.RequiresUnsafe,
+            RequiresUnsafeFact = callee.RequiresUnsafeFact == MetadataFactState.Unknown
+                && needsUnsafe
+                    ? resolved.RequiresUnsafeFact
+                    : callee.RequiresUnsafeFact,
             ReturnIsDynamic = needsReturnDynamic ? resolved.ReturnIsDynamic : callee.ReturnIsDynamic,
             ReturnArrayElementIsDynamic = needsReturnArrayElementDynamic
                 ? resolved.ReturnArrayElementIsDynamic
@@ -870,7 +875,6 @@ internal sealed class CrossAssemblyTypeResolver
             var reader = assembly.Reader;
             var typeDef = reader.GetTypeDefinition(handle);
             bool typeCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, typeDef.GetCustomAttributes());
-            bool typeRequiresUnsafe = MethodDefinitionFacts.HasRequiresUnsafeAttribute(reader, typeDef);
 
             // Multiple full-signature matches are malformed or ambiguous.
             // Returning no facts is safer than selecting by metadata order.
@@ -898,9 +902,26 @@ internal sealed class CrossAssemblyTypeResolver
                     return null;
 
                 bool methodCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes());
+                RequiresUnsafeContractResult requiresUnsafeContract =
+                    MethodDefinitionFacts.RequiresUnsafeContract(
+                        assembly.MemorySafety,
+                        methodHandle);
+                MetadataFactState requiresUnsafeFact =
+                    requiresUnsafeContract.State;
+                bool requiresUnsafe =
+                    requiresUnsafeContract.IsExplicit;
+                if (requiresUnsafeFact == MetadataFactState.Unknown
+                    && MethodDefinitionFacts.HasRequiresUnsafeAttribute(
+                        reader,
+                        method))
+                {
+                    requiresUnsafeFact = MetadataFactState.Yes;
+                    requiresUnsafe = true;
+                }
                 match = new ResolvedMethodFacts(
                     parameterRefKinds,
-                    typeRequiresUnsafe || MethodDefinitionFacts.HasRequiresUnsafeAttribute(reader, method),
+                    requiresUnsafe,
+                    requiresUnsafeFact,
                     MethodDefinitionFacts.ReturnDynamicFact(
                         reader,
                         method,
@@ -1902,6 +1923,7 @@ internal sealed class CrossAssemblyTypeResolver
     readonly record struct ResolvedMethodFacts(
         ParameterRefKindResult ParameterRefKinds,
         bool RequiresUnsafe,
+        MetadataFactState RequiresUnsafeFact,
         MetadataFactState ReturnIsDynamic,
         MetadataFactState ReturnArrayElementIsDynamic,
         MetadataFactState CompilerGenerated,

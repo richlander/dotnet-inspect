@@ -272,7 +272,35 @@ public class ExpressionInliningPassTests
             new LoadLocal(0, pointer),
             new Constant(null, pointer));
 
-        Assert.False(UnsafeAwaitOperand.RequiresUnsafeContext(comparison));
+        Assert.False(UnsafeAwaitOperand.RequiresUnsafeContext(
+            comparison,
+            usesUpdatedMemorySafetyRules: true));
+    }
+
+    [Fact]
+    public void UpdatedUnresolvedPointerSignature_PreservesCompatibilityFallback()
+    {
+        var pointer = TypeRef.Pointer(Int32);
+        var unresolved = new MethodRef(
+            Holder,
+            "External",
+            Int32,
+            [pointer],
+            HasThis: false);
+        var knownSafe = unresolved with
+        {
+            RequiresUnsafeFact = MetadataFactState.No,
+        };
+
+        Assert.True(UnsafeAwaitOperand.MethodRequiresUnsafe(
+            unresolved,
+            usesUpdatedMemorySafetyRules: true));
+        Assert.False(UnsafeAwaitOperand.MethodRequiresUnsafe(
+            knownSafe,
+            usesUpdatedMemorySafetyRules: true));
+        Assert.True(UnsafeAwaitOperand.MethodRequiresUnsafe(
+            knownSafe,
+            usesUpdatedMemorySafetyRules: false));
     }
 
     // A pure value (no effect, cannot throw) is still unsound to defer past a

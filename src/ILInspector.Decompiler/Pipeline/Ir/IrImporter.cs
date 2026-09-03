@@ -643,7 +643,11 @@ public static class IrImporter
             Regions = method.Body.Handlers,
             LocalNames = method.Body.LocalNames,
             LocalDeclaredInNestedScope = method.Body.LocalDeclaredInNestedScope,
-            UsesUpdatedMemorySafetyRules = source.SimulateNewRules || ModuleUsesUpdatedMemorySafetyRules(source.Reader),
+            UsesUpdatedMemorySafetyRules = source.SimulateNewRules
+                || source.MemorySafety.Rules is MemorySafetyRulesResult.Available
+                {
+                    State: MemorySafetyRulesState.Updated,
+                },
             SkipLocalsInit = method.Body.SkipLocalsInit,
             CompilerGenerated = method.CompilerGenerated,
             DeclaringTypeCompilerGenerated = method.DeclaringTypeCompilerGenerated,
@@ -1329,7 +1333,11 @@ public static class IrImporter
                 case ILOpCode.Call or ILOpCode.Callvirt:
                 {
                     var methodHandle = MetadataTokens.EntityHandle(reader.ReadILToken());
-                    var callee = ResolveMethod(source.Reader, methodHandle, callerScope);
+                    var callee = ResolveMethod(
+                        source.Reader,
+                        methodHandle,
+                        callerScope,
+                        source.MemorySafety);
                     if (callee.DeclaringType.Kind == TypeRefKind.Unsupported)
                     {
                         // Unknown arity would mis-pop the stack and corrupt
@@ -1555,7 +1563,11 @@ public static class IrImporter
                 case ILOpCode.Newobj:
                 {
                     var ctorHandle = MetadataTokens.EntityHandle(reader.ReadILToken());
-                    var constructor = ResolveMethod(source.Reader, ctorHandle, callerScope);
+                    var constructor = ResolveMethod(
+                        source.Reader,
+                        ctorHandle,
+                        callerScope,
+                        source.MemorySafety);
                     // A bare cross-assembly struct token carries no VALUETYPE
                     // byte; resolve its value-type-ness so a struct constructor
                     // (new DateTime(...)) is not misread as a heap allocation.
@@ -1651,7 +1663,11 @@ public static class IrImporter
                         }
                         case HandleKind.MethodDefinition or HandleKind.MethodSpecification:
                         {
-                            var callee = ResolveMethod(source.Reader, handle, callerScope);
+                            var callee = ResolveMethod(
+                                source.Reader,
+                                handle,
+                                callerScope,
+                                source.MemorySafety);
                             stack.Push(new LoadToken(RuntimeTokenKind.Method, null, $"{callee.DeclaringType.ToDisplayString()}.{callee.Name}"));
                             break;
                         }
@@ -1674,7 +1690,11 @@ public static class IrImporter
                             }
                             else
                             {
-                                var callee = ResolveMethod(source.Reader, handle, callerScope);
+                                var callee = ResolveMethod(
+                                    source.Reader,
+                                    handle,
+                                    callerScope,
+                                    source.MemorySafety);
                                 stack.Push(new LoadToken(RuntimeTokenKind.Method, null, $"{callee.DeclaringType.ToDisplayString()}.{callee.Name}"));
                             }
                             break;
@@ -1785,14 +1805,22 @@ public static class IrImporter
 
                 case ILOpCode.Ldftn:
                 {
-                    var target = ResolveMethod(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    var target = ResolveMethod(
+                        source.Reader,
+                        MetadataTokens.EntityHandle(reader.ReadILToken()),
+                        callerScope,
+                        source.MemorySafety);
                     stack.Push(new LoadFunctionPointer(target, isVirtual: false, instance: null));
                     break;
                 }
 
                 case ILOpCode.Ldvirtftn:
                 {
-                    var target = ResolveMethod(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    var target = ResolveMethod(
+                        source.Reader,
+                        MetadataTokens.EntityHandle(reader.ReadILToken()),
+                        callerScope,
+                        source.MemorySafety);
                     var instance = Pop(stack);
                     stack.Push(new LoadFunctionPointer(target, isVirtual: true, instance));
                     break;
@@ -2327,7 +2355,11 @@ public static class IrImporter
         return MakeStoreLocal(method, index, value);
     }
 
-    internal static MethodRef ResolveMethod(MetadataReader reader, EntityHandle handle, GenericScope callerScope)
+    internal static MethodRef ResolveMethod(
+        MetadataReader reader,
+        EntityHandle handle,
+        GenericScope callerScope,
+        MemorySafetyMetadataIndex? memorySafety)
     {
         switch (handle.Kind)
         {
@@ -2342,6 +2374,18 @@ public static class IrImporter
                 var parameterRefKinds = MethodDefinitionFacts.ReadParameterRefKinds(reader, method, signature.ParameterTypes);
                 bool methodCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes());
                 bool typeCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, declaringType.GetCustomAttributes());
+                RequiresUnsafeContractResult requiresUnsafeContract =
+                    MethodDefinitionFacts.RequiresUnsafeContract(
+                        memorySafety,
+                        handle);
+                MetadataFactState requiresUnsafeFact =
+                    requiresUnsafeContract.State;
+                bool requiresUnsafe =
+                    requiresUnsafeContract.IsExplicit
+                    || requiresUnsafeFact == MetadataFactState.Unknown
+                        && MethodDefinitionFacts.HasRequiresUnsafeAttribute(
+                            reader,
+                            method);
                 string methodName = reader.GetString(method.Name);
                 return new MethodRef(declaring, methodName, signature.ReturnType, signature.ParameterTypes, signature.Header.IsInstance)
                 {
@@ -2361,7 +2405,8 @@ public static class IrImporter
                     ParameterRefKinds = parameterRefKinds.Kinds,
                     ParameterRefKindsFacts = parameterRefKinds.State,
                     HasRefReadOnlyParameters = parameterRefKinds.HasRefReadOnlyParameters,
-                    RequiresUnsafe = MethodDefinitionFacts.HasRequiresUnsafeAttribute(reader, method),
+                    RequiresUnsafe = requiresUnsafe,
+                    RequiresUnsafeFact = requiresUnsafeFact,
                     CompilerGenerated = FactState(methodCompilerGenerated),
                     DeclaringTypeCompilerGenerated = FactState(typeCompilerGenerated),
                     DeclaringTypeIsDelegate = IsDelegateConstructorShape(methodName, signature.Header.IsInstance, signature.ParameterTypes)
@@ -2392,7 +2437,8 @@ public static class IrImporter
                     signature.Header.IsInstance,
                     signature.ReturnType,
                     returnType,
-                    parameterTypes);
+                    parameterTypes,
+                    memorySafety);
                 bool trustedPlatform = IsTrustedPlatformMemberReference(reader, member.Parent);
                 var accessorKind = MemberReferenceAccessorKind(reader, member, memberName);
                 if (accessorKind == AccessorKind.Unknown && trustedPlatform)
@@ -2430,6 +2476,8 @@ public static class IrImporter
                     ReturnIsDynamic = memberFacts.ReturnIsDynamic,
                     ReturnArrayElementIsDynamic = memberFacts.ReturnArrayElementIsDynamic,
                     HasRefReadOnlyParameters = memberFacts.ParameterRefKinds.HasRefReadOnlyParameters,
+                    RequiresUnsafe = memberFacts.RequiresUnsafe == MetadataFactState.Yes,
+                    RequiresUnsafeFact = memberFacts.RequiresUnsafe,
                     IsOperator = memberFacts.IsOperator,
                     CompilerGenerated = memberFacts.CompilerGenerated,
                     DeclaringTypeCompilerGenerated = memberFacts.DeclaringTypeCompilerGenerated,
@@ -2441,7 +2489,11 @@ public static class IrImporter
                 // method, then instantiate its !!N against the decoded type
                 // arguments so the call site reports concrete types.
                 var spec = reader.GetMethodSpecification((MethodSpecificationHandle)handle);
-                var generic = ResolveMethod(reader, spec.Method, callerScope);
+                var generic = ResolveMethod(
+                    reader,
+                    spec.Method,
+                    callerScope,
+                    memorySafety);
                 var methodArguments = GuardedDecode.MethodSpecArguments(reader, spec, callerScope);
                 var returnType = generic.ReturnType.Instantiate([], methodArguments);
                 return generic with
@@ -2583,6 +2635,7 @@ public static class IrImporter
         ParameterRefKindResult ParameterRefKinds,
         MetadataFactState ReturnIsDynamic,
         MetadataFactState ReturnArrayElementIsDynamic,
+        MetadataFactState RequiresUnsafe,
         MetadataFactState IsOperator,
         MetadataFactState CompilerGenerated,
         MetadataFactState DeclaringTypeCompilerGenerated) MemberReferenceDefinitionFacts(
@@ -2592,7 +2645,8 @@ public static class IrImporter
         bool hasThis,
         TypeRef declaredReturnType,
         TypeRef effectiveReturnType,
-        ImmutableArray<TypeRef> parameterTypes)
+        ImmutableArray<TypeRef> parameterTypes,
+        MemorySafetyMetadataIndex? memorySafety = null)
     {
         var fallbackRefKinds = parameterTypes.Any(p => p.Kind == TypeRefKind.ByRef)
             ? new ParameterRefKindResult([], ParameterRefKindFacts.Unknown)
@@ -2601,6 +2655,7 @@ public static class IrImporter
         if (DeclaringTypeDefinition(reader, member.Parent) is not { } typeHandle)
             return (
                 fallbackRefKinds,
+                MetadataFactState.Unknown,
                 MetadataFactState.Unknown,
                 MetadataFactState.Unknown,
                 MetadataFactState.Unknown,
@@ -2635,6 +2690,9 @@ public static class IrImporter
                         method,
                         declaredReturnType,
                         effectiveReturnType),
+                    MethodDefinitionFacts.RequiresUnsafeContract(
+                        memorySafety,
+                        methodHandle).State,
                     FactState(MethodDefinitionFacts.IsOperator(method, memberName, hasThis)),
                     FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes())),
                     typeCompilerGenerated);
@@ -2642,6 +2700,7 @@ public static class IrImporter
         }
         return (
             fallbackRefKinds,
+            MetadataFactState.Unknown,
             MetadataFactState.Unknown,
             MetadataFactState.Unknown,
             MetadataFactState.Unknown,
@@ -2809,32 +2868,6 @@ public static class IrImporter
         foreach (var handle in attributes)
             if (AttributeTypeName(reader, reader.GetCustomAttribute(handle).Constructor)
                 is ("System.Runtime.CompilerServices", "IsReadOnlyAttribute" or "RequiresLocationAttribute"))
-                return true;
-        return false;
-    }
-
-    // A module compiled with /features:updated-memory-safety-rules is stamped
-    // with a module-level MemorySafetyRulesAttribute. That is the only metadata
-    // difference between an old-rules and a new-rules build (an `unsafe` block or
-    // member modifier has no IL representation), so it is what the printer keys
-    // on to choose explicit `unsafe { }` blocks over the member modifier.
-    static bool ModuleUsesUpdatedMemorySafetyRules(MetadataReader reader)
-    {
-        foreach (var handle in reader.GetModuleDefinition().GetCustomAttributes())
-            if (AttributeTypeName(reader, reader.GetCustomAttribute(handle).Constructor)
-                is ("System.Runtime.CompilerServices", "MemorySafetyRulesAttribute"))
-                return true;
-        return false;
-    }
-
-    // A member declared `unsafe`/`extern` under the updated memory-safety rules
-    // is stamped with RequiresUnsafeAttribute (no IL difference otherwise), which
-    // is what makes its every call site require an unsafe context.
-    static bool HasRequiresUnsafeAttribute(MetadataReader reader, MethodDefinition method)
-    {
-        foreach (var handle in method.GetCustomAttributes())
-            if (AttributeTypeName(reader, reader.GetCustomAttribute(handle).Constructor)
-                is ("System.Diagnostics.CodeAnalysis", "RequiresUnsafeAttribute"))
                 return true;
         return false;
     }

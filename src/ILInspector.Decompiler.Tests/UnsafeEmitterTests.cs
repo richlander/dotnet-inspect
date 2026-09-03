@@ -237,6 +237,22 @@ public class UnsafeEmitterTests
     }
 
     [Fact]
+    public void NewRulesModule_CrossAssemblySafePointerCall_NeedsNoUnsafeBlock()
+    {
+        var result = DecompileResult(
+            typeof(ChainB).Assembly.Location,
+            typeof(ChainB).FullName!,
+            nameof(ChainB.AwaitSafePointer));
+
+        Assert.True(
+            result.Fidelity == DecompilationFidelity.Full,
+            $"{result.Fidelity}: {result.Output}{Environment.NewLine}{string.Join(Environment.NewLine, result.Diagnostics)}");
+        Assert.True(result.RequiresAsyncBodyModifier);
+        Assert.Contains("return await LibraryA.SafePointerTask", result.Output);
+        Assert.DoesNotContain("unsafe", result.Output);
+    }
+
+    [Fact]
     public void LegacyModule_RequiresUnsafeCall_EmitsNoUnsafeBlock()
     {
         // A legacy module relies on the member `unsafe` modifier for its body

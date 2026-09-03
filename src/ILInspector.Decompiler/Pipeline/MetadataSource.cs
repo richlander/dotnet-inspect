@@ -45,6 +45,7 @@ public sealed class MetadataSource : IDisposable
     readonly object _crossLock = new();
     readonly object _acquisitionGuard = new();
     readonly Lazy<StateMachineRelationshipIndex> _stateMachineRelationships;
+    readonly Lazy<MemorySafetyMetadataIndex> _memorySafety;
 
     MetadataSource(string path, string? filePath, Stream? stream, PEReader peReader, MetadataReader reader, string assemblyName, ResolvedAssemblyReference assembly, string? externalPdbPath, bool readSymbols, IAssemblyBindingPolicy bindingPolicy, MetadataContext? context)
     {
@@ -61,6 +62,7 @@ public sealed class MetadataSource : IDisposable
         _suppliedContext = context;
         _stateMachineRelationships =
             new(() => StateMachineRelationshipIndex.Create(reader));
+        _memorySafety = new(() => MemorySafetyMetadataIndex.Create(reader));
     }
 
     public string Path { get; }
@@ -100,6 +102,8 @@ public sealed class MetadataSource : IDisposable
     internal MetadataReader Reader { get; }
 
     internal object AcquisitionGuard => _acquisitionGuard;
+
+    internal MemorySafetyMetadataIndex MemorySafety => _memorySafety.Value;
 
     internal ClassicAsyncRequestAdapterResult AdaptClassicAsyncRequest(
         MethodDefinitionHandle method,

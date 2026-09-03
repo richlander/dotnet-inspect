@@ -165,6 +165,76 @@ public class CompilerFeatureOptionsTests
         }
     }
 
+    [Theory]
+    [InlineData("on")]
+    [InlineData("off")]
+    public void UpdatedSafePointerSignatureAwait_RemainsReconstructable(
+        string runtimeAsync)
+    {
+        string oracleAssembly =
+            typeof(ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures).Assembly.Location;
+        var options = CompilerFeatureOptions.ParseOptions(oracleAssembly)
+            .WithFeatures([
+                new KeyValuePair<string, string>(
+                    "updated-memory-safety-rules",
+                    "true"),
+                new KeyValuePair<string, string>("runtime-async", runtimeAsync),
+            ]);
+        using var compiled = Compile(
+            """
+            using System.Threading.Tasks;
+
+            public static class C
+            {
+                public static Task<int> Safe(int* value)
+                    => Task.FromResult(1);
+
+                public static async Task<int> M(nint value)
+                    => await Safe((int*)value);
+            }
+            """,
+            options);
+        using var source = MetadataSource.OpenFromPrefetchedImage(
+            "updated-safe-pointer-signature.dll",
+            ImmutableArray.Create(compiled.Image));
+        var function = IrImporter.Import(source, "C", "M");
+        Assert.NotNull(function);
+        IrPasses.Run(
+            function,
+            IrPasses.Default,
+            PassContext.ForImport(
+                method => IrImporter.Import(source, method)));
+        function.CheckInvariant();
+
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.True(result.RequiresAsyncBodyModifier);
+        Assert.Single(function.Descendants.OfType<AwaitExpression>());
+        Assert.DoesNotContain(
+            function.Descendants.OfType<UnsupportedNode>(),
+            node => node.Opcode is "runtime await" or "classic async");
+        Assert.Contains("return await Safe((int*)value);", result.Output);
+        Assert.DoesNotContain("unsafe", result.Output);
+
+        using var recompiled = Compile(
+            $$"""
+            using System.Threading.Tasks;
+
+            public static class D
+            {
+                public static Task<int> Safe(int* value)
+                    => Task.FromResult(1);
+
+                public static async Task<int> M(nint value)
+                {
+            {{result.Output}}
+                }
+            }
+            """,
+            options);
+    }
+
     static CompiledAssembly Compile(string source, CSharpParseOptions options)
     {
         var compilation = CSharpCompilation.Create(

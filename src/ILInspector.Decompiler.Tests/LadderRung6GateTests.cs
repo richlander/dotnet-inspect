@@ -737,7 +737,7 @@ public class LadderRung6GateTests
     }
 
     [Fact]
-    public void Rung6PointerSignatureLocalFunctionCall_UsesRuleSpecificUnsafeContext()
+    public void Rung6UpdatedPointerSignatureLocalFunctionCall_NeedsNoUnsafeContext()
     {
         IrFunction CreateFunction() => Function(
             "PointerSignatureLocalFunctionCall",
@@ -764,9 +764,9 @@ public class LadderRung6GateTests
 
         var (updated, legacy) = PrintRulePair(CreateFunction);
 
-        Assert.Contains("unsafe\n{\n    Take(p);", updated);
+        Assert.DoesNotContain("unsafe\n{\n    Take(p);", updated);
         Assert.DoesNotContain("unsafe\n{\n    Take(p);", legacy);
-        AssertNoErrors(RecompileNewRules("static unsafe void M(int* p)", updated), updated);
+        AssertNoErrors(RecompileNewRules("static void M(int* p)", updated), updated);
         AssertNoErrors(RecompileLegacyRules("static unsafe void M(int* p)", legacy), legacy);
     }
 

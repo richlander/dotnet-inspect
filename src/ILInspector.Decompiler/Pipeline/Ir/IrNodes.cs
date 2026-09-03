@@ -199,6 +199,16 @@ public sealed record MethodRef(
     public bool RequiresUnsafe { get; init; }
 
     /// <summary>
+    /// Whether Metadata's normalized module/member contract proves that invoking
+    /// this method does or does not require unsafe context.
+    /// A known <see cref="MetadataFactState.No"/> is significant under updated
+    /// rules: pointer signature shape alone must not recreate a caller contract.
+    /// Unresolved MemberRefs remain <see cref="MetadataFactState.Unknown"/>, where
+    /// the compatibility signature fallback still applies.
+    /// </summary>
+    public MetadataFactState RequiresUnsafeFact { get; init; } = MetadataFactState.Unknown;
+
+    /// <summary>
     /// Metadata SpecialName evidence (accessors, operators, constructors). Exact
     /// for MethodDefs; unresolved MemberRefs carry no flags, so the importer may
     /// infer this from compiler-reserved names only to preserve spellability

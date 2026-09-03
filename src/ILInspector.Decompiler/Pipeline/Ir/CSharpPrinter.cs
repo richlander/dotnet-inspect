@@ -3092,8 +3092,7 @@ public sealed partial class CSharpPrinter
         // StackAllocSpanPass) is governed by the stackalloc rule — unsafe only
         // under [SkipLocalsInit], where the stack space is uninitialized.
         StackAllocArray sa => _skipLocalsInit || sa.ResultType?.Kind == TypeRefKind.Pointer,
-        Call c => c.Callee.RequiresUnsafe
-            || SignatureRequiresUnsafe(c.Callee)
+        Call c => MethodRequiresUnsafe(c.Callee)
             || CallRendersPointerDereference(c),
         NewObject n => MethodRequiresUnsafe(n.Constructor)
             || ArgumentsRenderPointerDereference(n.Arguments, n.Constructor.ParameterTypes),
@@ -3122,7 +3121,8 @@ public sealed partial class CSharpPrinter
         Return { Value: { } value } when CurrentReturnType.Kind == TypeRefKind.ByRef
             => RendersAsPointerDeref(value),
         LocalFunctionInvocation i => i.RequiresUnsafe
-            || SignatureRequiresUnsafe(i.ReturnType, i.ParameterTypes)
+            || !_newMemorySafetyRules
+                && SignatureRequiresUnsafe(i.ReturnType, i.ParameterTypes)
             || ArgumentsRenderPointerDereference(i.Arguments, i.ParameterTypes),
         PositionalPattern p => MethodRequiresUnsafe(p.ConsumedDeconstructMethod),
         NullCoalescingFieldAssignment f => IsPointerReceiver(f.Instance),
@@ -3146,18 +3146,22 @@ public sealed partial class CSharpPrinter
     static bool IsPointerReceiver(IrExpression? receiver)
         => receiver?.ResultType is { Kind: TypeRefKind.Pointer };
 
-    static bool AccessorRequiresUnsafe(MethodRef accessor, IrExpression? receiver)
+    bool AccessorRequiresUnsafe(MethodRef accessor, IrExpression? receiver)
         => MethodRequiresUnsafe(accessor)
             || IsPointerReceiver(receiver);
 
-    static bool MethodRequiresUnsafe(MethodRef? method)
+    bool MethodRequiresUnsafe(MethodRef? method)
         => method is not null
-            && (method.RequiresUnsafe || SignatureRequiresUnsafe(method));
+            && (method.RequiresUnsafe
+                || method.RequiresUnsafeFact == MetadataFactState.Yes
+                || (!_newMemorySafetyRules
+                    || method.RequiresUnsafeFact == MetadataFactState.Unknown)
+                && SignatureRequiresUnsafe(method));
 
-    static bool MethodsRequireUnsafe(IEnumerable<MethodRef?> methods)
+    bool MethodsRequireUnsafe(IEnumerable<MethodRef?> methods)
         => methods.Any(MethodRequiresUnsafe);
 
-    static bool DeconstructionTargetRequiresUnsafe(DeconstructionTarget target)
+    bool DeconstructionTargetRequiresUnsafe(DeconstructionTarget target)
         => target is
             {
                 Kind: DeconstructionTargetKind.Property,

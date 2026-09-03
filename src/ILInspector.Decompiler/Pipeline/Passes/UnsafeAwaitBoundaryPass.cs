@@ -77,12 +77,16 @@ public sealed class UnsafeAwaitBoundaryPass : IIrPass
                 RequiresUnsafe(
                     usingStatement.Resource,
                     usesUpdatedMemorySafetyRules)
-                || MethodsRequireUnsafe(usingStatement.ConsumedMemberRefs),
+                || MethodsRequireUnsafe(
+                    usingStatement.ConsumedMemberRefs,
+                    usesUpdatedMemorySafetyRules),
             ForeachStatement foreachStatement =>
                 RequiresUnsafe(
                     foreachStatement.Collection,
                     usesUpdatedMemorySafetyRules)
-                || MethodsRequireUnsafe(foreachStatement.ConsumedMemberRefs),
+                || MethodsRequireUnsafe(
+                    foreachStatement.ConsumedMemberRefs,
+                    usesUpdatedMemorySafetyRules),
             TryCatch tryCatch => tryCatch.Clauses.Any(
                 clause => RequiresUnsafe(
                     clause.Filter,
@@ -99,15 +103,10 @@ public sealed class UnsafeAwaitBoundaryPass : IIrPass
                 node,
                 usesUpdatedMemorySafetyRules);
 
-    static bool MethodsRequireUnsafe(IEnumerable<MethodRef> methods)
-        => methods.Any(method =>
-            method.RequiresUnsafe
-            || ContainsPointer(method.ReturnType)
-            || method.ParameterTypes.Any(ContainsPointer));
-
-    static bool ContainsPointer(TypeRef? type)
-        => type is not null
-            && (type.Kind is TypeRefKind.Pointer or TypeRefKind.FunctionPointer
-                || ContainsPointer(type.ElementType)
-                || type.TypeArguments.Any(ContainsPointer));
+    static bool MethodsRequireUnsafe(
+        IEnumerable<MethodRef> methods,
+        bool usesUpdatedMemorySafetyRules)
+        => methods.Any(method => UnsafeAwaitOperand.MethodRequiresUnsafe(
+            method,
+            usesUpdatedMemorySafetyRules));
 }

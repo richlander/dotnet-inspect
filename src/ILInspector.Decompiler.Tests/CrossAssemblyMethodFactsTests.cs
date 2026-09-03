@@ -821,7 +821,7 @@ public class CrossAssemblyMethodFactsTests
         static byte[] BuildMethodCollisionLibrary()
         {
             var metadata = new MetadataBuilder();
-            metadata.AddModule(
+            ModuleDefinitionHandle module = metadata.AddModule(
                 0,
                 metadata.GetOrAddString("MethodCollisionLib.dll"),
                 metadata.GetOrAddGuid(Guid.NewGuid()),
@@ -855,11 +855,21 @@ public class CrossAssemblyMethodFactsTests
                 metadata.GetOrAddString(
                     "System.Diagnostics.CodeAnalysis"),
                 metadata.GetOrAddString("RequiresUnsafeAttribute"));
+            var memorySafetyRules = metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString("MemorySafetyRulesAttribute"));
             var attributeConstructor = metadata.AddMemberReference(
                 requiresUnsafe,
                 metadata.GetOrAddString(".ctor"),
                 metadata.GetOrAddBlob(
                     new byte[] { 0x20, 0x00, 0x01 }));
+            var rulesConstructor = metadata.AddMemberReference(
+                memorySafetyRules,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x20, 0x01, 0x01, 0x08 }));
             metadata.AddTypeDefinition(
                 default,
                 default,
@@ -915,6 +925,11 @@ public class CrossAssemblyMethodFactsTests
                 GenericInstanceSignature(
                     metadata,
                     otherGenericMarker));
+            metadata.AddCustomAttribute(
+                module,
+                rulesConstructor,
+                metadata.GetOrAddBlob(
+                    new byte[] { 1, 0, 2, 0, 0, 0, 0, 0 }));
 
             var genericReturn = AddMethod(
                 metadata,

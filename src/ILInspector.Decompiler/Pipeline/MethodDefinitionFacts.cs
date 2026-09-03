@@ -9,8 +9,29 @@ internal readonly record struct ParameterRefKindResult(
     ParameterRefKindFacts State,
     bool HasRefReadOnlyParameters = false);
 
+internal readonly record struct RequiresUnsafeContractResult(
+    MetadataFactState State,
+    bool IsExplicit);
+
 internal static class MethodDefinitionFacts
 {
+    internal static RequiresUnsafeContractResult RequiresUnsafeContract(
+        MemorySafetyMetadataIndex? index,
+        EntityHandle member)
+        => index?.GetMemberContract(member) switch
+        {
+            MemorySafetyMemberContractResult.None
+                when index.Rules is MemorySafetyRulesResult.Available
+                {
+                    State: MemorySafetyRulesState.Updated,
+                } => new(MetadataFactState.No, IsExplicit: false),
+            MemorySafetyMemberContractResult.Implicit =>
+                new(MetadataFactState.Yes, IsExplicit: false),
+            MemorySafetyMemberContractResult.Explicit =>
+                new(MetadataFactState.Yes, IsExplicit: true),
+            _ => new(MetadataFactState.Unknown, IsExplicit: false),
+        };
+
     internal static ParameterRefKindResult ReadParameterRefKinds(
         MetadataReader reader,
         MethodDefinition method,
@@ -53,10 +74,28 @@ internal static class MethodDefinitionFacts
     }
 
     internal static bool HasRequiresUnsafeAttribute(MetadataReader reader, MethodDefinition method)
-        => HasAttribute(reader, method.GetCustomAttributes(), "System.Diagnostics.CodeAnalysis", "RequiresUnsafeAttribute");
+        => HasAttribute(
+                reader,
+                method.GetCustomAttributes(),
+                "System.Diagnostics.CodeAnalysis",
+                "RequiresUnsafeAttribute")
+            || HasAttribute(
+                reader,
+                method.GetCustomAttributes(),
+                "System.Runtime.CompilerServices",
+                "RequiresUnsafeAttribute");
 
     internal static bool HasRequiresUnsafeAttribute(MetadataReader reader, TypeDefinition type)
-        => HasAttribute(reader, type.GetCustomAttributes(), "System.Diagnostics.CodeAnalysis", "RequiresUnsafeAttribute");
+        => HasAttribute(
+                reader,
+                type.GetCustomAttributes(),
+                "System.Diagnostics.CodeAnalysis",
+                "RequiresUnsafeAttribute")
+            || HasAttribute(
+                reader,
+                type.GetCustomAttributes(),
+                "System.Runtime.CompilerServices",
+                "RequiresUnsafeAttribute");
 
     internal static bool HasCompilerGeneratedAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
         => HasAttribute(reader, attributes, "System.Runtime.CompilerServices", "CompilerGeneratedAttribute");
