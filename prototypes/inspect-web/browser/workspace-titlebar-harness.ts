@@ -20,6 +20,10 @@ import {
 } from "../src/shell-controls.ts";
 import type { BrowserHomeDemoResolved } from "../src/inspect-web-engine.d.ts";
 import {
+  renderSourcePageActions,
+  renderSourceResult,
+} from "../src/type-panel.ts";
+import {
   bindWorkspaceSubject,
   focusWorkspacePacket,
   renderWorkspacePacketView,
@@ -54,6 +58,8 @@ const packageMode = params.has("package");
 const memberMode = params.has("member");
 const emptyMode = params.has("empty");
 const annotatedMode = params.has("annotated");
+const sourceMode = params.has("source");
+const limitationMode = params.has("limitation");
 const longMode = params.has("long");
 const defaultPackageIcon =
   "https://nuget.org/Content/gallery/img/default-package-icon-256x256.png";
@@ -223,8 +229,22 @@ let activeScope: WorkspaceScope = workspaceMode
       ? "member"
       : "type";
 let activePackageLens: PackageLens = "overview";
-let activeTypeLens: TypeLens = "api";
-let activeMemberSection: MemberSection = "overview";
+let activeTypeLens: TypeLens = sourceMode ? "source" : "api";
+let activeMemberSection: MemberSection = sourceMode ? "source" : "overview";
+const source = {
+  provider: limitationMode ? "decompiled" : "pdb",
+  provenance: limitationMode
+    ? "dotnet-inspect from System.Text.Json 10.0.0 lib/net10.0/System.Text.Json.dll"
+    : "SourceLink · github.com/dotnet/runtime",
+  url: "https://github.com/dotnet/runtime",
+  pdbSourceLimitation: limitationMode
+    ? "The selected type's primary source document is not uniquely identified in the portable PDB."
+    : null,
+  text: `public static object? DeserializeSync(string json)
+{
+    return JsonSerializer.Deserialize(json, typeof(object));
+}`,
+};
 const packageStrip: readonly (
   readonly [PackageLens, string, string, string]
 )[] = [
@@ -335,29 +355,50 @@ app.innerHTML = `
     })}
     <header class="subject-zone" aria-label="Subjects and inspectors">
       ${scopeBarHtml()}
-      <nav class="shell-actions${annotatedMode ? " annotated-page-actions" : ""}" aria-label="Application">
-        <button id="share">Share</button>
-        ${annotatedMode ? renderAnnotatedSourcePageActions(true) : ""}
-        <button id="open-settings">Settings</button>
-        <button id="help" aria-label="Keyboard help">?</button>
-      </nav>
+      <div class="shell-actions${annotatedMode ? " annotated-page-actions" : ""}${sourceMode ? " source-page-actions" : ""}">
+        ${annotatedMode || sourceMode
+          ? `<div class="working-surface-actions" role="group" aria-label="${annotatedMode ? "Annotated Source actions" : "Source actions"}">
+              ${annotatedMode ? renderAnnotatedSourcePageActions(true) : ""}
+              ${sourceMode
+                ? renderSourcePageActions({
+                    source,
+                    copyButtonId: memberMode
+                      ? "copy-source"
+                      : "copy-type-source",
+                    escapeHtml,
+                  })
+                : ""}
+            </div>`
+          : ""}
+        <nav class="legacy-application-actions" aria-label="Application">
+          <button id="share">Share</button>
+          <button id="open-settings">Settings</button>
+          <button id="help" aria-label="Keyboard help">?</button>
+        </nav>
+      </div>
     </header>
     <div class="notice-stack"></div>
     <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="active-subject-tab">
       ${navigationHtml}
       <section class="detail-pane">
-        <article id="inspector-panel" class="detail-scroll"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
-          ${workspaceMode
-            ? workspaceDetailHtml()
-            : `<h1>${subjectPath.at(-1)?.label}</h1>`}
-          ${packageMode ? `
-            <section class="document-section package-coordinate-editor">
-              <div class="section-title"><h2>Package coordinate</h2><span>1 target framework</span></div>
-              <div class="package-coordinate-fields">
-                <label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option></select></label>
-                <label class="framework-select"><span>Framework</span><select id="framework"><option>net10.0</option></select></label>
-              </div>
-            </section>` : ""}
+        <article id="inspector-panel" class="detail-scroll${sourceMode ? " source-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
+          ${sourceMode
+            ? renderSourceResult({
+                source,
+                escapeHtml,
+                highlightCSharp: escapeHtml,
+              })
+            : workspaceMode
+              ? workspaceDetailHtml()
+              : `<h1>${subjectPath.at(-1)?.label}</h1>
+              ${packageMode ? `
+                <section class="document-section package-coordinate-editor">
+                  <div class="section-title"><h2>Package coordinate</h2><span>1 target framework</span></div>
+                  <div class="package-coordinate-fields">
+                    <label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option></select></label>
+                    <label class="framework-select"><span>Framework</span><select id="framework"><option>net10.0</option></select></label>
+                  </div>
+                </section>` : ""}`}
         </article>
       </section>
     </main>
