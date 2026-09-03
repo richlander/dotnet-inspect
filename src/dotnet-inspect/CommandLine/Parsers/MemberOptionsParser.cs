@@ -155,14 +155,26 @@ public static class MemberOptionsParser
             memberFilter.Count);
         if (error is not null)
             return true;
+        bool hasDottedImpliedMember =
+            memberFilter.Count == 0
+            && !string.IsNullOrWhiteSpace(typeName)
+            && CSharpText.FqnParser.LastTopLevelDot(
+                typeName) > 0;
         if ((index is not null || shorthandIndex is not null)
-            && memberFilter.Count == 0
-            && (string.IsNullOrWhiteSpace(typeName)
-                || CSharpText.FqnParser.LastTopLevelDot(
-                    typeName) < 0))
+            && (memberFilter.Count > 1
+                || (memberFilter.Count == 0
+                    && !hasDottedImpliedMember)))
         {
             error = new OptionError(
                 "--index/Name:N requires exactly one member name.");
+            return true;
+        }
+        if (!string.IsNullOrWhiteSpace(memberDigest)
+            && memberFilter.Count != 1
+            && !hasDottedImpliedMember)
+        {
+            error = new OptionError(
+                "Name~digest requires exactly one member name.");
             return true;
         }
 
@@ -261,7 +273,8 @@ public static class MemberOptionsParser
                 == InspectionTargetRequirement.ExactMember
                 ? InspectionCatalogIdentity.ApiMemberDetail
                 : InspectionCatalogIdentity.ApiMemberOverload;
-        if (unambiguousMemberTail)
+        if (unambiguousMemberTail
+            || index is not null)
         {
             plan = new StructuralDiscoveryPlan.Resolved(
                 StructuralViewRegistry.Route(

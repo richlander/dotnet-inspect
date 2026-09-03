@@ -450,7 +450,9 @@ public static class TypeCommand
                 {
                     // A deferred select belongs to this listing, and discovery filters by it, so it
                     // has to be resolved before the filter is applied rather than after.
-                    if (options.SelectDeferredToListing)
+                    if (options.SelectDeferredToListing
+                        || options.Select is { Length: > 0 }
+                        || options.SelectDefault)
                     {
                         if (ApiCommand.ReresolveSectionsForListing(options) is not { } discoveryOptions)
                             return 1;
@@ -706,7 +708,9 @@ public static class TypeCommand
         // This renders a listing for what entered as a single-type request, so a select the
         // preamble deferred resolves here, against the pipeline doing the rendering. Without this
         // the deferred select would be dropped and the listing would ignore -S entirely.
-        if (browseOptions.SelectDeferredToListing)
+        if (browseOptions.SelectDeferredToListing
+            || browseOptions.Select is { Length: > 0 }
+            || browseOptions.SelectDefault)
         {
             if (ApiCommand.ReresolveSectionsForListing(browseOptions) is not { } resolvedBrowseOptions)
                 return 1;

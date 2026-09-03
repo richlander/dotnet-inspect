@@ -54,6 +54,40 @@ public static class CommandLineHelpers
     public static int? ParseTypeLimit(string? value)
         => value != null && int.TryParse(value, out var n) ? n : null;
 
+    public static bool IsBooleanOptionEnabled(
+        IReadOnlyList<string> tokens,
+        string option)
+    {
+        bool enabled = false;
+        for (var i = 0; i < tokens.Count; i++)
+        {
+            string token = tokens[i];
+            if (token.Equals(option, StringComparison.Ordinal))
+            {
+                enabled =
+                    i + 1 >= tokens.Count
+                    || !bool.TryParse(
+                        tokens[i + 1],
+                        out bool value)
+                    || value;
+                continue;
+            }
+
+            if (token.Length > option.Length
+                && token.StartsWith(option, StringComparison.Ordinal)
+                && token[option.Length] is '=' or ':')
+            {
+                enabled =
+                    !bool.TryParse(
+                        token[(option.Length + 1)..],
+                        out bool attachedValue)
+                    || attachedValue;
+            }
+        }
+
+        return enabled;
+    }
+
     /// <summary>
     /// Creates a progress logger that writes to stderr when <paramref name="verbose"/>
     /// is set, or null otherwise. Centralizes the convention that verbose diagnostic

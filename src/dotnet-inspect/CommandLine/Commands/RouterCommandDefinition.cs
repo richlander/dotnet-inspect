@@ -519,7 +519,9 @@ public static class RouterCommandDefinition
 
             string target = tokens[0];
             string[] tail = tokens[1..];
-            if (ContainsOption(tokens, "--all-libraries"))
+            if (CommandLineHelpers.IsBooleanOptionEnabled(
+                    tokens,
+                    "--all-libraries"))
             {
                 rewritten = [PackageCommand.Name, .. tokens];
                 return true;

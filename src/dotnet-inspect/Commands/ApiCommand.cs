@@ -351,11 +351,14 @@ public class ApiCommand
             }
             : options with { SelectDeferredToListing = false };
 
-        // The preamble skips the selection-arity checks for a deferred select because it cannot yet
-        // know which pipeline will render. Now it is known, so they run here against the sections
-        // the listing actually resolved. The payload projections are deliberately not re-checked:
-        // the listing refuses them outright further down, and that reason is the useful one.
-        if (options.SelectDeferredToListing)
+        // Re-check selection arity against the final listing catalog. The payload projections are
+        // deliberately not re-checked: the listing refuses them outright further down, and that
+        // reason is the useful one.
+        bool hasCatalogDependentSelection =
+            options.SelectDeferredToListing
+            || options.Select is { Length: > 0 }
+            || options.SelectDefault;
+        if (hasCatalogDependentSelection)
         {
             if (listingOptions.Discover == null && listingOptions.Count
                 && (!CountOutput.ValidateSectionsSelected(

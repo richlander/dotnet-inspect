@@ -441,8 +441,20 @@ public static class ApiSectionDemandIndex
         InspectionTargetRequirement baseRequirement)
     {
         if (selectors.Length == 0
-            || selectDefault
-            || SelectResolver.IsAllSelector([.. selectors]))
+            || selectDefault)
+        {
+            return new SectionDemandClassification(
+                baseRequirement,
+                [],
+                []);
+        }
+
+        ImmutableArray<string> demandSelectors =
+        [
+            .. selectors.Where(selector =>
+                !SelectResolver.IsAllSelector([selector])),
+        ];
+        if (demandSelectors.Length == 0)
         {
             return new SectionDemandClassification(
                 baseRequirement,
@@ -451,7 +463,7 @@ public static class ApiSectionDemandIndex
         }
 
         SelectResult result = SelectResolver.ResolveSelectAsSections(
-            [.. selectors],
+            [.. demandSelectors],
             KnownSectionNames,
             infoSections: null,
             Categories);

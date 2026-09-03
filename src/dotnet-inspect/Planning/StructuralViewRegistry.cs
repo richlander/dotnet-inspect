@@ -329,7 +329,9 @@ public static class StructuralViewRegistry
         if (tokens.Length == 0)
             return false;
 
-        if (ContainsOption(tokens, "--all-libraries"))
+        if (CommandLineHelpers.IsBooleanOptionEnabled(
+                tokens,
+                "--all-libraries"))
         {
             classification = new CommandlessStructuralRoute(
                 Route(
@@ -386,7 +388,15 @@ public static class StructuralViewRegistry
             || ContainsOption(tokens, "--platform")
             || ContainsOption(tokens, "--project")
             || ContainsOption(tokens, "--library");
-        if (hasTypeOption && hasExplicitApiSource)
+        string? typeOptionValue =
+            GetOptionValues(tokens, "-t", "--type")
+                .LastOrDefault();
+        var (typeOptionFilter, _) =
+            SharedParsers.ParseTypeFilter(typeOptionValue);
+        if (hasTypeOption
+            && (hasExplicitApiSource
+                || !string.IsNullOrWhiteSpace(
+                    typeOptionFilter)))
         {
             classification = new CommandlessStructuralRoute(
                 Route(
@@ -523,6 +533,13 @@ public static class StructuralViewRegistry
         bool hasTypeMarker =
             ContainsOption(tokens, "-t")
             || ContainsOption(tokens, "--type");
+        string? typeMarkerValue =
+            GetOptionValues(tokens, "-t", "--type")
+                .LastOrDefault();
+        var (typeFilter, _) =
+            SharedParsers.ParseTypeFilter(typeMarkerValue);
+        bool hasTypeFilter =
+            !string.IsNullOrWhiteSpace(typeFilter);
         var routes = new List<StructuralRoute>();
         if (!hasExplicitApiSource)
         {
@@ -549,10 +566,13 @@ public static class StructuralViewRegistry
                 Route(
                     StructuralViewIdentity.Type,
                     InspectionCatalogIdentity.ApiType));
-            routes.Add(
-                Route(
-                    StructuralViewIdentity.Type,
-                    InspectionCatalogIdentity.ApiMember));
+            if (!hasTypeFilter)
+            {
+                routes.Add(
+                    Route(
+                        StructuralViewIdentity.Type,
+                        InspectionCatalogIdentity.ApiMember));
+            }
         }
 
         var (_, impliedMemberName) =
@@ -826,6 +846,18 @@ public static class StructuralViewRegistry
                 name,
                 StringComparer.OrdinalIgnoreCase))
             .ToArray();
+        var selectableSet = new HashSet<string>(
+            selectableSections,
+            StringComparer.OrdinalIgnoreCase);
+        categories = categories
+            .Select(pair => new KeyValuePair<string, string[]>(
+                pair.Key,
+                [.. pair.Value.Where(selectableSet.Contains)]))
+            .Where(pair => pair.Value.Length > 0)
+            .ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value,
+                StringComparer.OrdinalIgnoreCase);
 
         return new StructuralSchemaProjection(
             route,
