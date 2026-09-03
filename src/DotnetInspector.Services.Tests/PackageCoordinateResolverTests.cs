@@ -15,6 +15,16 @@ public sealed class PackageCoordinateResolverTests
 {
     static readonly PackageSource NuGetOrg = PackageSource.NuGetOrg;
 
+    public static TheoryData<string> LocalSourceSpellings()
+    {
+        string path = Path.GetFullPath("packages");
+        return new()
+        {
+            path,
+            new Uri(path).AbsoluteUri,
+        };
+    }
+
     [Fact]
     public async Task TypedExactPin_DoesNotEscapeExpiredOperationContext()
     {
@@ -1421,8 +1431,7 @@ public sealed class PackageCoordinateResolverTests
     }
 
     [Theory]
-    [InlineData("/tmp/packages")]
-    [InlineData("file:///tmp/packages")]
+    [MemberData(nameof(LocalSourceSpellings))]
     public async Task ListVersions_SkipsNonHttpSource(
         string localSourceUrl)
     {
@@ -1448,8 +1457,7 @@ public sealed class PackageCoordinateResolverTests
     }
 
     [Theory]
-    [InlineData("/tmp/packages")]
-    [InlineData("file:///tmp/packages")]
+    [MemberData(nameof(LocalSourceSpellings))]
     public async Task FloatingCoordinate_SkipsNonHttpSource(
         string localSourceUrl)
     {

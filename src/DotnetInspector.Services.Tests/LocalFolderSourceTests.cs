@@ -30,15 +30,19 @@ public class LocalFolderSourceTests : IDisposable
         CoreCache.Clear(VersionCacheCategory);
     }
 
-    public static TheoryData<string> LocalFolderUrls() => new()
+    public static TheoryData<string> LocalFolderUrls()
     {
-        @"D:\some\local\packages",
-        "/var/local/packages",
-        "file:///var/packages",
-        @"C:\Program Files (x86)\Microsoft SDKs\NuGetPackages\",
-        // Also unparseable / non-absolute should be skipped, not crash:
-        "local-packages",
-    };
+        string hostPath = Path.GetFullPath("local-packages");
+        return new()
+        {
+            @"D:\some\local\packages",
+            "/var/local/packages",
+            hostPath,
+            new Uri(hostPath).AbsoluteUri,
+            @"C:\Program Files (x86)\Microsoft SDKs\NuGetPackages\",
+            "local-packages",
+        };
+    }
 
     [Theory]
     [MemberData(nameof(LocalFolderUrls))]

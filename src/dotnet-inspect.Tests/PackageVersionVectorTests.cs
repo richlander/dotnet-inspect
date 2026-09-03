@@ -18,6 +18,16 @@ public class PackageVersionVectorTests
         "2.0.0",
     ];
 
+    public static TheoryData<string> LocalSourceSpellings()
+    {
+        string path = Path.GetFullPath("packages");
+        return new()
+        {
+            path,
+            new Uri(path).AbsoluteUri,
+        };
+    }
+
     [Fact]
     public void Create_ResolvesAnInclusiveVectorInCallerDirection()
     {
@@ -173,8 +183,7 @@ public class PackageVersionVectorTests
     }
 
     [Theory]
-    [InlineData("/tmp/packages")]
-    [InlineData("file:///tmp/packages")]
+    [MemberData(nameof(LocalSourceSpellings))]
     public async Task ResolveAsync_SkipsNonHttpSource(
         string localSource)
     {
