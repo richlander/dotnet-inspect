@@ -117,7 +117,7 @@ public static class InspectionGraphCommand
                 : null,
         };
 
-    static bool TryCreateMembers(
+    internal static bool TryCreateMembers(
         IReadOnlyList<string> packageSpecs,
         out WorkspaceMemberCoordinate[] members)
     {

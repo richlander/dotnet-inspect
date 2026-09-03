@@ -39,6 +39,14 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "InspectionEngine");
+        value = $ownDataProperty(value, "ActivateWorkspacePackageOccurrence.304094707");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027InspectionEngine.ActivateWorkspacePackageOccurrence.304094707\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "InspectionEngine");
         value = $ownDataProperty(value, "AsyncLoweringCanary.1684317047");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027InspectionEngine.AsyncLoweringCanary.1684317047\u0027 is not callable.");
@@ -66,6 +74,14 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "CancelSourceQuery.19325221");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027InspectionEngine.CancelSourceQuery.19325221\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "InspectionEngine");
+        value = $ownDataProperty(value, "ClearWorkspacePackageOccurrences.19325221");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027InspectionEngine.ClearWorkspacePackageOccurrences.19325221\u0027 is not callable.");
         }
     }
     {
@@ -359,6 +375,14 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "InspectionEngine");
+        value = $ownDataProperty(value, "QueryWorkspacePackageOccurrences.976702342");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027InspectionEngine.QueryWorkspacePackageOccurrences.976702342\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "InspectionEngine");
         value = $ownDataProperty(value, "ResolveHomeDemo.304094707");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027InspectionEngine.ResolveHomeDemo.304094707\u0027 is not callable.");
@@ -418,6 +442,11 @@ export function initializeRuntime() {
 export function runEntryPoint(mainAssemblyName, args) {
     return $requireRuntime().runMain(mainAssemblyName, args);
 }
+export function activateWorkspacePackageOccurrence(action) {
+    const $result = $requireManagedExports()["InspectionEngine"]["ActivateWorkspacePackageOccurrence.304094707"](action);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
 export async function asyncLoweringCanary() {
     return await $requireManagedExports()["InspectionEngine"]["AsyncLoweringCanary.1684317047"]();
 }
@@ -431,6 +460,9 @@ export function cancelPackageQuery() {
 }
 export function cancelSourceQuery() {
     return $requireManagedExports()["InspectionEngine"]["CancelSourceQuery.19325221"]();
+}
+export function clearWorkspacePackageOccurrences() {
+    return $requireManagedExports()["InspectionEngine"]["ClearWorkspacePackageOccurrences.19325221"]();
 }
 export function configureHost(origin) {
     return $requireManagedExports()["InspectionEngine"]["ConfigureHost.92020726"](origin);
@@ -601,6 +633,11 @@ export async function queryTypeProjection(packageId, version, targetFramework, a
 }
 export async function queryTypeSource(packageId, version, targetFramework, assemblyName, typeIdentity, styleOptionsJson) {
     const $result = await $requireManagedExports()["InspectionEngine"]["QueryTypeSource.649160465"](packageId, version, targetFramework, assemblyName, typeIdentity, styleOptionsJson);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
+export async function queryWorkspacePackageOccurrences(workspaceJson) {
+    const $result = await $requireManagedExports()["InspectionEngine"]["QueryWorkspacePackageOccurrences.976702342"](workspaceJson);
     const $parsed = JSON.parse($result);
     return $parsed;
 }
