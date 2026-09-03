@@ -243,6 +243,58 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void DescriptorSelection_RejectsMalformedMetadataSection()
+    {
+        byte[] malformed = BuildMalformedMetadataSection();
+        using (var peReader = new PEReader(
+                   new MemoryStream(malformed, writable: false)))
+        {
+            Assert.Throws<BadImageFormatException>(
+                () => _ = peReader.HasMetadata);
+        }
+
+        string path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(path, malformed);
+
+            var pathRejected =
+                Assert.IsType<AssemblyDescriptorSelectionResult.Rejected>(
+                    ResolvedAssemblyReference.SelectFromPath(
+                        path,
+                        AssemblyResolutionProvenance.Local("test")));
+            Assert.Equal(
+                CandidateOpenFailureKind.InvalidImage,
+                pathRejected.Failure.Kind);
+            Assert.Null(
+                ResolvedAssemblyReference.CreateFromPathIfManaged(
+                    path,
+                    AssemblyResolutionProvenance.Local("test")));
+
+            var streamRejected =
+                Assert.IsType<AssemblyDescriptorSelectionResult.Rejected>(
+                    ResolvedAssemblyReference.SelectFromStream(
+                        () => new MemoryStream(
+                            malformed,
+                            writable: false),
+                        AssemblyResolutionProvenance.Local("test")));
+            Assert.Equal(
+                CandidateOpenFailureKind.InvalidImage,
+                streamRejected.Failure.Kind);
+            Assert.Null(
+                ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                    () => new MemoryStream(
+                        malformed,
+                        writable: false),
+                    AssemblyResolutionProvenance.Local("test")));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void DescriptorSelection_PreservesLegacyMetadataExceptionType()
     {
         string path = Path.GetTempFileName();
@@ -1971,6 +2023,23 @@ public class InspectionAcquisitionPlanTests
         BinaryPrimitives.WriteUInt16LittleEndian(
             bytes.AsSpan(streamCountOffset, sizeof(ushort)),
             ushort.MaxValue);
+        return bytes;
+    }
+
+    static byte[] BuildMalformedMetadataSection()
+    {
+        byte[] bytes = SelfBytes();
+        int corHeaderStart;
+        using (var peReader = new PEReader(
+                   new MemoryStream(bytes, writable: false)))
+        {
+            Assert.True(peReader.HasMetadata);
+            corHeaderStart = peReader.PEHeaders.CorHeaderStartOffset;
+        }
+
+        BinaryPrimitives.WriteInt32LittleEndian(
+            bytes.AsSpan(corHeaderStart + 12, sizeof(int)),
+            0);
         return bytes;
     }
 

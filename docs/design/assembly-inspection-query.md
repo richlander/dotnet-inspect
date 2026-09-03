@@ -245,6 +245,7 @@ constructing Metadata descriptors directly. The contract is gated by
 `DescriptorSelection_ClassifiesDescriptorlessImages`,
 `PathFactories_BlankAssemblyName_IsRejected`,
 `DescriptorSelection_RejectsMalformedManagedMetadata`,
+`DescriptorSelection_RejectsMalformedMetadataSection`,
 `DescriptorSelection_PreservesLegacyMetadataExceptionType`,
 `SelectFromStream_UsesTheSameTypedClassification`, and
 `SelectFromStream_InvalidOpenerRemainsVisible`,

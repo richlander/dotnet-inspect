@@ -522,6 +522,12 @@ public sealed class ResolvedAssemblyReference
         Func<AssemblyReferenceIdentity, ResolvedAssemblyReference>
             createDescriptor)
     {
+        if (stream.CanSeek && !HasDosHeaderSignature(stream))
+        {
+            return new AssemblyDescriptorSelectionResult.Descriptorless(
+                compatibilityException: null);
+        }
+
         System.Reflection.PortableExecutable.PEReader peReader;
         try
         {
@@ -530,7 +536,8 @@ public sealed class ResolvedAssemblyReference
         }
         catch (BadImageFormatException)
         {
-            return new AssemblyDescriptorSelectionResult.Descriptorless(
+            return RejectDescriptorSelection(
+                "The selected PE image has invalid headers.",
                 compatibilityException: null);
         }
 
@@ -543,7 +550,8 @@ public sealed class ResolvedAssemblyReference
             }
             catch (BadImageFormatException)
             {
-                return new AssemblyDescriptorSelectionResult.Descriptorless(
+                return RejectDescriptorSelection(
+                    "The selected managed image has an invalid metadata section.",
                     compatibilityException: null);
             }
             if (!hasMetadata)
@@ -586,6 +594,20 @@ public sealed class ResolvedAssemblyReference
 
             return new AssemblyDescriptorSelectionResult.Ready(
                 createDescriptor(identity));
+        }
+    }
+
+    static bool HasDosHeaderSignature(Stream stream)
+    {
+        long position = stream.Position;
+        try
+        {
+            return stream.ReadByte() == 'M'
+                && stream.ReadByte() == 'Z';
+        }
+        finally
+        {
+            stream.Position = position;
         }
     }
 
