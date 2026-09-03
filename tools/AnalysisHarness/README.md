@@ -296,7 +296,7 @@ from the fast PR lane — like the decompiler generated-fixture catalogue. Run i
 
 ```bash
 dotnet artifacts/bin/ILInspector.Analysis.Tests/release/ILInspector.Analysis.Tests.dll \
-  -method "*SeedCatalogue*"
+  --filter-method "*SeedCatalogue*"
 ```
 
 ## Layers above this
