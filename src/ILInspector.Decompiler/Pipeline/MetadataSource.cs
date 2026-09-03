@@ -43,6 +43,8 @@ public sealed class MetadataSource : IDisposable
     bool _ownsCrossContext;
     CrossAssemblyTypeResolver? _crossAssembly;
     readonly object _crossLock = new();
+    readonly object _acquisitionGuard = new();
+    readonly Lazy<StateMachineRelationshipIndex> _stateMachineRelationships;
 
     MetadataSource(string path, string? filePath, Stream? stream, PEReader peReader, MetadataReader reader, string assemblyName, ResolvedAssemblyReference assembly, string? externalPdbPath, bool readSymbols, IAssemblyBindingPolicy bindingPolicy, MetadataContext? context)
     {
@@ -57,6 +59,8 @@ public sealed class MetadataSource : IDisposable
         _readSymbols = readSymbols;
         _bindingPolicy = bindingPolicy;
         _suppliedContext = context;
+        _stateMachineRelationships =
+            new(() => StateMachineRelationshipIndex.Create(reader));
     }
 
     public string Path { get; }
@@ -94,6 +98,18 @@ public sealed class MetadataSource : IDisposable
     internal PEReader Pe { get; }
 
     internal MetadataReader Reader { get; }
+
+    internal object AcquisitionGuard => _acquisitionGuard;
+
+    internal ClassicAsyncRequestAdapterResult AdaptClassicAsyncRequest(
+        MethodDefinitionHandle method,
+        MethodClassification? classification) =>
+        ClassicAsyncRequestAdapter.Adapt(
+            Reader,
+            _stateMachineRelationships.Value,
+            method,
+            classification,
+            _acquisitionGuard);
 
     /// <summary>
     /// The symbol source consulted for local names so far: <see cref="DecompilerSymbolSource.None"/>

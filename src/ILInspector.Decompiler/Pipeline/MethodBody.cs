@@ -99,4 +99,9 @@ public sealed record ImportedMethod(
     MetadataFactState DeclaringTypeCompilerGenerated = MetadataFactState.Unknown,
     MetadataFactState IsRuntimeAsync = MetadataFactState.Unknown,
     int MetadataToken = 0,
-    ImmutableArray<string> DeclaringTypeGenericParameterNames = default);
+    ImmutableArray<string> DeclaringTypeGenericParameterNames = default)
+{
+    internal ClassicAsyncRequestAdapterResult? ClassicAsyncRequest
+        { get; init; }
+    internal bool IsMetadataBacked { get; init; }
+}
