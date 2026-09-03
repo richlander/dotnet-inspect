@@ -616,6 +616,10 @@ public sealed class InspectionPlanningTests
             "[type/type/ApiMember]",
             result.Output,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "[type/type/ApiType]",
+            result.Output,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2778,6 +2782,255 @@ public sealed class InspectionPlanningTests
 
         Assert.Equal(option, positional);
         Assert.Equal(0, positional.Exit);
+    }
+
+    [Fact]
+    public async Task AutoSelectedOverload_RevalidatesFinalCatalog()
+    {
+        var result = await RunAppAsync(
+            "member",
+            "System.String",
+            "--platform",
+            "System.Private.CoreLib",
+            "-m",
+            "Clone",
+            "-S",
+            SectionNames.Signature,
+            "-S",
+            SectionNames.Methods,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(SectionNames.Signature, result.Output);
+        Assert.Contains(
+            $"Select value '{SectionNames.Methods}' not found.",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task AutoSelectedOverload_DoesNotRepeatProvisionalDiagnostics()
+    {
+        var result = await RunAppAsync(
+            "member",
+            "System.String",
+            "--platform",
+            "System.Private.CoreLib",
+            "-m",
+            "Clone",
+            "-S",
+            $"{SectionNames.Signature},Not A Section",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Equal(
+            1,
+            result.Error.Split(
+                "Select value 'Not A Section' not found.",
+                StringSplitOptions.None).Length - 1);
+    }
+
+    [Theory]
+    [InlineData("Missing.Type.operator+")]
+    [InlineData("Missing.Type.op_Addition")]
+    public async Task StaticOperatorWithDistinctExplicitMember_IsRejected(
+        string target)
+    {
+        var result = await RunAppAsync(
+            "member",
+            target,
+            "--platform",
+            "Missing.Platform",
+            "-m",
+            "Other",
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "exactly one member name",
+            result.Error);
+    }
+
+    [Theory]
+    [InlineData("--latest-version=false")]
+    [InlineData("--latest-version:false")]
+    public async Task CommandlessDisabledLatestVersionRetainsAlternatives(
+        string option)
+    {
+        var result = await RunAppAsync(
+            "Missing.Type.Run",
+            option,
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains("[package/", result.Output);
+        Assert.Contains("[type/", result.Output);
+        Assert.Contains("[member/", result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Theory]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task TargetFreeStaticSchemaRetainsTableDefault(
+        string command)
+    {
+        var defaultResult = await RunAppAsync(
+            command,
+            "-D",
+            "--schema",
+            "--tips",
+            "q");
+        var explicitTableResult = await RunAppAsync(
+            command,
+            "-D",
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(explicitTableResult, defaultResult);
+        Assert.Equal(0, defaultResult.Exit);
+    }
+
+    [Theory]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task SourceTargetedStaticSchemaRetainsMarkdownDefault(
+        string command)
+    {
+        var defaultResult = await RunAppAsync(
+            command,
+            "--package",
+            "Missing.Package.For.Schema",
+            "-D",
+            "--schema",
+            "--tips",
+            "q");
+        var explicitMarkdownResult = await RunAppAsync(
+            command,
+            "--package",
+            "Missing.Package.For.Schema",
+            "-D",
+            "--schema",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(explicitMarkdownResult, defaultResult);
+        Assert.Equal(0, defaultResult.Exit);
+    }
+    [Fact]
+    public async Task OrdinaryOpPrefixRetainsCommandlessAlternatives()
+    {
+        var result = await RunAppAsync(
+            "Missing.Op_Helpers",
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains("[type/", result.Output);
+        Assert.Contains("[member/", result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task CommandlessSourceIdentityNumericTypeLimitRetainsListing()
+    {
+        string[] projection =
+        [
+            "-t",
+            "5",
+            "-D",
+            "API Info",
+            "--tips",
+            "q",
+        ];
+        var commandless = await RunAppAsync(
+            [
+                "System.Private.CoreLib",
+                "--platform",
+                "System.Private.CoreLib",
+                .. projection,
+            ]);
+        var explicitType = await RunAppAsync(
+            [
+                "type",
+                "--platform",
+                "System.Private.CoreLib",
+                .. projection,
+            ]);
+
+        Assert.Equal(explicitType, commandless);
+        Assert.Equal(0, commandless.Exit);
+    }
+
+    [Fact]
+    public async Task CommandlessNumericMemberLimitRetainsTypeView()
+    {
+        string[] projection =
+        [
+            "--platform",
+            "System.Private.CoreLib",
+            "-m",
+            "5",
+            "-S",
+            "-D",
+            "Method Groups",
+            "--markdown",
+            "--tips",
+            "q",
+        ];
+        var commandless = await RunAppAsync(
+            ["String", .. projection]);
+        var explicitMember = await RunAppAsync(
+            ["member", "String", .. projection]);
+
+        Assert.Equal(explicitMember, commandless);
+        Assert.Equal(0, commandless.Exit);
+    }
+
+    [Fact]
+    public async Task CommandlessMalformedDiscoveryUsesParserDiagnostic()
+    {
+        var result = await RunAppAsync(
+            "Missing.Helpers",
+            "-D",
+            "Signature",
+            "-D",
+            "IL",
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "expects a single argument",
+            result.Error);
+        Assert.DoesNotContain(
+            "System.InvalidOperationException",
+            result.Error);
+        Assert.DoesNotContain(
+            "RouterCommandDefinition",
+            result.Error);
     }
 
     [Theory]

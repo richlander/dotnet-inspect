@@ -21,10 +21,12 @@ public static class TypeOptionsParser
         SharedOptions options,
         TypeCommandArgs args,
         out StructuralDiscoveryPlan? plan,
-        out OptionError? error)
+        out OptionError? error,
+        out bool targetFree)
     {
         plan = null;
         error = null;
+        targetFree = false;
         if (!options.IsDiscoveryMode(parseResult)
             || !options.ParseSchema(parseResult))
         {
@@ -88,6 +90,12 @@ public static class TypeOptionsParser
         var (typeFilter, _) =
             SharedParsers.ParseTypeFilter(
                 parseResult.GetValue(args.TypeFilterOption));
+        targetFree =
+            string.IsNullOrWhiteSpace(typeName)
+            && !sourceInputs.HasExplicitSource
+            && !hasProjectSource
+            && parseResult.GetValue(args.TypeFilterOption) is null
+            && memberValues.Length == 0;
         bool hasTypeFilter =
             new TypeGestureIntent(typeFilter)
                 .SelectsListingCatalog(typeName);

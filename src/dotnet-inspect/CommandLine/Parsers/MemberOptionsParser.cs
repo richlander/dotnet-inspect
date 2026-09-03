@@ -74,10 +74,12 @@ public static class MemberOptionsParser
         SharedOptions options,
         MemberCommandArgs args,
         out StructuralDiscoveryPlan? plan,
-        out OptionError? error)
+        out OptionError? error,
+        out bool targetFree)
     {
         plan = null;
         error = null;
+        targetFree = false;
         if (!options.IsDiscoveryMode(parseResult)
             || !options.ParseSchema(parseResult))
         {
@@ -132,6 +134,12 @@ public static class MemberOptionsParser
             .. optionMembers,
             .. constructorMembers,
         ];
+        targetFree =
+            string.IsNullOrWhiteSpace(typeName)
+            && !sourceInputs.HasExplicitSource
+            && !hasProjectSource
+            && members.Length == 0
+            && index is null;
         error = GetMemberSelectorConflictError(members);
         if (error is not null)
             return true;
@@ -726,26 +734,6 @@ public static class MemberOptionsParser
         return new Success(options, plan);
     }
 
-    /// <summary>
-    /// True when the trailing segment of a dotted name is unambiguously a member:
-    /// it carries an overload (":N") / digest ("~hash") selector, or it is a
-    /// metadata constructor token ("..ctor"/"..cctor").
-    /// </summary>
-    private static bool HasMemberSelectorSuffix(string typeName)
-    {
-        var (splitTypeName, splitMemberName) = SharedParsers.SplitTrailingMember(typeName);
-        return splitTypeName != null
-            && splitMemberName != null
-            && (splitMemberName.Contains(':')
-                || splitMemberName.Contains('~')
-                || splitMemberName.Equals(
-                    ".ctor",
-                    StringComparison.OrdinalIgnoreCase)
-                || splitMemberName.Equals(
-                    ".cctor",
-                    StringComparison.OrdinalIgnoreCase));
-    }
-
     private static (HashSet<string> Filter, int? Limit) BuildMemberFilter(string[] allMembers, bool ctorOnly, out bool clearShorthand)
     {
         clearShorthand = false;
@@ -798,7 +786,8 @@ public static class MemberOptionsParser
             && sourceInputs.HasExplicitSource
             && sourceInputs.Args.Length == 1
             && typeName is not null
-            && HasMemberSelectorSuffix(typeName);
+            && StructuralViewRegistry
+                .HasUnambiguousMemberTail(typeName);
         bool positionalFileSource =
             !sourceInputs.HasExplicitSource
             && sourceInputs.Args.Length > 1
@@ -810,7 +799,8 @@ public static class MemberOptionsParser
         bool positionalFileSelectorSplit =
             positionalFileSource
             && typeName is not null
-            && HasMemberSelectorSuffix(typeName);
+            && StructuralViewRegistry
+                .HasUnambiguousMemberTail(typeName);
         bool selectorSplit =
             explicitSourceSelectorSplit
             || positionalFileSelectorSplit;

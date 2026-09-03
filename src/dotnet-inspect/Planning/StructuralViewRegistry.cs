@@ -490,7 +490,9 @@ public static class StructuralViewRegistry
         }
 
         if (ContainsOption(tokens, "--version")
-            || ContainsOption(tokens, "--latest-version")
+            || CommandLineHelpers.IsBooleanOptionEnabled(
+                tokens,
+                "--latest-version")
             || ContainsOption(tokens, "--versions")
             || ContainsOption(tokens, "--versions-with-feed")
             || target.Contains('@'))
@@ -521,6 +523,8 @@ public static class StructuralViewRegistry
         string target = tokens[0];
         string[] memberSelectors =
             GetOptionValues(tokens, "-m", "--member");
+        var (memberFilter, memberLimit) =
+            SharedParsers.ParseMemberFilter(memberSelectors);
         bool hasBodyKindFilter =
             BodyKindQueryOptions.TryExtract(
                 GetOptionValues(tokens, "--where"),
@@ -565,7 +569,7 @@ public static class StructuralViewRegistry
         string? typeMarkerValue =
             GetOptionValues(tokens, "-t", "--type")
                 .LastOrDefault();
-        var (typeFilter, _) =
+        var (typeFilter, typeLimit) =
             SharedParsers.ParseTypeFilter(typeMarkerValue);
         string? typeCatalogTarget =
             (isPackageIdentity || isPlatformIdentity)
@@ -621,15 +625,18 @@ public static class StructuralViewRegistry
                 target,
                 tokens);
         bool memberSelectorsCanFilterType =
-            memberSelectors.Length > 0
+            memberFilter.Count > 0
             && demand.RequiredTarget
                 != InspectionTargetRequirement.ExactMember;
-        if (memberSelectors.Length == 0
+        if (memberFilter.Count == 0
             || memberSelectorsCanFilterType)
         {
             bool exactTypeGesture =
                 !hasTypeFilter
-                && (hasTypeMarker || exactGenericType);
+                && ((hasTypeMarker
+                        && typeLimit is null
+                        && typeCatalogTarget is not null)
+                    || exactGenericType);
             if (!exactTypeGesture)
             {
                 routes.Add(
@@ -664,10 +671,10 @@ public static class StructuralViewRegistry
         bool tailCanBeMember =
             impliedMemberName is not null
             && !TypeMatcher.IsTypeGlobPattern(target);
-        if (memberSelectors.Length > 0
+        if (memberFilter.Count > 0
             || (!hasTypeMarker && tailCanBeMember))
         {
-            string impliedMember = memberSelectors.FirstOrDefault()
+            string impliedMember = memberFilter.FirstOrDefault()
                 ?? impliedMemberName!;
             MemberTargetSelector selector =
                 MemberTargetSelector.Parse(impliedMember);
@@ -684,6 +691,13 @@ public static class StructuralViewRegistry
                 Route(
                     StructuralViewIdentity.MemberTarget,
                     memberCatalog));
+        }
+        else if (memberLimit is not null)
+        {
+            routes.Add(
+                Route(
+                    StructuralViewIdentity.MemberType,
+                    InspectionCatalogIdentity.ApiMember));
         }
 
         return CreateAlternatives(routes, request);
@@ -1378,9 +1392,8 @@ public static class StructuralViewRegistry
             || memberName.Equals(
                 ".cctor",
                 StringComparison.OrdinalIgnoreCase)
-            || selector.Name.StartsWith(
-                "op_",
-                StringComparison.OrdinalIgnoreCase)
+            || OperatorNames.IsMetadataOperatorName(
+                selector.Name)
             || memberName.StartsWith(
                 "explicit:",
                 StringComparison.OrdinalIgnoreCase)

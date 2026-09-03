@@ -371,6 +371,7 @@ public static class MemberCommand
             // overload when the user explicitly asks for a selected-overload detail section.
             // A Name~digest selector resolves its own overload below, so skip auto-select
             // here to avoid a spurious "digest cannot be combined with --index" conflict.
+            bool autoSelectedOverload = false;
             if (!effectiveOptions.OverloadIndex.HasValue
                 && string.IsNullOrWhiteSpace(effectiveOptions.MemberDigest)
                 && ShouldAutoSelectSingleOverload(
@@ -390,6 +391,7 @@ public static class MemberCommand
                         return 1;
                     }
                     effectiveOptions = effectiveOptions with { OverloadIndex = 1 };
+                    autoSelectedOverload = true;
                     if (MemberFilterHasWildcard(autoMemberName))
                     {
                         effectiveOptions = effectiveOptions with
@@ -402,6 +404,46 @@ public static class MemberCommand
                         };
                     }
                 }
+            }
+
+            // Multi-section count maps intentionally span the listing and detail
+            // pipelines so unavailable sections can be retained as zero rows.
+            if (autoSelectedOverload && !effectiveOptions.Count)
+            {
+                MemberOptions detailPlanningOptions =
+                    effectiveOptions;
+                if (!detailPlanningOptions.MemberSectionsPreResolved)
+                {
+                    string[]? resolvedSelectors =
+                        detailPlanningOptions.IncludeSections is { Count: > 0 }
+                            ? [.. detailPlanningOptions.IncludeSections]
+                            : null;
+                    detailPlanningOptions = detailPlanningOptions with
+                    {
+                        IncludeSections = null,
+                        ExactIncludeSectionsOverride = null,
+                        Select = resolvedSelectors
+                            ?? detailPlanningOptions.Select,
+                        SelectDefault = resolvedSelectors is null
+                            && detailPlanningOptions.SelectDefault,
+                    };
+                }
+                executionPlan =
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(
+                            detailPlanningOptions);
+                var (detailPreamble, detailError) =
+                    ApiCommand.RunPreamble(
+                        detailPlanningOptions,
+                        executionPlan);
+                if (detailError.HasValue)
+                    return detailError.Value;
+                effectiveOptions =
+                    (MemberOptions)detailPreamble.Options with
+                    {
+                        Select = effectiveOptions.Select,
+                        SelectDefault = effectiveOptions.SelectDefault,
+                    };
             }
 
             if (effectiveOptions.OverloadIndex.HasValue

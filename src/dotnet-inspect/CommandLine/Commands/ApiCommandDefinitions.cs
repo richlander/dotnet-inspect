@@ -126,7 +126,8 @@ public static class ApiCommandDefinitions
                     opts,
                     commandArgs,
                     out StructuralDiscoveryPlan? structuralPlan,
-                    out OptionError? structuralError))
+                    out OptionError? structuralError,
+                    out bool targetFree))
             {
                 if (structuralError is not null)
                 {
@@ -137,7 +138,10 @@ public static class ApiCommandDefinitions
                 StructuralDiscoveryRequest request =
                     StructuralDiscoveryRequest.From(
                         parseResult,
-                        opts);
+                        opts,
+                        targetFree
+                            ? OutputFormat.Table
+                            : OutputFormat.Markdown);
                 return structuralPlan switch
                 {
                     StructuralDiscoveryPlan.Resolved resolved =>
@@ -319,7 +323,8 @@ public static class ApiCommandDefinitions
                     opts,
                     commandArgs,
                     out StructuralDiscoveryPlan? structuralPlan,
-                    out OptionError? structuralError))
+                    out OptionError? structuralError,
+                    out bool targetFree))
             {
                 if (structuralError is not null)
                 {
@@ -330,7 +335,10 @@ public static class ApiCommandDefinitions
                 StructuralDiscoveryRequest request =
                     StructuralDiscoveryRequest.From(
                         parseResult,
-                        opts);
+                        opts,
+                        targetFree
+                            ? OutputFormat.Table
+                            : OutputFormat.Markdown);
                 return structuralPlan switch
                 {
                     StructuralDiscoveryPlan.Resolved resolved =>

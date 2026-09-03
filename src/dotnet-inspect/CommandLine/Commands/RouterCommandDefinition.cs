@@ -69,7 +69,6 @@ public static class RouterCommandDefinition
             }
 
             var sourceOptions = opts.ParseNuGetSourceOptions(sourceParseResult);
-
             if (TryGetCommandTypoSuggestion(tokens[0]) is { } suggestion)
             {
                 CommandError.Write($"Unknown command '{tokens[0]}'.");
@@ -77,6 +76,25 @@ public static class RouterCommandDefinition
                 CommandError.WriteLine("Did you mean:");
                 CommandError.WriteLine($"  {suggestion}");
                 return 1;
+            }
+
+            bool hasSectionRequest =
+                sourceParseResult.GetResult(opts.Discover)
+                    is { Implicit: false }
+                || sourceParseResult.GetResult(opts.Select)
+                    is { Implicit: false };
+            if (hasSectionRequest)
+            {
+                List<ParseError> requestErrors =
+                    GetStructuralRequestErrors(
+                        sourceParseResult,
+                        opts);
+                if (requestErrors.Count > 0)
+                {
+                    foreach (ParseError error in requestErrors)
+                        CommandError.Write(error.Message);
+                    return 1;
+                }
             }
 
             if (ContainsHelpOption(tokens) && !tokens[0].StartsWith('-'))
@@ -177,11 +195,6 @@ public static class RouterCommandDefinition
                     request);
             }
 
-            bool hasSectionRequest =
-                sourceParseResult.GetResult(opts.Discover)
-                    is { Implicit: false }
-                || sourceParseResult.GetResult(opts.Select)
-                    is { Implicit: false };
             if (hasSectionRequest)
             {
                 StructuralDiscoveryRequest commandlessRequest =
@@ -240,6 +253,42 @@ public static class RouterCommandDefinition
                 IsWithin(error.SymbolResult, source)
                 || IsWithin(error.SymbolResult, additionalSource)
                 || IsWithin(error.SymbolResult, config)),
+        ];
+    }
+
+    private static List<ParseError> GetStructuralRequestErrors(
+        ParseResult parseResult,
+        SharedOptions opts)
+    {
+        Option[] requestOptions =
+        [
+            opts.Discover,
+            opts.Select,
+            opts.Tree,
+            opts.Json,
+            opts.Tsv,
+            opts.Jsonl,
+            opts.Markdown,
+            opts.PlainText,
+            opts.Table,
+            opts.Verbosity,
+            opts.Schema,
+            opts.Count,
+            opts.Print,
+            opts.Value,
+            opts.Urls,
+            opts.Paths,
+            opts.Columns,
+            opts.Fields,
+        ];
+
+        return
+        [
+            .. parseResult.Errors.Where(error =>
+                requestOptions.Any(option =>
+                    IsWithin(
+                        error.SymbolResult,
+                        parseResult.GetResult(option)))),
         ];
     }
 
@@ -595,7 +644,9 @@ public static class RouterCommandDefinition
                 || hasLibraryValue;
             bool hasVersionQuery =
                 ContainsOption(tokens, "--version")
-                || ContainsOption(tokens, "--latest-version")
+                || CommandLineHelpers.IsBooleanOptionEnabled(
+                    tokens,
+                    "--latest-version")
                 || ContainsOption(tokens, "--versions")
                 || ContainsOption(
                     tokens,
