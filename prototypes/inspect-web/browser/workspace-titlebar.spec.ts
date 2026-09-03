@@ -117,6 +117,15 @@ test("the Application menu owns global actions and modal focus return", async ({
   await items.first().click();
   await expect(page.locator("body")).toHaveAttribute("data-shared", "true");
   await expect(button).toBeFocused();
+
+  await page.setViewportSize({ width: 400, height: 180 });
+  await button.click();
+  const shortPopup = await box(page, "#application-menu");
+  expect(shortPopup.y).toBeGreaterThanOrEqual(0);
+  expect(shortPopup.y + shortPopup.height).toBeLessThanOrEqual(180);
+  expect(await page.locator("#application-menu").evaluate(menu =>
+    menu.scrollHeight > menu.clientHeight)).toBe(true);
+  await page.keyboard.press("Escape");
 });
 
 test("application menu keeps a fixed trailing slot outside SlideStrip overflow", async ({
@@ -162,6 +171,20 @@ test("application and contextual actions preserve focus across responsive layout
   await expect(page.locator("#settings-title")).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(menuButton).toBeFocused();
+});
+
+test("application menu returns focus to its replacement shell identity", async ({
+  page,
+}) => {
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+  const button = page.locator("#application-menu-button");
+  await button.click();
+  await expect(page.getByRole("menuitem", { name: "Share" })).toBeFocused();
+
+  await page.evaluate(() => window.rerenderApplicationMenuProbe());
+
+  await expect(button).toBeFocused();
+  await expect(page.locator("#application-menu")).toBeHidden();
 });
 
 test("the inspected target precedes title navigation and package selectors stay in content", async ({

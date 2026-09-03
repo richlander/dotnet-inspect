@@ -27,6 +27,7 @@ setProductHomeDemoCatalog([
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
   readonly ownerDocument: FakeRoot;
+  readonly scrollHeight = 105;
   readonly style: Record<string, string> = {};
   hidden = true;
   focused = false;
@@ -60,7 +61,7 @@ class FakeElement {
   }
 
   getBoundingClientRect() {
-    return { bottom: 72, right: 792 };
+    return { top: 40, bottom: 72, right: 792 };
   }
 
   setAttribute(name: string, value: string) {
@@ -135,6 +136,17 @@ class FakeRoot {
     const listeners = this.listeners.get(type) ?? [];
     listeners.push(listener);
     this.listeners.set(type, listeners);
+  }
+
+  removeEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? [];
+    this.listeners.set(
+      type,
+      listeners.filter(candidate => candidate !== listener));
+  }
+
+  listenerCount(type: string) {
+    return this.listeners.get(type)?.length ?? 0;
   }
 
   dispatch(type: string, values: Record<string, unknown> = {}) {
@@ -230,9 +242,10 @@ test("application menu follows menu-button keyboard and dismissal behavior", () 
     button);
   const calls: string[] = [];
 
-  bindWorkbenchShell(
+  const binding = bindWorkbenchShell(
     fakeDom.parentNode(root),
     applicationActions(calls));
+  assert.equal(root.listenerCount("pointerdown"), 1);
 
   assert.equal(button.dispatch("keydown", { key: "ArrowDown" }), true);
   assert.equal(menu.hidden, false);
@@ -258,6 +271,8 @@ test("application menu follows menu-button keyboard and dismissal behavior", () 
   button.dispatch("click");
   root.dispatch("pointerdown", { target: root.element() });
   assert.equal(menu.hidden, true);
+  binding.disconnect();
+  assert.equal(root.listenerCount("pointerdown"), 0);
 });
 
 test("keyboard help is rendered from registered keybinding descriptions", () => {

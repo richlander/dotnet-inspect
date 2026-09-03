@@ -24,6 +24,10 @@ export interface WorkbenchShellBindingActions {
   onSearch: () => void;
 }
 
+export interface WorkbenchShellBinding {
+  disconnect(): void;
+}
+
 export interface HomeShellBindingActions {
   onDemo: (demo: HomeDemo) => void;
   onDismissNotice: () => void;
@@ -149,15 +153,26 @@ function setApplicationMenuOpen(
   if (!open) return;
   const rect = button.getBoundingClientRect();
   const view = button.ownerDocument.defaultView;
-  menu.style.top = `${Math.max(8, rect.bottom + 4)}px`;
+  const viewportHeight = view?.innerHeight ?? 600;
+  const margin = 8;
+  const gap = 4;
+  const availableBelow = Math.max(
+    0,
+    viewportHeight - rect.bottom - gap - margin);
+  const availableAbove = Math.max(0, rect.top - gap - margin);
+  const menuHeight = menu.scrollHeight;
+  const placeBelow = availableBelow >= menuHeight
+    || (availableAbove < menuHeight && availableBelow >= availableAbove);
+  menu.style.top = placeBelow ? `${rect.bottom + gap}px` : "auto";
+  menu.style.bottom = placeBelow
+    ? "auto"
+    : `${viewportHeight - rect.top + gap}px`;
   menu.style.right = `${Math.max(
-    8,
+    margin,
     (view?.innerWidth ?? rect.right) - rect.right,
   )}px`;
-  menu.style.maxHeight = `${Math.max(
-    120,
-    (view?.innerHeight ?? 600) - rect.bottom - 12,
-  )}px`;
+  menu.style.maxHeight =
+    `${placeBelow ? availableBelow : availableAbove}px`;
 }
 
 function openApplicationMenu(
@@ -208,6 +223,20 @@ function isNodeTarget(target: EventTarget | null): target is Node {
   return target !== null && "nodeType" in target;
 }
 
+export function applicationMenuOwnsFocus(document: Document): boolean {
+  const active = document.activeElement;
+  return active instanceof HTMLElement
+    && (active.id === "application-menu-button"
+      || active.closest("#application-menu") !== null);
+}
+
+export function focusApplicationMenuButton(document: Document): boolean {
+  const button =
+    document.querySelector<HTMLElement>("#application-menu-button");
+  button?.focus({ preventScroll: true });
+  return button !== null;
+}
+
 export function trapModalTab(modal: HTMLElement, event: KeyboardEvent): void {
   const focusable = [...modal.querySelectorAll<HTMLElement>(
     'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), '
@@ -236,7 +265,8 @@ export function trapModalTab(modal: HTMLElement, event: KeyboardEvent): void {
 export function bindWorkbenchShell(
   root: ParentNode,
   actions: WorkbenchShellBindingActions,
-) {
+): WorkbenchShellBinding {
+  let outsidePointerHandler: ((event: Event) => void) | null = null;
   root.querySelectorAll<HTMLElement>("[data-subject-copy]").forEach(button =>
     button.addEventListener("click", () => {
       const index = Number(button.dataset.subjectCopy);
@@ -286,14 +316,15 @@ export function bindWorkbenchShell(
         closeApplicationMenu(menuButton, menu, action === "share");
         actions.onApplicationAction(action);
       }));
-    root.addEventListener("pointerdown", event => {
+    outsidePointerHandler = event => {
       if (menu.hidden) return;
       const target = event.target;
       if (isNodeTarget(target)
         && (menu.contains(target)
           || menuButton.contains(target))) return;
       closeApplicationMenu(menuButton, menu, false);
-    });
+    };
+    root.addEventListener("pointerdown", outsidePointerHandler);
   }
   root.querySelector("#dismiss-notice")
     ?.addEventListener("click", actions.onDismissNotice);
@@ -323,6 +354,13 @@ export function bindWorkbenchShell(
   helpDialog?.addEventListener("keydown", event => {
     if (event.key === "Tab") trapModalTab(helpDialog, event);
   });
+
+  return {
+    disconnect() {
+      if (outsidePointerHandler)
+        root.removeEventListener("pointerdown", outsidePointerHandler);
+    },
+  };
 }
 
 export function focusWorkbenchSearch(root: ParentNode): boolean {

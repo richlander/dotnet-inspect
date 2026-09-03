@@ -15,12 +15,16 @@ import type {
   WorkspaceScope,
 } from "../src/data.ts";
 import {
+  applicationMenuOwnsFocus,
   bindWorkbenchShell,
+  focusApplicationMenuButton,
   focusWorkbenchSearch,
   renderApplicationMenu,
   renderApplicationMenuButton,
   renderKeyboardHelpDialog,
   type ApplicationAction,
+  type WorkbenchShellBinding,
+  type WorkbenchShellBindingActions,
   workbenchShellHtml,
 } from "../src/shell-controls.ts";
 import type { BrowserHomeDemoResolved } from "../src/inspect-web-engine.d.ts";
@@ -44,6 +48,7 @@ declare global {
   interface Window {
     focusWorkbenchSearchProbe: () => boolean;
     renderPackageScopeProbe: () => void;
+    rerenderApplicationMenuProbe: () => void;
     rerenderScopeBarProbe: () => void;
   }
 }
@@ -61,6 +66,7 @@ if (!app) throw new Error("The workspace-titlebar harness root is unavailable.")
 const appRoot: HTMLElement = app;
 const scopeBarState = createScopeBarState();
 let scopeBarBinding: ScopeBarBinding | null = null;
+let workbenchShellBinding: WorkbenchShellBinding | null = null;
 let applicationDialog: "settings" | "keyboard-help" | null = null;
 const params = new URL(location.href).searchParams;
 const workspaceMode = params.has("workspace");
@@ -464,7 +470,7 @@ function handleApplicationAction(action: ApplicationAction): void {
   setApplicationDialog(applicationDialog === action ? null : action);
 }
 
-bindWorkbenchShell(document, {
+const workbenchShellActions: WorkbenchShellBindingActions = {
   onApplicationAction: handleApplicationAction,
   onCopySubjectSegment: index => {
     document.body.dataset.copiedSubject = subjectPath[index]?.label ?? "";
@@ -475,7 +481,9 @@ bindWorkbenchShell(document, {
   onNavigateForward() {},
   onRetryNotice() {},
   onSearch() {},
-});
+};
+workbenchShellBinding =
+  bindWorkbenchShell(document, workbenchShellActions);
 bindSettingsPanel(document, {
   onClose: () => setApplicationDialog(null),
   onOpen: () => setApplicationDialog("settings"),
@@ -591,5 +599,20 @@ window.renderPackageScopeProbe = () => {
   activeScope = "package";
   activePackageLens = "overview";
   renderHarnessScopeBar();
+};
+window.rerenderApplicationMenuProbe = () => {
+  const applicationMenuHadFocus = applicationMenuOwnsFocus(document);
+  workbenchShellBinding?.disconnect();
+  const slot =
+    document.querySelector<HTMLElement>(".application-menu-slot");
+  const overlay =
+    document.querySelector<HTMLElement>(".application-menu-overlay");
+  if (!slot || !overlay)
+    throw new Error("The Application menu shell is unavailable.");
+  slot.outerHTML = renderApplicationMenuButton();
+  overlay.outerHTML = renderApplicationMenu(true);
+  workbenchShellBinding =
+    bindWorkbenchShell(document, workbenchShellActions);
+  if (applicationMenuHadFocus) focusApplicationMenuButton(document);
 };
 window.rerenderScopeBarProbe = renderHarnessScopeBar;

@@ -143,9 +143,11 @@ import {
   type PlatformLibraryLens,
 } from "./library-controls.ts";
 import {
+  applicationMenuOwnsFocus,
   bindHomeShell,
   bindLoadErrorShell,
   bindWorkbenchShell,
+  focusApplicationMenuButton,
   focusWorkbenchSearch,
   renderApplicationMenu,
   renderApplicationMenuButton,
@@ -153,6 +155,7 @@ import {
   type ApplicationAction,
   type HomeShellBindingActions,
   type LoadErrorShellBindingActions,
+  type WorkbenchShellBinding,
   type WorkbenchShellBindingActions,
   workbenchShellHtml,
 } from "./shell-controls.ts";
@@ -871,6 +874,7 @@ type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides
 const state: AppState = initialState;
 const scopeBarState = createScopeBarState();
 let scopeBarBinding: ScopeBarBinding | null = null;
+let workbenchShellBinding: WorkbenchShellBinding | null = null;
 type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
   | { kind: "canonical" }
   | {
@@ -2624,6 +2628,7 @@ function typeDisplayName(
 function render(options: { synchronizeUrl?: boolean } = {}) {
   sourceInspection.cancelHiddenRequest();
   document.body.classList.remove("package-query-route");
+  const applicationMenuHadFocus = applicationMenuOwnsFocus(document);
   const focusedElement = document.activeElement instanceof HTMLElement
     ? document.activeElement
     : null;
@@ -2633,6 +2638,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     ? captureScopeBarFocus(focusedElement)
     : null;
   scopeBarBinding?.disconnect();
+  workbenchShellBinding?.disconnect();
+  workbenchShellBinding = null;
 
   // The Metadata Explorer is a full-bleed "browse the database" view layered over the
   // package workbench. Like Settings it owns no URL and renders first, returning to the
@@ -2857,6 +2864,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   } else if (state.keyboardHelp) {
     document.querySelector<HTMLElement>("#keyboard-help-title")
       ?.focus({ preventScroll: true });
+  } else if (applicationMenuHadFocus) {
+    focusApplicationMenuButton(document);
   }
   if (scopeBarOwnsFocus) {
     let restored = false;
@@ -5541,7 +5550,8 @@ function bindEvents() {
   bindAnnotatedSourceEvents();
   bindPackageViewEvents();
   bindLibraryControlsEvents();
-  bindWorkbenchShell(document, workbenchShellActions);
+  workbenchShellBinding =
+    bindWorkbenchShell(document, workbenchShellActions);
   bindGraphBack(document, graphBackActions);
   observeAsync(ensurePackageVersions(state.package), "Loading package versions");
   if (state.package?.isRuntimePack)
@@ -6675,8 +6685,13 @@ function renderWithMemberFocus(preserved: MemberFocusSnapshot) {
 function renderPreservingMemberFocus(
   fallback: MemberFocusSnapshot | null = null,
 ) {
+  const applicationMenuHadFocus = applicationMenuOwnsFocus(document);
   const current = captureMemberFocus(document);
   const preserved = memberFocusRestorer.resolve(current, fallback);
+  if (applicationMenuHadFocus) {
+    render();
+    return preserved;
+  }
   return renderWithMemberFocus(preserved);
 }
 
