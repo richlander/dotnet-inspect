@@ -53,8 +53,10 @@ substrates, and inspection producers that will extend that space.
   SourceLink,
   implementation-relationship, type/member search, extension-reachability,
   API-comparison, progressive call-graph, and group-scoped source queries. The
-  source query owns a Decompiler fallback over retained assembly content. The
-  project has no Markout, console, or filesystem-path dependency.
+  source query owns a Decompiler fallback over retained assembly content; the
+  [member source comparison query](design/member-source-comparison-query.md)
+  owns an explicit two-endpoint attempt over one resolved member. The project
+  has no Markout, console, or filesystem-path dependency.
 - `src/DotnetInspector.ResearchQueries/` contains the optional Research-backed
   L1 query family. It composes switch metadata with AppContext IL evidence,
   compares already-acquired Analysis body indexes, and compares retained
@@ -291,10 +293,6 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   [navigation consumer](design/inspect-web-navigation-consumer.md),
   [shell interaction](design/inspect-web-shell-interaction.md), and
   [surface composition](design/inspect-web-surface-composition.md).
-- [Inspect Web diff presentation](design/inspect-web-diff-presentation.md):
-  typed member source-comparison consumption, browser accounting, Markout
-  mapped-range rendering, bounded interactive views, and staged multi-subject
-  adoption.
 - [Annotated Source viewer interaction](design/annotated-source-viewer-interaction.md):
   viewer-local disclosure, actions, selection, annotations, media, Escape, and
   focus inside the embedded reader and modal viewer.
