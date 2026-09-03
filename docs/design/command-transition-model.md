@@ -512,13 +512,15 @@ If a tool wrapper redirects acquisition to another package, the wrapper's
 reporting sources do not transfer to the target; replay of the final package
 uses its own package-specific ambient source policy
 (`Similar_RangeToolWrapperReplayUsesFinalPackageSourcePolicy`).
-The exact package coordinate, library selector, and TFM must also survive the
-output channel's required rendering containment without changing spelling.
-Discovery refuses the transition when containment would rewrite any of those
-selectors, or when a selector contains the delimiter used by the disclosure's
-Markdown code span, rather than emitting a command that names another asset or
-renders as another command
-(`Similar_PackageAssetThatCannotBeDisclosedLosslessly_IsRefused`).
+Every exact replay selector -- package coordinate, library selector, TFM,
+source, additional source, config file, and config-discovery directory -- must
+also survive the output channel's required rendering containment without
+changing spelling. Discovery refuses the transition when containment would
+rewrite any selector, or when a selector contains the delimiter used by the
+disclosure's Markdown code span, rather than emitting a command that names
+another asset or renders as another command
+(`Similar_PackageAssetThatCannotBeDisclosedLosslessly_IsRefused`,
+`Similar_ReplaySourceContainingMarkdownDelimiter_IsRefused`).
 Package-coordinate replay and forwarded dependency discovery use package
 acquisition's same source-authorized, admitted cache selection. Product-owned
 app-cache payloads precede ordered global-package roots, inadmissible payloads

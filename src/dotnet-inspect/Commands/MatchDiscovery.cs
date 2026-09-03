@@ -645,6 +645,15 @@ internal static class MatchDiscovery
                     return false;
                 }
 
+                if (ContainsMarkdownCodeSpanDelimiter(replayValue))
+                {
+                    replaySources = null;
+                    error =
+                        "match --similar cannot disclose a replayable package command because "
+                            + $"{option} contains text that cannot be emitted losslessly.";
+                    return false;
+                }
+
                 replayValues.Add(replayValue);
             }
         }
@@ -653,7 +662,8 @@ internal static class MatchDiscovery
             ? null
             : Path.GetFullPath(sourceOptions.ConfigFile, workingDirectory);
         if (configFile is not null
-            && !InertString.IsPermitted(TextPolicy.Field, configFile))
+            && (!InertString.IsPermitted(TextPolicy.Field, configFile)
+                || ContainsMarkdownCodeSpanDelimiter(configFile)))
         {
             replaySources = null;
             error =
@@ -667,7 +677,8 @@ internal static class MatchDiscovery
             ? null
             : Path.GetFullPath(sourceOptions.ConfigDirectory, workingDirectory);
         if (configDirectory is not null
-            && !InertString.IsPermitted(TextPolicy.Field, configDirectory))
+            && (!InertString.IsPermitted(TextPolicy.Field, configDirectory)
+                || ContainsMarkdownCodeSpanDelimiter(configDirectory)))
         {
             replaySources = null;
             error =
@@ -720,7 +731,7 @@ internal static class MatchDiscovery
         })
         {
             if (value is not null
-                && (value.Contains('`')
+                && (ContainsMarkdownCodeSpanDelimiter(value)
                     || !string.Equals(
                         CSharpIdentifier.ContainRenderedText(value),
                         value,
@@ -736,6 +747,9 @@ internal static class MatchDiscovery
         error = null;
         return true;
     }
+
+    static bool ContainsMarkdownCodeSpanDelimiter(string value)
+        => value.Contains('`');
 
     static bool CanDiscloseSource(string value)
     {

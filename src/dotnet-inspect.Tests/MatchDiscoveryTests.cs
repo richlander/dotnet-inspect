@@ -3295,6 +3295,64 @@ public sealed class MatchDiscoveryTests
         Assert.Equal(source, Assert.Single(replaySources!.Sources));
     }
 
+    [Theory]
+    [InlineData("--source")]
+    [InlineData("--add-source")]
+    [InlineData("--nugetconfig")]
+    [InlineData("--nugetconfig-directory")]
+    public async Task Similar_ReplaySourceContainingMarkdownDelimiter_IsRefused(
+        string option)
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"match-replay-source-delimiter-{Guid.NewGuid():N}");
+        string value = Path.Combine(root, "value`with-delimiter");
+        Directory.CreateDirectory(root);
+        if (option == "--nugetconfig-directory")
+            Directory.CreateDirectory(value);
+
+        try
+        {
+            string package = CreatePackageArchive(
+                root,
+                "package",
+                "Match.Replay.SourceDelimiter",
+                "1.0.0",
+                "lib/net10.0/Target.dll",
+                File.ReadAllBytes(TestAssembly));
+            NuGetSourceOptions sourceOptions = option switch
+            {
+                "--source" => new() { Sources = [value] },
+                "--add-source" => new() { AdditionalSources = [value] },
+                "--nugetconfig" => new() { ConfigFile = value },
+                "--nugetconfig-directory" => new() { ConfigDirectory = value },
+                _ => throw new InvalidOperationException(),
+            };
+            var options = new MatchOptions
+            {
+                LeftSelector = SampleSeed,
+                PackagePath = package,
+                AssemblyPath = "lib/net10.0/Target.dll",
+                IncludeAll = true,
+                Similar = true,
+                JsonOutput = true,
+                SourceOptions = sourceOptions,
+            };
+
+            var (exit, output, error) = await RunAsync(options);
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(option, error);
+            Assert.Contains("cannot be emitted losslessly", error);
+            Assert.DoesNotContain(value, error, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public void ReplaySources_MakesTheConfigPathIndependentOfTheNextWorkingDirectory()
     {
