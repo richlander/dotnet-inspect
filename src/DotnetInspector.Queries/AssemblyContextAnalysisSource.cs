@@ -42,12 +42,13 @@ internal static class AssemblyContextAnalysisSource
                         AssemblyBindingOrigin.FromAssembly(
                             participant.Assembly),
                         scope))
+                ?.Selection
                 is AssemblyBindingSelection.Selected selected
                     ? selected.Assembly
                     : null;
         }
 
-        public AssemblyBindingSelection Select(
+        public AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request)
         {
             ArgumentNullException.ThrowIfNull(request);
@@ -56,12 +57,16 @@ internal static class AssemblyContextAnalysisSource
                 AssemblyBindingOrigin.FromAssembly(
                     participant.Assembly),
                 request.Scope);
+            AssemblyBindingSelectionSnapshot? snapshot =
+                participant.BindingPolicy.Select(
+                    participantRequest);
+            if (snapshot is null)
+                return null!;
             AssemblyBindingSelection selection =
                 AssemblyBindingSelection.ValidateForRequest(
                     participantRequest,
-                    participant.BindingPolicy.Select(
-                        participantRequest));
-            return selection switch
+                    snapshot.Selection);
+            selection = selection switch
             {
                 AssemblyBindingSelection.Selected selected =>
                     RetainSelected(selected),
@@ -69,6 +74,9 @@ internal static class AssemblyContextAnalysisSource
                     RetainAmbiguous(ambiguous),
                 _ => selection,
             };
+            return new AssemblyBindingSelectionSnapshot(
+                snapshot.Version,
+                selection);
         }
 
         AssemblyBindingSelection RetainSelected(

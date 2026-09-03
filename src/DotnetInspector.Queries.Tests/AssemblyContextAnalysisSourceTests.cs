@@ -54,7 +54,7 @@ public sealed class AssemblyContextAnalysisSourceTests
                 AssemblyResolutionScope.Any);
 
             Assert.Same(policy.Version, bindingPolicy.Version);
-            Assert.Same(terminal, bindingPolicy.Select(request));
+            Assert.Same(terminal, bindingPolicy.Select(request).Selection);
             Assert.Same(
                 assembly.Registration,
                 Assert.IsType<AssemblyBindingOrigin.RequestingAssembly>(
@@ -62,7 +62,7 @@ public sealed class AssemblyContextAnalysisSourceTests
             Assert.Same(
                 terminal,
                 new AssemblyReferenceBindingPolicy(resolver)
-                    .Select(request));
+                    .Select(request).Selection);
         }
     }
 
@@ -87,7 +87,7 @@ public sealed class AssemblyContextAnalysisSourceTests
             AssemblyContextAnalysisSource.Resolver(group, subject));
 
         var retained = Assert.IsType<AssemblyBindingSelection.Selected>(
-            bindingPolicy.Select(Request(root)));
+            bindingPolicy.Select(Request(root)).Selection);
 
         Assert.Same(
             selected.Registration,
@@ -122,7 +122,7 @@ public sealed class AssemblyContextAnalysisSourceTests
             AssemblyContextAnalysisSource.Resolver(group, subject));
 
         var retained = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
-            bindingPolicy.Select(Request(root)));
+            bindingPolicy.Select(Request(root)).Selection);
 
         Assert.Equal(
             [first.Registration, second.Registration],
@@ -155,11 +155,19 @@ public sealed class AssemblyContextAnalysisSourceTests
         public AssemblyBindingPolicyVersion Version { get; } = new();
         internal AssemblyBindingRequest? LastRequest { get; private set; }
 
-        public AssemblyBindingSelection Select(
+        public AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request)
         {
-            LastRequest = request;
-            return selection;
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore()
+            {
+                LastRequest = request;
+                return selection;
+
+            }
         }
     }
 }

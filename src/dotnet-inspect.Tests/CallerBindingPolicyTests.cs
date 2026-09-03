@@ -89,8 +89,8 @@ public class CallerBindingPolicyTests
                 });
         AssemblyBindingPolicyVersion version = policy.Version;
 
-        AssemblyBindingSelection? firstSelection = null;
-        AssemblyBindingSelection? secondSelection = null;
+        AssemblyBindingSelectionSnapshot? firstSnapshot = null;
+        AssemblyBindingSelectionSnapshot? secondSnapshot = null;
         Exception? firstFailure = null;
         Exception? secondFailure = null;
         var firstThread = new Thread(
@@ -98,7 +98,7 @@ public class CallerBindingPolicyTests
             {
                 try
                 {
-                    firstSelection = policy.Select(
+                    firstSnapshot = policy.Select(
                         Request(firstOwner, firstCandidate.Identity));
                 }
                 catch (Exception ex)
@@ -114,7 +114,7 @@ public class CallerBindingPolicyTests
             {
                 try
                 {
-                    secondSelection = policy.Select(
+                    secondSnapshot = policy.Select(
                         Request(secondOwner, secondCandidate.Identity));
                 }
                 catch (Exception ex)
@@ -137,22 +137,25 @@ public class CallerBindingPolicyTests
         Assert.Same(
             firstCandidate,
             Assert.IsType<AssemblyBindingSelection.Selected>(
-                firstSelection).Assembly);
+                firstSnapshot!.Selection).Assembly);
         Assert.Same(
             secondCandidate,
             Assert.IsType<AssemblyBindingSelection.Selected>(
-                secondSelection).Assembly);
+                secondSnapshot!.Selection).Assembly);
+        Assert.Same(version, firstSnapshot.Version);
+        Assert.Same(version, secondSnapshot.Version);
 
         AssemblyReferenceIdentity probe = Identity("Probe");
         Assert.IsType<AssemblyBindingSelection.Missing>(
-            policy.Select(Request(firstCandidate, probe)));
+            policy.Select(Request(firstCandidate, probe)).Selection);
         Assert.IsType<AssemblyBindingSelection.Missing>(
-            policy.Select(Request(secondCandidate, probe)));
+            policy.Select(Request(secondCandidate, probe)).Selection);
 
         Assert.IsType<AssemblyBindingSelection.Selected>(
-            policy.Select(Request(firstOwner, firstCandidate.Identity)));
+            policy.Select(
+                Request(firstOwner, firstCandidate.Identity)).Selection);
         Assert.IsType<AssemblyBindingSelection.Missing>(
-            policy.Select(Request(firstCandidate, probe)));
+            policy.Select(Request(firstCandidate, probe)).Selection);
 
         Assert.Same(version, policy.Version);
         Assert.Equal(0, defaultPolicy.CallCount);
@@ -201,11 +204,19 @@ public class CallerBindingPolicyTests
 
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
+        public AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request)
         {
-            Interlocked.Increment(ref _callCount);
-            return selection;
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore()
+            {
+                Interlocked.Increment(ref _callCount);
+                return selection;
+
+            }
         }
     }
 

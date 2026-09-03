@@ -10,35 +10,37 @@ namespace DotnetInspector.Queries;
 public static class InspectionGraphIntegrationsCatalog
 {
     static InspectionGraphOccurrenceIdentityProjection
-        OccurrenceIdentity { get; } =
+        OccurrenceIdentity
+    { get; } =
         new IntegrationOccurrenceIdentityProjection();
 
     static InspectionGraphEndpointProjection
-        OpportunityEndpointProjection { get; } =
+        OpportunityEndpointProjection
+    { get; } =
         new OpportunityEndpointProjectionImpl();
 
     public static InspectionGraphEvidenceDescriptor ExtensionEvidence { get; } =
         new("metadata.extension-api", InspectionGraphOwner.Metadata);
 
     public static InspectionGraphEvidenceDescriptor IntegrationEvidence
-        { get; } =
+    { get; } =
         new("metadata.integration-api", InspectionGraphOwner.Metadata);
 
     public static InspectionGraphEvidenceDescriptor ReferenceEvidence { get; } =
         new("metadata.assembly-reference", InspectionGraphOwner.Metadata);
 
     public static InspectionGraphEvidenceDescriptor OpportunityEvidence
-        { get; } =
+    { get; } =
         new("metadata.integration-opportunity", InspectionGraphOwner.Metadata);
 
     public static InspectionGraphEvidenceDescriptor CensusObservedEvidence
-        { get; } =
+    { get; } =
         new(
             "queries.integration-census-observed",
             InspectionGraphOwner.Queries);
 
     public static InspectionGraphEvidenceDescriptor CensusOpportunityEvidence
-        { get; } =
+    { get; } =
         new(
             "queries.integration-census-opportunity",
             InspectionGraphOwner.Queries);
@@ -47,7 +49,7 @@ public static class InspectionGraphIntegrationsCatalog
         new("queries.integration-graph-failure", InspectionGraphOwner.Queries);
 
     public static InspectionGraphEvidenceDescriptor CensusFailureEvidence
-        { get; } =
+    { get; } =
         new(
             "queries.integration-census-incomplete",
             InspectionGraphOwner.Queries);
@@ -84,7 +86,7 @@ public static class InspectionGraphIntegrationsCatalog
             [ExtensionEvidence]);
 
     public static InspectionGraphRelationshipDescriptor IntegrationObserved
-        { get; } =
+    { get; } =
         new(
             "integration.observed",
             InspectionGraphOwner.Metadata,
@@ -125,7 +127,7 @@ public static class InspectionGraphIntegrationsCatalog
             ]);
 
     public static InspectionGraphRelationshipDescriptor MetadataReference
-        { get; } =
+    { get; } =
         new(
             "metadata.reference",
             InspectionGraphOwner.Metadata,
@@ -157,7 +159,8 @@ public static class InspectionGraphIntegrationsCatalog
             [ReferenceEvidence]);
 
     public static InspectionGraphRelationshipDescriptor
-        IntegrationOpportunity { get; } =
+        IntegrationOpportunity
+    { get; } =
         new(
             "integration.opportunity",
             InspectionGraphOwner.Metadata,
@@ -201,7 +204,8 @@ public static class InspectionGraphIntegrationsCatalog
             ]);
 
     public static ImmutableArray<InspectionGraphRelationshipDescriptor>
-        Relationships { get; } =
+        Relationships
+    { get; } =
         [
             Extension,
             IntegrationObserved,
@@ -351,35 +355,35 @@ public static class InspectionGraphIntegrationsCatalog
                 return true;
             if (occurrence.SourceSubject
                     is InspectionGraphSubject.TypeSubject
-                    {
-                        Identity:
+                {
+                    Identity:
                             InspectionGraphTypeIdentity.CensusType
                             sourceType,
-                    }
+                }
                 && endpoint
                     is InspectionGraphSubject.AssemblySubject
-                    {
-                        Identity:
+                {
+                    Identity:
                             InspectionGraphAssemblyIdentity
                                 .CensusParticipant sourceAssembly,
-                    })
+                })
             {
                 return sourceType.Identity.Participant.Equals(
                     sourceAssembly.Participant);
             }
             return occurrence.SourceSubject
                     is InspectionGraphSubject.TypeSubject
-                    {
-                        Identity:
+            {
+                Identity:
                             InspectionGraphTypeIdentity.AcquiredDefinition
                             source,
-                    }
+            }
                 && endpoint
                     is InspectionGraphSubject.AssemblySubject
-                    {
-                        Identity:
+                {
+                    Identity:
                             InspectionGraphAssemblyIdentity.Acquired assembly,
-                    }
+                }
                 && ReferenceEquals(
                     source.Registration,
                     assembly.Registration);
@@ -660,11 +664,12 @@ public sealed record InspectionGraphIntegrationCensusFailureEvidence :
     }
 
     public ImmutableArray<IntegrationSourceParticipantAttempt> SourceAttempts
-        { get; }
+    { get; }
     public ImmutableArray<IntegrationProducerPolicyAttempt>
-        ProducerPolicyAttempts { get; }
+        ProducerPolicyAttempts
+    { get; }
     public ImmutableArray<IntegrationCandidateAttempt.Failed> CandidateAttempts
-        { get; }
+    { get; }
 
     public InspectionGraphEvidenceDescriptor Descriptor =>
         InspectionGraphIntegrationsCatalog.CensusFailureEvidence;
@@ -695,7 +700,7 @@ public sealed record InspectionGraphIntegrationFailureEvidence :
     }
 
     public ImmutableArray<InspectionGraphIntegrationFailureDetail> Details
-        { get; }
+    { get; }
 
     public InspectionGraphEvidenceDescriptor Descriptor =>
         InspectionGraphIntegrationsCatalog.FailureEvidence;
@@ -984,6 +989,33 @@ public static class InspectionGraphIntegrationsQuery
             request);
     }
 
+    internal static AssemblyBindingSelection SelectBindingForVersion(
+        IAssemblyBindingPolicy policy,
+        AssemblyBindingPolicyVersion expectedVersion,
+        AssemblyBindingRequest request)
+    {
+        if (!ReferenceEquals(policy.Version, expectedVersion))
+        {
+            throw new InvalidOperationException(
+                "The participant binding-policy snapshot changed during Integration graph construction.");
+        }
+
+        AssemblyBindingSelectionSnapshot? snapshot =
+            policy.Select(request);
+        if (snapshot is not null
+            && !ReferenceEquals(
+                snapshot.Version,
+                expectedVersion))
+        {
+            throw new InvalidOperationException(
+                "The participant binding-policy snapshot changed during Integration graph construction.");
+        }
+
+        return AssemblyBindingSelection.ValidateForRequest(
+            request,
+            snapshot?.Selection);
+    }
+
     static InspectionGraphDocument CreateSelectedSource(
         WorkspaceContextLoadOutcome.Loaded context,
         InspectionGraphModeRequest modeRequest,
@@ -1072,6 +1104,7 @@ public static class InspectionGraphIntegrationsQuery
     sealed class Builder
     {
         readonly WorkspaceContextLoadOutcome.Loaded _context;
+        readonly AssemblyBindingPolicyVersion _bindingPolicyVersion;
         readonly InspectionGraphPackageBoundary _boundary;
         readonly List<InspectionGraphNode> _nodes;
         readonly ImmutableArray<InspectionGraphGroup> _groups;
@@ -1105,6 +1138,7 @@ public static class InspectionGraphIntegrationsQuery
             InspectionGraphPackageBoundary boundary)
         {
             _context = context;
+            _bindingPolicyVersion = context.Group.BindingPolicyVersion;
             _boundary = boundary;
             InspectionGraphDocument packageDocument = boundary.Project(
                 InspectionGraphPackageBoundaryLens.PackageGroups);
@@ -1714,6 +1748,7 @@ public static class InspectionGraphIntegrationsQuery
         internal InspectionGraphDocument Build(
             InspectionGraphModeRequest modeRequest)
         {
+            EnsureBindingPolicyVersions();
             InspectionGraphEdge[] edges =
             [
                 .. _edges.Select((edge, id) =>
@@ -2034,9 +2069,10 @@ public static class InspectionGraphIntegrationsQuery
                     source.Assembly),
                 AssemblyResolutionScope.Any);
             AssemblyBindingSelection selection =
-                AssemblyBindingSelection.ValidateForRequest(
-                    request,
-                    source.BindingPolicy.Select(request));
+                SelectBindingForVersion(
+                    source.BindingPolicy,
+                    _bindingPolicyVersion,
+                    request);
             if (selection
                 is AssemblyBindingSelection.Selected selected)
             {
@@ -2073,6 +2109,27 @@ public static class InspectionGraphIntegrationsQuery
                     .BindingUnavailable,
             };
             return false;
+        }
+
+        void EnsureBindingPolicyVersions()
+        {
+            foreach (AssemblyContextParticipant participant
+                in _participants.Values)
+            {
+                EnsureBindingPolicyVersion(participant);
+            }
+        }
+
+        void EnsureBindingPolicyVersion(
+            AssemblyContextParticipant participant)
+        {
+            if (!ReferenceEquals(
+                    participant.BindingPolicy.Version,
+                    _bindingPolicyVersion))
+            {
+                throw new InvalidOperationException(
+                    "The participant binding-policy snapshot changed during Integration graph construction.");
+            }
         }
 
         int AddNode(
@@ -2246,7 +2303,7 @@ public static class InspectionGraphIntegrationsQuery
             internal int FromNodeId { get; } = fromNodeId;
             internal int ToNodeId { get; } = toNodeId;
             internal InspectionGraphRelationshipDescriptor Relationship
-                { get; } = relationship;
+            { get; } = relationship;
             internal List<int> OccurrenceIds { get; } = [];
         }
 
@@ -2254,7 +2311,7 @@ public static class InspectionGraphIntegrationsQuery
         {
             internal int TargetId { get; } = targetId;
             internal List<InspectionGraphIntegrationFailureDetail> Details
-                { get; } = [];
+            { get; } = [];
         }
 
         readonly record struct FailureKey(
