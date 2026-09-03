@@ -2,6 +2,7 @@ using System.Text.Json;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Findings;
 
 namespace ILInspector.Research.Tests;
 
@@ -22,6 +23,7 @@ public class AnnotatedSourceDocumentProjectionTests
             source,
             typeof(ResearchFixture).FullName!,
             nameof(ResearchFixture.BoxInt),
+            FactRows: true,
             SourceDocument: true));
         var document = Assert.IsType<AnnotatedSourceDocument>(projection.SourceDocument);
 
@@ -32,8 +34,14 @@ public class AnnotatedSourceDocumentProjectionTests
         Assert.Contains(document.Nodes, node => node.Medium == SourceLineKind.CSharp);
         Assert.Contains(document.Nodes, node => node.Medium == SourceLineKind.Il);
 
-        var csharpFacts = Facts(document, SourceLineKind.CSharp);
-        var ilFacts = Facts(document, SourceLineKind.Il);
+        var csharpFacts = InstanceKeys(
+            document,
+            projection.SourceDocumentFactIdentities,
+            SourceLineKind.CSharp);
+        var ilFacts = InstanceKeys(
+            document,
+            projection.SourceDocumentFactIdentities,
+            SourceLineKind.Il);
         Assert.NotEmpty(csharpFacts);
         Assert.Equal(csharpFacts, ilFacts);
 
@@ -57,13 +65,11 @@ public class AnnotatedSourceDocumentProjectionTests
         Assert.Equal(box.SourceOffset, boxIl.IlOffset);
         Assert.Contains(Lines(document), line => line.Il && line.Text == Selected(document, boxIl));
 
-        var expected = ResearchViews.CollectFacts(
-                source,
-                typeof(ResearchFixture).FullName!,
-                nameof(ResearchFixture.BoxInt))
-            .Select(FactKey.From)
-            .Distinct()
-            .Order()
+        var expected = Assert.IsAssignableFrom<IReadOnlyList<ResearchViews.FactRow>>(
+                projection.Facts)
+            .Where(row => row.InstanceKey is not null)
+            .Select(row => row.InstanceKey!.Value)
+            .OrderBy(key => key.Value)
             .ToArray();
         Assert.Equal(expected, ilFacts);
 
@@ -73,6 +79,147 @@ public class AnnotatedSourceDocumentProjectionTests
         Assert.Equal(ilOffsets.Length, ilOffsets.Distinct().Count());
 
         AssertNormalized(document);
+    }
+
+    [Fact]
+    public void MemberProjection_PreservesOneCensusAcrossFactsAndAnnotatedSource()
+    {
+        var producer = new CountingFindingsProducer(
+        [
+            Finding(new Annotation(
+                new AnnotationDescriptor(
+                    "test.first",
+                    AnnotationCategory.Cost,
+                    "first"),
+                SourceOffset: 0,
+                Detail: "first"),
+                identity: "first"),
+            Finding(new Annotation(
+                new AnnotationDescriptor(
+                    "test.second",
+                    AnnotationCategory.Semantics,
+                    "second"),
+                SourceOffset: 0,
+                Detail: "second"),
+                identity: "second"),
+        ]);
+        using var source = MetadataSource.Open(
+            typeof(ResearchFixture).Assembly.Location);
+
+        var projection = ResearchViews.ProjectMember(
+            new ResearchViews.MemberProjectionRequest(
+                source,
+                typeof(ResearchFixture).FullName!,
+                nameof(ResearchFixture.BoxInt),
+                FactRows: true,
+                Registry: new ResearchFactRegistry(producer),
+                SourceDocument: true));
+
+        Assert.Equal(1, producer.ProduceCount);
+        var rows = Assert.IsAssignableFrom<IReadOnlyList<ResearchViews.FactRow>>(
+            projection.Facts);
+        var identities = Assert.IsAssignableFrom<
+            IReadOnlyList<ResearchViews.AnnotatedSourceFactIdentity>>(
+                projection.SourceDocumentFactIdentities);
+        FindingCensusReceipt receipt = Assert.Single(
+            rows.Select(row => Assert.IsType<FindingCensusReceipt>(
+                    row.CensusReceipt))
+                .Distinct());
+        Assert.False(receipt.IsDefault);
+        Assert.Equal(receipt, projection.FactCensusReceipt);
+        Assert.All(identities, identity =>
+            Assert.Equal(receipt, identity.CensusReceipt));
+        Assert.Equal(
+            rows.Select(row => Assert.IsType<FindingInstanceKey>(
+                    row.InstanceKey))
+                .OrderBy(key => key.Value),
+            identities.Select(identity => identity.InstanceKey)
+                .OrderBy(key => key.Value));
+    }
+
+    [Fact]
+    public void MemberProjection_ReceiptsSuccessfulEmptyBodyCensus()
+    {
+        using var source = MetadataSource.Open(
+            typeof(ResearchFixture).Assembly.Location);
+
+        var projection = ResearchViews.ProjectMember(
+            new ResearchViews.MemberProjectionRequest(
+                source,
+                typeof(ResearchFixture).FullName!,
+                nameof(ResearchFixture.BoxInt),
+                Registry: new ResearchFactRegistry(),
+                SourceDocument: true));
+
+        FindingCensusReceipt receipt = Assert.IsType<FindingCensusReceipt>(
+            projection.FactCensusReceipt);
+        Assert.False(receipt.IsDefault);
+        Assert.Empty(Assert.IsType<AnnotatedSourceDocument>(
+            projection.SourceDocument).Facts);
+        Assert.Empty(Assert.IsAssignableFrom<
+            IReadOnlyList<ResearchViews.AnnotatedSourceFactIdentity>>(
+                projection.SourceDocumentFactIdentities));
+    }
+
+    [Fact]
+    public void MemberProjection_PreservesDisplayIdenticalFindingMultiplicity()
+    {
+        var descriptor = new AnnotationDescriptor(
+            "test.duplicate",
+            AnnotationCategory.Cost,
+            "duplicate");
+        var subject = new FindingSubject("test-member", "test member");
+        var key = new FindingKey("same-correspondence");
+        Finding<IAnnotation> first = ResearchFactFinding.Create(
+            subject,
+            new Annotation(descriptor, SourceOffset: 0, Detail: "same"),
+            key,
+            ordinal: 0);
+        Finding<IAnnotation> second = ResearchFactFinding.Create(
+            subject,
+            new Annotation(descriptor, SourceOffset: 0, Detail: "same"),
+            key,
+            ordinal: 0);
+        Assert.Equal(first, second);
+        Assert.NotSame(first, second);
+
+        using var source = MetadataSource.Open(
+            typeof(ResearchFixture).Assembly.Location);
+        var projection = ResearchViews.ProjectMember(
+            new ResearchViews.MemberProjectionRequest(
+                source,
+                typeof(ResearchFixture).FullName!,
+                nameof(ResearchFixture.BoxInt),
+                FactRows: true,
+                Registry: new ResearchFactRegistry(
+                    new CountingFindingsProducer([first, second])),
+                SourceDocument: true));
+        Assert.True(
+            projection.SourceDocumentFailure is null,
+            projection.SourceDocumentFailure is null
+                ? null
+                : string.Join(
+                    "; ",
+                    projection.SourceDocumentFailure.Diagnostics));
+        var document = Assert.IsType<AnnotatedSourceDocument>(
+            projection.SourceDocument);
+        var rows = Assert.IsAssignableFrom<IReadOnlyList<ResearchViews.FactRow>>(
+            projection.Facts);
+        var identities = Assert.IsAssignableFrom<
+            IReadOnlyList<ResearchViews.AnnotatedSourceFactIdentity>>(
+                projection.SourceDocumentFactIdentities);
+
+        Assert.Equal(2, rows.Count);
+        Assert.Equal(2, rows.Select(row => row.InstanceKey).Distinct().Count());
+        Assert.Equal(
+            2,
+            document.Facts.Count(fact =>
+                fact.Descriptor == descriptor.Id
+                && fact.Detail == "same"
+                && fact.SourceOffset == 0));
+        Assert.Equal(2, identities.Count);
+        Assert.Equal(2, identities.Select(identity => identity.FactId).Distinct().Count());
+        Assert.Equal(2, identities.Select(identity => identity.InstanceKey).Distinct().Count());
     }
 
     [Fact]
@@ -179,7 +326,9 @@ public class AnnotatedSourceDocumentProjectionTests
         Assert.Contains(AllFacts(document), fact => fact.Descriptor == "cost.document-test");
         Assert.Equal(overlaysOnly.CostOverlay?.Body.Output, withDocument.CostOverlay?.Body.Output);
         Assert.Equal(overlaysOnly.SemanticsOverlay?.Output, withDocument.SemanticsOverlay?.Output);
-        Assert.Equal(overlaysOnly.Facts, withDocument.Facts);
+        Assert.Equal(
+            WithoutIdentity(overlaysOnly.Facts),
+            WithoutIdentity(withDocument.Facts));
         Assert.DoesNotContain("a ? b : c", Assert.IsType<string>(withDocument.CostOverlay?.Body.Output));
         Assert.DoesNotContain("a ? b : c", Assert.IsType<string>(withDocument.SemanticsOverlay?.Output));
     }
@@ -215,7 +364,9 @@ public class AnnotatedSourceDocumentProjectionTests
         Assert.Equal(withoutDocument.AnnotatedSource?.Output, withDocument.AnnotatedSource?.Output);
         Assert.Equal(withoutDocument.CostOverlay?.Body.Output, withDocument.CostOverlay?.Body.Output);
         Assert.Equal(withoutDocument.SemanticsOverlay?.Output, withDocument.SemanticsOverlay?.Output);
-        Assert.Equal(withoutDocument.Facts, withDocument.Facts);
+        Assert.Equal(
+            WithoutIdentity(withoutDocument.Facts),
+            WithoutIdentity(withDocument.Facts));
     }
 
     [Fact]
@@ -380,6 +531,7 @@ public class AnnotatedSourceDocumentProjectionTests
             source,
             typeof(ResearchFixture).FullName!,
             nameof(ResearchFixture.HighLoopLeverageCallee),
+            FactRows: true,
             SourceDocument: true));
         var document = Assert.IsType<AnnotatedSourceDocument>(projection.SourceDocument);
 
@@ -389,6 +541,18 @@ public class AnnotatedSourceDocumentProjectionTests
                 && candidate.Origin == AnnotatedSourceFactOrigin.MemberHeader);
         Assert.Equal(-1, fact.SourceOffset);
         Assert.Empty(Targets(document, fact));
+        Assert.DoesNotContain(
+            Assert.IsAssignableFrom<
+                IReadOnlyList<ResearchViews.AnnotatedSourceFactIdentity>>(
+                projection.SourceDocumentFactIdentities),
+            identity => identity.FactId == fact.Id);
+
+        ResearchViews.FactRow row = Assert.Single(
+            Assert.IsAssignableFrom<IReadOnlyList<ResearchViews.FactRow>>(
+                projection.Facts),
+            candidate => candidate.Id == "cost.method");
+        Assert.Null(row.CensusReceipt);
+        Assert.Null(row.InstanceKey);
     }
 
     [Fact]
@@ -659,6 +823,39 @@ public class AnnotatedSourceDocumentProjectionTests
     static AnnotatedSourceTarget[] Targets(AnnotatedSourceDocument document, AnnotatedSourceFact fact) =>
         [.. document.Targets.Where(target => target.FactId == fact.Id)];
 
+    static FindingInstanceKey[] InstanceKeys(
+        AnnotatedSourceDocument document,
+        IReadOnlyList<ResearchViews.AnnotatedSourceFactIdentity>? identities,
+        SourceLineKind medium)
+    {
+        var byFact = Assert.IsAssignableFrom<
+                IReadOnlyList<ResearchViews.AnnotatedSourceFactIdentity>>(
+                identities)
+            .ToDictionary(identity => identity.FactId);
+        return
+        [
+            .. document.Targets
+                .Where(target =>
+                    document.Nodes[target.NodeId].Medium == medium)
+                .Select(target => byFact[target.FactId].InstanceKey)
+                .Distinct()
+                .OrderBy(key => key.Value),
+        ];
+    }
+
+    static ResearchViews.FactRow[] WithoutIdentity(
+        IReadOnlyList<ResearchViews.FactRow>? facts)
+        => facts is null
+            ? []
+            :
+            [
+                .. facts.Select(fact => fact with
+                {
+                    CensusReceipt = null,
+                    InstanceKey = null,
+                }),
+            ];
+
     /// <summary>
     /// The facts a medium actually shows, derived by joining targets back to
     /// their nodes. Facts are deduplicated, so an observation seen in both media
@@ -768,7 +965,8 @@ public class AnnotatedSourceDocumentProjectionTests
         public string Name => "document-marker";
         public IReadOnlyList<string> Produces => [marker.Descriptor.Id];
         public IReadOnlyList<string> DependsOn => [];
-        public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context) => [marker];
+        public IReadOnlyList<Finding<IAnnotation>> Produce(ResearchFactContext context)
+            => [TestFinding(marker)];
     }
 
     sealed class MarkersProducer(IReadOnlyList<IAnnotation> markers) : IResearchFactProducer
@@ -776,7 +974,25 @@ public class AnnotatedSourceDocumentProjectionTests
         public string Name => "document-markers";
         public IReadOnlyList<string> Produces => [.. markers.Select(marker => marker.Descriptor.Id)];
         public IReadOnlyList<string> DependsOn => [];
-        public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context) => markers;
+        public IReadOnlyList<Finding<IAnnotation>> Produce(ResearchFactContext context)
+            => [.. markers.Select(TestFinding)];
+    }
+
+    sealed class CountingFindingsProducer(
+        IReadOnlyList<Finding<IAnnotation>> findings) : IResearchFactProducer
+    {
+        public int ProduceCount { get; private set; }
+        public string Name => "counting-findings";
+        public IReadOnlyList<string> Produces =>
+            [.. findings.Select(finding => finding.Payload.Descriptor.Id)];
+        public IReadOnlyList<string> DependsOn => [];
+
+        public IReadOnlyList<Finding<IAnnotation>> Produce(
+            ResearchFactContext context)
+        {
+            ProduceCount++;
+            return findings;
+        }
     }
 
     sealed class ThrowingHeaderProducer : IResearchFactProducer
@@ -784,7 +1000,7 @@ public class AnnotatedSourceDocumentProjectionTests
         public string Name => "throwing-header";
         public IReadOnlyList<string> Produces => [];
         public IReadOnlyList<string> DependsOn => [];
-        public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context) => [];
+        public IReadOnlyList<Finding<IAnnotation>> Produce(ResearchFactContext context) => [];
         public IReadOnlyList<ResearchHeaderFact> ProduceHeaderFacts(ResearchFactContext context)
             => throw new InvalidOperationException("header failed");
     }
@@ -803,14 +1019,40 @@ public class AnnotatedSourceDocumentProjectionTests
         public string Name => "malformed-text";
         public IReadOnlyList<string> Produces => [Body.Id, Placed.Id, Literal.Id, Header.Id];
         public IReadOnlyList<string> DependsOn => [];
-        public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context)
+        public IReadOnlyList<Finding<IAnnotation>> Produce(ResearchFactContext context)
             =>
             [
-                new Annotation(Body, SourceOffset: -1, Detail: "body.\U0001F600\uDC00"),
-                new Annotation(Placed, SourceOffset: 0, Detail: "placed.\U0001F600\uDC00"),
-                new Annotation(Literal, SourceOffset: -1, Detail: "literal.\\uD800"),
+                TestFinding(new Annotation(
+                    Body,
+                    SourceOffset: -1,
+                    Detail: "body.\U0001F600\uDC00")),
+                TestFinding(new Annotation(
+                    Placed,
+                    SourceOffset: 0,
+                    Detail: "placed.\U0001F600\uDC00")),
+                TestFinding(new Annotation(
+                    Literal,
+                    SourceOffset: -1,
+                    Detail: "literal.\\uD800")),
             ];
         public IReadOnlyList<ResearchHeaderFact> ProduceHeaderFacts(ResearchFactContext context)
             => [new ResearchHeaderFact(Header, "header.\uD800")];
     }
+
+    static Finding<IAnnotation> TestFinding(
+        IAnnotation annotation,
+        int ordinal = 0)
+        => ResearchFactFinding.Create(
+            new FindingSubject("test-member", "test member"),
+            annotation,
+            new FindingKey($"{annotation.Descriptor.Id}|{ordinal}"),
+            ordinal);
+
+    static Finding<IAnnotation> Finding(
+        IAnnotation annotation,
+        string identity)
+        => ResearchFactFinding.Create(
+            new FindingSubject("test-member", "test member"),
+            annotation,
+            new FindingKey(identity));
 }

@@ -5,6 +5,7 @@ using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Text;
 
@@ -20,7 +21,36 @@ public static partial class ResearchViews
         string Category,
         string Id,
         string? Detail,
-        string Conditionality);
+        string Conditionality,
+        FindingCensusReceipt? CensusReceipt = null,
+        FindingInstanceKey? InstanceKey = null);
+
+    public sealed record AnnotatedSourceFactIdentity
+    {
+        public AnnotatedSourceFactIdentity(
+            int factId,
+            FindingCensusReceipt censusReceipt,
+            FindingInstanceKey instanceKey)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(factId);
+            if (censusReceipt.IsDefault)
+                throw new ArgumentException(
+                    "Census receipt must be producer-issued and non-default.",
+                    nameof(censusReceipt));
+            if (instanceKey.IsDefault)
+                throw new ArgumentException(
+                    "Instance key must be producer-issued and non-default.",
+                    nameof(instanceKey));
+
+            FactId = factId;
+            CensusReceipt = censusReceipt;
+            InstanceKey = instanceKey;
+        }
+
+        public int FactId { get; }
+        public FindingCensusReceipt CensusReceipt { get; }
+        public FindingInstanceKey InstanceKey { get; }
+    }
 
     public sealed record CostOverlayResult(
         DecompilerResult Body,
@@ -84,7 +114,19 @@ public static partial class ResearchViews
         DecompilerResult? SourceDocumentFailure = null,
 
         /// <summary>The MethodDef token selected for this projection.</summary>
-        int? SelectedMethodToken = null);
+        int? SelectedMethodToken = null,
+
+        /// <summary>
+        /// Research-owned Finding identities for body facts in
+        /// <see cref="SourceDocument"/>, joined by document-local fact id.
+        /// </summary>
+        IReadOnlyList<AnnotatedSourceFactIdentity>? SourceDocumentFactIdentities = null,
+
+        /// <summary>
+        /// Receipt for the one body Finding census successfully collected by
+        /// this member operation, including a successful empty census.
+        /// </summary>
+        FindingCensusReceipt? FactCensusReceipt = null);
 
     public static MemberProjectionResult ProjectMember(MemberProjectionRequest request)
     {
@@ -116,7 +158,12 @@ public static partial class ResearchViews
                 imported,
                 assembly,
                 request.CallSites);
-            var facts = effectiveRegistry.Collect(context);
+            var factCensus = effectiveRegistry.CollectCensus(context);
+            var factProjection = ResearchFactProjection.AdmitComplete(
+                factCensus,
+                factCensus.Receipt,
+                factCensus.Entries);
+            IReadOnlyList<IAnnotation> facts = factProjection.Annotations;
             IReadOnlyList<ResearchHeaderFact> headerFacts = [];
             DecompilerResult? headerFactsFailure = null;
             if (request.FactRows)
@@ -138,6 +185,7 @@ public static partial class ResearchViews
             }
 
             AnnotatedSourceDocument? sourceDocument = null;
+            IReadOnlyList<AnnotatedSourceFactIdentity>? sourceDocumentFactIdentities = null;
             DecompilerResult? sourceDocumentFailure = null;
             if (request.SourceDocument)
             {
@@ -156,18 +204,22 @@ public static partial class ResearchViews
                     var documentHeaderFacts = request.FactRows || request.CostOverlay
                         ? headerFacts
                         : effectiveRegistry.CollectHeaderFacts(context);
-                    return BuildAnnotatedSourceDocument(
+                    AnnotatedSourceProjection sourceProjection =
+                        BuildAnnotatedSourceDocument(
                         request.Source,
                         request.Type,
                         request.Method,
                         documentFunction,
-                        facts,
+                        factProjection,
                         documentHeaderFacts,
                         request.AnnotatedStage,
                         request.OverloadIndex,
                         request.PublicOnly,
                         request.MethodToken,
                         request.PrinterOptions);
+                    sourceDocumentFactIdentities =
+                        sourceProjection.FactIdentities;
+                    return sourceProjection.Document;
                 });
             }
 
@@ -211,9 +263,10 @@ public static partial class ResearchViews
                 }
                 else
                 {
-                    var costAnnotations = facts
-                        .Where(annotation => annotation.Descriptor.Category == AnnotationCategory.Cost)
-                        .ToList();
+                    IReadOnlyList<IAnnotation> costAnnotations = factProjection
+                        .Where(annotation =>
+                            annotation.Descriptor.Category == AnnotationCategory.Cost)
+                        .Annotations;
                     var costHeaderFacts = headerFacts
                         .Where(fact => fact.Descriptor.Category == AnnotationCategory.Cost)
                         .ToList();
@@ -232,9 +285,10 @@ public static partial class ResearchViews
             DecompilerResult? semanticsOverlay = null;
             if (request.SemanticsOverlay)
             {
-                var semanticsAnnotations = facts
-                    .Where(annotation => annotation.Descriptor.Category == AnnotationCategory.Semantics)
-                    .ToList();
+                IReadOnlyList<IAnnotation> semanticsAnnotations = factProjection
+                    .Where(annotation =>
+                        annotation.Descriptor.Category == AnnotationCategory.Semantics)
+                    .Annotations;
                 semanticsOverlay = WithTrace(
                     RunProjection(() => RenderRaisedOverlay(
                         imported,
@@ -247,7 +301,13 @@ public static partial class ResearchViews
 
             IReadOnlyList<FactRow>? factRows = null;
             if (request.FactRows)
-                factRows = BuildFactRows(request.Type, request.Method, imported, facts, headerFacts, request.Source);
+                factRows = BuildFactRows(
+                    request.Type,
+                    request.Method,
+                    imported,
+                    factProjection,
+                    headerFacts,
+                    request.Source);
 
             return new MemberProjectionResult(
                 annotatedSource,
@@ -258,7 +318,9 @@ public static partial class ResearchViews
                 UnmatchedFocusAlternatives(request.CaretFocus, gestures, facts),
                 sourceDocument,
                 sourceDocumentFailure,
-                imported.MetadataToken);
+                imported.MetadataToken,
+                sourceDocumentFactIdentities,
+                factProjection.Receipt);
         }
         catch (Exception ex)
         {
@@ -348,7 +410,11 @@ public static partial class ResearchViews
 
     public static IReadOnlyList<IAnnotation> CollectFacts(
         MetadataSource source, IrFunction imported, ResearchAssemblyContext? assembly, ResearchFactRegistry? registry = null)
-        => (registry ?? ResearchFactRegistry.Default).Collect(new ResearchFactContext(source, imported, assembly));
+        => (registry ?? ResearchFactRegistry.Default)
+            .CollectCensus(new ResearchFactContext(source, imported, assembly))
+            .Findings
+            .Select(finding => finding.Payload)
+            .ToArray();
 
     public static IReadOnlyList<FactRow> CollectFactRows(
         MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
@@ -363,7 +429,11 @@ public static partial class ResearchViews
             ResolveAssemblyContext(
                 imported,
                 effectiveRegistry.Requirements));
-        var facts = effectiveRegistry.Collect(context);
+        var census = effectiveRegistry.CollectCensus(context);
+        var facts = ResearchFactProjection.AdmitComplete(
+            census,
+            census.Receipt,
+            census.Entries);
         var headerFacts = effectiveRegistry.CollectHeaderFacts(context);
         return BuildFactRows(type, method, imported, facts, headerFacts, source);
     }
@@ -428,12 +498,12 @@ public static partial class ResearchViews
         return csResult with { Output = RenderMixedStream(stream, gestures ?? AnnotationGestureSelector.SideOnly, extents) };
     }
 
-    static AnnotatedSourceDocument BuildAnnotatedSourceDocument(
+    static AnnotatedSourceProjection BuildAnnotatedSourceDocument(
         MetadataSource source,
         string type,
         string method,
         IrFunction imported,
-        IReadOnlyList<IAnnotation> annotations,
+        ResearchFactProjection facts,
         IReadOnlyList<ResearchHeaderFact> headerFacts,
         AnnotationStage stage,
         int overloadIndex,
@@ -441,6 +511,7 @@ public static partial class ResearchViews
         int? methodToken,
         PrinterOptions? printerOptions)
     {
+        IReadOnlyList<IAnnotation> annotations = facts.Annotations;
         IrFunction? ImportMethodBody(MethodRef target) => IrImporter.Import(source, target);
         var csResult = stage == AnnotationStage.Lowered
             ? CSharpPrinter.PrintLowered(
@@ -495,8 +566,14 @@ public static partial class ResearchViews
             printedRanges,
             imported,
             annotations,
-            provenanceOffsetAllowList);
-        return MakeDocument(stream, csharpMap, headerFacts, documentSource);
+            provenanceOffsetAllowList,
+            InstanceKey);
+        return MakeDocument(
+            stream,
+            csharpMap,
+            headerFacts,
+            documentSource,
+            facts.Receipt);
     }
 
     internal static string RequireSuccessfulDocumentOutput(DecompilerResult result)
@@ -630,20 +707,20 @@ public static partial class ResearchViews
     /// join established before those identities were discarded.
     /// </para>
     /// <para>
-    /// Facts are deduplicated on their full semantic identity, including origin,
-    /// after portable escaping — escaping first, because two descriptors that
-    /// differ only in an unpaired surrogate must not merge after they are
-    /// encoded the same way. One fact observed in both media therefore becomes
-    /// one fact row targeting a C# node and an instruction node, which is what
-    /// makes "this is one observation" readable from the payload. A fact neither
-    /// medium could anchor simply has no target.
+    /// Body facts are joined by producer-issued instance key after portable
+    /// escaping; equal rendered values therefore retain multiplicity. One
+    /// instance observed in both media becomes one fact row targeting a C# node
+    /// and an instruction node. Header facts remain outside the body census and
+    /// retain their visible-value identity. A fact neither medium could anchor
+    /// simply has no target.
     /// </para>
     /// </remarks>
-    static AnnotatedSourceDocument MakeDocument(
+    static AnnotatedSourceProjection MakeDocument(
         IReadOnlyList<BoundSourceLine> stream,
         PrintedBodyMap csharpMap,
         IReadOnlyList<ResearchHeaderFact> headerFacts,
-        AnnotatedSourceDocumentSource? source)
+        AnnotatedSourceDocumentSource? source,
+        FindingCensusReceipt censusReceipt)
     {
         int csharpLineCount = stream.Count(line => line.Kind == SourceLineKind.CSharp);
         if (csharpLineCount != csharpMap.Lines.Count)
@@ -698,8 +775,9 @@ public static partial class ResearchViews
             .Select(region => new AnnotatedSourceRegion(region.Role, ToSpans(region.Extent)))
             .ToArray();
 
-        // Keyed by semantic identity so the same observation seen on a C# node
-        // and on its instruction collapses to one fact carrying both targets.
+        // Body identity includes the producer-issued instance key, so equal
+        // visible values remain separate while one instance seen on C# and IL
+        // collapses to one fact carrying both targets.
         var collected = new Dictionary<FactIdentity, SortedSet<int>>();
         SortedSet<int> Anchors(FactIdentity identity)
         {
@@ -732,7 +810,8 @@ public static partial class ResearchViews
                     annotation.Conditionality,
                     annotation.Detail is null ? null : MakePortableText(annotation.Detail),
                     annotation.SourceOffset,
-                    AnnotatedSourceFactOrigin.Body);
+                    AnnotatedSourceFactOrigin.Body,
+                    InstanceKey(annotation));
                 Anchors(identity).Add(nodeId);
             }
         }
@@ -745,7 +824,8 @@ public static partial class ResearchViews
                 AnnotationConditionality.Always,
                 fact.Detail is null ? null : MakePortableText(fact.Detail),
                 SourceOffset: -1,
-                AnnotatedSourceFactOrigin.MemberHeader);
+                Origin: AnnotatedSourceFactOrigin.MemberHeader,
+                InstanceKey: null);
 
             // A header fact is about the member, so it is stated and left
             // unanchored rather than given somewhere in the body to point at.
@@ -756,6 +836,7 @@ public static partial class ResearchViews
         ordered.Sort(CompareFactIdentities);
 
         var facts = new AnnotatedSourceFact[ordered.Count];
+        var factIdentities = new List<AnnotatedSourceFactIdentity>();
         var targets = new List<AnnotatedSourceTarget>(ordered.Count);
         for (int id = 0; id < ordered.Count; id++)
         {
@@ -769,6 +850,14 @@ public static partial class ResearchViews
                 identity.SourceOffset,
                 identity.Origin);
 
+            if (identity.InstanceKey is { } instanceKey)
+            {
+                factIdentities.Add(new AnnotatedSourceFactIdentity(
+                    id,
+                    censusReceipt,
+                    instanceKey));
+            }
+
             foreach (int nodeId in collected[identity])
                 targets.Add(new AnnotatedSourceTarget(id, nodeId));
         }
@@ -779,7 +868,16 @@ public static partial class ResearchViews
             return c != 0 ? c : a.NodeId.CompareTo(b.NodeId);
         });
 
-        return new AnnotatedSourceDocument(text, nodes, regions, facts, targets, source);
+        ValidateFactIdentities(facts, factIdentities, censusReceipt);
+        return new AnnotatedSourceProjection(
+            new AnnotatedSourceDocument(
+                text,
+                nodes,
+                regions,
+                facts,
+                targets,
+                source),
+            factIdentities);
 
         IReadOnlyList<AnnotatedSourceSpan> ToSpans(PrintedExtent extent)
         {
@@ -839,6 +937,45 @@ public static partial class ResearchViews
         }
     }
 
+    static void ValidateFactIdentities(
+        IReadOnlyList<AnnotatedSourceFact> facts,
+        IReadOnlyList<AnnotatedSourceFactIdentity> identities,
+        FindingCensusReceipt censusReceipt)
+    {
+        if (censusReceipt.IsDefault)
+            throw new InvalidOperationException(
+                "Research cannot lower a default Finding census receipt.");
+
+        var factIds = new HashSet<int>();
+        var keys = new HashSet<FindingInstanceKey>();
+        foreach (AnnotatedSourceFactIdentity identity in identities)
+        {
+            if (identity.CensusReceipt != censusReceipt)
+                throw new InvalidOperationException(
+                    $"Annotated Source fact {identity.FactId} carries the wrong Finding census receipt.");
+            if (identity.FactId >= facts.Count)
+                throw new InvalidOperationException(
+                    $"Annotated Source Finding identity names missing fact {identity.FactId}.");
+            if (facts[identity.FactId].Origin != AnnotatedSourceFactOrigin.Body)
+                throw new InvalidOperationException(
+                    $"Annotated Source member-header fact {identity.FactId} cannot carry body Finding identity.");
+            if (!factIds.Add(identity.FactId))
+                throw new InvalidOperationException(
+                    $"Annotated Source fact {identity.FactId} carries more than one Finding identity.");
+            if (!keys.Add(identity.InstanceKey))
+                throw new InvalidOperationException(
+                    $"Annotated Source Finding instance key {identity.InstanceKey} is projected more than once.");
+        }
+
+        int bodyFactCount = facts.Count(
+            fact => fact.Origin == AnnotatedSourceFactOrigin.Body);
+        if (factIds.Count != bodyFactCount)
+        {
+            throw new InvalidOperationException(
+                $"Annotated Source projected {factIds.Count} Finding identities for {bodyFactCount} body facts.");
+        }
+    }
+
     static int CompareFactIdentities(FactIdentity left, FactIdentity right)
     {
         int c = left.SourceOffset.CompareTo(right.SourceOffset);
@@ -850,8 +987,21 @@ public static partial class ResearchViews
         c = left.Conditionality.CompareTo(right.Conditionality);
         if (c != 0) return c;
         c = string.CompareOrdinal(left.Detail, right.Detail);
-        return c != 0 ? c : left.Origin.CompareTo(right.Origin);
+        if (c != 0) return c;
+        c = left.Origin.CompareTo(right.Origin);
+        return c != 0
+            ? c
+            : CompareInstanceKeys(left.InstanceKey, right.InstanceKey);
     }
+
+    static int CompareInstanceKeys(
+        FindingInstanceKey? left,
+        FindingInstanceKey? right)
+        => left is null
+            ? right is null ? 0 : 1
+            : right is null
+                ? -1
+                : left.Value.Value.CompareTo(right.Value.Value);
 
     static PrintedAnnotationSpan MakePortable(PrintedAnnotationSpan annotation)
         => annotation with
@@ -900,7 +1050,8 @@ public static partial class ResearchViews
         AnnotationConditionality Conditionality,
         string? Detail,
         int SourceOffset,
-        AnnotatedSourceFactOrigin Origin)
+        AnnotatedSourceFactOrigin Origin,
+        FindingInstanceKey? InstanceKey)
     {
         internal static FactIdentity From(
             PrintedAnnotationSpan annotation,
@@ -910,8 +1061,13 @@ public static partial class ResearchViews
             annotation.Conditionality,
             annotation.Detail,
             annotation.SourceOffset,
-            origin);
+            origin,
+            annotation.InstanceKey);
     }
+
+    sealed record AnnotatedSourceProjection(
+        AnnotatedSourceDocument Document,
+        IReadOnlyList<AnnotatedSourceFactIdentity> FactIdentities);
 
     // The correlation layer: fold the printed C# body, its statement-line map, the
     // resolved annotations, and the IL instruction lines into one ordered
@@ -1095,13 +1251,14 @@ public static partial class ResearchViews
         string type,
         string method,
         IrFunction imported,
-        IReadOnlyList<IAnnotation> facts,
+        ResearchFactProjection facts,
         IReadOnlyList<ResearchHeaderFact> headerFacts,
         MetadataSource source)
     {
-        var linesByFact = CSharpLinesByFact(imported, facts, source);
+        IReadOnlyList<IAnnotation> annotations = facts.Annotations;
+        var linesByFact = CSharpLinesByFact(imported, annotations, source);
         string member = $"{type}::{method}";
-        var rows = facts.Select(fact => new FactRow(
+        var rows = facts.Annotations.Select(fact => new FactRow(
             member,
             fact.SourceOffset >= 0 ? fact.SourceOffset : null,
             linesByFact.TryGetValue(fact, out int line) ? line + 1 : null,
@@ -1109,7 +1266,9 @@ public static partial class ResearchViews
             fact.Descriptor.Category.ToString(),
             fact.Descriptor.Id,
             fact.Detail,
-            fact.Conditionality.ToString()));
+            fact.Conditionality.ToString(),
+            facts.Receipt,
+            fact.Entry.Key));
         var headerRows = headerFacts.Select(fact => new FactRow(
             member,
             ILOffset: null,
@@ -1118,9 +1277,16 @@ public static partial class ResearchViews
             fact.Descriptor.Category.ToString(),
             fact.Descriptor.Id,
             fact.Detail,
-            Conditionality: "Always"));
+            Conditionality: "Always",
+            CensusReceipt: null,
+            InstanceKey: null));
         return [.. rows.Concat(headerRows)];
     }
+
+    static FindingInstanceKey? InstanceKey(IAnnotation annotation)
+        => annotation is ResearchFactAnnotation projected
+            ? projected.Entry.Key
+            : null;
 
     static DecompilerResult WithTrace(DecompilerResult result, MetadataSource source)
         => result with

@@ -148,6 +148,12 @@ turn zero execution into success. This pins why that opt-out is outside the
 repository evidence profile rather than motivating a second command-line
 parser.
 
+`MtpTestHostTests` is the outcome-level gate for the first adopter,
+`dotnet-inspect.Tests`. It starts the built test apphost and covers the
+unmatched, valid, and mixed valid/stale filter outcomes. The suite's workflow
+contract tests pin its MTP call sites and preserve the authenticated package
+fixture's stronger not-skipped receipt.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong
