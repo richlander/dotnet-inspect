@@ -2957,12 +2957,15 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
   assert.match(
     indexSource,
     /id="package-query-announcement"[\s\S]*class="query-announcement"[\s\S]*role="alert"[\s\S]*aria-live="assertive"[\s\S]*aria-atomic="true"/);
+  assert.doesNotMatch(
+    appSource,
+    /workspaceHref: packageQueryWorkspace(?:Href|Url)\(\)/);
   assert.match(
     appSource,
-    /workspaceHref: packageQueryWorkspaceHref\(\)/);
+    /const canonicalWorkspaceHrefs = new Map<string, string>\(\);[\s\S]*function packageQueryWorkspaceUrl\(\): URL \{\s*const rememberedHref = rememberedLiveWorkspaceHref\(\s*state\.workspaceSession,\s*canonicalWorkspaceHrefs\);\s*if \(rememberedHref\) return new URL\(rememberedHref, location\.href\);[\s\S]*buildPackageRootStateUrl/);
   assert.match(
     appSource,
-    /const canonicalWorkspaceHrefs = new Map<string, string>\(\);[\s\S]*function packageQueryWorkspaceHref\(\): string \{\s*const rememberedHref = rememberedLiveWorkspaceHref\(\s*state\.workspaceSession,\s*canonicalWorkspaceHrefs\);\s*if \(rememberedHref\) return rememberedHref;[\s\S]*buildPackageRootStateUrl/);
+    /app\.innerHTML = renderPackageQueryView\([\s\S]*const workspaceUrl = packageQueryWorkspaceUrl\(\);\s*const workspaceLink =\s*document\.querySelector<HTMLAnchorElement>\("#package-query-workspace"\);\s*if \(workspaceLink\) \{\s*workspaceLink\.pathname = workspaceUrl\.pathname;\s*workspaceLink\.search = workspaceUrl\.search;\s*workspaceLink\.hash = workspaceUrl\.hash;/);
   assert.match(
     appSource,
     /const focusWorkspace = state\.packageQueryOpen;\s*if \(focusWorkspace\) \{\s*state\.packageQueryOpen = false;\s*packageQueryController\.cancel\(\);\s*state\.packageQueryNavigationError = "";\s*\}\s*const navigationSeq = navigationSequence\.begin\(\);\s*if \(focusWorkspace\) \{\s*packageQueryWorkspaceFocusNavigationSeq = navigationSeq;\s*\}\s*workspaceLocation\.push/);

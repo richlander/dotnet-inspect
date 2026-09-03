@@ -352,7 +352,6 @@ export interface RenderPackageQueryOptions {
   prefix?: string;
   availableFacets: readonly QueryFacetTerm[];
   navigationError?: string;
-  workspaceHref?: string;
   escapeHtml: (value: unknown) => string;
 }
 
@@ -364,7 +363,6 @@ export function renderPackageQueryView(
     prefix = state.request?.scopeQuery ?? "",
     availableFacets,
     navigationError = "",
-    workspaceHref = "/",
     escapeHtml,
   } = options;
   const activeKeys = new Set(state.request?.facets.map(facet => facet.key) ?? []);
@@ -392,8 +390,6 @@ export function renderPackageQueryView(
       <header class="query-page-bar">
         ${renderBrand({
           id: "package-query-workspace",
-          href: workspaceHref,
-          ariaLabel: `dotnet inspect ${workspaceHref === "/" ? "home" : "workspace"}`,
         })}
         <button id="package-query-back" type="button">Back</button>
       </header>

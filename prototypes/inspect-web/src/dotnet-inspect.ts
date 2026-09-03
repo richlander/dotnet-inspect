@@ -8114,19 +8114,19 @@ const packageQueryActions: PackageQueryBindingActions = {
   onRun: runPackageQuery,
 };
 
-function packageQueryWorkspaceHref(): string {
+function packageQueryWorkspaceUrl(): URL {
   const rememberedHref = rememberedLiveWorkspaceHref(
     state.workspaceSession,
     canonicalWorkspaceHrefs);
-  if (rememberedHref) return rememberedHref;
+  if (rememberedHref) return new URL(rememberedHref, location.href);
   const residentPackage = state.package;
-  if (!residentPackage) return "/";
+  if (!residentPackage) return new URL("/", location.href);
   return buildPackageRootStateUrl(location.href, {
     package: residentPackage.id,
     version: residentPackage.version,
     framework: residentPackage.activeFramework,
     lens: state.packageLens,
-  }).toString();
+  });
 }
 
 function renderPackageQueryPage() {
@@ -8142,9 +8142,21 @@ function renderPackageQueryPage() {
       state.packageQueryCatalogError,
       state.packageQueryNavigationError,
     ].filter(Boolean).join(" "),
-    workspaceHref: packageQueryWorkspaceHref(),
     escapeHtml,
   });
+  const workspaceUrl = packageQueryWorkspaceUrl();
+  const workspaceLink =
+    document.querySelector<HTMLAnchorElement>("#package-query-workspace");
+  if (workspaceLink) {
+    workspaceLink.pathname = workspaceUrl.pathname;
+    workspaceLink.search = workspaceUrl.search;
+    workspaceLink.hash = workspaceUrl.hash;
+    workspaceLink.ariaLabel = workspaceUrl.pathname === "/"
+      && !workspaceUrl.search
+      && !workspaceUrl.hash
+      ? "dotnet inspect home"
+      : "dotnet inspect workspace";
+  }
   bindPackageQueryView(document, packageQueryActions);
   const focusRestoration = restorePackageQueryFocus(document, focus);
   if (focusRestoration !== "fallback") {

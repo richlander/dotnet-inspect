@@ -90,17 +90,16 @@ test("an unstarted query renders the composing empty state", () => {
   assert.match(html, /Query nuget\.org/);
 });
 
-test("the persistent brand opens the resident workspace", () => {
+test("the persistent brand starts from the same-origin root", () => {
   const html = renderPackageQueryView({
     state: initialQueryState(),
     availableFacets: FACETS,
-    workspaceHref: "/?package=Example&version=1.0.0",
     escapeHtml,
   });
 
   assert.match(
     html,
-    /id="package-query-workspace" class="brand" href="\/\?package=Example&amp;version=1\.0\.0" aria-label="dotnet inspect workspace"/);
+    /id="package-query-workspace" class="brand" href="\/" aria-label="dotnet inspect home"/);
 });
 
 test("a packageId cannot break out of the row's HTML attribute context via a quote", () => {
