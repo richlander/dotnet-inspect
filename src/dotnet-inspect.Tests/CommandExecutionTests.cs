@@ -16599,13 +16599,16 @@ public partial class CommandExecutionTests
         Assert.Contains("Finding Census", error);
     }
 
-    [Fact]
-    public async Task Member_FindingCensusDiscovery_OmitsBodylessMember()
+    [Theory]
+    [InlineData("Run")]
+    [InlineData("Run:1")]
+    public async Task Member_FindingCensusDiscovery_OmitsBodylessMember(
+        string memberSelector)
     {
         var (exit, output, error) = await RunAppAsync(
-            "member", typeof(IGenericExplicitInterfaceFixture<>).FullName!,
+            "member", typeof(IBodylessFindingCensusFixture).FullName!,
             "--library", TestAssemblyPath,
-            "Map:1", "-D", "--tips", "q");
+            memberSelector, "-D", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -34844,6 +34847,11 @@ public interface IGenericExplicitInterfaceFixture<T>
 {
     void Map<U>(U value);
     void Map<U, V>(U first, V second);
+}
+
+public interface IBodylessFindingCensusFixture
+{
+    void Run();
 }
 
 public sealed class GenericExplicitInterfaceFixture<T>

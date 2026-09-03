@@ -589,7 +589,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberDetailSectionDescriptors.AppliedTaste>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.AnnotatedSource>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.AnnotatedSourceDocument>(HasSingleBodyBackedMember)
-            .Add<ApiMemberDetailSectionDescriptors.FindingCensus>(HasSingleBodyBackedMember)
+            .Add<ApiMemberDetailSectionDescriptors.FindingCensus>(HasSingleExecutableBodyMember)
             .Add<ApiMemberSectionDescriptors.PdbSource>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.SourceDiff>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.Calls>()
@@ -617,6 +617,9 @@ public static class ApiMemberOverloadSectionDescriptors
 
     private static bool HasSingleBodyBackedMember(ApiType model)
         => model.Members.Count == 1 && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+
+    private static bool HasSingleExecutableBodyMember(ApiType model)
+        => model.Members.Count == 1 && model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
 
     public sealed class Methods : ISectionDescriptor<ApiType>
     {
