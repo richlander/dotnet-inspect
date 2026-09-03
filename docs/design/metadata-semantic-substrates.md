@@ -62,10 +62,12 @@ consumer.
    reconstructed control flow, a PDB, source text, a naming heuristic, or a
    project file, it is not a substrate fact.
 3. **Independent multi-consumer demand.** At least two higher layers need the
-   same meaning, and today would each derive it or depend on the other. The
-   second consumer may be committed rather than shipped, but it must be named
-   — an unnamed future consumer is not demand. A single consumer's need is
-   that consumer's own composition until the second arrives.
+   same meaning. The evidence may be *consumption* — two layers already read
+   it — or *duplication*: one layer reads it while another independently
+   derives the same meaning today. Duplication is the stronger signal, because
+   a second derivation is the drift the substrate exists to prevent. Naming a
+   consumer that neither reads nor derives the meaning today is intent, not
+   demand, and does not satisfy this requirement.
 4. **Policy neutrality.** It publishes what the metadata asserts, not what a
    consumer should do about it. Rendering choices, fidelity trade-offs,
    severity, and recommendations belong to consumers.
@@ -205,16 +207,20 @@ change that introduces it.
 
 ### Established
 
-| Substrate | Notes |
-| --- | --- |
-| `StateMachineRelationshipIndex` | Consumed independently by Analysis and the Decompiler. |
-| `MemorySafetyMetadataIndex` | One shipped consumer today — the CLI Signals projection through the audit scan. Analysis and Decompiler consumers are named and tracked under [#5555](https://github.com/richlander/dotnet-inspect/issues/5555). |
-| Type declaration and forwarding resolution | Consumed by Queries, Analysis, and the Decompiler. |
+| Substrate | Reading consumer | Second demand, and its evidence |
+| --- | --- | --- |
+| `StateMachineRelationshipIndex` | Decompiler — `src/ILInspector.Decompiler/Pipeline` | **Duplication.** Analysis derives async state-machine type membership itself in `src/ILInspector.Analysis/LibraryBodyPrimaryMetadataResolver.cs:810` (`AsyncStateMachineTypes`) rather than reading the index. |
+| `MemorySafetyMetadataIndex` | CLI Signals, through `src/ILInspector.Metadata/AssemblyDetailScanner.cs:197` | **Duplication, already observed diverging.** The decompiler printer decodes the same module marker at `src/ILInspector.Decompiler/Pipeline/Ir/IrImporter.cs:2826`, and the two derivations disagree on a legal ECMA-335 spelling — [#5670](https://github.com/richlander/dotnet-inspect/issues/5670). |
+| Type declaration and forwarding resolution | Queries — `src/DotnetInspector.Queries/InspectionGraphIntegrationsQuery.cs:1293` | **Consumption.** The Decompiler reads the same result at `src/ILInspector.Decompiler/Pipeline/Ir/IrImporter.cs:235`. |
 
-`MemorySafetyMetadataIndex` is the weakest of the three against requirement 3
-and is recorded that way deliberately. It was admitted on named committed
-demand rather than shipped demand, which is exactly the case the requirement's
-second sentence governs.
+Only the third row is satisfied by two readers today. The first two are
+satisfied by duplication: a second layer needs the same meaning and derives it
+independently. That is the honest state, and it is also the point — #5670 is a
+shipped instance of exactly the drift this pattern exists to prevent, found in
+the pair that had no shared substrate. The remaining duplication in the first
+two rows is the pattern's own backlog, tracked under
+[#5555](https://github.com/richlander/dotnet-inspect/issues/5555), and is not
+claimed here as completed adoption.
 
 ### Candidates
 
@@ -223,14 +229,14 @@ issue, and must pass the admission test on its own evidence.
 
 | Candidate | Observed demand |
 | --- | --- |
-| Property, event, accessor, and backing-storage association | Decoded separately in Metadata's declaration query, the memory-safety index, and CSharp's backing-field handling. |
+| Property, event, accessor, and backing-storage association | Decoded separately in `src/ILInspector.Metadata/MetadataDeclarationQuery.cs`, `src/ILInspector.Metadata/ApiSurfaceExtractor.cs`, `src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs`, and again for spelling in `src/ILInspector.CSharp/CSharpDeclarationWriter.cs`. |
 | Compiler-recognized type-use annotations (nullability, tuple names, dynamic, native integers, required members, ref-safety) | Separate decoders in Metadata, interpreted again for spelling in CSharp and in the Decompiler printer. |
 | Generic constraint semantics | Decoded in Metadata's declaration query and again in Analysis; the Decompiler reconstructs constraints separately. |
 | Interop and entry-point declaration contracts | Concentrated in surface extraction today, with no reusable typed result. |
 | Type and field layout relationships | Duplicated inside Metadata between projection and surface extraction; cross-layer demand is weaker. |
 
 The strongest next validation of the pattern is accessor and backing-storage
-association: it has three independent existing decoders, needs `Absent` and
+association: it has four independent existing decoders, needs `Absent` and
 `Ambiguous` as genuine outcomes, and is required by
 [#5253](https://github.com/richlander/dotnet-inspect/issues/5253), which needs
 to know whether a property or event is backed by ordinary instance storage.
