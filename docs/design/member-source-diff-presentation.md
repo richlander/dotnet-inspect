@@ -262,9 +262,11 @@ The CLI preserves:
 The intentional compatibility change includes both comparison endpoints and
 their labels: declaration-leading trivia may be removed from PDB comparison
 text, the decompiled comparison uses product-owned wrapping and body choices,
-and the headers change to `PDB comparison` / `Decompiled comparison`. Tests
-assert the new pair and resulting diff rather than freezing the superseded
-CLI-only projection.
+and the headers change to `PDB comparison` / `Decompiled comparison`. A failed
+decompilation also changes from a diff against the old CLI's source-shaped
+diagnostic comment to an explicit unavailable Source Diff with no statistics
+or `MappedTextDiff`. Tests assert the new pair and typed failure outcome rather
+than freezing the superseded CLI-only projection.
 
 ## Pathological demonstration
 
@@ -327,6 +329,9 @@ Release CLI tests prove:
 - the production Source Diff path calls the shared adapter;
 - normal and detailed verbosity preserve their disclosure boundary;
 - checksum provenance and unavailable outcomes remain visible;
+- a PDB-available member whose decompilation fails produces an explicit
+  unavailable Source Diff without statistics, mapped output, or diagnostic
+  text treated as source;
 - the PDB Source and Source Diff co-selection performs one equivalent PDB
   acquisition;
 - the headers are `PDB comparison` and `Decompiled comparison`, while the
