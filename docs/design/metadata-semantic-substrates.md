@@ -148,6 +148,9 @@ domain:
   substrate's declared scope, such as an unrecognized version.
 - **Budget-limited** — a declared work or resource bound stopped the
   derivation before it could answer.
+- **Unexamined** — the substrate deliberately did not look, because a bound
+  was not requested or an optional role was not asked for. This is not an
+  answer about the artifact at all.
 
 Two rules make the distinctions usable:
 
@@ -237,38 +240,48 @@ and is free of ambient state; whether to build one per operation, or hold one
 lazily for the lifetime of a metadata source, is the consumer's decision.
 Substrates must not introduce process-wide caches or a shared registry.
 
-## Consumer rules
+## What a substrate guarantees, and what it leaves alone
 
-These are the pattern's own protocol: what a substrate guarantees, and what
-follows *for a consumer that chooses to consume one*. They do not oblige any
-existing owner to adopt a substrate, do not remove an owner's authority to
-keep its current derivation, and do not decide when adoption happens. Each
-owner's adoption is its own effort, per
+This section states the substrate side of the protocol only. The pattern
+guarantees certain properties of what it publishes, and deliberately declines
+to decide several things so that each consumer keeps them. It does not oblige
+any owner to adopt a substrate, does not decide when adoption happens, and
+does not specify how an adopting owner arranges its internals afterwards —
+that is the adopting owner's own effort, per
 [Stage implementation after locking the design](../design-scope.md#stage-implementation-after-locking-the-design).
 
-Substrate-side guarantees:
+What a substrate guarantees:
 
-- **A substrate never requires a consumer's interpretation as input.** It is
-  derivable from a reader alone. This is what lets two consumers use it
-  without either depending on the other — the tie the pattern exists to break.
-- **A substrate publishes no consumer policy.** Spelling, filtering, severity,
+- **It never requires a consumer's interpretation as input.** It is derivable
+  from a reader alone. This is what lets two consumers use it without either
+  depending on the other — the tie the pattern exists to break.
+- **It publishes no consumer policy.** Spelling, filtering, severity,
   disclosure, and fidelity decisions are not its to make. A substrate
   publishing a consumer-shaped Boolean has failed requirement 4.
-- **A substrate answers only about the module its reader covers.** It does not
-  silently reach beyond its declared acquisition scope.
+- **It answers only about the module its reader covers.** It does not silently
+  reach beyond its declared acquisition scope, and it does not compose results
+  across assemblies.
 
-For a consumer that consumes a substrate:
+What a substrate deliberately leaves to each consumer:
 
-- **It does not also privately re-derive the same fact.** Holding both a
-  consumed result and a private derivation reintroduces exactly the divergence
-  the substrate removes, and the two will disagree on some artifact. A
-  consumer that has not adopted a substrate is not in violation of this — its
-  existing derivation is evidence of demand under requirement 3, not a defect.
-- **It owns its own policy**, and does not push policy back into the
-  substrate to avoid making a decision.
-- **It owns cross-assembly composition.** A consumer spanning assemblies
-  composes per-module results and decides how to resolve disagreement across
-  modules. The substrate does not make that choice for it.
+- **Policy.** The substrate will not accept a policy decision pushed back into
+  it, so a consumer cannot avoid making one.
+- **Cross-assembly composition.** Because a substrate answers per module, a
+  consumer spanning assemblies composes those answers and decides how to
+  resolve disagreement between them.
+- **Whether, when, and how to adopt** — including whether a private derivation
+  is retired immediately, kept temporarily to demonstrate equivalence, or
+  kept indefinitely.
+
+The last point is a deliberate non-mandate rather than an oversight. Holding
+both a consumed result and a private derivation reintroduces the divergence a
+substrate exists to remove, so an adoption that leaves both in place
+indefinitely gives up most of the benefit. But that consequence is a hazard
+for the adopting owner to weigh, not a rule this document can impose: the
+Gates section asks an adoption to *demonstrate* equivalence rather than assume
+it, and demonstrating it requires running both derivations and comparing them.
+A rule forbidding a consumer to hold both would forbid the only technique that
+produces the evidence.
 
 ## Discovery
 
@@ -284,21 +297,45 @@ change that introduces it.
 
 ### Established
 
+These published meanings independently satisfy the admission test. A row must
+show its own demand evidence; the following subsection lists meanings that do
+not.
+
 | Published meaning (component) | Reading consumer | Second demand, and its evidence |
 | --- | --- | --- |
-| State-machine relationships (`StateMachineRelationshipIndex`) | Decompiler, reads the result — `src/ILInspector.Decompiler/Pipeline/MetadataSource.cs:47` | **Duplication.** Analysis never calls the index. It derives the same facts itself, twice over: async state-machine type membership at `src/ILInspector.Analysis/LibraryBodyPrimaryMetadataResolver.cs:810`, and `AsyncStateMachineAttribute` decoding at `src/ILInspector.Analysis/LibraryBodyAsyncSourceResolver.cs:211`. |
+| State-machine claims and kickoff/type pairing (`StateMachineRelationshipIndex`) | Decompiler, reads the result — constructed at `src/ILInspector.Decompiler/Pipeline/MetadataSource.cs:62`-`63` and consumed at `:109` | **Duplication, twice over.** Analysis never calls the index. It derives state-machine type membership itself at `src/ILInspector.Analysis/LibraryBodyPrimaryMetadataResolver.cs:823`-`854`, and independently pairs kickoff methods to state-machine types — with its own ambiguity handling — at `src/ILInspector.Analysis/LibraryBodyAsyncSourceResolver.cs:1161`-`1271`, decoding `AsyncStateMachineAttribute` at `:211`. |
 | Module memory-safety rules markers (`MemorySafetyMetadataIndex`) | CLI Signals, reads a projection — `src/ILInspector.Metadata/AssemblyDetailScanner.cs:197` publishes `MemorySafetyRules`, read at `src/dotnet-inspect/Inspectors/AuditSignalBuilder.cs:372` | **Duplication, already observed diverging.** The decompiler printer decodes the same module marker at `src/ILInspector.Decompiler/Pipeline/Ir/IrImporter.cs:2826`, and the two derivations disagree on a legal ECMA-335 spelling — [#5670](https://github.com/richlander/dotnet-inspect/issues/5670). |
-| Member unsafe contracts (`MemorySafetyMetadataIndex`) | CLI Signals, reads a projection — `RequiresUnsafeCount` at `src/dotnet-inspect/Inspectors/AuditSignalBuilder.cs:379` | **Not independently satisfied.** The only other derivation is `AttributeReader.HasRequiresUnsafeAttribute` used by `src/ILInspector.Metadata/ApiSurfaceExtractor.cs:1131` — inside Metadata, not a higher layer. This family is published by the same component as the row above but rides on it rather than showing its own demand. |
 | Exact TypeDef declaration (`MetadataTypeDeclarationProbe`) | Queries, reads the result through the Metadata-owned session entry point — `src/DotnetInspector.Queries/InspectionGraphIntegrationsQuery.cs:1226`, `:1310`, `:2001` call `session.ProbeDeclaration(...)`, which returns the substrate's own `TypeDeclarationResult` (`src/ILInspector.Metadata/AssemblyInspectionSession.cs:371`) | **Consumption.** The Decompiler calls the probe class directly — `MetadataTypeDeclarationProbe.ProbeDefinition(reader, typeName)` at `src/ILInspector.Decompiler/Pipeline/Ir/IrImporter.cs:236`. |
-| Forwarding chains and module exports (`MetadataTypeDeclarationProbe`) | Queries only, through the same session entry point | **Single reader today.** `ProbeDefinition` explicitly "finds one exact TypeDef in the current image without considering exports or forwarders" (`src/ILInspector.Metadata/MetadataTypeDeclarationProbe.cs:11`), so the Decompiler is not a reader of this family. It is published by the same component as the row above but does not independently satisfy requirement 3. |
 
-"Consumed" is used in two senses above and the column says which applies. A
-consumer **reads the substrate's result** when it handles the substrate's own
-typed outcome — whether it constructs the substrate itself, as the Decompiler
-does, or obtains that same result from a Metadata-owned entry point, as
-Queries does through `AssemblyInspectionSession.ProbeDeclaration`. A consumer
-**reads a projection** when it reads a value the substrate produced after an
-intermediate model has carried it, as CLI Signals does through
+The state-machine duplication is not merely redundant, it is *worse* than the
+substrate it duplicates: Analysis identifies state-machine types with an ad-hoc
+`">d__"` substring test (`LibraryBodyPrimaryMetadataResolver.cs:835`), exactly
+the ad-hoc name test requirement 2 forbids, rather than the shared
+`GeneratedNameGrammar`. Duplication reproduces a derivation, not its quality.
+
+### Published alongside, but not independently admitted
+
+An admitted component may publish further families that would not pass the
+admission test on their own evidence. They are bound by the publication
+contract above — closed outcomes, immutability, identity, bounds — because
+their component is a substrate. They are **not** evidence for the pattern, and
+none may be cited as precedent for admitting a new substrate. Recording them
+here rather than under **Established** is what keeps requirement 3's
+per-meaning rule from being satisfied by a class-level sibling.
+
+| Published meaning (component) | Why it does not independently satisfy requirement 3 |
+| --- | --- |
+| Exact interface roles (`StateMachineRelationshipIndex`) | **Single reader.** The Decompiler consumes role dispositions at `src/ILInspector.Decompiler/Pipeline/ClassicAsyncRequestAdapter.cs:115`-`145`. Analysis derives membership and pairing but never the exact roles enumerated in `src/ILInspector.Metadata/StateMachineRelationship.cs:15`-`23`, so no second layer needs this family. |
+| Member unsafe contracts (`MemorySafetyMetadataIndex`) | **No higher-layer second derivation.** CLI Signals reads a projection (`RequiresUnsafeCount` at `src/dotnet-inspect/Inspectors/AuditSignalBuilder.cs:379`), but the only other derivation is `AttributeReader.HasRequiresUnsafeAttribute` used by `src/ILInspector.Metadata/ApiSurfaceExtractor.cs:1131` — inside Metadata, not above it. |
+| Forwarding chains and module exports (`MetadataTypeDeclarationProbe`) | **Single reader.** `ProbeDefinition` explicitly "finds one exact TypeDef in the current image without considering exports or forwarders" (`src/ILInspector.Metadata/MetadataTypeDeclarationProbe.cs:11`), so the Decompiler is not a reader of this family; only Queries is. |
+
+"Consumed" is used in two senses in the Established table and the column says
+which applies. A consumer **reads the substrate's result** when it handles the
+substrate's own typed outcome — whether it constructs the substrate itself, as
+the Decompiler does, or obtains that same result from a Metadata-owned entry
+point, as Queries does through `AssemblyInspectionSession.ProbeDeclaration`. A
+consumer **reads a projection** when it reads a value the substrate produced
+after an intermediate model has carried it, as CLI Signals does through
 `MemorySafetyRules`. Both satisfy requirement 3, because both make the
 consumer depend on the substrate's answer instead of its own derivation. The
 distinction matters only for locating the call: a reader grepping Queries for
@@ -307,15 +344,20 @@ a consumer in either sense.
 
 Only the exact-TypeDef row is satisfied by two readers today. The
 state-machine and memory-safety rows are satisfied by duplication: a second
-layer needs the same meaning and derives it independently. The forwarding row
-is satisfied by neither and is recorded as such. That is the honest state, and
-the duplication is also the point — #5670 is a shipped instance of exactly the
-drift this pattern exists to prevent, found in the pair that had no shared
-substrate. Closing that duplication is the pattern's own backlog. The
-memory-safety row's remaining adoption is tracked under
+layer needs the same meaning and derives it independently. That duplication is
+also the point — #5670 is a shipped instance of exactly the drift this pattern
+exists to prevent, found in the pair that had no shared substrate. Closing it
+is the pattern's own backlog. The memory-safety row's remaining adoption is
+tracked under
 [#5555](https://github.com/richlander/dotnet-inspect/issues/5555); the
 state-machine duplication is recorded here and has no tracker yet. Neither is
 claimed as completed adoption.
+
+Three of the six meanings published by the established components do not
+independently qualify. That ratio is worth stating plainly: a component earns
+substrate status for the meaning that justified it, and tends to accumulate
+neighbouring families afterwards. The admission test governs the first; the
+publication contract governs both.
 
 ### Known deviations
 
@@ -345,7 +387,7 @@ non-conforming work:
 | Type declaration and forwarding resolution | Budget exhaustion is reported as `Malformed`, collapsing the **Budget-limited** distinction into malformed metadata. A consumer cannot tell a hostile-artifact bound from a broken artifact. | `src/ILInspector.Metadata/MetadataTypeDeclarationProbe.cs:67` returns `TypeDeclarationResult.Rejected(MetadataTypeNameFailure.Malformed(...))` with the message "exceeded its structural-name work budget". |
 | Type declaration and forwarding resolution | Publishes bare row coordinates throughout its result graph, so a retained result cannot be rebound to a module safely. The correction boundary is **every** published coordinate, not the examples cited. | `TypeDefinitionToken.Value` — `src/ILInspector.Metadata/TypeDeclaration.cs:27`; `ExportedTypeToken.Value` — `:50`; `MetadataTypeNameFailure.SubjectToken` — `src/ILInspector.MetadataPrimitives/MetadataTypeNameResult.cs:39`. Tracked as [#5711](https://github.com/richlander/dotnet-inspect/issues/5711). |
 | `MemorySafetyMetadataIndex` | Same defect, same boundary. | `MemorySafetyMemberContractEvidence.MemberToken` and `.AssociatedMemberToken` — `src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:94`; `MemorySafetyRulesObservation.AttributeToken` — `:24`. Tracked as [#5711](https://github.com/richlander/dotnet-inspect/issues/5711). |
-| `MemorySafetyMetadataIndex`, `StateMachineRelationshipIndex` | Accept raw handles, so an in-range handle from another module is undetectable at the boundary. This is a limit of the key type; the deviation is that neither documents it. | `GetMemberContract(EntityHandle)` validates kind and row only — `src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:841`; `IsValidMethodHandle` checks row range only — `src/ILInspector.Metadata/StateMachineRelationshipIndex.cs:164`. |
+| `MemorySafetyMetadataIndex`, `StateMachineRelationshipIndex` | Accept raw handles, so an in-range handle from another module is undetectable at the boundary. This is a limit of the key type; the deviation is that neither documents it. | `GetMemberContract(EntityHandle)` (`src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:363`) admits any handle its `IsValidMemberHandle` accepts, and that check tests kind and row number only — `src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:841`; `IsValidMethodHandle` checks row range alone — `src/ILInspector.Metadata/StateMachineRelationshipIndex.cs:164`. |
 
 The requirement is not invented for this document: the other two substrates
 already model the distinction as a first-class case —
