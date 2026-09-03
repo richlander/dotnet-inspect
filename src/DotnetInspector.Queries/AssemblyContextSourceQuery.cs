@@ -282,13 +282,15 @@ public abstract record AssemblyTypeSourceEntry(
 public static class AssemblyContextSourceQuery
 {
     public static InspectionQuery<AssemblyMemberSourceEntry>
-        MemberDefinition { get; } =
+        MemberDefinition
+    { get; } =
         new(
             "Assembly context member source",
             InspectionCost.Moderated);
 
     public static InspectionQuery<AssemblyTypeSourceEntry>
-        TypeDefinition { get; } =
+        TypeDefinition
+    { get; } =
         new(
             "Assembly context type source",
             InspectionCost.Moderated);
@@ -923,7 +925,7 @@ public static class AssemblyContextSourceQuery
         ExceptionDispatchInfo.Capture(disposalFailure).Throw();
     }
 
-    sealed class CancellationObservingBindingPolicy(
+    internal sealed class CancellationObservingBindingPolicy(
         IAssemblyBindingPolicy inner,
         AssemblyBindingPolicyVersion expectedVersion)
         : IAssemblyBindingPolicy
@@ -943,18 +945,32 @@ public static class AssemblyContextSourceQuery
             }
         }
 
-        public AssemblyBindingSelection Select(
+        public AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request)
         {
             EnsureVersion();
             try
             {
+                AssemblyBindingSelectionSnapshot? snapshot =
+                    inner.Select(request);
+                if (snapshot is null)
+                    return null!;
+                if (!ReferenceEquals(
+                        snapshot.Version,
+                        expectedVersion))
+                {
+                    throw new InvalidOperationException(
+                        "The participant binding-policy snapshot changed during source inspection.");
+                }
+
                 AssemblyBindingSelection selection =
                     AssemblyBindingSelection.ValidateForRequest(
                         request,
-                        inner.Select(request));
+                        snapshot.Selection);
                 EnsureVersion();
-                return ObserveSelectedAssemblies(selection);
+                return new AssemblyBindingSelectionSnapshot(
+                    expectedVersion,
+                    ObserveSelectedAssemblies(selection));
             }
             catch (OperationCanceledException ex)
             {

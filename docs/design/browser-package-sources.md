@@ -430,8 +430,9 @@ rather than accepting independent identity or issuer arguments.
 callback from the external client assembly. Its admitted kinds are
 `NuGetGallery` and `NuGetV3`. Gallery uses the canonical owner-issued NuGet.org
 producer; v3 uses the descriptor's admitted normalized endpoint projection.
-`LocalFolder` remains unsupported until the
-[local folder package source](local-folder-package-source.md) is implemented.
+`LocalFolder` is not an external `CreateCustom` descriptor kind; the
+[local folder package source](local-folder-package-source.md) constructs its
+owner-issued client directly from canonical local identity.
 Null arguments and unsupported descriptor kinds are rejected before any caller
 callback runs or any bound factory is made available.
 

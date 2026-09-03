@@ -1172,7 +1172,15 @@ public sealed class TypeResolutionEnumWidthTests
     {
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(AssemblyBindingRequest request)
-            => select(request);
+        public AssemblyBindingSelectionSnapshot Select(AssemblyBindingRequest request)
+
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                select(request);
+        }
     }
 }

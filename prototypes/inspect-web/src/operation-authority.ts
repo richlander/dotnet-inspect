@@ -122,6 +122,10 @@ export interface OperationProducerSink<TValue, TError, TProgress> {
   readonly reportTerminal: (
     outcome: OperationOutcome<TValue, TError>,
   ) => undefined;
+  readonly reportUnexpectedTerminal: (
+    error: TError,
+    diagnostic: unknown,
+  ) => undefined;
   readonly reportQuiesced: () => undefined;
   readonly reportUnexpectedFailure: (error: unknown) => undefined;
 }
@@ -455,6 +459,50 @@ function createRecord<TValue, TError, TProgress>(
   const quiescedDeferred = deferred<void>();
   let record: OperationRecord<TValue, TError, TProgress>;
 
+  const reserveTerminal = (
+    outcome: OperationOutcome<TValue, TError>,
+  ): "rejected" | "consumed" | "reserved" => {
+    if (record.released) {
+      producerContractError(
+        session,
+        record,
+        "Producer reported a terminal outcome after resource release.",
+      );
+      return "rejected";
+    }
+    if (record.terminalReported) {
+      producerContractError(
+        session,
+        record,
+        "Producer reported more than one terminal outcome.",
+      );
+      return "rejected";
+    }
+    record.terminalReported = true;
+    if (!publicationAuthority(session, record)) return "consumed";
+    resolveOutcome(record, outcome);
+    session.revision++;
+    return "reserved";
+  };
+
+  const publishTerminal = (
+    outcome: OperationOutcome<TValue, TError>,
+  ): void => {
+    if (outcome.kind === "canceled") {
+      publishFeature(session, {
+        kind: "canceled",
+        operationId: record.identity.id,
+        reason: outcome.reason,
+      });
+    } else {
+      publishFeature(session, {
+        kind: "terminal",
+        operationId: record.identity.id,
+        outcome,
+      });
+    }
+  };
+
   const sink: OperationProducerSink<TValue, TError, TProgress> = {
     reportProgress: value => {
       if (record.released) {
@@ -474,39 +522,21 @@ function createRecord<TValue, TError, TProgress>(
       return undefined;
     },
     reportTerminal: outcome => {
-      if (record.released) {
-        producerContractError(
-          session,
-          record,
-          "Producer reported a terminal outcome after resource release.",
-        );
-        return undefined;
-      }
-      if (record.terminalReported) {
-        producerContractError(
-          session,
-          record,
-          "Producer reported more than one terminal outcome.",
-        );
-        return undefined;
-      }
-      record.terminalReported = true;
-      if (!publicationAuthority(session, record)) return undefined;
-      resolveOutcome(record, outcome);
-      session.revision++;
-      if (outcome.kind === "canceled") {
-        publishFeature(session, {
-          kind: "canceled",
-          operationId: record.identity.id,
-          reason: outcome.reason,
-        });
-      } else {
-        publishFeature(session, {
-          kind: "terminal",
-          operationId: record.identity.id,
-          outcome,
-        });
-      }
+      if (reserveTerminal(outcome) === "reserved")
+        publishTerminal(outcome);
+      return undefined;
+    },
+    reportUnexpectedTerminal: (error, diagnostic) => {
+      const outcome = { kind: "failed", error } as const;
+      const reservation = reserveTerminal(outcome);
+      if (reservation === "rejected") return undefined;
+      reportDiagnostic(session, {
+        kind: "producer-contract",
+        operationId: record.identity.id,
+        error: diagnostic,
+      });
+      if (reservation === "reserved")
+        publishTerminal(outcome);
       return undefined;
     },
     reportQuiesced: () => {

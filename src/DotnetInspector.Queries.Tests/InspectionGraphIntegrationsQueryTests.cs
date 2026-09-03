@@ -14,6 +14,50 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class InspectionGraphIntegrationsQueryTests
 {
     [Fact]
+    public void SelectBindingForVersion_RejectsForeignSnapshot()
+    {
+        var policy = new SnapshotPolicy(
+            AssemblyBindingSelection.NotFound());
+        AssemblyBindingPolicyVersion expectedVersion = policy.Version;
+        policy.SnapshotVersion = new AssemblyBindingPolicyVersion();
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.CoreLibrary(),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Platform);
+
+        Assert.Throws<InvalidOperationException>(
+            () => InspectionGraphIntegrationsQuery
+                .SelectBindingForVersion(
+                    policy,
+                    expectedVersion,
+                    request));
+    }
+
+    [Fact]
+    public void SelectBindingForVersion_PreservesNullAsInvalidPolicyOutput()
+    {
+        var policy = new SnapshotPolicy(
+            AssemblyBindingSelection.NotFound())
+        {
+            ReturnNull = true,
+        };
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.CoreLibrary(),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Platform);
+
+        var rejected = Assert.IsType<AssemblyBindingSelection.Rejected>(
+            InspectionGraphIntegrationsQuery.SelectBindingForVersion(
+                policy,
+                policy.Version,
+                request));
+
+        Assert.Equal(
+            AssemblyBindingFailureKind.InvalidPolicyResult,
+            rejected.Failure.Kind);
+    }
+
+    [Fact]
     public void Execute_DefaultsToWorkspaceInducedSetWithoutSeeds()
     {
         using var fixture = IntegrationFixture.Create();
@@ -2014,11 +2058,11 @@ public sealed class InspectionGraphIntegrationsQueryTests
             document.Nodes.Count(node =>
                 node.Subject
                     is InspectionGraphSubject.TypeSubject
-                    {
-                        Identity:
+                {
+                    Identity:
                             InspectionGraphTypeIdentity.AcquiredDefinition
                             identity,
-                    }
+                }
                 && identity.Type.ToMetadataFullName()
                     == "Microsoft.Extensions.AI.IChatClient"));
         Assert.DoesNotContain(
@@ -2104,9 +2148,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
             document.Failures,
             failure =>
                 failure.Target is
-                    {
-                        Kind: InspectionGraphTargetKind.Node,
-                    } target
+                {
+                    Kind: InspectionGraphTargetKind.Node,
+                } target
                 && AssemblyName(document.Nodes[target.Id].Subject)
                     == "Rejected.Integration");
         var evidence =
@@ -2211,9 +2255,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
             document.Failures,
             failure =>
                 failure.Target is
-                    {
-                        Kind: InspectionGraphTargetKind.Node,
-                    } target
+                {
+                    Kind: InspectionGraphTargetKind.Node,
+                } target
                 && AssemblyName(document.Nodes[target.Id].Subject)
                     == "UnavailableReferences");
         var evidence =
@@ -2246,9 +2290,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
             document.Failures,
             failure =>
                 failure.Target is
-                    {
-                        Kind: InspectionGraphTargetKind.Node,
-                    } target
+                {
+                    Kind: InspectionGraphTargetKind.Node,
+                } target
                 && AssemblyName(document.Nodes[target.Id].Subject)
                     == "ReferenceVariants");
         AssemblyReferenceIdentity[] references =
@@ -2404,9 +2448,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
             document.Failures,
             failure =>
                 failure.Target is
-                    {
-                        Kind: InspectionGraphTargetKind.Node,
-                    } target
+                {
+                    Kind: InspectionGraphTargetKind.Node,
+                } target
                 && AssemblyName(document.Nodes[target.Id].Subject)
                     == "Oversized.Logging"
                 && Assert.IsType<
@@ -2434,11 +2478,11 @@ public sealed class InspectionGraphIntegrationsQueryTests
                 node =>
                     node.Subject
                         is InspectionGraphSubject.TypeSubject
-                        {
-                            Identity:
+                    {
+                        Identity:
                                 InspectionGraphTypeIdentity
                                     .AcquiredDefinition identity,
-                        }
+                    }
                     && AcquiredAssemblyName(
                         document,
                         identity.Registration) == assemblyName
@@ -2501,11 +2545,11 @@ public sealed class InspectionGraphIntegrationsQueryTests
                     node =>
                         node.Subject
                             is InspectionGraphSubject.AssemblySubject
-                            {
-                                Identity:
+                        {
+                            Identity:
                                     InspectionGraphAssemblyIdentity.Acquired
                                     identity,
-                            }
+                        }
                         && ReferenceEquals(
                             identity.Registration,
                             registration))
@@ -3354,51 +3398,82 @@ public sealed class InspectionGraphIntegrationsQueryTests
 
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
+        public AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request)
         {
-            if (request.Target
-                is not AssemblyBindingTarget.AssemblyReference reference)
-            {
-                return AssemblyBindingSelection.NotFound();
-            }
-            if (_unavailableOpenAiBinding
-                && reference.Identity.Name.Equals(
-                    "OpenAI",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                return AssemblyBindingSelection.CannotSelect(
-                    new AssemblyBindingFailure(
-                        AssemblyBindingFailureKind
-                            .IdentityPolicyRequired));
-            }
-            if (_multipleUnavailableReferenceBindings
-                && (reference.Identity.Name.Equals(
-                        "Foo",
-                        StringComparison.OrdinalIgnoreCase)
-                    || reference.Identity.Name.Equals(
-                        "Bar",
-                        StringComparison.OrdinalIgnoreCase)))
-            {
-                return AssemblyBindingSelection.CannotSelect(
-                    new AssemblyBindingFailure(
-                        AssemblyBindingFailureKind
-                            .IdentityPolicyRequired));
-            }
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
 
-            ResolvedAssemblyReference[] candidates =
-            [
-                .. _assemblies.Where(assembly =>
-                    assembly.Identity.IsEquivalentTo(
-                        reference.Identity)),
-            ];
-            return candidates.Length switch
+            AssemblyBindingSelection SelectCore()
             {
-                0 => AssemblyBindingSelection.NotFound(),
-                1 => AssemblyBindingSelection.Found(candidates[0]),
-                _ => AssemblyBindingSelection.Multiple(
-                    [.. candidates]),
-            };
+                if (request.Target
+                    is not AssemblyBindingTarget.AssemblyReference reference)
+                {
+                    return AssemblyBindingSelection.NotFound();
+                }
+                if (_unavailableOpenAiBinding
+                    && reference.Identity.Name.Equals(
+                        "OpenAI",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return AssemblyBindingSelection.CannotSelect(
+                        new AssemblyBindingFailure(
+                            AssemblyBindingFailureKind
+                                .IdentityPolicyRequired));
+                }
+                if (_multipleUnavailableReferenceBindings
+                    && (reference.Identity.Name.Equals(
+                            "Foo",
+                            StringComparison.OrdinalIgnoreCase)
+                        || reference.Identity.Name.Equals(
+                            "Bar",
+                            StringComparison.OrdinalIgnoreCase)))
+                {
+                    return AssemblyBindingSelection.CannotSelect(
+                        new AssemblyBindingFailure(
+                            AssemblyBindingFailureKind
+                                .IdentityPolicyRequired));
+                }
+
+                ResolvedAssemblyReference[] candidates =
+                [
+                    .. _assemblies.Where(assembly =>
+                        assembly.Identity.IsEquivalentTo(
+                            reference.Identity)),
+                ];
+                return candidates.Length switch
+                {
+                    0 => AssemblyBindingSelection.NotFound(),
+                    1 => AssemblyBindingSelection.Found(candidates[0]),
+                    _ => AssemblyBindingSelection.Multiple(
+                        [.. candidates]),
+                };
+
+            }
         }
+    }
+
+    sealed class SnapshotPolicy : IAssemblyBindingPolicy
+    {
+        readonly AssemblyBindingSelection _selection;
+
+        internal SnapshotPolicy(AssemblyBindingSelection selection)
+        {
+            _selection = selection;
+            SnapshotVersion = Version;
+        }
+
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+        internal AssemblyBindingPolicyVersion SnapshotVersion { get; set; }
+        internal bool ReturnNull { get; set; }
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request) =>
+            ReturnNull
+                ? null!
+                : new AssemblyBindingSelectionSnapshot(
+                    SnapshotVersion,
+                    _selection);
     }
 }

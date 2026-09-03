@@ -457,14 +457,22 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
         internal IReadOnlyList<AssemblyBindingRequest> Requests =>
             _requests;
 
-        public AssemblyBindingSelection Select(
+        public AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request)
         {
-            _requests.Add(request);
-            return AssemblyBindingSelection.CannotSelect(
-                new AssemblyBindingFailure(
-                    AssemblyBindingFailureKind
-                        .CandidateUnavailable));
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore()
+            {
+                _requests.Add(request);
+                return AssemblyBindingSelection.CannotSelect(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind
+                            .CandidateUnavailable));
+
+            }
         }
     }
 }
