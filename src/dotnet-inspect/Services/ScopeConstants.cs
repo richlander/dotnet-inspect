@@ -8,7 +8,7 @@ public static class ScopeConstants
     /// <summary>
     /// Maximum package coordinates contributed by a package-prefix expansion.
     /// </summary>
-    public const int PackagePrefixExpansionLimit = 100;
+    public const int PackagePrefixExpansionLimit = 500;
 
     /// <summary>
     /// Platform framework names for --platform scope.

@@ -51,7 +51,7 @@ public static class SearchCommandDefinitions
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
         var packagePrefixOption = new Option<string?>("--package-prefix")
         {
-            Description = $"With a type pattern, search up to {ScopeConstants.PackagePrefixExpansionLimit} matching package IDs; without one, inspect latest manifests only"
+            Description = $"With a type pattern, search up to {ScopeConstants.PackagePrefixExpansionLimit} matching package IDs; without one, inspect {FindCommand.PackageProfileDefaultLimit} latest manifests by default (-t up to {FindCommand.PackageProfileMaximumLimit})"
         };
         var typeFilterOption = new Option<string?>("-t") { Description = "Limit result count (-t 5) or filter API types by glob (-t *Json*)" };
         typeFilterOption.Aliases.Add("--type");

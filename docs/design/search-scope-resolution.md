@@ -2,8 +2,8 @@
 
 This document owns the CLI-scoped normalization that decides when the search
 default applies and expands named search-scope groups into ordered platform
-framework and package sets. `find`, `implements`, `extensions`, and type-mode
-`depends` consume the result.
+framework and package sets. Type-search `find`, `implements`, `extensions`,
+and type-mode `depends` consume the result.
 
 This is the current behavior contract and reference oracle for the ground-up
 typed search-scope domain tracked by
@@ -85,17 +85,17 @@ Explicit selectors compose additively:
 | `--extensions` | the current Microsoft.Extensions package catalog |
 | `--aspnetcore` | the current ASP.NET Core package catalog |
 | explicit `--package` values | those package coordinates |
-| `--package-prefix` | up to 100 matching package coordinates; its presence suppresses the default even when expansion is empty |
+| `--package-prefix` with a type pattern | up to 500 matching package coordinates; its presence suppresses the default even when expansion is empty |
 | valued `--platform`, `--library`, `--project`, or `--bin` | no framework or package contribution; their presence suppresses the default |
 
 Valued `--platform` is parser output for a platform-library source, not the
 bare platform-group selection. This design consumes that distinction and does
 not define its token grammar.
 
-Package-prefix contribution is bounded to the first 100 coordinates returned
-by prefix search. Reaching that bound produces a visible warning because
-additional matches may exist. Prefix query, provider ordering, and paging
-remain acquisition concerns.
+Type-search package-prefix contribution is bounded to the first 500
+coordinates returned by prefix search. Reaching that bound produces a visible
+warning because additional matches may exist. Prefix query, provider ordering,
+and paging remain acquisition concerns.
 
 Package order is:
 
@@ -116,8 +116,10 @@ The design does not duplicate the current catalog inventory in prose.
 
 ## Command participation
 
-`find`, `implements`, and `extensions` always use this normalization for their
-search operation. `depends` uses it only for type-hierarchy mode; its
+Type-search `find`, `implements`, and `extensions` use this normalization.
+Patternless `find --package-prefix` instead runs the Nuspec-only profile owned
+by [the package query CLI](package-query-cli.md) and bypasses this normalizer.
+`depends` uses normalization only for type-hierarchy mode; its
 package-dependency and library-reference modes are unary source operations and
 do not acquire a search default.
 
@@ -130,17 +132,6 @@ additional platform sources.
 That command-adapter obligation is distinct from the pure normalizer contract.
 The normalizer receives already-lowered flags, coordinates, and presence
 signals; it does not prove that every command supplied them correctly.
-
-## Obsolete hidden input
-
-The historical `--curated` input duplicated bare `--platform` after the default
-package catalog became empty. It was hidden from help, README, and product
-skills and had no independent current-interface utility; explicit
-`--platform` already composes with packages and other source selectors.
-
-The input is removed. Because an option-shaped token is rejected by the
-ordinary parser rather than rebound or routed to another operation, no focused
-invalid-input guard or reservation is required.
 
 ## Implementation and gates
 
@@ -180,9 +171,8 @@ end-to-end wiring has partial Release gate coverage:
   gate the prefix bound's user-facing help, workflow, and skill;
 - `SearchScopeResolutionTests.PackagePrefixLimitReached_IsVisible` gates its
   warning; and
-- `SearchScopeResolutionTests.CuratedCompatibilityInput_IsNotRegistered`
-  gates removal of the redundant hidden input from every participating
-  command.
+- `SearchScopeResolutionTests.PackagePrefixExpansionLimit_UsesMeasuredDefault`
+  gates the 500-package type-search expansion bound.
 
 The residual command-adapter matrix is explicitly unverified: the suite does
 not provide one outcome-level non-vacuity case for every explicit package,

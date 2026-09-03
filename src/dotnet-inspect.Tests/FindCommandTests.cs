@@ -1159,9 +1159,9 @@ public class FindCommandIntegrationTests
     }
 
     [Theory]
-    [InlineData("Azure", 0, "-t must be between 1 and 10000 for a package-prefix profile (got 0).")]
-    [InlineData("Azure", 10001, "-t must be between 1 and 10000 for a package-prefix profile (got 10001).")]
-    [InlineData("Azure ", 100, "--package-prefix must be 1 to 100 characters without surrounding whitespace or control characters.")]
+    [InlineData("Azure", 0, "-t must be between 1 and 1000 for a package-prefix profile (got 0).")]
+    [InlineData("Azure", 1001, "-t must be between 1 and 1000 for a package-prefix profile (got 1001).")]
+    [InlineData("Azure ", 500, "--package-prefix must be 1 to 100 characters without surrounding whitespace or control characters.")]
     public async Task PackageProfileInvalidInput_UsesComposedDiagnostic(
         string prefix,
         int limit,
@@ -1185,6 +1185,13 @@ public class FindCommandIntegrationTests
             "ArgumentOutOfRange_",
             error,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PackageProfileLimits_UseMeasuredDefaultAndMaximum()
+    {
+        Assert.Equal(500, FindCommand.PackageProfileDefaultLimit);
+        Assert.Equal(1_000, FindCommand.PackageProfileMaximumLimit);
     }
 
     [Fact]
@@ -1279,7 +1286,7 @@ public class FindCommandIntegrationTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("-t must be an integer between 1 and 10000", error);
+        Assert.Contains("-t must be an integer between 1 and 1000", error);
         Assert.DoesNotContain("Attempted:", error);
         Assert.DoesNotContain("Arg_", error, StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -1307,7 +1314,7 @@ public class FindCommandIntegrationTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "-t must be between 1 and 10000 for a package-prefix profile",
+            "-t must be between 1 and 1000 for a package-prefix profile",
             error);
         Assert.DoesNotContain("Attempted:", error);
     }

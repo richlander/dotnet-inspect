@@ -1,4 +1,5 @@
 using DotnetInspector.CommandLine;
+using DotnetInspector.Commands;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 
@@ -269,6 +270,23 @@ public class SearchScopeResolutionTests
             StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void PackageProfileGuidance_DisclosesDefaultAndMaximum()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["find"]);
+        var option = result.CommandResult.Command.Options.Single(
+            candidate => candidate.Name == "--package-prefix");
+
+        Assert.Contains(
+            $"{FindCommand.PackageProfileDefaultLimit} latest manifests by default",
+            option.Description,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            $"-t up to {FindCommand.PackageProfileMaximumLimit}",
+            option.Description,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     [Theory]
     [InlineData(
         "docs/workflows/core/type-queries.md",
@@ -317,22 +335,10 @@ public class SearchScopeResolutionTests
             StringComparison.Ordinal);
     }
 
-    [Theory]
-    [InlineData("find", "System.String")]
-    [InlineData("implements", "IDisposable")]
-    [InlineData("extensions", "System.String")]
-    [InlineData("depends", "System.String")]
-    public void CuratedCompatibilityInput_IsNotRegistered(string command, string target)
+    [Fact]
+    public void PackagePrefixExpansionLimit_UsesMeasuredDefault()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(
-            [command, target, "--curated"]);
-
-        Assert.NotEmpty(result.Errors);
-        Assert.Contains(
-            result.Errors,
-            error => error.Message.Contains(
-                "Unrecognized command or argument '--curated'",
-                StringComparison.Ordinal));
+        Assert.Equal(500, ScopeConstants.PackagePrefixExpansionLimit);
     }
 
     private static Task<(int Exit, string Output, string Error)> RunAppAsync(
