@@ -1046,10 +1046,37 @@ public sealed class PackageAssemblyContextRealizationTests
             workspace.CloseAsync();
 
         Assert.False(close.IsCompleted);
-        callbackResume.SetResult();
+        while (true)
+        {
+            try
+            {
+                _ = realization.SurfaceGroup.UseSnapshot(
+                    surfaceParticipant.Participant.Assembly,
+                    static _ => 0);
+                await Task.Yield();
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            catch (ObjectDisposedException)
+            {
+                break;
+            }
+        }
+        await Task.Yield();
+        long retainedArtifactLength = 0;
+        try
+        {
+            using Stream retainedArtifact =
+                surfaceParticipant.Participant.Assembly.OpenRead();
+            retainedArtifactLength = retainedArtifact.Length;
+        }
+        finally
+        {
+            callbackResume.SetResult();
+        }
         Assert.IsType<AssemblyImageAccessResult<int>.Available>(
             await operation);
         InspectionWorkspaceCloseReport report = await close;
+        Assert.Equal(valid.LongLength, retainedArtifactLength);
         Assert.Empty(report.ArtifactSessionCleanupFailures);
         Assert.Equal(2, content.EntryOpenRequests);
         Assert.Throws<ObjectDisposedException>(
