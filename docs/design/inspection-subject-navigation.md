@@ -221,9 +221,11 @@ membership-transition projection is tracked by #5508.
 
 Artifact acquisition and package realization own package coordinate,
 `PackageRootBinding`, content-generation, selection, and acquired-descendant
-identity currencies. #5508 composes the Workspace identity with those existing
-currencies rather than minting a parallel package-occurrence identity.
-Navigation consumes only that owner-issued exact binding; a portable package
+identity currencies. #5508 composes a Workspace-local occurrence with those
+existing currencies rather than minting a parallel package identity. Repeated
+admission of the same `PackageRootBinding` receives a distinct occurrence, but
+the carried binding remains the only package correspondence proof. Navigation
+consumes only that owner-issued exact occurrence binding; a portable package
 coordinate alone cannot identify one retained occurrence.
 
 [Type, member, and API representation](type-member-api-representation.md) owns
@@ -307,8 +309,8 @@ The conceptual subject identity family is:
 | Kind | Identity components |
 | --- | --- |
 | Workspace | Owner-issued runtime Workspace occurrence identity |
-| Package | Workspace identity plus exact retained `PackageRootBinding` occurrence |
-| Root | Workspace identity plus exact retained non-package occurrence identity |
+| Package | Exact owner-issued `PackageRootOccurrenceBinding`, carrying its Workspace identity, distinct occurrence issuance, and exact retained `PackageRootBinding` |
+| Root | Exact owner-issued `NonPackageRootOccurrenceIdentity`, carrying its Workspace identity |
 | All Libraries | Exact Package or Root plus explicit aggregate Library identity |
 | One Library | Exact Package or Root plus acquired Library identity |
 | Type | Exact Library binding plus exact metadata definition |
