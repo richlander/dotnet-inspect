@@ -405,6 +405,20 @@ test("right-side actions yield from labels to arrows to nothing", async ({
   await expect(page.locator(".title-search-label-full")).toBeVisible();
   await expect(page.locator(".title-search-label-compact")).toBeHidden();
 
+  await page.setViewportSize({ width: 1060, height: 900 });
+  await expect(page.locator(".title-search-label-full")).toBeHidden();
+  await expect(page.locator(".title-search-label-compact")).toBeVisible();
+
+  await page.setViewportSize({ width: 1062, height: 900 });
+  const fullLabel = page.locator(".title-search-label-full");
+  await expect(fullLabel).toBeVisible();
+  const fullLabelWidth = await fullLabel.evaluate(element => ({
+    client: element.clientWidth,
+    scroll: element.scrollWidth,
+  }));
+  expect(fullLabelWidth.scroll).toBeLessThanOrEqual(fullLabelWidth.client);
+
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/browser/workspace-titlebar.html?member=1&long=1");
   await expect(page.locator("#open-search")).toBeHidden();
   await expect(page.locator(".title-navigation .nav-history")).toBeVisible();

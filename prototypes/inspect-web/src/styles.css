@@ -1496,7 +1496,7 @@ kbd {
   .workspace-view-details div { grid-template-columns: 80px minmax(0, 1fr); }
 }
 
-@container title-navigation (max-width: 219px) {
+@container title-navigation (max-width: 224px) {
   .title-search {
     flex: none;
     width: auto;
