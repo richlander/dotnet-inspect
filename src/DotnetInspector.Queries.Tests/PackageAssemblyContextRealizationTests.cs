@@ -3,6 +3,8 @@ using System.IO.Compression;
 using System.Reflection;
 using System.Reflection.Emit;
 
+using DotnetInspector.Artifacts;
+using DotnetInspector.Artifacts.Workspaces;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
@@ -945,6 +947,156 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
+    public async Task ArtifactBackedPackageRealization_PreservesMixedParticipantsAndExactLifetime()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] valid =
+            File.ReadAllBytes(
+                typeof(PackageAssemblyContextRealizationTests)
+                    .Assembly.Location);
+        byte[] malformed = new byte[valid.Length];
+        var content = new TrackingPackageContent(
+            ("ref/net11.0/Artifact.Mixed.Sample.dll", valid),
+            ("lib/net11.0/Artifact.Mixed.Sample.dll", malformed));
+        PackageRootBinding binding =
+            Binding("Artifact.Mixed.Sample", content);
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        using PackageAssemblyContextRealization realization =
+            await workspace.RealizePackageAssemblyContextRolesAsync(
+                binding,
+                new PackageAssemblyContextRealizationOptions
+                {
+                    MaxAggregateRetainedImageBytes =
+                        2 * (valid.LongLength + malformed.LongLength),
+                    MaxAssemblyEntryBytes = valid.LongLength,
+                },
+                cancellationToken);
+
+        Assert.Equal(2, content.EntryOpenRequests);
+        PackageAssemblyRoleParticipant surfaceParticipant =
+            Assert.Single(realization.SurfaceParticipants);
+        PackageAssemblyRoleParticipant implementationParticipant =
+            Assert.Single(realization.ImplementationParticipants);
+        Assert.NotSame(
+            realization.SurfaceGroup,
+            realization.ImplementationGroup);
+        ArtifactAcquisitionRegistration[] registrations =
+        [
+            Assert.IsType<ArtifactAcquisitionRegistration>(
+                surfaceParticipant.Participant.Assembly.Registration
+                    .ArtifactRegistration),
+            Assert.IsType<ArtifactAcquisitionRegistration>(
+                implementationParticipant.Participant.Assembly.Registration
+                    .ArtifactRegistration),
+        ];
+        Assert.Same(
+            registrations[0].Generation,
+            registrations[1].Generation);
+        Assert.All(
+            registrations,
+            registration =>
+            {
+                PackageAssemblyArtifactProvenance provenance =
+                    Assert.IsType<PackageAssemblyArtifactProvenance>(
+                        registration.Provenance);
+                Assert.Equal(binding.Coordinate, provenance.Coordinate);
+                Assert.Same(
+                    binding.ContentGenerationIdentity,
+                    provenance.ContentGenerationIdentity);
+                Assert.Same(
+                    binding.SelectionIdentity,
+                    provenance.SelectionIdentity);
+            });
+
+        AssemblyContextApiSurfaceResult surfaceResult =
+            AssemblyContextApiSurfaceQuery.Execute(
+                realization.SurfaceGroup);
+        Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Available>(
+            Assert.Single(surfaceResult.Assemblies.Assemblies));
+        AssemblyContextApiSurfaceResult implementationResult =
+            AssemblyContextApiSurfaceQuery.Execute(
+                realization.ImplementationGroup!);
+        Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Rejected>(
+            Assert.Single(implementationResult.Assemblies.Assemblies));
+        Assert.Equal(2, content.EntryOpenRequests);
+
+        Assert.Equal(
+            typeof(PackageAssemblyContextRealizationTests)
+                .Assembly.GetName().Name,
+            surfaceParticipant.Participant.Assembly.Identity.Name);
+        var callbackEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var callbackResume = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<AssemblyImageAccessResult<int>> operation =
+            realization.SurfaceGroup.UseAndReleaseAssemblySessionAsync(
+                surfaceParticipant.Participant.Assembly,
+                async (_, _) =>
+                {
+                    callbackEntered.SetResult();
+                    await callbackResume.Task.WaitAsync(
+                        cancellationToken);
+                    return 1;
+                });
+        await callbackEntered.Task.WaitAsync(cancellationToken);
+
+        Task<InspectionWorkspaceCloseReport> close =
+            workspace.CloseAsync();
+
+        Assert.False(close.IsCompleted);
+        callbackResume.SetResult();
+        Assert.IsType<AssemblyImageAccessResult<int>.Available>(
+            await operation);
+        InspectionWorkspaceCloseReport report = await close;
+        Assert.Empty(report.ArtifactSessionCleanupFailures);
+        Assert.Equal(2, content.EntryOpenRequests);
+        Assert.Throws<ObjectDisposedException>(
+            () => surfaceParticipant.Participant.Assembly.OpenRead());
+    }
+
+    [Fact]
+    public async Task ArtifactBackedPackageRealization_RejectsAggregateBudgetWithoutPartialGroup()
+    {
+        var content = new TrackingPackageContent(
+            ("lib/net11.0/First.dll", new byte[] { 1, 2 }),
+            ("lib/net11.0/Second.dll", new byte[] { 3, 4 }));
+        PackageRootBinding binding =
+            Binding("Artifact.Budget.Sample", content);
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await workspace.RealizePackageAssemblyContextRolesAsync(
+                        binding,
+                        new PackageAssemblyContextRealizationOptions
+                        {
+                            MaxAggregateRetainedImageBytes = 6,
+                            MaxAssemblyEntryBytes = 2,
+                        },
+                        TestContext.Current.CancellationToken));
+
+        IReadOnlyList<ArtifactSetAdmissionFailure> admissionFailures =
+            Assert.IsAssignableFrom<
+                IReadOnlyList<ArtifactSetAdmissionFailure>>(
+                    failure.Data[
+                        "DotnetInspector.Artifacts.Workspaces.AdmissionFailures"]);
+        ArtifactSetAdmissionFailure admissionFailure =
+            Assert.Single(admissionFailures);
+        Assert.Equal(
+            ArtifactSetAdmissionFailureKind.Rejected,
+            admissionFailure.Kind);
+        Assert.Equal(
+            "artifact.session.byte-limit",
+            admissionFailure.Diagnostic.Code);
+        Assert.Equal(2, content.EntryOpenRequests);
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
     public void MalformedAssets_UseSafeUniqueRejectionCarrierIdentities()
     {
         PackageRootRealization package = Selection(
@@ -1260,6 +1412,22 @@ public sealed class PackageAssemblyContextRealizationTests
             "1.0.0",
             targetFramework);
 
+    static PackageRootBinding Binding(
+        string packageId,
+        IPackageContent content)
+    {
+        const string version = "1.0.0";
+        const string producer = "tests";
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(packageId, version),
+            content,
+            producer,
+            PackagePayloadOrigin.Download);
+        return PackageRootBinding.CreateFromSource(
+            payload,
+            Framework);
+    }
+
     static byte[] IntegrationAssembly(
         string assemblyName,
         string typeName)
@@ -1397,6 +1565,48 @@ public sealed class PackageAssemblyContextRealizationTests
         [
             .. paths.Select(path => new PackageContentEntry(path, 0)),
         ];
+    }
+
+    sealed class TrackingPackageContent(
+        params (string Path, byte[] Content)[] entries)
+        : IPackageContent
+    {
+        readonly (string Path, byte[] Content)[] _entries = entries;
+
+        public int EntryOpenRequests { get; private set; }
+        public string? RootPath => null;
+        public string? NupkgPath => null;
+        public bool FromCache => false;
+        public string ProducerKey => "tests";
+        public bool RequiresArchiveTreeMatch => false;
+
+        public bool TryOpenArchive(
+            [NotNullWhen(true)] out Stream? stream)
+        {
+            stream = null;
+            return false;
+        }
+
+        public bool TryOpenEntry(
+            string relativePath,
+            [NotNullWhen(true)] out Stream? stream)
+        {
+            foreach ((string path, byte[] content) in _entries)
+            {
+                if (!relativePath.Equals(path, StringComparison.Ordinal))
+                    continue;
+
+                EntryOpenRequests++;
+                stream = new MemoryStream(content, writable: false);
+                return true;
+            }
+
+            stream = null;
+            return false;
+        }
+
+        public IEnumerable<string> EnumerateEntries() =>
+            _entries.Select(entry => entry.Path);
     }
 
     sealed class UnderreportingLengthStream(
