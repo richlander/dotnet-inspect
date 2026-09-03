@@ -58,13 +58,14 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
     public AssemblyBindingPolicyVersion Version =>
         Volatile.Read(ref _state).Version;
 
-    public AssemblyBindingSelection Select(
+    public AssemblyBindingSelectionSnapshot Select(
         AssemblyBindingRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        return Select(
-            Volatile.Read(ref _state),
-            request);
+        BindingPolicyState state = Volatile.Read(ref _state);
+        return new AssemblyBindingSelectionSnapshot(
+            state.Version,
+            Select(state, request));
     }
 
     AssemblyBindingSelection Select(
@@ -141,10 +142,12 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             }
         }
 
+        AssemblyBindingSelectionSnapshot? snapshot =
+            policy.Select(request);
         AssemblyBindingSelection selection =
             AssemblyBindingSelection.ValidateForRequest(
                 request,
-                policy.Select(request));
+                snapshot?.Selection);
         if (reference is not null
             && pendingDesignated is not null)
         {
@@ -156,10 +159,10 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         if (reference is not null
             && (selection
                     is AssemblyBindingSelection.Missing
-                    {
-                        Disposition:
+            {
+                Disposition:
                             AssemblyBindingMissDisposition.NoNameOwner,
-                    }
+            }
                 || selection
                     is AssemblyBindingSelection.Selected)
             && IdentityMismatchSelection(
@@ -461,7 +464,8 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             defaultPolicy;
         internal ImmutableDictionary<
             AssemblyAcquisitionRegistration,
-            AssemblyRoute> Routes { get; } =
+            AssemblyRoute> Routes
+        { get; } =
                 routes;
         internal IntrinsicSelectionCache IntrinsicSelections { get; } =
             intrinsicSelections;

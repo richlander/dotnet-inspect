@@ -89,6 +89,8 @@ internal static class ChangePlanTestSuite
             ("src/DotnetInspector.Queries.Tests/Q.cs", "code,decompiler"),
             ("src/DiffFixtures.V1/F.cs", "code,csharpdiff,decompiler,ildiff"),
             ("src/DiffFixtures.V2/F.cs", "code,csharpdiff,decompiler,ildiff"),
+            ("fixtures/shared/DotnetInspector.Fixtures/BodyShapeFixture.cs",
+                "code,decompiler"),
             ("tests/ILInspector.MetadataPrimitives.PlatformProbe/P.cs",
                 "code,decompiler,web"),
             ("tests/DotnetInspector.Artifacts.Local.PlatformProbe/P.cs",

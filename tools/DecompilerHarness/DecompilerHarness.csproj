@@ -23,7 +23,7 @@
     <ProjectReference Include="../../src/ILInspector.Research/ILInspector.Research.csproj" />
     <ProjectReference Include="../../src/DotnetInspector.Services/DotnetInspector.Services.csproj" />
     <ProjectReference Include="../../src/DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
-    <ProjectReference Include="../../tests/DotnetInspector.Fixtures/DotnetInspector.Fixtures.csproj" />
+    <ProjectReference Include="../../tests/DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />
     <ProjectReference Include="../HarnessReportProtocol/HarnessReportProtocol.csproj" />
     <ProjectReference Include="../RoundTripCompilation/RoundTripCompilation.csproj" />
     <!-- ILReader: the byte-match-validated IL reader the fidelity and annotation checks read the witness IL with. -->

@@ -900,7 +900,7 @@ internal static class LibraryMetadataService
                     new AssemblyBindingRequest(
                         AssemblyBindingTarget.Reference(reference),
                         AssemblyBindingOrigin.Global(),
-                        AssemblyResolutionScope.Any));
+                        AssemblyResolutionScope.Any)).Selection;
             ResolvedAssemblyReference? resolved =
                 (selection as AssemblyBindingSelection.Selected)
                     ?.Assembly;
@@ -1088,7 +1088,7 @@ internal static class LibraryMetadataService
                 new AssemblyBindingRequest(
                     AssemblyBindingTarget.Reference(reference),
                     AssemblyBindingOrigin.Global(),
-                    AssemblyResolutionScope.Any));
+                    AssemblyResolutionScope.Any)).Selection;
             ResolvedAssemblyReference? resolved =
                 (selection as AssemblyBindingSelection.Selected)?.Assembly;
             if (selection is AssemblyBindingSelection.Unavailable unavailable)
@@ -1496,7 +1496,7 @@ internal static class LibraryMetadataService
                     ?.EvidenceMethodToken),
             SupportingIL =
                 opportunity.SupportingCallSite is
-                    { ILOffset: var supportingOffset }
+                { ILOffset: var supportingOffset }
                     ? $"IL_{supportingOffset:X4}"
                     : null,
             Evidence = opportunity.Evidence,
