@@ -171,7 +171,7 @@ public static class ApiSurfaceExtractor
     public static ApiSurface ExtractSummary(PEReader peReader)
     {
         var surface = new ApiSurface();
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         ApiAssemblyIdentity? currentAssemblyIdentity = reader.IsAssembly
             ? ApiAssemblyIdentity.FromDefinition(reader)
             : null;
@@ -337,7 +337,7 @@ public static class ApiSurfaceExtractor
 
         var constraintResolution =
             new TypeParameterConstraintResolution(
-                peReader.GetMetadataReader(),
+                MetadataFormatAdmission.GetMetadataReader(peReader),
                 source,
                 catalog.MaxTypeResolutionRequests);
         ApiSurface surface = Extract(
@@ -476,7 +476,7 @@ public static class ApiSurfaceExtractor
             throw new ArgumentOutOfRangeException(nameof(scope));
 
         var surface = new ApiSurface();
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         Guid moduleVersionId = reader.GetGuid(
             reader.GetModuleDefinition().Mvid);
         var extensionReceiverDefinitions =

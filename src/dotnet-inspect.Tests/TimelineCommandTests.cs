@@ -454,6 +454,73 @@ public sealed class TimelineCommandTests
     }
 
     [Fact]
+    public void AnalysisTimeline_UnsupportedMetadataFormatNamesTheMechanism()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"timeline-winmd-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(path, BuildWindowsMetadataImage());
+
+            var inspection = TimelineCommand.InspectUnsafetyAssemblies(
+                [path],
+                "Sample.Widget",
+                "Run");
+
+            var failed = Assert.IsType<FindingInspection<UnsafetyOccurrence>.Failed>(
+                inspection.Value);
+            Assert.Contains(path, failed.Error.Reason);
+            Assert.Contains("could not be inspected", failed.Error.Reason);
+            Assert.Contains(
+                "unsupported metadata format",
+                failed.Error.Reason,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    internal static byte[] BuildWindowsMetadataImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Unsupported.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Unsupported"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                "WindowsRuntime 1.4;CLR v4.0.30319",
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    [Fact]
     public void AnalysisTimeline_DisposesEndpointAfterCellInspection()
     {
         var vector = Vector("1.0.0");

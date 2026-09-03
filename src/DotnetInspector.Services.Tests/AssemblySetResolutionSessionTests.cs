@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -30,11 +31,50 @@ public class AssemblySetResolutionSessionTests
                 "acquire API surface",
                 failure.Operation);
             Assert.Equal(path, failure.SourceAssemblyPath);
+            Assert.Equal(
+                nameof(MalformedMetadataRootException),
+                failure.Kind);
+            Assert.Equal(
+                "The assembly metadata root is malformed "
+                    + "(UnmappableMetadataDirectory).",
+                failure.Detail);
             Assert.Empty(surface.Types);
         }
         finally
         {
             File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void BuildApiSurface_MetadataStreamCountOverflowPreservesHealthyNeighbor()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "assembly-set-overflow-").FullName;
+        string overflowPath = Path.Combine(directory, "Overflow.dll");
+        string healthyPath =
+            typeof(AssemblySetResolutionSessionTests).Assembly.Location;
+        try
+        {
+            File.WriteAllBytes(
+                overflowPath,
+                OverflowMetadataStreamCount(
+                    File.ReadAllBytes(healthyPath)));
+
+            ApiSurface surface =
+                Assert.IsType<ApiSurface>(
+                    AssemblySetSurfaceBuilder.Build(
+                        [overflowPath, healthyPath]));
+
+            Assert.NotEmpty(surface.Types);
+            ApiSurfaceInspectionFailure failure =
+                Assert.Single(surface.InspectionFailures);
+            Assert.Equal("InvalidImage", failure.Kind);
+            Assert.Equal(overflowPath, failure.SourceAssemblyPath);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
         }
     }
 
@@ -187,6 +227,24 @@ public class AssemblySetResolutionSessionTests
         {
             File.Delete(path);
         }
+    }
+
+    static byte[] OverflowMetadataStreamCount(byte[] image)
+    {
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        int metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            image.AsSpan(metadataStart + 12, sizeof(int)));
+        int streamCountOffset =
+            metadataStart
+            + 16
+            + versionLength
+            + sizeof(ushort);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            image.AsSpan(streamCountOffset, sizeof(ushort)),
+            ushort.MaxValue);
+        return image;
     }
 
     static byte[] BuildDependency()

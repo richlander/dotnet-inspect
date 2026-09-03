@@ -506,17 +506,46 @@ public static class TimelineCommand
         FindingSubject subject,
         Func<LibraryBodyIndex, int, FindingSubject, FindingInspection<T>> inspect)
         where T : notnull
-        => InspectAnalysisAssemblies(
-            [
-                .. assemblyPaths.Select(path => (
-                    Path: path,
-                    Surface: AssemblyReader.ExtractApiSurface(path, includeAll))),
-            ],
+    {
+        List<(string Path, ApiSurface? Surface)> surfaces = [];
+        foreach (string path in assemblyPaths)
+        {
+            // Metadata admission raises these instead of collapsing an
+            // unsupported or malformed image into a null surface, so the
+            // timeline reports which mechanism rejected the assembly rather
+            // than losing it behind the generic no-surface arm.
+            string reason;
+            try
+            {
+                surfaces.Add(
+                    (path, AssemblyReader.ExtractApiSurface(path, includeAll)));
+                continue;
+            }
+            catch (UnsupportedMetadataFormatException)
+            {
+                reason =
+                    $"The API surface in '{path}' could not be inspected "
+                    + "because it uses an unsupported metadata format.";
+            }
+            catch (MalformedMetadataRootException ex)
+            {
+                reason =
+                    $"The API surface in '{path}' could not be inspected "
+                    + $"because its metadata root is malformed ({ex.Reason}).";
+            }
+
+            return new FindingInspection<T>.Failed(
+                new InspectionError(subject, descriptor, reason));
+        }
+
+        return InspectAnalysisAssemblies(
+            surfaces,
             typeFullName,
             memberName,
             descriptor,
             subject,
             inspect);
+    }
 
     internal static FindingInspection<T> InspectAnalysisAssemblies<T>(
         IReadOnlyList<(string Path, ApiSurface? Surface)> assemblies,
