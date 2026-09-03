@@ -1,5 +1,7 @@
 using System.Buffers;
+using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
 using System.Text;
 
 namespace NuGetFetch;
@@ -19,6 +21,156 @@ namespace NuGetFetch;
 /// </remarks>
 internal static class NuGetSourceRequest
 {
+    internal enum EndpointHostKind
+    {
+        Dns,
+        IPv4,
+        IPv6,
+    }
+
+    internal sealed class EndpointProjection
+    {
+        private readonly byte[] _addressBytes;
+
+        private EndpointProjection(
+            string scheme,
+            EndpointHostKind hostKind,
+            string dnsHost,
+            byte[] addressBytes,
+            string zone,
+            int port,
+            string escapedPath)
+        {
+            Scheme = scheme;
+            HostKind = hostKind;
+            DnsHost = dnsHost;
+            _addressBytes = addressBytes;
+            Zone = zone;
+            Port = port;
+            EscapedPath = escapedPath;
+        }
+
+        internal string Scheme { get; }
+        internal EndpointHostKind HostKind { get; }
+        internal string DnsHost { get; }
+        internal ReadOnlySpan<byte> AddressBytes => _addressBytes;
+        internal string Zone { get; }
+        internal int Port { get; }
+        internal string EscapedPath { get; }
+
+        internal static EndpointProjection Create(
+            string scheme,
+            EndpointHostKind hostKind,
+            string dnsHost,
+            byte[] addressBytes,
+            string zone,
+            int port,
+            string escapedPath) =>
+            new(
+                scheme,
+                hostKind,
+                dnsHost,
+                addressBytes,
+                zone,
+                port,
+                escapedPath);
+    }
+
+    internal static EndpointProjection ProjectEndpoint(Uri endpoint)
+    {
+        ArgumentNullException.ThrowIfNull(endpoint);
+        if (!endpoint.IsAbsoluteUri
+            || (endpoint.Scheme != Uri.UriSchemeHttp
+                && endpoint.Scheme != Uri.UriSchemeHttps)
+            || endpoint.UserInfo.Length != 0)
+        {
+            throw new NuGetSourceResponseException(
+                "The package source service-index endpoint is unusable.");
+        }
+
+        Uri identityEndpoint = WithoutQueryAndFragment(endpoint);
+        string normalized = EndpointUrl(identityEndpoint);
+        int schemeEnd = normalized.IndexOf(
+            "://",
+            StringComparison.Ordinal);
+        int authorityStart = schemeEnd + 3;
+        int pathStart = normalized.IndexOf(
+            '/',
+            authorityStart);
+        if (schemeEnd <= 0 || pathStart < authorityStart)
+        {
+            throw new NuGetSourceResponseException(
+                "The package source service-index endpoint is unusable.");
+        }
+
+        int queryStart = normalized.IndexOf(
+            '?',
+            pathStart);
+        string escapedPath = queryStart < 0
+            ? normalized[pathStart..]
+            : normalized[pathStart..queryStart];
+        if (escapedPath.Length == 0)
+        {
+            throw new NuGetSourceResponseException(
+                "The package source service-index endpoint is unusable.");
+        }
+
+        string idnHost;
+        try
+        {
+            idnHost = identityEndpoint.IdnHost;
+        }
+        catch (UriFormatException exception)
+        {
+            throw new NuGetSourceResponseException(
+                "The package source service-index endpoint is unusable.",
+                exception);
+        }
+
+        EndpointHostKind hostKind;
+        string dnsHost = "";
+        byte[] addressBytes = [];
+        string zone = "";
+        switch (identityEndpoint.HostNameType)
+        {
+            case UriHostNameType.Dns:
+                hostKind = EndpointHostKind.Dns;
+                dnsHost = ToLowerAscii(idnHost);
+                break;
+            case UriHostNameType.IPv4:
+                hostKind = EndpointHostKind.IPv4;
+                addressBytes = ParseAddress(idnHost, AddressFamily.InterNetwork);
+                break;
+            case UriHostNameType.IPv6:
+                hostKind = EndpointHostKind.IPv6;
+                int zoneStart = idnHost.IndexOf(
+                    "%25",
+                    StringComparison.OrdinalIgnoreCase);
+                string address = zoneStart < 0
+                    ? idnHost
+                    : idnHost[..zoneStart];
+                zone = zoneStart < 0
+                    ? ""
+                    : idnHost[(zoneStart + 3)..];
+                addressBytes = ParseAddress(
+                    address,
+                    AddressFamily.InterNetworkV6);
+                break;
+            default:
+                throw new NuGetSourceResponseException(
+                    "The package source service-index endpoint is unusable.");
+        }
+
+        return EndpointProjection.Create(
+            ToLowerAscii(endpoint.Scheme),
+            hostKind,
+            dnsHost,
+            addressBytes,
+            zone,
+            identityEndpoint.Port,
+            escapedPath);
+    }
+
     internal static string EndpointUrl(Uri endpoint)
     {
         ArgumentNullException.ThrowIfNull(endpoint);
@@ -231,6 +383,74 @@ internal static class NuGetSourceRequest
         }
 
         return escaped.ToString();
+    }
+
+    private static byte[] ParseAddress(
+        string text,
+        AddressFamily expectedFamily)
+    {
+        if (!IPAddress.TryParse(text, out IPAddress? address)
+            || address.AddressFamily != expectedFamily)
+        {
+            throw new NuGetSourceResponseException(
+                "The package source service-index endpoint is unusable.");
+        }
+
+        return address.GetAddressBytes();
+    }
+
+    private static Uri WithoutQueryAndFragment(Uri endpoint)
+    {
+        string locator = endpoint.OriginalString;
+        int fragmentStart = locator.IndexOf(
+            '#',
+            StringComparison.Ordinal);
+        if (fragmentStart >= 0)
+            locator = locator[..fragmentStart];
+        int queryStart = locator.IndexOf(
+            '?',
+            StringComparison.Ordinal);
+        if (queryStart >= 0)
+            locator = locator[..queryStart];
+
+        try
+        {
+            return new Uri(
+                locator,
+                new UriCreationOptions
+                {
+                    DangerousDisablePathAndQueryCanonicalization = true,
+                });
+        }
+        catch (UriFormatException exception)
+        {
+            throw new NuGetSourceResponseException(
+                "The package source service-index endpoint is unusable.",
+                exception);
+        }
+    }
+
+    private static string ToLowerAscii(string value)
+    {
+        return string.Create(
+            value.Length,
+            value,
+            static (destination, source) =>
+            {
+                for (int i = 0; i < source.Length; i++)
+                {
+                    char character = source[i];
+                    if (character > 0x7F)
+                    {
+                        throw new NuGetSourceResponseException(
+                            "The package source service-index endpoint is unusable.");
+                    }
+
+                    destination[i] = character is >= 'A' and <= 'Z'
+                        ? (char)(character + ('a' - 'A'))
+                        : character;
+                }
+            });
     }
 
     internal static PackageSourceCredential? CredentialForEndpoint(

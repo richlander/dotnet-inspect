@@ -4,6 +4,25 @@
 binding rules: every window identifies its PR, current state, and any decision
 it needs. This document owns the tmux mechanics and the reasoning behind them.
 
+## Resume a session
+
+The transcript survives a resumed session; repository and PR state may not.
+Before continuing:
+
+1. Confirm the worktree, branch, and head from git. Fetch the effective base and
+   re-check the PR per
+   [Canonical round flow](../AGENTS.md#canonical-round-flow). Do not pull or
+   rebase a pushed branch to catch up.
+2. Rename the window and re-announce the PR as described below.
+3. State which case applies:
+
+- **Mid-stream:** continue, but handle conflicts, failed gates, or moved bases
+  first. Do not revisit decisions already settled in the transcript.
+- **Waiting on the user:** restate the full question and options, then wait.
+- **Task complete:** state what landed and what proves it, then propose the next
+  task without starting it.
+- **Unclear:** explain what the transcript claims and what git shows, then wait.
+
 ## Detecting tmux
 
 Everything below applies only inside a tmux pane. Test with `[ -n "$TMUX" ]`

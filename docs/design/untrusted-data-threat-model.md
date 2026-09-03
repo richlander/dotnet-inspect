@@ -292,43 +292,32 @@ code is an attacker.
 ### Assemblies are parsed, never loaded
 
 Assembly, metadata, and method-body paths use
-`System.Reflection.PortableExecutable` and `System.Reflection.Metadata`. Product
-inspection must not introduce `Assembly.Load`, `AssemblyLoadContext`, reflection
-over inspected binaries, module initializers, or dependency resolution that
-executes target code.
+`System.Reflection.PortableExecutable` and `System.Reflection.Metadata`.
+Product inspection contains no `Assembly.Load` call for inspected assemblies.
 
-That prohibition is
-[mitigation by absence](../evidence-and-validation.md#mitigation-by-absence).
+This is a user-approved partial-gate absence claim. Product projects set
+`IsAotCompatible`, so Release builds run NativeAOT compatibility analysis and
+fail on the dynamic-loading uses that its diagnostics cover. Measured
+2026-09-02 against `IsAotCompatible=true`, those diagnostics are `IL2026` for
+`Assembly.Load(byte[])`, `Assembly.LoadFrom`, `Assembly.LoadFile`, and
+`AssemblyLoadContext.LoadFromAssemblyPath`; `IL2067` for
+`Activator.CreateInstance(Type)`; `IL2057` for `Type.GetType(string)`; and
+`IL3050` for `System.Reflection.Emit`. `src/Directory.Build.props` sets
+`TreatWarningsAsErrors`, so each is a build error rather than a warning. That
+is a partial gate, not a syntactic scan of every `Assembly.Load` overload.
 
-Certification:
+When packaging-affecting changes select it, the CI
+[`pack` job](../../.github/workflows/ci.yml) builds and installs the
+RID-specific NativeAOT tool, then executes canonical package, type, member, and
+platform-library inspections. Those runs are supporting execution evidence,
+not an ordinary product-source-change gate. Unannotated overloads, changes for
+which the smoke is skipped, and inspection paths the smoke does not execute are
+the declared residual.
 
-- **Date:** 2026-09-01
-- **Scope:** the 1,083 tracked non-test C# sources under `src/`
-- **Command:**
-
-  ```console
-  $ git ls-files -- 'src/' | grep -E '\.cs$' | grep -viE '\.tests?/|fixtures?/|testdata' \
-      | xargs grep -nE 'Assembly\.Load|Assembly\.ReflectionOnlyLoad|AssemblyLoadContext|MetadataLoadContext|Activator\.CreateInstance|Reflection\.Emit|AppDomain|ModuleInitializer|Type\.GetType\('
-  ```
-
-- **Finding:** 1 match, at `src/ILInspector.Analysis/MethodSignals.cs:359` — a
-  comment in the analyzer that *classifies* reflection APIs appearing in
-  inspected IL. No call sites. Outside `src/`, the only non-test occurrences
-  are four lines across three files in `tools/DecompilerHarness`, which is a
-  fixture-generating harness outside the product boundary.
-- **Policy:** the prohibition stated above, scoped to product paths by
-  `AGENTS.md`'s "free of inspected-assembly loading" constraint.
-- **Gate:** `unverified`. The command above is a *lexical* scan, and a lexical
-  scan cannot decide what a name binds to — an alias, an extension method, or
-  an unlisted loader walks past it, which is the same reason
-  `Directory.Build.targets` gives for enforcing the stderr rule through the
-  compiler's semantic model rather than a source scan. It is evidence that the
-  policy holds today, not a gate that keeps it holding.
-  `BannedApiAnalyzers` is the right mechanism and already runs on every
-  `.csproj` with `RS0030` escalated to an error, but its `eng/BannedSymbols.txt`
-  wiring is scoped to the stderr-containment concern and is opted out wholesale
-  by `OwnsItsOwnStderr`, so it cannot carry this policy without separate design.
-  Issue #5488 tracks gating it.
+`Assembly.Load`, `AssemblyLoadContext`, reflection over inspected binaries,
+module initializers, and dependency resolution that executes target code remain
+prohibited design directions. Their absence beyond the partial claim above is
+not asserted as verified here.
 
 Reader-backed values remain inside their owning session. Values that cross a
 session boundary are copied or reduced to immutable tokens and shapes. This

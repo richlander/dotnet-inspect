@@ -1,10 +1,35 @@
 # Evidence and validation
 
 [`AGENTS.md`](../AGENTS.md#evidence-and-validation) states the binding rule:
-match evidence to the claim and use the smallest existing check that proves it.
-This document owns the detailed practices.
+use the smallest sufficient set of claims and gates, inherit existing contracts
+unless the change calls them into question, and add only evidence needed by the
+resulting claims. This document owns the detailed practices.
 
 ## Matching evidence to claims
+
+Begin with the stated user goal and the exact boundaries or contracts owned by
+the change. Claim only the properties needed to achieve that goal or support
+those boundaries. A stronger safety, portability, performance, or composition
+property is not a bonus: it creates another evidence obligation and should be
+omitted when the change does not need it.
+
+Inherit properties that already follow from repository contracts and supported
+dependencies. A feature implemented solely with `List<T>` needs no separate
+NativeAOT or Browser/Wasm claim or feature-specific gate; it works wherever
+that supported primitive and its containing product path work. Existing
+repository gates still run where required, but their existence does not require
+every feature to restate the properties they cover.
+
+Add a claim and matching evidence when the exact-head dependency, API, or design
+creates a reason to question an inherited property. For example, introducing
+`Assembly.Load()` into a product path conflicts with repository constraints and
+requires an explicitly approved exception, exact scope and rationale, visible
+supported behavior, and gates matched to those claims. Scope the response to
+the actual risk rather than adding unrelated universal claims.
+
+Before adding a claim or gate, identify the user goal or owned contract it
+supports and the concrete trigger that makes existing contracts or evidence
+insufficient. If there is no such trigger, omit the extra claim and gate.
 
 - Start with focused tests for the changed subsystem; expand only when the
   change crosses boundaries or focused results expose broader risk.
@@ -57,130 +82,36 @@ non-vacuity test that fails when the wiring is removed. A gate counts only when
 it runs in the suite's Release configuration; use runtime opt-ins, not
 `[Conditional("DEBUG")]`.
 
-## Mitigation by absence
+### Absence claims choose their coverage
 
-Some hazards are addressed not by a control but by the product never doing the
-dangerous thing. That reasoning is legitimate, and it is the cheapest possible
-mitigation, but it is only sound with all three legs:
+An absence claim in this section is about product or repository composition:
+within a stated boundary, a dependency, runtime, API family, prohibited
+construct, or unsupported platform capability is not present or used. For
+example, "the product has no Python runtime or dependency" is an absence claim
+because the set of implementation dependencies and paths can change as the
+repository evolves.
 
-1. **Measured absence.** Cite the command and its output. Never assert absence
-   from memory or from having read some of the code.
-2. **A standing policy** not to introduce the construct. Absence alone is a
-   fact about today; the policy is what makes it forward-looking. If the
-   product later exhibits the construct, the mitigation is void, and the policy
-   makes that a visible decision rather than silent drift.
-3. **A date.** The record states when the measurement was taken, because it can
-   only ever be true as of then.
+A product algorithm postcondition is not an absence claim merely because it is
+phrased negatively. "Classification does not emit a Member with the wrong
+declaring Type" is an ordinary correctness property over supported inputs and
+uses normal contract gates.
 
-Before writing any of that down, check whether the standard toolchain already
-gates the construct. A rule that ships with a linter the repository already
-runs is strictly better than prose: it is enforcement rather than assertion, it
-costs nothing to maintain, and it satisfies
-[Asserted properties name their gate](#asserted-properties-name-their-gate)
-honestly. Turning on an existing off-the-shelf rule is not "bespoke
-enforcement" and does not conflict with keeping enforcement inside conventional
-practice.
+An absence claim may have full, partial, or no gate coverage. Full coverage
+names a gate for the complete stated boundary. Partial coverage names what the
+gate establishes and marks the residual explicitly. No coverage marks the
+claim `unverified`. All three are legitimate when the user accepts that
+evidence posture.
 
-Only when no standard gate exists does measured-absence-plus-policy stand on
-its own — and then the claim is `unverified`, and must say so.
+A compiler or semantic analyzer that rejects the prohibited use is an
+acceptable gate. NativeAOT analyzer diagnostics are gates for the exact uses
+they reject, and NativeAOT-executed tests are gates for prohibited behavior on
+the paths they exercise. A successful NativeAOT publication alone establishes
+publishability, not API absence. State the exact diagnostic or executed
+scenario rather than generalizing either into a syntactic absence scan.
 
-### The certification block
-
-Record the result as a fixed set of fields, not as prose. Prose lets a leg go
-missing without the gap being obvious; a field that is absent, or filled with
-hedging, is visible at a glance. Copy this shape:
-
-```markdown
-Certification:
-
-- **Date:** <when the command below was run>
-- **Scope:** <the corpus searched, and its size>
-- **Command:** <the exact reproducible command>
-- **Finding:** <the result, e.g. `0 matches`>
-- **Policy:** <the standing prohibition, and where it is stated>
-- **Gate:** <the enforcing rule, or `unverified` and why not>
-```
-
-Each field is load-bearing:
-
-- **Scope** is separate from **Command** because a command carries its own
-  filters. An over-narrow exclusion yields a zero that is true and worthless,
-  and the reader cannot see that from the command alone. State the denominator
-  so the number can be disputed.
-- **Command** searches tracked files, and its pattern covers every construct
-  the **Policy** names. A pattern narrower than the policy certifies a
-  different, smaller claim than the one stated, while still reading as though
-  it covered all of it. `grep -r` additionally reaches into build output and
-  `node_modules`, which inflates or deflates the count unpredictably; prefer
-  `git ls-files` or `git grep`.
-- **Finding** is the raw result, then its reading — in that order, and visibly
-  separated. A lexical scan matches comments, strings, and names that merely
-  resemble the construct, so a non-zero count is not automatically a defect;
-  what disqualifies mitigation by absence is a real occurrence, not a match.
-  Report the count, cite where the matches are, and say which ones are
-  occurrences. Never fold the interpretation into the number.
-- **Gate** is where the record is most likely to flatter itself. Name the rule
-  only if it actually fires on this construct in this configuration; otherwise
-  write `unverified` and the reason, and link the issue tracking the gate. A
-  textual scan is not a candidate: it cannot decide what a name binds to, so an
-  alias or an unlisted spelling walks past it. The command is evidence that the
-  policy holds today; a gate is what keeps it holding.
-
-Re-measuring replaces the whole block, including the date. Do not leave an old
-date beside a new finding.
-
-Keep the write-up proportional to the evidence. A hazard with zero instances
-earns a sentence, not an essay. Prose describing a hazard that does not exist
-here dilutes the material that does and implies a threat the reader then has to
-rule out. Do not build a bespoke check for a construct with no instances.
-
-Worked example of the survey form. The shared fields are stated once and the
-per-construct fields go in the table.
-
-- **Date:** 2026-09-01
-- **Scope:** the 123 tracked `.ts`, `.js`, and `.html` files in
-  `prototypes/inspect-web` outside `node_modules`
-- **Policy:** none of these constructs is introduced into the front end; a
-  change that needs one is a design decision, not a refactor
-
-| Construct | Command (within Scope) | Finding | Gate |
-| --- | --- | --- | --- |
-| `eval(...)` | `grep -nE '\beval[[:space:]]*\('` | 0 | `eslint(no-eval)` |
-| `new Function(...)` | `grep -nE 'new[[:space:]]+Function[[:space:]]*\('` | 0 | `typescript(no-implied-eval)` |
-| `document.write(...)` | `grep -nE 'document\.write[[:space:]]*\('` | 0 | none — `unverified` |
-| inline HTML event handler attributes | `grep -nE '<[^>]*[[:space:]]on[a-z]+='` | 2, both `<img src=x onerror=...>` payloads inside escaping assertions in `test/spotlight-identity.test.ts`; no handler in shipped markup | none — `unverified` |
-
-Two of the four were already gated by rules the repository turned on for other
-reasons, which is the point: the check for an existing gate came before the
-prose, and replaced it.
-
-The fourth row shows why **Finding** is the raw count and not a verdict. The
-honest result within the stated scope is 2, and both matches are XSS payloads
-a test feeds through the escaper on purpose. Writing `0` there would have been
-a defensible reading and an unreproducible number: the next person to run the
-command would get 2 and have no way to tell whether the construct had appeared
-since or had never been counted.
-
-The construct that is *not* in that table matters more than the ones that are.
-`.innerHTML =` has 26 instances in the same corpus, 24 of them outside tests,
-and is the front end's primary rendering mechanism, so mitigation by absence
-does not apply to it at all; its safety rests on escaping at each
-interpolation, which is a different argument requiring different evidence. The
-first draft of this table asserted it was absent. Measuring is what caught
-that, which is why measurement is leg one and not a formality.
-
-The record itself belongs with the claim it supports, not here. The
-repository's filled-in instance of the certification block is
-[Assemblies are parsed, never loaded](design/untrusted-data-threat-model.md#assemblies-are-parsed-never-loaded),
-whose **Gate** field reads `unverified` because the analyzer that could enforce
-it is scoped to a different concern (#5488). Stating why a claim is not yet
-gated is what keeps it from reading as a control that exists.
-
-A survey of several constructs at once is the other legitimate shape: state
-`Date`, `Scope`, and `Policy` once for the whole survey, then give each row its
-own `Command`, `Finding`, and `Gate`, as the worked example above does. Use the
-block for a single claim in its owning document and the survey when comparing
-constructs. Neither form may drop a field.
+Before implementing or strengthening an absence claim, propose full, partial,
+and no-gate options to the user. Name the recommended option, its evidence, and
+any residual; proceed only after the user chooses the acceptable coverage.
 
 ## Harness boundary
 

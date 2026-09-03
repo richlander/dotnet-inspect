@@ -25,8 +25,25 @@ development model and rationale. The binding summary:
 
 - **Start from convention and best practice.** Name and justify any deliberate
   divergence, whether stricter or looser, and document its scope.
+- **Prefer the simplest sufficient design.** Add complexity only when robust
+  reliability or correctness requires it, or when it enables a compelling
+  user-observable experience.
 - **Design first and state the basis.** Name one normative owner and exact
   claim, then supporting designs, models, constraints, and evidence by role.
+- **Start capabilities from named consumers.** Every new capability or
+  substrate identifies its consumer in the specification and issue, links an
+  overall end-to-end tracker, and may land its consumer in a later slice.
+  Shared substrate must benefit and plan enablement through both the CLI and
+  browser/Wasm hosts; a single-consumer or single-host substrate requires
+  explicit user approval from the start.
+- **Keep hosts thin.** Put reusable concepts and algorithms in host-neutral
+  code. Duplicated host logic triggers a review for a shared abstraction that
+  would also benefit another future host.
+- **Choose rendering strategy deliberately.** Use Markout as the default
+  host-neutral substrate for centralized, multi-format rendering, and call out
+  host-specific rendering that bypasses it. Broad information domains such as
+  call graphs and diffs require a documented structured-typing and format-
+  lowering strategy, whether it uses Markout or another approach.
 - **Demonstrate the pathological case.** Build boundary and failure fixtures;
   run contract-defining cases in CI and preserve valuable non-CI probes as
   reproducible design evidence.
@@ -64,20 +81,10 @@ development model and rationale. The binding summary:
 ## Session resume
 
 The transcript survives a resumed session; repository and PR state may not.
-Before continuing:
-
-1. Confirm the worktree, branch, and head from git. Fetch the effective base and
-   re-check the PR per [Canonical round flow](#canonical-round-flow). Do not pull
-   or rebase a pushed branch to catch up.
-2. Rename the window and re-announce the PR as described below.
-3. State which case applies:
-
-- **Mid-stream:** continue, but handle conflicts, failed gates, or moved bases
-  first. Do not revisit decisions already settled in the transcript.
-- **Waiting on the user:** restate the full question and options, then wait.
-- **Task complete:** state what landed and what proves it, then propose the next
-  task without starting it.
-- **Unclear:** explain what the transcript claims and what git shows, then wait.
+Follow [Resume a session](docs/agent-session-state.md#resume-a-session) to
+confirm the worktree and PR, refresh the effective base, restore window
+identity, and classify the session. Handle conflicts, failed gates, or moved
+bases first, and do not revisit decisions already settled in the transcript.
 
 ## Making your work findable
 
@@ -133,39 +140,8 @@ The user may adjust a sequencing gate for a specific task or PR. Follow that
 direction, record its scope and evidentiary consequence, and preserve every
 other requirement. An adjustment does not make failed validation successful,
 make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
-
-### Standing adjustments
-
-- **Review ordinary non-Markdown changes in parallel with CI:** requires user
-  approval; conflict recovery is the explicit exception. A CI failure requiring
-  an author change still supersedes the attempt, and all findings carry forward.
-- **Pre-authorize merge for the final head:** after clean reviews or a waiver,
-  the user may authorize its exact head and base ref. Keep auto-merge unarmed
-  while gates are pending; after green preflight, use the [exact-head
-  precondition](docs/github-api-operations.md#bind-merge-mutations-to-the-head).
-  Head/base-ref change or invalidated evidence expires authorization;
-  no-interaction tip movement within the same base ref preserves it.
-- **"CI is ready":** the user's statement that CI has no failures and the PR is
-  mergeable. Trust it without re-checking and move to the next task, such as
-  dispatching the next round's reviewers.
-- **Authorizing the next round before CI completes:** the agent does not need
-  to check CI status first; proceed with the authorized round.
-- **Skip re-review after a trivial base interaction:** requires the user's
-  approval for one exact integration head and its mechanically resolved
-  interaction at one exact analyzed base tip, offered only for a
-  `main`-targeting PR or bottom open stack slice whose waiver lineage starts at
-  one immutable review-clean head and recorded base (a renewal may only
-  integrate a further moved base from that same lineage).
-  Every overlap must resolve mechanically — analyzed base side verbatim, or
-  drop the PR's change to that file — and the cumulative diff against the
-  newest base must stay a subset of the original reviewed diff with no
-  surviving reviewed claim, contract, or behavior changed. `review-clean` stays
-  absent on the integration head. Later no-interaction base movement extends
-  the waiver and recorded merge authorization to the analyzed tip without
-  moving the head or asking again; head movement or any other interaction
-  expires both. Semantic conflict resolution or new authored change requires
-  ordinary re-review. Evidence to publish:
-  [Trivial-interaction re-review waiver](docs/round-orchestration.md#trivial-interaction-re-review-waiver).
+The standing adjustments and their exact evidence requirements live in
+[User-directed workflow adjustments](docs/round-orchestration.md#user-directed-workflow-adjustments).
 
 ## Before changing files
 
@@ -244,10 +220,18 @@ over-broad-design recovery procedure live in
   normative changes need focused efforts joined by a thin composition map.
 - State boundaries and contracts as simply as possible. Never translate current
   or planned implementation into prose; code implements the contract.
-- Compose TLA+ models along product boundaries: model the same owner-issued
-  join currency the product joins facts on, and put contract-defining
-  configurations in `eng/tla-expected-exit-codes.txt` so CI enforces their
-  exact semantic verdict; see
+- When product correctness joins facts across components, model the same
+  owner-issued join currency — version, generation, identity, receipt, handle,
+  or composite key — and preserve the association, freshness, and replacement
+  semantics that make the product join sound. The model may abstract the
+  currency's concrete representation.
+- Let TLA+ module dependencies mirror product dependencies: consume stable
+  owner-issued definitions and behaviors through named instances instead of
+  copying them, and recheck the imported properties in each composition. A
+  bounded result for one instance is evidence, not a proof transferred to
+  another. Put contract-defining configurations in
+  `eng/tla-expected-exit-codes.txt` so CI enforces their exact semantic
+  verdict; see
   [TLA+ methodology](docs/tla-plus-methodology.md#compose-models-along-product-boundaries).
 - A **broad design** normatively specifies multiple independently owned
   components (outside that one exception) or sweeps an end-to-end lifecycle.
@@ -341,6 +325,7 @@ compiler-generated IL shapes differ in Debug.
 | --- | --- |
 | CLI and product output | `dotnet run --project src/dotnet-inspect.Tests -c Release` |
 | Artifact contracts | `dotnet run --project src/DotnetInspector.Artifacts.Tests -c Release` |
+| Row selection | `dotnet run --project src/DotnetInspector.RowSelection.Tests -c Release` |
 | Analysis | `dotnet run --project src/ILInspector.Analysis.Tests -c Release` |
 | Decompiler | `dotnet run --project src/ILInspector.Decompiler.Tests -c Release` |
 | C# text | `dotnet run --project tests/CSharpText.Tests -c Release` |
@@ -357,36 +342,31 @@ Test-tool activation (`ilasm`/`ildasm`/`mdv`), the IL round-trip commands, and
 the `IsPackable`/`VersionPrefix` release rules live in
 [`docs/dev-environment.md`](docs/dev-environment.md#test-tooling-activation).
 
-### Package acquisition and throwaway probes
-
-If nuget.org is disabled and restore reports `NU1603` for an uncached pin, or
-you need a throwaway probe, see
-[`docs/dev-environment.md`](docs/dev-environment.md) for the source-override
-and file-based-app commands.
-
 ## Evidence and validation
 
-Match evidence to the claim and use the smallest existing check that proves it.
-Detailed practices — matching evidence to claim types, the style-oracle
-consultation procedure, and the harness/product boundary — live in
-[`docs/evidence-and-validation.md`](docs/evidence-and-validation.md). Three
-rules are load-bearing everywhere:
+Use the smallest sufficient set of claims and gates: state only what the user
+goal or an owned boundary or contract requires, and add only evidence that
+proves it. Inherit existing platform contracts unless a new dependency, API,
+or design calls one into question. Detailed practices live in
+[`docs/evidence-and-validation.md`](docs/evidence-and-validation.md). Three rules
+are load-bearing everywhere:
 
 - **Asserted properties name their gate.** A safety, soundness, or faithfulness
   claim must name its enforcing gate or say `unverified`. A gate counts only
   when it runs in the suite's Release configuration; use runtime opt-ins, not
   `[Conditional("DEBUG")]`.
+- **Composition absence-claim coverage is a user choice.** Before asserting
+  that a product or repository boundary contains no dependency, runtime, API
+  family, prohibited construct, or unsupported platform capability, propose
+  full, partial, or no gate coverage. Negatively phrased algorithmic correctness
+  properties use ordinary contract gates. The
+  [evidence guide](docs/evidence-and-validation.md#absence-claims-choose-their-coverage)
+  owns the detailed rules.
 - **Harnesses don't manufacture the evidence they check.** They own
   orchestration, fixtures, oracles, and reporting, but must exercise
   product-owned artifact construction — never construct, normalize, or repair
   C# that is later compiled as product evidence. If a test needs that
   compensation, stop and fix the product gap instead.
-- **Mitigation by absence names its gate too.** A hazard the product does not
-  exhibit is mitigated by measured, dated absence plus a standing policy not to
-  introduce it. Check whether the standard toolchain already gates it and
-  prefer enabling that over prose; without a gate the claim is `unverified`.
-  Never build bespoke enforcement for a hazard with no instances. Detail:
-  [Mitigation by absence](docs/evidence-and-validation.md#mitigation-by-absence).
 
 ### Markdown
 
@@ -420,8 +400,8 @@ section and [round orchestration](docs/round-orchestration.md) explain them.
    author change restarts the *same* round.
 7. **Six rounds, then stop** and ask for another block.
 8. **Never merge without explicit user authorization** for that specific PR.
-   A recorded exact-head merge authorization satisfies this rule; see
-   [Standing adjustments](#standing-adjustments).
+   A recorded exact-head merge authorization satisfies this rule; see the
+   [user-directed workflow adjustments](docs/round-orchestration.md#user-directed-workflow-adjustments).
 
 ### Canonical round flow
 
@@ -466,17 +446,34 @@ merge, confirm live GitHub readiness — see [Merge preflight](docs/round-orches
 ### Clean reviews are not spent by main moving
 
 When a `main`-targeting PR (or the bottom open stack slice) has a review-clean
-head or a pending or approved trivial-interaction waiver and `origin/main`
-moves while it stays open, classify the landed range before any agent-driven
-merge or mutation: do not integrate blindly and do not start another round by
-default.
-An upper stack slice instead follows its parent, whose movement is a restack
-requiring review at the new head. Report the classification as normal session
-output before changing labels or dispatching reviewers, re-classifying only
-when the landed range itself changes. It is a point-in-time decision aid, not
-an exact-base lock; merging still needs live readiness and explicit
-authorization. The four outcomes and their exact actions:
+head, or a head with a pending/approved trivial-interaction waiver, and
+an agent observes that `origin/main` moved while the PR remains open, assess the
+landed range before an agent-driven merge or mutation — do not integrate
+blindly and do not start another round by default. An upper stack slice follows
+its parent instead: parent movement is a restack requiring review at the new
+head.
+
+After a non-mutating fetch, classify the landed range into exactly one
+outcome, act on it, and report the classification and action as normal session
+output before changing labels or dispatching reviewers; re-classify only when
+the landed range itself changes, not on every poll. Merging still needs a live
+readiness check and explicit user authorization.
+The analysis is a point-in-time decision aid, not an exact-base lock: later base
+movement does not trigger branch integration or CI chasing; exact-base
+revalidation needs a merge queue, not repeated branch updates.
+Full detection, classification, and action procedure:
 [Carry-forward after clean reviews](docs/round-orchestration.md#carry-forward-after-clean-reviews).
+The four outcomes: **no interaction** (keep the reviewed or waived head
+unchanged, preserve its state and merge authorization, and start no new CI run
+or other gate — the common case), **trivial interaction** (if still open,
+expire authorization, disable any armed auto-merge first, remove
+`review-clean`, integrate, run affected gates, and offer the exact-head
+re-review waiver), **significant interaction, no conflict** (if still open,
+expire authorization, disable any armed auto-merge first, remove
+`review-clean`, integrate, re-run validation and CI, and re-dispatch reviewers
+as a normal round), and **merge conflict requiring semantic resolution**
+(expire authorization, disable any armed auto-merge first, and recover under
+[Recovery transitions](#recovery-transitions)).
 
 ### How many reviewers, and from which models
 

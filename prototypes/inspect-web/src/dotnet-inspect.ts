@@ -158,11 +158,13 @@ import {
   productHomeDemoLocationHref,
   setProductHomeDemoCatalog,
   type ProductHomeDemoId,
+  type ProductHomeDemoResolved,
 } from "./product-home-demos.ts";
 import {
   createSourceInspectionCoordinator,
   type GraphSourceRequest,
 } from "./source-inspection.ts";
+import { createOperationAuthorityPage } from "./operation-authority.ts";
 import {
   createMetadataInspectionCoordinator,
   type AppExplorerState,
@@ -228,12 +230,18 @@ import {
 import {
   bindScopeBar,
   captureScopeBarFocus,
+  createScopeBarState,
   renderScopeBar as renderScopeBarPure,
   restoreScopeBarFocus,
+  scopeBarShortLabel,
+  type ScopeBarBinding,
 } from "./scope-bar.ts";
 import {
   bindWorkspaceSubject,
+  focusWorkspacePacket,
+  renderWorkspacePacketView,
   renderWorkspaceSubject,
+  retainWorkspacePacket as retainWorkspacePacketInList,
 } from "./workspace-subject.ts";
 import {
   bindDocViewer,
@@ -731,6 +739,8 @@ const initialState = {
   memberDocumentationKey: "",
   lens: "api" as const,
   packageLens: "overview" as const,
+  workspacePackets: [],
+  selectedWorkspacePacketId: "",
   workspaceSubjectOpen: false,
   atPackageRoot: false,
   typeFilter: "",
@@ -794,6 +804,7 @@ const initialState = {
 interface StateOverrides {
   packages: AppPackage[];
   package: AppPackage | null;
+  workspacePackets: ProductHomeDemoResolved[];
   workspaceShareBasis: BrowserWorkspaceShareState | null;
   platformIndex: PlatformIndex | null;
   queryNoticeRetryAction: RetryAction;
@@ -852,6 +863,8 @@ interface StateOverrides {
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
 
 const state: AppState = initialState;
+const scopeBarState = createScopeBarState();
+let scopeBarBinding: ScopeBarBinding | null = null;
 type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
   | { kind: "canonical" }
   | {
@@ -929,8 +942,10 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
 }
 
 const keybindings = createWorkbenchKeybindings();
+const operationAuthority = createOperationAuthorityPage();
 const sourceInspection = createSourceInspectionCoordinator({
   state,
+  operationAuthority,
   queryMemberSource: request => inspectMemberSource(
     request.packageId,
     request.version,
@@ -960,6 +975,10 @@ const sourceInspection = createSourceInspectionCoordinator({
     taste),
   memberSourceHasConcreteOverload,
   cancelEngineSourceRequest: () => cancelSourceInspection?.(),
+  reportOperationDiagnostic: diagnostic => {
+    console.error("Source operation authority failure.", diagnostic);
+    return undefined;
+  },
   describeError: errorMessage,
   render,
   renderPreservingMemberFocus,
@@ -2599,9 +2618,15 @@ function typeDisplayName(
 function render(options: { synchronizeUrl?: boolean } = {}) {
   sourceInspection.cancelHiddenRequest();
   document.body.classList.remove("package-query-route");
-  const scopeBarFocus = document.activeElement instanceof HTMLElement
-    ? captureScopeBarFocus(document.activeElement)
+  const focusedElement = document.activeElement instanceof HTMLElement
+    ? document.activeElement
     : null;
+  const scopeBarOwnsFocus = focusedElement
+    ?.closest("[data-scope-bar]") != null;
+  const scopeBarFocus = focusedElement
+    ? captureScopeBarFocus(focusedElement)
+    : null;
+  scopeBarBinding?.disconnect();
 
   // The Settings page is a modal-style full view layered over whatever the user came from
   // (home or a package). It owns no URL — it's a preferences panel, not shareable content —
@@ -2693,6 +2718,10 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     ? ' role="tabpanel" aria-labelledby="active-inspector-tab"'
     : "";
 
+  if (scopeBarOwnsFocus) {
+    app.tabIndex = -1;
+    app.focus({ preventScroll: true });
+  }
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal ? " inert" : ""}>
       ${workbenchShellHtml({
@@ -2784,7 +2813,18 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     };
   }
   bindEvents();
-  if (scopeBarFocus) restoreScopeBarFocus(document, scopeBarFocus);
+  if (scopeBarOwnsFocus) {
+    let restored = false;
+    if (scopeBarFocus) {
+      scopeBarBinding?.revealFocusTarget(scopeBarFocus);
+      restored = restoreScopeBarFocus(document, scopeBarFocus);
+    }
+    if (!restored) {
+      document.querySelector<HTMLElement>(".brand")
+        ?.focus({ preventScroll: true });
+    }
+    app.removeAttribute("tabindex");
+  }
   restorePackageQueryReturnFocus();
   restorePackageQueryWorkspaceFocus();
   recordNav();
@@ -2887,7 +2927,11 @@ function inspectedSubjectPath(
   current: AppTypeSurface | null | undefined,
 ): readonly SubjectPathSegment[] {
   if (scope() === "workspace") {
-    return [{ kind: "workspace", label: "Workspace", copyable: false }];
+    return [{
+      kind: "workspace",
+      label: selectedWorkspacePacket()?.title ?? "Current workspace",
+      copyable: false,
+    }];
   }
   const path: SubjectPathSegment[] = [{
     kind: "package",
@@ -2938,10 +2982,9 @@ function renderInspectedSubjectPath(
 
 function renderWorkspaceNavPane() {
   return renderWorkspaceSubject({
-    packages: state.packages,
-    activePackage: state.package,
+    packets: state.workspacePackets,
+    selectedPacketId: state.selectedWorkspacePacketId || null,
     escapeHtml,
-    packageIdentityKey,
   });
 }
 
@@ -3008,6 +3051,53 @@ function hasEffectiveInspector(): boolean {
   return typeLensesFor(state.package).some(([id]) => id === state.lens);
 }
 
+function packageLensPresentation(
+  id: PackageLens,
+): string {
+  switch (id) {
+    case "overview": return "◫";
+    case "dependencies": return "⇄";
+    case "integrations": return "⌁";
+    case "opportunities": return "◇";
+    case "analysis": return "∿";
+    case "metadata": return "≡";
+    default: return assertNever(id, "package lens presentation");
+  }
+}
+
+function typeLensPresentation(
+  id: TypeLens,
+): string {
+  switch (id) {
+    case "api": return "⌘";
+    case "metadata": return "≡";
+    case "source": return "⌑";
+    default: return assertNever(id, "type lens presentation");
+  }
+}
+
+function memberSectionPresentation(
+  id: MemberSection,
+): string {
+  switch (id) {
+    case "overview": return "◫";
+    case "call-graph": return "⑂";
+    case "facts": return "·";
+    case "source": return "⌑";
+    case "annotated": return "✎";
+    default: return assertNever(id, "member section presentation");
+  }
+}
+
+function scopeBarInspectorDefinitions<TId extends string>(
+  definitions: readonly (readonly [TId, string])[],
+  presentation: (id: TId) => string,
+): readonly (readonly [TId, string, string, string])[] {
+  return definitions.map(([id, label]) => {
+    return [id, label, scopeBarShortLabel(label), presentation(id)];
+  });
+}
+
 function renderScopeBar() {
   const sc = scope();
   const selected = selectedType();
@@ -3027,7 +3117,9 @@ function renderScopeBar() {
   if (sc === "package") {
     return renderScopeBarPure({
       scope: sc,
-      strip: packageLensesFor(state.package),
+      strip: scopeBarInspectorDefinitions(
+        packageLensesFor(state.package),
+        packageLensPresentation),
       activeStripId: state.packageLens,
       stripAttribute: "data-package-lens",
       panelId: "inspector-panel",
@@ -3039,7 +3131,9 @@ function renderScopeBar() {
     const member = selectedMember(selected);
     return renderScopeBarPure({
       scope: sc,
-      strip: member ? memberSectionsFor(member) : [],
+      strip: scopeBarInspectorDefinitions(
+        member ? memberSectionsFor(member) : [],
+        memberSectionPresentation),
       activeStripId: state.memberSection,
       stripAttribute: "data-member-section",
       panelId: "inspector-panel",
@@ -3053,7 +3147,9 @@ function renderScopeBar() {
       scope: sc,
       // `typeLensesFor` rather than the raw catalog: a runtime pack offers only the API
       // lens, and reading the catalog directly here would skip that restriction.
-      strip: typeLensesFor(state.package),
+      strip: scopeBarInspectorDefinitions(
+        typeLensesFor(state.package),
+        typeLensPresentation),
       activeStripId: state.lens,
       stripAttribute: "data-lens",
       panelId: "inspector-panel",
@@ -3108,26 +3204,13 @@ function renderPackageView() {
 }
 
 function renderWorkspaceView() {
-  const packages = state.packages.filter(item => !item.isRuntimePack);
-  const current = state.package && !state.package.isRuntimePack
-    ? state.package
-    : packages[0] ?? null;
-  const platform = runtimePackPackage();
-  return `<header class="type-heading workspace-heading">
-    <div class="type-badge">W</div>
-    <div>
-      <div class="type-namespace">Inspection workspace</div>
-      <h1>Workspace</h1>
-      <code class="type-signature">${packages.length} coordinate${packages.length === 1 ? "" : "s"} · platform ${platform ? "available" : "not loaded"}</code>
-    </div>
-  </header>
-  <section class="workspace-overview">
-    <h2>Current coordinate</h2>
-    ${current
-      ? `<p><strong>${escapeHtml(current.id)}</strong> ${escapeHtml(current.version)} · ${escapeHtml(current.activeFramework)}</p>`
-      : "<p>No package coordinate is open.</p>"}
-    <p>Use Search to open another package. Platform libraries are included when the workspace requires them.</p>
-  </section>`;
+  return renderWorkspacePacketView({
+    packet: selectedWorkspacePacket(),
+    packages: state.packages,
+    activePackage: state.package,
+    escapeHtml,
+    packageIdentityKey,
+  });
 }
 
 function packageLensBody() {
@@ -5079,7 +5162,7 @@ function bindTypePanelEvents() {
 }
 
 function bindScopeBarEvents() {
-  bindScopeBar(document, {
+  scopeBarBinding = bindScopeBar(document, {
     onMemberSectionSelect: section => {
       applyMemberSection(section);
     },
@@ -5124,7 +5207,7 @@ function bindScopeBarEvents() {
       state.memberBrowseTypeId = "";
       render();
     },
-  });
+  }, scopeBarState);
 }
 
 function bindSettingsPanelEvents() {
@@ -5392,11 +5475,8 @@ const graphBackActions: GraphBackBindingActions = {
 
 function bindWorkspaceSubjectEvents() {
   bindWorkspaceSubject(document, {
-    onActivate: key => {
-      const packageModel = state.packages.find(
-        item => packageIdentityKey(item) === key);
-      if (packageModel) selectWorkspacePackage(packageModel);
-    },
+    onSelect: selectWorkspacePacket,
+    onOpen: runHomeDemo,
     onClose: closeWorkspacePackage,
   });
 }
@@ -7346,8 +7426,29 @@ function bindHomeEvents() {
 // deep links built from the resolved projection; member-bound Call Graph demos
 // execute through one generated engine operation over the product-resolved
 // workspace and view.
+function selectedWorkspacePacket(): ProductHomeDemoResolved | null {
+  return state.workspacePackets.find(
+    packet => packet.id === state.selectedWorkspacePacketId) ?? null;
+}
+
+function selectWorkspacePacket(packetId: string): void {
+  if (!state.workspacePackets.some(packet => packet.id === packetId)) return;
+  state.selectedWorkspacePacketId = packetId;
+  state.workspaceSubjectOpen = true;
+  state.atPackageRoot = true;
+  render();
+  afterCurrentNavigationFrame(() =>
+    focusWorkspacePacket(document, packetId));
+}
+
+function retainWorkspacePacket(packet: ProductHomeDemoResolved): void {
+  state.workspacePackets = retainWorkspacePacketInList(
+    state.workspacePackets,
+    packet);
+  state.selectedWorkspacePacketId = packet.id;
+}
+
 function runHomeDemo(kind: ProductHomeDemoId) {
-  state.home = false;
   const resolveResult = inspectResolveHomeDemo(kind);
   const resolved = resolveResult.found ? resolveResult.demo : null;
   if (!resolved) {
@@ -7357,6 +7458,8 @@ function runHomeDemo(kind: ProductHomeDemoId) {
     render();
     return;
   }
+  retainWorkspacePacket(resolved);
+  state.home = false;
   const link = productHomeDemoLocationHref(
     resolved,
     inspectEncodeWorkspaceShareState);
