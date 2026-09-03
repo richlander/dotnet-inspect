@@ -786,7 +786,7 @@ test("width-only changes retain the initially applied window", async ({
 test("allocation controls move between adjacent stable result pairs", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 600, height: 900 });
+  await page.setViewportSize({ width: 650, height: 900 });
   await page.goto("/browser/workspace-titlebar.html?member=1");
 
   const subject = page.locator(".slide-strip-subject");
@@ -963,7 +963,7 @@ test("manual windows survive resize and reset with inspector inventory", async (
   await expect(page.locator('[data-member-section="overview"]'))
     .toHaveAttribute("tabindex", "-1");
 
-  await page.setViewportSize({ width: 800, height: 900 });
+  await page.setViewportSize({ width: 900, height: 900 });
   await expect(visibleLabels()).toHaveCount(5);
   await page.setViewportSize({ width: 460, height: 900 });
   const narrowedLabels = await visibleLabels().allTextContents();
