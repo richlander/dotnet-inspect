@@ -1202,7 +1202,7 @@ test("Source fills the detail area below working-surface actions and above prove
       - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
   }
 
-  for (const width of [1440, 1120, 600, 400]) {
+  for (const width of [1920, 1440, 1120, 600, 400]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(
       "/browser/workspace-titlebar.html?member=1&source=1&limitation=1");
@@ -1215,7 +1215,16 @@ test("Source fills the detail area below working-surface actions and above prove
       ".source-provenance > .graph-source-status");
     expect(provenance.width).toBeGreaterThan(16);
     expect(limitation.width).toBeGreaterThan(16);
-    expect(provenance.width).toBeCloseTo(limitation.width, 0);
+    expect(limitation.y).toBeGreaterThanOrEqual(
+      provenance.y + provenance.height - 1);
+    const limitationMetrics = await page.locator(
+      ".source-provenance > .graph-source-status",
+    ).evaluate(element => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }));
+    expect(limitationMetrics.scrollWidth)
+      .toBeLessThanOrEqual(limitationMetrics.clientWidth);
     expect(await page.evaluate(() =>
       document.documentElement.scrollWidth
       - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);

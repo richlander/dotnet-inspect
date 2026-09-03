@@ -44,14 +44,12 @@ read that way:
   distinguishes Navigation preparation failure, which has no installable
   replacement snapshot, from a failed Registry or policy evaluation. It does
   not distinguish Registry failure from policy failure.
-- **External membership effects.** The protected admission barrier around
-  Workspace-owner admission, removal, replacement, Close, and invalidation is
-  not modelled. The model's opaque `coordinate` intent represents
-  Navigation-local coordinate activation and variation, not an external effect
-  that must consume its correlated result before another explicit command can
-  be admitted. The synchronous pre-admission refusal for a blocked command is
-  likewise outside the result-authority state machine. Named implementation
-  gates enforce that barrier and refusal shape.
+- **External membership effects.** Workspace-owner admission, removal,
+  replacement, Close, and invalidation are outside this structural design and
+  are not modelled. The model's opaque `coordinate` intent represents
+  Navigation-local coordinate activation and variation. Workspace operation
+  results are tracked by #5583; their protected Navigation consumption is
+  #5584.
 - **UI accessibility.** Focus, roving `tabindex`, menu and tablist semantics,
   and rendering belong to [Inspect Web Navigation
   Presentation](../../inspect-web-navigation-presentation.md); focus movement
@@ -283,11 +281,10 @@ remaining differences are deliberate abstractions rather than disagreements:
   from the replacement snapshot, and re-gathers before admission.
 - **Coordinate intent scope.** The model's coordinate kind covers
   Navigation-local activation and variation with ordinary latest-admitted
-  supersession. It does not abstract Workspace-owner admission, removal,
-  replacement, Close, or invalidation because those external effects require a
-  protected admission barrier and mandatory correlated-result consumption.
-  Implementation gates check that barrier, exact occurrence, owner-result
-  correlation, and Workspace containment.
+  supersession. It does not abstract Workspace-owner membership effects, whose
+  result contract and protected consumption are the focused successors #5583
+  and #5584. Structural implementation gates check exact occurrence and
+  Workspace containment.
 - **Optional restoration inputs.** Canonical restoration's subject and lens are
   optional in the packet, and retained occurrence context is independently
   optional. A subject-less request may carry root-only occurrence context but
