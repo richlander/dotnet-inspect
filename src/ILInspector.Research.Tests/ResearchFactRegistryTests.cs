@@ -3,6 +3,7 @@ using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Findings;
 using ILInspector.Metadata;
 
 namespace ILInspector.Research.Tests;
@@ -748,6 +749,94 @@ public class ResearchFactRegistryTests
     }
 
     [Fact]
+    public void ResearchFactProjection_PreservesKeysThroughFilteringAndReordering()
+    {
+        Finding<IAnnotation>[] findings =
+        [
+            TestFinding(
+                new Annotation(
+                    new AnnotationDescriptor(
+                        "test.first",
+                        AnnotationCategory.Cost,
+                        "first"),
+                    SourceOffset: 0),
+                ordinal: 0),
+            TestFinding(
+                new Annotation(
+                    new AnnotationDescriptor(
+                        "test.second",
+                        AnnotationCategory.Semantics,
+                        "second"),
+                    SourceOffset: 1),
+                ordinal: 1),
+            TestFinding(
+                new Annotation(
+                    new AnnotationDescriptor(
+                        "test.third",
+                        AnnotationCategory.Cost,
+                        "third"),
+                    SourceOffset: 2),
+                ordinal: 2),
+        ];
+        FindingCensus<IAnnotation> census =
+            FindingCensus<IAnnotation>.Seal(findings);
+
+        ResearchFactProjection projection =
+            ResearchFactProjection.AdmitSubset(
+                census,
+                census.Receipt,
+                [census.Entries[2], census.Entries[0]]);
+
+        Assert.Equal(
+            [census.Entries[2].Key, census.Entries[0].Key],
+            projection.Annotations.Select(annotation => annotation.Entry.Key));
+        Assert.Same(
+            census.Entries[2].Finding,
+            projection.Annotations[0].Entry.Finding);
+        Assert.Same(
+            census.Entries[0].Finding,
+            projection.Annotations[1].Entry.Finding);
+    }
+
+    [Fact]
+    public void ResearchFactProjection_RejectsWrongReceiptAndSubstitution()
+    {
+        var descriptor = new AnnotationDescriptor(
+            "test.same",
+            AnnotationCategory.Cost,
+            "same");
+        Finding<IAnnotation> finding = TestFinding(
+            new Annotation(descriptor, SourceOffset: 0, Detail: "same"),
+            ordinal: 0);
+        FindingCensus<IAnnotation> census =
+            FindingCensus<IAnnotation>.Seal([finding]);
+        FindingCensus<IAnnotation> other =
+            FindingCensus<IAnnotation>.Seal([finding]);
+
+        var wrongReceipt = Assert.Throws<InvalidOperationException>(() =>
+            ResearchFactProjection.AdmitSubset(
+                census,
+                other.Receipt,
+                census.Entries));
+        Assert.Contains("WrongReceipt", wrongReceipt.Message);
+
+        Finding<IAnnotation> substitute = TestFinding(
+            new Annotation(descriptor, SourceOffset: 0, Detail: "same"),
+            ordinal: 0);
+        Assert.Equal(finding, substitute);
+        Assert.NotSame(finding, substitute);
+        var substitutedEntry = new FindingCensusEntry<IAnnotation>(
+            census.Entries[0].Key,
+            substitute);
+        var substituted = Assert.Throws<InvalidOperationException>(() =>
+            ResearchFactProjection.AdmitSubset(
+                census,
+                census.Receipt,
+                [substitutedEntry]));
+        Assert.Contains("SubstitutedFinding", substituted.Message);
+    }
+
+    [Fact]
     public void DefaultAllocationProducer_ProjectsAnalysisFindingCensus()
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
@@ -922,7 +1011,11 @@ public class ResearchFactRegistryTests
         public string Name => name;
         public IReadOnlyList<string> Produces { get; } = produces ?? [];
         public IReadOnlyList<string> DependsOn { get; } = dependsOn ?? [];
-        public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context) => facts ?? [];
+        public IReadOnlyList<Finding<IAnnotation>> Produce(
+            ResearchFactContext context)
+            => facts is null
+                ? []
+                : [.. facts.Select((fact, ordinal) => TestFinding(fact, ordinal))];
     }
 
     sealed class CountingProducer : IResearchFactProducer
@@ -938,20 +1031,31 @@ public class ResearchFactRegistryTests
             ResearchFactRequirements.ForAssembly(
                 LibraryBodyAnalysisFeatures.MethodEvidence);
 
-        public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context)
+        public IReadOnlyList<Finding<IAnnotation>> Produce(
+            ResearchFactContext context)
         {
             FactCollectCount++;
             AssemblyContext = context.Assembly;
             return
             [
-                new Annotation(
-                    new AnnotationDescriptor("cost.test", AnnotationCategory.Cost, "test cost"),
-                    SourceOffset: 0,
-                    Detail: "shared"),
-                new Annotation(
-                    new AnnotationDescriptor("semantics.test", AnnotationCategory.Semantics, "test semantics"),
-                    SourceOffset: 0,
-                    Detail: "shared")
+                TestFinding(
+                    new Annotation(
+                        new AnnotationDescriptor(
+                            "cost.test",
+                            AnnotationCategory.Cost,
+                            "test cost"),
+                        SourceOffset: 0,
+                        Detail: "shared"),
+                    ordinal: 0),
+                TestFinding(
+                    new Annotation(
+                        new AnnotationDescriptor(
+                            "semantics.test",
+                            AnnotationCategory.Semantics,
+                            "test semantics"),
+                        SourceOffset: 0,
+                        Detail: "shared"),
+                    ordinal: 1),
             ];
         }
 
@@ -983,7 +1087,7 @@ public class ResearchFactRegistryTests
         public IReadOnlyList<string> Produces => [];
         public IReadOnlyList<string> DependsOn => [];
 
-        public IReadOnlyList<IAnnotation> Produce(
+        public IReadOnlyList<Finding<IAnnotation>> Produce(
             ResearchFactContext context)
         {
             WasInvoked = true;
@@ -991,6 +1095,15 @@ public class ResearchFactRegistryTests
             return [];
         }
     }
+
+    static Finding<IAnnotation> TestFinding(
+        IAnnotation annotation,
+        int ordinal)
+        => ResearchFactFinding.Create(
+            new FindingSubject("test-member", "test member"),
+            annotation,
+            new FindingKey($"{annotation.Descriptor.Id}|{ordinal}"),
+            ordinal);
 }
 
 public static class ResearchFixture
