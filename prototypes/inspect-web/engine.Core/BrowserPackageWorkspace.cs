@@ -1259,6 +1259,12 @@ internal static class BrowserPackageWorkspace
     {
         HashSet<string>? _packageKeys = new(StringComparer.Ordinal);
 
+        internal void Lease(BrowserPackageCoordinate coordinate)
+        {
+            ArgumentNullException.ThrowIfNull(coordinate);
+            Lease(PackageKey(coordinate));
+        }
+
         internal void Lease(string packageKey)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(packageKey);
@@ -1609,7 +1615,8 @@ internal sealed class BrowserPackage
             _acquiredPayload
             ?? throw new InvalidOperationException(
                 "Only an acquisition-issued Browser package can create a bound package Root."),
-            targetFramework);
+            targetFramework,
+            displayPackageId: PackageId);
 
     /// <summary>
     /// The package's browsable Markdown: a root <c>README.md</c>/<c>PACKAGE.md</c> and any
