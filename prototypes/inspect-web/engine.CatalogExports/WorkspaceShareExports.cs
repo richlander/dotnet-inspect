@@ -4,9 +4,10 @@ using System.Text.Json;
 using DotnetInspector.Queries.Definitions;
 
 using InspectWeb.Engine;
+using InspectWeb.Engine.CatalogFacade;
 
 [SupportedOSPlatform("browser")]
-public static partial class InspectionEngine
+public static partial class CatalogExports
 {
     [JSExport]
     public static string DecodeWorkspaceShareState(string encoded)
@@ -15,7 +16,7 @@ public static partial class InspectionEngine
             BrowserWorkspaceShareOperations.Decode(encoded);
         return JsonSerializer.Serialize(
             result,
-            BrowserJsonContext.Default.BrowserWorkspaceShareDecodeResult);
+            BrowserCatalogJsonContext.Default.BrowserWorkspaceShareDecodeResult);
     }
 
     [JSExport]
@@ -26,7 +27,7 @@ public static partial class InspectionEngine
         {
             BrowserWorkspaceShareState? state = JsonSerializer.Deserialize(
                 stateJson,
-                BrowserJsonContext.Default.BrowserWorkspaceShareState);
+                BrowserCatalogJsonContext.Default.BrowserWorkspaceShareState);
             result = state is null
                 ? BrowserWorkspaceShareOperations.InvalidState(
                     "Workspace share state must be one object.")
@@ -40,11 +41,11 @@ public static partial class InspectionEngine
 
         return JsonSerializer.Serialize(
             result,
-            BrowserJsonContext.Default.BrowserWorkspaceShareEncodeResult);
+            BrowserCatalogJsonContext.Default.BrowserWorkspaceShareEncodeResult);
     }
 }
 
-namespace InspectWeb.Engine
+namespace InspectWeb.Engine.CatalogFacade
 {
     internal static class BrowserWorkspaceShareOperations
     {

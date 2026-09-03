@@ -7,127 +7,16 @@ using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
 
 using InspectWeb.Engine;
+using InspectWeb.Engine.CallGraphFacade;
 
+/// <summary>
+/// Platform call-graph expansion. The traversal progressively acquires the platform assemblies it
+/// needs through the shared platform workspace and returns the same browser call-graph contract as
+/// package traversal.
+/// </summary>
 [SupportedOSPlatform("browser")]
-public static partial class InspectionEngine
+public static partial class CallGraphExports
 {
-    const string PlatformPackageName = "Microsoft.NETCore.App";
-
-    [JSExport]
-    public static async Task<string> LoadRuntimePack(
-        string targetFramework,
-        string platformVersion)
-    {
-        using BrowserPlatformScopeResolution resolution =
-            await BrowserPlatformWorkspace.OpenRuntimeAsync(
-                targetFramework,
-                platformVersion);
-        return ProjectPlatformSurface(resolution);
-    }
-
-    public static Task<string> LoadRuntimePack(
-        string targetFramework) =>
-        LoadRuntimePack(targetFramework, "");
-
-    [JSExport]
-    public static async Task<string> LoadRuntimePackAssembly(
-        string targetFramework,
-        string platformVersion,
-        string assemblyFileName,
-        string pack)
-    {
-        using BrowserPlatformScopeResolution resolution =
-            await BrowserPlatformWorkspace.OpenAssemblyAsync(
-                targetFramework,
-                platformVersion,
-                assemblyFileName,
-                pack);
-        return ProjectPlatformSurface(resolution);
-    }
-
-    public static Task<string> LoadRuntimePackAssembly(
-        string targetFramework,
-        string assemblyFileName,
-        string pack) =>
-        LoadRuntimePackAssembly(
-            targetFramework,
-            "",
-            assemblyFileName,
-            pack);
-
-    [JSExport]
-    public static async Task<string> QueryPlatformIntegrations(
-        string targetFramework,
-        string platformVersion,
-        string assemblyFileName,
-        string pack)
-    {
-        using BrowserPlatformScopeResolution resolution =
-            await BrowserPlatformWorkspace.OpenAssemblyAsync(
-                targetFramework,
-                platformVersion,
-                assemblyFileName,
-                pack);
-        AssemblyIntegrationsEntry result =
-            resolution.Scope.UseParticipant(
-                resolution.Participant,
-                AssemblyContextIntegrationsQuery.ExecuteParticipant);
-        return JsonSerializer.Serialize(
-            CreateIntegrations(
-                PlatformPackageName,
-                resolution.Coordinate.Version,
-                resolution.Scope.Framework,
-                [result]),
-            BrowserJsonContext.Default.BrowserPackageIntegrations);
-    }
-
-    public static Task<string> QueryPlatformIntegrations(
-        string targetFramework,
-        string assemblyFileName,
-        string pack) =>
-        QueryPlatformIntegrations(
-            targetFramework,
-            "",
-            assemblyFileName,
-            pack);
-
-    [JSExport]
-    public static async Task<string> QueryPlatformOpportunities(
-        string targetFramework,
-        string platformVersion,
-        string assemblyFileName,
-        string pack)
-    {
-        using BrowserPlatformScopeResolution resolution =
-            await BrowserPlatformWorkspace.OpenAssemblyAsync(
-                targetFramework,
-                platformVersion,
-                assemblyFileName,
-                pack);
-        AssemblyIntegrationOpportunitiesEntry result =
-            resolution.Scope.UseParticipant(
-                resolution.Participant,
-                AssemblyContextIntegrationOpportunitiesQuery
-                    .ExecuteParticipant);
-        return JsonSerializer.Serialize(
-            CreateOpportunities(
-                PlatformPackageName,
-                resolution.Coordinate.Version,
-                resolution.Scope.Framework,
-                [result]),
-            BrowserJsonContext.Default.BrowserPackageOpportunities);
-    }
-
-    public static Task<string> QueryPlatformOpportunities(
-        string targetFramework,
-        string assemblyFileName,
-        string pack) =>
-        QueryPlatformOpportunities(
-            targetFramework,
-            "",
-            assemblyFileName,
-            pack);
-
     [JSExport]
     public static async Task<string> ExpandPlatformCallGraph(
         string targetFramework,
@@ -167,27 +56,33 @@ public static partial class InspectionEngine
 
         return JsonSerializer.Serialize(
             new BrowserCallGraph(
-                Mermaid(projection),
-                Tree(view.CallerRoot),
-                Tree(view.CalleeRoot),
+                BrowserCallGraphProjection.Mermaid(projection),
+                BrowserCallGraphWireProjection.Project(
+                    BrowserCallGraphProjection.Tree(view.CallerRoot)),
+                BrowserCallGraphWireProjection.Project(
+                    BrowserCallGraphProjection.Tree(view.CalleeRoot)),
                 new BrowserCallGraphScope(
                     Packages: 0,
                     resolution.Scope.Members.Length,
                     callerAssemblies,
                     view.Tier.ToString()),
-                Targets(
-                    projection.Nodes,
-                    resolution.Scope.Members.Select(candidate =>
-                        candidate.Participant.Assembly.Identity),
-                    resolution.Scope.PlatformPackForAssembly),
-                Diagnostics(
-                    view.Diagnostics,
-                    projection.HasUnexploredTraversalBoundary,
-                    projection.HasAnalysisFailureBoundary),
+                [
+                    .. BrowserCallGraphProjection.Targets(
+                        projection.Nodes,
+                        resolution.Scope.Members.Select(candidate =>
+                            candidate.Participant.Assembly.Identity),
+                        resolution.Scope.PlatformPackForAssembly)
+                        .Select(BrowserCallGraphWireProjection.Project),
+                ],
+                BrowserCallGraphWireProjection.Project(
+                    BrowserCallGraphProjection.Diagnostics(
+                        view.Diagnostics,
+                        projection.HasUnexploredTraversalBoundary,
+                        projection.HasAnalysisFailureBoundary)),
                 NoBody:
                     view.CalleeRoot is null
                     && view.CallerRoot is null),
-            BrowserJsonContext.Default.BrowserCallGraph);
+            BrowserCallGraphJsonContext.Default.BrowserCallGraph);
     }
 
     public static Task<string> ExpandPlatformCallGraph(
@@ -649,60 +544,4 @@ public static partial class InspectionEngine
         public void Dispose() => Resolution.Dispose();
     }
 
-    internal static string ProjectPlatformSurface(
-        BrowserPlatformScopeResolution resolution)
-    {
-        WorkspaceContextMember participant = resolution.Participant;
-        string assembly = participant.Participant.Assembly.Identity.Name;
-        AssemblyContextApiSurfaceResult surfaces =
-            resolution.Scope.UseParticipant(
-                participant,
-                (group, selected) =>
-                    AssemblyContextApiSurfaceQuery.ExecuteBounded(
-                        group,
-                        ApiSurfaceScope.PublicWithNonPublicTypes,
-                        BrowserApiSurfacePolicy.Limits,
-                        [selected]));
-        BrowserSurfaceProjection.Surface projected =
-            BrowserSurfaceProjection.Project(
-                surfaces,
-                [
-                    new BrowserSurfaceProjection.Participant(
-                        participant.Participant,
-                        assembly,
-                        assembly,
-                        $"{assembly}.dll"),
-                ],
-                qualifyTypeIds: true,
-                platformPack:
-                    BrowserPlatformWorkspace.Pack(
-                        resolution.Coordinate.Family));
-        if (projected.Assemblies.Length == 0
-            && !projected.IsTruncated)
-        {
-            throw new InvalidOperationException(
-                $"Platform assembly '{assembly}' produced no API surface. "
-                + (projected.InspectionError
-                    ?? "The workspace reported no failure."));
-        }
-
-        string framework = RequiredBrowserFramework(resolution.Scope.Framework);
-        return JsonSerializer.Serialize(
-            new BrowserPackageSurface(
-                PlatformPackageName,
-                resolution.Coordinate.Version,
-                [framework],
-                framework,
-                Icon: null,
-                assembly,
-                SelectedCompileLibrary(framework),
-                projected.Assemblies,
-                projected.Types,
-                projected.Accessibility,
-                projected.TotalMembers,
-                Documents: [],
-                InspectionErrors: projected.InspectionErrors,
-                InspectionError: projected.InspectionError),
-            BrowserJsonContext.Default.BrowserPackageSurface);
-    }
 }

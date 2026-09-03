@@ -2,7 +2,7 @@ using System.Collections.Frozen;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 
-namespace InspectWeb.Engine;
+namespace InspectWeb.Engine.SourceFacade;
 
 internal static class BrowserAnnotatedSourceViewerCatalogFactory
 {

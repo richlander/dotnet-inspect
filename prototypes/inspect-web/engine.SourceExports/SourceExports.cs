@@ -10,9 +10,10 @@ using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 
 using InspectWeb.Engine;
+using InspectWeb.Engine.SourceFacade;
 
 [SupportedOSPlatform("browser")]
-public static partial class InspectionEngine
+public static partial class SourceExports
 {
     const long MiB = 1024L * 1024;
     static readonly SymbolAcquisitionLimits SourceSymbolLimits =
@@ -21,10 +22,6 @@ public static partial class InspectionEngine
             maxPortablePdbBytes: 8 * MiB,
             maxSymbolPackageEntries: 2048,
             maxExpandedPdbBytes: 24 * MiB);
-
-    [JSExport]
-    public static void ConfigureHost(string origin) =>
-        BrowserPackageWorkspace.ConfigureMsdlProxy(origin);
 
     [JSExport]
     public static void CancelSourceQuery() =>
@@ -54,7 +51,7 @@ public static partial class InspectionEngine
             styleOptionsJson);
         return JsonSerializer.Serialize(
             source,
-            BrowserJsonContext.Default.BrowserSource);
+            BrowserSourceJsonContext.Default.BrowserSource);
     }
 
     [JSExport]
@@ -96,7 +93,7 @@ public static partial class InspectionEngine
 
             return JsonSerializer.Serialize(
                 Adapt(result, participant),
-                BrowserJsonContext.Default.BrowserSource);
+                BrowserSourceJsonContext.Default.BrowserSource);
         }
     }
 
@@ -124,7 +121,7 @@ public static partial class InspectionEngine
             styleOptionsJson);
         return JsonSerializer.Serialize(
             source,
-            BrowserJsonContext.Default.BrowserSource);
+            BrowserSourceJsonContext.Default.BrowserSource);
     }
 
     static async Task<BrowserSource> QueryMemberSourceCore(
@@ -140,21 +137,20 @@ public static partial class InspectionEngine
     {
         using BrowserSourceOperationLease operation =
             await BrowserSourceOperationCoordinator.BeginAsync();
-        (
-            BrowserInspectionScope scope,
-            _,
-            BrowserWorkspaceParticipant participant,
-            CallGraphMemberResolution resolution
-        ) = await ImplementationMemberAsync(
-            packageId,
-            version,
-            targetFramework,
-            assemblyName,
-            typeIdentity,
-            memberName,
-            selectorKey,
-            metadataToken,
-            operation.CancellationToken);
+        BrowserMemberResolution.ScopedResolution resolved =
+            await BrowserMemberResolution.ImplementationMemberAsync(
+                packageId,
+                version,
+                targetFramework,
+                assemblyName,
+                typeIdentity,
+                memberName,
+                selectorKey,
+                metadataToken,
+                operation.CancellationToken);
+        BrowserInspectionScope scope = resolved.Scope;
+        BrowserWorkspaceParticipant participant = resolved.ImplementationParticipant;
+        CallGraphMemberResolution resolution = resolved.Member;
         operation.CancellationToken.ThrowIfCancellationRequested();
         using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             BrowserPackageWorkspace.LeaseScope(scope);

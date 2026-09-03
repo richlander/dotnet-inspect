@@ -17,7 +17,7 @@ namespace InspectWeb.Engine;
 [SupportedOSPlatform("browser")]
 internal static class BrowserSurfaceProjection
 {
-    internal static BrowserAccessibilityDescriptor Descriptor(ApiAccessibilityBucket bucket) =>
+    internal static BrowserAccessibilityInfo Descriptor(ApiAccessibilityBucket bucket) =>
         new(bucket.Id, bucket.Label, bucket.Order, bucket.IsDefault, bucket.Count);
 
     internal sealed record Participant(
@@ -27,9 +27,9 @@ internal static class BrowserSurfaceProjection
         string Asset);
 
     internal sealed record Surface(
-        BrowserAssemblySurface[] Assemblies,
-        BrowserTypeSurface[] Types,
-        BrowserAccessibilityDescriptor[] Accessibility,
+        BrowserAssemblySurfaceInfo[] Assemblies,
+        BrowserTypeSurfaceInfo[] Types,
+        BrowserAccessibilityInfo[] Accessibility,
         int TotalMembers,
         string[] InspectionErrors,
         string? InspectionError,
@@ -50,8 +50,8 @@ internal static class BrowserSurfaceProjection
                 + "participants, so per-assembly attribution cannot be trusted.");
         }
 
-        var assemblies = new List<BrowserAssemblySurface>();
-        var types = new List<BrowserTypeSurface>();
+        var assemblies = new List<BrowserAssemblySurfaceInfo>();
+        var types = new List<BrowserTypeSurfaceInfo>();
         HashSet<TypeCollisionKey> duplicateTypeKeys =
         [
             .. surfaces.Assemblies.Assemblies
@@ -86,7 +86,7 @@ internal static class BrowserSurfaceProjection
                     + "participant order, so per-assembly attribution cannot be trusted.");
             }
 
-            BrowserTypeSurface[] assemblyTypes;
+            BrowserTypeSurfaceInfo[] assemblyTypes;
             transportTextBudget.BeginParticipant();
             try
             {
@@ -118,14 +118,14 @@ internal static class BrowserSurfaceProjection
                 break;
             }
 
-            BrowserTypeSurface[] publicTypes =
+            BrowserTypeSurfaceInfo[] publicTypes =
             [
                 .. assemblyTypes.Where(type =>
                     IsDefaultBucket(surfaces, type)),
             ];
             AssemblyReferenceIdentity identity =
                 participant.Context.Assembly.Identity;
-            assemblies.Add(new BrowserAssemblySurface(
+            assemblies.Add(new BrowserAssemblySurfaceInfo(
                 participant.Id,
                 identity.Name,
                 identity.Version?.ToString() ?? "",
@@ -151,7 +151,7 @@ internal static class BrowserSurfaceProjection
             [.. surfaces.Assemblies.Assemblies.Take(noticeEntryCount)],
             truncation);
         string? notice = Notice(noticeEntries);
-        BrowserTypeSurface[] identified =
+        BrowserTypeSurfaceInfo[] identified =
         [
             .. types
                 .OrderBy(type => type.Namespace, StringComparer.Ordinal)
@@ -169,7 +169,7 @@ internal static class BrowserSurfaceProjection
             truncation is not null);
     }
 
-    internal static BrowserTypeSurface Type(
+    internal static BrowserTypeSurfaceInfo Type(
         ApiType type,
         string assembly,
         string assemblyId,
@@ -198,7 +198,7 @@ internal static class BrowserSurfaceProjection
         modifiers.Add(type.Kind);
         modifiers.Add(displayName);
 
-        BrowserMemberSurface[] members =
+        BrowserMemberSurfaceInfo[] members =
         [
             .. (selectedMembers ?? type.Members)
                 .Select(member => Member(type, member, textBudget)),
@@ -206,7 +206,7 @@ internal static class BrowserSurfaceProjection
         string metadataId = MetadataId(type);
         string definitionId = type.DefinitionName?.ToEscapedFullName() ?? metadataId;
         string id = qualifyId ? $"{assembly}:{definitionId}" : definitionId;
-        var projected = new BrowserTypeSurface(
+        var projected = new BrowserTypeSurfaceInfo(
             id,
             definitionId,
             type.FullName,
@@ -228,14 +228,14 @@ internal static class BrowserSurfaceProjection
         return projected;
     }
 
-    internal static BrowserMemberSurface Member(
+    internal static BrowserMemberSurfaceInfo Member(
         ApiType type,
         ApiMember member,
         BrowserSurfaceTextBudget? textBudget = null)
     {
         textBudget?.EnsureCanProject(type, member);
         MemberAnchor anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
-        var projected = new BrowserMemberSurface(
+        var projected = new BrowserMemberSurfaceInfo(
             member.Name,
             member.Kind,
             member.Signature ?? member.Name,
@@ -257,7 +257,7 @@ internal static class BrowserSurfaceProjection
             member.SignatureModel?.ReturnType ?? member.ReturnType,
             [
                 .. (member.SignatureModel?.Parameters ?? []).Select(
-                    parameter => new BrowserParameterSurface(
+                    parameter => new BrowserParameterSurfaceInfo(
                         parameter.Name,
                         parameter.Type,
                         parameter.Modifier,
@@ -275,7 +275,7 @@ internal static class BrowserSurfaceProjection
             Analysis.CallGraphMemberResolver.CreateSelector(type, member).Key,
             [
                 .. Analysis.CallGraphMemberResolver.CreateBodySelectors(type, member)
-                    .Select(selector => new BrowserMemberBodySelector(
+                    .Select(selector => new BrowserMemberBodySelectorInfo(
                         selector.BodyToken,
                         selector.MemberName,
                         selector.SelectorKey)),
@@ -286,7 +286,7 @@ internal static class BrowserSurfaceProjection
 
     static bool IsDefaultBucket(
         AssemblyContextApiSurfaceResult surfaces,
-        BrowserTypeSurface type) =>
+        BrowserTypeSurfaceInfo type) =>
         surfaces.Accessibility.Any(
             bucket => bucket.IsDefault
                 && bucket.Id.Equals(
@@ -372,7 +372,7 @@ internal static class BrowserSurfaceProjection
             EnsureCanMaterialize(identity * 16 + memberText * 8 + 512);
         }
 
-        internal void Retain(BrowserTypeSurface type)
+        internal void Retain(BrowserTypeSurfaceInfo type)
         {
             Retain(type.Id);
             Retain(type.DefinitionId);
@@ -390,7 +390,7 @@ internal static class BrowserSurfaceProjection
             Retain(type.Signature);
         }
 
-        internal void Retain(BrowserMemberSurface member)
+        internal void Retain(BrowserMemberSurfaceInfo member)
         {
             Retain(member.Name);
             Retain(member.Kind);
@@ -404,7 +404,7 @@ internal static class BrowserSurfaceProjection
             Retain(member.AnchorDigest);
             Retain(member.CanonicalSignature);
             Retain(member.GraphSelectorKey);
-            foreach (BrowserParameterSurface parameter in member.Parameters)
+            foreach (BrowserParameterSurfaceInfo parameter in member.Parameters)
             {
                 Retain(parameter.Name);
                 Retain(parameter.Type);
@@ -412,12 +412,12 @@ internal static class BrowserSurfaceProjection
                 Retain(parameter.DefaultValue);
                 Retain(parameter.Description);
             }
-            foreach (BrowserExceptionSurface exception in member.Exceptions)
+            foreach (BrowserExceptionSurfaceInfo exception in member.Exceptions)
             {
                 Retain(exception.Type);
                 Retain(exception.Description);
             }
-            foreach (BrowserMemberBodySelector selector in member.BodySelectors)
+            foreach (BrowserMemberBodySelectorInfo selector in member.BodySelectors)
             {
                 Retain(selector.MemberName);
                 Retain(selector.SelectorKey);

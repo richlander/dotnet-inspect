@@ -5,9 +5,10 @@ using System.Text.Json;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
 using InspectWeb.Engine;
+using InspectWeb.Engine.MetadataFacade;
 
 [SupportedOSPlatform("browser")]
-public static partial class InspectionEngine
+public static partial class MetadataExports
 {
     [JSExport]
     public static async Task<string> QueryPackageMetadata(
@@ -22,7 +23,8 @@ public static partial class InspectionEngine
                 targetFramework);
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
         BrowserCompileLibraryAvailability compileLibrary =
-            CompileLibrary(coordinate.Selection);
+            BrowserMetadataWireProjection.Project(
+                BrowserCompileLibraryProjection.Project(coordinate.Selection));
         if (!coordinate.Selection.IsSelected)
         {
             return JsonSerializer.Serialize(
@@ -30,7 +32,7 @@ public static partial class InspectionEngine
                     Assemblies: [],
                     InspectionError: null,
                     compileLibrary),
-                BrowserJsonContext.Default.BrowserPackageMetadata);
+                BrowserMetadataJsonContext.Default.BrowserPackageMetadata);
         }
 
         var assemblies = new List<BrowserAssemblyMetadata>();
@@ -65,7 +67,7 @@ public static partial class InspectionEngine
                 [.. assemblies],
                 failures.Count == 0 ? null : string.Join("; ", failures),
                 compileLibrary),
-            BrowserJsonContext.Default.BrowserPackageMetadata);
+            BrowserMetadataJsonContext.Default.BrowserPackageMetadata);
     }
 
     [JSExport]
@@ -101,7 +103,7 @@ public static partial class InspectionEngine
                     request));
         return JsonSerializer.Serialize(
             ProjectMetadataWindow(assemblyFileName, tableIndex, result),
-            BrowserJsonContext.Default.BrowserMetadataWindow);
+            BrowserMetadataJsonContext.Default.BrowserMetadataWindow);
     }
 
     [JSExport]
@@ -132,7 +134,7 @@ public static partial class InspectionEngine
                     heapKind));
         return JsonSerializer.Serialize(
             ProjectHeapListing(assemblyFileName, heapKind, result),
-            BrowserJsonContext.Default.BrowserHeapListing);
+            BrowserMetadataJsonContext.Default.BrowserHeapListing);
     }
 
     [JSExport]
@@ -160,15 +162,19 @@ public static partial class InspectionEngine
                 new BrowserPackageMetadata(
                     [ProjectMetadataAssembly(assembly, available.Value)],
                     null,
-                    SelectedCompileLibrary(resolution.Scope.Framework)),
+                    BrowserMetadataWireProjection.Project(
+                        BrowserCompileLibraryProjection.Selected(
+                            resolution.Scope.Framework))),
             _ => new BrowserPackageMetadata(
                 [],
                 MetadataFailure(result),
-                SelectedCompileLibrary(resolution.Scope.Framework)),
+                BrowserMetadataWireProjection.Project(
+                        BrowserCompileLibraryProjection.Selected(
+                            resolution.Scope.Framework))),
         };
         return JsonSerializer.Serialize(
             metadata,
-            BrowserJsonContext.Default.BrowserPackageMetadata);
+            BrowserMetadataJsonContext.Default.BrowserPackageMetadata);
     }
 
     [JSExport]
@@ -205,7 +211,7 @@ public static partial class InspectionEngine
                     resolution.Participant.Participant.Assembly.Identity.Name),
                 tableIndex,
                 result),
-            BrowserJsonContext.Default.BrowserMetadataWindow);
+            BrowserMetadataJsonContext.Default.BrowserMetadataWindow);
     }
 
     [JSExport]
@@ -237,7 +243,7 @@ public static partial class InspectionEngine
                     resolution.Participant.Participant.Assembly.Identity.Name),
                 heapKind,
                 result),
-            BrowserJsonContext.Default.BrowserHeapListing);
+            BrowserMetadataJsonContext.Default.BrowserHeapListing);
     }
 
     internal static BrowserAssemblyMetadata ProjectMetadataAssembly(

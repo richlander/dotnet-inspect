@@ -2,7 +2,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using Pipeline = ILInspector.Decompiler.Pipeline;
 
-namespace InspectWeb.Engine;
+namespace InspectWeb.Engine.SourceFacade;
 
 /// <summary>
 /// Turns the client's selected style option ids into <see cref="Pipeline.PrinterOptions"/> using
@@ -23,7 +23,7 @@ internal static class BrowserStyleOptions
             ? []
             : JsonSerializer.Deserialize(
                 styleOptionsJson,
-                BrowserJsonContext.Default.StringArray) ?? [];
+                BrowserSourceJsonContext.Default.StringArray) ?? [];
         return Pipeline.StyleOptionCatalog.ResolveChoices(selected);
     }
 }

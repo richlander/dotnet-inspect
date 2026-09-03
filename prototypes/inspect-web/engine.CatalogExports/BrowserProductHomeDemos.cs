@@ -1,7 +1,7 @@
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 
-namespace InspectWeb.Engine;
+namespace InspectWeb.Engine.CatalogFacade;
 
 /// <summary>
 /// Maps product-owned <see cref="ProductInspectionDemos"/> catalog and

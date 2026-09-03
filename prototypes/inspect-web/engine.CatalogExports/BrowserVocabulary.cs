@@ -1,7 +1,7 @@
 using System.Text.Json;
 using DotnetInspector.Vocabulary;
 
-namespace InspectWeb.Engine;
+namespace InspectWeb.Engine.CatalogFacade;
 
 /// <summary>
 /// Maps the product-owned <see cref="VocabularyWireDocument"/> to the browser-local

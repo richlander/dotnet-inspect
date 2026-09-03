@@ -3,8 +3,9 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Queries;
 using InspectWeb.Engine;
+using InspectWeb.Engine.PackageFacade;
 
-namespace InspectWeb.Engine
+namespace InspectWeb.Engine.PackageFacade
 {
     [SupportedOSPlatform("browser")]
     internal static class BrowserPackageQueryOperations
@@ -189,18 +190,18 @@ namespace InspectWeb.Engine
         internal static string Serialize(BrowserPackageQueryEvent queryEvent) =>
             JsonSerializer.Serialize(
                 queryEvent,
-                BrowserJsonContext.Default.BrowserPackageQueryEvent);
+                BrowserPackageJsonContext.Default.BrowserPackageQueryEvent);
     }
 }
 
 [SupportedOSPlatform("browser")]
-public static partial class InspectionEngine
+public static partial class PackageExports
 {
     [JSExport]
     public static string ListPackageQueryFacets() =>
         JsonSerializer.Serialize(
             BrowserPackageQueryOperations.Facets(),
-            BrowserJsonContext.Default.BrowserPackageQueryFacetCatalog);
+            BrowserPackageJsonContext.Default.BrowserPackageQueryFacetCatalog);
 
     [JSExport]
     public static void CancelPackageQuery() =>
@@ -218,7 +219,7 @@ public static partial class InspectionEngine
         ArgumentNullException.ThrowIfNull(eventSink);
         string[] facetIds = JsonSerializer.Deserialize(
             facetIdsJson,
-            BrowserJsonContext.Default.StringArray) ?? [];
+            BrowserPackageJsonContext.Default.StringArray) ?? [];
 
         using BrowserPackageQueryOperationLease operation =
             await BrowserPackageQueryOperationCoordinator.BeginAsync();
@@ -244,11 +245,11 @@ public static partial class InspectionEngine
             operation.CancellationToken);
         return JsonSerializer.Serialize(
             completed,
-            BrowserJsonContext.Default.BrowserPackageQueryEvent);
+            BrowserPackageJsonContext.Default.BrowserPackageQueryEvent);
     }
 }
 
-namespace InspectWeb.Engine
+namespace InspectWeb.Engine.PackageFacade
 {
     [SupportedOSPlatform("browser")]
     internal sealed class BrowserPackageQueryContentProvider(

@@ -2,7 +2,7 @@ using System.Runtime.Versioning;
 using System.Xml;
 using CSharpText;
 
-namespace InspectWeb.Engine;
+namespace InspectWeb.Engine.PackageFacade;
 
 /// <summary>
 /// Reads one member's entry from a package-shipped XML documentation file. The file is untrusted
