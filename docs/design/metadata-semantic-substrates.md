@@ -39,8 +39,8 @@ Three existing components establish the shape.
 
 They already agree on more than they disagree on: each derives a relationship
 rather than decoding a single row, each publishes immutable typed results
-carrying the evidence behind them, and each converts resource exhaustion into
-a typed outcome rather than an escaping exception.
+carrying the evidence behind them, and each stops a resource bound from
+escaping as an exception.
 
 They disagree on outcome vocabulary. Only type declaration models `Missing`
 and `Ambiguous` as first-class declaration outcomes; the state-machine index
@@ -59,8 +59,24 @@ consumer.
    attribute blob, or reading one table column, is a helper.
 2. **Metadata-only evidence.** Every published fact follows from metadata
    inside the declared acquisition scope. If the answer needs an IL body,
-   reconstructed control flow, a PDB, source text, a naming heuristic, or a
-   project file, it is not a substrate fact.
+   reconstructed control flow, a PDB, source text, or a project file, it is
+   not a substrate fact.
+
+   Metadata evidence comes in two grades, and a substrate must not silently
+   mix them:
+
+   - **Structural** — the metadata tables state the relationship directly, as
+     `MethodSemantics` states that a method is a property's getter.
+   - **Conventional** — the relationship follows from a compiler name grammar,
+     as `<Prop>k__BackingField` marks an auto-property's storage. The evidence
+     is still entirely in metadata, but it records a compiler convention
+     rather than an assertion of the format.
+
+   Conventional evidence is admissible only when the published result labels
+   it as conventional and carries the matched name as evidence, so a consumer
+   can decide whether to trust it. A substrate must never present a
+   convention match as a structural fact. Name grammars must come from the
+   shared `GeneratedNameGrammar`, never from an ad-hoc string test.
 3. **Independent multi-consumer demand.** At least two higher layers need the
    same meaning. The evidence may be *consumption* — two layers already read
    it — or *duplication*: one layer reads it while another independently
@@ -80,14 +96,19 @@ that exists, not demand a substrate might create.
 
 ### Worked admissions
 
-**Property, event, and accessor association — admit.** The association between
-an accessor and its declaring property or event, and between a property or
-event and ordinary backing storage, is derived (1), stated entirely by the
-`MethodSemantics` and layout tables (2), and is already decoded separately by
-Metadata's declaration query, the memory-safety index's accessor fallback, and
-CSharp's backing-field handling (3). It asserts association, not spelling (4),
-and must distinguish an ordinary backing association from an absent one and
-from an ambiguous one (5).
+**Property, event, and accessor association — admit, with a split evidence
+grade.** The association between an accessor and its declaring property or
+event is derived (1) and **structural**: `MethodSemantics` states it outright
+(2). The association between a property and its compiler-generated backing
+storage is **conventional**: it rests on the `<Prop>k__BackingField` name
+grammar (`src/ILInspector.MetadataPrimitives/GeneratedNameGrammar.cs:57`), not
+on any table that asserts the relationship. Both are metadata-only, so both
+are admissible — but a substrate here must publish the second labelled as
+conventional, carrying the matched field name, and must not let a consumer
+mistake it for a structural fact. Demand is shown by duplication (3): the
+decoders listed in the candidate inventory below each derive some of this
+today. It asserts association, not spelling (4), and must distinguish an
+ordinary backing association from an absent one and from an ambiguous one (5).
 
 **Lambda and local-function raising — reject.** It fails (2) outright: the
 meaning depends on IL patterns, captured-variable flow, and reconstructed
@@ -150,9 +171,26 @@ answer — so a consumer can explain the fact without re-deriving it. This is
 what lets a consumer render an unrecognized marker version, or a forwarding
 chain, without decoding the metadata a second time.
 
-**Handle inputs are validated, not trusted.** A handle supplied by a caller is
-an untrusted coordinate. An out-of-range or foreign handle yields a typed
-outcome, never an out-of-range read and never an exception.
+**Handle inputs are validated, not trusted, and the guarantee depends on the
+key type.** A caller-supplied coordinate is untrusted, but what a substrate
+can detect differs by what it accepts:
+
+- A **raw handle** (`MethodDefinitionHandle`, `TypeDefinitionHandle`) carries
+  only a table and a row. A substrate must range-check it against the target
+  reader's row count and return a typed outcome for an out-of-range row —
+  never an out-of-range read and never an exception. It **cannot** detect a
+  handle from a different module whose row happens to be in range; such a
+  handle yields a well-typed answer about the wrong row. This is a real limit
+  of the key type, not an implementation gap.
+- A **scoped identity** such as `MetadataMethodAddress`, which carries the
+  module version id alongside the handle, can additionally reject a foreign
+  coordinate through its `BelongsTo` check.
+
+A substrate whose consumers can plausibly hold coordinates from more than one
+module must therefore accept a scoped identity rather than a raw handle. A
+substrate that accepts raw handles must document that in-range foreign
+handles are undetectable at its boundary. Neither form may promise more than
+its key can deliver.
 
 ## Construction and bounds
 
@@ -209,9 +247,16 @@ change that introduces it.
 
 | Substrate | Reading consumer | Second demand, and its evidence |
 | --- | --- | --- |
-| `StateMachineRelationshipIndex` | Decompiler — `src/ILInspector.Decompiler/Pipeline` | **Duplication.** Analysis derives async state-machine type membership itself in `src/ILInspector.Analysis/LibraryBodyPrimaryMetadataResolver.cs:810` (`AsyncStateMachineTypes`) rather than reading the index. |
-| `MemorySafetyMetadataIndex` | CLI Signals, through `src/ILInspector.Metadata/AssemblyDetailScanner.cs:197` | **Duplication, already observed diverging.** The decompiler printer decodes the same module marker at `src/ILInspector.Decompiler/Pipeline/Ir/IrImporter.cs:2826`, and the two derivations disagree on a legal ECMA-335 spelling — [#5670](https://github.com/richlander/dotnet-inspect/issues/5670). |
-| Type declaration and forwarding resolution | Queries — `src/DotnetInspector.Queries/InspectionGraphIntegrationsQuery.cs:1293` | **Consumption.** The Decompiler reads the same result at `src/ILInspector.Decompiler/Pipeline/Ir/IrImporter.cs:235`. |
+| `StateMachineRelationshipIndex` | Decompiler, direct API — `src/ILInspector.Decompiler/Pipeline/MetadataSource.cs:47` | **Duplication.** Analysis never calls the index. It derives the same facts itself, twice over: async state-machine type membership at `src/ILInspector.Analysis/LibraryBodyPrimaryMetadataResolver.cs:810`, and `AsyncStateMachineAttribute` decoding at `src/ILInspector.Analysis/LibraryBodyAsyncSourceResolver.cs:211`. |
+| `MemorySafetyMetadataIndex` | CLI Signals, projected — `src/ILInspector.Metadata/AssemblyDetailScanner.cs:197` publishes `MemorySafetyRules`, read at `AuditSignalBuilder.cs:372` | **Duplication, already observed diverging.** The decompiler printer decodes the same module marker at `src/ILInspector.Decompiler/Pipeline/Ir/IrImporter.cs:2826`, and the two derivations disagree on a legal ECMA-335 spelling — [#5670](https://github.com/richlander/dotnet-inspect/issues/5670). |
+| Type declaration and forwarding resolution | Queries, direct API — `src/DotnetInspector.Queries/InspectionGraphIntegrationsQuery.cs:1293` | **Consumption.** The Decompiler reads the same result at `src/ILInspector.Decompiler/Pipeline/Ir/IrImporter.cs:235`. |
+
+"Consumed" is used in two senses above and the column says which applies:
+**direct API** means the consumer calls the substrate itself; **projected**
+means the consumer reads a result the substrate produced, carried through an
+intermediate model. Both satisfy requirement 3, because both make the consumer
+depend on the substrate's answer instead of its own derivation. Analysis
+appears in no row as a consumer in either sense.
 
 Only the third row is satisfied by two readers today. The first two are
 satisfied by duplication: a second layer needs the same meaning and derives it
@@ -221,6 +266,23 @@ the pair that had no shared substrate. The remaining duplication in the first
 two rows is the pattern's own backlog, tracked under
 [#5555](https://github.com/richlander/dotnet-inspect/issues/5555), and is not
 claimed here as completed adoption.
+
+### Known deviations
+
+The established substrates do not all satisfy this document yet. Recording the
+gaps is part of locking the pattern; each is a defect in the component, not a
+licence to weaken the contract.
+
+| Substrate | Deviation | Evidence |
+| --- | --- | --- |
+| Type declaration and forwarding resolution | Budget exhaustion is reported as `Malformed`, collapsing the **Budget-limited** distinction into malformed metadata. A consumer cannot tell a hostile-artifact bound from a broken artifact. | `src/ILInspector.Metadata/MetadataTypeDeclarationProbe.cs:66` returns `TypeDeclarationResult.Rejected(MetadataTypeNameFailure.Malformed(...))` with the message "exceeded its structural-name work budget". |
+
+The requirement is not invented for this document: the other two substrates
+already model the distinction as a first-class case —
+`src/ILInspector.Metadata/StateMachineRelationship.cs:192` and
+`src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:32` both declare
+`BudgetExceeded`. Type declaration is the outlier, and correcting it is
+tracked as [#5708](https://github.com/richlander/dotnet-inspect/issues/5708).
 
 ### Candidates
 
