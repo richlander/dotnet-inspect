@@ -296,9 +296,10 @@ interface MainOperationRecord<TDiagnostic> {
       { readonly kind: "settled" }
     >,
   ) => OperationMessageReceiveResult;
-  readonly reportClosure: (
+  readonly sealClosure: (
     closure: WorkerEpochClosure<TDiagnostic>,
   ) => void;
+  readonly deliverClosure: () => void;
   readonly reportCancellation: (reason: OperationCancelReason) => void;
   readonly reportQuiescence: () => void;
   readonly release: () => void;
@@ -336,6 +337,7 @@ interface MainEpoch<TDiagnostic> {
   hadUnboundedAllowance: boolean;
   drainDeadline: number | null;
   suspended: boolean;
+  preparedBindings: number;
   realmReleased: boolean;
 }
 
@@ -799,6 +801,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       hadUnboundedAllowance: false,
       drainDeadline: null,
       suspended: false,
+      preparedBindings: 0,
       realmReleased: false,
     };
     this.#current = epoch;
@@ -1005,8 +1008,22 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     if (identity.sequence <= epoch.operationHighWater) {
       return reject({ kind: "operation-sequence-replayed" });
     }
-    const encoded = registration.encodeInput(input);
+    epoch.preparedBindings++;
+    let preparedLifetimeReleased = false;
+    const releasePreparedLifetime = (): void => {
+      if (preparedLifetimeReleased) return;
+      preparedLifetimeReleased = true;
+      this.#releasePreparedBinding(epoch);
+    };
+    let encoded: ReturnType<typeof registration.encodeInput>;
+    try {
+      encoded = registration.encodeInput(input);
+    } catch (error: unknown) {
+      releasePreparedLifetime();
+      throw error;
+    }
     if (encoded.kind === "rejected") {
+      releasePreparedLifetime();
       return reject({
         kind: "payload-rejected",
         reason: encoded.reason,
@@ -1037,7 +1054,10 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
         const payload = retainedPayload;
         retainedSink = null;
         retainedPayload = undefined;
-        if (assignedEpoch === null || assignedSink === null) return;
+        if (assignedEpoch === null || assignedSink === null) {
+          releasePreparedLifetime();
+          return;
+        }
         const record = this.#createOperationRecord(
           registration,
           identity,
@@ -1045,7 +1065,11 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
           assignedSink,
         );
         activatedRecord = record;
-        this.#activatePrepared(assignedEpoch, record);
+        try {
+          this.#activatePrepared(assignedEpoch, record);
+        } finally {
+          releasePreparedLifetime();
+        }
       },
       abandon: () => {
         if (state !== "prepared") return;
@@ -1053,6 +1077,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
         retainedEpoch = null;
         retainedSink = null;
         retainedPayload = undefined;
+        releasePreparedLifetime();
       },
     };
     return { kind: "prepared", binding };
@@ -1084,6 +1109,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       TError,
       TProgress
     > | null = sink;
+    let sealedClosure: WorkerEpochClosure<TDiagnostic> | null = null;
     const invoke = (
       call: (
         current: OperationProducerSink<TValue, TError, TProgress>,
@@ -1157,33 +1183,43 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
           if (settlement.kind === "failed"
             && settlement.failureKind === "unexpected") {
             invoke(current => {
-              current.reportUnexpectedFailure(settlement.diagnostic);
+              current.reportUnexpectedTerminal(
+                settlement.error,
+                settlement.diagnostic,
+              );
+            });
+          } else {
+            invoke(current => {
+              if (settlement.kind === "succeeded") {
+                current.reportTerminal({
+                  kind: "succeeded",
+                  value: settlement.value,
+                });
+              } else if (settlement.kind === "failed") {
+                current.reportTerminal({
+                  kind: "failed",
+                  error: settlement.error,
+                });
+              } else {
+                current.reportTerminal({
+                  kind: "canceled",
+                  reason: settlement.reason,
+                });
+              }
             });
           }
-          invoke(current => {
-            if (settlement.kind === "succeeded") {
-              current.reportTerminal({
-                kind: "succeeded",
-                value: settlement.value,
-              });
-            } else if (settlement.kind === "failed") {
-              current.reportTerminal({
-                kind: "failed",
-                error: settlement.error,
-              });
-            } else {
-              current.reportTerminal({
-                kind: "canceled",
-                reason: settlement.reason,
-              });
-            }
-          });
         }
         return { kind: "success" };
       },
-      reportClosure: closure => {
+      sealClosure: closure => {
         if (record.logicalClosureReported) return;
         record.logicalClosureReported = true;
+        sealedClosure = closure;
+      },
+      deliverClosure: () => {
+        const closure = sealedClosure;
+        if (closure === null) return;
+        sealedClosure = null;
         if (closure.kind === "planned-restart") {
           invoke(current => {
             current.reportTerminal({
@@ -1192,9 +1228,6 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
             });
           });
         } else {
-          invoke(current => {
-            current.reportUnexpectedFailure(closure.failure.diagnostic);
-          });
           invoke(current => {
             current.reportTerminal({
               kind: "failed",
@@ -1219,6 +1252,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       },
       release: () => {
         retainedSink = null;
+        sealedClosure = null;
         record.payload = undefined;
       },
     };
@@ -2024,7 +2058,9 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     epoch.drainDeadline = this.#options.clock.now()
       + this.#options.drainBudgetMilliseconds;
     for (const record of epoch.operations.values())
-      this.#reportOperationClosure(record, closure);
+      this.#sealOperationClosure(record, closure);
+    for (const record of epoch.operations.values())
+      this.#deliverOperationClosure(record);
     if (closure.kind === "unexpected-failure")
       this.#reportFailure(closure.failure);
 
@@ -2039,7 +2075,21 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     record: MainOperationRecord<TDiagnostic>,
     closure: WorkerEpochClosure<TDiagnostic>,
   ): void {
-    record.reportClosure(closure);
+    this.#sealOperationClosure(record, closure);
+    this.#deliverOperationClosure(record);
+  }
+
+  #sealOperationClosure(
+    record: MainOperationRecord<TDiagnostic>,
+    closure: WorkerEpochClosure<TDiagnostic>,
+  ): void {
+    record.sealClosure(closure);
+  }
+
+  #deliverOperationClosure(
+    record: MainOperationRecord<TDiagnostic>,
+  ): void {
+    record.deliverClosure();
   }
 
   #reportCallbackError(error: unknown): void {
@@ -2121,21 +2171,35 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     epoch.probe = null;
     epoch.deferredControlProbe = false;
     epoch.epochWork.clear();
-    if (!epoch.realmReleased) {
-      epoch.realmReleased = true;
-      try {
-        this.#options.callbacks.realmReleased(epoch.token);
-      } catch (error: unknown) {
-        const diagnostic = this.#options.createDiagnostic(
-          "callback-error",
-          error,
-        );
-        this.#reportDiagnostic({
-          kind: "callback-error",
-          diagnostic,
-          error,
-        });
-      }
+    this.#reportRealmReleasedIfReady(epoch);
+  }
+
+  #releasePreparedBinding(epoch: MainEpoch<TDiagnostic>): void {
+    if (epoch.preparedBindings <= 0)
+      throw new Error("Prepared binding lifetime was released more than once.");
+    epoch.preparedBindings--;
+    this.#reportRealmReleasedIfReady(epoch);
+  }
+
+  #reportRealmReleasedIfReady(epoch: MainEpoch<TDiagnostic>): void {
+    if (epoch.phase !== "closed"
+      || epoch.preparedBindings !== 0
+      || epoch.realmReleased) {
+      return;
+    }
+    epoch.realmReleased = true;
+    try {
+      this.#options.callbacks.realmReleased(epoch.token);
+    } catch (error: unknown) {
+      const diagnostic = this.#options.createDiagnostic(
+        "callback-error",
+        error,
+      );
+      this.#reportDiagnostic({
+        kind: "callback-error",
+        diagnostic,
+        error,
+      });
     }
   }
 

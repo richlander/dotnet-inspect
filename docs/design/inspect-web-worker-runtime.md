@@ -352,11 +352,18 @@ Preparation synchronously:
 2. validates the operation reference, operation kind, feature adapter, and
    structured-clone-safe input without retaining the producer sink on failure;
 3. creates one prepared binding with an already-usable cancellation endpoint;
-   and
-4. retains no worker or sink state until activation.
+4. records one epoch-visible prepared lifetime before invoking the input
+   encoder, so reentrant epoch closure cannot overtake a successful or rejected
+   preparation; and
+5. retains the sink and encoded payload only inside that binding, without
+   creating an assigned operation record or calling the Worker until
+   activation.
 
-Abandoning a prepared binding is synchronous and resource-free. Activating it
-installs one epoch-assigned record before any worker callout can be observed.
+Abandoning a prepared binding synchronously releases its retained state and
+prepared lifetime without assigning Worker work. Activating it installs one
+epoch-assigned record before any worker callout can be observed, delivers any
+already committed closure and quiescence, and only then releases the prepared
+lifetime.
 Activation while the epoch is starting places the record in the held queue.
 Activation while ready posts `Start`. If the epoch closed between preparation
 and activation, activation reports that committed closure verbatim through the
@@ -373,7 +380,9 @@ became ready; it remains awaiting the worker's explicit `Accepted` response.
 
 Admission stops synchronously when an epoch enters draining. Preparation then
 rejects new work, while already prepared bindings either abandon or activate
-into the committed epoch closure.
+into the committed epoch closure. Hard termination may destroy the Worker
+before that choice, but realm release waits until every such binding has
+abandoned or completed activation callbacks.
 
 ## Closed worker protocol
 
@@ -435,14 +444,16 @@ can construct it only after the generated managed Promise fulfills and the
 managed bridge has therefore crossed its operation-resource release barrier.
 The main adapter processes one valid `Settled` by:
 
-1. reporting an unexpected diagnostic when its failure kind requires one;
-2. reporting the terminal result; and
-3. reporting quiescence.
+1. atomically reporting the terminal failure and its unexpected diagnostic
+   through `reportUnexpectedTerminal` when that failure kind applies, or
+   reporting the ordinary terminal result otherwise; and
+2. reporting quiescence.
 
-Those remain separate operation-authority signals, but no wire state can lose
-one after receiving the other. `Rejected` is the exclusive never-accepted
-alternative and proves that no operation-scoped worker or managed resource was
-admitted; the adapter reports its failure and quiescence together.
+The atomic operation-authority call commits terminal authority before its
+synchronous diagnostic observer can reenter operation APIs. `Rejected` is the
+exclusive never-accepted alternative and proves that no operation-scoped
+worker or managed resource was admitted; the adapter reports its failure and
+quiescence together.
 
 Promise rejection from the managed facade is not a `Failed` managed result. It
 is a worker boundary failure and begins unexpected epoch draining because the
@@ -763,10 +774,21 @@ committed after matching readiness.
 
 Entering draining atomically refuses new assignments and fixes the exact
 closure kind and diagnostic identity.
-Every still-pending assigned producer receives one physical closure:
+The host first seals that logical closure on every still-pending assigned
+record without invoking a producer sink. It then reports every producer
+terminal outcome before invoking the runtime failure observer, so no operation
+or runtime callback can replace a sibling's fixed outcome. Every still-pending
+assigned producer receives one physical closure:
 
 - planned restart reports `Canceled("worker-restarted")`; or
-- unexpected failure reports one boundary failure and diagnostic.
+- unexpected failure reports one boundary failure.
+
+The unexpected epoch diagnostic is reported once through the runtime failure
+observer after all assigned producer outcomes are final. Per-operation
+unexpected-terminal diagnostics remain reserved for an operation's own
+unexpected `Settled` result; multiplying one realm failure across every
+operation diagnostic observer would reintroduce cross-operation authority and
+duplicate the same boundary evidence.
 
 Ordinary success, failure, progress, or cancellation messages arriving after
 that commit cannot replace the fixed closure. They may still prove physical
@@ -802,6 +824,13 @@ No worker message or managed callback can be delivered through this host after
 revocation. Realm release claims that worker code and operation-scoped
 callbacks can no longer run. It does not claim immediate browser-process
 memory reclamation.
+
+Prepared bindings are operation-authority-owned and are not force-abandoned by
+hard termination. The Worker may already be destroyed, but `realmReleased`
+remains deferred until every epoch-visible prepared lifetime either abandons or
+activates into the committed closure and finishes its terminal and quiescence
+callbacks. A replacement epoch may start while that old-epoch notification is
+deferred; the later notification retains the old epoch token.
 
 Disposing the runtime host is terminal. It closes any current epoch, revokes
 its clock and lifecycle subscriptions, and rejects every later epoch start
@@ -1052,11 +1081,17 @@ deterministic scheduling rather than a real browser worker. It includes:
   partial realm as `protocol`, while worker `error` and `messageerror` retain
   `worker-message`;
 - planned restart cancellation versus unexpected boundary failure;
+- multi-record closure sealing before any producer or runtime callback, with a
+  callback for one record unable to cancel or replace a sibling's fixed
+  outcome;
+- unexpected `Settled` publication using the atomic operation-authority sink,
+  including diagnostic-reentrant cancellation;
 - a later fault during draining preserving the first committed cause and
   outcomes, plus a crash during draining closing immediately without waiting
   for the drain deadline;
 - preparation followed by epoch closure before activation, preserving planned
-  versus unexpected classification;
+  versus unexpected classification, with activation or abandonment completing
+  before `realmReleased`;
 - bounded failed draining with early natural release and deadline hard
   termination;
 - source revocation and no message, progress callback, managed callback, or

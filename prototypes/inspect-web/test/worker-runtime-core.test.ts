@@ -115,6 +115,7 @@ interface HarnessOptions {
   readonly controlResponseGraceMilliseconds?: number;
   readonly drainBudgetMilliseconds?: number;
   readonly failure?: (failure: WorkerRuntimeFailure<TestDiagnostic>) => void;
+  readonly realmReleased?: (epochToken: number) => void;
   readonly workerProducerClassIdleAllowanceMilliseconds?: number;
   readonly workerAllowance?: WorkerLivenessAllowance;
 }
@@ -331,6 +332,7 @@ function createHarness(options: HarnessOptions = {}): TestHarness {
       },
       realmReleased: epochToken => {
         releasedEpochs.push(epochToken);
+        options.realmReleased?.(epochToken);
         return undefined;
       },
     },
@@ -418,11 +420,14 @@ function started<TValue, TError, TPrepareError>(
   return result.handle;
 }
 
-function captureIdentity(): OperationIdentity {
-  let captured: OperationIdentity | null = null;
+function captureIdentities(count: number): readonly OperationIdentity[] {
+  const captured: OperationIdentity[] = [];
   const authority = createOperationAuthorityPage({
     allocation: {
-      createId: () => "captured-operation",
+      createId: (() => {
+        let id = 1;
+        return () => `captured-operation-${id++}`;
+      })(),
     },
   });
   const captureSession = authority.createSession<
@@ -443,13 +448,18 @@ function captureIdentity(): OperationIdentity {
     string
   > = {
     prepare: identity => {
-      captured = identity;
+      captured.push(identity);
       return { kind: "rejected", error: "captured" };
     },
   };
-  captureSession.start("capture", captureAdapter);
-  if (captured === null) throw new Error("Operation identity was not captured.");
+  for (let index = 0; index < count; index++)
+    captureSession.start("capture", captureAdapter);
+  assert.equal(captured.length, count);
   return captured;
+}
+
+function captureIdentity(): OperationIdentity {
+  return captureIdentities(1)[0]!;
 }
 
 function preparedBinding(
@@ -661,6 +671,10 @@ test("preparation rejects synchronously without posting or retaining a sink", ()
       calls.push("terminal");
       return undefined;
     },
+    reportUnexpectedTerminal: () => {
+      calls.push("unexpected-terminal");
+      return undefined;
+    },
     reportQuiesced: () => {
       calls.push("quiesced");
       return undefined;
@@ -689,6 +703,7 @@ test("abandonment is resource-free and activation installs before callout", asyn
       calls.push("terminal");
       return undefined;
     },
+    reportUnexpectedTerminal: () => undefined,
     reportQuiesced: () => {
       calls.push("quiesced");
       return undefined;
@@ -863,6 +878,7 @@ test("closure before activation preserves planned and unexpected outcomes", asyn
     const identity = captureIdentity();
     const sink: OperationProducerSink<string, string, string> = {
       reportProgress: () => undefined,
+      reportUnexpectedTerminal: () => undefined,
       reportUnexpectedFailure: diagnostic => {
         events.push(`unexpected:${String(diagnostic)}`);
         return undefined;
@@ -894,13 +910,82 @@ test("closure before activation preserves planned and unexpected outcomes", asyn
       events.map(event => event.startsWith("unexpected:") ? "unexpected" : event),
       planned
         ? ["terminal:worker-restarted", "quiesced"]
-        : ["unexpected", "terminal:boundary:protocol", "quiesced"],
+        : ["terminal:boundary:protocol", "quiesced"],
     );
+    assert.equal(harness.failures.length, planned ? 0 : 1);
     assert.equal(
       operationMessages(harness.workers[0]!).includes("start"),
       false,
     );
   }
+});
+
+test("prepared activation callbacks complete before realm release", async () => {
+  const order: string[] = [];
+  let harness: TestHarness;
+  harness = createHarness({
+    realmReleased: () => {
+      order.push("realm-released");
+    },
+  });
+  await startReady(harness);
+  const page = createOperationAuthorityPage({
+    allocation: { createId: () => "prepared-operation" },
+  });
+  const operationSession = page.createSession<
+    string,
+    string,
+    string,
+    string,
+    WorkerRuntimePreparationError
+  >({
+    feature: {
+      publish: event => {
+        order.push(`feature:${event.kind}`);
+        if (event.kind === "started") harness.host.restart();
+        return undefined;
+      },
+    },
+    diagnostic: { report: () => undefined },
+  });
+
+  const handle = started(
+    operationSession.start("input", harness.adapter),
+  );
+  assert.deepEqual(await handle.outcome, {
+    kind: "canceled",
+    reason: "worker-restarted",
+  });
+  await handle.quiesced;
+
+  assert.deepEqual(order, [
+    "feature:started",
+    "feature:canceled",
+    "realm-released",
+  ]);
+  assert.equal(harness.host.snapshot().phase, "closed");
+  assert.equal(harness.workers[0]!.terminated, true);
+});
+
+test("prepared abandonment completes deferred realm release", async () => {
+  const harness = createHarness();
+  await startReady(harness);
+  const sink: OperationProducerSink<string, string, string> = {
+    reportProgress: () => undefined,
+    reportTerminal: () => undefined,
+    reportUnexpectedTerminal: () => undefined,
+    reportQuiesced: () => undefined,
+    reportUnexpectedFailure: () => undefined,
+  };
+  const binding = preparedBinding(
+    harness.adapter.prepare(captureIdentity(), "input", sink),
+  );
+
+  harness.host.restart();
+  assert.deepEqual(harness.releasedEpochs, []);
+
+  binding.abandon();
+  assert.deepEqual(harness.releasedEpochs, [1]);
 });
 
 test("startup uses one non-renewable active-time budget and only matching Ready succeeds", async () => {
@@ -1316,6 +1401,7 @@ test("host operation high-water permits gaps, rejects replay after release, and 
   const sink: OperationProducerSink<string, string, string> = {
     reportProgress: () => undefined,
     reportTerminal: () => undefined,
+    reportUnexpectedTerminal: () => undefined,
     reportQuiesced: () => undefined,
     reportUnexpectedFailure: () => undefined,
   };
@@ -1920,6 +2006,13 @@ test("Settled maps unexpected diagnostic, terminal, then quiescence atomically",
       calls.push(`progress:${value}`);
       return undefined;
     },
+    reportUnexpectedTerminal: (error, diagnostic) => {
+      const code = typeof diagnostic === "object" && diagnostic !== null
+        ? ownDataProperty(diagnostic, "code")
+        : "unknown";
+      calls.push(`unexpected-terminal:${String(code)}:${error}`);
+      return undefined;
+    },
     reportUnexpectedFailure: diagnostic => {
       const code = typeof diagnostic === "object" && diagnostic !== null
         ? ownDataProperty(diagnostic, "code")
@@ -1950,10 +2043,53 @@ test("Settled maps unexpected diagnostic, terminal, then quiescence atomically",
   });
   await harness.environment.flushAsync();
   assert.deepEqual(calls, [
-    "unexpected:unexpected-producer",
-    "terminal:feature-error",
+    "unexpected-terminal:unexpected-producer:feature-error",
     "quiesced",
   ]);
+});
+
+test("unexpected Settled commits failure before diagnostic reentrancy", async () => {
+  const settlement = deferred<TestSettlement>();
+  const harness = createHarness({ invoke: () => settlement.promise });
+  await startReady(harness);
+  let handle: OperationHandle<string, string> | null = null;
+  let cancelResult: ReturnType<OperationHandle<string, string>["cancel"]>
+    | null = null;
+  const page = createOperationAuthorityPage({
+    allocation: { createId: () => "unexpected-operation" },
+  });
+  const operationSession = page.createSession<
+    string,
+    string,
+    string,
+    string,
+    WorkerRuntimePreparationError
+  >({
+    feature: { publish: () => undefined },
+    diagnostic: {
+      report: () => {
+        cancelResult = handle?.cancel("user") ?? null;
+        return undefined;
+      },
+    },
+  });
+  handle = started(operationSession.start("input", harness.adapter));
+  await harness.environment.flushAsync();
+
+  settlement.resolve({
+    kind: "failed",
+    failureKind: "unexpected",
+    error: "feature-error",
+    diagnostic: { code: "unexpected-producer", detail: "detail" },
+  });
+  await harness.environment.flushAsync();
+
+  assert.deepEqual(cancelResult, { kind: "no-op" });
+  assert.deepEqual(await handle.outcome, {
+    kind: "failed",
+    error: "feature-error",
+  });
+  await handle.quiesced;
 });
 
 test("managed Promise rejection is an epoch boundary failure, not a feature result", async () => {
@@ -2878,41 +3014,97 @@ test("operation closure precedes a reentrant failure-observer cancellation", asy
   });
 });
 
-test("operation closure identity is fixed before sink callbacks run", async () => {
+test("epoch closure seals every assigned record before sink callbacks run", async () => {
   const settlement = deferred<TestSettlement>();
   const harness = createHarness({ invoke: () => settlement.promise });
   await startReady(harness);
-  const identity = captureIdentity();
+  const [firstIdentity, secondIdentity] = captureIdentities(2);
   const terminals: unknown[] = [];
-  let binding: PreparedOperationProducer | null = null;
-  const sink: OperationProducerSink<string, string, string> = {
+  let secondBinding: PreparedOperationProducer | null = null;
+  const firstSink: OperationProducerSink<string, string, string> = {
     reportProgress: () => undefined,
-    reportUnexpectedFailure: () => {
-      binding?.requestCancellation("user");
+    reportUnexpectedTerminal: () => undefined,
+    reportUnexpectedFailure: () => undefined,
+    reportTerminal: outcome => {
+      terminals.push(outcome);
+      secondBinding?.requestCancellation("user");
       return undefined;
     },
+    reportQuiesced: () => undefined,
+  };
+  const secondSink: OperationProducerSink<string, string, string> = {
+    reportProgress: () => undefined,
+    reportUnexpectedTerminal: () => undefined,
+    reportUnexpectedFailure: () => undefined,
     reportTerminal: outcome => {
       terminals.push(outcome);
       return undefined;
     },
     reportQuiesced: () => undefined,
   };
-  binding = preparedBinding(
-    harness.adapter.prepare(identity, "input", sink),
+  const firstBinding = preparedBinding(
+    harness.adapter.prepare(firstIdentity!, "first", firstSink),
   );
-  binding.activate();
+  secondBinding = preparedBinding(
+    harness.adapter.prepare(secondIdentity!, "second", secondSink),
+  );
+  firstBinding.activate();
+  secondBinding.activate();
   await harness.environment.flushAsync();
 
   harness.workers[0]!.emitRaw({ malformed: true });
 
-  assert.deepEqual(terminals, [{
-    kind: "failed",
-    error: "boundary:protocol",
-  }]);
+  assert.deepEqual(terminals, [
+    { kind: "failed", error: "boundary:protocol" },
+    { kind: "failed", error: "boundary:protocol" },
+  ]);
   assert.deepEqual(
     operationMessages(harness.workers[0]!),
-    ["initialize", "start"],
+    ["initialize", "start", "start"],
   );
+});
+
+test("epoch failure callback observes every assigned outcome as final", async () => {
+  const settlement = deferred<TestSettlement>();
+  let secondHandle: OperationHandle<string, string> | null = null;
+  let cancelResult: ReturnType<OperationHandle<string, string>["cancel"]>
+    | null = null;
+  const harness = createHarness({
+    invoke: () => settlement.promise,
+    failure: () => {
+      cancelResult = secondHandle?.cancel("user") ?? null;
+    },
+  });
+  await startReady(harness);
+  const authority = createOperationAuthorityPage({
+    allocation: {
+      createId: (() => {
+        let id = 1;
+        return () => `closure-operation-${id++}`;
+      })(),
+    },
+  });
+  const firstSession = session(harness.adapter, authority);
+  const secondSession = session(harness.adapter, authority);
+  const firstHandle = started(
+    firstSession.session.start("first", harness.adapter),
+  );
+  secondHandle = started(
+    secondSession.session.start("second", harness.adapter),
+  );
+  await harness.environment.flushAsync();
+
+  harness.workers[0]!.emitRaw({ malformed: true });
+
+  assert.deepEqual(cancelResult, { kind: "no-op" });
+  assert.deepEqual(await firstHandle.outcome, {
+    kind: "failed",
+    error: "boundary:protocol",
+  });
+  assert.deepEqual(await secondHandle.outcome, {
+    kind: "failed",
+    error: "boundary:protocol",
+  });
 });
 
 test("synchronous fake admission cannot invoke after restart releases the realm", async () => {
@@ -3160,6 +3352,7 @@ test("callback errors remain failure-complete and realm release is reported once
   const calls: string[] = [];
   const sink: OperationProducerSink<string, string, string> = {
     reportProgress: () => undefined,
+    reportUnexpectedTerminal: () => undefined,
     reportUnexpectedFailure: () => {
       calls.push("unexpected");
       throw new Error("unexpected callback failed");
@@ -3177,12 +3370,12 @@ test("callback errors remain failure-complete and realm release is reported once
   await harness.environment.flushAsync();
   harness.workers[0]!.emitRaw({ malformed: true });
   harness.environment.advanceActive(20);
-  assert.deepEqual(calls, ["unexpected", "terminal", "quiesced"]);
+  assert.deepEqual(calls, ["terminal", "quiesced"]);
   assert.equal(
     harness.runtimeDiagnostics.filter(
       diagnostic => diagnostic.code === "callback-error",
     ).length,
-    3,
+    2,
   );
   harness.host.receiveWorkerCrash(harness.workers[0]!, "late crash");
   assert.deepEqual(harness.releasedEpochs, [1]);
