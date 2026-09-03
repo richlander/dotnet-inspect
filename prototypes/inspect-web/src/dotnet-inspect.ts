@@ -649,6 +649,7 @@ let homeReadyGlintPending = true;
 const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   statusBarExpanded: false,
+  memberFiltersExpanded: false,
   packages: [],
   package: null,
   home: false,
@@ -2159,26 +2160,40 @@ function renderMemberFilterControls(type: AppTypeSurface) {
   const kinds = memberKinds(type);
   const accessibilities = memberAccessibilities(type);
   const traits = availableMemberTraits(type);
+  const activeTrait = traits.find(
+    ([property]) => property === state.memberTraitFilter)?.[1];
+  const selectorSummary = [
+    state.memberKindFilter === "all"
+      ? ""
+      : state.memberKindFilter.replaceAll("-", " "),
+    state.memberAccessibilityFilter === "all"
+      ? ""
+      : state.memberAccessibilityFilter,
+    activeTrait ?? "",
+  ].filter(Boolean).join(" · ") || "All members";
   return `
     <div class="type-search member-search">
       <span aria-hidden="true">/</span>
       <input id="member-filter" aria-label="Filter members and signatures" value="${escapeHtml(state.memberTextFilter)}" placeholder="Filter members and signatures" autocomplete="off" spellcheck="false" />
       <button class="tiny-button" id="clear-member-filter" title="Clear member filters" aria-label="Clear member filters">×</button>
     </div>
-    <div class="member-filter-stack">
-      <div class="namespace-chips kind-chips" aria-label="Member kind filters">
-        <button class="${state.memberKindFilter === "all" ? "active" : ""}" data-member-kind-filter="all" aria-pressed="${state.memberKindFilter === "all"}">all kinds</button>
-        ${kinds.map(kind => `<button class="${state.memberKindFilter === kind ? "active" : ""}" data-member-kind-filter="${escapeHtml(kind)}" aria-pressed="${state.memberKindFilter === kind}">${escapeHtml(kind.replaceAll("-", " "))}</button>`).join("")}
+    <details class="member-filter-disclosure" data-member-filter-disclosure${state.memberFiltersExpanded ? " open" : ""}>
+      <summary><span aria-hidden="true">›</span><strong>Selectors</strong><small>${escapeHtml(selectorSummary)}</small></summary>
+      <div class="member-filter-stack">
+        <div class="namespace-chips kind-chips" aria-label="Member kind filters">
+          <button class="${state.memberKindFilter === "all" ? "active" : ""}" data-member-kind-filter="all" aria-pressed="${state.memberKindFilter === "all"}">all kinds</button>
+          ${kinds.map(kind => `<button class="${state.memberKindFilter === kind ? "active" : ""}" data-member-kind-filter="${escapeHtml(kind)}" aria-pressed="${state.memberKindFilter === kind}">${escapeHtml(kind.replaceAll("-", " "))}</button>`).join("")}
+        </div>
+        ${accessibilities.length ? `<div class="namespace-chips access-chips" aria-label="Member accessibility filters">
+          <button class="${state.memberAccessibilityFilter === "all" ? "active" : ""}" data-member-access-filter="all" aria-pressed="${state.memberAccessibilityFilter === "all"}">all access</button>
+          ${accessibilities.map(accessibility => `<button class="${state.memberAccessibilityFilter === accessibility ? "active" : ""}" data-member-access-filter="${escapeHtml(accessibility)}" aria-pressed="${state.memberAccessibilityFilter === accessibility}">${escapeHtml(accessibility)}</button>`).join("")}
+        </div>` : ""}
+        ${traits.length ? `<div class="namespace-chips member-trait-chips" aria-label="Member trait filters">
+          <button class="${!state.memberTraitFilter ? "active" : ""}" data-member-trait-filter="" aria-pressed="${!state.memberTraitFilter}">all traits</button>
+          ${traits.map(([property, label]) => `<button class="${state.memberTraitFilter === property ? "active" : ""}" data-member-trait-filter="${property}" aria-pressed="${state.memberTraitFilter === property}">${label}</button>`).join("")}
+        </div>` : ""}
       </div>
-      ${accessibilities.length ? `<div class="namespace-chips access-chips" aria-label="Member accessibility filters">
-        <button class="${state.memberAccessibilityFilter === "all" ? "active" : ""}" data-member-access-filter="all" aria-pressed="${state.memberAccessibilityFilter === "all"}">all access</button>
-        ${accessibilities.map(accessibility => `<button class="${state.memberAccessibilityFilter === accessibility ? "active" : ""}" data-member-access-filter="${escapeHtml(accessibility)}" aria-pressed="${state.memberAccessibilityFilter === accessibility}">${escapeHtml(accessibility)}</button>`).join("")}
-      </div>` : ""}
-      ${traits.length ? `<div class="namespace-chips member-trait-chips" aria-label="Member trait filters">
-        <button class="${!state.memberTraitFilter ? "active" : ""}" data-member-trait-filter="" aria-pressed="${!state.memberTraitFilter}">all traits</button>
-        ${traits.map(([property, label]) => `<button class="${state.memberTraitFilter === property ? "active" : ""}" data-member-trait-filter="${property}" aria-pressed="${state.memberTraitFilter === property}">${label}</button>`).join("")}
-      </div>` : ""}
-    </div>
+    </details>
     <div class="member-filter-result">${visible.length} of ${groups.length} member groups</div>`;
 }
 
@@ -5153,6 +5168,9 @@ function bindTypePanelEvents() {
       state.memberTextFilter = value;
       normalizeMemberSelection();
       renderPreservingMemberFocus();
+    },
+    onMemberFilterDisclosureToggle: expanded => {
+      state.memberFiltersExpanded = expanded;
     },
     onMemberFilterClear: () => {
       resetMemberFilters();

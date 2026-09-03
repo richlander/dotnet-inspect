@@ -757,6 +757,13 @@ kbd {
   color: var(--text);
 }
 .member-nav { grid-template-rows: 40px 34px 38px auto 24px minmax(0, 1fr) 27px; }
+.member-filter-disclosure { min-width: 0; border-top: 1px solid var(--line); }
+.member-filter-disclosure summary { min-width: 0; height: 30px; display: grid; grid-template-columns: 12px max-content minmax(0, 1fr); gap: 7px; align-items: center; padding: 0 10px; cursor: pointer; list-style: none; color: var(--dim); font: 10px var(--mono); }
+.member-filter-disclosure summary::-webkit-details-marker { display: none; }
+.member-filter-disclosure summary > span { font-size: 15px; line-height: 1; transition: transform .12s ease; }
+.member-filter-disclosure[open] summary > span { transform: rotate(90deg); }
+.member-filter-disclosure summary strong { color: var(--text); font-weight: 500; }
+.member-filter-disclosure summary small { min-width: 0; overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); font: inherit; }
 .member-filter-stack { min-width: 0; border-top: 1px solid var(--line); }
 .member-filter-stack .namespace-chips:last-child { border-bottom: 0; }
 .member-filter-result {
