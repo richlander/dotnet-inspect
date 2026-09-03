@@ -2749,15 +2749,17 @@ public sealed class MatchDiscoveryTests
         }
     }
 
-    [Fact]
-    public async Task Similar_PackageAssetThatCannotBeDisclosedLosslessly_IsRefused()
+    [Theory]
+    [InlineData("lib/net10.0/Target\u202E.dll")]
+    [InlineData("lib/net10.0/a`b/Target.dll")]
+    public async Task Similar_PackageAssetThatCannotBeDisclosedLosslessly_IsRefused(
+        string asset)
     {
         string root = Path.Combine(
             Path.GetTempPath(),
             $"match-replay-containment-{Guid.NewGuid():N}");
         const string packageName = "Match.Replay.Containment";
         const string version = "1.0.0";
-        const string asset = "lib/net10.0/Target\u202E.dll";
         Directory.CreateDirectory(root);
 
         try
@@ -2785,15 +2787,52 @@ public sealed class MatchDiscoveryTests
             Assert.Empty(output);
             Assert.Contains("library selector", error);
             Assert.Contains("cannot be emitted losslessly", error);
-            Assert.Equal(
-                -1,
-                error.IndexOf("\u202E", StringComparison.Ordinal));
+            Assert.DoesNotContain(asset, error, StringComparison.Ordinal);
         }
         finally
         {
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task Similar_NonPublicSeedDisclosureRetainsAll()
+    {
+        string selector = $"{typeof(MatchDiscoveryTests).FullName}.{nameof(Parse)}";
+        var (exit, output, error) = await RunCliAsync(
+            "match",
+            selector,
+            "--similar",
+            "--library",
+            TestAssembly,
+            "--all",
+            "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        JsonElement document = Parse(output);
+        Assert.Contains(
+            "--all",
+            document.GetProperty("disclosure").GetString());
+        string candidateToken = document
+            .GetProperty("candidates")
+            .EnumerateArray()
+            .First()
+            .GetProperty("token")
+            .GetString()!;
+
+        var (replayExit, _, replayError) = await RunCliAsync(
+            "match",
+            selector,
+            candidateToken,
+            "--library",
+            TestAssembly,
+            "--all",
+            "--json");
+
+        Assert.Equal(0, replayExit);
+        Assert.Empty(replayError);
     }
 
     [Fact]

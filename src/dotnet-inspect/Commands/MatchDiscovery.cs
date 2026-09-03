@@ -337,7 +337,8 @@ internal static class MatchDiscovery
                     disclosePackageReplay ? candidateAddress.Package : null,
                     disclosePackageReplay ? candidateAddress.Tfm : null,
                     candidateAddress.Library,
-                    replaySources),
+                    replaySources,
+                    IncludeAll: options.IncludeAll),
                 result,
                 MatchDiscoveryNames.Build(namesSurface, candidateImage));
 
@@ -719,10 +720,11 @@ internal static class MatchDiscovery
         })
         {
             if (value is not null
-                && !string.Equals(
-                    CSharpIdentifier.ContainRenderedText(value),
-                    value,
-                    StringComparison.Ordinal))
+                && (value.Contains('`')
+                    || !string.Equals(
+                        CSharpIdentifier.ContainRenderedText(value),
+                        value,
+                        StringComparison.Ordinal)))
             {
                 error =
                     "match --similar cannot disclose a replayable pairwise command because "

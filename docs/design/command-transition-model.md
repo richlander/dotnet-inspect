@@ -515,7 +515,9 @@ uses its own package-specific ambient source policy
 The exact package coordinate, library selector, and TFM must also survive the
 output channel's required rendering containment without changing spelling.
 Discovery refuses the transition when containment would rewrite any of those
-selectors rather than emitting a command that names another asset
+selectors, or when a selector contains the delimiter used by the disclosure's
+Markdown code span, rather than emitting a command that names another asset or
+renders as another command
 (`Similar_PackageAssetThatCannotBeDisclosedLosslessly_IsRefused`).
 Package-coordinate replay and forwarded dependency discovery use package
 acquisition's same source-authorized, admitted cache selection. Product-owned
@@ -542,6 +544,11 @@ and cannot be represented by the package replay arguments. Discovery refuses
 that transition and directs the caller to make the override absolute before
 rerunning; it does not print an address that another directory will reinterpret
 (`Similar_DirectCacheAndLocalPackageForwardersRetainAmbientSourcePolicy`).
+When configured global-packages roots contain one another, package context is
+classified against the most-specific containing root and an outer root whose
+relative shape is not a package layout does not end the search. This retains
+the package provenance and source authority required by the disclosed address
+(`ResolveAll_NestedPackageRootsUseTheMostSpecificPackageContext`).
 
 The candidate population follows the disclosure rules rather than the focus
 rules. Type-scoped retrieval is the bounded default and is inferred from the
@@ -552,6 +559,10 @@ narrowing it did.
 
 Presentation and product limits stay orthogonal: `--top` bounds rendered rows,
 while `--max-results` and `--max-methods` move the product retrieval limits.
+When discovery required `--all` to resolve a non-public seed, the disclosed
+pairwise address retains `--all`; the stateless transition must be able to
+resolve the same seed before it can consume the candidate token
+(`Similar_NonPublicSeedDisclosureRetainsAll`).
 Structured output retains every candidate, per-method outcome, blocker, and
 receipt regardless of `--top`, so a text-shaping flag can never silently discard
 evidence. The per-method outcomes are what make the receipt's aggregate counts

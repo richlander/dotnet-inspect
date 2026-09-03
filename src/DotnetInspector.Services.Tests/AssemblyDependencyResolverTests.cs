@@ -2417,6 +2417,84 @@ public class AssemblyDependencyResolverTests
     }
 
     [Fact]
+    public void ResolveAll_NestedPackageRootsUseTheMostSpecificPackageContext()
+    {
+        string outerRoot = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-nested-package-root-").FullName;
+        try
+        {
+            string packagesRoot = Path.Combine(
+                outerRoot,
+                ".nuget",
+                "packages");
+            string rootPackage = Path.Combine(outerRoot, "root-extraction");
+            string targetDirectory = Path.Combine(
+                rootPackage,
+                "lib",
+                "net8.0");
+            Directory.CreateDirectory(targetDirectory);
+            string targetPath = Path.Combine(targetDirectory, "Root.dll");
+            File.WriteAllText(targetPath, "");
+            File.WriteAllText(
+                Path.Combine(rootPackage, "root.package.nuspec"),
+                """
+                <?xml version="1.0" encoding="utf-8"?>
+                <package>
+                  <metadata>
+                    <id>Root.Package</id>
+                    <version>1.0.0</version>
+                    <dependencies>
+                      <group targetFramework="net8.0">
+                        <dependency id="Shared.Package" version="8.0.0" />
+                      </group>
+                    </dependencies>
+                  </metadata>
+                </package>
+                """);
+
+            string dependencyDirectory = Path.Combine(
+                packagesRoot,
+                "shared.package",
+                "8.0.0",
+                "lib",
+                "net8.0");
+            Directory.CreateDirectory(dependencyDirectory);
+            string dependencyPath = Path.Combine(
+                dependencyDirectory,
+                "Shared.dll");
+            File.WriteAllBytes(dependencyPath, [1, 2, 3]);
+
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(targetPath)
+                {
+                    PackageRoots = [outerRoot, packagesRoot],
+                    RootPackageDirectory = rootPackage,
+                    TargetFramework = "net8.0",
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeSiblingAssemblies = false,
+                    IncludeDepsJsonAssets = false,
+                });
+
+            ResolvedAssemblyDependency dependency = Assert.Single(
+                resolver.ResolveAll());
+            Assert.Equal(dependencyPath, dependency.Path);
+            Assert.Equal(
+                AssemblyDependencyProvenance.PackageDependency,
+                dependency.Provenance);
+            Assert.Equal(
+                "shared.package",
+                dependency.PackageId,
+                ignoreCase: true);
+            Assert.Equal("8.0.0", dependency.PackageVersion);
+        }
+        finally
+        {
+            Directory.Delete(outerRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ResolveAll_PrefersSiblingAssemblyOverPackageAndFrameworkCandidates()
     {
         string root = Directory.CreateTempSubdirectory("dotnet-inspect-assembly-deps-").FullName;

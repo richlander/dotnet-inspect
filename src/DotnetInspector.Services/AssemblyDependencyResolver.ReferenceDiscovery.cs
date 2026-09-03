@@ -231,7 +231,8 @@ public sealed partial class AssemblyDependencyResolver
         }
 
         string fullPath = Path.GetFullPath(targetPath);
-        foreach (var root in NuGetPackageRoots(packageRoots))
+        foreach (var root in NuGetPackageRoots(packageRoots)
+                     .OrderByDescending(root => Path.GetFullPath(root).Length))
         {
             string fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             string prefix = fullRoot + Path.DirectorySeparatorChar;
@@ -242,7 +243,7 @@ public sealed partial class AssemblyDependencyResolver
             if (parts.Length < 5
                 || (!parts[2].Equals("lib", StringComparison.OrdinalIgnoreCase)
                     && !parts[2].Equals("ref", StringComparison.OrdinalIgnoreCase)))
-                return null;
+                continue;
 
             return new(
                 Path.Combine(fullRoot, parts[0], parts[1]),

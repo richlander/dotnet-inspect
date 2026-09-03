@@ -22,7 +22,8 @@ internal sealed record MatchDiscoveryRequest(
     string? CandidatePackage = null,
     string? CandidateTfm = null,
     string? ReplayLibrary = null,
-    MatchDiscoveryReplaySources? ReplaySources = null);
+    MatchDiscoveryReplaySources? ReplaySources = null,
+    bool IncludeAll = false);
 
 internal sealed record MatchDiscoveryReplaySources(
     ImmutableArray<string> Sources,
@@ -471,6 +472,9 @@ internal static class MatchDiscoveryFormatter
         {
             options.Add("--library " + ShellCommandText.Quote(library));
         }
+
+        if (request.IncludeAll)
+            options.Add("--all");
 
         return string.Join(' ', options);
     }
