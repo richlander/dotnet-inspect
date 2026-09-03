@@ -1016,8 +1016,8 @@ internal static class PromotionWorkflowContract
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["group"] =
-                    "deploy-inspect-web-coreclr-staging-${{ github.event.workflow_run.id }}",
-                ["cancel-in-progress"] = "false",
+                    "deploy-inspect-web-coreclr-staging",
+                ["cancel-in-progress"] = "true",
             },
             "CoreCLR staging workflow.concurrency");
         RequireExactScalarValues(

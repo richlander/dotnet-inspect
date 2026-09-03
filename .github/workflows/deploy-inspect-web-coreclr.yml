@@ -12,8 +12,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-inspect-web-coreclr-staging-${{ github.event.workflow_run.id }}
-  cancel-in-progress: false
+  group: deploy-inspect-web-coreclr-staging
+  cancel-in-progress: true
 
 env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
