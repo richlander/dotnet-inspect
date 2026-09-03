@@ -61,8 +61,9 @@ class FakeRoot {
         "all:.settings-seg[data-theme]",
         "all:.settings-taste [data-taste]",
         "one:#home-settings",
-        "one:#open-settings",
+        "one:#settings-backdrop",
         "one:#settings-close",
+        "one:#settings-dialog",
         "one:#settings-taste-clear",
       ].sort());
   }
@@ -96,10 +97,9 @@ const styleOptions = [
   { id: "expanded-braces", tier: "layout", title: "Expanded braces", summary: "Always use braces." },
 ];
 
-test("settings bindings dispatch entry controls", () => {
+test("settings bindings dispatch the home entry control", () => {
   const root = new FakeRoot();
   const home = root.add("#home-settings", new FakeElement());
-  const workbench = root.add("#open-settings", new FakeElement());
   const calls: string[] = [];
 
   bindSettingsPanel(
@@ -110,8 +110,6 @@ test("settings bindings dispatch entry controls", () => {
   assert.deepEqual(calls, []);
   home.dispatch("click");
   assert.deepEqual(calls, ["open:home"]);
-  workbench.dispatch("click");
-  assert.deepEqual(calls, ["open:home", "open:workbench"]);
 });
 
 test("settings bindings dispatch valid settings-page controls", () => {
@@ -239,22 +237,19 @@ test("settings view marks the active theme segment", () => {
   assert.match(html, /class="settings-seg " data-theme="dark" aria-pressed="false"/);
 });
 
-test("settings view labels the close button by return destination", () => {
+test("settings view renders modal semantics and one close action", () => {
   const workbenchHtml = renderSettingsView({
     theme: "dark",
     settingsReturn: "workbench",
     styleCatalog: { styleTiers: [], styleOptions: [], styleCatalogError: "", taste: [] },
     escapeHtml,
   });
-  const homeHtml = renderSettingsView({
-    theme: "dark",
-    settingsReturn: "home",
-    styleCatalog: { styleTiers: [], styleOptions: [], styleCatalogError: "", taste: [] },
-    escapeHtml,
-  });
-
-  assert.match(workbenchHtml, /back to workbench ✕/);
-  assert.match(homeHtml, /back to home ✕/);
+  assert.match(workbenchHtml, /id="settings-dialog"/);
+  assert.match(workbenchHtml, /role="dialog"/);
+  assert.match(workbenchHtml, /aria-modal="true"/);
+  assert.match(workbenchHtml, /aria-labelledby="settings-title"/);
+  assert.match(workbenchHtml, /id="settings-title" tabindex="-1">Settings/);
+  assert.match(workbenchHtml, /id="settings-close"[^>]*>Close/);
 });
 
 test("settings view reports the active style count and a reset control", () => {

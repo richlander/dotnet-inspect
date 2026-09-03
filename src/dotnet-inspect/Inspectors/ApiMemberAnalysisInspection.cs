@@ -550,50 +550,71 @@ internal sealed class ApiMemberAnalysisInspection
         return opened;
     }
 
-    sealed class CallerBindingPolicy : IAssemblyBindingPolicy
+    internal sealed class CallerBindingPolicy : IAssemblyBindingPolicy
     {
-        readonly object _gate = new();
-        readonly ApiOptions? _options;
-        readonly string _targetPath;
-        readonly Lazy<IAssemblyBindingPolicy> _default;
-        readonly Dictionary<
-            AssemblyAcquisitionRegistration,
-            Lazy<IAssemblyBindingPolicy>> _byOrigin =
-                new(ReferenceEqualityComparer.Instance);
+        readonly Func<
+            ResolvedAssemblyReference,
+            IAssemblyBindingPolicy> _policyFactory;
+        readonly Action? _routeStateCaptured;
+        BindingPolicyState _state;
 
         internal CallerBindingPolicy(
             ResolvedAssemblyReference target,
             IReadOnlyList<ResolvedAssemblyReference> candidates,
             ApiOptions? options)
+            : this(
+                target,
+                candidates,
+                CreatePolicyFactory(target, options),
+                routeStateCaptured: null)
         {
-            _options = options;
-            _targetPath = target.Path
-                ?? throw new ArgumentException(
-                    "Caller binding requires a path-backed target.",
-                    nameof(target));
-            Register(target);
-            _default = _byOrigin[target.Registration];
-            foreach (ResolvedAssemblyReference candidate in candidates)
-                Register(candidate);
         }
 
-        public AssemblyBindingPolicyVersion Version { get; } = new();
+        internal CallerBindingPolicy(
+            ResolvedAssemblyReference target,
+            IReadOnlyList<ResolvedAssemblyReference> candidates,
+            Func<
+                ResolvedAssemblyReference,
+                IAssemblyBindingPolicy> policyFactory,
+            Action? routeStateCaptured = null)
+        {
+            ArgumentNullException.ThrowIfNull(policyFactory);
+            _policyFactory = policyFactory;
+            _routeStateCaptured = routeStateCaptured;
+            var routes = ImmutableDictionary.CreateBuilder<
+                AssemblyAcquisitionRegistration,
+                Lazy<IAssemblyBindingPolicy>>(
+                    ReferenceEqualityComparer.Instance);
+            RegisterInitial(routes, target);
+            foreach (ResolvedAssemblyReference candidate in candidates)
+                RegisterInitial(routes, candidate);
+
+            ImmutableDictionary<
+                AssemblyAcquisitionRegistration,
+                Lazy<IAssemblyBindingPolicy>> initialRoutes =
+                    routes.ToImmutable();
+            _state = new BindingPolicyState(
+                new AssemblyBindingPolicyVersion(),
+                initialRoutes[target.Registration],
+                initialRoutes);
+        }
+
+        public AssemblyBindingPolicyVersion Version =>
+            Volatile.Read(ref _state).Version;
 
         public AssemblyBindingSelection Select(
             AssemblyBindingRequest request)
         {
-            Lazy<IAssemblyBindingPolicy> policy = _default;
+            BindingPolicyState state = Volatile.Read(ref _state);
+            Lazy<IAssemblyBindingPolicy> policy = state.Default;
             if (request.Origin
                 is AssemblyBindingOrigin.RequestingAssembly origin)
             {
-                lock (_gate)
+                if (state.Routes.TryGetValue(
+                        origin.Registration,
+                        out Lazy<IAssemblyBindingPolicy>? originPolicy))
                 {
-                    if (_byOrigin.TryGetValue(
-                            origin.Registration,
-                            out Lazy<IAssemblyBindingPolicy>? originPolicy))
-                    {
-                        policy = originPolicy;
-                    }
+                    policy = originPolicy;
                 }
             }
 
@@ -604,36 +625,120 @@ internal sealed class ApiMemberAnalysisInspection
             switch (selection)
             {
                 case AssemblyBindingSelection.Selected selected:
-                    Register(selected.Assembly);
+                    Register([selected.Assembly]);
                     break;
                 case AssemblyBindingSelection.Ambiguous ambiguous:
-                    foreach (ResolvedAssemblyReference assembly
-                        in ambiguous.Assemblies)
-                    {
-                        Register(assembly);
-                    }
+                    Register(ambiguous.Assemblies);
                     break;
             }
 
             return selection;
         }
 
-        IAssemblyBindingPolicy PolicyFor(
-            ResolvedAssemblyReference assembly) =>
-            new AssemblyReferenceBindingPolicy(
-                ApiAnalysisInspection.CreateReferenceResolver(
-                    assembly.Path ?? _targetPath,
-                    _options));
-
-        void Register(ResolvedAssemblyReference assembly)
+        static Func<
+            ResolvedAssemblyReference,
+            IAssemblyBindingPolicy> CreatePolicyFactory(
+                ResolvedAssemblyReference target,
+                ApiOptions? options)
         {
-            lock (_gate)
+            string targetPath = target.Path
+                ?? throw new ArgumentException(
+                    "Caller binding requires a path-backed target.",
+                    nameof(target));
+            return assembly =>
+                new AssemblyReferenceBindingPolicy(
+                    ApiAnalysisInspection.CreateReferenceResolver(
+                        assembly.Path ?? targetPath,
+                        options));
+        }
+
+        void RegisterInitial(
+            ImmutableDictionary<
+                AssemblyAcquisitionRegistration,
+                Lazy<IAssemblyBindingPolicy>>.Builder routes,
+            ResolvedAssemblyReference assembly)
+        {
+            if (routes.ContainsKey(assembly.Registration))
+                return;
+
+            routes.Add(
+                assembly.Registration,
+                CreatePolicy(assembly));
+        }
+
+        Lazy<IAssemblyBindingPolicy> CreatePolicy(
+            ResolvedAssemblyReference assembly) =>
+            new(
+                () => _policyFactory(assembly),
+                LazyThreadSafetyMode.ExecutionAndPublication);
+
+        void Register(
+            IEnumerable<ResolvedAssemblyReference> assemblies)
+        {
+            while (true)
             {
-                _byOrigin.TryAdd(
-                    assembly.Registration,
-                    new Lazy<IAssemblyBindingPolicy>(
-                        () => PolicyFor(assembly),
-                        LazyThreadSafetyMode.ExecutionAndPublication));
+                BindingPolicyState current = Volatile.Read(ref _state);
+                _routeStateCaptured?.Invoke();
+                ImmutableDictionary<
+                    AssemblyAcquisitionRegistration,
+                    Lazy<IAssemblyBindingPolicy>> routes = current.Routes;
+
+                bool changed = false;
+                foreach (ResolvedAssemblyReference assembly in assemblies)
+                {
+                    if (routes.ContainsKey(assembly.Registration))
+                        continue;
+
+                    routes = routes.Add(
+                        assembly.Registration,
+                        CreatePolicy(assembly));
+                    changed = true;
+                }
+
+                if (!changed)
+                    return;
+
+                BindingPolicyState replacement =
+                    current.WithLearnedRoutes(routes);
+                if (ReferenceEquals(
+                        Interlocked.CompareExchange(
+                            ref _state,
+                            replacement,
+                            current),
+                        current))
+                {
+                    return;
+                }
+            }
+        }
+
+        sealed class BindingPolicyState(
+            AssemblyBindingPolicyVersion version,
+            Lazy<IAssemblyBindingPolicy> defaultPolicy,
+            ImmutableDictionary<
+                AssemblyAcquisitionRegistration,
+                Lazy<IAssemblyBindingPolicy>> routes)
+        {
+            internal AssemblyBindingPolicyVersion Version { get; } =
+                version;
+            internal Lazy<IAssemblyBindingPolicy> Default { get; } =
+                defaultPolicy;
+            internal ImmutableDictionary<
+                AssemblyAcquisitionRegistration,
+                Lazy<IAssemblyBindingPolicy>> Routes { get; } =
+                    routes;
+
+            internal BindingPolicyState WithLearnedRoutes(
+                ImmutableDictionary<
+                    AssemblyAcquisitionRegistration,
+                    Lazy<IAssemblyBindingPolicy>> learnedRoutes)
+            {
+                // Metadata cannot supersede and retry a changed generation
+                // until the atomic selection/version migration is complete.
+                return new BindingPolicyState(
+                    Version,
+                    Default,
+                    learnedRoutes);
             }
         }
     }

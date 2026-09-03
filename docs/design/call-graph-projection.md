@@ -102,6 +102,33 @@ The projection owns everything a host must not re-invent in JavaScript:
   the *entire* projection. It never mixes catalog and structural identities in
   one result. Shared callees, cycles, and the target as both caller and callee
   collapse to one node in either domain.
+  The fallback's opaque member selector preserves ECMA-335 array kind:
+  vector `T[]` and rank-one non-SZ `T[*]` are distinct at every nested
+  position. The Metadata API producer emits the Analysis-owned structural
+  payload whenever a non-SZ array requires it, and the Analysis `MemberRef`
+  producer emits the byte-identical payload from `TypeRef`; normalized display
+  spelling remains compatibility-only and does not erase exact array kind.
+  Exact metadata-name segments containing literal array brackets use the same
+  escaping on both producer paths, and the Metadata API producer emits that
+  structural payload through bare names, arrays, and generic containers. Such
+  names therefore cannot alias an actual array wrapper.
+  `CallGraphArrayKindIdentityTests.Resolve_PreservesLiteralArrayNamesAcrossTypeShapes`
+  gates those cases.
+  `CallGraphArrayKindIdentityTests.Resolve_PreservesArrayKindForEventAccessors`
+  gates the same producer agreement, distinctness, and tokenless resolution for
+  event add/remove bodies in a CLR-loadable image.
+  General exact-name identity, namespace-versus-nested boundaries, pinned-name
+  compatibility, contextual generic-name shadowing, multidimensional arrays in
+  display-parsed generic arguments, and primitive `TypedReference` identity are
+  outside this array-kind claim and tracked by #5374, #5375, and #5376.
+  An older surface without that structural payload cannot claim a structural
+  match for `T[*]`, but an exact MethodDef-token candidate may still recover
+  the body when no structural candidate matches.
+  `CallGraphArrayKindIdentityTests.Resolve_PreservesArrayKindAcrossExtractedApiAndMemberRefSelectors`
+  gates producer agreement for vectors, non-SZ arrays, nested generics,
+  pointers, by-reference types, tuples, method generic parameters, custom
+  modifiers, and return types, plus resolution with and without an exact-token
+  candidate.
 - **Physical evidence.** Every projected node retains the distinct
   `GraphNodeEvidence` carried by the tree occurrences that collapsed into it.
   A catalog-resolved node also carries the exact defining assembly identity
