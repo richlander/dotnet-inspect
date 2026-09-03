@@ -33,6 +33,9 @@ substrates, and inspection producers that will extend that space.
   [CLI row-selection grammar](design/cli-row-selection.md) owns item, Window,
   Top, direction, rendered-line spelling, shorthand, capability, and typed
   operation-intent lowering at the L3 boundary. Its
+  [search scope resolution](design/search-scope-resolution.md) owns default
+  activation,
+  explicit-source suppression, and named platform/package scope expansion. Its
   [Find type-search service](design/find-search-service.md) owns the
   CLI-scoped boundary from host-authorized candidate collection through typed
   exact, glob, namespace-prefix, partial, and miss classification; Metadata
@@ -50,8 +53,11 @@ substrates, and inspection producers that will extend that space.
   SourceLink,
   implementation-relationship, type/member search, extension-reachability,
   API-comparison, progressive call-graph, and group-scoped source queries. The
-  source query owns a Decompiler fallback over retained assembly content. The
-  project has no Markout, console, or filesystem-path dependency.
+  source query owns a Decompiler fallback over retained assembly content; the
+  proposed
+  [member source comparison query](design/member-source-comparison-query.md)
+  owns an explicit two-endpoint attempt over one resolved member. The project
+  has no Markout, console, or filesystem-path dependency.
 - `src/DotnetInspector.ResearchQueries/` contains the optional Research-backed
   L1 query family. It composes switch metadata with AppContext IL evidence,
   compares already-acquired Analysis body indexes, and compares retained
@@ -75,7 +81,12 @@ substrates, and inspection producers that will extend that space.
   failures, and producer-owned diff presentation.
 - `src/ILInspector.Instructions/` is the shared IL decode + EH-aware basic-block substrate (one decoder the analyzer and decompiler converge onto); see [instruction substrate](design/instruction-substrate.md).
 - `src/ILInspector.Text/` provides the reusable `TextFindings` API for exact, ordered line inspection and generic text comparison on the shared Finding spine.
-- `src/DotnetInspector.Packages/` handles NuGet package extraction, package/source caches, feeds, symbol package acquisition, and version resolution.
+- `src/DotnetInspector.Packages/` handles NuGet package extraction,
+  package/source caches, feeds, symbol package acquisition, and version
+  resolution. The proposed
+  [Package Set Registry](design/package-set-registry.md) places stable named-set
+  identity, discovery, and ordered package-coordinate membership with this
+  package owner; the current inventories remain CLI-owned until adoption.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
   companion. It consumes package realization proofs and package-neutral core
   queries without adding package identity or acquisition policy to those core
@@ -193,6 +204,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   inputs](design/cli-change-classification.md): published surfaces, change
   disclosure, routing-collision analysis, invalid-input guards, and
   reservations.
+- [Search scope resolution](design/search-scope-resolution.md): default
+  activation, explicit-source suppression and composition, and named
+  platform/package scope expansion for search commands.
 - [Repository xUnit test host](design/xunit-test-host.md): MTP-owned aggregate
   non-vacuity for xUnit execution, with stronger per-selection evidence left
   to the suite that makes that claim.
@@ -273,6 +287,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [View Facet Registry](design/view-facet-registry.md): stable product-owned
   inspection-facet identities, labels, order, structural applicability,
   discovery, and typed resolution outcomes.
+- [Package Set Registry](design/package-set-registry.md): stable product-owned
+  package-set identities, labels, purposes, order, static discovery, exact
+  lookup, and immutable ordered package-coordinate membership.
 - [Inspection subject navigation](design/inspection-subject-navigation.md):
   host-neutral Workspace, Package or non-package Root, Library, Type, and
   Member descriptors, availability, initial recommendations, transitions,

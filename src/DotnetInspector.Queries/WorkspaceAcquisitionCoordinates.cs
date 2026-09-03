@@ -891,9 +891,28 @@ public abstract record WorkspaceContextLoadOutcome
                 availablePlatformAssemblies,
             string? framework,
             string? runtimeIdentifier)
+            : this(
+                group,
+                members,
+                [],
+                availablePlatformAssemblies,
+                framework,
+                runtimeIdentifier)
+        {
+        }
+
+        internal Loaded(
+            AssemblyContextGroup group,
+            ImmutableArray<WorkspaceContextMember> members,
+            ImmutableArray<PackageRootBinding> packageRoots,
+            ImmutableArray<RealizedMemberCoordinate.Platform>
+                availablePlatformAssemblies,
+            string? framework,
+            string? runtimeIdentifier)
         {
             Group = group;
             Members = members;
+            PackageRoots = packageRoots;
             AvailablePlatformAssemblies = availablePlatformAssemblies;
             Framework = framework;
             RuntimeIdentifier = runtimeIdentifier;
@@ -906,6 +925,11 @@ public abstract record WorkspaceContextLoadOutcome
         /// contribute several participants.
         /// </summary>
         public ImmutableArray<WorkspaceContextMember> Members { get; }
+
+        /// <summary>
+        /// Acquisition-issued package Roots in context declaration order.
+        /// </summary>
+        public ImmutableArray<PackageRootBinding> PackageRoots { get; }
 
         /// <summary>
         /// Metadata-derived assembly selection coordinates observed in the

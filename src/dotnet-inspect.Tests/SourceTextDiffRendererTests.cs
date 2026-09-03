@@ -1,17 +1,69 @@
 using DotnetInspector.Output;
+using DotnetInspector.Views;
+using ILInspector.Findings;
 
 namespace DotnetInspector.Tests;
 
 public class SourceTextDiffRendererTests
 {
     [Fact]
-    public void AddedAndRemovedLines_PreserveUnifiedDiffShape()
+    public void NormalVerbosity_ReportsFactualLineCounts()
+    {
+        SourceDiffOutput output = SourceTextDiffRenderer.CreateOutput(
+            "one\nremoved\nlast",
+            "one\nadded\nlast",
+            "Before",
+            "After");
+
+        AssertField(output, "Added lines", "0");
+        AssertField(output, "Removed lines", "0");
+        AssertField(output, "Changed lines", "1 Before -> 1 After");
+        AssertField(output, "Moved lines", "0 Before -> 0 After");
+        Assert.DoesNotContain("--- Before", output.Content);
+    }
+
+    [Fact]
+    public void NormalVerbosity_PreservesUnequalReplacementCardinalities()
+    {
+        SourceDiffOutput output = SourceTextDiffRenderer.CreateOutput(
+            "before one\nbefore two\n",
+            "after one\nafter two\nafter three\n",
+            "Before",
+            "After");
+
+        AssertField(output, "Changed lines", "2 Before -> 3 After");
+        AssertField(output, "Added lines", "0");
+        AssertField(output, "Removed lines", "0");
+    }
+
+    [Theory]
+    [InlineData("stable\n", "stable\nadded\n", "Added lines", "1")]
+    [InlineData("stable\nremoved\n", "stable\n", "Removed lines", "1")]
+    public void NormalVerbosity_PreservesOneSidedLineCounts(
+        string before,
+        string after,
+        string key,
+        string value)
+    {
+        SourceDiffOutput output = SourceTextDiffRenderer.CreateOutput(
+            before,
+            after,
+            "Before",
+            "After");
+
+        AssertField(output, key, value);
+        AssertField(output, "Changed lines", "0 Before -> 0 After");
+    }
+
+    [Fact]
+    public void DetailedVerbosity_RendersCompleteMappedDiff()
     {
         string actual = SourceTextDiffRenderer.CreateUnifiedDiff(
             "one\nremoved\nlast",
             "one\nadded\nlast",
             "Before",
-            "After");
+            "After",
+            detailed: true);
 
         Assert.Equal(
             Join(
@@ -21,34 +73,52 @@ public class SourceTextDiffRendererTests
                 " one",
                 "-removed",
                 "+added",
-                " last"),
+                " last",
+                "\\ No newline at end of file"),
             actual);
     }
 
     [Fact]
-    public void MovedBlock_RendersAsInsertionAndRemovalAtItsTypedPositions()
+    public void MovedBlock_IsCountedAndRendersAtItsTypedPositions()
     {
-        string actual = SourceTextDiffRenderer.CreateUnifiedDiff(
-            "A\nB\nC\nmoved-one\nmoved-two\nD\nE",
-            "moved-one\nmoved-two\nA\nB\nC\nD\nE",
+        const string before = "A\nB\nC\nmoved-one\nmoved-two\nD\nE";
+        const string after = "moved-one\nmoved-two\nA\nB\nC\nD\nE";
+
+        SourceDiffOutput summary = SourceTextDiffRenderer.CreateOutput(
+            before,
+            after,
+            "Before",
+            "After");
+        string detailed = SourceTextDiffRenderer.CreateUnifiedDiff(
+            before,
+            after,
+            "Before",
+            "After",
+            detailed: true);
+
+        AssertField(summary, "Moved lines", "2 Before -> 2 After");
+        Assert.Contains("+moved-one", detailed);
+        Assert.Contains("+moved-two", detailed);
+        Assert.Contains("-moved-one", detailed);
+        Assert.Contains("-moved-two", detailed);
+    }
+
+    [Fact]
+    public void ChangedAndMovedRemainOverlappingFacets()
+    {
+        SourceDiffOutput output = SourceTextDiffRenderer.CreateOutput(
+            "A\nB\nC\nmoved-one\nmoved-two",
+            "moved-one\nmoved-two\nA\nB\nC\n",
             "Before",
             "After");
 
-        Assert.Equal(
-            Join(
-                "--- Before",
-                "+++ After",
-                "@@ -1,7 +1,7 @@",
-                "+moved-one",
-                "+moved-two",
-                " A",
-                " B",
-                " C",
-                "-moved-one",
-                "-moved-two",
-                " D",
-                " E"),
-            actual);
+        AnalysisDiffRelation.Correspondence relation = Assert.Single(
+            output.Analysis!.Relations.OfType<AnalysisDiffRelation.Correspondence>(),
+            relation =>
+                relation.Content == AnalysisDiffContentKind.Changed
+                && relation.Placement == AnalysisDiffPlacementKind.Moved);
+        AssertField(output, "Changed lines", "1 Before -> 1 After");
+        AssertField(output, "Moved lines", "2 Before -> 2 After");
     }
 
     [Fact]
@@ -60,89 +130,60 @@ public class SourceTextDiffRendererTests
             "Before",
             "After");
 
-        Assert.Equal("# Before and After are identical.", actual);
+        Assert.Equal("Status  Before and After are identical.", actual);
     }
 
     [Fact]
     public void NonNullEmptyAndWhitespaceOnlyText_AreValidInputs()
     {
         Assert.Equal(
-            "# Before and After are identical.",
+            "Status  Before and After are identical.",
             SourceTextDiffRenderer.CreateUnifiedDiff("", "", "Before", "After"));
 
-        string whitespace = SourceTextDiffRenderer.CreateUnifiedDiff(" ", "\t", "Before", "After");
-        Assert.Equal(
-            Join(
-                "--- Before",
-                "+++ After",
-                "@@ -1,1 +1,1 @@",
-                "- ",
-                "+\t"),
-            whitespace);
+        SourceDiffOutput whitespace = SourceTextDiffRenderer.CreateOutput(
+            " ",
+            "\t",
+            "Before",
+            "After");
+        AssertField(whitespace, "Changed lines", "1 Before -> 1 After");
     }
 
     [Fact]
     public void NullInput_RemainsCallerLevelUnavailability()
     {
         Assert.Equal(
-            "# Before unavailable; source diff requires both Before and After.",
+            "Status  Before unavailable; source diff requires both Before and After.",
             SourceTextDiffRenderer.CreateUnifiedDiff(null, "text", "Before", "After"));
         Assert.Equal(
-            "# After unavailable; source diff requires both Before and After.",
+            "Status  After unavailable; source diff requires both Before and After.",
             SourceTextDiffRenderer.CreateUnifiedDiff("text", null, "Before", "After"));
     }
 
     [Fact]
-    public void ReviewerSizedDiff_OmitsDistantUnchangedLinesButRetainsEveryChange()
+    public void FinalNewlineDifference_IsAChangedFinalLine()
     {
-        string[] before = Enumerable.Range(1, 30).Select(index => $"line-{index}").ToArray();
-        string[] after = [.. before];
-        after[1] = "changed-2";
-        after[27] = "changed-28";
-
-        string actual = SourceTextDiffRenderer.CreateUnifiedDiff(
-            Join(before),
-            Join(after),
-            "Original",
+        SourceDiffOutput output = SourceTextDiffRenderer.CreateOutput(
+            "value",
+            "value\n",
+            "Before",
+            "After");
+        string detailed = SourceTextDiffRenderer.CreateUnifiedDiff(
+            "value",
+            "value\n",
+            "Before",
             "After",
-            reviewerSized: true);
+            detailed: true);
 
-        Assert.Contains("-line-2", actual);
-        Assert.Contains("+changed-2", actual);
-        Assert.Contains("-line-28", actual);
-        Assert.Contains("+changed-28", actual);
-        Assert.DoesNotContain(" line-15", actual);
-        Assert.Equal(2, actual.Split('\n').Count(line => line.StartsWith("@@ ", StringComparison.Ordinal)));
-        Assert.DoesNotContain("Source diff status: Partial", actual);
-    }
-
-    [Fact]
-    public void ReviewerSizedDiff_BoundsHunksAndLargeHunksWithVisibleDisclosure()
-    {
-        string[] before = Enumerable.Range(1, 160).Select(index => $"before-{index}").ToArray();
-        string[] after = Enumerable.Range(1, 160).Select(index => $"after-{index}").ToArray();
-
-        string actual = SourceTextDiffRenderer.CreateUnifiedDiff(
-            Join(before),
-            Join(after),
-            "Original",
-            "After",
-            reviewerSized: true);
-
-        Assert.StartsWith("# Source diff status: Partial - ", actual);
-        Assert.Contains("diff lines omitted", actual);
-        Assert.Contains("use -v:d for complete line evidence", actual);
-        Assert.Contains("-before-1", actual);
-        Assert.Contains("+after-160", actual);
-        Assert.DoesNotContain("-before-80", actual);
-        Assert.Contains("@@ -1,40 +0,0 @@", actual);
-        Assert.Contains("@@ -160,0 +121,40 @@", actual);
+        AssertField(output, "Changed lines", "1 Before -> 1 After");
+        Assert.Contains("-value", detailed);
+        Assert.Contains("+value", detailed);
+        Assert.Contains("\\ No newline at end of file", detailed);
     }
 
     [Theory]
-    [InlineData("", "added", "@@ -0,0 +1,1 @@")]
-    [InlineData("removed", "", "@@ -1,1 +0,0 @@")]
-    public void CompleteDiff_AnchorsEmptyRangesAtThePrecedingLine(
+    [InlineData("", "added", "@@ -0,0 +1 @@")]
+    [InlineData("removed", "", "@@ -1 +0,0 @@")]
+    public void DetailedDiff_AnchorsEmptyRangesAtThePrecedingLine(
         string before,
         string after,
         string expectedHeader)
@@ -150,61 +191,15 @@ public class SourceTextDiffRendererTests
         string actual = SourceTextDiffRenderer.CreateUnifiedDiff(
             before,
             after,
-            "Original",
-            "After");
+            "Before",
+            "After",
+            detailed: true);
 
         Assert.Contains(expectedHeader, actual);
     }
 
     [Fact]
-    public void ReviewerSizedDiff_BoundsTheNumberOfHunkExamples()
-    {
-        string[] before = Enumerable.Range(1, 100).Select(index => $"line-{index}").ToArray();
-        string[] after = [.. before];
-        foreach (int index in new[] { 2, 14, 26, 38, 50, 62, 74 })
-            after[index] = $"changed-{index + 1}";
-
-        string actual = SourceTextDiffRenderer.CreateUnifiedDiff(
-            Join(before),
-            Join(after),
-            "Original",
-            "After",
-            reviewerSized: true);
-
-        Assert.StartsWith("# Source diff status: Partial - 2 additional hunks (", actual);
-        Assert.Contains(" lines) omitted; use -v:d for complete line evidence", actual);
-        Assert.Equal(5, actual.Split('\n').Count(line => line.StartsWith("@@ ", StringComparison.Ordinal)));
-        Assert.Contains("+changed-51", actual);
-        Assert.DoesNotContain("+changed-63", actual);
-        Assert.DoesNotContain("+changed-75", actual);
-    }
-
-    [Fact]
-    public void ReviewerSizedDiff_BoundsEmittedFragmentsFromOversizedHunks()
-    {
-        string[] before = Enumerable.Range(1, 210).Select(index => $"line-{index}").ToArray();
-        string[] after = [.. before];
-        foreach (int index in Enumerable.Range(10, 50)
-            .Concat(Enumerable.Range(80, 50))
-            .Concat(Enumerable.Range(150, 50)))
-        {
-            after[index] = $"changed-{index + 1}";
-        }
-
-        string actual = SourceTextDiffRenderer.CreateUnifiedDiff(
-            Join(before),
-            Join(after),
-            "Original",
-            "After",
-            reviewerSized: true);
-
-        Assert.Equal(5, actual.Split('\n').Count(line => line.StartsWith("@@ ", StringComparison.Ordinal)));
-        Assert.Contains("# ... 66 diff lines omitted from this hunk ...", actual);
-        Assert.Contains("118 lines within shown hunks", actual);
-    }
-
-    [Fact]
-    public void CompleteDiff_RetainsTheWholeDocument()
+    public void DetailedDiff_RetainsTheWholeDocument()
     {
         string[] before = Enumerable.Range(1, 100).Select(index => $"before-{index}").ToArray();
         string[] after = [.. before];
@@ -213,8 +208,9 @@ public class SourceTextDiffRendererTests
         string actual = SourceTextDiffRenderer.CreateUnifiedDiff(
             Join(before),
             Join(after),
-            "Original",
-            "After");
+            "Before",
+            "After",
+            detailed: true);
 
         Assert.Contains(" before-1", actual);
         Assert.Contains("-before-50", actual);
@@ -223,7 +219,11 @@ public class SourceTextDiffRendererTests
         Assert.DoesNotContain("omitted", actual);
     }
 
-    // The renderer emits LF on every platform, so expectations are built with LF rather than the
-    // ambient newline. The CR-bearing literals above are inputs, not expectations.
     static string Join(params string[] lines) => string.Join("\n", lines);
+
+    static void AssertField(SourceDiffOutput output, string key, string value)
+    {
+        Markout.MarkoutField field = Assert.Single(output.Fields, field => field.Key == key);
+        Assert.Equal(value, field.Value);
+    }
 }

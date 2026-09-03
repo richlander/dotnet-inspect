@@ -19,9 +19,22 @@ public sealed partial class AssemblyDependencyResolver
     public static IReadOnlyList<string> PackageDependencyReferencePaths(
         string targetPath,
         IReadOnlyList<string>? packageRoots,
-        bool preferImplementationAssemblies)
+        bool preferImplementationAssemblies,
+        string? rootPackageDirectory = null,
+        string? targetFramework = null,
+        NuGetSourceOptions? sourceOptions = null,
+        bool useSourcePolicy = false)
     {
-        if (NuGetPackageContext(targetPath, packageRoots) is not { } context)
+        NuGetReferenceContext? context =
+            rootPackageDirectory is not null
+                && targetFramework is not null
+                ? new NuGetReferenceContext(
+                    rootPackageDirectory,
+                    targetFramework,
+                    PackageId: "",
+                    PackageVersion: "")
+                : NuGetPackageContext(targetPath, packageRoots);
+        if (context is null)
             return [];
 
         var nuspec = Directory.EnumerateFiles(context.PackageDirectory, "*.nuspec").FirstOrDefault();
@@ -29,6 +42,8 @@ public sealed partial class AssemblyDependencyResolver
             return [];
 
         var packageDirectories = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+        var selectedDirectories =
+            new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         var dependencyGraph = new Dictionary<string, List<PackageDependency>>(StringComparer.OrdinalIgnoreCase);
         List<PackageDependency> rootDependencies;
         try
@@ -37,7 +52,10 @@ public sealed partial class AssemblyDependencyResolver
                 context.PackageDirectory,
                 context.TargetFramework,
                 packageRoots,
+                sourceOptions,
+                useSourcePolicy,
                 packageDirectories,
+                selectedDirectories,
                 dependencyGraph,
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase));
         }
@@ -78,7 +96,10 @@ public sealed partial class AssemblyDependencyResolver
         string packageDirectory,
         string targetFramework,
         IReadOnlyList<string>? packageRoots,
+        NuGetSourceOptions? sourceOptions,
+        bool useSourcePolicy,
         Dictionary<string, Dictionary<string, string>> packageDirectories,
+        Dictionary<string, string?> selectedDirectories,
         Dictionary<string, List<PackageDependency>> dependencyGraph,
         HashSet<string> visiting)
     {
@@ -92,33 +113,74 @@ public sealed partial class AssemblyDependencyResolver
         {
             string? id = dependency.Attribute("id")?.Value;
             string? version = DependencyExactVersion(dependency.Attribute("version")?.Value);
-            if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(version))
+            if (string.IsNullOrWhiteSpace(id)
+                || string.IsNullOrWhiteSpace(version)
+                || !PackageExtractor.IsValidPackageId(id)
+                || !PackageExtractor.TryNormalizePackageVersion(
+                    version,
+                    out string normalizedVersion))
+            {
+                continue;
+            }
+            version = normalizedVersion;
+
+            string visitKey = PackageKey(id, version);
+            if (!selectedDirectories.TryGetValue(
+                    visitKey,
+                    out string? dependencyDirectory))
+            {
+                dependencyDirectory = useSourcePolicy
+                    ? PackageExtractor.TryGetAdmittedCachedPackagePath(
+                        id,
+                        version,
+                        sourceOptions,
+                        packageRoots)
+                    : null;
+                if (!useSourcePolicy)
+                {
+                    foreach (var root in NuGetPackageRoots(packageRoots))
+                    {
+                        string candidate = Path.Combine(
+                            root,
+                            id.ToLowerInvariant(),
+                            version.ToLowerInvariant());
+                        if (Directory.Exists(candidate))
+                        {
+                            dependencyDirectory = candidate;
+                            break;
+                        }
+                    }
+                }
+
+                selectedDirectories.Add(visitKey, dependencyDirectory);
+            }
+
+            if (dependencyDirectory is null)
                 continue;
 
-            foreach (var root in NuGetPackageRoots(packageRoots))
+            if (!packageDirectories.TryGetValue(id, out var versions))
             {
-                var dependencyDirectory = Path.Combine(root, id.ToLowerInvariant(), version.ToLowerInvariant());
-                if (!Directory.Exists(dependencyDirectory))
-                    continue;
+                packageDirectories[id] = versions =
+                    new Dictionary<string, string>(
+                        StringComparer.OrdinalIgnoreCase);
+            }
+            versions[version] = dependencyDirectory;
+            dependencies.Add(new PackageDependency { Id = id, Version = version });
 
-                if (!packageDirectories.TryGetValue(id, out var versions))
-                    packageDirectories[id] = versions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                versions[version] = dependencyDirectory;
-                dependencies.Add(new PackageDependency { Id = id, Version = version });
-
-                string visitKey = $"{id}/{version}";
-                if (!dependencyGraph.ContainsKey(PackageKey(id, version)) && visiting.Add(visitKey))
-                {
-                    dependencyGraph[PackageKey(id, version)] = CollectPackageDependencies(
-                        dependencyDirectory,
-                        targetFramework,
-                        packageRoots,
-                        packageDirectories,
-                        dependencyGraph,
-                        visiting);
-                    visiting.Remove(visitKey);
-                }
-                break;
+            if (!dependencyGraph.ContainsKey(PackageKey(id, version))
+                && visiting.Add(visitKey))
+            {
+                dependencyGraph[PackageKey(id, version)] = CollectPackageDependencies(
+                    dependencyDirectory,
+                    targetFramework,
+                    packageRoots,
+                    sourceOptions,
+                    useSourcePolicy,
+                    packageDirectories,
+                    selectedDirectories,
+                    dependencyGraph,
+                    visiting);
+                visiting.Remove(visitKey);
             }
         }
         return dependencies;
@@ -142,8 +204,35 @@ public sealed partial class AssemblyDependencyResolver
 
     static NuGetReferenceContext? NuGetPackageContext(string targetPath, IReadOnlyList<string>? packageRoots = null)
     {
+        if (NuGetCache.TryGetPackageContentIdentity(
+                targetPath,
+                out string appPackageName,
+                out string appPackageVersion,
+                out string appAssetPath,
+                out string appPackageDirectory))
+        {
+            string[] appAssetParts = appAssetPath.Split(
+                '/',
+                StringSplitOptions.RemoveEmptyEntries);
+            if (appAssetParts.Length >= 3
+                && (appAssetParts[0].Equals(
+                        "lib",
+                        StringComparison.OrdinalIgnoreCase)
+                    || appAssetParts[0].Equals(
+                        "ref",
+                        StringComparison.OrdinalIgnoreCase)))
+            {
+                return new(
+                    appPackageDirectory,
+                    appAssetParts[1],
+                    appPackageName,
+                    appPackageVersion);
+            }
+        }
+
         string fullPath = Path.GetFullPath(targetPath);
-        foreach (var root in NuGetPackageRoots(packageRoots))
+        foreach (var root in NuGetPackageRoots(packageRoots)
+                     .OrderByDescending(root => Path.GetFullPath(root).Length))
         {
             string fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             string prefix = fullRoot + Path.DirectorySeparatorChar;
@@ -154,7 +243,7 @@ public sealed partial class AssemblyDependencyResolver
             if (parts.Length < 5
                 || (!parts[2].Equals("lib", StringComparison.OrdinalIgnoreCase)
                     && !parts[2].Equals("ref", StringComparison.OrdinalIgnoreCase)))
-                return null;
+                continue;
 
             return new(
                 Path.Combine(fullRoot, parts[0], parts[1]),
@@ -175,12 +264,8 @@ public sealed partial class AssemblyDependencyResolver
             yield break;
         }
 
-        if (Environment.GetEnvironmentVariable("NUGET_PACKAGES") is { Length: > 0 } envRoot)
-            yield return envRoot;
-
-        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (!string.IsNullOrEmpty(home))
-            yield return Path.Combine(home, ".nuget", "packages");
+        foreach (string root in NuGetCache.GetNuGetPackageRoots())
+            yield return root;
     }
 
     static IEnumerable<XElement> SelectNuGetDependencies(XDocument document, string? tfm)
@@ -525,6 +610,16 @@ public sealed partial class AssemblyDependencyResolver
 
     static (string? Id, string? Version) TryReadPackageIdentity(string path, IReadOnlyList<string>? packageRoots)
     {
+        if (NuGetCache.TryGetPackageContentIdentity(
+                path,
+                out string packageName,
+                out string version,
+                out _,
+                out _))
+        {
+            return (packageName, version);
+        }
+
         if (NuGetPackageContext(path, packageRoots) is { } context)
             return (context.PackageId, context.PackageVersion);
         return (null, null);
