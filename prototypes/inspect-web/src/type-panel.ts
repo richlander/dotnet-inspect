@@ -598,6 +598,37 @@ export interface RenderTypeSourceOptions {
   highlightCSharp: (value: string) => string;
 }
 
+export interface RenderSourceResultOptions {
+  source: TypeSourceResult;
+  escapeHtml: EscapeHtml;
+  highlightCSharp: (value: string) => string;
+}
+
+export function renderSourceResult(options: RenderSourceResultOptions): string {
+  const { source, escapeHtml, highlightCSharp } = options;
+  return `<section class="source-result" aria-label="Source">
+      <pre class="language-csharp" role="region" tabindex="0" aria-label="Source code"><code class="language-csharp">${highlightCSharp(source.text)}</code></pre>
+      <footer class="source-provenance"><strong>${source.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span>${escapeHtml(source.provenance)}</span>${pdbSourceLimitationHtml(source)}</footer>
+    </section>`;
+}
+
+export interface RenderSourcePageActionsOptions {
+  source: TypeSourceResult | null;
+  copyButtonId: "copy-source" | "copy-type-source";
+  escapeHtml: EscapeHtml;
+}
+
+export function renderSourcePageActions(
+  options: RenderSourcePageActionsOptions,
+): string {
+  const { source, copyButtonId, escapeHtml } = options;
+  return `
+    <button id="${copyButtonId}" type="button"${source ? "" : " disabled"}>Copy</button>
+    ${source?.url
+      ? `<a class="shell-action-link" href="${escapeHtml(source.url)}" target="_blank" rel="noreferrer">Open</a>`
+      : ""}`;
+}
+
 export function renderTypeSource(options: RenderTypeSourceOptions): string {
   const { currentSignature, sourceState, escapeHtml, highlightCSharp } = options;
   const fresh = sourceState.typeSourceKey === currentSignature;
@@ -605,11 +636,11 @@ export function renderTypeSource(options: RenderTypeSourceOptions): string {
     return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`;
   }
   if (fresh && sourceState.typeSource) {
-    const typeSource = sourceState.typeSource;
-    return `<section class="document-section source-result">
-        <div class="source-provenance"><strong>${typeSource.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span>${escapeHtml(typeSource.provenance)}</span>${typeSource.url ? `<a href="${escapeHtml(typeSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}${pdbSourceLimitationHtml(typeSource)}<button id="copy-type-source" type="button">copy</button></div>
-        <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(typeSource.text)}</code></pre>
-      </section>`;
+    return renderSourceResult({
+      source: sourceState.typeSource,
+      escapeHtml,
+      highlightCSharp,
+    });
   }
   if (fresh && sourceState.typeSourceError) {
     return `<section class="document-section empty-document"><span class="large-glyph">⌁</span><h2>Type source failed</h2><p>${escapeHtml(sourceState.typeSourceError)}</p></section>`;
