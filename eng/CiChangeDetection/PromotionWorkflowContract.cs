@@ -1429,7 +1429,9 @@ internal static class PromotionWorkflowContract
         string[] required =
         [
             "\"$repo_root/prototypes/inspect-web/scripts/verify-async-lowering.cs\"",
+            "-getProperty:VersionPrefix",
             "\"$repo_root/eng/generate-inspect-web-engine-facade.sh\" \\\n  --contract",
+            "\"$scratch/inspect-web-engine.d.ts\" \\\n  \"$version_prefix\"",
             "\"$repo_root/prototypes/inspect-web/src/inspect-web-engine.d.ts\" \\\n  \"$scratch/inspect-web-engine.d.ts\"",
             "\"$repo_root/prototypes/inspect-web/scripts/verify-published-engine-facade.ts\" \\\n  \"$site\"",
             "\"$repo_root/prototypes/inspect-web/scripts/verify-async-project-graph.ts\"",
