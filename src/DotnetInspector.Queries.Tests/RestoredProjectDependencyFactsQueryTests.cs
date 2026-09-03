@@ -244,6 +244,293 @@ public sealed class RestoredProjectDependencyFactsQueryTests
         Assert.Equal(RestoredProjectTargetSelectionProvenance.Requested, facts.SelectedTarget.Provenance);
     }
 
+    [Theory]
+    [InlineData("UAP,Version=v10.0", "uap10.0")]
+    [InlineData("MonoAndroid,Version=v10.0", "monoandroid10.0")]
+    [InlineData(".NETPortable,Version=v0.0,Profile=Profile7", "portable-net45+win8")]
+    [InlineData("Xamarin.iOS,Version=v1.0", "xamarinios10")]
+    public void Execute_SchemaVersion3_ShortRequestCorrelatesWithNuGetLongForm(
+        string longFramework,
+        string shortFramework)
+    {
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                [longFramework] = new JsonObject(),
+            },
+            rootGroups: new JsonObject
+            {
+                [longFramework] = new JsonArray(),
+            },
+            frameworks: new JsonObject
+            {
+                [shortFramework] = new JsonObject
+                {
+                    ["dependencies"] = new JsonObject(),
+                },
+            },
+            version: 3);
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                bytes,
+                new RestoredProjectTargetRequest(shortFramework)));
+
+        Assert.Equal(shortFramework, facts.SelectedTarget!.FrameworkIdentity);
+        Assert.Equal(
+            shortFramework,
+            Assert.Single(
+                Assert.IsType<RestoredProjectDeclarationResult.Available>(
+                    facts.Declaration).Groups).FrameworkIdentity.Identity);
+        Assert.True(
+            Assert.IsType<RestoredProjectGraphResult.Available>(
+                facts.Graph).IsComplete);
+    }
+
+    [Theory]
+    [InlineData(
+        ".NETCoreApp,Version=v8.0,Profile=bogus",
+        "net8.0")]
+    [InlineData(
+        ".NETCoreApp,Version=v8.0,Platform=unsupportedos,PlatformVersion=1.0",
+        "net8.0-unsupportedos1.0")]
+    [InlineData(
+        ".NETCoreApp,Version=v8.0,Platform=unsupported",
+        "net8.0-unsupported")]
+    [InlineData(
+        ".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion=V1.0",
+        "net8.0-windows1.0")]
+    [InlineData(
+        ".NETCoreApp,Version=v8",
+        "net8.0")]
+    [InlineData(
+        ".NETPortable,Version=v0.0,Profile=net45+win8",
+        "portable-net45+win8")]
+    [InlineData(
+        ".NETFramework,Version=v4.8",
+        "net48")]
+    public void Execute_SchemaVersion3_NuGetLongFormSemanticsRemainCanonical(
+        string longFramework,
+        string shortFramework)
+    {
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                [longFramework] = new JsonObject(),
+            },
+            rootGroups: new JsonObject
+            {
+                [longFramework] = new JsonArray(),
+            },
+            frameworks: new JsonObject
+            {
+                [shortFramework] = new JsonObject
+                {
+                    ["dependencies"] = new JsonObject(),
+                },
+            },
+            version: 3);
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                bytes,
+                new RestoredProjectTargetRequest(shortFramework)));
+
+        Assert.Equal(shortFramework, facts.SelectedTarget!.FrameworkIdentity);
+        Assert.True(
+            Assert.IsType<RestoredProjectGraphResult.Available>(
+                facts.Graph).IsComplete);
+    }
+
+    [Fact]
+    public void Execute_SchemaVersion3_OpaqueTargetDoesNotCollideWithCanonicalTarget()
+    {
+        const string canonicalFramework = ".NETCoreApp,Version=v8.0";
+        const string malformedFramework =
+            ".NETCoreApp,Version=v8.0,Unknown=value";
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                [canonicalFramework] = new JsonObject(),
+                [malformedFramework] = new JsonObject(),
+            },
+            rootGroups: new JsonObject
+            {
+                [canonicalFramework] = new JsonArray(),
+            },
+            frameworks: new JsonObject
+            {
+                ["net8.0"] = new JsonObject
+                {
+                    ["dependencies"] = new JsonObject(),
+                },
+            },
+            version: 3);
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                bytes,
+                new RestoredProjectTargetRequest("net8.0")));
+        RestoredProjectDependencyFacts reordered = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                WithReversedPropertyOrder(bytes),
+                new RestoredProjectTargetRequest("net8.0")));
+
+        Assert.Equal("net8.0", facts.SelectedTarget!.FrameworkIdentity);
+        Assert.True(
+            Assert.IsType<RestoredProjectGraphResult.Available>(
+                facts.Graph).IsComplete);
+        Assert.Equal(Describe(facts), Describe(reordered));
+        Assert.Equal(facts.SelectionIdentity, reordered.SelectionIdentity);
+    }
+
+    [Fact]
+    public void Execute_SchemaVersion3_AmbiguousPlatformSpellingDoesNotMatchAnotherIdentity()
+    {
+        const string longFramework =
+            ".NETCoreApp,Version=v8.0,Platform=foo2,PlatformVersion=1.0";
+        const string differentShortFramework = "net8.0-foo21.0";
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                [longFramework] = new JsonObject(),
+            },
+            rootGroups: new JsonObject
+            {
+                [longFramework] = new JsonArray(),
+            },
+            frameworks: new JsonObject
+            {
+                [differentShortFramework] = new JsonObject
+                {
+                    ["dependencies"] = new JsonObject(),
+                },
+            },
+            version: 3);
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                bytes,
+                new RestoredProjectTargetRequest(differentShortFramework)));
+
+        Assert.Null(facts.SelectedTarget);
+        Assert.IsType<RestoredProjectGraphResult.Unavailable>(facts.Graph);
+    }
+
+    [Fact]
+    public void Execute_SchemaVersion3_LossyFrameworkFamilySpellingDoesNotMatchAnotherIdentity()
+    {
+        const string longFramework = ".NETFramework,Version=v10.0";
+        const string differentShortFramework = "net10.0";
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                [longFramework] = new JsonObject(),
+            },
+            rootGroups: new JsonObject
+            {
+                [longFramework] = new JsonArray(),
+            },
+            frameworks: new JsonObject
+            {
+                [differentShortFramework] = new JsonObject
+                {
+                    ["dependencies"] = new JsonObject(),
+                },
+            },
+            version: 3);
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                bytes,
+                new RestoredProjectTargetRequest(differentShortFramework)));
+
+        Assert.Null(facts.SelectedTarget);
+        Assert.IsType<RestoredProjectGraphResult.Unavailable>(facts.Graph);
+    }
+
+    [Fact]
+    public void Execute_SchemaVersion3_LossyFrameworkVersionSpellingDoesNotMatchAnotherIdentity()
+    {
+        const string longFramework = ".NETPlatform,Version=v0.0";
+        const string differentShortFramework = "dotnet";
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                [longFramework] = new JsonObject(),
+            },
+            rootGroups: new JsonObject
+            {
+                [longFramework] = new JsonArray(),
+            },
+            frameworks: new JsonObject
+            {
+                [differentShortFramework] = new JsonObject
+                {
+                    ["dependencies"] = new JsonObject(),
+                },
+            },
+            version: 3);
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                bytes,
+                new RestoredProjectTargetRequest(differentShortFramework)));
+
+        Assert.Null(facts.SelectedTarget);
+        Assert.IsType<RestoredProjectGraphResult.Unavailable>(facts.Graph);
+    }
+
+    [Theory]
+    [InlineData(".NETCoreApp,Version=v11.0", "net11.0")]
+    [InlineData("UAP,Version=v10.0", "uap10.0")]
+    public void Execute_DefaultSelection_DoesNotGiveOpaqueFrameworkARepairedPriority(
+        string validFramework,
+        string canonicalFramework)
+    {
+        const string malformedFramework =
+            ".NETCoreApp,Version=v99.0,Unknown=value";
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                [malformedFramework] = new JsonObject(),
+                [validFramework] = new JsonObject(),
+            },
+            rootGroups: new JsonObject
+            {
+                [malformedFramework] = new JsonArray(),
+                [validFramework] = new JsonArray(),
+            },
+            frameworks: new JsonObject
+            {
+                [malformedFramework] = new JsonObject
+                {
+                    ["dependencies"] = new JsonObject(),
+                },
+                [canonicalFramework] = new JsonObject
+                {
+                    ["dependencies"] = new JsonObject(),
+                },
+            },
+            version: 3);
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(bytes));
+        RestoredProjectDependencyFacts reordered = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                WithReversedPropertyOrder(bytes)));
+
+        Assert.Equal(canonicalFramework, facts.SelectedTarget!.FrameworkIdentity);
+        Assert.Equal(
+            validFramework,
+            facts.SelectedTarget.SourceFrameworkSpelling.ToString());
+        Assert.True(
+            Assert.IsType<RestoredProjectGraphResult.Available>(
+                facts.Graph).IsComplete);
+        Assert.Equal(Describe(facts), Describe(reordered));
+        Assert.Equal(facts.SelectionIdentity, reordered.SelectionIdentity);
+    }
+
     [Fact]
     public void Execute_SchemaVersion3_CorrelatesShortDeclarationPivotWithLongTargetPivot()
     {
@@ -918,6 +1205,306 @@ public sealed class RestoredProjectDependencyFactsQueryTests
         AssertNoArtifactTextInIdentities(facts);
     }
 
+    [Theory]
+    [InlineData("Foo,Version=v1.0")]
+    [InlineData(".NETPortable,Version=v0.0,Profile=ProfileZZZ")]
+    [InlineData("portable-net45+foo")]
+    public void Execute_UnresolvableNuGetFrameworkRemainsUnrecognized(
+        string sourceFramework)
+    {
+        var frameworks = new JsonObject
+        {
+            [sourceFramework] = new JsonObject
+            {
+                ["dependencies"] = new JsonObject(),
+            },
+        };
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                DocumentWithFrameworks(frameworks)));
+        RestoredProjectDeclarationGroup group = Assert.Single(
+            Assert.IsType<RestoredProjectDeclarationResult.Available>(
+                facts.Declaration).Groups);
+
+        Assert.Equal(
+            RestoredProjectFrameworkIdentityKind.Unrecognized,
+            group.FrameworkIdentity.Kind);
+        Assert.StartsWith(
+            "sha256:",
+            group.FrameworkIdentity.Identity,
+            StringComparison.Ordinal);
+        AssertNoArtifactTextInIdentities(facts);
+    }
+
+    [Theory]
+    [InlineData("uap10.0", "uap10.0")]
+    [InlineData("monoandroid10.0", "monoandroid10.0")]
+    [InlineData("portable-net45+win8", "portable-net45+win8")]
+    public void Execute_NuGetFrameworkFamiliesUseCanonicalIdentity(
+        string sourceFramework,
+        string canonicalFramework)
+    {
+        var frameworks = new JsonObject
+        {
+            [sourceFramework] = new JsonObject
+            {
+                ["dependencies"] = new JsonObject(),
+            },
+        };
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                DocumentWithFrameworks(frameworks)));
+        RestoredProjectDeclarationGroup group = Assert.Single(
+            Assert.IsType<RestoredProjectDeclarationResult.Available>(
+                facts.Declaration).Groups);
+
+        Assert.Equal(
+            RestoredProjectFrameworkIdentityKind.Recognized,
+            group.FrameworkIdentity.Kind);
+        Assert.Equal(canonicalFramework, group.FrameworkIdentity.Identity);
+        Assert.Equal(canonicalFramework, group.Identity.PivotIdentity);
+    }
+
+    [Fact]
+    public void Execute_LongPlatformFrameworkUsesCanonicalShortIdentity()
+    {
+        const string sourceFramework =
+            ".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion=10.0.19041.0";
+        var frameworks = new JsonObject
+        {
+            [sourceFramework] = new JsonObject
+            {
+                ["dependencies"] = new JsonObject(),
+            },
+        };
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                DocumentWithFrameworks(frameworks)));
+        RestoredProjectDeclarationGroup group = Assert.Single(
+            Assert.IsType<RestoredProjectDeclarationResult.Available>(
+                facts.Declaration).Groups);
+
+        Assert.Equal(
+            RestoredProjectFrameworkIdentityKind.Recognized,
+            group.FrameworkIdentity.Kind);
+        Assert.Equal(
+            "net8.0-windows10.0.19041",
+            group.FrameworkIdentity.Identity);
+        Assert.StartsWith(
+            "sha256:",
+            group.Identity.PivotIdentity,
+            StringComparison.Ordinal);
+        Assert.Equal(sourceFramework, group.SourcePivotSpelling.ToString());
+    }
+
+    [Fact]
+    public void Execute_MalformedLongPlatformVersionRemainsUnrecognized()
+    {
+        const string sourceFramework =
+            ".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion=bogus";
+        var frameworks = new JsonObject
+        {
+            [sourceFramework] = new JsonObject
+            {
+                ["dependencies"] = new JsonObject(),
+            },
+        };
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                DocumentWithFrameworks(frameworks)));
+        RestoredProjectDeclarationGroup group = Assert.Single(
+            Assert.IsType<RestoredProjectDeclarationResult.Available>(
+                facts.Declaration).Groups);
+
+        Assert.Equal(
+            RestoredProjectFrameworkIdentityKind.Unrecognized,
+            group.FrameworkIdentity.Kind);
+        AssertNoArtifactTextInIdentities(facts);
+    }
+
+    [Theory]
+    [InlineData(".NETCoreApp,Version=v8.0,")]
+    [InlineData(".NETFramework,Version=v4.5=Client")]
+    [InlineData(".NETFramework,Version=v4=5")]
+    [InlineData(".NETFramework,Version=v4. 5")]
+    [InlineData(".NETFramework,Version=v 4.5")]
+    [InlineData(".NETFramework,Version= 4.5")]
+    [InlineData(".NETFramework,Version=vv4.8")]
+    [InlineData(".NETCoreApp,Version=v8.0,Unknown=value")]
+    [InlineData(".NETCoreApp,Version=v8.0,Version=v9.0")]
+    [InlineData(".NETCoreApp,Platform=windows")]
+    [InlineData(".NETCoreApp,Version=v8.0,Profile=bog us")]
+    [InlineData(".NETCoreApp,Version=v8.0,Profile= bogus")]
+    [InlineData(".NETCoreApp,Version=v8.0,Profile=bogus ")]
+    [InlineData(".NETCoreApp,Version=v8.0,Platform=win dows")]
+    [InlineData(".NETCoreApp,Version=v8.0,Platform= windows")]
+    [InlineData(".NETCoreApp,Version=v8.0,Platform=windows ")]
+    [InlineData(".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion= 1.0")]
+    [InlineData(".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion=vv1.0")]
+    [InlineData(".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion=vV1.0")]
+    [InlineData(".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion=1 .0")]
+    [InlineData(".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion=1. 0")]
+    [InlineData(".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion=v 1.0")]
+    [InlineData(".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion=+1.0")]
+    [InlineData(".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion=1.+0")]
+    [InlineData(".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion=1..0")]
+    [InlineData(".NETCoreApp,Version=v8.0,Profile=bogus,Platform=windows")]
+    [InlineData(".NETCoreApp,Version=v3.1,Platform=windows")]
+    [InlineData(".NETFramework,Version=v4.8,Platform=windows")]
+    public void Execute_MalformedLongFrameworkAttributesRemainUnrecognized(
+        string sourceFramework)
+    {
+        var frameworks = new JsonObject
+        {
+            [sourceFramework] = new JsonObject
+            {
+                ["dependencies"] = new JsonObject(),
+            },
+        };
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                DocumentWithFrameworks(frameworks)));
+        RestoredProjectDeclarationGroup group = Assert.Single(
+            Assert.IsType<RestoredProjectDeclarationResult.Available>(
+                facts.Declaration).Groups);
+
+        Assert.Equal(
+            RestoredProjectFrameworkIdentityKind.Unrecognized,
+            group.FrameworkIdentity.Kind);
+        AssertNoArtifactTextInIdentities(facts);
+    }
+
+    [Fact]
+    public void Execute_DifferentUnresolvablePortableFrameworksRemainDistinct()
+    {
+        const string first = "portable-net45+foo";
+        const string second = "portable-net45+bar";
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                [first] = new JsonObject(),
+                [second] = new JsonObject(),
+            },
+            rootGroups: new JsonObject
+            {
+                [first] = new JsonArray(),
+                [second] = new JsonArray(),
+            },
+            frameworks: new JsonObject
+            {
+                [first] = new JsonObject { ["dependencies"] = new JsonObject() },
+                [second] = new JsonObject { ["dependencies"] = new JsonObject() },
+            });
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(bytes));
+        RestoredProjectDeclarationResult.Available declaration =
+            Assert.IsType<RestoredProjectDeclarationResult.Available>(
+                facts.Declaration);
+
+        Assert.All(
+            declaration.Groups,
+            group => Assert.Equal(
+                RestoredProjectFrameworkIdentityKind.Unrecognized,
+                group.FrameworkIdentity.Kind));
+        Assert.NotEqual(
+            declaration.Groups[0].FrameworkIdentity.Identity,
+            declaration.Groups[1].FrameworkIdentity.Identity);
+        Assert.True(
+            Assert.IsType<RestoredProjectGraphResult.Available>(
+                facts.Graph).IsComplete);
+        AssertNoArtifactTextInIdentities(facts);
+    }
+
+    [Fact]
+    public void Execute_SelectedTargetUsesTheSameNuGetFrameworkIdentity()
+    {
+        const string framework = "uap10.0";
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                [framework] = new JsonObject(),
+            },
+            rootGroups: new JsonObject
+            {
+                [framework] = new JsonArray(),
+            },
+            frameworks: new JsonObject
+            {
+                [framework] = new JsonObject
+                {
+                    ["dependencies"] = new JsonObject(),
+                },
+            });
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                bytes,
+                new RestoredProjectTargetRequest(framework)));
+
+        Assert.Equal(framework, facts.SelectedTarget!.FrameworkIdentity);
+        Assert.Equal(framework, facts.SelectionIdentity.TargetIdentity);
+        Assert.Equal(
+            framework,
+            Assert.Single(
+                Assert.IsType<RestoredProjectDeclarationResult.Available>(
+                    facts.Declaration).Groups).FrameworkIdentity.Identity);
+    }
+
+    [Fact]
+    public void Execute_LongAndShortDuplicateTargetPivotsFailGraph()
+    {
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                ["net8.0"] = new JsonObject(),
+                [".NETCoreApp,Version=v8.0"] = new JsonObject(),
+            },
+            rootGroups: new JsonObject(),
+            frameworks: new JsonObject());
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(bytes));
+
+        Assert.Null(facts.SelectedTarget);
+        Assert.Equal(
+            RestoredProjectGraphFailureReason.AmbiguousTargetIdentity,
+            Assert.IsType<RestoredProjectGraphResult.Failed>(
+                facts.Graph).Failure.Reason);
+    }
+
+    [Theory]
+    [InlineData("uap10.0", "UAP,Version=v10.0")]
+    [InlineData("monoandroid10.0", "MonoAndroid,Version=v10.0")]
+    [InlineData("portable-net45+win8", ".NETPortable,Version=v0.0,Profile=Profile7")]
+    public void Execute_NuGetLongAndShortDuplicateTargetPivotsFailGraph(
+        string shortFramework,
+        string longFramework)
+    {
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                [shortFramework] = new JsonObject(),
+                [longFramework] = new JsonObject(),
+            },
+            rootGroups: new JsonObject(),
+            frameworks: new JsonObject());
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(bytes));
+
+        Assert.Null(facts.SelectedTarget);
+        Assert.Equal(
+            RestoredProjectGraphFailureReason.AmbiguousTargetIdentity,
+            Assert.IsType<RestoredProjectGraphResult.Failed>(
+                facts.Graph).Failure.Reason);
+    }
+
     [Fact]
     public void Execute_HostileTargetPivotSpelling_YieldsAnOpaqueSelectedTargetIdentity()
     {
@@ -952,6 +1539,49 @@ public sealed class RestoredProjectDependencyFactsQueryTests
         RestoredProjectGraphResult.Available graph = Assert.IsType<RestoredProjectGraphResult.Available>(facts.Graph);
         Assert.True(graph.IsComplete);
         Assert.Single(graph.Packages);
+        AssertNoArtifactTextInIdentities(facts);
+    }
+
+    [Theory]
+    [InlineData(",")]
+    [InlineData(",,")]
+    [InlineData(",Version=v1.0")]
+    public void Execute_BlankLongFormFrameworkIdentifier_YieldsOpaqueEvidence(
+        string hostileFramework)
+    {
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                [hostileFramework] = new JsonObject(),
+            },
+            rootGroups: new JsonObject
+            {
+                [hostileFramework] = new JsonArray(),
+            },
+            frameworks: new JsonObject
+            {
+                [hostileFramework] = new JsonObject
+                {
+                    ["dependencies"] = new JsonObject(),
+                },
+            });
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(bytes));
+
+        Assert.StartsWith(
+            "sha256:",
+            facts.SelectedTarget!.FrameworkIdentity,
+            StringComparison.Ordinal);
+        RestoredProjectDeclarationGroup group = Assert.Single(
+            Assert.IsType<RestoredProjectDeclarationResult.Available>(
+                facts.Declaration).Groups);
+        Assert.Equal(
+            RestoredProjectFrameworkIdentityKind.Unrecognized,
+            group.FrameworkIdentity.Kind);
+        Assert.True(
+            Assert.IsType<RestoredProjectGraphResult.Available>(
+                facts.Graph).IsComplete);
         AssertNoArtifactTextInIdentities(facts);
     }
 
@@ -1823,11 +2453,15 @@ public sealed class RestoredProjectDependencyFactsQueryTests
         return Encoding.UTF8.GetBytes(document.ToJsonString());
     }
 
-    static byte[] SyntheticDocument(JsonObject targets, JsonObject rootGroups, JsonObject frameworks)
+    static byte[] SyntheticDocument(
+        JsonObject targets,
+        JsonObject rootGroups,
+        JsonObject frameworks,
+        int version = 4)
     {
         var document = new JsonObject
         {
-            ["version"] = 4,
+            ["version"] = version,
             ["targets"] = targets,
             ["projectFileDependencyGroups"] = rootGroups,
             ["project"] = new JsonObject { ["frameworks"] = frameworks },
