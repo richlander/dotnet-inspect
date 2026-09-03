@@ -155,7 +155,7 @@ public interface IResearchFactProducer
     IReadOnlyList<string> Produces { get; }
     IReadOnlyList<string> DependsOn { get; }
     ResearchFactRequirements Requirements => ResearchFactRequirements.None;
-    IReadOnlyList<IAnnotation> Produce(ResearchFactContext context);
+    IReadOnlyList<Finding<IAnnotation>> Produce(ResearchFactContext context);
     IReadOnlyList<ResearchHeaderFact> ProduceHeaderFacts(ResearchFactContext context) => [];
 }
 
@@ -200,8 +200,28 @@ public sealed class ResearchFactRegistry
     public static ResearchFactRegistry CallRelationships { get; } = new(
         new DirectCallFactProducer());
 
+    public FindingCensus<IAnnotation> CollectCensus(ResearchFactContext context)
+    {
+        Finding<IAnnotation>[] findings =
+        [
+            .. _producers.SelectMany(producer => producer.Produce(context)),
+        ];
+        if (findings.Any(finding => finding is null))
+        {
+            throw new InvalidOperationException(
+                "Research fact producers must not return null Findings.");
+        }
+
+        return FindingCensus<IAnnotation>.Seal(
+            findings
+                .OrderBy(finding => finding.Payload.SourceOffset)
+                .ThenBy(
+                    finding => finding.Payload.Descriptor.Id,
+                    StringComparer.Ordinal));
+    }
+
     public IReadOnlyList<IAnnotation> Collect(ResearchFactContext context)
-        => [.. _producers.SelectMany(producer => producer.Produce(context)).OrderBy(fact => fact.SourceOffset).ThenBy(fact => fact.Descriptor.Id, StringComparer.Ordinal)];
+        => [.. CollectCensus(context).Findings.Select(finding => finding.Payload)];
 
     public IReadOnlyList<ResearchHeaderFact> CollectHeaderFacts(ResearchFactContext context)
         => [.. _producers.SelectMany(producer => producer.ProduceHeaderFacts(context)).OrderBy(fact => fact.Descriptor.Id, StringComparer.Ordinal)];
@@ -239,6 +259,20 @@ sealed class DecompilerLifetimeFactProducer : IResearchFactProducer
     public IReadOnlyList<string> Produces { get; } = ["lifetime.*"];
     public IReadOnlyList<string> DependsOn => [];
 
-    public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context)
-        => new Decompiler.Annotations.LifetimeClassifier().Classify(context.Imported);
+    public IReadOnlyList<Finding<IAnnotation>> Produce(ResearchFactContext context)
+    {
+        var subject = ResearchFactFinding.Subject(context.Imported);
+        return
+        [
+            .. new Decompiler.Annotations.LifetimeClassifier()
+                .Classify(context.Imported)
+                .Select((annotation, ordinal) =>
+                    ResearchFactFinding.Create(
+                        subject,
+                        annotation,
+                        new FindingKey(
+                            $"{annotation.Descriptor.Id}|{annotation.SourceOffset:X8}"),
+                        ordinal)),
+        ];
+    }
 }

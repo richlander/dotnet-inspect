@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -105,6 +106,35 @@ function deferred<T>() {
   });
   return { promise, resolve };
 }
+
+test("Source composition uses shell actions and a full-area loaded surface", () => {
+  const appSource = readFileSync(
+    new URL("../src/dotnet-inspect.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    appSource,
+    /const sourcePageKind =[\s\S]*activeScope === "type" && state\.lens === "source"[\s\S]*activeScope === "member"[\s\S]*state\.memberSection === "source"/);
+  assert.match(
+    appSource,
+    /class="working-surface-actions" role="group" aria-label="\$\{annotatedPageContext \? "Annotated Source actions" : "Source actions"\}"[\s\S]*renderSourcePageActions\(\{[\s\S]*copyButtonId: sourcePageKind === "member"[\s\S]*"copy-source"[\s\S]*"copy-type-source"/);
+  assert.match(
+    appSource,
+    /class="shell-actions\$\{annotatedPageContext \? " annotated-page-actions" : ""\}\$\{sourcePageKind \? " source-page-actions" : ""\}/);
+  assert.doesNotMatch(
+    appSource,
+    /class="legacy-application-actions"/);
+  assert.match(
+    appSource,
+    /detail-scroll\$\{annotatedWorkingSurface \? " annotated-working-surface" : ""\}\$\{sourceWorkingSurface \? " source-working-surface" : ""\}/);
+  assert.match(
+    appSource,
+    /case "source":\s*return renderTypeSourceHtml\(item\);/);
+  assert.match(
+    appSource,
+    /state\.memberSource\s*\?\s*renderSourceResult\(\{/);
+});
 
 async function promiseSettled(promise: Promise<unknown>): Promise<boolean> {
   let settled = false;
