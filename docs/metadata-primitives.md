@@ -326,6 +326,13 @@ exists to remove; the member now fails with the mechanism named. A file with
 no managed metadata is still not an assembly and is still skipped, so ordinary
 native libraries shipped beside managed ones are unaffected.
 
+An explicitly named malformed library gains the same exactness. At this head
+`type ./junk.dll` on a four-byte non-PE file exits 1 with
+`Error: The assembly metadata root is malformed (UnmappableMetadataDirectory).`
+where the base exited 1 with `Error: Could not extract API from library.` The
+exit code is unchanged; only the classification becomes exact. The generic
+message remains for extraction failures that carry no named rejection.
+
 What remains partial is therefore narrower than the base gap, and it is these
 two things rather than the explicit-name case:
 
