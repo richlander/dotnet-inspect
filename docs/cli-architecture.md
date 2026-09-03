@@ -11,6 +11,8 @@ See:
 - [CLI change classification and obsolete
   inputs](design/cli-change-classification.md) for published surfaces, change
   disclosure, invalid-input guards, and routing reservations;
+- [Search scope resolution](design/search-scope-resolution.md) for search
+  defaults, explicit-source suppression, and named scope-group expansion;
 - [Command transitions](design/command-transition-model.md) for command versus
   option boundaries;
 - [Progressive disclosure](design/progressive-disclosure.md) for verbosity,
@@ -30,6 +32,7 @@ The CLI owns:
 - parsing command and option syntax;
 - resolving explicit package, platform, project, library, type, member, and
   version-range gestures;
+- normalizing search source gestures through the focused search-scope owner;
 - authorizing network, source-content, and expensive work;
 - creating and disposing operation contexts, workspaces, services, and
   cancellation;
