@@ -188,7 +188,7 @@ internal static partial class WorkflowContract
             YamlMappingNode step = RequireMapping(
                 stepNode,
                 "jobs.inspect-web step");
-            if (GetOptionalScalar(step, "uses") == "actions/setup-dotnet@v5")
+            if (GetOptionalScalar(step, "uses") == "actions/setup-dotnet@v6")
             {
                 webSdkSteps.Add(step);
             }
@@ -289,7 +289,7 @@ internal static partial class WorkflowContract
         RequireScalarValue(
             checkout,
             "uses",
-            "actions/checkout@v6",
+            "actions/checkout@v7",
             "jobs.tla-plus checkout step");
         RequireExactScalarValues(
             GetRequiredMapping(
@@ -450,7 +450,7 @@ internal static partial class WorkflowContract
         RequireScalarValue(
             checkoutStep,
             "uses",
-            "actions/checkout@v6",
+            "actions/checkout@v7",
             "jobs.changes checkout step");
         RequireExactScalarValues(
             GetRequiredMapping(
@@ -476,7 +476,7 @@ internal static partial class WorkflowContract
         RequireScalarValue(
             setupStep,
             "uses",
-            "actions/setup-dotnet@v5",
+            "actions/setup-dotnet@v6",
             "jobs.changes .NET setup step");
         RequireExactScalarValues(
             GetRequiredMapping(

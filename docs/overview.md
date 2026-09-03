@@ -40,6 +40,9 @@ substrates, and inspection producers that will extend that space.
   CLI-scoped boundary from host-authorized candidate collection through typed
   exact, glob, namespace-prefix, partial, and miss classification; Metadata
   retains candidate facts and the command retains presentation.
+  The [package index cache](design/package-index-cache.md) separately owns
+  whether a persistent filesystem-derived package result may replace cold
+  inspection of one exact authorized retained payload.
 - `src/DotnetInspector.Queries/` contains host-neutral typed query definitions,
   deterministic synchronous/asynchronous execution, prerequisite-aware cost,
   and content-shaped metadata, reference, package dependency-group,
@@ -69,7 +72,7 @@ substrates, and inspection producers that will extend that space.
 - `src/ILInspector.Analysis/` indexes IL method-body evidence such as direct call sites, allocation and unsafety occurrences, method signals, and whole-assembly leverage without decompiling to C#. `AnalysisFindings` exposes reusable typed censuses and comparisons for allocations, call sites, unsafe operations, and unsafe declaration/body evidence.
 - `src/ILInspector.Analysis.App/` is a temporary console harness for exercising Analysis queries until CLI wiring exists.
 - `src/ILInspector.ControlFlow/` contains shared block-edge, dominance, and dataflow kernels used below Analysis and Decompiler without depending on either.
-- `src/ILInspector.Findings/` contains the domain-free observation, inspection, matching, transition, comparison, whole-census correlation, and exact-identity correlation contracts shared by product producers. The `timeline` command composes Metadata and Analysis producers over those same correlation contracts.
+- `src/ILInspector.Findings/` contains the domain-free observation, inspection, matching, transition, comparison, complete analysis-diff, whole-census correlation, and exact-identity correlation contracts shared by product producers. The `timeline` command composes Metadata and Analysis producers over those same correlation contracts.
 - `src/ILInspector.ILDiff/` owns IL body and assembly comparison over decoded
   instruction streams: canonicalization, alignment, Finding projection, typed
   failures, and producer-owned diff presentation.
@@ -151,6 +154,11 @@ substrates, and inspection producers that will extend that space.
   owns the user-scenario ordering and typed handoffs across operation
   authority, worker runtime, generated facades, managed bridging, and
   feature-owned work without redefining those owners.
+- [`docs/design/engine-browser-async-event-stream.md`](design/engine-browser-async-event-stream.md)
+  owns host-neutral, request-scoped engine event sequences: advisory progress,
+  durable partial items and item failures, one semantic completion, and
+  adapter-side pull, batching, and cancellation obligations before Browser
+  publication.
 - [`docs/design/custom-attribute-value-decoding.md`](design/custom-attribute-value-decoding.md)
   owns the safety contract for decoding custom-attribute values
   from untrusted metadata: the alignment, bounding, and guard-work invariants
@@ -250,7 +258,7 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Item and line selection composition](design/item-and-line-limits.md):
   cross-component sequencing and typed handoffs for focused semantic
   selection, L2, source-execution, CLI, payload, and presentation designs.
-- [Semantic row selection](design/semantic-row-selection.md): dependency-free
+- [Semantic row selection](design/semantic-row-selection.md): typed
   ordered-stage, strict-window, reindexing, and all-or-failure sequence
   component.
 - [Command transitions](design/command-transition-model.md): when source, focus, operation arity, lens, traversal, or rendering changes should switch commands versus stay within one command.
@@ -266,9 +274,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   inspection-facet identities, labels, order, structural applicability,
   discovery, and typed resolution outcomes.
 - [Inspection subject navigation](design/inspection-subject-navigation.md):
-  host-neutral root, Library, Type, and Member descriptors, availability,
-  initial recommendations, transitions, reconciliation, and model-checked
-  retained-session authority.
+  host-neutral Workspace, Package or non-package Root, Library, Type, and
+  Member descriptors, availability, initial recommendations, transitions,
+  reconciliation, and model-checked retained-session authority.
 - [Inspect Web UI](design/inspect-web-ui.md): composition map for the website
   redesign, linking
   [presentation language](design/inspect-web-presentation-language.md),
@@ -292,6 +300,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Finding nomenclature](design/finding-nomenclature.md): observation/change semantics, operation outcomes, and Research composition boundaries.
 - [Finding producer design](design/finding-producers.md): how to choose owners, payloads, identities, result shapes, and matching modes.
 - [Finding coordinates](design/finding-coordinates.md): separation of subject identity, correspondence, optional producer order, and typed provenance.
+- [Finding instance census](design/finding-instance-census.md): producer-issued
+  receipt and per-instance keys for one sealed execution census, with
+  bijection and exact-association validation.
 - [Finding value semantics](design/finding-value-equality.md): .NET equality
   and hashing for Finding-owned structural values, ordered collections,
   identity sets, union cases, and reference-identity operation objects.

@@ -8,6 +8,14 @@ import {
 } from "./data.ts";
 import type { BrowserSource } from "./inspect-web-engine.d.ts";
 import type { MemberFocusSnapshot } from "./member-focus.ts";
+import type {
+  OperationAuthorityPage,
+  OperationDiagnostic,
+  OperationFeatureEvent,
+  OperationId,
+  OperationProducerAdapter,
+  OperationSession,
+} from "./operation-authority.ts";
 
 interface SourceCoordinates {
   packageId: string;
@@ -70,6 +78,7 @@ export interface SourceInspectionState
 
 export interface SourceInspectionDependencies {
   state: SourceInspectionState;
+  operationAuthority: OperationAuthorityPage;
   queryMemberSource(request: MemberSourceQuery): Promise<BrowserSource>;
   queryTypeSource(request: TypeSourceQuery): Promise<BrowserSource>;
   queryGraphSource(
@@ -78,6 +87,9 @@ export interface SourceInspectionDependencies {
   ): Promise<BrowserSource>;
   memberSourceHasConcreteOverload(): boolean;
   cancelEngineSourceRequest(): void;
+  readonly reportOperationDiagnostic: (
+    diagnostic: OperationDiagnostic,
+  ) => undefined;
   describeError(error: unknown): string;
   render(): void;
   renderPreservingMemberFocus(
@@ -102,10 +114,183 @@ export function createSourceInspectionCoordinator(
   dependencies: SourceInspectionDependencies,
 ): SourceInspectionCoordinator {
   const { state } = dependencies;
+  interface TypeSourceOperationContext {
+    readonly request: TypeSourceLoadRequest;
+    preservedFocus: MemberFocusSnapshot | null;
+  }
+  type TypeSourceFeatureEvent =
+    OperationFeatureEvent<BrowserSource, unknown, never>;
+  type TypeSourceSession = OperationSession<
+    TypeSourceLoadRequest,
+    BrowserSource,
+    unknown,
+    never,
+    never
+  >;
+
+  const typeSourceOperations =
+    new Map<OperationId, TypeSourceOperationContext>();
+  let activeEngineTypeOperation: OperationId | null = null;
+  const typeSourceContext = (
+    operationId: OperationId,
+  ): TypeSourceOperationContext => {
+    const context = typeSourceOperations.get(operationId);
+    if (context === undefined)
+      throw new Error("Type source operation context is unavailable.");
+    return context;
+  };
+  const publishTypeSourceEvent = (event: TypeSourceFeatureEvent): undefined => {
+    switch (event.kind) {
+      case "started":
+      case "replaced": {
+        const context = typeSourceContext(event.operation.id);
+        beginSourceRequestState(state);
+        state.typeSourceKey = context.request.signature;
+        state.typeSource = null;
+        state.typeSourceError = "";
+        state.typeSourceLoading = true;
+        context.preservedFocus =
+          dependencies.renderPreservingMemberFocus();
+        break;
+      }
+      case "terminal": {
+        const context = typeSourceContext(event.operationId);
+        if (event.outcome.kind === "succeeded")
+          state.typeSource = event.outcome.value;
+        else
+          state.typeSourceError =
+            dependencies.describeError(event.outcome.error);
+        state.typeSourceLoading = false;
+        if (context.request.isVisible()) {
+          dependencies.renderPreservingMemberFocus(
+            context.preservedFocus,
+          );
+        }
+        break;
+      }
+      case "canceled":
+        state.typeSourceLoading = false;
+        state.typeSourceKey = "";
+        state.typeSourceError = "";
+        break;
+      case "disposed":
+        state.typeSourceLoading = false;
+        state.typeSourceKey = "";
+        state.typeSourceError = "";
+        break;
+      case "progress":
+        break;
+    }
+    return undefined;
+  };
+  const typeSourceSession: TypeSourceSession =
+    dependencies.operationAuthority.createSession({
+      feature: { publish: publishTypeSourceEvent },
+      diagnostic: {
+        report: diagnostic =>
+          dependencies.reportOperationDiagnostic(diagnostic),
+      },
+    });
+  const typeSourceAdapter: OperationProducerAdapter<
+    TypeSourceLoadRequest,
+    BrowserSource,
+    unknown,
+    never,
+    never
+  > = {
+    prepare: (identity, request, sink) => {
+      typeSourceOperations.set(identity.id, {
+        request,
+        preservedFocus: null,
+      });
+      let engineCancellationRequested = false;
+      const cancelEngineIfOwned = (): undefined => {
+        if (engineCancellationRequested
+          || activeEngineTypeOperation !== identity.id) {
+          return undefined;
+        }
+        engineCancellationRequested = true;
+        dependencies.cancelEngineSourceRequest();
+        return undefined;
+      };
+      const finish = (
+        outcome:
+          | { readonly kind: "succeeded"; readonly value: BrowserSource }
+          | { readonly kind: "failed"; readonly error: unknown },
+      ): undefined => {
+        sink.reportTerminal(outcome);
+        if (activeEngineTypeOperation === identity.id)
+          activeEngineTypeOperation = null;
+        typeSourceOperations.delete(identity.id);
+        sink.reportQuiesced();
+        return undefined;
+      };
+      return {
+        kind: "prepared",
+        binding: {
+          requestCancellation: () => {
+            return cancelEngineIfOwned();
+          },
+          activate: () => {
+            activeEngineTypeOperation = identity.id;
+            let query: Promise<BrowserSource>;
+            try {
+              query = dependencies.queryTypeSource(request);
+            } catch (error: unknown) {
+              try {
+                cancelEngineIfOwned();
+              } catch (cancellationError: unknown) {
+                sink.reportUnexpectedFailure(cancellationError);
+              }
+              finish({ kind: "failed", error });
+              return undefined;
+            }
+            void query.then(
+              value => finish({ kind: "succeeded", value }),
+              (error: unknown) => finish({ kind: "failed", error }),
+            );
+            return undefined;
+          },
+          abandon: () => {
+            typeSourceOperations.delete(identity.id);
+            return undefined;
+          },
+        },
+      };
+    },
+  };
+
+  const rejectFeatureReentrancy = (operation: string): void => {
+    dependencies.reportOperationDiagnostic({
+      kind: "producer-contract",
+      operationId: null,
+      error: new Error(
+        `${operation} was attempted during source feature publication.`,
+      ),
+    });
+  };
+  const cancelTypeSource = (
+    reason: "user" | "superseded",
+  ): "applied" | "no-op" | "rejected" => {
+    const result = typeSourceSession.cancelCurrent(reason);
+    if (result.kind === "rejected") {
+      rejectFeatureReentrancy("Source cancellation");
+      return "rejected";
+    }
+    return result.kind;
+  };
+  const beginLegacySourceRequest = (): number => {
+    if (cancelTypeSource("superseded") === "rejected")
+      throw new Error("Cannot replace source work during feature publication.");
+    return beginSourceRequestState(state);
+  };
   const cancelCurrentRequest = () => {
-    const cancelled = cancelSourceRequestState(state);
-    if (cancelled) dependencies.cancelEngineSourceRequest();
-    return cancelled;
+    const typeCancellation = cancelTypeSource("user");
+    if (typeCancellation === "rejected") return false;
+    const legacyCancellation = cancelSourceRequestState(state);
+    if (legacyCancellation && typeCancellation !== "applied")
+      dependencies.cancelEngineSourceRequest();
+    return typeCancellation === "applied" || legacyCancellation;
   };
   const clearGraphSource = () => {
     cancelCurrentRequest();
@@ -138,7 +323,7 @@ export function createSourceInspectionCoordinator(
         return;
       }
 
-      const generation = beginSourceRequestState(state);
+      const generation = beginLegacySourceRequest();
       state.memberSourceKey = request.signature;
       state.memberSource = null;
       state.memberSourceLoading = true;
@@ -178,34 +363,23 @@ export function createSourceInspectionCoordinator(
         dependencies.renderPreservingMemberFocus();
         return;
       }
-      const generation = beginSourceRequestState(state);
-      state.typeSourceKey = request.signature;
-      state.typeSource = null;
-      state.typeSourceError = "";
-      state.typeSourceLoading = true;
-      const preservedFocus = dependencies.renderPreservingMemberFocus();
-      const ownsRequest = () =>
-        generation === state.sourceRequestGeneration
-        && state.typeSourceKey === request.signature;
-      try {
-        const result = await dependencies.queryTypeSource(request);
-        if (ownsRequest()) state.typeSource = result;
-      } catch (error) {
-        if (ownsRequest()) {
-          state.typeSourceError = dependencies.describeError(error);
-        }
-      } finally {
-        if (ownsRequest()) {
-          state.typeSourceLoading = false;
-          if (request.isVisible()) {
-            dependencies.renderPreservingMemberFocus(preservedFocus);
-          }
-        }
+      const result = typeSourceSession.start(request, typeSourceAdapter);
+      if (result.kind === "rejected") {
+        const reason = result.reason.kind;
+        dependencies.reportOperationDiagnostic({
+          kind: "producer-contract",
+          operationId: null,
+          error: new Error(
+            `Type source operation start was rejected: ${reason}.`,
+          ),
+        });
+        return;
       }
+      await result.handle.quiesced;
     },
 
     async openGraphSource(request, title) {
-      const generation = beginSourceRequestState(state);
+      const generation = beginLegacySourceRequest();
       const sequence = ++state.graphSourceSeq;
       state.graphSourceOpen = true;
       state.graphSourceTitle = title;

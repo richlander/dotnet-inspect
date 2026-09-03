@@ -4,6 +4,17 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries;
 
+/// <summary>Why a projected Member could not acquire exact declaration identity.</summary>
+public enum NavigationProjectedMemberIdentityFailureKind
+{
+    DeclaringTypeIdentityMissing,
+    DeclaringTypeNotReturned,
+    DeclaringTypeAmbiguous,
+    DeclarationMemberIdentityMissing,
+    DeclarationMemberNotReturned,
+    DeclarationMemberAmbiguous,
+}
+
 /// <summary>Typed evidence that prevented one complete Type inventory.</summary>
 public abstract record NavigationInventoryEvidence
 {
@@ -84,23 +95,27 @@ public abstract record NavigationInventoryEvidence
         public ApiType ProducerRow { get; }
     }
 
-    /// <summary>A projected Member lacked an exact local declaring Type.</summary>
-    public sealed record MemberIdentityMissing : NavigationInventoryEvidence
+    /// <summary>A projected Member could not bind one exact local declaration.</summary>
+    public sealed record ProjectedMemberIdentityFailure :
+        NavigationInventoryEvidence
     {
-        internal MemberIdentityMissing(
+        internal ProjectedMemberIdentityFailure(
             StructuralSubjectIdentity.LibrarySubject library,
             ApiType containingType,
-            ApiMember producerRow)
+            ApiMember producerRow,
+            NavigationProjectedMemberIdentityFailureKind kind)
             : base(library)
         {
             ArgumentNullException.ThrowIfNull(containingType);
             ArgumentNullException.ThrowIfNull(producerRow);
             ContainingType = containingType;
             ProducerRow = producerRow;
+            Kind = kind;
         }
 
         public ApiType ContainingType { get; }
         public ApiMember ProducerRow { get; }
+        public NavigationProjectedMemberIdentityFailureKind Kind { get; }
     }
 
     /// <summary>A projection bound omitted this Library and every later row.</summary>
@@ -157,10 +172,11 @@ public sealed record NavigationTypeInventoryRow
         foreach (NavigationMemberInventoryRow? member in members)
         {
             if (member is null
-                || member.Subject.DeclaringType != subject)
+                || member.Subject.DeclaringType.Library != subject.Library)
             {
                 throw new ArgumentException(
-                    "Every exact Member row must belong to its containing Type.",
+                    "Every exact Member row must belong to the containing "
+                        + "Type's Library.",
                     nameof(members));
             }
         }
@@ -647,6 +663,17 @@ public static class NavigationSubjectInventoryClassification
         var rows = ImmutableArray.CreateBuilder<NavigationTypeInventoryRow>();
         var evidence =
             ImmutableArray.CreateBuilder<NavigationInventoryEvidence>();
+        void AddProjectedMemberFailure(
+            ApiType containingType,
+            ApiMember member,
+            NavigationProjectedMemberIdentityFailureKind kind)
+            => evidence.Add(
+                new NavigationInventoryEvidence.ProjectedMemberIdentityFailure(
+                    library,
+                    containingType,
+                    member,
+                    kind));
+
         foreach (ApiSurfaceInspectionFailure? failure
             in available.InspectionFailures)
         {
@@ -667,6 +694,10 @@ public static class NavigationSubjectInventoryClassification
                 ApiType,
                 StructuralSubjectIdentity.TypeSubject>(
                     ReferenceEqualityComparer.Instance);
+        var typeByDefinition =
+            new Dictionary<MetadataTypeDefinitionName, ApiType>();
+        var ambiguousTypeDefinitions =
+            new HashSet<MetadataTypeDefinitionName>();
         foreach (ApiType? type in available.Surface.Types)
         {
             if (type is null)
@@ -686,6 +717,8 @@ public static class NavigationSubjectInventoryClassification
             StructuralSubjectIdentity.TypeSubject subject =
                 StructuralSubjectIdentity.ForType(library, definition);
             subjectByType.Add(type, subject);
+            if (!typeByDefinition.TryAdd(definition, type))
+                ambiguousTypeDefinitions.Add(definition);
         }
 
         foreach (ApiType? type in available.Surface.Types)
@@ -714,13 +747,101 @@ public static class NavigationSubjectInventoryClassification
                         "API Type rows cannot contain null Member rows.",
                         nameof(available));
                 }
-                if (member.DeclaringTypeCanonicalName is not null)
+                if (member.DeclaringTypeCanonicalName is not null
+                    || member.DeclaringTypeDefinitionName is not null)
                 {
-                    evidence.Add(
-                        new NavigationInventoryEvidence.MemberIdentityMissing(
-                            library,
+                    if (member.DeclaringTypeDefinitionName
+                        is not { } declaringTypeDefinition)
+                    {
+                        AddProjectedMemberFailure(
                             type,
-                            member));
+                            member,
+                            NavigationProjectedMemberIdentityFailureKind
+                                .DeclaringTypeIdentityMissing);
+                        continue;
+                    }
+                    if (ambiguousTypeDefinitions.Contains(
+                        declaringTypeDefinition))
+                    {
+                        AddProjectedMemberFailure(
+                            type,
+                            member,
+                            NavigationProjectedMemberIdentityFailureKind
+                                .DeclaringTypeAmbiguous);
+                        continue;
+                    }
+                    if (!typeByDefinition.TryGetValue(
+                        declaringTypeDefinition,
+                        out ApiType? declaringType)
+                        || declaringType is null)
+                    {
+                        AddProjectedMemberFailure(
+                            type,
+                            member,
+                            NavigationProjectedMemberIdentityFailureKind
+                                .DeclaringTypeNotReturned);
+                        continue;
+                    }
+                    if (member.MetadataToken is not { } declarationToken)
+                    {
+                        AddProjectedMemberFailure(
+                            type,
+                            member,
+                            NavigationProjectedMemberIdentityFailureKind
+                                .DeclarationMemberIdentityMissing);
+                        continue;
+                    }
+
+                    ApiMember? declaration = null;
+                    bool declarationIsAmbiguous = false;
+                    foreach (ApiMember? candidate in declaringType.Members)
+                    {
+                        if (candidate is null)
+                        {
+                            throw new ArgumentException(
+                                "API Type rows cannot contain null Member rows.",
+                                nameof(available));
+                        }
+                        if (candidate.DeclaringTypeCanonicalName is not null
+                            || candidate.DeclaringTypeDefinitionName is not null
+                            || candidate.MetadataToken != declarationToken)
+                        {
+                            continue;
+                        }
+                        if (declaration is not null)
+                        {
+                            declarationIsAmbiguous = true;
+                            break;
+                        }
+                        declaration = candidate;
+                    }
+                    if (declarationIsAmbiguous)
+                    {
+                        AddProjectedMemberFailure(
+                            type,
+                            member,
+                            NavigationProjectedMemberIdentityFailureKind
+                                .DeclarationMemberAmbiguous);
+                        continue;
+                    }
+                    if (declaration is null)
+                    {
+                        AddProjectedMemberFailure(
+                            type,
+                            member,
+                            NavigationProjectedMemberIdentityFailureKind
+                                .DeclarationMemberNotReturned);
+                        continue;
+                    }
+
+                    members.Add(
+                        new NavigationMemberInventoryRow(
+                            member,
+                            StructuralSubjectIdentity.ForMember(
+                                subjectByType[declaringType],
+                                ApiMemberIdentity.GetMemberAnchor(
+                                    declaringType,
+                                    declaration))));
                     continue;
                 }
                 members.Add(
