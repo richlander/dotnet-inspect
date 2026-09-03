@@ -5058,7 +5058,7 @@ public partial class CommandExecutionTests
             "-t",
             "*SampleGenericClass*",
             "-S",
-            "Type Info",
+            "API Info",
             "--count",
             "--tips",
             "q"
