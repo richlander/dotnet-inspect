@@ -78,7 +78,7 @@ public static class FixedBufferMetadata
                             FixedArguments:
                             [
                                 {
-                                    Type: "System.Type",
+                                    Type: SystemTypeArgumentName.Rendered,
                                     Value: string serializedType,
                                 },
                                 {

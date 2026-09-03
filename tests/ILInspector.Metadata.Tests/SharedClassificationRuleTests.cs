@@ -103,12 +103,12 @@ public class SharedClassificationRuleTests
     // Every site that classifies a custom-attribute argument as System.Type,
     // and the member of the shared rule it must reach. The first three decide
     // safety: the guard and the provider must agree or the guard approves a
-    // blob the decoder then reads by a different rule. The last two only
+    // blob the decoder then reads by a different rule. The last three only
     // consume a provider-produced name -- rendering spells typeof(...) on a
-    // match, ts-jsexport accepts a root declaration -- but they are listed so
-    // that "this rule exists once" is true without an exception. A site
-    // removed or renamed fails here rather than silently leaving the list
-    // stale.
+    // match, ts-jsexport accepts a root declaration, fixed-buffer metadata
+    // matches the argument pair it expects -- but they are listed so that
+    // "this rule exists once" is true without an exception. A site removed or
+    // renamed fails here rather than silently leaving the list stale.
     static readonly (string File, string Method, string Member)[] ClassifyingSites =
     {
         (Path.Combine("src", "ILInspector.MetadataPrimitives", "AttributeDecoder.cs"),
@@ -121,6 +121,8 @@ public class SharedClassificationRuleTests
             "RenderArgument", nameof(SystemTypeArgumentName.Matches)),
         (Path.Combine("src", "ts-jsexport", "JsExportContextLoader.cs"),
             "TryResolve", nameof(SystemTypeArgumentName.Matches)),
+        (Path.Combine("src", "ILInspector.Metadata", "FixedBufferMetadata.cs"),
+            "Read", nameof(SystemTypeArgumentName.Rendered)),
     };
 
     [Fact]
@@ -149,13 +151,20 @@ public class SharedClassificationRuleTests
                 continue;
             }
 
-            foreach (var declaration in declarations.Where(
-                declaration => !UsesSharedRule(declaration, member)))
+            // One declaration has to reach the rule, not all of them. A site
+            // may be an overload pair where the public entry point forwards to
+            // the one that classifies, and demanding both reach the rule fails
+            // a correct site -- the same false failure that discredited the
+            // returned-value analysis this check replaced. Requiring one still
+            // fails if the classifying body stops delegating, because the
+            // forwarding overload never reached the rule either.
+            if (!declarations.Any(
+                declaration => UsesSharedRule(declaration, member)))
             {
-                var line = declaration.GetLocation().GetLineSpan()
+                var line = declarations[0].GetLocation().GetLineSpan()
                     .StartLinePosition.Line + 1;
                 failures.Add(
-                    $"{file}:{line}: {method} does not reach "
+                    $"{file}:{line}: no {method} declaration reaches "
                     + $"{nameof(SystemTypeArgumentName)}.{member}");
             }
         }
