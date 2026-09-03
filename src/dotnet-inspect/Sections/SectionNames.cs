@@ -96,6 +96,9 @@ public static class SectionNames
     /// <summary>Section for the portable rendered source text with its node, region, fact, and target planes.</summary>
     public const string AnnotatedSourceDocument = "Annotated Source Document";
 
+    /// <summary>Section correlating one Research Finding census across Facts and Annotated Source.</summary>
+    public const string FindingCensus = "Finding Census";
+
     /// <summary>Section for explicit inter-method cost annotations over the decompiled C# method body.</summary>
     public const string CostOverlay = "Cost Overlay";
 

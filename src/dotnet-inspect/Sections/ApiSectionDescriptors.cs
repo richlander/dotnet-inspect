@@ -573,6 +573,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberDetailSectionDescriptors.AppliedTaste>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.AnnotatedSource>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.AnnotatedSourceDocument>(HasSingleBodyBackedMember)
+            .Add<ApiMemberDetailSectionDescriptors.FindingCensus>(HasSingleBodyBackedMember)
             .Add<ApiMemberSectionDescriptors.PdbSource>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.SourceDiff>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.Calls>()
@@ -627,6 +628,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<AppliedTaste>()
             .Add<AnnotatedSource>()
             .Add<AnnotatedSourceDocument>()
+            .Add<FindingCensus>()
             .Add<CostOverlay>()
             .Add<SemanticsOverlay>()
             .Add<PdbSource>()
@@ -703,6 +705,19 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class AnnotatedSourceDocument : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.AnnotatedSourceDocument;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
+        public static bool CanRender(ApiType model)
+            => model.Members.Count == 1
+               && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+    }
+
+    /// <summary>One CLI-owned envelope correlating Facts and Annotated Source instances.</summary>
+    public sealed class FindingCensus : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.FindingCensus;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
