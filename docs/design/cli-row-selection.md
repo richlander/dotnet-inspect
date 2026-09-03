@@ -8,8 +8,18 @@ Focused L3 design proposal for
 
 This document owns the `dotnet-inspect` command-line grammar and lowering
 boundary for semantic row selection and rendered-line selection. The current
-product has not adopted this contract. All asserted behavior is unverified
-until the gates in [Required gates](#required-gates) land.
+product has not adopted this contract.
+
+Implementation is partial. #5644 implements value parsing, ordered lowering,
+modifier composition, Top-order attachment, typed capability rejection, and
+structured failure selection over already-owned explicit-command option
+occurrences. Raw argv ownership, System.CommandLine integration, bare
+shorthand, implicit routing, diagnostics, command adoption, and guidance remain
+unimplemented.
+
+Only that explicit-occurrence subset is verified by its named Release gates in
+[Required gates](#required-gates). Every other asserted behavior remains
+unverified until its named gate lands.
 
 Related owners:
 
@@ -54,6 +64,38 @@ This design does not own:
 L3 may reject a combination because its command has not adopted the required
 adjacent capability. It may not invent that capability or define the adjacent
 owner's behavior to make the combination succeed.
+
+## Explicit-command lowering boundary
+
+The first implemented slice begins after an explicit command has assigned each
+row-selection occurrence its option identity, value where applicable, and argv
+position. It does not split attached tokens, classify option arity, rewrite bare
+`-N`, or participate in command routing.
+
+The lowerer parses count, Window, and Top values; applies direction and line
+modifiers; preserves the argv order of semantic gestures; attaches the one
+typed opaque `--order-by` operand to Top when Top is present; otherwise
+preserves it as baseline-order input; and checks the active command's typed
+capability declaration. Success contains L2-owned `RowSelectionIntent` plus
+optional L3 rendered-line intent. Failure is structured and content-free; this
+slice does not render a diagnostic or echo argv text.
+
+Capabilities follow the lowered unit. A count that survives as semantic Head
+or Tail requires the semantic Head/Tail capability. A count redirected by
+`--lines` or `--tail-lines` requires only the rendered-line capability, because
+it contributes no semantic operation.
+
+Value failures are selected before repetition and modifier conflicts, which are
+selected before capability failures. Within each category, argv position
+selects the first failure except that absence conflicts complete at end of argv
+and use the first modifier's position. Token, arity, routing, L2-resolution, and
+diagnostic precedence remain unimplemented.
+
+The CLI project and reusable L2 project temporarily contain types in the same
+`DotnetInspector.Sections` namespace while existing section pipelines remain in
+the CLI assembly. This slice introduces no colliding type and uses only the
+L2-owned intent contract; the broader namespace migration remains owned by
+[Inspection layers](inspection-layers.md).
 
 ## Convention and deliberate divergence
 
@@ -450,6 +492,18 @@ All gates run in Release. New gates are **unverified** until implemented.
 `UntrustedArgumentDiagnosticContainmentTests` already exists and remains the
 enforcing gate for argv-derived diagnostic containment; each implemented
 spelling adds its new diagnostic channels to that gate.
+
+The implemented explicit-command occurrence lowerer is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `CliRowSelectionExplicitValueTests` | Positive ASCII-decimal Count and Top values plus closed, prefix, and suffix Window values lower to typed intent; empty, signed, non-ASCII, zero, overflowing, integer, start-plus-count, boundless, repeated-operator, reversed, and internally spaced forms return their structured value failure. |
+| `CliRowSelectionExplicitOrderTests` | Count, Window, and Top preserve argv order; one order operand attaches only to Top when Top is present and otherwise remains typed baseline-order input. |
+| `CliRowSelectionExplicitModifierTests` | Direction modifiers lower the limit count to Head or Tail intent, line modifiers remove that count while preserving neighboring semantic operations, exact modifier repeats and equivalent tail/line redundancy are tolerated, conflicting directions reject at the completing token, and absence conflicts name the first modifier. |
+| `CliRowSelectionExplicitCapabilityTests` | An explicit request succeeds with exactly its lowered semantic, order, and line capabilities; line-unit counts do not require the Head/Tail capability, missing capabilities reject in argv order, and an empty request requires none. |
+| `CliRowSelectionExplicitFailurePrecedenceTests` | Value failure precedes repetition/conflict, repetition/conflict precedes capability rejection, each category uses the specified position rule, and structured failure publishes no success value. |
+
+The remaining implementation must satisfy:
 
 | Gate | Property |
 | --- | --- |
