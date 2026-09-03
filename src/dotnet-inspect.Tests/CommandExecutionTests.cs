@@ -16489,6 +16489,12 @@ public partial class CommandExecutionTests
             .ToArray();
         Assert.NotEmpty(factKeys);
         Assert.Equal(factKeys, sourceKeys);
+        Assert.Contains(
+            facts,
+            static fact => fact.TryGetProperty("csharp_line", out _));
+        Assert.DoesNotContain(
+            facts,
+            static fact => fact.TryGetProperty("c_sharp_line", out _));
 
         JsonElement annotated = root.GetProperty("annotated_source_document");
         Assert.NotEmpty(annotated.GetProperty("text").GetString()!);
@@ -16528,6 +16534,54 @@ public partial class CommandExecutionTests
         Assert.Contains("\"fact_census_receipt\":", output);
         Assert.Contains("\"annotated_source_document\":", output);
         Assert.Contains("\"source_fact_instances\":", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_FindingCensusBare_RendersEnvelope()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            $"{nameof(FactsTableFixture.BoxInt)}:1",
+            "-S", "Finding Census", "--bare", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument envelope = JsonDocument.Parse(output);
+        Assert.True(
+            Guid.TryParse(
+                envelope.RootElement
+                    .GetProperty("fact_census_receipt")
+                    .GetString(),
+                out Guid receipt));
+        Assert.NotEqual(Guid.Empty, receipt);
+    }
+
+    [Fact]
+    public async Task Member_FindingCensus_RejectsBodylessMember()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(IGenericExplicitInterfaceFixture<>).FullName!,
+            "--library", TestAssemblyPath,
+            "Map:1", "-S", "Finding Census", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Finding Census", error);
+    }
+
+    [Fact]
+    public async Task Member_FindingCensus_RejectsUnnarrowedOverloads()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallsFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(MemberCallsFixture.Overloaded),
+            "-S", "Finding Census", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("requires one selected body-backed member", error);
     }
 
     [Theory]

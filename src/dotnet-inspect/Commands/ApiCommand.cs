@@ -2303,6 +2303,16 @@ public class ApiCommand
                 + "use Markdown/plaintext or exact singleton --json without row, column, count, or payload projection.");
             return 1;
         }
+        bool findingCensusExplicitlySelected =
+            HasExplicitFindingCensusSelector(options);
+        if (findingCensusExplicitlySelected
+            && (type.Members.Count != 1
+                || !type.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked)))
+        {
+            CommandError.Write(
+                $"section '{SectionNames.FindingCensus}' requires one selected body-backed member.");
+            return 1;
+        }
 
         if (options is TypeOptions { ShapeOutput: true } typeOptions && !options.Count)
         {
@@ -2621,11 +2631,10 @@ public class ApiCommand
             return 0;
         }
 
-        if (GetRequestedMemberSections(type, options)
-                .Contains(SectionNames.FindingCensus)
-            && view.MemberCode?.FindingCensusFailure is { } findingCensusFailure)
+        if (findingCensusExplicitlySelected
+            && view.MemberCode?.FindingCensus is null)
         {
-            CommandError.Write(findingCensusFailure);
+            CommandError.Write(FindingCensusError(view.MemberCode));
             return 1;
         }
 
@@ -3134,6 +3143,7 @@ public class ApiCommand
         {
             SectionNames.DecompiledSource => view.MemberCode?.DecompiledSourceCode.Content ?? "",
             SectionNames.AnnotatedSource => view.MemberCode?.AnnotatedSourceCode.Content ?? "",
+            SectionNames.FindingCensus => view.MemberCode?.FindingCensusCode.Content ?? "",
             SectionNames.CostOverlay => view.MemberCode?.CostOverlayCode.Content ?? "",
             SectionNames.SemanticsOverlay => view.MemberCode?.SemanticsOverlayCode.Content ?? "",
             SectionNames.PdbSource => view.MemberCode?.PdbSourceCode.Content ?? "",

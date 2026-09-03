@@ -16,6 +16,7 @@ internal sealed record MemberFindingCensusEnvelope(
 internal sealed record MemberFindingCensusFact(
     string Member,
     int? ILOffset,
+    [property: JsonPropertyName("csharp_line")]
     int? CSharpLine,
     string Anchor,
     string Category,
