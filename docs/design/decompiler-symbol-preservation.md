@@ -91,6 +91,15 @@ When a raise declines, the output must retain a visibly generated, legal
 fallback and lower fidelity as appropriate. It must not decode the embedded
 source substring into a name that would bind differently.
 
+Classic-async product imports require a
+`ClassicAsyncRequestAdapterResult.RequestAvailable` built from Metadata's
+exact kickoff/state-machine relationship. The reconstruction pass imports the
+certified `MoveNext` MethodDef and verifies the kickoff's state-machine type
+against that certificate before decoding a hoisted-local field such as
+`<alpha>5__2`. That owner-specific typed authentication makes the raised
+`alpha` identity **Preserved**. The tokenless synthetic-IR seam remains
+shape-only test support and does not authorize a product result.
+
 Several current paths produce useful names without yet satisfying this
 authentication boundary:
 
@@ -100,14 +109,6 @@ authentication boundary:
   preserved metadata spelling under a weaker admission rule;
   [#5585](https://github.com/richlander/dotnet-inspect/issues/5585) tracks the
   missing lookalike guard.
-- The fixture-shaped classic-async pass recognizes generated field names and
-  kickoff/`MoveNext` shapes rather than consuming the Metadata-issued
-  relationship requested by
-  [#5277](https://github.com/richlander/dotnet-inspect/issues/5277) under
-  [#4472](https://github.com/richlander/dotnet-inspect/issues/4472). Its
-  current `alpha` spelling is an unauthenticated heuristic, not **Preserved**
-  identity. The relationship and hoisted field retain enough evidence to make
-  authenticated recovery a **Recoverable gap**.
 - Auto-property backing-field import decodes
   `<Property>k__BackingField` from the name grammar plus a matching property
   row, but does not require compiler-generated owner evidence.
@@ -137,7 +138,7 @@ to runnable fixture commands under [Fixture probes](#fixture-probes).
 | Anonymous-object properties | Preserve property metadata names when the current same-assembly anonymous-type shape raises, and bind initializer values to those names. The current admission is name-pattern-based (#5585) and uses the narrow identifier grammar tracked by #5616. | P5, P23 | `AnonymousObjectPassTests` gates ASCII positive output, not generated-type authentication or full Unicode admission. |
 | Tuple elements in signatures | Preserve `TupleElementNamesAttribute` names on supported method returns and parameters, properties, and events. Composed field declarations remain a recoverable gap. | P6 | `TupleTypeViewTests` gates metadata decoding across all positions; method/property/event composition is manually probed. |
 | Iterator hoisted locals | Recover a source local name from authenticated iterator state-machine evidence when reconstruction owns the corresponding field and use. | P7 | `IteratorReconstructionPassTests.CountingLoopIterator_RendersLoopAndYield` |
-| Classic async local names | The current fixture-shaped pass heuristically decodes `alpha` from the hoisted field name without the required authentication; this is not **Preserved** identity. It preserves `beta` from the matching PDB local. Without symbols, current output still decodes `alpha` but falls back to `V_1` for `beta`. | P8 | `ClassicAsyncReconstructionHonestyTests.SequentialAwaitLocalNameComesFromSymbols` is the positive PDB-local gate. Both the no-symbol result and `alpha` authentication boundary are manually probed; #5587 tracks correcting the vacuous negative test, while #5277/#4472 track authenticated classic-async identity. |
+| Classic async local names | Product import authenticates the exact kickoff, state machine, and `MoveNext` before decoding `alpha` from its hoisted field. It preserves `beta` from the matching PDB local. Without symbols, `alpha` remains preserved while `beta` falls back to `V_1`. | P8 | `PipelineImporterTests.Import_CarriesAuthenticatedClassicRequestSeed` and `ClassicAsyncRequestAdapterTests.ClassicPass_ImportsCertifiedExecutionMethod` gate owner authentication; `ClassicAsyncReconstructionHonestyTests.SequentialAwaitLocalNameComesFromSymbols` gates the raised names with PDBs. The no-symbol result is manually probed; #5587 tracks correcting its vacuous focused test. |
 
 These guarantees are conditional on successful reconstruction. A method may
 carry a recoverable substring in a generated metadata name while the containing
@@ -155,7 +156,6 @@ output does not preserve it.
 | Declined capturing local functions | The generated local-function method embeds `AddSquare`; the display-class field embeds captured `n`. | Generated support identifiers such as `___c__DisplayClass...` and `__CapturingLocalFunctionWithLocal_g__AddSquare...` remain. | Raise the supported environment and function, or retain an honest valid fallback without losing the available source identity when binding can be proved. | [#3129](https://github.com/richlander/dotnet-inspect/issues/3129), P11 |
 | Same-named local functions in disjoint source scopes | Each authenticated generated method embeds `Pick`; local-function ordinals and distinct MethodDefs distinguish the two definitions. | Both calls retain generated fallback names because declarations are flattened into one scope. | Recover each declaration into its own source scope while preserving each call's binding. | [#3878](https://github.com/richlander/dotnet-inspect/issues/3878), P12 |
 | Tuple element names on locals | `TupleElementNames` custom debug information is attached to each exact Portable PDB `LocalVariable`. | Local variable names survive, but types render as `ValueTuple<int, int>` and uses as `Item1`/`Item2`. | Carry the names with the local type and use `(int Sum, int Product)` plus `.Sum`/`.Product` when structurally valid. | [#5578](https://github.com/richlander/dotnet-inspect/issues/5578), P13 |
-| Classic-async hoisted local names | The Metadata-issued kickoff/state-machine relationship and generated field `<alpha>5__2` can authenticate `alpha`. | Current compiler-fixture output spells `alpha`, but derives it from a fixture-shaped name/IL heuristic rather than the typed relationship. | Consume the authenticated relationship before decoding and binding the hoisted field name. | [#5277](https://github.com/richlander/dotnet-inspect/issues/5277) under [#4472](https://github.com/richlander/dotnet-inspect/issues/4472), P8 |
 | Full C# identifier grammar on PDB locals | Exact slot-bound names include the keyword `class` and combining-mark identifier `A\u0301`; C# can losslessly spell them as `@class` and `A\u0301`. | PDB-name admission rejects keywords before escaping and accepts a narrower character grammar, so output synthesizes replacements. | Admit compiler-supported identifier identities, reserve the underlying identity for collisions, and apply position-appropriate escaping. | [#5586](https://github.com/richlander/dotnet-inspect/issues/5586), P14 |
 | Generated backing-field and primary-constructor names | Auto-property fields have matching property rows; primary-constructor captures can be bound to exact constructor parameters and compiler-generated owner evidence. | Current output decodes `<Property>k__BackingField` from grammar plus the property row and `<parameter>P` from grammar alone. | Authenticate each generated field and its exact source-symbol binding before decoding. | [#5595](https://github.com/richlander/dotnet-inspect/issues/5595), P22 |
 | Full C# identifier grammar in semantic-name consumers | Owned expression-tree and dynamic lowerings retain identifier strings; anonymous types retain property metadata names. | Combining-mark names make all three raises decline because they share the narrow `IsEscapableIdentifier` admission. | Admit the compiler-supported grammar only after each lowering establishes the string or metadata name's typed binding. | [#5616](https://github.com/richlander/dotnet-inspect/issues/5616), P23 |
@@ -380,10 +380,11 @@ dotnet run --project tools/DecompilerHarness -c Release --no-build -- \
 ```
 
 Expected with symbols: current output declares and uses both `alpha` and
-`beta`. `beta` is preserved from the PDB; `alpha` is the unauthenticated
-classic-async heuristic tracked by #5277/#4472, not **Preserved** identity.
-Without symbols, current output still uses `alpha` but falls back to `V_1` for
-`beta`. The no-symbol result is a manual probe; #5587 tracks its focused gate.
+`beta`. `alpha` is preserved from an authenticated classic-async
+kickoff/state-machine relationship plus its exact hoisted field; `beta` is
+preserved from the PDB. Without symbols, output still preserves `alpha` but
+falls back to `V_1` for `beta`. The no-symbol result is a manual probe; #5587
+tracks its focused gate.
 
 ### P9: deterministic no-symbol local names
 
@@ -524,9 +525,9 @@ inspect_member \
   "$RUNTIME"
 ```
 
-Expected boundary: classic async currently decodes `alpha` from the hoisted
-field name without the required authentication and preserves `beta` from the
-PDB local. Runtime async preserves the same PDB-backed `beta` but currently
+Expected boundary: classic async preserves `alpha` from its authenticated
+state-machine relationship and exact hoisted field, and preserves `beta` from
+the PDB local. Runtime async preserves the same PDB-backed `beta` but currently
 renders its unnamed first value as `S_256`. Direct
 Portable PDB inspection shows only the `beta` local row in the runtime artifact.
 This comparison is a manual probe rather than an automated cross-lowering name
