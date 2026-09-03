@@ -34,6 +34,9 @@ public sealed record ResolvedAssemblyDependency(
 public sealed record AssemblyDependencyResolutionOptions(string TargetAssemblyPath)
 {
     public IReadOnlyList<string>? PackageRoots { get; init; }
+    public string? RootPackageDirectory { get; init; }
+    public NuGetSourceOptions? PackageSourceOptions { get; init; }
+    public bool UsePackageSourcePolicy { get; init; }
     public IReadOnlyList<string>? CorpusAssemblyPaths { get; init; }
     public string? ProjectAssetsPath { get; init; }
     public string? TargetFramework { get; init; }
@@ -207,9 +210,13 @@ public sealed partial class AssemblyDependencyResolver :
                 Add(path, AssemblyDependencyProvenance.SiblingAssembly);
 
         foreach (var path in PackageDependencyReferencePaths(
-            targetPath,
-            _options.PackageRoots,
-            preferImplementationAssemblies: _options.PreferImplementationAssemblies))
+            targetPath: targetPath,
+            packageRoots: _options.PackageRoots,
+            preferImplementationAssemblies: _options.PreferImplementationAssemblies,
+            rootPackageDirectory: _options.RootPackageDirectory,
+            targetFramework: _options.TargetFramework,
+            sourceOptions: _options.PackageSourceOptions,
+            useSourcePolicy: _options.UsePackageSourcePolicy))
         {
             var package = TryReadPackageIdentity(path, _options.PackageRoots);
             Add(path, AssemblyDependencyProvenance.PackageDependency, package.Id, package.Version);
