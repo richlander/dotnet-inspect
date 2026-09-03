@@ -226,27 +226,8 @@ internal static class RepositoryGraphReader
             nodes.ToImmutable();
         ImmutableHashSet<string> platformAssemblies =
             ReadPlatformAssemblies();
-        ImmutableHashSet<string> repositoryAssemblies = immutableNodes
-            .Where(node => node.AssemblyName is not null)
-            .Select(node => node.AssemblyName!)
-            .ToImmutableHashSet(StringComparer.Ordinal);
-        string[] collisions = repositoryAssemblies
-            .Intersect(platformAssemblies, StringComparer.Ordinal)
-            .Order(StringComparer.Ordinal)
-            .ToArray();
-        if (collisions.Length != 0)
-        {
-            throw new DependencyPolicyException(
-                "Governed repository assembly names collide with platform "
-                + $"assemblies: [{string.Join(", ", collisions)}].");
-        }
-
-        return new(
-            immutableNodes
-                .ToImmutableDictionary(
-                    node => node.ProjectName,
-                    StringComparer.Ordinal),
-            repositoryAssemblies,
+        return RepositoryDependencyGraph.Create(
+            immutableNodes,
             platformAssemblies);
     }
 
@@ -261,10 +242,19 @@ internal static class RepositoryGraphReader
             project,
             configuration,
             dotnetHost);
+        return ReadAssemblyOutput(project.ProjectName, candidate);
+    }
+
+    internal static (
+        string AssemblyName,
+        ImmutableArray<string> References) ReadAssemblyOutput(
+        string projectName,
+        string candidate)
+    {
         if (!File.Exists(candidate))
         {
             throw new DependencyPolicyException(
-                $"Release target output for '{project.ProjectName}' does not "
+                $"Release target output for '{projectName}' does not "
                 + $"exist: '{candidate}'. Build the solution before running "
                 + "dependency policy.");
         }
@@ -280,25 +270,7 @@ internal static class RepositoryGraphReader
             }
 
             AssemblyIdentityNames identity = session.IdentityNames();
-            if (identity.Name.Length == 0)
-            {
-                throw new DependencyPolicyException(
-                    $"Built output '{candidate}' is a module without an "
-                    + "assembly identity.");
-            }
-
-            if (!identity.ReferencesComplete)
-            {
-                throw new DependencyPolicyException(
-                    $"Could not decode every assembly reference in "
-                    + $"'{candidate}'.");
-            }
-
-            return (
-                identity.Name,
-                identity.ReferenceNames
-                    .Order(StringComparer.Ordinal)
-                    .ToImmutableArray());
+            return ValidateAssemblyIdentity(candidate, identity);
         }
         catch (BadImageFormatException exception)
         {
@@ -306,6 +278,33 @@ internal static class RepositoryGraphReader
                 $"Could not inspect built output '{candidate}': "
                 + exception.Message);
         }
+    }
+
+    internal static (
+        string AssemblyName,
+        ImmutableArray<string> References) ValidateAssemblyIdentity(
+        string candidate,
+        AssemblyIdentityNames identity)
+    {
+        if (identity.Name.Length == 0)
+        {
+            throw new DependencyPolicyException(
+                $"Built output '{candidate}' is a module without an "
+                + "assembly identity.");
+        }
+
+        if (!identity.ReferencesComplete)
+        {
+            throw new DependencyPolicyException(
+                $"Could not decode every assembly reference in "
+                + $"'{candidate}'.");
+        }
+
+        return (
+            identity.Name,
+            identity.ReferenceNames
+                .Order(StringComparer.Ordinal)
+                .ToImmutableArray());
     }
 
     private static string QueryTargetPath(
@@ -336,21 +335,30 @@ internal static class RepositoryGraphReader
                 + result.StandardError);
         }
 
-        string targetPath = result.StandardOutput.Trim();
+        return NormalizeTargetPath(
+            project.ProjectPath,
+            result.StandardOutput);
+    }
+
+    internal static string NormalizeTargetPath(
+        string projectPath,
+        string standardOutput)
+    {
+        string targetPath = standardOutput.Trim();
         if (targetPath.Length == 0
             || targetPath.Contains('\r')
             || targetPath.Contains('\n'))
         {
             throw new DependencyPolicyException(
                 $"MSBuild returned an invalid TargetPath for "
-                + $"'{project.ProjectPath}': '{targetPath}'.");
+                + $"'{projectPath}': '{targetPath}'.");
         }
 
         return Path.IsPathRooted(targetPath)
             ? Path.GetFullPath(targetPath)
             : Path.GetFullPath(
                 Path.Combine(
-                    Path.GetDirectoryName(project.ProjectPath)!,
+                    Path.GetDirectoryName(projectPath)!,
                     targetPath));
     }
 
@@ -493,6 +501,11 @@ internal static class RepositoryGraphReader
                     $"Could not start '{dotnetHost}'.");
         }
         catch (Win32Exception)
+        {
+            throw new DependencyPolicyException(
+                $"Could not start '{dotnetHost}'.");
+        }
+        catch (ArgumentException)
         {
             throw new DependencyPolicyException(
                 $"Could not start '{dotnetHost}'.");

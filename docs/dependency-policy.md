@@ -42,11 +42,12 @@ assembly graph fails when its target or project closure has no built output or
 when any assembly-reference row cannot be decoded. Platform assemblies are
 identities from the current
 `Microsoft.NETCore.App` runtime directory; identities produced by projects
-selected by any assembly rule form the governed repository set. Every other
-compiled identity is external. The broad external-dependency rule selects every
-product library, so every product-to-product edge has a governed identity. A
-governed repository identity that collides with a platform simple name is
-rejected as ambiguous rather than classified silently.
+selected by any assembly rule and their evaluated project-reference closures
+form the governed repository set. Every other compiled identity is external.
+The broad external-dependency rule selects every product library, so every
+product-to-product edge has a governed identity. A governed repository identity
+that collides with a platform simple name is rejected as ambiguous rather than
+classified silently.
 
 The dependency-policy tool owns its MSBuild invocation separately from CI
 change detection. The latter runs as an early bootstrap before the product
@@ -133,8 +134,10 @@ dotnet run --project eng/DependencyPolicy -c Release --no-build
 The test executable covers strict schema handling, platform/repository/external
 classification, allow-only and deny rules, exceptions, target exclusions,
 non-vacuity, deterministic DP0001/DP0002 outcomes, and a real evaluated
-`ReferenceOutputAssembly="false"` edge. The final command evaluates the real
-Release project and assembly graphs.
+`ReferenceOutputAssembly="false"` edge. It also covers transitive assembly
+project closure and the fail-closed collision, target-output, metadata, and
+reference-decoding boundaries. The final command evaluates the real Release
+project and assembly graphs.
 
 ## Non-claims
 

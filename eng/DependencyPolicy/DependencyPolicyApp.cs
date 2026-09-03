@@ -18,10 +18,16 @@ internal static class DependencyPolicyApp
                 return 0;
             }
 
-            string repository = Path.GetFullPath(options.Repository);
-            string rulesPath = Path.GetFullPath(
+            string repository = ResolveFullPath(
+                options.Repository,
+                "repository");
+            string rulesPath = ResolveFullPath(
                 options.Rules
-                ?? Path.Combine(repository, "eng", "dependency-policy.json"));
+                    ?? Path.Combine(
+                        repository,
+                        "eng",
+                        "dependency-policy.json"),
+                "rules");
             DependencyPolicyDocument policy = PolicyLoader.Load(rulesPath);
             string solution = ResolveRepositoryPath(
                 repository,
@@ -163,38 +169,61 @@ internal static class DependencyPolicyApp
         string relativePath,
         string description)
     {
-        if (Path.IsPathRooted(relativePath))
+        try
+        {
+            if (Path.IsPathRooted(relativePath))
+            {
+                throw new DependencyPolicyException(
+                    $"Dependency policy {description} path must be "
+                    + "repository-relative.");
+            }
+
+            string fullPath = Path.GetFullPath(
+                Path.Combine(
+                    repository,
+                    relativePath.Replace(
+                        '/',
+                        Path.DirectorySeparatorChar)));
+            string relative = Path.GetRelativePath(repository, fullPath);
+            if (relative == ".."
+                || relative.StartsWith(
+                    $"..{Path.DirectorySeparatorChar}",
+                    StringComparison.Ordinal))
+            {
+                throw new DependencyPolicyException(
+                    $"Dependency policy {description} path escapes the "
+                    + "repository.");
+            }
+
+            if (!File.Exists(fullPath))
+            {
+                throw new DependencyPolicyException(
+                    $"Dependency policy {description} does not exist: "
+                    + $"'{relativePath}'.");
+            }
+
+            return fullPath;
+        }
+        catch (ArgumentException)
         {
             throw new DependencyPolicyException(
-                $"Dependency policy {description} path must be "
-                + "repository-relative.");
+                $"Dependency policy {description} path is invalid.");
         }
+    }
 
-        string fullPath = Path.GetFullPath(
-            Path.Combine(
-                repository,
-                relativePath.Replace(
-                    '/',
-                    Path.DirectorySeparatorChar)));
-        string relative = Path.GetRelativePath(repository, fullPath);
-        if (relative == ".."
-            || relative.StartsWith(
-                $"..{Path.DirectorySeparatorChar}",
-                StringComparison.Ordinal))
+    private static string ResolveFullPath(
+        string path,
+        string description)
+    {
+        try
+        {
+            return Path.GetFullPath(path);
+        }
+        catch (ArgumentException)
         {
             throw new DependencyPolicyException(
-                $"Dependency policy {description} path escapes the "
-                + "repository.");
+                $"The {description} path is invalid.");
         }
-
-        if (!File.Exists(fullPath))
-        {
-            throw new DependencyPolicyException(
-                $"Dependency policy {description} does not exist: "
-                + $"'{relativePath}'.");
-        }
-
-        return fullPath;
     }
 
     private sealed record Options(

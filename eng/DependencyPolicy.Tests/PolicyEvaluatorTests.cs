@@ -46,6 +46,20 @@ public sealed class PolicyEvaluatorTests
     }
 
     [Fact]
+    public void Graph_RejectsRepositoryAndPlatformAssemblyNameCollision()
+    {
+        DependencyPolicyException exception = Assert.Throws<
+            DependencyPolicyException>(
+                () => RepositoryDependencyGraph.Create(
+                    [Node("System.Runtime")],
+                    ["System.Runtime"]));
+
+        Assert.Contains(
+            "collide with platform assemblies: [System.Runtime]",
+            exception.Message);
+    }
+
+    [Fact]
     public void Deny_AppliesTargetExclusionsAndDependencyExceptions()
     {
         RepositoryDependencyGraph graph = RepositoryDependencyGraph.Create(
@@ -427,6 +441,58 @@ public sealed class PolicyEvaluatorTests
     }
 
     [Fact]
+    public void App_ReportsMalformedSolutionPathAsConfigurationError()
+    {
+        string rulesPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dependency-policy-{Guid.NewGuid():N}.json");
+        File.WriteAllText(
+            rulesPath,
+            """
+            {
+              "schemaVersion": 1,
+              "solution": "dotnet\u0000-inspect.slnx",
+              "configuration": "Release",
+              "rules": [
+                {
+                  "id": "leaf",
+                  "source": "docs/dependency-policy.md",
+                  "graphs": [ "project" ],
+                  "targets": [ "DependencyPolicy" ],
+                  "allowOnly": []
+                }
+              ]
+            }
+            """);
+        TextWriter originalError = Console.Error;
+        using var error = new StringWriter();
+
+        try
+        {
+            Console.SetError(error);
+
+            int exitCode = DependencyPolicyApp.Run(
+                [
+                    "--repository",
+                    FindRepositoryRoot(),
+                    "--rules",
+                    rulesPath,
+                ]);
+
+            Assert.Equal(2, exitCode);
+            Assert.Equal(
+                "error DP0002: Dependency policy solution path is invalid."
+                + Environment.NewLine,
+                error.ToString());
+        }
+        finally
+        {
+            Console.SetError(originalError);
+            File.Delete(rulesPath);
+        }
+    }
+
+    [Fact]
     public void App_ReportsViolationsWithDeterministicDiagnosticAndExitCode()
     {
         ImmutableArray<DependencyViolation> violations =
@@ -455,7 +521,7 @@ public sealed class PolicyEvaluatorTests
     }
 
     [Fact]
-    public void Reader_IncludesBuildOnlyProjectReference()
+    public void Reader_IncludesBuildOnlyProjectReferenceAndAssemblyClosure()
     {
         string repository = FindRepositoryRoot();
         DependencyPolicyDocument policy = Policy(
@@ -466,6 +532,14 @@ public sealed class PolicyEvaluatorTests
                 Graphs = [DependencyGraphKind.Project],
                 Targets = ["DotnetInspector.Queries.Tests"],
                 Deny = ["ILInspector.Analysis.CallerGraphTarget"],
+            },
+            new DependencyRule
+            {
+                Id = "assembly-closure",
+                Source = "docs/dependency-policy.md",
+                Graphs = [DependencyGraphKind.Assembly],
+                Targets = ["DependencyPolicy"],
+                AllowOnly = ["$platform", "$repository"],
             });
         RepositoryDependencyGraph graph = RepositoryGraphReader.Read(
             repository,
@@ -482,6 +556,78 @@ public sealed class PolicyEvaluatorTests
             "ILInspector.Analysis.CallerGraphTarget",
             violation.Dependency);
         Assert.Equal(DependencyGraphKind.Project, violation.Graph);
+        Assert.Equal(
+            "DependencyPolicy",
+            graph.Projects["DependencyPolicy"].AssemblyName);
+        Assert.Equal(
+            "ILInspector.Metadata",
+            graph.Projects["ILInspector.Metadata"].AssemblyName);
+    }
+
+    [Fact]
+    public void Reader_RejectsEmptyTargetPath()
+    {
+        DependencyPolicyException exception = Assert.Throws<
+            DependencyPolicyException>(
+                () => RepositoryGraphReader.NormalizeTargetPath(
+                    Path.Combine("repo", "Library.csproj"),
+                    ""));
+
+        Assert.Contains("invalid TargetPath", exception.Message);
+    }
+
+    [Fact]
+    public void Reader_RejectsMissingOutput()
+    {
+        string candidate = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-output-{Guid.NewGuid():N}.dll");
+
+        DependencyPolicyException exception = Assert.Throws<
+            DependencyPolicyException>(
+                () => RepositoryGraphReader.ReadAssemblyOutput(
+                    "Missing",
+                    candidate));
+
+        Assert.Contains(
+            "Release target output for 'Missing' does not exist",
+            exception.Message);
+    }
+
+    [Fact]
+    public void Reader_RejectsIncompleteAssemblyReferences()
+    {
+        DependencyPolicyException exception = Assert.Throws<
+            DependencyPolicyException>(
+                () => RepositoryGraphReader.ValidateAssemblyIdentity(
+                    "Library.dll",
+                    new(
+                        "Library",
+                        ["System.Runtime"],
+                        ReferencesComplete: false)));
+
+        Assert.Contains(
+            "Could not decode every assembly reference",
+            exception.Message);
+    }
+
+    [Fact]
+    public void Reader_RejectsNativeOutput()
+    {
+        DependencyPolicyException exception = Assert.Throws<
+            DependencyPolicyException>(
+                () => RepositoryGraphReader.ReadAssemblyOutput(
+                    "NativeHost",
+                    FindDotnetHost()));
+
+        Assert.True(
+            exception.Message.Contains(
+                "has no managed metadata",
+                StringComparison.Ordinal)
+            || exception.Message.Contains(
+                "Could not inspect built output",
+                StringComparison.Ordinal),
+            exception.Message);
     }
 
     [Fact]

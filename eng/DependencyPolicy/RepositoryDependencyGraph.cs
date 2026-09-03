@@ -22,13 +22,27 @@ internal sealed record RepositoryDependencyGraph(
             projects.ToImmutableDictionary(
                 project => project.ProjectName,
                 StringComparer.Ordinal);
+        ImmutableHashSet<string> repositoryAssemblies = projectMap.Values
+            .Where(project => project.AssemblyName is not null)
+            .Select(project => project.AssemblyName!)
+            .ToImmutableHashSet(StringComparer.Ordinal);
+        ImmutableHashSet<string> platformAssemblies =
+            (platformAssemblyNames ?? [])
+                .ToImmutableHashSet(StringComparer.Ordinal);
+        string[] collisions = repositoryAssemblies
+            .Intersect(platformAssemblies, StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        if (collisions.Length != 0)
+        {
+            throw new DependencyPolicyException(
+                "Governed repository assembly names collide with platform "
+                + $"assemblies: [{string.Join(", ", collisions)}].");
+        }
+
         return new(
             projectMap,
-            projectMap.Values
-                .Where(project => project.AssemblyName is not null)
-                .Select(project => project.AssemblyName!)
-                .ToImmutableHashSet(StringComparer.Ordinal),
-            (platformAssemblyNames ?? [])
-                .ToImmutableHashSet(StringComparer.Ordinal));
+            repositoryAssemblies,
+            platformAssemblies);
     }
 }
