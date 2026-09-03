@@ -1075,13 +1075,19 @@ map rather than one identifiable row.
 
 Accessor relationships are validated for their ECMA-335 II.22.28 role shape
 before a contract inherits through them. The validation is limited to properties
-real compiler output always satisfies — accessors are `specialname`, and an
-adder or remover takes exactly one argument — so a legitimate accessor is never
-dropped, and an undecodable signature is treated as a refusal rather than a
+real compiler output always satisfies — accessors are `specialname`, an adder or
+remover takes exactly one argument, and a getter or setter takes exactly the
+property's index arity, or one more for a setter — so a legitimate accessor is
+never dropped, and an undecodable signature is treated as a refusal rather than a
 violation. This validates shape, not full signature-type identity: the
 unvalidated residue can only make a member over-report as requiring unsafe,
 which an assembly author gains nothing by forging, whereas rejecting a
 legitimate accessor would under-report and hide real unsafety.
+
+A refusal carries the evidence it already gathered. When the module scan
+exhausts its budget or cannot read a row, the markers decoded from earlier rows
+travel with the failure instead of being replaced by an empty observation set,
+so the refusal never erases evidence the artifact definitely supplied (R4).
 
 The module result is based only on
 `System.Runtime.CompilerServices.MemorySafetyRulesAttribute` rows attached to the
@@ -1205,7 +1211,10 @@ row that contributes accessor relationships.
 `CrossTypeAccessorSemanticsDoesNotCarryAnAssociatedCarrier`,
 `UnorderedNestedClassRowsFailClosed`,
 `OrderedNestedClassRowsRejectASpoofedNestedCarrier`,
-`OrdinaryMethodNamedAsEventAdderInheritsNoCarrier`, and
+`OrdinaryMethodNamedAsEventAdderInheritsNoCarrier`,
+`OrphanedMethodDefRowsFailClosed`,
+`PropertySetterWithGetterArityInheritsNoCarrier`,
+`BudgetRefusalKeepsMarkersAlreadyDecoded`, and
 `MemorySafetyMetadataIndex_InvalidHandlesAreUnavailable` gate the shared
 contract.
 

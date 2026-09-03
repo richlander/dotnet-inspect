@@ -884,48 +884,70 @@ public sealed class MemorySafetyMetadataIndex
             ImmutableArray.CreateBuilder<MemorySafetyRulesObservation>();
         var nameBudget = new MetadataNameWorkBudget(nameWorkBudget);
         bool malformed = false;
-        foreach (CustomAttributeHandle handle in attributes)
+        try
         {
-            CustomAttribute attribute =
-                reader.GetCustomAttribute(handle);
-            string? name = AttributeReader.GetAttributeTypeName(
-                reader,
-                attribute.Constructor,
-                nameBudget.Observe);
-            if (name != KnownAttributeNames.MemorySafetyRulesAttribute)
-                continue;
-            if (!AttributeReader.IsTopLevelAttributeType(
+            foreach (CustomAttributeHandle handle in attributes)
+            {
+                CustomAttribute attribute =
+                    reader.GetCustomAttribute(handle);
+                string? name = AttributeReader.GetAttributeTypeName(
                     reader,
                     attribute.Constructor,
-                    name,
-                    nameBudget.Observe))
-            {
-                continue;
-            }
+                    nameBudget.Observe);
+                if (name != KnownAttributeNames.MemorySafetyRulesAttribute)
+                    continue;
+                if (!AttributeReader.IsTopLevelAttributeType(
+                        reader,
+                        attribute.Constructor,
+                        name,
+                        nameBudget.Observe))
+                {
+                    continue;
+                }
 
-            if (TryReadRulesVersion(
-                    reader,
-                    attribute,
-                    nameBudget.Observe,
-                    out int markerVersion))
-            {
-                observations.Add(
-                    new(
-                        MetadataTokens.GetToken(handle),
-                        MemorySafetyRulesObservationState.Decoded,
-                        markerVersion,
-                        Detail: null));
+                if (TryReadRulesVersion(
+                        reader,
+                        attribute,
+                        nameBudget.Observe,
+                        out int markerVersion))
+                {
+                    observations.Add(
+                        new(
+                            MetadataTokens.GetToken(handle),
+                            MemorySafetyRulesObservationState.Decoded,
+                            markerVersion,
+                            Detail: null));
+                }
+                else
+                {
+                    malformed = true;
+                    observations.Add(
+                        new(
+                            MetadataTokens.GetToken(handle),
+                            MemorySafetyRulesObservationState.Malformed,
+                            Version: null,
+                            "The attribute is not exactly one Int32 fixed argument with no named arguments."));
+                }
             }
-            else
-            {
-                malformed = true;
-                observations.Add(
-                    new(
-                        MetadataTokens.GetToken(handle),
-                        MemorySafetyRulesObservationState.Malformed,
-                        Version: null,
-                        "The attribute is not exactly one Int32 fixed argument with no named arguments."));
-            }
+        }
+        catch (Exception ex) when (
+            ex is MetadataBudgetException
+                or BadImageFormatException
+                or ArgumentOutOfRangeException
+                or InvalidOperationException)
+        {
+            // R4: a refusal must not suppress markers already decoded from
+            // earlier rows, so partial evidence travels with the failure.
+            bool exhausted = ex is MetadataBudgetException;
+            return new MemorySafetyRulesResult.Unavailable(
+                new MemorySafetyMetadataFailure(
+                    exhausted
+                        ? MemorySafetyMetadataFailureKind.BudgetExceeded
+                        : MemorySafetyMetadataFailureKind.Malformed,
+                    exhausted
+                        ? "Memory-safety module metadata exceeded its scan budget."
+                        : "Memory-safety module metadata could not be read."),
+                observations.ToImmutable());
         }
 
         ImmutableArray<MemorySafetyRulesObservation> evidence =
@@ -1031,6 +1053,7 @@ public sealed class MemorySafetyMetadataIndex
             throw new MetadataBudgetException();
 
         int reachableNested = 0;
+        int reachableMethods = 0;
         int reachableProperties = 0;
         int reachableEvents = 0;
         foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
@@ -1049,6 +1072,7 @@ public sealed class MemorySafetyMetadataIndex
 
             foreach (MethodDefinitionHandle method in type.GetMethods())
             {
+                reachableMethods++;
                 if (reader.GetMethodDefinition(method).GetDeclaringType()
                     != handle)
                 {
@@ -1079,6 +1103,8 @@ public sealed class MemorySafetyMetadataIndex
 
         if (reachableNested != reader.GetTableRowCount(TableIndex.NestedClass))
             return "The NestedClass table has rows no declaring-type lookup can reach.";
+        if (reachableMethods != reader.GetTableRowCount(TableIndex.MethodDef))
+            return "The TypeDef method ranges leave MethodDef rows no declaring-type lookup can reach.";
         if (reachableProperties != reader.GetTableRowCount(TableIndex.Property))
             return "The PropertyMap table has Property rows no owner lookup can reach.";
         if (reachableEvents != reader.GetTableRowCount(TableIndex.Event))
@@ -1283,6 +1309,7 @@ public sealed class MemorySafetyMetadataIndex
     static bool AccessorShapeIsInvalid(
         MetadataReader reader,
         MethodDefinitionHandle method,
+        EntityHandle associated,
         AccessorRole role)
     {
         MethodDefinition definition = reader.GetMethodDefinition(method);
@@ -1302,9 +1329,45 @@ public sealed class MemorySafetyMetadataIndex
         {
             AccessorRole.EventAdder or AccessorRole.EventRemover =>
                 parameters != 1,
-            AccessorRole.PropertyGetter or AccessorRole.PropertySetter => false,
+            AccessorRole.PropertyGetter =>
+                TryReadPropertyIndexCount(reader, associated)
+                    is { } getterIndexes
+                    && parameters != getterIndexes,
+            AccessorRole.PropertySetter =>
+                TryReadPropertyIndexCount(reader, associated)
+                    is { } setterIndexes
+                    && parameters != setterIndexes + 1,
             _ => false,
         };
+    }
+
+    /// <summary>
+    /// Reads the index parameter count declared by an associated property's
+    /// signature, or null when the association is not a property or the blob
+    /// cannot be read as a property signature.
+    /// </summary>
+    static int? TryReadPropertyIndexCount(
+        MetadataReader reader,
+        EntityHandle associated)
+    {
+        if (associated.Kind is not HandleKind.PropertyDefinition)
+            return null;
+
+        try
+        {
+            PropertyDefinition property = reader.GetPropertyDefinition(
+                (PropertyDefinitionHandle)associated);
+            BlobReader blob = reader.GetBlobReader(property.Signature);
+            SignatureHeader header = blob.ReadSignatureHeader();
+            if (header.Kind is not SignatureKind.Property)
+                return null;
+
+            return blob.ReadCompressedInteger();
+        }
+        catch (BadImageFormatException)
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -1370,7 +1433,7 @@ public sealed class MemorySafetyMetadataIndex
         // not that the named member can be this accessor. A row naming an
         // ordinary method still projects, so the relationship itself is
         // validated before any contract inherits through it (R3).
-        if (AccessorShapeIsInvalid(reader, method, role))
+        if (AccessorShapeIsInvalid(reader, method, associated, role))
         {
             hasMalformedRows = true;
             return;

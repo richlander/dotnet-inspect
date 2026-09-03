@@ -1004,7 +1004,8 @@ public sealed class MemorySafetyMetadataIndexTests
         bool nestedRulesCarrierSpoof = false,
         bool eventAdderIsOrdinaryMethod = false,
         bool nestedClassOrdered = false,
-        bool duplicatePropertySemantics = false)
+        bool duplicatePropertySemantics = false,
+        bool propertySetterHasGetterArity = false)
     {
         var metadata = new MetadataBuilder();
         ModuleDefinitionHandle module = metadata.AddModule(
@@ -1152,6 +1153,19 @@ public sealed class MemorySafetyMetadataIndexTests
                 eventAccessorSignature,
                 bodyOffset: -1,
                 MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle setterWithGetterArity = default;
+        if (propertySetterHasGetterArity)
+        {
+            setterWithGetterArity = metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.SpecialName,
+                MethodImplAttributes.Runtime,
+                metadata.GetOrAddString("set_AssociatedProperty"),
+                propertyGetterSignature,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        }
 
         EntityHandle rulesCarrierConstructor = rulesConstructor;
         if (nestedRulesTypeReference)
@@ -1345,6 +1359,13 @@ public sealed class MemorySafetyMetadataIndexTests
                 property,
                 MethodSemanticsAttributes.Getter,
                 attributeOnly);
+        }
+        if (propertySetterHasGetterArity)
+        {
+            metadata.AddMethodSemantics(
+                property,
+                MethodSemanticsAttributes.Setter,
+                setterWithGetterArity);
         }
         EventDefinitionHandle @event = metadata.AddEvent(
             EventAttributes.None,
@@ -1756,6 +1777,159 @@ public sealed class MemorySafetyMetadataIndexTests
 
         Assert.Null(result.Evidence.AssociatedMemberToken);
         Assert.NotNull(index.AssociationFailure);
+    }
+
+    [Fact]
+    public void PropertySetterWithGetterArityInheritsNoCarrier()
+    {
+        using OpenedMetadata opened = Open(
+            BuildSyntheticImage([2], propertySetterHasGetterArity: true));
+        MemorySafetyMetadataIndex index =
+            MemorySafetyMetadataIndex.Create(opened.Reader);
+
+        MethodDefinitionHandle setter = FindMethod(
+            opened.Reader,
+            "set_AssociatedProperty");
+        var result =
+            Assert.IsType<MemorySafetyMemberContractResult.None>(
+                index.GetMemberContract(setter));
+
+        Assert.Null(result.Evidence.AssociatedMemberToken);
+        Assert.NotNull(index.AssociationFailure);
+    }
+
+    [Fact]
+    public void OrphanedMethodDefRowsFailClosed()
+    {
+        using OpenedMetadata opened = Open(
+            BuildOrphanedMarkerConstructorImage());
+        MemorySafetyMetadataIndex index =
+            MemorySafetyMetadataIndex.Create(opened.Reader);
+
+        var rules =
+            Assert.IsType<MemorySafetyRulesResult.Unavailable>(index.Rules);
+        Assert.Equal(
+            MemorySafetyMetadataFailureKind.Malformed,
+            rules.Failure.Kind);
+    }
+
+    /// <summary>
+    /// Builds an image whose v2 marker constructor sits in a MethodDef row that
+    /// no TypeDef method range covers. SRM's binary search still answers the
+    /// constructor's declaring type, so the marker authenticates and the module
+    /// reads Updated unless the projection is accounted against physical rows.
+    /// </summary>
+    static byte[] BuildOrphanedMarkerConstructorImage()
+    {
+        var metadata = new MetadataBuilder();
+        ModuleDefinitionHandle module = metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Orphan.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Orphan"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+
+        BlobHandle constructorSignature = AddMethodSignature(
+            metadata,
+            isInstance: true,
+            parameterCount: 1,
+            parameters => parameters.AddParameter().Type().Int32());
+        var pointerSignatureBuilder = new BlobBuilder();
+        new BlobEncoder(pointerSignatureBuilder)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                1,
+                returnType => returnType.Void(),
+                parameters =>
+                    parameters.AddParameter().Type().Pointer().Int32());
+
+        MethodDefinitionHandle constructor = metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.SpecialName
+                | MethodAttributes.RTSpecialName,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString(".ctor"),
+            constructorSignature,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("PointerOnly"),
+            metadata.GetOrAddBlob(pointerSignatureBuilder),
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+
+        // Both types start at the second method, so the marker constructor in
+        // row 1 belongs to no type's range.
+        MethodDefinitionHandle firstOwnedMethod =
+            MetadataTokens.MethodDefinitionHandle(2);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            metadata.GetOrAddString("System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("MemorySafetyRulesAttribute"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            firstOwnedMethod);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Probe"),
+            metadata.GetOrAddString("Holder"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            firstOwnedMethod);
+
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteInt32(2);
+        value.WriteUInt16(0);
+        metadata.AddCustomAttribute(
+            module,
+            constructor,
+            metadata.GetOrAddBlob(value));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    [Fact]
+    public void BudgetRefusalKeepsMarkersAlreadyDecoded()
+    {
+        // This budget is spent partway through the second marker row, so the
+        // first row is already decoded when the scan refuses.
+        using OpenedMetadata opened = Open(BuildSyntheticImage([2, 2]));
+        var rules =
+            Assert.IsType<MemorySafetyRulesResult.Unavailable>(
+                MemorySafetyMetadataIndex.Create(
+                    opened.Reader,
+                    associationRowBudget: 100,
+                    attributeRowBudget: 100,
+                    nameWorkBudget: 147).Rules);
+
+        Assert.Equal(
+            MemorySafetyMetadataFailureKind.BudgetExceeded,
+            rules.Failure.Kind);
+        MemorySafetyRulesObservation observation =
+            Assert.Single(rules.Observations);
+        Assert.Equal(
+            MemorySafetyRulesObservationState.Decoded,
+            observation.State);
+        Assert.Equal(2, observation.Version);
     }
 
     static MethodDefinitionHandle FindMethod(
