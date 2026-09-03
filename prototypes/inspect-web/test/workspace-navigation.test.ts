@@ -320,14 +320,18 @@ test("navigation history restores a pre-activation transaction snapshot", () => 
 });
 
 test("navigation sequence has one monotonic cancellation authority", () => {
-  const sequence = createNavigationSequence();
+  let superseded = 0;
+  const sequence = createNavigationSequence(() => superseded++);
   assert.equal(sequence.current(), 0);
   const first = sequence.begin();
+  assert.equal(superseded, 1);
   assert.equal(sequence.isCurrent(first), true);
   const second = sequence.begin();
+  assert.equal(superseded, 2);
   assert.equal(sequence.isCurrent(first), false);
   assert.equal(sequence.isCurrent(second), true);
   sequence.invalidate();
+  assert.equal(superseded, 3);
   assert.equal(sequence.isCurrent(second), false);
   assert.equal(sequence.current(), 3);
 });

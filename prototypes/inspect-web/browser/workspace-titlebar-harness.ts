@@ -28,14 +28,17 @@ import {
   MAX_LIVE_WORKSPACES,
   createLiveWorkspace,
   createLiveWorkspaceSession,
+  createWorkspaceProjectionTransactionController,
   removeLiveWorkspace,
   selectLiveWorkspace,
   selectedLiveWorkspace,
   updateSelectedLiveWorkspace,
   withWorkspaceHistoryId,
   workspaceForHistory,
+  workspaceHistoryMembershipStatus,
   workspaceOperationIsCurrent,
 } from "../src/workspace-session.ts";
+import { createNavigationSequence } from "../src/workspace-navigation.ts";
 
 declare global {
   interface Window {
@@ -44,6 +47,8 @@ declare global {
     rerenderScopeBarProbe: () => void;
     beginDelayedWorkspaceLoadProbe: () => void;
     completeDelayedWorkspaceLoadProbe: () => void;
+    supersedeWorkspaceRestorationProbe: () => void;
+    restoreClosedWorkspaceHistoryProbe: () => void;
     restoreMissingWorkspaceProbe: () => void;
     restoreUnknownWorkspaceProbe: () => void;
   }
@@ -490,6 +495,58 @@ window.completeDelayedWorkspaceLoadProbe = () => {
   ];
   document.body.dataset.workspaceLateLoad = "applied";
   renderHarnessWorkspace(workspaceSession.selectedWorkspaceId, false);
+};
+window.supersedeWorkspaceRestorationProbe = () => {
+  const session =
+    createLiveWorkspaceSession<(typeof coordinates)[number]>("transaction");
+  updateSelectedLiveWorkspace(session, {
+    packages: coordinates.slice(0, 1),
+    activePackageKey: "System.Text.Json@10.0.0::net10.0",
+    shareBasis: null,
+    navigation: { stack: [], index: -1 },
+  });
+  let projection = coordinates.slice(0, 1);
+  const released: string[] = [];
+  const transactions = createWorkspaceProjectionTransactionController(
+    () => session,
+    {
+      currentPackages: () => projection,
+      synchronize: () => {
+        updateSelectedLiveWorkspace(session, {
+          packages: projection,
+          activePackageKey: null,
+          shareBasis: null,
+          navigation: { stack: [], index: -1 },
+        });
+      },
+      restore: workspace => {
+        projection = [...workspace.packages];
+      },
+      release: packageModel => released.push(packageModel.id),
+    });
+  const sequence = createNavigationSequence(() => transactions.abandon());
+  const navigationSequence = sequence.begin();
+  transactions.begin({
+    workspaceId: session.selectedWorkspaceId,
+    navigationSequence,
+  });
+  projection = coordinates.slice(0, 2);
+  sequence.begin();
+  document.body.dataset.workspaceRestorationProjection =
+    projection.map(packageModel => packageModel.id).join(",");
+  document.body.dataset.workspaceRestorationReleased = released.join(",");
+};
+window.restoreClosedWorkspaceHistoryProbe = () => {
+  const requested = coordinates[0];
+  if (!requested) throw new Error("The closed-package fixture is missing.");
+  document.body.dataset.workspaceHistoryMembership =
+    workspaceHistoryMembershipStatus(
+      workspaceSession,
+      withWorkspaceHistoryId(null, "default"),
+      [`${requested.id}@${requested.version}::${requested.activeFramework}`],
+      packageModel =>
+        `${packageModel.id}@${packageModel.version}::${packageModel.activeFramework}`,
+      false);
 };
 window.restoreUnknownWorkspaceProbe = () => {
   const workspace = workspaceForHistory(

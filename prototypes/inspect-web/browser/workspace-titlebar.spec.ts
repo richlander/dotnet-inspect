@@ -1145,6 +1145,15 @@ test("live Workspace history and asynchronous results retain their owner", async
     .toHaveAttribute("data-workspace-late-load", "rejected");
   await expect(page.locator(".workspace-detail-list"))
     .not.toContainText("Microsoft.Extensions.Http");
+  await page.evaluate(() => window.supersedeWorkspaceRestorationProbe());
+  await expect(page.locator("body"))
+    .toHaveAttribute(
+      "data-workspace-restoration-projection",
+      "System.Text.Json");
+  await expect(page.locator("body"))
+    .toHaveAttribute(
+      "data-workspace-restoration-released",
+      "Microsoft.Extensions.DependencyInjection");
 
   await page.goBack();
   await expect(page.locator(".workspace-heading h1")).toHaveText("Workspace 2");
@@ -1167,6 +1176,9 @@ test("live Workspace history and asynchronous results retain their owner", async
   await expect(page.locator('[data-scope="type"]')).toHaveCount(0);
   await expect(page.locator(".workspace-empty"))
     .toHaveText("No packages are loaded in this workspace.");
+  await page.evaluate(() => window.restoreClosedWorkspaceHistoryProbe());
+  await expect(page.locator("body"))
+    .toHaveAttribute("data-workspace-history-membership", "stale");
   await page.reload();
   await expect(page.locator(".workspace-heading h1")).toHaveText("Default");
   await expect(page.locator(".workspace-empty"))

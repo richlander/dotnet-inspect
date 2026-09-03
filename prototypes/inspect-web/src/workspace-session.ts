@@ -160,6 +160,32 @@ export function workspaceForHistory<TPackage>(
     ?? defaultLiveWorkspace(session);
 }
 
+export type WorkspaceHistoryMembershipStatus =
+  | "unassociated"
+  | "current"
+  | "stale";
+
+export function workspaceHistoryMembershipStatus<TPackage>(
+  session: LiveWorkspaceSession<TPackage>,
+  historyState: unknown,
+  requestedPackageKeys: readonly string[],
+  packageKey: (value: TPackage) => string,
+  exact: boolean,
+): WorkspaceHistoryMembershipStatus {
+  const workspaceId = workspaceHistoryId(historyState);
+  const workspace = session.workspaces.find(
+    candidate => candidate.id === workspaceId);
+  if (!workspace) return "unassociated";
+  const currentPackageKeys = workspace.packages.map(packageKey);
+  const matches = exact
+    ? currentPackageKeys.length === requestedPackageKeys.length
+      && currentPackageKeys.every(
+        (key, index) => key === requestedPackageKeys[index])
+    : requestedPackageKeys.every(
+        requested => currentPackageKeys.includes(requested));
+  return matches ? "current" : "stale";
+}
+
 export function rememberedLiveWorkspaceHref<TPackage>(
   session: LiveWorkspaceSession<TPackage>,
   canonicalHrefs: ReadonlyMap<string, string>,
@@ -170,6 +196,71 @@ export function rememberedLiveWorkspaceHref<TPackage>(
 export interface WorkspaceOperationOwner {
   workspaceId: string;
   navigationSequence: number;
+}
+
+export interface WorkspaceProjectionTransactionController {
+  begin(owner: WorkspaceOperationOwner): void;
+  commit(owner: WorkspaceOperationOwner): boolean;
+  abandon(): void;
+  blocksSelectedWorkspaceSynchronization(): boolean;
+  matches(owner: WorkspaceOperationOwner): boolean;
+}
+
+export interface WorkspaceProjectionTransactionDependencies<TPackage> {
+  currentPackages(): readonly TPackage[];
+  synchronize(): void;
+  restore(workspace: LiveWorkspace<TPackage>): void;
+  release(packageModel: TPackage): void;
+}
+
+export function createWorkspaceProjectionTransactionController<TPackage>(
+  currentSession: () => LiveWorkspaceSession<TPackage>,
+  dependencies: WorkspaceProjectionTransactionDependencies<TPackage>,
+): WorkspaceProjectionTransactionController {
+  let transaction: WorkspaceOperationOwner | null = null;
+  const matches = (owner: WorkspaceOperationOwner) =>
+    transaction?.workspaceId === owner.workspaceId
+    && transaction.navigationSequence === owner.navigationSequence;
+
+  return {
+    begin(owner) {
+      transaction = owner;
+    },
+    commit(owner) {
+      if (!matches(owner)) return false;
+      const session = currentSession();
+      const replacedPackages = session.workspaces.find(
+        workspace => workspace.id === owner.workspaceId)?.packages ?? [];
+      transaction = null;
+      dependencies.synchronize();
+      for (const packageModel of replacedPackages) {
+        if (!session.workspaces.some(
+          workspace => workspace.packages.includes(packageModel))) {
+          dependencies.release(packageModel);
+        }
+      }
+      return true;
+    },
+    abandon() {
+      const abandoned = transaction;
+      if (!abandoned) return;
+      transaction = null;
+      const session = currentSession();
+      if (session.selectedWorkspaceId !== abandoned.workspaceId) return;
+      const transientPackages = [...dependencies.currentPackages()];
+      const workspace = selectedLiveWorkspace(session);
+      dependencies.restore(workspace);
+      for (const packageModel of transientPackages) {
+        if (!workspace.packages.includes(packageModel))
+          dependencies.release(packageModel);
+      }
+    },
+    blocksSelectedWorkspaceSynchronization() {
+      const session = currentSession();
+      return transaction?.workspaceId === session.selectedWorkspaceId;
+    },
+    matches,
+  };
 }
 
 export function workspaceOperationIsCurrent<TPackage>(

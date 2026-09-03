@@ -245,6 +245,7 @@ import {
   MAX_LIVE_WORKSPACES,
   createLiveWorkspace,
   createLiveWorkspaceSession,
+  createWorkspaceProjectionTransactionController,
   defaultLiveWorkspace,
   rememberedLiveWorkspaceHref,
   removeLiveWorkspace,
@@ -253,9 +254,11 @@ import {
   updateSelectedLiveWorkspace,
   withWorkspaceHistoryId,
   workspaceForHistory,
+  workspaceHistoryMembershipStatus,
   workspaceOperationIsCurrent,
   type LiveWorkspace,
   type LiveWorkspaceSession,
+  type WorkspaceOperationOwner,
 } from "./workspace-session.ts";
 import {
   bindDocViewer,
@@ -1361,13 +1364,45 @@ const navigationHistory = createNavigationHistory({
   apply: applyView,
   onExhausted: render,
 });
-const navigationSequence = createNavigationSequence();
+
+function workspaceProjectionTransactionMatches(
+  owner: WorkspaceOperationOwner,
+): boolean {
+  return workspaceProjectionTransactions.matches(owner);
+}
+
+function beginWorkspaceProjectionTransaction(owner: WorkspaceOperationOwner) {
+  syncCurrentLiveWorkspace();
+  workspaceProjectionTransactions.begin(owner);
+}
+
+function commitWorkspaceProjectionTransaction(
+  owner: WorkspaceOperationOwner,
+): boolean {
+  return workspaceProjectionTransactions.commit(owner);
+}
+
+const workspaceProjectionTransactions =
+  createWorkspaceProjectionTransactionController(
+    () => state.workspaceSession,
+    {
+      currentPackages: () => state.packages,
+      synchronize: syncCurrentLiveWorkspace,
+      restore: adoptLiveWorkspaceProjection,
+      release: releasePackageModelCaches,
+    });
+const navigationSequence = createNavigationSequence(
+  () => workspaceProjectionTransactions.abandon());
 
 function currentLiveWorkspace(): LiveWorkspace<AppPackage> {
   return selectedLiveWorkspace(state.workspaceSession);
 }
 
 function syncCurrentLiveWorkspace() {
+  if (workspaceProjectionTransactions
+    .blocksSelectedWorkspaceSynchronization()) {
+    return;
+  }
   updateSelectedLiveWorkspace(state.workspaceSession, {
     packages: state.packages,
     activePackageKey: state.package
@@ -1956,7 +1991,9 @@ function releasePackageModelCaches(packageModel: AppPackage) {
     ...state.packages,
     ...state.workspaceSession.workspaces
       .filter(workspace =>
-        workspace.id !== state.workspaceSession.selectedWorkspaceId)
+        workspace.id !== state.workspaceSession.selectedWorkspaceId
+        || workspaceProjectionTransactions
+          .blocksSelectedWorkspaceSynchronization())
       .flatMap(workspace => workspace.packages),
   ];
   if (!retainedPackages.some(
@@ -7652,9 +7689,11 @@ function selectWorkspace(workspaceId: string): void {
     afterCurrentNavigationFrame(() => focusLiveWorkspace(document, workspaceId));
     return;
   }
+  if (!state.workspaceSession.workspaces.some(
+    workspace => workspace.id === workspaceId)) return;
+  navigationSequence.begin();
   const workspace = adoptWorkspace(workspaceId);
   if (!workspace) return;
-  navigationSequence.begin();
   prepareLiveWorkspaceSurface();
   render({ synchronizeUrl: false });
   pushCurrentWorkspaceLocation(currentWorkspaceLocation());
@@ -7662,13 +7701,14 @@ function selectWorkspace(workspaceId: string): void {
 }
 
 function createWorkspace(): void {
+  if (state.workspaceSession.workspaces.length >= MAX_LIVE_WORKSPACES) return;
+  navigationSequence.begin();
   syncCurrentLiveWorkspace();
   const workspace = createLiveWorkspace(
     state.workspaceSession,
     crypto.randomUUID());
   if (!workspace) return;
   adoptLiveWorkspaceProjection(workspace);
-  navigationSequence.begin();
   prepareLiveWorkspaceSurface();
   render({ synchronizeUrl: false });
   pushCurrentWorkspaceLocation(emptyWorkspaceUrl());
@@ -7677,6 +7717,8 @@ function createWorkspace(): void {
 
 function removeWorkspace(workspaceId: string): void {
   if (workspaceId !== state.workspaceSession.selectedWorkspaceId) return;
+  if (currentLiveWorkspace().isDefault) return;
+  navigationSequence.begin();
   syncCurrentLiveWorkspace();
   const removed = removeLiveWorkspace(state.workspaceSession, workspaceId);
   if (!removed) return;
@@ -7685,7 +7727,6 @@ function removeWorkspace(workspaceId: string): void {
   for (const packageModel of removed.packages)
     releasePackageModelCaches(packageModel);
   canonicalWorkspaceHrefs.delete(removed.id);
-  navigationSequence.begin();
   prepareLiveWorkspaceSurface();
   render({ synchronizeUrl: false });
   pushCurrentWorkspaceLocation(currentWorkspaceLocation());
@@ -10560,12 +10601,13 @@ async function restoreWorkspaceFromLocation(
     : null,
 ) {
   const operationWorkspaceId = state.workspaceSession.selectedWorkspaceId;
+  const operationOwner: WorkspaceOperationOwner = {
+    workspaceId: operationWorkspaceId,
+    navigationSequence: navigationSeq,
+  };
   const operationIsCurrent = () => workspaceOperationIsCurrent(
     state.workspaceSession,
-    {
-      workspaceId: operationWorkspaceId,
-      navigationSequence: navigationSeq,
-    },
+    operationOwner,
     navigationSequence.current());
   if (!operationIsCurrent()) return;
   if (loc.routeFailure) {
@@ -10587,6 +10629,32 @@ async function restoreWorkspaceFromLocation(
     return;
   }
   if (!loc.package) return;
+  const packageLocation = { ...loc, package: loc.package };
+  beginWorkspaceProjectionTransaction(operationOwner);
+  try {
+    await restoreWorkspaceProjection(
+      packageLocation,
+      deep,
+      navigationSeq,
+      canonicalSnapshot,
+      operationOwner,
+      operationIsCurrent);
+  } finally {
+    if (workspaceProjectionTransactionMatches(operationOwner)) {
+      workspaceProjectionTransactions.abandon();
+      if (operationIsCurrent()) render();
+    }
+  }
+}
+
+async function restoreWorkspaceProjection(
+  loc: ParsedLocation & { package: string },
+  deep: DeepLink,
+  navigationSeq: number,
+  canonicalSnapshot: CanonicalWorkspaceRestoreSnapshot | null,
+  operationOwner: WorkspaceOperationOwner,
+  operationIsCurrent: () => boolean,
+) {
   state.queryNotice = loc.workspaceNotice || "";
   state.queryNoticeRetryAction = null;
   state.home = false;
@@ -10743,16 +10811,19 @@ async function restoreWorkspaceFromLocation(
     applyDeepLink(deep);
     commitWorkspaceShareBasis(loc.shareState);
     state.loading = false;
+    if (!commitWorkspaceProjectionTransaction(operationOwner)) return;
     render();
     await loadSelectionData();
   } else if (!isRuntimePackId(target.id)) {
     // The focused NuGet target failed to load during the silent background pass; re-run it in
     // the foreground so its error (e.g. a 404) surfaces properly instead of a blank workbench.
-    await loadPackage(target.id, target.version, target.framework, {
+    const loaded = await loadPackage(target.id, target.version, target.framework, {
       deepLink: deep,
       navigationSeq,
       queryNotice: state.queryNotice
     });
+    if (loaded && operationIsCurrent())
+      commitWorkspaceProjectionTransaction(operationOwner);
   } else {
     state.loading = false;
     const failure =
@@ -11522,6 +11593,53 @@ function dismissModalsForRoutedNavigation() {
   return dismissedAnnotatedSourceModal;
 }
 
+function requestedHistoryPackageKeys(
+  loc: ParsedLocation,
+): { keys: string[]; exact: boolean } | null {
+  if (loc.tabs?.length) {
+    return {
+      keys: loc.tabs.map(tab => packageIdentityKey({
+        id: tab.id,
+        version: tab.version,
+        activeFramework: tab.framework,
+      })),
+      exact: true,
+    };
+  }
+  if (!loc.package || !loc.version || !loc.framework) return null;
+  return {
+    keys: [packageIdentityKey({
+      id: loc.package,
+      version: loc.version,
+      activeFramework: loc.framework,
+    })],
+    exact: false,
+  };
+}
+
+function historyRequestsStaleWorkspaceMembership(
+  loc: ParsedLocation,
+): boolean {
+  const request = requestedHistoryPackageKeys(loc);
+  if (!request) return false;
+  return workspaceHistoryMembershipStatus(
+    state.workspaceSession,
+    history.state,
+    request.keys,
+    packageIdentityKey,
+    request.exact) === "stale";
+}
+
+function reconcileLiveWorkspaceHistoryMembership() {
+  clearNavigationError();
+  prepareLiveWorkspaceSurface();
+  const href = currentWorkspaceLocation();
+  workspaceLocation.replace(href, workspaceHistoryState(history.state));
+  rememberCanonicalWorkspaceHref(href);
+  syncCurrentLiveWorkspace();
+  render({ synchronizeUrl: false });
+}
+
 window.addEventListener("popstate", () => {
   const leftPackageQueryHandoff = currentPackageQueryHandoff();
   const navigationSeq = navigationSequence.begin();
@@ -11594,6 +11712,10 @@ window.addEventListener("popstate", () => {
   const loc = parseLocation();
   if (loc.routeFailure) {
     failWorkspaceRoute(loc.routeFailure.message);
+    return;
+  }
+  if (historyRequestsStaleWorkspaceMembership(loc)) {
+    reconcileLiveWorkspaceHistoryMembership();
     return;
   }
   if (!clearWorkspaceRouteFailure()) {

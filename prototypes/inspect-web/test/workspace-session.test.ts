@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { createNavigationSequence } from "../src/workspace-navigation.ts";
 import {
+  createWorkspaceProjectionTransactionController,
   createLiveWorkspace,
   createLiveWorkspaceSession,
   defaultLiveWorkspace,
@@ -13,6 +15,7 @@ import {
   withWorkspaceHistoryId,
   workspaceForHistory,
   workspaceHistoryId,
+  workspaceHistoryMembershipStatus,
   workspaceOperationIsCurrent,
 } from "../src/workspace-session.ts";
 
@@ -94,6 +97,178 @@ test("an empty Workspace retains its session-only canonical return route", () =>
   assert.equal(
     rememberedLiveWorkspaceHref(session, new Map()),
     null);
+});
+
+test("history cannot restore stale membership into an associated live Workspace", () => {
+  const session = createLiveWorkspaceSession<string>("default-id");
+  updateSelectedLiveWorkspace(session, {
+    packages: ["Package.A", "Package.B"],
+    activePackageKey: "Package.A",
+    shareBasis: null,
+    navigation: { stack: [], index: -1 },
+  });
+  const associated = withWorkspaceHistoryId(null, "default-id");
+
+  assert.equal(
+    workspaceHistoryMembershipStatus(
+      session,
+      associated,
+      ["Package.A"],
+      value => value,
+      false),
+    "current");
+  assert.equal(
+    workspaceHistoryMembershipStatus(
+      session,
+      associated,
+      ["Package.A"],
+      value => value,
+      true),
+    "stale");
+  assert.equal(
+    workspaceHistoryMembershipStatus(
+      session,
+      associated,
+      ["Package.Closed"],
+      value => value,
+      false),
+    "stale");
+  assert.equal(
+    workspaceHistoryMembershipStatus(
+      session,
+      withWorkspaceHistoryId(null, "unknown"),
+      ["Package.Closed"],
+      value => value,
+      false),
+    "unassociated");
+});
+
+test("superseded restoration abandons its transient Workspace projection", () => {
+  const session = createLiveWorkspaceSession<string>("default-id");
+  updateSelectedLiveWorkspace(session, {
+    packages: ["Stable.Package"],
+    activePackageKey: "Stable.Package",
+    shareBasis: null,
+    navigation: { stack: [], index: -1 },
+  });
+  let visiblePackages = ["Stable.Package"];
+  const released: string[] = [];
+  const transactions = createWorkspaceProjectionTransactionController(
+    () => session,
+    {
+      currentPackages: () => visiblePackages,
+      synchronize: () => {
+        updateSelectedLiveWorkspace(session, {
+          packages: visiblePackages,
+          activePackageKey: visiblePackages[0] ?? null,
+          shareBasis: null,
+          navigation: { stack: [], index: -1 },
+        });
+      },
+      restore: workspace => {
+        visiblePackages = [...workspace.packages];
+      },
+      release: packageModel => released.push(packageModel),
+    });
+  const sequence = createNavigationSequence(() => transactions.abandon());
+  const restorationSequence = sequence.begin();
+  const owner = {
+    workspaceId: session.selectedWorkspaceId,
+    navigationSequence: restorationSequence,
+  };
+  transactions.begin(owner);
+  visiblePackages = ["Partially.Loaded"];
+
+  assert.equal(transactions.blocksSelectedWorkspaceSynchronization(), true);
+  sequence.begin();
+
+  assert.deepEqual(visiblePackages, ["Stable.Package"]);
+  assert.deepEqual(selectedLiveWorkspace(session).packages, ["Stable.Package"]);
+  assert.deepEqual(released, ["Partially.Loaded"]);
+  assert.equal(transactions.commit(owner), false);
+});
+
+test("restoration transactions follow a replaced Workspace session", () => {
+  let session = createLiveWorkspaceSession<string>("original-default");
+  let visiblePackages = ["Original.Package"];
+  const released: string[] = [];
+  const transactions = createWorkspaceProjectionTransactionController(
+    () => session,
+    {
+      currentPackages: () => visiblePackages,
+      synchronize: () => {
+        updateSelectedLiveWorkspace(session, {
+          packages: visiblePackages,
+          activePackageKey: visiblePackages[0] ?? null,
+          shareBasis: null,
+          navigation: { stack: [], index: -1 },
+        });
+      },
+      restore: workspace => {
+        visiblePackages = [...workspace.packages];
+      },
+      release: packageModel => released.push(packageModel),
+    });
+
+  session = createLiveWorkspaceSession<string>("restored-default");
+  updateSelectedLiveWorkspace(session, {
+    packages: ["Restored.Package"],
+    activePackageKey: "Restored.Package",
+    shareBasis: null,
+    navigation: { stack: [], index: -1 },
+  });
+  const owner = {
+    workspaceId: session.selectedWorkspaceId,
+    navigationSequence: 4,
+  };
+  transactions.begin(owner);
+  visiblePackages = ["Partially.Loaded"];
+
+  assert.equal(transactions.blocksSelectedWorkspaceSynchronization(), true);
+  transactions.abandon();
+
+  assert.deepEqual(visiblePackages, ["Restored.Package"]);
+  assert.deepEqual(released, ["Partially.Loaded"]);
+});
+
+test("committed restoration releases the replaced Workspace projection", () => {
+  const session = createLiveWorkspaceSession<string>("default-id");
+  updateSelectedLiveWorkspace(session, {
+    packages: ["Replaced.Package"],
+    activePackageKey: "Replaced.Package",
+    shareBasis: null,
+    navigation: { stack: [], index: -1 },
+  });
+  let visiblePackages = ["Replacement.Package"];
+  const released: string[] = [];
+  const transactions = createWorkspaceProjectionTransactionController(
+    () => session,
+    {
+      currentPackages: () => visiblePackages,
+      synchronize: () => {
+        updateSelectedLiveWorkspace(session, {
+          packages: visiblePackages,
+          activePackageKey: visiblePackages[0] ?? null,
+          shareBasis: null,
+          navigation: { stack: [], index: -1 },
+        });
+      },
+      restore: workspace => {
+        visiblePackages = [...workspace.packages];
+      },
+      release: packageModel => released.push(packageModel),
+    });
+  const owner = {
+    workspaceId: session.selectedWorkspaceId,
+    navigationSequence: 3,
+  };
+  transactions.begin(owner);
+
+  assert.equal(transactions.commit(owner), true);
+  assert.deepEqual(
+    selectedLiveWorkspace(session).packages,
+    ["Replacement.Package"]);
+  assert.deepEqual(released, ["Replaced.Package"]);
 });
 
 test("late operations cannot mutate a newly selected Workspace", () => {

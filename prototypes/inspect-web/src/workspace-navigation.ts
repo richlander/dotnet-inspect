@@ -151,13 +151,17 @@ export interface NavigationSequence {
   isCurrent(candidate: number): boolean;
 }
 
-export function createNavigationSequence(): NavigationSequence {
+export function createNavigationSequence(
+  onSupersede: () => void = () => {},
+): NavigationSequence {
   let current = 0;
   return {
     begin() {
+      onSupersede();
       return ++current;
     },
     invalidate() {
+      onSupersede();
       current++;
     },
     current() {

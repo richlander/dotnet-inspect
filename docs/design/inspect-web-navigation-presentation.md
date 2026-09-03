@@ -419,6 +419,10 @@ the selected inventory entry. The Navigation Consumer associates browser
 history entries with the owning browser-session Workspace ID. Back or Forward
 selects a known associated Workspace before applying the entry; an absent or
 unknown session ID targets Default and never creates a phantom Workspace.
+History restores a view within the live Workspace's current membership; it
+does not restore an older membership set. When an associated entry requires a
+closed or replaced coordinate, the Browser reconciles that entry to the
+current Workspace surface instead of reacquiring the stale coordinate.
 
 An empty Workspace has the canonical session route `/#workspace`. It renders
 the ordinary Workspace shell, inventory, Search action, and empty package
@@ -436,9 +440,11 @@ entry. Ordinary package opening targets the selected Workspace.
 
 Closing an inactive coordinate preserves the active coordinate's inspection
 state and keeps Workspace selected. Closing the active coordinate selects the
-returned successor while remaining in Workspace. Share and refresh preserve
-the Workspace subject and its retained coordinates, but this slice makes no
-persistence claim for the collection itself.
+returned successor while remaining in Workspace. Closing a coordinate updates
+the live membership authority, so older browser-history entries cannot
+reacquire it as membership undo. Share and refresh preserve the Workspace
+subject and its retained coordinates, but this slice makes no persistence
+claim for the collection itself.
 
 Workspace renders stable focus targets for its heading, every Workspace entry,
 and every coordinate action. Post-result focus, browser-history association,

@@ -2648,7 +2648,7 @@ test("malformed package routes use the contained restore failure path", () => {
     ?? "";
   assert.match(
     popstate,
-    /if \(loc\.routeFailure\) \{\s*failWorkspaceRoute\(loc\.routeFailure\.message\);\s*return;\s*\}\s*if \(!clearWorkspaceRouteFailure\(\)\) \{\s*render\(\);\s*return;\s*\}\s*const canonicalSnapshot = loc\.hasWorkspaceState[\s\S]*state\.queryNotice = loc\.workspaceNotice \|\| "";[\s\S]*const emptyWorkspace[\s\S]*const bareHome/);
+    /if \(loc\.routeFailure\) \{\s*failWorkspaceRoute\(loc\.routeFailure\.message\);\s*return;\s*\}\s*if \(historyRequestsStaleWorkspaceMembership\(loc\)\) \{\s*reconcileLiveWorkspaceHistoryMembership\(\);\s*return;\s*\}\s*if \(!clearWorkspaceRouteFailure\(\)\) \{\s*render\(\);\s*return;\s*\}\s*const canonicalSnapshot = loc\.hasWorkspaceState[\s\S]*state\.queryNotice = loc\.workspaceNotice \|\| "";[\s\S]*const emptyWorkspace[\s\S]*const bareHome/);
 
   const failure = appSource.match(
     /function failWorkspaceRoute\([\s\S]*?\n}\n\nfunction failCanonicalWorkspaceRestore/)?.[0]
@@ -5732,6 +5732,30 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /workspaceOperationIsCurrent\(/);
   assert.match(
     appSource,
+    /createWorkspaceProjectionTransactionController\(\s*\(\) => state\.workspaceSession,[\s\S]*currentPackages: \(\) => state\.packages,[\s\S]*synchronize: syncCurrentLiveWorkspace,[\s\S]*restore: adoptLiveWorkspaceProjection,[\s\S]*release: releasePackageModelCaches/);
+  assert.match(
+    appSource,
+    /const navigationSequence = createNavigationSequence\(\s*\(\) => workspaceProjectionTransactions\.abandon\(\)\)/);
+  assert.match(
+    appSource,
+    /function syncCurrentLiveWorkspace\(\) \{\s*if \(workspaceProjectionTransactions\s*\.blocksSelectedWorkspaceSynchronization\(\)\) \{\s*return;/);
+  assert.match(
+    appSource,
+    /beginWorkspaceProjectionTransaction\(operationOwner\);\s*try \{\s*await restoreWorkspaceProjection\([\s\S]*finally \{\s*if \(workspaceProjectionTransactionMatches\(operationOwner\)\) \{\s*workspaceProjectionTransactions\.abandon\(\)/);
+  assert.match(
+    appSource,
+    /commitWorkspaceShareBasis\(loc\.shareState\);\s*state\.loading = false;\s*if \(!commitWorkspaceProjectionTransaction\(operationOwner\)\) return;\s*render\(\)/);
+  assert.match(
+    appSource,
+    /function selectWorkspace\([\s\S]*navigationSequence\.begin\(\);\s*const workspace = adoptWorkspace\(workspaceId\)/);
+  assert.match(
+    appSource,
+    /function createWorkspace\(\): void \{[\s\S]*navigationSequence\.begin\(\);\s*syncCurrentLiveWorkspace\(\)/);
+  assert.match(
+    appSource,
+    /function removeWorkspace\([\s\S]*navigationSequence\.begin\(\);\s*syncCurrentLiveWorkspace\(\)/);
+  assert.match(
+    appSource,
     /async function loadRuntimePack\([\s\S]*const operationWorkspaceId = state\.workspaceSession\.selectedWorkspaceId;\s*const operationNavigationSequence = navigationSequence\.current\(\);[\s\S]*navigationSequence\.isCurrent\(operationNavigationSequence\)[\s\S]*packageAcquisition\.loadRuntimePack\(/);
   assert.match(
     appSource,
@@ -5739,6 +5763,12 @@ test("workspace UI routes replacements and restore notices through bounded paths
   assert.match(
     appSource,
     /workspaceForHistory\(\s*state\.workspaceSession,\s*history\.state\)/);
+  assert.match(
+    appSource,
+    /function historyRequestsStaleWorkspaceMembership\([\s\S]*workspaceHistoryMembershipStatus\(\s*state\.workspaceSession,\s*history\.state,[\s\S]*=== "stale"/);
+  assert.match(
+    appSource,
+    /function reconcileLiveWorkspaceHistoryMembership\(\) \{[\s\S]*workspaceLocation\.replace\(href, workspaceHistoryState\(history\.state\)\);[\s\S]*syncCurrentLiveWorkspace\(\);[\s\S]*render\(\{ synchronizeUrl: false \}\)/);
   assert.match(
     appSource,
     /function pushCurrentWorkspaceLocation\(href: string\) \{\s*workspaceLocation\.push\(href, workspaceHistoryState\(null\)\);\s*rememberCanonicalWorkspaceHref\(href\);\s*\}[\s\S]*function selectWorkspace\([\s\S]*pushCurrentWorkspaceLocation\(currentWorkspaceLocation\(\)\)/);

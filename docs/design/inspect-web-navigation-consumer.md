@@ -462,7 +462,13 @@ browser-session Workspace ID as private history metadata. Back or Forward first
 selects a known associated Workspace and only then applies the entry's URL
 restoration. An absent or unknown ID selects Default; traversal never creates a
 Workspace from history metadata. The URL continues to carry the product-owned
-portable state and remains authoritative for the selected projection.
+portable view state. For a known live Workspace, its current membership is
+authoritative: an older history entry may restore a view only while its
+required coordinate remains present, and an exact multi-coordinate entry may
+restore only while its ordered membership still matches. Otherwise the Browser
+replaces that stale entry with the current live projection instead of undoing a
+later add, replacement, or explicit Close. An absent or unknown Workspace ID
+has no live membership authority, so its URL may restore into Default.
 Session-only canonical return locations used by routed surfaces such as Package
 query are retained per browser-session Workspace ID; selecting one Workspace
 cannot expose another Workspace's canonical snapshot through a return link.
@@ -478,11 +484,16 @@ persistence is not yet claimed.
 
 Every asynchronous Browser acquisition or restoration captures both the
 originating browser-session Workspace ID and the existing navigation
-generation. It may mutate state only while both still match. Workspace
-selection starts a new navigation generation, cancels or invalidates
+generation. It may mutate state only while both still match. A restoration
+keeps its empty or partially acquired projection transactional: ordinary
+rendering and a superseding navigation cannot synchronize it into the live
+Workspace record. Success commits the complete projection and releases
+replaced package state no longer retained by a live Workspace; abandonment
+restores the prior live projection and releases transient package state.
+Workspace selection starts a new navigation generation, cancels or invalidates
 destination work, and resets Workspace-local object-reference caches before
 the selected projection is exposed. A late completion from Workspace A cannot
-populate Workspace B even when their coordinate sets are equal.
+populate Workspace B or erase A even when their coordinate sets are equal.
 
 ## Non-claims
 
@@ -504,16 +515,19 @@ this same test file are recorded in
   `live Workspace history and asynchronous results retain their owner`, and
   the composition-root assertions in `spotlight-identity.test.ts` jointly cover
   two Workspaces with overlapping coordinates, a delayed acquisition across an
-  A-to-B-to-A switch, Back and Forward between their history entries, absent
-  and unknown history Workspace IDs, per-Workspace canonical return locations,
-  Query and Credits history-adoption ordering, generation-gated runtime
-  acquisition, and `/#workspace` refresh. The Browser harness runs the
+  A-to-B-to-A switch, cancellation of an empty or partially acquired
+  restoration, Back and Forward between their history entries, rejection of a
+  closed coordinate from an older associated entry, absent and unknown history
+  Workspace IDs, per-Workspace canonical return locations, Query and Credits
+  history-adoption ordering, generation-gated runtime acquisition, and
+  `/#workspace` refresh. The Browser harness runs the
   production Workspace collection and renderer/binder helpers rather than the
   full Wasm application; the composition-root assertions pin their production
   wiring. Together they prove that late work changes neither the selected nor
-  foreign projection, traversal selects only a known Workspace or Default
-  before restoration, equal coordinates do not alias session identity, and an
-  empty route cannot resurrect a closed package.
+  foreign projection or erase the originating stable projection, traversal
+  selects only a known Workspace or Default before restoration, equal
+  coordinates do not alias session identity, and stale history cannot
+  resurrect a closed package.
 - `navigation-consumer.test.ts`:
   `typed outcomes commit only returned state and release authority` covers
   applied, unavailable with and without a replacement snapshot, rejected,
