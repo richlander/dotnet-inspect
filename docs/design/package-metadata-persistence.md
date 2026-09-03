@@ -15,7 +15,7 @@ contract is therefore **unverified**.
 
 Package-metadata persistence owns one decision: whether a time-bounded
 observation for one exact configured package authority, normalized package
-coordinate, and metadata query contract may replace a fresh metadata
+coordinate, and full metadata projection may replace a fresh metadata
 operation.
 
 A lookup returns a reusable present observation, a reusable authoritative
@@ -34,10 +34,11 @@ shared substrate, browser path, output field, or rendering route. It changes
 the existing service path without introducing a shared API, so it creates no
 new browser/Wasm enablement plan or single-host substrate exception.
 
-The full query is the existing product-consumed path. The published-only query
-is an existing public Services method and persistent namespace whose exact-head
-callers are tests; this design does not claim a current product consumer for
-that query or add a public force-refresh route to it.
+The full query is the existing product-consumed path.
+The former `GetPublishedDateAsync` method and `v6-published` cache namespace
+had only test callers and are removed in this slice rather than specified
+without a consumer. `DotnetInspector.Services` is not separately packable;
+current product callers use `FetchAllMetadataAsync`.
 
 Rendering is unchanged. The cache continues to return typed `PackageMetadata`
 consumed by the existing package presentation path; it does not format data or
@@ -72,7 +73,6 @@ It consumes:
 - a package-owner-issued runtime authority and credential-safe durable
   configured-authority cache key;
 - the package owner's normalized package ID and exact normalized version;
-- a metadata query contract;
 - compatible NuGet endpoint evidence already admitted and bounded under the
   NuGet API contracts; and
 - `CoreCache` storage under one versioned metadata-persistence contract.
@@ -123,7 +123,6 @@ PackageMetadataPersistenceSubject
   durable configured-authority cache key
   normalized package ID
   normalized package version
-  metadata query contract
   metadata persistence contract
 ```
 
@@ -137,12 +136,6 @@ Every dimension is load-bearing:
 - **Coordinate** identifies the package version described by the observation.
   This owner consumes package-owned normalization rather than defining a
   second spelling.
-- **Query contract** separates published-date lookup from full aggregate
-  metadata. A present published-date observation cannot satisfy a full
-  metadata request even when its coordinate and authority match. Equality is
-  intentionally exact in both directions: a full observation also does not
-  answer a published-only request, avoiding a second subsumption and completion
-  rule merely because both projections can carry `Published`.
 - **Persistence contract** identifies the closed serialized projection and its
   state semantics. A contract change selects a successor namespace; old bytes
   are never reinterpreted under the new contract.
@@ -208,20 +201,12 @@ another optional value. The completion outcome records that acquisition
 settled; field defaults cannot reconstruct that evidence.
 
 An operation that settles authoritatively without a value differs from an
-operation failure. For example, when registration definitively reports the
-version not found but a package-content probe establishes that it exists, a
-published-only query is complete with no publication date. A malformed,
-timed-out, or failed registration operation followed by the same successful
-existence probe is present-but-partial and cannot publish.
-
-The persistent projection is scoped to the exact query contract.
-Published-only persistence carries publication and existence states; fields
-that query never requested are not persisted evidence. Full persistence
-contains the current `PackageMetadata` fields: publication time, total and
-version downloads, version count, package size, verification, listing, owners,
-deprecation state and value, and vulnerability state and values. Within either
-closed inventory, a member's null, false, zero, empty, and non-empty states
-remain distinct whenever the typed model distinguishes them. In particular:
+operation failure. The persistent projection contains the current
+`PackageMetadata` fields: publication time, total and version downloads,
+version count, package size, verification, listing, owners, deprecation state
+and value, and vulnerability state and values. Within this closed inventory, a
+member's null, false, zero, empty, and non-empty states remain distinct whenever
+the typed model distinguishes them. In particular:
 
 | Evidence family | Persistent states |
 | --- | --- |
@@ -382,10 +367,10 @@ producer or endpoint identity need not mean equal configured authorization.
 
 ## Current implementation gap
 
-`PackageMetadataService` currently keys `v6-published` and `v6-full` entries
-with `NuGetCache.GetSourceKey(source.Url)`. That separates many sources but
-does not consume the package owner's configured authority and cannot satisfy
-the target cache subject.
+`PackageMetadataService` currently keys `v6-full` entries with
+`NuGetCache.GetSourceKey(source.Url)`. That separates many sources but does not
+consume the package owner's configured authority and cannot satisfy the target
+cache subject.
 
 `MetadataFieldCache` recognizes exact `metadata-v7:absent` bytes or any payload
 starting with `metadata-v7:present`. Although present entries write a
@@ -401,12 +386,9 @@ present metadata can be cached, and failed full-query catalog, search,
 registration, or NuGet vulnerability index/page acquisition does not publish.
 GitHub advisory detail failure is different: it currently returns without
 making the vulnerability operation incomplete, so missing CVE or summary data
-can publish as a complete-looking snapshot. Published-only lookup also does not
-carry the same completion guard: a failed or malformed registration operation
-followed by a successful package-content probe can publish a present entry.
-Existing tests establish the narrower full-query properties but do not prove
-advisory-detail completion, target authority, published-only completion,
-freshness transition, complete projection, or framing.
+can publish as a complete-looking snapshot. Existing tests establish the
+narrower full-query properties but do not prove advisory-detail completion,
+target authority, freshness transition, complete projection, or framing.
 
 Target adoption must use a successor subject and payload namespace rather than
 relabeling `v6`/`metadata-v7` bytes. Until package source composition supplies
@@ -423,9 +405,8 @@ The target remains unverified until Release tests establish:
 
 - `PackageMetadataPersistence_SubjectControlsReuse`, covering distinct
   configured authorities with equal producer identity, an authority without a
-  durable key, normalized coordinates, published-only versus full queries, and
-  predecessor namespace rejection followed by cold recomputation and reusable
-  successor publication;
+  durable key, normalized coordinates, and predecessor namespace rejection
+  followed by cold recomputation and reusable successor publication;
 - `PackageMetadataPersistence_FreshObservationControlsReuse`, covering present
   and absent reuse without access-time extension, expiry, the
   absent-to-present transition, repeated fresh absence, force refresh, and an
