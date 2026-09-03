@@ -136,6 +136,16 @@ public sealed class BrowserEngineLayeringTests
         Assert.Contains(
             banned,
             symbol => symbol.StartsWith(
+                "M:ILInspector.Metadata.ResolvedAssemblyReference.SelectFromPath(",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            banned,
+            symbol => symbol.StartsWith(
+                "M:ILInspector.Metadata.ResolvedAssemblyReference.SelectFromStream(",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            banned,
+            symbol => symbol.StartsWith(
                 "M:ILInspector.Metadata.ResolvedAssemblyReference.CreateFromStreamIfManaged",
                 StringComparison.Ordinal));
         Assert.Contains(
