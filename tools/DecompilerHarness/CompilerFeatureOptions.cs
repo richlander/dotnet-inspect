@@ -25,8 +25,7 @@ static class CompilerFeatureOptions
     {
         var options = ParseOptions();
         var features = new List<KeyValuePair<string, string>>();
-        if (pe.HasMetadata
-            && AssemblyDetailScanner.ScanAuditMetadata(pe).MemorySafetyRulesVersion is not null)
+        if (pe.HasMetadata && ModuleUsesUpdatedMemorySafetyRules(pe))
         {
             features.Add(new("updated-memory-safety-rules", "true"));
         }
@@ -36,6 +35,18 @@ static class CompilerFeatureOptions
 
         return features.Count == 0 ? options : options.WithFeatures(features);
     }
+
+    /// <summary>
+    /// Recompilation opts into the updated rules only for the recognized v2
+    /// module marker. An unsupported, malformed, conflicting, or unreadable
+    /// marker is not the updated model and must not enable the feature.
+    /// </summary>
+    static bool ModuleUsesUpdatedMemorySafetyRules(PEReader pe)
+        => MemorySafetyMetadataIndex.Create(pe.GetMetadataReader()).Rules
+            is MemorySafetyRulesResult.Available
+            {
+                State: MemorySafetyRulesState.Updated
+            };
 
     static bool ModuleUsesRuntimeAsync(PEReader pe)
     {
