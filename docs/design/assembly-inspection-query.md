@@ -218,13 +218,14 @@ Compatibility selection classifies metadata once a path or readable stream is
 opened. `ResolvedAssemblyReference.SelectFromPath` and `SelectFromStream`
 return an `AssemblyDescriptorSelectionResult`: `Ready` carries the selected
 descriptor, `Descriptorless` identifies an image with no usable managed
-assembly identity because it is an unrecognized non-PE image, structurally
-valid native image, or managed netmodule. `Rejected` carries an `InvalidImage`
-failure when recognizable PE intent has invalid PE or CLR structure, or when
-managed metadata cannot yield a usable assembly identity. I/O, authorization,
-and opener-contract failures remain visible exceptions. Consumers must not
-decode PE metadata or inspect exception text to recreate the three-way
-classification.
+assembly identity because it is an unrecognized non-PE image, including a
+DOS-signature image whose DOS header does not resolve to a PE signature, a
+structurally valid native image, or a managed netmodule. Once the DOS header
+resolves to a PE signature, `Rejected` carries an `InvalidImage` failure for
+invalid subsequent PE or CLR structure, or when managed metadata cannot yield
+a usable assembly identity. I/O, authorization, and opener-contract failures
+remain visible exceptions. Consumers must not decode PE metadata or inspect
+exception text to recreate the three-way classification.
 
 The existing nullable factories are shims over this result while preserving
 their exact compatibility behavior: they return the descriptor, return `null`
