@@ -218,6 +218,89 @@ public sealed class ClassicInverseCoreTests
     }
 
     [Fact]
+    public void ClassicInverseRawAndPlanningValuesRetainIdentity()
+    {
+        using RequestScope scope = OpenRequest("TwoSequentialAwaits");
+        ClassicInverseRequest request = CopyRequest(
+            scope.Request,
+            runPasses: (body, passes) =>
+            {
+                scope.Request.RunPasses!(body, passes);
+                if (body.Name != "MoveNext")
+                    return;
+
+                Call[] binds =
+                [
+                    .. body.Body.Descendants
+                        .OfType<Call>()
+                        .Where(call =>
+                            call.Callee.Name == "GetAwaiter"
+                            && call.Arguments.Count == 1),
+                ];
+                Assert.Equal(2, binds.Length);
+                IrNode first = binds[0].Children[0].Clone();
+                IrNode second = binds[1].Children[0].Clone();
+                binds[0].SetChild(0, second);
+                binds[1].SetChild(0, first);
+            });
+
+        var decline = Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(request));
+        Assert.Equal(
+            ClassicInverseDeclineReason.UnrealizedSemanticEffect,
+            decline.Reason);
+        Assert.Contains(
+            "change semantic value identity at position",
+            decline.Detail,
+            StringComparison.Ordinal);
+
+        using RequestScope dropped = OpenRequest(
+            "SequentialWithRealizedInitializer");
+        ClassicInverseRequest droppedRequest = CopyRequest(
+            dropped.Request,
+            runPasses: (body, passes) =>
+            {
+                dropped.Request.RunPasses!(body, passes);
+                if (body.Name != "MoveNext")
+                    return;
+
+                Binary sum = Assert.Single(
+                    body.Body.Descendants.OfType<Binary>(),
+                    binary => binary.Kind == BinaryKind.Add);
+                sum.ReplaceWith(sum.Left.Clone());
+            });
+        var droppedDecline = Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(droppedRequest));
+        Assert.Equal(
+            ClassicInverseDeclineReason.UnrealizedSemanticEffect,
+            droppedDecline.Reason);
+        Assert.Contains(
+            "different semantic value sequences",
+            droppedDecline.Detail,
+            StringComparison.Ordinal);
+
+        ClassicInversePlan plan = Reconstruct(scope.Request);
+        Assert.Contains(
+            plan.PhysicalPartition,
+            region => region.Disposition
+                == ClassicInverseRegionDisposition.Semantic
+                && region.Rule == "raw:user-value"
+                && region.NodeForm.Contains(".a (Task<int>)"));
+        Assert.Contains(
+            plan.PhysicalPartition,
+            region => region.Disposition
+                == ClassicInverseRegionDisposition.Semantic
+                && region.Rule == "raw:user-value"
+                && region.NodeForm.Contains(".b (Task<int>)"));
+        Assert.DoesNotContain(
+            plan.PhysicalPartition,
+            region => region.Rule == "raw:user-value"
+                && region.NodeForm.Contains(
+                    "TaskAwaiter",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ClassicInverseSemanticLedgerRejectsGloballyReorderedClaims()
     {
         using RequestScope scope = OpenRequest("TwoSequentialNamedAwaits");

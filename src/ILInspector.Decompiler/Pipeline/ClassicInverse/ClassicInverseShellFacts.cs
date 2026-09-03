@@ -203,11 +203,14 @@ internal static class ClassicInverseNodeFacts
             _ => null,
         };
 
-    static bool IsEffectFreeTuple(NewObject creation)
+    internal static bool IsEffectFreeTuple(NewObject creation)
+        => creation.Constructor.ConstructorEffectFree
+            || IsValueTupleConstruction(creation);
+
+    internal static bool IsValueTupleConstruction(NewObject creation)
     {
         TypeRef type = Definition(creation.Constructor.DeclaringType);
-        return creation.Constructor.ConstructorEffectFree
-            || MemberIdentity.IsCoreLibraryType(type, "System", "ValueTuple")
+        return MemberIdentity.IsCoreLibraryType(type, "System", "ValueTuple")
             || Enumerable.Range(1, 8).Any(arity =>
                 MemberIdentity.IsCoreLibraryType(
                     type,

@@ -46,6 +46,10 @@ internal sealed class ClassicInverseAccountant
     readonly HashSet<IrNode> _covered = new(ReferenceEqualityComparer.Instance);
     readonly HashSet<IrNode> _rawCovered =
         new(ReferenceEqualityComparer.Instance);
+    readonly HashSet<IrNode> _rawSemanticValues =
+        new(ReferenceEqualityComparer.Instance);
+    readonly HashSet<IrNode> _rawSemanticReceiptNodes =
+        new(ReferenceEqualityComparer.Instance);
     ImmutableArray<string> _planningEffectOrder = [];
 
     BlockContainer _output = null!;
@@ -325,15 +329,329 @@ internal sealed class ClassicInverseAccountant
             "raw-kickoff-shell");
         CoverRawSubtree(_request.KickoffBody.Body);
 
+        if (!VerifyRawValueClosure())
+            return false;
         if (!WalkRawExecution(_request.ExecutionBody.Body))
             return false;
         if (_terminal is not null)
             return false;
+        if (_rawSemanticValues.Any(
+                value => !_rawSemanticReceiptNodes.Contains(value)))
+        {
+            return DeclineFalse(
+                ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+                "a raw semantic value is covered by a non-semantic receipt");
+        }
         if (!VerifyRawSemanticClosure())
             return false;
 
         return VerifyRawPartitionIsComplete();
     }
+
+    bool VerifyRawValueClosure()
+    {
+        ImmutableArray<IrNode> planningValues =
+            PlanningSemanticValueAtoms(_planning.ExecutionBody.Body);
+        if (_terminal is not null)
+            return false;
+        if (planningValues.Any(static node => node.SourceOffset < 0))
+        {
+            return DeclineFalse(
+                ClassicInverseDeclineReason.MissingImportCorrespondence,
+                "a planning semantic value has no raw import offset");
+        }
+
+        ImmutableHashSet<int> planningOffsets =
+            planningValues.Select(static node => node.SourceOffset)
+                .ToImmutableHashSet();
+        ImmutableArray<IrNode> rawValues =
+            RawSemanticValueAtoms(_request.ExecutionBody.Body)
+                .Where(node =>
+                    planningOffsets.Contains(node.SourceOffset)
+                    || IsMappedMachineValue(node)
+                    || (node is not LoadLocal
+                        && HasRawSemanticOwner(node)))
+                .ToImmutableArray();
+        if (_terminal is not null)
+            return false;
+
+        if (rawValues.Length != planningValues.Length)
+        {
+            return DeclineFalse(
+                ClassicInverseDeclineReason.UnrealizedSemanticEffect,
+                "the raw import and planning view have different semantic "
+                    + $"value sequences: [{FormatValues(rawValues)}] -> "
+                    + $"[{FormatValues(planningValues)}]");
+        }
+
+        for (int i = 0; i < rawValues.Length; i++)
+        {
+            IrNode raw = rawValues[i];
+            IrNode planning = planningValues[i];
+            if (raw.SourceOffset != planning.SourceOffset
+                || !SemanticValueEquals(raw, planning))
+            {
+                return DeclineFalse(
+                    ClassicInverseDeclineReason.UnrealizedSemanticEffect,
+                    "the raw import and planning view change semantic value "
+                        + $"identity at position {i}: "
+                        + $"{raw.Describe()}@{raw.SourceOffset} -> "
+                        + $"{planning.Describe()}@{planning.SourceOffset}");
+            }
+            _rawSemanticValues.Add(raw);
+        }
+
+        return true;
+    }
+
+    bool IsMappedMachineValue(IrNode node)
+    {
+        FieldRef? field = node switch
+        {
+            LoadField load when ClassicInverseNodeFacts.IsMachineField(
+                load.Field,
+                _shell.Machine) => load.Field,
+            LoadFieldAddress load when ClassicInverseNodeFacts.IsMachineField(
+                load.Field,
+                _shell.Machine) => load.Field,
+            _ => null,
+        };
+        return field is not null
+            && (_candidate.ParameterFields.ContainsKey(field.Name)
+                || _candidate.HoistedLocals.ContainsKey(field.Name));
+    }
+
+    bool HasRawSemanticOwner(IrNode node)
+    {
+        for (IrNode? current = node; current is not null; current = current.Parent)
+        {
+            if (!_budget.Charge())
+            {
+                _terminal ??= ClassicInverseDecision.FailWith(
+                    ClassicInverseFailureKind.BudgetExhausted,
+                    "raw value-owner accounting exhausted the planning budget");
+                return false;
+            }
+            ClassicInverseProtocolRule protocol =
+                ClassicInverseProtocol.Classify(current, _shell, _candidate);
+            if (protocol.Kind == ClassicInverseProtocolKind.OwnedProtocol)
+                return false;
+
+            if (current is StoreLocal result
+                && result.Index == _candidate.ResultLocal)
+            {
+                return true;
+            }
+            if (current is StoreField hoisted
+                && ClassicInverseNodeFacts.IsMachineField(
+                    hoisted.Field,
+                    _shell.Machine)
+                && _candidate.HoistedLocals.ContainsKey(hoisted.Field.Name))
+            {
+                return true;
+            }
+
+            string? effect =
+                ClassicInverseNodeFacts.EffectSignature(current, _shell.Machine);
+            if (effect is not null
+                && !IsRawExecutionProtocolEffect(current)
+                && !IsRawLoopElementArtifact(current))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    ImmutableArray<IrNode> PlanningSemanticValueAtoms(IrNode root)
+    {
+        var values = ImmutableArray.CreateBuilder<IrNode>();
+        Visit(root);
+        return values.ToImmutable();
+
+        void Visit(IrNode node)
+        {
+            if (!_budget.Charge())
+            {
+                _terminal ??= ClassicInverseDecision.FailWith(
+                    ClassicInverseFailureKind.BudgetExhausted,
+                    "planning value accounting exhausted the planning budget");
+                return;
+            }
+            foreach (IrNode child in node.Children)
+            {
+                if (_terminal is not null)
+                    return;
+                Visit(child);
+            }
+
+            if (EnclosingClaimSource(node) is null)
+                return;
+            if (IsSemanticValueAtom(node))
+            {
+                values.Add(node);
+                return;
+            }
+            if (node is IrExpression
+                && ClassicInverseNodeFacts.EffectSignature(
+                    node,
+                    _shell.Machine) is null
+                && !IsKnownRaisedValueStructure(node))
+            {
+                _terminal ??= Decline(
+                    ClassicInverseDeclineReason.UnrealizedSemanticEffect,
+                    $"claimed semantic value form '{node.Describe()}' "
+                        + "has no raw/planning identity rule");
+            }
+        }
+    }
+
+    ImmutableArray<IrNode> RawSemanticValueAtoms(IrNode root)
+    {
+        var values = ImmutableArray.CreateBuilder<IrNode>();
+        Visit(root);
+        return values.ToImmutable();
+
+        void Visit(IrNode node)
+        {
+            if (!_budget.Charge())
+            {
+                _terminal ??= ClassicInverseDecision.FailWith(
+                    ClassicInverseFailureKind.BudgetExhausted,
+                    "raw value accounting exhausted the planning budget");
+                return;
+            }
+            ClassicInverseProtocolRule protocol =
+                ClassicInverseProtocol.Classify(node, _shell, _candidate);
+            if (protocol.Kind is ClassicInverseProtocolKind.OwnedProtocol
+                or ClassicInverseProtocolKind.Preserved)
+            {
+                return;
+            }
+
+            foreach (IrNode child in node.Children)
+            {
+                if (_terminal is not null)
+                    return;
+                Visit(child);
+            }
+
+            if (protocol.Kind == ClassicInverseProtocolKind.None
+                && !IsRawExecutionProtocolEffect(node)
+                && IsSemanticValueAtom(node))
+            {
+                values.Add(node);
+            }
+        }
+    }
+
+    bool IsSemanticValueAtom(IrNode node)
+        => node is LoadArgument { Index: not 0 }
+            or LoadArgumentAddress { Index: not 0 }
+            or LoadField
+            or LoadFieldAddress
+            or Constant
+            or Binary
+            or Comparison
+            or LogicalBinary
+            or Coalesce
+            or Conditional
+            or Convert
+            or Coerce
+            or LogicalNot
+            or Unary
+            or Box
+            or IsInstance
+            or TypeOf
+            or SizeOf
+            or DefaultValue
+            || node is LoadLocal localValue
+                && !IsShellLocal(localValue.Index)
+            || node is LoadLocalAddress localAddress
+                && !IsShellLocal(localAddress.Index)
+            || node is NewObject creation
+                && creation.Constructor.ConstructorEffectFree
+                && !ClassicInverseNodeFacts.IsValueTupleConstruction(creation);
+
+    bool IsShellLocal(int index)
+        => index == _shell.StateLocal
+            || _shell.AwaiterLocals.Contains(index);
+
+    bool IsKnownRaisedValueStructure(IrNode node)
+        => node is LoadArgument { Index: 0 }
+            or LoadStackSlot
+            or TupleExpression
+            or ObjectInitializerExpression
+            or WithExpression
+            or InitializerBlock
+            || node is LoadLocal local
+                && IsShellLocal(local.Index)
+            || node is LoadLocalAddress localAddress
+                && IsShellLocal(localAddress.Index)
+            || node is NewObject creation
+                && ClassicInverseNodeFacts.IsValueTupleConstruction(creation);
+
+    static string FormatValues(IEnumerable<IrNode> values)
+        => string.Join(
+            ",",
+            values.Select(static value =>
+                $"{value.Describe()}@{value.SourceOffset}"));
+
+    static bool SemanticValueEquals(IrNode raw, IrNode planning)
+        => (raw, planning) switch
+        {
+            (LoadArgument left, LoadArgument right) =>
+                left.Index == right.Index
+                && left.Name == right.Name
+                && Equals(left.Type, right.Type)
+                && left.IsDynamic == right.IsDynamic
+                && left.ArrayElementIsDynamic == right.ArrayElementIsDynamic,
+            (LoadArgumentAddress left, LoadArgumentAddress right) =>
+                left.Index == right.Index
+                && left.Name == right.Name
+                && Equals(left.Type, right.Type),
+            (LoadLocal left, LoadLocal right) =>
+                left.Index == right.Index && Equals(left.Type, right.Type),
+            (LoadLocalAddress left, LoadLocalAddress right) =>
+                left.Index == right.Index && Equals(left.Type, right.Type),
+            (LoadField left, LoadField right) =>
+                left.Field == right.Field,
+            (LoadFieldAddress left, LoadFieldAddress right) =>
+                left.Field == right.Field,
+            (Constant left, Constant right) =>
+                Equals(left.Value, right.Value)
+                && Equals(left.Type, right.Type),
+            (Binary left, Binary right) =>
+                left.Kind == right.Kind
+                && left.IsChecked == right.IsChecked
+                && left.IsUnsigned == right.IsUnsigned,
+            (Comparison left, Comparison right) =>
+                left.Kind == right.Kind
+                && left.IsUnsigned == right.IsUnsigned,
+            (LogicalBinary left, LogicalBinary right) =>
+                left.Kind == right.Kind,
+            (Coalesce, Coalesce) => true,
+            (Conditional left, Conditional right) =>
+                Equals(left.MergedType, right.MergedType),
+            (Convert left, Convert right) =>
+                Equals(left.Target, right.Target)
+                && left.IsChecked == right.IsChecked
+                && left.IsUnsigned == right.IsUnsigned,
+            (Coerce left, Coerce right) =>
+                Equals(left.Target, right.Target),
+            (LogicalNot, LogicalNot) => true,
+            (Unary left, Unary right) => left.Kind == right.Kind,
+            (Box left, Box right) => Equals(left.Type, right.Type),
+            (IsInstance left, IsInstance right) =>
+                Equals(left.Type, right.Type),
+            (TypeOf left, TypeOf right) => Equals(left.Type, right.Type),
+            (SizeOf left, SizeOf right) => Equals(left.Type, right.Type),
+            (DefaultValue left, DefaultValue right) =>
+                Equals(left.Type, right.Type),
+            (NewObject left, NewObject right) =>
+                left.Constructor == right.Constructor,
+            _ => false,
+        };
 
     bool ValidateRawKickoff()
     {
@@ -592,10 +910,10 @@ internal sealed class ClassicInverseAccountant
                 ClassicInverseBodyId.Execution,
                 node,
                 ClassicInverseRegionDisposition.Protocol,
-                ownsSubtree: true,
-                "raw:awaiter-protocol-effect");
-            CoverRawSubtree(node);
-            return true;
+                ownsSubtree: false,
+                "raw:protocol-effect-frame");
+            _rawCovered.Add(node);
+            return WalkRawChildren(node);
         }
 
         if (ClassicInverseNodeFacts.IsUnknownEffectForm(node))
@@ -607,14 +925,19 @@ internal sealed class ClassicInverseAccountant
 
         string? effect =
             ClassicInverseNodeFacts.EffectSignature(node, _shell.Machine);
+        bool semanticValue = _rawSemanticValues.Contains(node);
         RecordRawRegion(
             ClassicInverseBodyId.Execution,
             node,
-            effect is null
+            effect is null && !semanticValue
                 ? ClassicInverseRegionDisposition.Preserved
                 : ClassicInverseRegionDisposition.Semantic,
             ownsSubtree: false,
-            effect is null ? "raw:pure-structure" : $"raw:user-effect:{effect}");
+            effect is not null
+                ? $"raw:user-effect:{effect}"
+                : semanticValue
+                    ? "raw:user-value"
+                    : "raw:pure-structure");
         _rawCovered.Add(node);
         return WalkRawChildren(node);
     }
@@ -1615,6 +1938,8 @@ internal sealed class ClassicInverseAccountant
         }
         _rawRegions.Add(region);
         _rawReceiptNodes.Add((node, region));
+        if (disposition == ClassicInverseRegionDisposition.Semantic)
+            _rawSemanticReceiptNodes.Add(node);
     }
 
     static ImmutableArray<int> RawOffsets(IrNode node)

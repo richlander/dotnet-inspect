@@ -242,7 +242,7 @@ The resulting matrix separates artifact availability from reconstruction:
 | --- | --- | --- |
 | Implementation | Kickoff, `MoveNext`, and `SetStateMachine` retain compiler IL. | Authenticated request; the neighboring accepted recipe reconstructs. |
 | SDK reference | The same MethodDefs retain synthesized `ldnull; throw` bodies. | Authenticated request; `ClassicInverseBodyReplacingReferenceAssembliesDecline` remains the core gate. |
-| Ordinary trim, reachable method | Kickoff and `MoveNext` remain, but ILLink removes `SetStateMachine`. | Metadata authenticates the relationship with `SetStateMachine: AbsentFromArtifact`; #5277 must form the request so the inverse can prove or decline the retained bodies. |
+| Ordinary trim, reachable method | Kickoff and `MoveNext` remain, but ILLink removes `SetStateMachine`. | Metadata authenticates the relationship with `SetStateMachine: AbsentFromArtifact`; the retained bodies form an authenticated request and reconstruct. |
 | Ordinary trim, unused method | The kickoff and generated state machine are removed. | No core request forms. |
 | Role-preserved trim | All required MethodDefs retain post-trim IL. | Authenticated request; the accepted recipe reconstructs from the trimmed artifact. |
 | Default-interface implementation | The kickoff and execution MethodDefs carry managed IL. | Authenticated request without a declaring-type category exclusion. |
@@ -263,7 +263,7 @@ directly to `DecompilerHarness --dump` for the PR demo. These fixture gates
 prove the stated artifact premises and exercise the direct inverse-core
 reference/default-interface decisions below.
 
-The #5277 adapter supplies the authenticated request boundary. The
+The request adapter supplies the authenticated request boundary. The
 implementation and role-preserved artifacts reconstruct through that request;
 the ordinary-trim artifact retains a request whose optional
 `SetStateMachine` role is `AbsentFromArtifact`; and the removed method forms no
@@ -314,9 +314,16 @@ Receipt paths name their coordinate space explicitly: physical regions use
 `Import`, semantic and ancestor source paths use `Planning`, and reconstructed
 paths use `Output`. Planning-space semantic and ancestor receipts also carry
 the imported IL offsets that bridge them to the raw physical ledger. The core
-compares the raw and planning semantic-effect streams before publishing a plan;
-a prerequisite pass may change representation but cannot drop, duplicate, or
-reorder an effect.
+compares ordered raw and planning semantic-effect and typed-value streams
+before publishing a plan; a prerequisite pass may change representation but
+cannot reorder or exchange a raw-backed value, or drop, duplicate, or reorder
+an effect. Every compared typed value retains an imported offset; a synthesized
+raised wrapper can be structural only under an explicit closed rule whose
+children and separately consumed effects remain accounted.
+Shell-owned state and awaiter locals are protocol, not user values. Raw local
+reads explicitly realized as recipe temporaries are excluded from the
+cross-space value stream; their typed planning-to-output realization remains
+owned by the recipe lockstep.
 
 ## Proof-carrying plan
 
@@ -474,6 +481,7 @@ Release gates:
 | `ClassicInversePlanPartitionsPhysicalRegions` | A region is missing, overlaps another region, or has an unexplained entry, use, or alias. |
 | `ClassicInversePhysicalPartitionCoversRawRegionsConsumedByRaising` | A prerequisite pass consumes a raw region and the import-space partition fails to retain it. |
 | `ClassicInversePlanRealizesEverySemanticEffectExactlyOnce` | An input effect is omitted or duplicated, an output effect lacks an input receipt, or preserved material supplies reconstructed semantics. |
+| `ClassicInverseRawAndPlanningValuesRetainIdentity` | A prerequisite pass exchanges raw-backed values or changes a covered typed value while retaining a superficially valid effect stream. |
 | `ClassicInverseSemanticLedgerRejectsGloballyReorderedClaims` | Individually valid realizations are reordered across claim boundaries. |
 | `ClassicInverseSemanticLedgerIncludesInitializerMemberEffects` | A raised initializer or `with` expression omits its consumed setter, `Add`, or field-store effect. |
 | `ClassicInversePlanRequiresCompleteStructuredAncestorPaths` | A consumed node has an unknown ancestor or loses a condition, loop, exception context, or structured transfer. |

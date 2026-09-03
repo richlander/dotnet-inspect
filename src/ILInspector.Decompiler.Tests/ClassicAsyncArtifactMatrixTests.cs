@@ -87,6 +87,8 @@ public sealed class ClassicAsyncArtifactMatrixTests
         Assert.IsType<StateMachineRoleDisposition.AbsentFromArtifact>(
             request.Request.Relationship.GetRole(
                 StateMachineMethodRole.SetStateMachine));
+
+        AssertReconstructsAcceptedRecipe(matrix.Trimmed);
     }
 
     [Fact]

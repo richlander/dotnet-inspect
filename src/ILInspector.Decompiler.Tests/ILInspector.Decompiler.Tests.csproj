@@ -58,6 +58,7 @@
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.CrossAssemblyEnums\ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.csproj" />
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.ClassicAsync\ILInspector.Decompiler.Fixtures.ClassicAsync.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.ClassicAsyncArtifacts\ILInspector.Decompiler.Fixtures.ClassicAsyncArtifacts.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.ClassicStateMachines\ILInspector.Decompiler.Fixtures.ClassicStateMachines.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.RuntimeAsync\ILInspector.Decompiler.Fixtures.RuntimeAsync.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.NewUnsafe\ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" />
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.UnsafeChainA\ILInspector.Decompiler.Fixtures.UnsafeChainA.csproj" />
