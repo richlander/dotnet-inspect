@@ -252,6 +252,14 @@ public static class MemberCommand
                     options.RouterDeferredTypeOrMember
                         ? unresolvedOptions
                         : options;
+                if (!planningOptions.MemberSectionsPreResolved)
+                {
+                    planningOptions = planningOptions with
+                    {
+                        IncludeSections = null,
+                        ExactIncludeSectionsOverride = null,
+                    };
+                }
                 executionPlan =
                     ResolvedMemberInspectionPlan
                         .FromCompatibilityOptions(

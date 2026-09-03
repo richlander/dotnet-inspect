@@ -509,7 +509,8 @@ public static class StructuralViewRegistry
     public static StructuralCatalogAlternatives
         CreateCommandlessAlternatives(
             string[] tokens,
-            StructuralDiscoveryRequest request)
+            StructuralDiscoveryRequest request,
+            string? sourceIdentityTypeTarget = null)
     {
         ArgumentNullException.ThrowIfNull(tokens);
         if (tokens.Length == 0)
@@ -566,10 +567,9 @@ public static class StructuralViewRegistry
                 .LastOrDefault();
         var (typeFilter, _) =
             SharedParsers.ParseTypeFilter(typeMarkerValue);
-        string typeCatalogTarget =
+        string? typeCatalogTarget =
             (isPackageIdentity || isPlatformIdentity)
-            && typeMarkerValue is not null
-                ? typeMarkerValue
+                ? sourceIdentityTypeTarget
                 : target;
         bool hasTypeFilter =
             new TypeGestureIntent(typeFilter)
@@ -1372,10 +1372,15 @@ public static class StructuralViewRegistry
         return selector.OverloadIndex is not null
             || !string.IsNullOrWhiteSpace(
                 selector.DigestPrefix)
-            || memberName is ".ctor" or ".cctor"
+            || memberName.Equals(
+                ".ctor",
+                StringComparison.OrdinalIgnoreCase)
+            || memberName.Equals(
+                ".cctor",
+                StringComparison.OrdinalIgnoreCase)
             || selector.Name.StartsWith(
                 "op_",
-                StringComparison.Ordinal)
+                StringComparison.OrdinalIgnoreCase)
             || memberName.StartsWith(
                 "explicit:",
                 StringComparison.OrdinalIgnoreCase)
@@ -1427,11 +1432,15 @@ public static class StructuralViewRegistry
 
     internal static bool RejectUniversallyInvalidCommandlessRequest(
         string[] tokens,
-        StructuralDiscoveryRequest request)
+        StructuralDiscoveryRequest request,
+        string? sourceIdentityTypeTarget = null)
     {
         StructuralSchemaProjection[] projections =
         [
-            .. CreateCommandlessAlternatives(tokens, request)
+            .. CreateCommandlessAlternatives(
+                    tokens,
+                    request,
+                    sourceIdentityTypeTarget)
                 .Alternatives
                 .Select(alternative =>
                     Project(alternative.Route)),
@@ -1631,8 +1640,11 @@ public static class StructuralViewRegistry
                     "--section")
                 .SelectMany(value =>
                     value.Split(
-                        ',',
+                        [',', ';'],
                         StringSplitOptions.TrimEntries
-                        | StringSplitOptions.RemoveEmptyEntries)),
+                        | StringSplitOptions.RemoveEmptyEntries))
+                .Select(
+                    ArgumentPreprocessor
+                        .UnescapeAtCategoryValue),
         ];
 }

@@ -818,6 +818,35 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
+    public async Task PositionalLibraryConflictingDottedOrdinals_AreRejectedStatically()
+    {
+        string fixture =
+            typeof(Fixtures.BodyShapeFixture).Assembly.Location;
+        string target =
+            $"{typeof(Fixtures.BodyShapeFixture).FullName}."
+            + $"{nameof(Fixtures.BodyShapeFixture.Classify)}:1";
+
+        var result = await RunAppAsync(
+            "member",
+            fixture,
+            target,
+            "-m",
+            $"{nameof(Fixtures.BodyShapeFixture.Classify)}:2",
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "cannot combine different overload selectors",
+            result.Error);
+    }
+
+    [Fact]
     public async Task CommandlessGenericBodySchema_IsOneTypeView()
     {
         var result = await RunAppAsync(
@@ -880,6 +909,31 @@ public sealed class InspectionPlanningTests
             target,
             "-D",
             "Signature",
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(SectionNames.Signature, result.Output);
+        Assert.DoesNotContain(
+            "[type/",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Empty(result.Error);
+    }
+
+    [Theory]
+    [InlineData("System.String..CTOR")]
+    [InlineData("System.Type..CCTOR")]
+    [InlineData("System.Decimal.OP_Addition")]
+    public async Task CommandlessSpecialMemberSchema_IsCaseInsensitive(
+        string target)
+    {
+        var result = await RunAppAsync(
+            target,
+            "-D",
+            SectionNames.Signature,
             "--schema",
             "--table",
             "--tips",
@@ -2093,6 +2147,116 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
+    public async Task CommandlessSourceIdentityTypeFilterMatchesExplicitType()
+    {
+        string[] projection =
+        [
+            "-t",
+            "*String*",
+            "-D",
+            SectionNames.Classes,
+            "--table",
+            "--tips",
+            "q",
+        ];
+        var commandless = await RunAppAsync(
+            [
+                "System.Private.CoreLib",
+                "--platform",
+                "System.Private.CoreLib",
+                "System.String",
+                .. projection,
+            ]);
+        var explicitType = await RunAppAsync(
+            [
+                "type",
+                "System.String",
+                "--platform",
+                "System.Private.CoreLib",
+                .. projection,
+            ]);
+
+        Assert.Equal(explicitType, commandless);
+        Assert.Equal(0, commandless.Exit);
+    }
+
+    [Fact]
+    public async Task CommandlessSourceIdentityExactTypeFilterMatchesExplicitType()
+    {
+        string[] projection =
+        [
+            "-t",
+            "System.String",
+            "-S",
+            SectionNames.TypeInfo,
+            "--table",
+            "--tips",
+            "q",
+        ];
+        var commandless = await RunAppAsync(
+            [
+                "System.Private.CoreLib",
+                "--platform",
+                "System.Private.CoreLib",
+                "System.String",
+                .. projection,
+            ]);
+        var explicitType = await RunAppAsync(
+            [
+                "type",
+                "System.String",
+                "--platform",
+                "System.Private.CoreLib",
+                .. projection,
+            ]);
+
+        Assert.Equal(explicitType, commandless);
+        Assert.Equal(0, commandless.Exit);
+    }
+
+    [Fact]
+    public async Task CommandlessDisabledAllLibrariesDoesNotBecomeTarget()
+    {
+        var result = await RunAppAsync(
+            "Missing.Package",
+            "--all-libraries",
+            "false",
+            "-D",
+            "Package Info",
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(
+            "[package/package/Package] Package Info",
+            result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task CommandlessLeadingDisabledAllLibrariesDoesNotBecomeTarget()
+    {
+        var result = await RunAppAsync(
+            "--all-libraries",
+            "false",
+            "Missing.Package",
+            "-D",
+            "Package Info",
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(
+            "[package/package/Package] Package Info",
+            result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
     public async Task StaticGenericMemberTailKeepsPeeledInterpretation()
     {
         string fixture =
@@ -2116,6 +2280,52 @@ public sealed class InspectionPlanningTests
             result.Output);
         Assert.Contains(
             "[member/type-view/ApiMember] unresolved 'Signature'",
+            result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task CommandlessSourceFreeGenericMemberTailKeepsPeeledInterpretation()
+    {
+        var result = await RunAppAsync(
+            "System.Linq.Enumerable.Empty<T>",
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(
+            "[member/member-target/ApiMemberDetail] Signature",
+            result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task CommandlessGenericMemberCategoryKeepsPeeledInterpretation()
+    {
+        string fixture =
+            typeof(MemberGenericSelectorFixture)
+                .Assembly.Location;
+        string target =
+            $"{typeof(MemberGenericSelectorFixture).FullName}.GenericChoice<T>";
+
+        var result = await RunAppAsync(
+            target,
+            "--library",
+            fixture,
+            "-D",
+            "@Source",
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(
+            "[member/member-target/ApiMemberDetail] Annotated Source",
             result.Output);
         Assert.Empty(result.Error);
     }
@@ -2207,6 +2417,29 @@ public sealed class InspectionPlanningTests
         Assert.Empty(result.Output);
         Assert.Contains(
             "Exact-member section selection requires exactly one member name.",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task EffectiveExactSelection_RevalidatesAfterCatalogTransition()
+    {
+        var result = await RunAppAsync(
+            "member",
+            "System.String.Contains:1",
+            "--platform",
+            "System.Private.CoreLib",
+            "-m",
+            "Contains",
+            "-S",
+            SectionNames.Methods,
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"Select value '{SectionNames.Methods}' not found.",
             result.Error);
     }
 

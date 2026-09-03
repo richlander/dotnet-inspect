@@ -738,7 +738,12 @@ public static class MemberOptionsParser
             && splitMemberName != null
             && (splitMemberName.Contains(':')
                 || splitMemberName.Contains('~')
-                || splitMemberName is ".ctor" or ".cctor");
+                || splitMemberName.Equals(
+                    ".ctor",
+                    StringComparison.OrdinalIgnoreCase)
+                || splitMemberName.Equals(
+                    ".cctor",
+                    StringComparison.OrdinalIgnoreCase));
     }
 
     private static (HashSet<string> Filter, int? Limit) BuildMemberFilter(string[] allMembers, bool ctorOnly, out bool clearShorthand)
@@ -802,18 +807,25 @@ public static class MemberOptionsParser
                 out string? dllPath,
                 out string? nupkgPath)
             && (dllPath is not null || nupkgPath is not null);
+        bool positionalFileSelectorSplit =
+            positionalFileSource
+            && typeName is not null
+            && HasMemberSelectorSuffix(typeName);
+        bool selectorSplit =
+            explicitSourceSelectorSplit
+            || positionalFileSelectorSplit;
         bool multiArgumentDottedTarget =
             !sourceInputs.HasExplicitSource
             && sourceInputs.Args.Length > 1
             && !positionalFileSource;
         if (typeName is null
             || (!multiArgumentDottedTarget
-                && !explicitSourceSelectorSplit)
+                && !selectorSplit)
             || !typeName.Contains('.')
             || positionalMembers.Count != 0
             || (optionMembers.Length != 0
                 && (!mergeExplicitMemberSelectors
-                    || !explicitSourceSelectorSplit)))
+                    || !selectorSplit)))
         {
             return;
         }

@@ -90,6 +90,10 @@ public static class RouterCommandDefinition
             bool structuralDiscovery =
                 opts.IsDiscoveryMode(sourceParseResult)
                 && opts.ParseSchema(sourceParseResult);
+            string? sourceIdentityTypeTarget =
+                RouterTokenRewriter.GetSecondaryPositionalTarget(
+                    tokens,
+                    rootCommand);
             if (structuralDiscovery
                 && RouterTokenRewriter.TryRewriteAcquisitionFree(
                     tokens,
@@ -158,7 +162,8 @@ public static class RouterCommandDefinition
                     StructuralViewRegistry
                         .CreateCommandlessAlternatives(
                             tokens,
-                            request);
+                            request,
+                            sourceIdentityTypeTarget);
                 RequestTelemetry.Breadcrumb(
                     "router-structural",
                     "alternatives: "
@@ -186,7 +191,8 @@ public static class RouterCommandDefinition
                 if (StructuralViewRegistry
                     .RejectUniversallyInvalidCommandlessRequest(
                         tokens,
-                        commandlessRequest))
+                        commandlessRequest,
+                        sourceIdentityTypeTarget))
                 {
                     return 1;
                 }
@@ -790,6 +796,10 @@ public static class RouterCommandDefinition
                         .HasExplicitGenericTypeTail(target)
                     && !StructuralViewRegistry
                         .HasGenericTypeAndGenericTailAmbiguity(target)
+                    && !StructuralViewRegistry
+                        .RequiresGenericTailMemberAlternative(
+                            target,
+                            tokens)
                     ? ["type", target, .. tail]
                     : target.Contains('.')
                     ? RouteDeferredTypeOrMember(target, tail)
@@ -1327,6 +1337,10 @@ public static class RouterCommandDefinition
                 && !StructuralViewRegistry
                     .HasGenericTypeAndGenericTailAmbiguity(targetToken)
                 && !StructuralViewRegistry
+                    .RequiresGenericTailMemberAlternative(
+                        targetToken,
+                        tokens)
+                && !StructuralViewRegistry
                     .HasUnambiguousMemberTail(targetToken);
             rewritten =
                 structurallyProvenGenericType
@@ -1360,9 +1374,18 @@ public static class RouterCommandDefinition
                 if (tokens[i].AsSpan().IndexOfAny('=', ':') >= 0)
                     continue;
 
-                var remainingValues = option.ValueType == typeof(bool)
-                    ? 0
-                    : option.AllowMultipleArgumentsPerToken
+                if (option.ValueType == typeof(bool))
+                {
+                    if (i + 1 < tokens.Length
+                        && bool.TryParse(tokens[i + 1], out _))
+                    {
+                        i++;
+                    }
+                    continue;
+                }
+
+                var remainingValues =
+                    option.AllowMultipleArgumentsPerToken
                         ? option.Arity.MaximumNumberOfValues
                         : Math.Min(
                             1,
@@ -1378,6 +1401,20 @@ public static class RouterCommandDefinition
             }
 
             return true;
+        }
+
+        internal static string? GetSecondaryPositionalTarget(
+            string[] tokens,
+            RootCommand rootCommand)
+        {
+            string[] tail = tokens[1..];
+            return TryFindPositionalIndex(
+                    tail,
+                    rootCommand,
+                    out int index)
+                && index >= 0
+                    ? tail[index]
+                    : null;
         }
 
         private static bool MemberOptionOwnsTarget(string target)
