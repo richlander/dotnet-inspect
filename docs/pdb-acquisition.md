@@ -25,6 +25,17 @@ uncommitted edits cannot replace the pinned source. A missing commit, path, or
 checksum match in one clone continues through the remaining clones and then to
 the remote source.
 
+Resolution and retrieval preserve document-specific failure state. A rejected
+SourceLink entry does not shadow a valid entry that resolves the same document,
+but when no valid entry resolves the document, a rejected conformant key that
+matches that document is a mapping failure. An unrelated usable entry in the
+same map does not turn that failure into absence. Once a URL resolves, HTTP 404
+is definitive document absence; transport failures, other unsuccessful HTTP
+responses, rejected origins, oversized responses, checksum mismatches, and
+storage failures remain acquisition failures. This boundary cannot distinguish
+a deliberately concealed private GitHub document that returns HTTP 404 from a
+missing public document; both are absence.
+
 At the reusable service boundary, callers supply optional fully qualified
 repository paths to member or type acquisition. The desktop CLI exposes those
 paths through repeated `--repo <fully-qualified-clone-path>` options for
@@ -327,14 +338,27 @@ Typed SourceLink queries preserve these states as absent or failed outcomes.
 Package aggregation retains the package-relative library path beside each
 unavailable or failed outcome.
 
-An HTTP 200 symbol response rejected for its size, format, or PDB identity is a
-failed provider response rather than definitive absence. A symbol package that
-contains no same-name PDB remains absent, and a supported later provider may
-still complete acquisition. PDB-store publication failures, including cache
-permission failures, remain visible failures. The Release gates
+An HTTP 200 response from an exact-identity symbol-server URL that is rejected
+for its size, format, or PDB identity is a failed provider response rather than
+definitive absence. A symbol package is instead an identity inventory: valid
+Portable PDBs for sibling assemblies or target frameworks are a definitive miss
+for the requested identity, while malformed same-name entries remain failure.
+A supported later provider may still complete acquisition. Downloaded PDB bytes
+are parsed and identity-checked before cache publication; a legacy cached entry
+that fails those checks yields a typed store failure when no later provider
+succeeds. PDB-store publication and read-back failures, including cache
+permission failures, remain visible store failures and are not attributed to a
+remote feed. The Release gates
 `AcquirePdbAsync_LimitedHostRejectsOversizedSymbolPackage`,
 `AcquirePdbAsync_LimitedHostRejectsOversizedMsdlBeforeStore`,
-`AcquirePdbAsync_MismatchedSymbolPackageIdentityRecordsFailure`, and
+`AcquirePdbAsync_SymbolPackageWithSiblingIdentitiesRemainsAbsence`,
+`AcquirePdbAsync_InvalidSymbolPackageCandidateRecordsFailure`,
+`AcquirePdbAsync_RejectedDownloadIsNotPublished`,
+`AcquirePdbAsync_InvalidCachedPdbContinuesToNextProvider`,
+`AcquirePdbAsync_InvalidCachedPdbRecordsFailure`,
+`AcquirePdbAsync_UnretainedDownloadRecordsFailure`,
+`AcquirePdbAsync_ReadbackStoreFailureIsVisible`,
+`AcquirePdbAsync_UnretainedDownloadContinuesToNextProvider`, and
 `SourceCorrespondencePdbAcquisition_StorePermissionFailureIsTyped` enforce
 these distinctions.
 
@@ -352,7 +376,11 @@ failure after verified local and repository alternatives are exhausted.
 `SourceCorrespondencePdbAcquisition_MalformedEmbeddedPdbIsFailure` gate the PDB
 opening boundaries without changing the general-purpose `PdbContext` policy;
 `SourceCorrespondencePdbAcquisition_MalformedSourceLinkMapIsFailure` gates the
-SourceLink decode boundary.
+whole-map decode boundary,
+`SourceCorrespondencePdbAcquisition_RejectedDocumentMappingIsFailure` gates a
+rejected mapping for one requested document in a partially usable map, and
+`SourceCorrespondencePdbAcquisition_RemoteNotFoundIsAbsent` gates definitive
+remote document absence.
 
 ## Related resources
 

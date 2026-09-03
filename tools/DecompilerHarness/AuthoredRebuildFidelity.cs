@@ -1116,6 +1116,19 @@ static class AuthoredRebuildFidelity
             return;
         }
 
+        if (result.StoreFailure is { } storeFailure)
+        {
+            throw new IOException(
+                storeFailure switch
+                {
+                    PortablePdbStoreFailureKind.InvalidCachedContent =>
+                        "The PDB store returned malformed or mismatched cached content.",
+                    PortablePdbStoreFailureKind.PublicationNotRetained =>
+                        "The PDB store did not retain verified Portable PDB content.",
+                    _ => "The PDB store could not provide verified Portable PDB content.",
+                });
+        }
+
         if (failures.HasFailures)
         {
             throw new HttpRequestException(

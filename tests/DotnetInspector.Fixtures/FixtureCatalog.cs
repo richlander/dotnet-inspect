@@ -107,6 +107,7 @@ public static class FixtureIds
 
     public const string HostileLiterals = "hostile.literals";
     public const string SourceLinkMalformed = "sourcelink.malformed";
+    public const string SourceLinkPartiallyMalformed = "sourcelink.partially-malformed";
     public const string SourceLinkNormalized = "sourcelink.normalized";
 
     public const string ResearchTargetSample = "research.target-sample";
@@ -151,6 +152,13 @@ public static class FixtureCatalog
         "DotnetInspector.SourceLinkMalformedFixtures.dll",
         Boundaries(FixtureBoundary.SourceLinkMap),
         "sourcelink", "malformed-map");
+
+    public static readonly FixtureDefinition SourceLinkPartiallyMalformed = Fixture(
+        FixtureIds.SourceLinkPartiallyMalformed,
+        "DotnetInspector.SourceLinkPartiallyMalformedFixtures",
+        "DotnetInspector.SourceLinkPartiallyMalformedFixtures.dll",
+        Boundaries(FixtureBoundary.SourceLinkMap),
+        "sourcelink", "partially-malformed-map");
 
     public static readonly FixtureDefinition SourceLinkNormalized = Fixture(
         FixtureIds.SourceLinkNormalized,
@@ -550,6 +558,7 @@ public static class FixtureCatalog
     [
         HostileLiterals,
         SourceLinkMalformed,
+        SourceLinkPartiallyMalformed,
         SourceLinkNormalized,
         DiffV1,
         DiffV2,

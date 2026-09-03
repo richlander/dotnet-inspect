@@ -14,14 +14,18 @@ namespace DotnetInspector.Packages;
 /// True when a Windows (non-portable) PDB for the assembly was seen. Windows
 /// PDBs are not supported; this signals the caller so it can report accurately.
 /// </param>
-/// <param name="InvalidOrMismatchedPdbDetected">
-/// True when a same-name PDB entry was neither a supported Windows PDB nor a
-/// Portable PDB with the expected content identity.
+/// <param name="InvalidPdbDetected">
+/// True when a same-name entry was neither a Portable nor Windows PDB.
+/// </param>
+/// <param name="MismatchedPortablePdbDetected">
+/// True when a valid same-name Portable PDB belonged to another assembly
+/// identity.
 /// </param>
 public readonly record struct SnupkgPdbResult(
     byte[]? PdbBytes,
     bool WindowsPdbDetected,
-    bool InvalidOrMismatchedPdbDetected);
+    bool InvalidPdbDetected,
+    bool MismatchedPortablePdbDetected);
 
 /// <summary>
 /// Host-neutral extraction of a Portable PDB from a symbol package (.snupkg)
@@ -33,6 +37,7 @@ public readonly record struct SnupkgPdbResult(
 public static class SnupkgPdbReader
 {
     private enum PdbHeaderKind { Unknown, Portable, Windows }
+    internal enum PortablePdbIdentityResult { Match, Mismatch, Invalid }
 
     /// <summary>
     /// Scans <paramref name="snupkg"/> for a Portable PDB named
@@ -82,7 +87,8 @@ public static class SnupkgPdbReader
 
         var pdbFileName = $"{assemblyName}.pdb";
         bool windowsPdbDetected = false;
-        bool invalidOrMismatchedPdbDetected = false;
+        bool invalidPdbDetected = false;
+        bool mismatchedPortablePdbDetected = false;
         long expandedPdbBytes = 0;
 
         if (limits is not null)
@@ -160,31 +166,38 @@ public static class SnupkgPdbReader
 
             if (header != PdbHeaderKind.Portable)
             {
-                invalidOrMismatchedPdbDetected = true;
+                invalidPdbDetected = true;
                 continue;
             }
 
             using var pdbStream =
                 new MemoryStream(bytes, writable: false);
-            if (PortablePdbMatchesIdentity(
+            PortablePdbIdentityResult identity =
+                ClassifyPortablePdbIdentity(
                     pdbStream,
                     expectedGuid,
                     expectedStamp,
-                    log))
+                    log);
+            if (identity == PortablePdbIdentityResult.Match)
             {
                 return new SnupkgPdbResult(
                     bytes,
                     windowsPdbDetected,
-                    invalidOrMismatchedPdbDetected);
+                    invalidPdbDetected,
+                    mismatchedPortablePdbDetected);
             }
 
-            invalidOrMismatchedPdbDetected = true;
+            if (identity == PortablePdbIdentityResult.Mismatch)
+                mismatchedPortablePdbDetected = true;
+            else
+                invalidPdbDetected = true;
         }
 
         return new SnupkgPdbResult(
             null,
             windowsPdbDetected,
-            invalidOrMismatchedPdbDetected);
+            invalidPdbDetected,
+            mismatchedPortablePdbDetected);
     }
 
     /// <summary>
@@ -360,7 +373,7 @@ public static class SnupkgPdbReader
         return PdbHeaderKind.Unknown;
     }
 
-    internal static bool PortablePdbMatchesIdentity(
+    internal static PortablePdbIdentityResult ClassifyPortablePdbIdentity(
         Stream pdbStream,
         Guid expectedGuid,
         uint? expectedStamp,
@@ -378,7 +391,7 @@ public static class SnupkgPdbReader
             if (id is not { Length: var length }
                 || length < requiredLength)
             {
-                return false;
+                return PortablePdbIdentityResult.Invalid;
             }
 
             Span<byte> guidBytes = stackalloc byte[16];
@@ -392,7 +405,7 @@ public static class SnupkgPdbReader
                 && (!expectedStamp.HasValue
                     || actualStamp == expectedStamp))
             {
-                return true;
+                return PortablePdbIdentityResult.Match;
             }
 
             log?.Invoke(
@@ -400,7 +413,7 @@ public static class SnupkgPdbReader
                 + FormatIdentity(expectedGuid, expectedStamp)
                 + "; found "
                 + FormatIdentity(actualGuid, actualStamp));
-            return false;
+            return PortablePdbIdentityResult.Mismatch;
         }
         catch (Exception ex)
             when (ex is BadImageFormatException
@@ -409,7 +422,7 @@ public static class SnupkgPdbReader
         {
             log?.Invoke(
                 $"Could not read Portable PDB identity: {ex.Message}");
-            return false;
+            return PortablePdbIdentityResult.Invalid;
         }
     }
 

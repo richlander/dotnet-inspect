@@ -815,6 +815,102 @@ public sealed class AuthoredRebuildFidelityTests
     }
 
     [Fact]
+    public async Task SourceCorrespondencePdbAcquisition_RejectedDocumentMappingIsFailure()
+    {
+        NuGetCache.Initialize("dotnet-inspect");
+        string assemblyPath =
+                FixtureCatalog.SourceLinkPartiallyMalformed.AssemblyPath();
+        using var httpClient =
+                new HttpClient(
+                    new StaticStatusHandler(
+                        HttpStatusCode.NotFound));
+
+        IReadOnlyList<ReturnToSenderSourceProbeResult> results =
+                await ReturnToSenderSourceProbe.EvaluateSourceCorrespondenceAsync(
+                    [assemblyPath],
+                    cap: 1,
+                    httpClient,
+                    new SourceFetcher(httpClient));
+
+        ReturnToSenderSourceProbeResult result = Assert.Single(results);
+        Assert.Equal(
+                SourceAcquisitionOutcome.Failed,
+                result.SourceAcquisition);
+        Assert.Contains(
+                "mapping for the selected source document was rejected",
+                result.SourceAcquisitionDetail,
+                StringComparison.Ordinal);
+        Assert.True(
+                ReturnToSenderSourceProbe.HasCommandFailure(
+                    results,
+                    failOnInvalid: false));
+    }
+
+    [Fact]
+    public async Task SourceCorrespondencePdbAcquisition_RemoteNotFoundIsAbsent()
+    {
+        NuGetCache.Initialize("dotnet-inspect");
+        string assemblyPath =
+                FixtureCatalog.SourceLinkNormalized.AssemblyPath();
+        using var httpClient =
+                new HttpClient(
+                    new StaticStatusHandler(
+                        HttpStatusCode.NotFound));
+
+        IReadOnlyList<ReturnToSenderSourceProbeResult> results =
+                await ReturnToSenderSourceProbe.EvaluateSourceCorrespondenceAsync(
+                    [assemblyPath],
+                    cap: 1,
+                    httpClient,
+                    new SourceFetcher(httpClient));
+
+        ReturnToSenderSourceProbeResult result = Assert.Single(results);
+        Assert.Equal(
+                SourceAcquisitionOutcome.Absent,
+                result.SourceAcquisition);
+        Assert.Contains(
+                "resolved SourceLink document was not found",
+                result.SourceAcquisitionDetail,
+                StringComparison.Ordinal);
+        Assert.False(
+                ReturnToSenderSourceProbe.HasCommandFailure(
+                    results,
+                    failOnInvalid: false));
+    }
+
+    [Fact]
+    public async Task SourceCorrespondencePdbAcquisition_RemoteOperationalFailureIsFailure()
+    {
+        NuGetCache.Initialize("dotnet-inspect");
+        string assemblyPath =
+                    FixtureCatalog.SourceLinkNormalized.AssemblyPath();
+        using var httpClient =
+                    new HttpClient(
+                        new StaticStatusHandler(
+                            HttpStatusCode.Forbidden));
+
+        IReadOnlyList<ReturnToSenderSourceProbeResult> results =
+                    await ReturnToSenderSourceProbe.EvaluateSourceCorrespondenceAsync(
+                        [assemblyPath],
+                        cap: 1,
+                        httpClient,
+                        new SourceFetcher(httpClient));
+
+        ReturnToSenderSourceProbeResult result = Assert.Single(results);
+        Assert.Equal(
+                    SourceAcquisitionOutcome.Failed,
+                    result.SourceAcquisition);
+        Assert.Contains(
+                    "Could not fetch PDB source",
+                    result.SourceAcquisitionDetail,
+                    StringComparison.Ordinal);
+        Assert.True(
+                    ReturnToSenderSourceProbe.HasCommandFailure(
+                        results,
+                        failOnInvalid: false));
+    }
+
+    [Fact]
     public async Task SourceCorrespondencePdbAcquisition_MapsCompiledMultiplicationAssignment()
     {
         var fixture = CompilePortablePdbFixture(

@@ -188,6 +188,17 @@ public static class PdbSourceAcquisition
         string? url = document.ResolvedUrl ?? mapping.SourceUrl;
         if (url is not { Length: > 0 })
         {
+            if (document.Storage != SourceDocumentStorage.Embedded
+                && document.ResolutionStatus
+                    == SourceDocumentResolutionStatus.Rejected)
+            {
+                return TypeFailed(
+                    subject,
+                    "The SourceLink mapping for the selected source document was rejected.",
+                    mapping,
+                    document);
+            }
+
             return TypeAbsent(
                 document.Storage == SourceDocumentStorage.Embedded
                     ? "Embedded PDB-source retrieval is not available."
@@ -207,6 +218,15 @@ public static class PdbSourceAcquisition
                 cancellationToken).ConfigureAwait(false);
         if (fetch.Bytes is null)
         {
+            if (fetch.Failure == SourceFetchFailureKind.NotFound)
+            {
+                return TypeAbsent(
+                    "The resolved SourceLink document was not found.",
+                    mapping,
+                    document,
+                    SourceChecksumVerification.Unavailable);
+            }
+
             return TypeFailed(
                 subject,
                 fetch.Failure switch
@@ -327,6 +347,17 @@ public static class PdbSourceAcquisition
         if (document.ResolvedUrl is not { Length: > 0 } url)
         {
             if (document.Storage != SourceDocumentStorage.Embedded
+                && document.ResolutionStatus
+                    == SourceDocumentResolutionStatus.Rejected)
+            {
+                return Failed(
+                    subject,
+                    "The SourceLink mapping for the selected source document was rejected.",
+                    mapping,
+                    document);
+            }
+
+            if (document.Storage != SourceDocumentStorage.Embedded
                 && source.SourceLinkMap.Status == SourceLinkMapStatus.Unusable)
             {
                 return Failed(
@@ -351,6 +382,15 @@ public static class PdbSourceAcquisition
             cancellationToken).ConfigureAwait(false);
         if (fetch.Bytes is null)
         {
+            if (fetch.Failure == SourceFetchFailureKind.NotFound)
+            {
+                return Absent(
+                    "The resolved SourceLink document was not found.",
+                    mapping,
+                    document,
+                    SourceChecksumVerification.Unavailable);
+            }
+
             if (fetch.Failure == SourceFetchFailureKind.ValidationFailed)
             {
                 return Failed(

@@ -43,13 +43,24 @@ public partial class SymbolPackageDownloader
         }
         if (cached.Windows)
             windowsPdbDetected = true;
+        PortablePdbStoreFailureKind? storeFailure = cached.Rejected
+            ? PortablePdbStoreFailureKind.InvalidCachedContent
+            : null;
+        if (storeFailure is not null)
+            log?.Invoke("Cached PDB from MSDL is invalid or mismatched");
 
         if (cacheOnly)
-            return new PdbProbeResult(null, windowsPdbDetected);
+            return new PdbProbeResult(
+                null,
+                windowsPdbDetected,
+                storeFailure);
 
         var url = $"https://msdl.microsoft.com/download/symbols/{pdbFileName}/{symbolKey}/{pdbFileName}";
         if (IsCachedMiss(url, log, "MSDL symbol server"))
-            return new PdbProbeResult(null, windowsPdbDetected);
+            return new PdbProbeResult(
+                null,
+                windowsPdbDetected,
+                storeFailure);
 
         log?.Invoke("Trying MSDL symbol server");
 
@@ -84,34 +95,57 @@ public partial class SymbolPackageDownloader
                         "MSDL PDB response exceeds the configured download limit.");
                 }
                 log?.Invoke("MSDL: symbol not found");
-                return new PdbProbeResult(null, windowsPdbDetected);
+                return new PdbProbeResult(
+                    null,
+                    windowsPdbDetected,
+                    storeFailure);
             }
 
-            using (var content =
-                   new MemoryStream(
-                       pdbBytes,
-                       writable: false))
-            {
-                storeOperation = true;
-                await _pdbStore.PutAsync(cacheKey, content, cancellationToken).ConfigureAwait(false);
-            }
-
-            var headerCheck = await ClassifyStoredPdbAsync(
-                cacheKey,
+            using var content =
+                new MemoryStream(
+                    pdbBytes,
+                    writable: false);
+            var headerCheck = ClassifyPdb(
+                content,
                 pdbGuid,
                 portablePdbStamp,
                 isPortable,
-                log,
-                cancellationToken).ConfigureAwait(false);
-            storeOperation = false;
+                log);
             if (headerCheck.Portable)
             {
-                log?.Invoke("Successfully downloaded PDB from MSDL");
-                return Acquired(
+                using var storeContent =
+                    new MemoryStream(
+                        pdbBytes,
+                        writable: false);
+                storeOperation = true;
+                await _pdbStore.PutAsync(
                     cacheKey,
-                    ServerHost,
-                    fromCache: false,
-                    windowsPdbDetected);
+                    storeContent,
+                    cancellationToken).ConfigureAwait(false);
+                var stored =
+                    await ClassifyStoredPdbAsync(
+                        cacheKey,
+                        pdbGuid,
+                        portablePdbStamp,
+                        isPortable,
+                        log,
+                        cancellationToken).ConfigureAwait(false);
+                storeOperation = false;
+                if (stored.Portable)
+                {
+                    log?.Invoke("Successfully downloaded PDB from MSDL");
+                    return Acquired(
+                        cacheKey,
+                        ServerHost,
+                        fromCache: false,
+                        windowsPdbDetected);
+                }
+
+                log?.Invoke("The PDB store did not retain the verified MSDL response");
+                return new PdbProbeResult(
+                    null,
+                    windowsPdbDetected,
+                    PortablePdbStoreFailureKind.PublicationNotRetained);
             }
             if (headerCheck.Windows)
             {
@@ -134,7 +168,10 @@ public partial class SymbolPackageDownloader
             log?.Invoke($"MSDL error: {ex.Message}");
         }
 
-        return new PdbProbeResult(null, windowsPdbDetected);
+        return new PdbProbeResult(
+            null,
+            windowsPdbDetected,
+            storeFailure);
     }
 
     private async Task<PdbProbeResult> TryLocateFromSymbolServerAsync(
@@ -150,6 +187,7 @@ public partial class SymbolPackageDownloader
     {
         using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SymbolDownload);
         bool windowsPdbDetected = false;
+        PortablePdbStoreFailureKind? storeFailure = null;
 
         var symbolServers = new[]
         {
@@ -185,6 +223,12 @@ public partial class SymbolPackageDownloader
             }
             if (cached.Windows)
                 windowsPdbDetected = true;
+            if (cached.Rejected)
+            {
+                storeFailure ??=
+                    PortablePdbStoreFailureKind.InvalidCachedContent;
+                log?.Invoke($"Cached PDB from {serverHost} is invalid or mismatched");
+            }
 
             if (cacheOnly)
                 continue;
@@ -228,31 +272,51 @@ public partial class SymbolPackageDownloader
                     continue;
                 }
 
-                using (var content =
-                       new MemoryStream(
-                           pdbBytes,
-                           writable: false))
-                {
-                    storeOperation = true;
-                    await _pdbStore.PutAsync(cacheKey, content, cancellationToken).ConfigureAwait(false);
-                }
-
-                var headerCheck = await ClassifyStoredPdbAsync(
-                    cacheKey,
+                using var content =
+                    new MemoryStream(
+                        pdbBytes,
+                        writable: false);
+                var headerCheck = ClassifyPdb(
+                    content,
                     pdbGuid,
                     portablePdbStamp,
                     isPortable,
-                    log,
-                    cancellationToken).ConfigureAwait(false);
-                storeOperation = false;
+                    log);
                 if (headerCheck.Portable)
                 {
-                    log?.Invoke("Successfully downloaded PDB from symbol server");
-                    return Acquired(
+                    using var storeContent =
+                        new MemoryStream(
+                            pdbBytes,
+                            writable: false);
+                    storeOperation = true;
+                    await _pdbStore.PutAsync(
                         cacheKey,
-                        serverHost,
-                        fromCache: false,
-                        windowsPdbDetected);
+                        storeContent,
+                        cancellationToken).ConfigureAwait(false);
+                    var stored =
+                        await ClassifyStoredPdbAsync(
+                            cacheKey,
+                            pdbGuid,
+                            portablePdbStamp,
+                            isPortable,
+                            log,
+                            cancellationToken).ConfigureAwait(false);
+                    storeOperation = false;
+                    if (stored.Portable)
+                    {
+                        log?.Invoke("Successfully downloaded PDB from symbol server");
+                        return Acquired(
+                            cacheKey,
+                            serverHost,
+                            fromCache: false,
+                            windowsPdbDetected);
+                    }
+
+                    storeFailure ??=
+                        PortablePdbStoreFailureKind.PublicationNotRetained;
+                    log?.Invoke(
+                        "The PDB store did not retain the verified symbol-server response");
+                    continue;
                 }
                 if (headerCheck.Windows)
                 {
@@ -277,7 +341,10 @@ public partial class SymbolPackageDownloader
             }
         }
 
-        return new PdbProbeResult(null, windowsPdbDetected);
+        return new PdbProbeResult(
+            null,
+            windowsPdbDetected,
+            storeFailure);
     }
 
     private static string GetSymbolServerCacheKey(

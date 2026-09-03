@@ -7,7 +7,8 @@ public partial class SymbolPackageDownloader
 {
     private sealed record PdbProbeResult(
         AcquiredPortablePdb? Pdb,
-        bool WindowsPdbDetected);
+        bool WindowsPdbDetected,
+        PortablePdbStoreFailureKind? StoreFailure = null);
 
     private PdbProbeResult Acquired(
         string cacheKey,
@@ -22,7 +23,30 @@ public partial class SymbolPackageDownloader
                 fromCache),
             windowsPdbDetected);
 
-    private async Task<(bool Portable, bool Windows)> ClassifyStoredPdbAsync(
+    private static (bool Portable, bool Windows, bool Rejected) ClassifyPdb(
+        Stream stream,
+        Guid expectedGuid,
+        uint? expectedStamp,
+        bool expectedPortable,
+        Action<string>? log)
+    {
+        var header = SnupkgPdbReader.ClassifyHeader(stream);
+        if (!header.Portable || !expectedPortable)
+            return (false, header.Windows, !header.Windows);
+
+        stream.Position = 0;
+        SnupkgPdbReader.PortablePdbIdentityResult identity =
+            SnupkgPdbReader.ClassifyPortablePdbIdentity(
+                stream,
+                expectedGuid,
+                expectedStamp,
+                log);
+        bool matches =
+            identity == SnupkgPdbReader.PortablePdbIdentityResult.Match;
+        return (matches, false, !matches);
+    }
+
+    private async Task<(bool Portable, bool Windows, bool Rejected)> ClassifyStoredPdbAsync(
         string cacheKey,
         Guid expectedGuid,
         uint? expectedStamp,
@@ -39,27 +63,21 @@ public partial class SymbolPackageDownloader
         {
             // An untrusted assembly/PDB name can produce a key the store rejects;
             // that simply means nothing is (or can be) cached under it.
-            return (false, false);
+            return (false, false, false);
         }
 
         if (stream == null)
-            return (false, false);
+            return (false, false, false);
 
         await using (stream.ConfigureAwait(false))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var header = SnupkgPdbReader.ClassifyHeader(stream);
-            if (!header.Portable || !expectedPortable)
-                return (false, header.Windows);
-
-            stream.Position = 0;
-            bool matches =
-                SnupkgPdbReader.PortablePdbMatchesIdentity(
-                    stream,
-                    expectedGuid,
-                    expectedStamp,
-                    log);
-            return (matches, false);
+            return ClassifyPdb(
+                stream,
+                expectedGuid,
+                expectedStamp,
+                expectedPortable,
+                log);
         }
     }
 

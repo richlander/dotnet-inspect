@@ -823,6 +823,19 @@ identity-less adjacent PDB from entering this lane, and
 typed result when embedded-PDB opening fails, and
 `SourceCorrespondencePdbAcquisition_MalformedSourceLinkMapIsFailure` preserves
 failure when a present SourceLink map cannot be decoded into usable mappings.
+`SourceCorrespondencePdbAcquisition_RejectedDocumentMappingIsFailure` preserves
+the same failure when the requested document's conformant key is rejected in a
+partially usable map, while
+`SourceCorrespondencePdbAcquisition_RemoteNotFoundIsAbsent` keeps a resolved
+SourceLink URL's HTTP 404 as definitive document absence.
+`AcquirePdbAsync_SymbolPackageWithSiblingIdentitiesRemainsAbsence` separates
+valid sibling Portable PDB identities from malformed symbol-package candidates,
+and `AcquirePdbAsync_RejectedDownloadIsNotPublished` plus
+`AcquirePdbAsync_InvalidCachedPdbContinuesToNextProvider`,
+`AcquirePdbAsync_InvalidCachedPdbRecordsFailure`, and
+`AcquirePdbAsync_UnretainedDownloadRecordsFailure` prevent cache state from
+erasing an integrity failure or blaming a successful remote provider for a
+local store failure.
 The compiler-backed
 `SourceCorrespondencePdbAcquisition_MapsCompiledMultiplicationAssignment`
 guards C# assignment-operator correlation against hand-written metadata-name

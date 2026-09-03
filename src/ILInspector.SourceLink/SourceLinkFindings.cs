@@ -15,6 +15,13 @@ public enum SourceDocumentStorage
     Embedded,
 }
 
+public enum SourceDocumentResolutionStatus
+{
+    Unmapped,
+    Resolved,
+    Rejected,
+}
+
 public sealed record SourceDocumentObservation(
     string CanonicalPath,
     string OriginalPath,
@@ -24,6 +31,8 @@ public sealed record SourceDocumentObservation(
     string? ChecksumAlgorithm,
     string? Checksum)
 {
+    public SourceDocumentResolutionStatus ResolutionStatus { get; init; }
+
     public bool IsCompilerLanguageSource =>
         CanonicalPath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)
         || CanonicalPath.EndsWith(".vb", StringComparison.OrdinalIgnoreCase)
@@ -256,7 +265,10 @@ public static class SourceLinkFindings
                         : SourceDocumentStorage.Unmapped,
                 document.ResolvedUrl,
                 document.ChecksumAlgorithm,
-                document.Checksum is null ? null : Convert.ToHexString(document.Checksum));
+                document.Checksum is null ? null : Convert.ToHexString(document.Checksum))
+            {
+                ResolutionStatus = document.ResolutionStatus,
+            };
         });
 
         if (!string.IsNullOrEmpty(query?.PathContains))

@@ -78,9 +78,17 @@ public partial class SymbolPackageDownloader
         }
         if (cached.Windows)
             windowsPdbDetected = true;
+        PortablePdbStoreFailureKind? storeFailure = cached.Rejected
+            ? PortablePdbStoreFailureKind.InvalidCachedContent
+            : null;
+        if (storeFailure is not null)
+            log?.Invoke($"Cached PDB for {assemblyName} is invalid or mismatched");
 
         if (cacheOnly)
-            return new PdbProbeResult(null, windowsPdbDetected);
+            return new PdbProbeResult(
+                null,
+                windowsPdbDetected,
+                storeFailure);
 
         // Try NuGet global CDN first
         var snupkgUrls = new[]
@@ -183,7 +191,7 @@ public partial class SymbolPackageDownloader
 
             if (extracted.PdbBytes == null)
             {
-                if (extracted.InvalidOrMismatchedPdbDetected)
+                if (extracted.InvalidPdbDetected)
                 {
                     FeedFailureTelemetry.Record(
                         snupkgUrl,
@@ -193,7 +201,8 @@ public partial class SymbolPackageDownloader
                     "No matching Portable PDB identity found in symbol package");
                 return new PdbProbeResult(
                     null,
-                    windowsPdbDetected);
+                    windowsPdbDetected,
+                    storeFailure);
             }
 
             using (var pdbStream =
@@ -219,15 +228,12 @@ public partial class SymbolPackageDownloader
             {
                 if (stored.Windows)
                     windowsPdbDetected = true;
-                else
-                    FeedFailureTelemetry.Record(
-                        snupkgUrl,
-                        HttpStatusCode.OK);
                 log?.Invoke(
                     "The matching Portable PDB could not be read back from the configured store.");
                 return new PdbProbeResult(
                     null,
-                    windowsPdbDetected);
+                    windowsPdbDetected,
+                    PortablePdbStoreFailureKind.PublicationNotRetained);
             }
 
             log?.Invoke(
@@ -240,7 +246,10 @@ public partial class SymbolPackageDownloader
         }
 
         log?.Invoke("Symbol package not found on NuGet");
-        return new PdbProbeResult(null, windowsPdbDetected);
+        return new PdbProbeResult(
+            null,
+            windowsPdbDetected,
+            storeFailure);
     }
 
     private static string GetCachedPdbKey(

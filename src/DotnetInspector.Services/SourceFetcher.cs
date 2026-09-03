@@ -9,6 +9,7 @@ internal enum SourceFetchFailureKind
 {
     InvalidUrl,
     RequestNotAuthorized,
+    NotFound,
     Unavailable,
     AttributedOriginUnverified,
     ValidationFailed,
@@ -155,6 +156,8 @@ public class SourceFetcher
                     null,
                     SourceFetchFailureKind.AttributedOriginUnverified);
             }
+            if (fetch.StatusCode == System.Net.HttpStatusCode.NotFound)
+                return new SourceFetchBytesResult(null, SourceFetchFailureKind.NotFound);
             if (fetch.Bytes is not { } bytes)
                 return new SourceFetchBytesResult(null, SourceFetchFailureKind.Unavailable);
 
