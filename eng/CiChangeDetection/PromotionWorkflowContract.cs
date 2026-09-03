@@ -430,6 +430,25 @@ internal static class PromotionWorkflowContract
             "",
             ValidateCoreClrStaging,
             "CoreCLR staging contract accepted latest-run artifact selection.");
+        AssertMutationRejected(
+            coreClrStagingWorkflow,
+            """
+            concurrency:
+              group: >-
+                ${{ github.event.workflow_run.conclusion == 'success'
+                && github.event.workflow_run.head_branch == 'main'
+                && github.event.workflow_run.event == 'push'
+                && 'deploy-inspect-web-coreclr-staging'
+                || format('deploy-inspect-web-coreclr-ineligible-{0}', github.run_id) }}
+              cancel-in-progress: true
+            """,
+            """
+            concurrency:
+              group: deploy-inspect-web-coreclr-staging
+              cancel-in-progress: true
+            """,
+            ValidateCoreClrStaging,
+            "CoreCLR staging contract accepted ineligible-trigger cancellation.");
 
         AssertRejected(
             coreClrStagingWorkflow +
@@ -1016,7 +1035,12 @@ internal static class PromotionWorkflowContract
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["group"] =
-                    "deploy-inspect-web-coreclr-staging",
+                    "${{ github.event.workflow_run.conclusion == 'success' "
+                    + "&& github.event.workflow_run.head_branch == 'main' "
+                    + "&& github.event.workflow_run.event == 'push' "
+                    + "&& 'deploy-inspect-web-coreclr-staging' "
+                    + "|| format('deploy-inspect-web-coreclr-ineligible-{0}', "
+                    + "github.run_id) }}",
                 ["cancel-in-progress"] = "true",
             },
             "CoreCLR staging workflow.concurrency");
