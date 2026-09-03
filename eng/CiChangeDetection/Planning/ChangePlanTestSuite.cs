@@ -713,25 +713,43 @@ internal static class ChangePlanTestSuite
                 + "valid zero-record scope.");
         }
 
-        // Model content enters the scope in input order; infrastructure and
-        // unrelated paths do not.
+        // The exact-outcome manifest is consumer input: a changed manifest
+        // makes the runner select every model directory it names.
+        PlanningResult manifest = ChangePlanner.Compose(
+            Provenance(PlanEventKind.PullRequestSyntheticCandidate),
+            Evidence("eng/tla-expected-exit-codes.txt"),
+            policy);
+        if (!manifest.HasTlaScope
+            || Encoding.UTF8.GetString(manifest.TlaScopeBytes)
+                != "eng/tla-expected-exit-codes.txt\0"
+            || manifest.Plan.TlaScope?.RecordCount != 1)
+        {
+            throw new InvalidOperationException(
+                "The TLA+ exact-outcome manifest did not enter its scope.");
+        }
+
+        // Consumer inputs enter the scope in plan order; pure infrastructure
+        // and unrelated paths do not.
         PlanningResult mixed = ChangePlanner.Compose(
             Provenance(PlanEventKind.PullRequestSyntheticCandidate),
             Evidence(
                 "docs/models/b/Second.cfg",
                 "eng/run-tla-checks.sh",
+                "eng/tla-expected-exit-codes.txt",
                 "docs/design/models/a/First.TLA",
                 "README.md"),
             policy);
         if (!mixed.HasTlaScope
             || Encoding.UTF8.GetString(mixed.TlaScopeBytes)
-                != "docs/models/b/Second.cfg\0docs/design/models/a/First.TLA\0"
-            || mixed.Plan.TlaScope?.RecordCount != 2
+                != "docs/models/b/Second.cfg\0"
+                    + "eng/tla-expected-exit-codes.txt\0"
+                    + "docs/design/models/a/First.TLA\0"
+            || mixed.Plan.TlaScope?.RecordCount != 3
             || mixed.Plan.TlaScope.Artifact != "ci-plan-tla-paths0"
             || mixed.Plan.TlaScope.Framing != "pathBytesNulTerminated")
         {
             throw new InvalidOperationException(
-                "The TLA+ scope did not contain exactly its model content.");
+                "The TLA+ scope did not contain exactly its consumer inputs.");
         }
 
         // No TLA+ selection means no descriptor at all.

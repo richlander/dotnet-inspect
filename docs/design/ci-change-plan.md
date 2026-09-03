@@ -146,14 +146,16 @@ evidence remains meaningful. Change status is not part of a scoped record
 unless the consuming contract separately requires it. A scope file is bounded
 to at most 16 MiB; an overflow is a refusal, never a truncated corpus.
 
-Scoped evidence carries the content a consumer validates, not the triggers
-that made the validation relevant. The TLA+ scope therefore contains only
-changed paths matching the planner's TLA+ model-content rules — `.tla` and
-`.cfg` files under `docs/models/` or `docs/design/models/`, matched with
-ASCII case-insensitive extensions — and never the TLA+ infrastructure paths
-that also select the lane. An infrastructure-only selection consequently
-produces a true selection with a valid zero-record scope file, which the
-planner still writes.
+Scoped evidence carries inputs the consumer interprets, not paths that merely
+make the validation relevant. The TLA+ scope therefore contains changed paths
+matching the planner's TLA+ model-content rules — `.tla` and `.cfg` files under
+`docs/models/` or `docs/design/models/`, matched with ASCII case-insensitive
+extensions — plus `eng/tla-expected-exit-codes.txt`. The runner interprets a
+change to that manifest by selecting every model directory it names, so the
+manifest is scoped consumer input rather than a pure infrastructure trigger.
+Other TLA+ infrastructure paths select the lane without entering the scope.
+Such an infrastructure-only selection consequently produces a true selection
+with a valid zero-record scope file, which the planner still writes.
 
 The plan descriptor binds the file to:
 
@@ -394,6 +396,8 @@ The planner implementation gate must also cover:
 - unavailable endpoint trees;
 - malformed or truncated changed-path evidence;
 - policy-data absence and invalidity;
+- exact-outcome manifest changes entering TLA+ scoped evidence so the runner
+  checks every model directory the changed manifest names;
 - every job-level and named in-job validation rule, event rule, and cross-field
   implication as planner values;
 - an oversized plan or scoped-evidence descriptor;
