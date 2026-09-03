@@ -142,6 +142,7 @@
       "allowOnly": [
         "$platform",
         "$repository",
+        "NuGet.Frameworks",
         "NuGet.Versioning"
       ]
     },
