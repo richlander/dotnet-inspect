@@ -6,11 +6,12 @@ This document defines the target worker-runtime host and protocol for
 [issue #5093](https://github.com/richlander/dotnet-inspect/issues/5093).
 The user approved its inspect-web-only host scope on 2026-09-02. Implementation
 under [issue #5418](https://github.com/richlander/dotnet-inspect/issues/5418)
-is dependency-ordered and partial: the descriptor-safe two-stage wire codec
-foundation is implemented under the focused
-`inspect-web-worker-envelope-validation` sub-gate without allocating epoch or
-operation authority. The runtime core, browser binding, responsiveness, and
-final gates named below remain required.
+is dependency-ordered and partial. The descriptor-safe two-stage wire codec,
+fake-worker runtime core, host authority, and complete base TypeScript protocol
+gate are implemented under `inspect-web-worker-envelope-validation` and
+`inspect-web-worker-protocol`. Real browser `Worker` and .NET binding, browser
+lifecycle integration, responsiveness evidence, and the remaining browser
+gates named below are still required.
 
 Its finite state models establish only the abstract properties recorded with
 those models. The engine-to-browser event-stream contract is now defined by
@@ -335,6 +336,13 @@ producer, quiesces those producers after termination, and closes the epoch.
 
 The worker producer adapter implements operation authority's two-phase
 preparation contract.
+
+The runtime host is generic only in bootstrap and runtime diagnostic data.
+Each operation registration is independently generic in its input, value,
+error, operation diagnostic, progress, and preparation-error types, and owns
+its boundary-error mapping. The host erases those feature types only behind a
+private record of closed callbacks after registration; one operation kind
+cannot widen another kind's returned adapter or select its payload codecs.
 
 Preparation synchronously:
 
@@ -905,7 +913,9 @@ as a separate second stage with exact failure paths. It does not select a
 feature adapter, allocate host identity, construct closure or idle-compatible
 authority, implement runtime state, or satisfy `inspect-web-worker-protocol`.
 
-`inspect-web-worker-protocol` is a Release TypeScript gate and must include:
+`inspect-web-worker-protocol` is the complete base Release TypeScript gate. It
+uses injected worker-like transport, active-time and lifecycle signals, and
+deterministic scheduling rather than a real browser worker. It includes:
 
 - own-property narrowing of every envelope from `unknown`, with malformed,
   inherited, accessor-backed, oversized, unsafe-integer, wrong-version, and
@@ -913,7 +923,14 @@ authority, implement runtime state, or satisfy `inspect-web-worker-protocol`.
 - positive safe-integer epoch-token allocation, exact token equality, no
   page-lifetime reuse or wrap, visible exhaustion, and authority requiring both
   the current token and exact bound worker source, including same-token
-  different-worker and same-worker wrong-token negatives;
+  different-worker and same-worker wrong-token negatives, with exact-source
+  invalid traffic failing rather than producing stale diagnostics;
+- synchronous `Initialize` send failure rejecting the epoch start after
+  preserving failure reporting, realm release, and token non-reuse;
+- heterogeneous main and fake-worker operation catalogs whose independently
+  typed registrations retain narrow producer adapters, per-operation boundary
+  mappings and diagnostic codecs, and fail closed on an absent record while
+  another differently typed kind remains live;
 - preparation, abandonment, activation, held starts, sequence-order readiness
   flush without warm-start overtaking, held cancellation,
   `StartupFailed`-driven startup closure, and activation after a committed
@@ -944,8 +961,9 @@ authority, implement runtime state, or satisfy `inspect-web-worker-protocol`.
   missing probe acknowledgment, heartbeats alone preserving that outstanding
   register without manufacturing proof, exact immutable command-record marks
   that a later command cannot overwrite, deferred probe dispatch that cannot
-  stall after the older register retires, plus asynchronous cancellation that
-  cannot be overtaken by a later probe;
+  stall after the older register retires, main-loop recovery preserving every
+  unresolved command's remaining active-time grace, plus asynchronous
+  cancellation that cannot be overtaken by a later probe;
 - probe-sequence monotonicity, matching, exhaustion, duplicate, future, and
   stale acknowledgment cases, including retirement of the maximum safe
   sequence entering `probe-exhaustion` draining rather than leaving a degraded
@@ -961,9 +979,13 @@ authority, implement runtime state, or satisfy `inspect-web-worker-protocol`.
   continued admission and no feature-result reinterpretation;
 - the first committed closure retaining its exact failure kind, diagnostic
   identity, and producer outcomes when a different protocol, worker-message,
-  worker-declared, or worker-crash fault arrives during draining;
+  worker-declared, or worker-crash fault arrives during draining, with
+  post-readiness worker `error` and `messageerror` permitting natural
+  operation and epoch-work release before the bounded fallback;
 - registered idle-compatible producer classes receiving opaque capabilities,
-  with unregistered or over-budget classes requiring epoch-work leases;
+  with separately constructed equivalent main and worker registries accepting
+  legitimate leases while unregistered classes, unknown allowances, or
+  over-budget classes fail or require epoch-work leases as appropriate;
 - current-epoch invalid ordering as protocol failure and old-epoch messages as
   stale no-ops;
 - failure-complete sink notification and record release when adapter callbacks
@@ -1042,9 +1064,9 @@ Implementation proceeds without moving operation authority or feature meaning
 into the runtime host:
 
 1. introduce the descriptor-safe wire codec under
-   `inspect-web-worker-envelope-validation`;
+   `inspect-web-worker-envelope-validation` (**implemented**);
 2. add the fake-worker runtime core, host authority, and complete
-   `inspect-web-worker-protocol` gate;
+   `inspect-web-worker-protocol` gate (**implemented**);
 3. adapt the current generated facade bootstrap behind the consumer-owned
    bootstrap operation;
 4. move one long-running source or package inspection through a typed worker
@@ -1054,8 +1076,8 @@ into the runtime host:
 6. prove real-browser responsiveness and hard realm release;
 7. migrate additional feature adapters only after each declares its own
    payload and liveness policy; and
-8. add durable event batches only after #5566, #5570, and #5419 supply their
-   prerequisite contracts.
+8. add durable event batches only after #5570 and the relevant #5419 handoff
+   supply their remaining prerequisite contracts; #5566 is merged.
 
 The implementation starts from the official .NET 11 Web Worker hosting pattern
 but replaces stringly method invocation with the generated inspect-web facade

@@ -401,6 +401,16 @@ test("bound main decoding checks the expected epoch for every variant", () => {
   }
 });
 
+test("worker decoding checks the expected epoch for every variant", () => {
+  for (const fixture of workerToMainFixtures) {
+    assertDecodeFailure(
+      decodeWorker(fixture.envelope, EPOCH_TOKEN + 1),
+      "wrong-epoch",
+      "$.epochToken",
+    );
+  }
+});
+
 test("raw worker decoding does not inspect or decode payload internals", () => {
   let payloadAccessorCalls = 0;
   const payload = {
