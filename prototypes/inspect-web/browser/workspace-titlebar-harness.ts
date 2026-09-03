@@ -400,7 +400,6 @@ app.innerHTML = `
             <span class="title-search-glyph" aria-hidden="true">⌕</span>
             <span class="title-search-label title-search-label-full">Search types, members, packages</span>
             <span class="title-search-label title-search-label-compact">Search</span>
-            <kbd>Ctrl P</kbd>
           </button>
         </nav>`,
     })}
