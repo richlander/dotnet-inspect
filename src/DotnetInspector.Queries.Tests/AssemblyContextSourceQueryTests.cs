@@ -10,6 +10,7 @@ using System.Text;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries.EmbeddedFixtures;
 using DotnetInspector.Services;
+using ILInspector.Decompiler;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 using Pipeline = ILInspector.Decompiler.Pipeline;
@@ -91,6 +92,7 @@ public sealed class AssemblyContextSourceQueryTests
         Assert.Null(assembly.Assembly.Path);
         Assert.NotEmpty(host.SymbolRequests);
         Assert.NotEmpty(host.SourceRequests);
+        Assert.Equal(0, assembly.Policy.SelectionCount);
         Assert.IsType<
             AssemblyImageAccessResult<int>.Available>(
                 group.UseAssemblySession(
@@ -229,6 +231,426 @@ public sealed class AssemblyContextSourceQueryTests
             nameof(SourceFixture.Describe),
             decompiled.Text,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MemberComparison_DeclaresModeratedCost()
+    {
+        Assert.Equal(
+            InspectionCost.Moderated,
+            AssemblyContextSourceComparisonQuery.Definition.Cost);
+    }
+
+    [Fact]
+    public async Task MemberComparison_ReturnsBothCompleteEndpoints()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        AssemblyMemberSourceRequest request =
+            assembly.MemberRequest(nameof(SourceFixture.Describe));
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourceFileBytes());
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyMemberSourceComparisonEntry result =
+            await AssemblyContextSourceComparisonQuery.ExecuteAsync(
+                group,
+                assembly.Participant,
+                request,
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<
+                AssemblyMemberSourceComparisonEntry.Available>(
+                    result);
+        var pdb =
+            Assert.IsType<AssemblyMemberPdbSourceAttempt.Available>(
+                available.Pdb);
+        var decompiled =
+            Assert.IsType<
+                AssemblyMemberDecompiledSourceAttempt.Available>(
+                    available.Decompiled);
+        Assert.Same(request, available.Request);
+        Assert.Equal(
+            assembly.Participant.Assembly.Registration,
+            available.Subject.Registration);
+        Assert.Equal(
+            request.MetadataToken,
+            pdb.Inspection.Mapping!.MetadataToken);
+        Assert.Contains(
+            nameof(SourceFixture.Describe),
+            pdb.Inspection.Text,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            nameof(SourceFixture.Describe),
+            decompiled.Result.Text,
+            StringComparison.Ordinal);
+        Assert.True(assembly.Policy.SelectionCount > 0);
+    }
+
+    [Fact]
+    public async Task MemberComparison_PdbFailureDoesNotSuppressDecompilation()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            "not the compiled source"u8.ToArray());
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyMemberSourceComparisonEntry result =
+            await AssemblyContextSourceComparisonQuery.ExecuteAsync(
+                group,
+                assembly.Participant,
+                assembly.MemberRequest(
+                    nameof(SourceFixture.Describe)),
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<
+                AssemblyMemberSourceComparisonEntry.Available>(
+                    result);
+        var pdb =
+            Assert.IsType<AssemblyMemberPdbSourceAttempt.Unavailable>(
+                available.Pdb);
+        var decompiled =
+            Assert.IsType<
+                AssemblyMemberDecompiledSourceAttempt.Available>(
+                    available.Decompiled);
+        Assert.Equal(
+            PdbMemberSourceOutcome.ChecksumMismatch,
+            pdb.Inspection.Outcome);
+        Assert.Equal(
+            SourceChecksumVerification.Mismatch,
+            pdb.Inspection.ChecksumVerification);
+        Assert.Contains(
+            nameof(SourceFixture.Describe),
+            decompiled.Result.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberComparison_DecompilationFailurePreservesPdb()
+    {
+        TestAssembly original = TestAssembly.Create();
+        int metadataToken =
+            typeof(SourceFixture)
+                .GetMethod(nameof(SourceFixture.Describe))!
+                .MetadataToken;
+        byte[] bytes =
+            CorruptMethodBody(
+                File.ReadAllBytes(
+                    typeof(AssemblyContextSourceQueryTests)
+                        .Assembly.Location),
+                metadataToken);
+        TestAssembly assembly =
+            TestAssembly.CreatePackage(
+                bytes,
+                original.PdbPath);
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourceFileBytes());
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyMemberSourceComparisonEntry result =
+            await AssemblyContextSourceComparisonQuery.ExecuteAsync(
+                group,
+                assembly.Participant,
+                assembly.MemberRequest(
+                    nameof(SourceFixture.Describe)),
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<
+                AssemblyMemberSourceComparisonEntry.Available>(
+                    result);
+        Assert.IsType<AssemblyMemberPdbSourceAttempt.Available>(
+            available.Pdb);
+        var unavailable =
+            Assert.IsType<
+                AssemblyMemberDecompiledSourceAttempt.Unavailable>(
+                    available.Decompiled);
+        Assert.Equal(
+            MemberBodyProductionStatus.Failed,
+            unavailable.Status);
+        Assert.Contains(
+            "member source unavailable",
+            unavailable.FailureDetail,
+            StringComparison.Ordinal);
+        Assert.Null(
+            typeof(
+                AssemblyMemberDecompiledSourceAttempt.Unavailable)
+                .GetProperty("Text"));
+    }
+
+    [Fact]
+    public async Task MemberComparison_NeitherEndpointAvailableIsExplicit()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        using var host = QueryHost.WithoutPdb();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyMemberSourceComparisonEntry result =
+            await AssemblyContextSourceComparisonQuery.ExecuteAsync(
+                group,
+                assembly.Participant,
+                assembly.MemberRequest(
+                    nameof(SourceDelegate.Invoke),
+                    nameof(SourceDelegate)),
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<
+                AssemblyMemberSourceComparisonEntry.Unavailable>(
+                    result);
+        Assert.Equal(
+            PdbMemberSourceOutcome.PortablePdbUnavailable,
+            unavailable.Pdb.Inspection.Outcome);
+        Assert.Equal(
+            MemberBodyProductionStatus.Absent,
+            unavailable.Decompiled.Status);
+        Assert.Null(unavailable.Decompiled.FailureDetail);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task MemberComparison_MismatchedExactTargetIsNotFound(
+        int mismatch)
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        AssemblyMemberSourceRequest existing =
+            assembly.MemberRequest(nameof(SourceFixture.Describe));
+        AssemblyMemberSourceRequest other =
+            assembly.MemberRequest(nameof(SourceFixture.Increment));
+        MetadataTypeDefinitionName missingType =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Definitely",
+                    ["Missing"]))
+                .Name;
+        AssemblyMemberSourceRequest request =
+            mismatch switch
+            {
+                0 => new AssemblyMemberSourceRequest(
+                    missingType,
+                    existing.Member,
+                    existing.MetadataToken),
+                1 => new AssemblyMemberSourceRequest(
+                    existing.Type,
+                    other.Member,
+                    existing.MetadataToken),
+                2 => new AssemblyMemberSourceRequest(
+                    existing.Type,
+                    existing.Member,
+                    other.MetadataToken),
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(mismatch)),
+            };
+        using var host = QueryHost.WithoutPdb();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyMemberSourceComparisonEntry result =
+            await AssemblyContextSourceComparisonQuery.ExecuteAsync(
+                group,
+                assembly.Participant,
+                request,
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var notFound =
+            Assert.IsType<
+                AssemblyMemberSourceComparisonEntry.NotFound>(
+                    result);
+        Assert.Equal(
+            AssemblySourceFailureKind.TargetNotFound,
+            notFound.Failure.Kind);
+        Assert.Empty(host.SymbolRequests);
+        Assert.Equal(0, assembly.Policy.SelectionCount);
+    }
+
+    [Fact]
+    public async Task MemberComparison_ResolutionStateFailureIsFailed()
+    {
+        byte[] bytes =
+            File.ReadAllBytes(
+                typeof(AssemblyContextSourceQueryTests)
+                    .Assembly.Location);
+        TestAssembly requestSource =
+            TestAssembly.Create(bytes);
+        var policy = new FrameworkBindingPolicy();
+        var assembly =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(bytes),
+                path: null,
+                () =>
+                {
+                    policy.ChangeVersion();
+                    return new MemoryStream(
+                        bytes,
+                        writable: false);
+                },
+                AssemblyResolutionProvenance.Local(
+                    "source comparison resolution state failure"));
+        var participant =
+            new AssemblyContextParticipant(
+                assembly,
+                policy);
+        using var host = QueryHost.WithoutPdb();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [participant]);
+
+        AssemblyMemberSourceComparisonEntry result =
+            await AssemblyContextSourceComparisonQuery.ExecuteAsync(
+                group,
+                participant,
+                requestSource.MemberRequest(
+                    nameof(SourceFixture.Describe)),
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var failed =
+            Assert.IsType<
+                AssemblyMemberSourceComparisonEntry.Failed>(
+                    result);
+        Assert.Equal(
+            AssemblySourceFailureKind.InspectionFailed,
+            failed.Failure.Kind);
+        Assert.IsType<InvalidOperationException>(
+            failed.Failure.Error);
+        Assert.Empty(host.SymbolRequests);
+        Assert.Equal(0, policy.SelectionCount);
+    }
+
+    [Fact]
+    public async Task MemberComparison_RetainedImageRejectionIsRejected()
+    {
+        TestAssembly assembly =
+            TestAssembly.Create(
+                selectedName: "Different.Identity");
+        using var host = QueryHost.WithoutPdb();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyMemberSourceComparisonEntry result =
+            await AssemblyContextSourceComparisonQuery.ExecuteAsync(
+                group,
+                assembly.Participant,
+                assembly.MemberRequest(
+                    nameof(SourceFixture.Describe)),
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var rejected =
+            Assert.IsType<
+                AssemblyMemberSourceComparisonEntry.Rejected>(
+                    result);
+        Assert.Equal(
+            CandidateOpenFailureKind.InvalidImage,
+            rejected.Failure.Kind);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MemberComparison_CancellationDuringEitherAttemptAborts(
+        bool duringDecompilation)
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        if (duringDecompilation)
+            assembly.Policy.CancelSelection = true;
+        using QueryHost host =
+            duringDecompilation
+                ? QueryHost.WithPdb(
+                    assembly.PdbPath,
+                    SourceFileBytes())
+                : QueryHost.WithPdb(
+                    assembly.PdbPath,
+                    SourceFileBytes(),
+                    pdbStore: new CancelingPdbStore());
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => AssemblyContextSourceComparisonQuery.ExecuteAsync(
+                group,
+                assembly.Participant,
+                assembly.MemberRequest(
+                    nameof(SourceFixture.Describe)),
+                host.Context,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MemberComparison_BindingInvalidationDuringEitherAttemptFails(
+        bool duringDecompilation)
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        if (duringDecompilation)
+        {
+            assembly.Policy.BeforeSelection =
+                assembly.Policy.ChangeVersion;
+        }
+        using QueryHost host =
+            duringDecompilation
+                ? QueryHost.WithPdb(
+                    assembly.PdbPath,
+                    SourceFileBytes())
+                : QueryHost.WithPdb(
+                    assembly.PdbPath,
+                    SourceFileBytes(),
+                    pdbStore: new ThrowingPdbStore(
+                        assembly.Policy.ChangeVersion));
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyMemberSourceComparisonEntry result =
+            await AssemblyContextSourceComparisonQuery.ExecuteAsync(
+                group,
+                assembly.Participant,
+                assembly.MemberRequest(
+                    nameof(SourceFixture.Describe)),
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var failed =
+            Assert.IsType<
+                AssemblyMemberSourceComparisonEntry.Failed>(
+                    result);
+        Assert.Equal(
+            AssemblySourceFailureKind.InspectionFailed,
+            failed.Failure.Kind);
+        Assert.IsType<InvalidOperationException>(
+            failed.Failure.Error);
     }
 
     [Fact]
@@ -2699,6 +3121,55 @@ public sealed class AssemblyContextSourceQueryTests
                 {
                 }
             });
+        return bytes;
+    }
+
+    static byte[] CorruptMethodBody(
+        byte[] original,
+        int metadataToken)
+    {
+        byte[] bytes = (byte[])original.Clone();
+        int bodyRva;
+        int bodyOffset;
+        using (var reader =
+               new PEReader(
+                   new MemoryStream(
+                       bytes,
+                       writable: false)))
+        {
+            var handle =
+                (MethodDefinitionHandle)
+                    MetadataTokens.EntityHandle(
+                        metadataToken);
+            bodyRva =
+                reader.GetMetadataReader()
+                    .GetMethodDefinition(handle)
+                    .RelativeVirtualAddress;
+            SectionHeader section =
+                Assert.Single(
+                    reader.PEHeaders.SectionHeaders,
+                    candidate =>
+                        bodyRva >= candidate.VirtualAddress
+                        && bodyRva
+                            < candidate.VirtualAddress
+                                + Math.Max(
+                                    candidate.VirtualSize,
+                                    candidate.SizeOfRawData));
+            bodyOffset =
+                checked(
+                    section.PointerToRawData
+                    + bodyRva
+                    - section.VirtualAddress);
+        }
+
+        bytes[bodyOffset] = 0;
+        using var corrupted =
+            new PEReader(
+                new MemoryStream(
+                    bytes,
+                    writable: false));
+        Assert.Throws<BadImageFormatException>(
+            () => corrupted.GetMethodBody(bodyRva));
         return bytes;
     }
 
