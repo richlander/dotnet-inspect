@@ -20,12 +20,10 @@ This owner defines:
   hover, keyboard focus, disabled) and their accessibility contract;
 - the interaction grammar and collapsed-summary rules for progressive filter
   disclosure;
-- the shared heading rules across the API, Source, and Metadata lenses: API
-  and Source render a compact exact-target heading, while Metadata retains its
-  detailed type-level context;
-  and
-- the compact status/action presentation for successful and failed source
-  provenance.
+- the shared heading rules across the API and Metadata lenses: API renders a
+  compact exact-target heading, while Metadata retains its detailed type-level
+  context; and
+- the compact status vocabulary for successful and failed source provenance.
 
 It does not own:
 
@@ -203,12 +201,14 @@ ordinary body copy; the current leaf also receives the shared accent. Segment
 copy controls preserve this typography without button chrome and gain an
 underline on hover plus an explicit keyboard focus outline.
 
-### API and Source lenses
+### API, Source, and Metadata lenses
 
-API and Source render a compact local heading followed by their primary
-content. The subject zone remains the visible owner of the complete hierarchy.
-When the snapshot has an effective lens, the lens panel's accessible heading
-relationship includes the subject path and the active inspector label.
+API renders a compact local heading followed by its primary content. Source is
+the full-area exception governed by
+[Inspect Web Surface Composition](inspect-web-surface-composition.md#source-and-annotated-source):
+it adds no local heading, so the subject zone remains the visible owner of the
+complete hierarchy while the active Source inspector labels the lens panel.
+Metadata retains its detailed type heading.
 
 When the snapshot has no effective lens, the UI renders no `tabpanel`. A status
 region references the target heading and its visible `Lens unavailable`
@@ -217,10 +217,12 @@ an active tab, panel, or fallback lens.
 
 Home, Workspace, and Diagnostics render their own visible level-one heading.
 The persistent `dotnet-inspect` root control remains available and opens
-Home. Returning to an inspection surface restores its exact-target heading;
-two visible level-one headings are never rendered for one routed surface.
+Home. Returning to an inspection surface restores its exact-target
+orientation: API and Metadata render their owned headings, while Source keeps
+the persistent subject zone visible. Two visible level-one headings are never
+rendered for one routed surface.
 
-The compact API and Source heading does not repeat:
+The compact API heading and full-area Source working surface do not repeat:
 
 - the kind icon;
 - the namespace eyebrow;
@@ -246,26 +248,33 @@ The Metadata lens retains the detailed type heading. It is the type-level view
 for kind, namespace, declaration shape, target framework, library, package, and
 version context.
 
-The exact-target heading remains the common orientation point between API,
-Metadata, and Source. Switching lenses changes the amount of surrounding
-detail, not the selected subject or its display identity.
+The exact-target identity remains the common orientation point between API,
+Metadata, and Source. API and Metadata repeat that identity in their local
+headings; Source relies on the persistent subject zone rather than duplicating
+it inside the full-area working surface. Switching lenses does not change the
+selected subject or its display identity.
 
 ## Source provenance
 
-Successful source provenance is presented as a compact status and action row,
-not as an explanation of the product's safety mechanisms. This rule applies to
-type, member, and graph source surfaces.
+Successful source provenance is presented as compact status, not as an
+explanation of the product's safety mechanisms. This vocabulary applies to
+type, member, and graph source surfaces; page-level placement and related
+action placement remain with their owning surfaces.
 
-The placement of that row relative to Source or Annotated Source content is
-owned by
+For type and member Source, the placement of provenance relative to content and
+the placement of Copy and optional Open are owned by
 [Inspect Web Surface Composition](inspect-web-surface-composition.md#source-and-annotated-source).
+Graph Source retains its modal-local composition.
 
 For checksum-verified source resolved through PDB information, the visible
 status is compact:
 
 ```text
-PDB Source                                      open source   copy
-PDB Source                                                    copy
+Working-surface actions                              Copy   Open
+PDB Source                                      compact provenance
+
+Working-surface actions                                     Copy
+PDB Source                                      compact provenance
 ```
 
 `PDB Source` implies that the source satisfied the product's PDB checksum
@@ -274,12 +283,12 @@ SourceLink transport, repository URL, or commit hash in explanatory prose.
 Those facts remain part of the product result; they do not need to occupy the
 source viewport.
 
-The `open source` action appears only when the product result supplies an
+The `Open` action appears only when the product result supplies an
 optional producer-authorized browse URL. A raw resolved or fetch URL and
 provenance prose do not establish that authorization, and the UI does not parse
 prose to infer it. The action uses plain text with no trailing arrow or
 external-link glyph. Its accessible name may state that it opens a new browser
-tab. The `copy` action remains available with or without a browse URL.
+tab. The `Copy` action remains available with or without a browse URL.
 
 `Decompiled source` remains the concise status for product-generated source.
 If a PDB source attempt failed and the product returned a meaningful limitation

@@ -496,6 +496,12 @@ A user-configured V3 endpoint is different even when its host belongs to
 NuGet.org: it follows the configurable-source rules above and does not acquire
 the built-in Gallery's credential-free identity merely from its hostname.
 
+Credential-provider contexts are desktop-only. Browser/Wasm callers cannot
+create a `PluginAuthenticationContextOwner`; creation fails visibly with
+`PlatformNotSupportedException`, and V3 factory composition independently
+rejects a context on that platform. Browser sources continue to use the
+explicit session PAT contract owned by the browser-package-source design.
+
 #### Concurrency and refresh
 
 Acquisition is single-flight per context. Concurrent authorized challenges for
@@ -799,13 +805,19 @@ the associated V3 source pipeline; an unassociated call site cannot acquire
 plugin authority. Neither shape fixes the `nuget.config` path, which still
 depends on the caller threading an explicit credential through.
 
-The current handler caches acquired credentials by request-target origin so the
-service index and discovered package endpoints share one challenge response.
-Azure Artifacts adds the first path segment, which is the organization. This
-separates Azure organizations, but neither shape separates distinct configured
-sources inside one cache scope. The
-[source-scoped context](#source-scoped-plugin-authentication-context) is the
-target replacement; its implementation gates remain unverified.
+The legacy shared handler caches acquired credentials by request-target origin
+so the service index and discovered package endpoints share one challenge
+response. Azure Artifacts adds the first path segment, which is the
+organization. This separates Azure organizations, but neither rule separates
+distinct configured sources inside one cache scope.
+
+The
+[source-scoped context](#source-scoped-plugin-authentication-context) is
+implemented for owner-composed V3 source pipelines through
+`PackageSourceClientFactory.CreateWithPluginAuthentication`. Package-source
+composition issue #5603 is the named consumer that will replace the legacy
+shared-handler path; until then, that path does not claim source-scoped
+isolation.
 
 When an automatic redirect ends in an authentication challenge, credential acquisition remains
 scoped to the caller-selected source URI and the retry starts again from that URI. A redirect
@@ -827,8 +839,13 @@ Two tiers, in `src/NuGetFetch.Tests`:
     `IsRetry` progression, request-target cache scoping for ordinary hosts,
     organization scoping and GUID-alias reuse for Azure Artifacts, redirect
     isolation from credential scope and returned content, 403 opt-in, and that
-    an existing credential is not overwritten. It does not yet establish the
-    source-scoped context gates above.
+    an existing credential is not overwritten. It establishes only the legacy
+    shared-handler behavior.
+  - `PluginAuthenticationContextTests` pins every required source-scoped
+    context gate above. Pipeline mapping, disposal, resource-first challenge,
+    and redirect composition run through owner-composed V3 clients; focused
+    state, scope, refresh, and retirement vectors use hermetic handler
+    transports.
   - `PluginProtocolTests` runs a **real plugin process** — a cross-platform managed fixture that
     genuinely speaks the line protocol — so framing, the symmetric handshake, process death,
     selected shutdown behavior, and caller-cancellation classification are exercised end to end

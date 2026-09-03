@@ -89,10 +89,10 @@ independent cosmetic changes.
 | Workspace selection | Keep ordinary single-workspace use free of tabs; manage retained coordinates inside the Workspace subject |
 | Package coordinate | Render version and TFM selectors in Package content; platform is workspace content, not a workspace |
 | Library inspection | Select all libraries or one library within Library |
-| Type headings | Use a compact exact-target heading in API and Source; retain detail in Metadata |
+| Type headings | Use a compact exact-target heading in API, no duplicate local heading in full-area Source, and detailed context in Metadata |
 | Filters | Collapse selector rows by default and summarize hidden restrictions |
 | Selected controls | Use one accent selected-state treatment across selector families |
-| Source provenance | Use a compact status/action row without validation prose or link glyphs |
+| Source provenance | Keep compact provenance in the bottom footer and page-owned Copy/Open actions in the separate working-surface action group |
 | Search and opening | Open Spotlight from a responsive flush-right title-line control immediately after Back/Forward; use a separate local-artifact Open flow |
 | Settings | Use one Settings experience with contextual entry points |
 | Data bar | Show build identity, acquired source, CLI, and skill links on one line |
@@ -117,16 +117,15 @@ owns the SSS composition's two tablists, different styling and navigation,
 inspector-first width allocation, boundary controls, and subject-driven
 inspector replacement.
 
-Moving application and contextual actions out of the subject row remains
-required product direction, but it is not part of this focused pattern and
-first-adopter contract. Surface Composition changes are limited to deferring
-its stale inspector representation, horizontal-movement, pressure-trigger, and
-matching acceptance restatements to Navigation Presentation. Shell Interaction
-and Surface Composition retain their current application-action contracts until
-[#5482](https://github.com/richlander/dotnet-inspect/issues/5482) defines the
-shell-owned application control and
-[#5483](https://github.com/richlander/dotnet-inspect/issues/5483) relocates it
-and the contextual actions at the page-composition layer.
+The page-level action line keeps working-surface actions distinct from the
+Application menu: Source and Annotated Source supply contextual groups between
+the SlideStrip region and the fixed application control. Surface Composition
+owns that placement and the transition from legacy direct application controls
+without changing either action inventory. This focused pattern otherwise
+defers its stale inspector representation, horizontal-movement,
+pressure-trigger, and matching acceptance restatements to Navigation
+Presentation. Shell Interaction owns the Application menu's identity,
+inventory, and behavior.
 
 ## Cross-document relationships
 

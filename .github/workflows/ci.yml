@@ -600,6 +600,9 @@ jobs:
       - name: Run row-selection tests
         run: dotnet run --project src/DotnetInspector.RowSelection.Tests -c Release
 
+      - name: Run section-row tests
+        run: dotnet run --project src/DotnetInspector.Sections.Tests -c Release
+
       - name: Run instruction-substrate tests
         run: dotnet run --project src/ILInspector.Instructions.Tests -c Release
 

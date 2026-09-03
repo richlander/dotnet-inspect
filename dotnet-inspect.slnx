@@ -30,6 +30,8 @@
     <Project Path="src/DotnetInspector.ResearchQueries/DotnetInspector.ResearchQueries.csproj" />
     <Project Path="src/DotnetInspector.RowSelection.Tests/DotnetInspector.RowSelection.Tests.csproj" />
     <Project Path="src/DotnetInspector.RowSelection/DotnetInspector.RowSelection.csproj" />
+    <Project Path="src/DotnetInspector.Sections.Tests/DotnetInspector.Sections.Tests.csproj" />
+    <Project Path="src/DotnetInspector.Sections/DotnetInspector.Sections.csproj" />
     <Project Path="src/DotnetInspector.Services.Tests/DotnetInspector.Services.Tests.csproj" />
     <Project Path="src/DotnetInspector.Services/DotnetInspector.Services.csproj" />
     <Project Path="src/DotnetInspector.Vocabulary/DotnetInspector.Vocabulary.csproj" />
