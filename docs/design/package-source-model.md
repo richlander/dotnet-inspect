@@ -435,6 +435,9 @@ through the exact association, and reports authoritative, partial, or failed
 version evidence. A selected local authority is classified without
 constructing HTTP state and currently produces the explicit
 capability-unavailable result owned by #5400.
+When the Gallery route cannot complete its registration listing-state join,
+its retained flat-container candidates are explicitly partial rather than
+authoritative.
 
 Offline version enumeration and the `--versions-with-feed`,
 `--include-unlisted`, latest-version, range, payload, metadata, search, and

@@ -580,7 +580,8 @@ public class PackageCommand
             if (versionQueryPinned is null
                 && options.Limit == 1
                 && !options.IncludeUnlisted
-                && !options.ListVersionsWithFeed)
+                && !options.ListVersionsWithFeed
+                && Core.HttpClientFactory.IsOffline)
             {
                 List<string>? singleVersions =
                     await PackageExtractor.GetSingleVersionListingAsync(
@@ -1261,6 +1262,11 @@ public class PackageCommand
         {
             remediation.Add(
                 "Use a package source that supports version enumeration in this host.");
+        }
+        if (kinds.Contains(PackageAuthorityFailureKind.IncompleteMetadata))
+        {
+            remediation.Add(
+                "Retry to obtain complete package version metadata.");
         }
         if (kinds.Contains(PackageAuthorityFailureKind.Timeout))
         {

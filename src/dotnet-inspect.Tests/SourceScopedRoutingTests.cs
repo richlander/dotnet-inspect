@@ -655,6 +655,34 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Fact]
+    public async Task PackageVersionListing_LimitOneStillReportsPartialEvidence()
+    {
+        string packageName = $"PartialLimitedVersionList{Guid.NewGuid():N}";
+
+        var (exit, output, error, _) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                "2.0.0",
+                [
+                    "package",
+                    packageName,
+                    "--versions",
+                    "1",
+                    "--source",
+                    RefusedSource,
+                    "--source",
+                    SecondSource,
+                ],
+                refusedStatus: HttpStatusCode.Unauthorized);
+
+        Assert.Equal(0, exit);
+        Assert.Equal("2.0.0", output.Trim());
+        Assert.Contains("partial", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("requires credentials", error);
+        Assert.Contains(RefusedSource, error);
+    }
+
+    [Fact]
     public async Task PackageVersionListing_UsesConfiguredCredentialImmediately()
     {
         string packageName = $"ConfiguredCredential{Guid.NewGuid():N}";
@@ -859,6 +887,95 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.Equal(PackageVersionDiscoveryState.Authoritative, result.State);
         Assert.Equal(["2.0.0-beta.1", "1.0.0"], result.Versions);
         Assert.Empty(credentialSource.Queries);
+    }
+
+    [Fact]
+    public async Task PackageVersionListing_IncompleteGalleryListingStateIsPartial()
+    {
+        const string PackageName = "gallery-partial-listing-contract";
+        const string Flat =
+            "https://globalcdn.nuget.org/v3-flatcontainer/gallery-partial-listing-contract/index.json";
+        var credentialSource = new RecordingCredentialSource();
+        await using var composition = new DesktopPackageSourceComposition(
+            TimeSpan.FromSeconds(5),
+            credentialSource,
+            _ => new CannedResponseHandler(
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    [Flat] = """{"versions":["1.0.0","1.1.0"]}""",
+                }));
+
+        PackageVersionDiscoveryResult result =
+            await composition.GetVersionsAsync(
+                PackageName,
+                includePrerelease: true,
+                limit: null,
+                new NuGetSourceOptions
+                {
+                    Sources =
+                        ["https://api.nuget.org/v3/index.json"],
+                },
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Equal(PackageVersionDiscoveryState.Partial, result.State);
+        Assert.Equal(["1.1.0", "1.0.0"], result.Versions);
+        PackageAuthorityFailure failure = Assert.Single(result.Failures);
+        Assert.Equal(
+            PackageAuthorityFailureKind.IncompleteMetadata,
+            failure.Kind);
+        Assert.Empty(credentialSource.Queries);
+    }
+
+    [Theory]
+    [InlineData("Newtonsoft.Json.", null, "package ID")]
+    [InlineData("Newtonsoft.Json", "0", "version limit")]
+    public async Task PackageVersionListing_InvalidInputReportsTypedFailure(
+        string packageName,
+        string? limit,
+        string expected)
+    {
+        bool transportCreated = false;
+        DotnetInspector.Core.HttpClientFactory.Initialize(
+            new HttpClientFactoryOptions());
+        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        DotnetInspector.Core.HttpClientFactory.SetPackageSourceHandlerForTesting(
+            _ =>
+            {
+                transportCreated = true;
+                return new HttpClientHandler();
+            });
+        try
+        {
+            var arguments = new List<string>
+            {
+                "package",
+                packageName,
+                "--versions",
+            };
+            if (limit is not null)
+                arguments.Add(limit);
+            arguments.AddRange(["--source", SecondSource]);
+
+            var (exit, output, error) =
+                await RunCommandAsync([.. arguments]);
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(expected, error, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Exception", error, StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                " at DotnetInspector.",
+                error,
+                StringComparison.Ordinal);
+            Assert.False(transportCreated);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory.Initialize(
+                new HttpClientFactoryOptions { Offline = true });
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        }
     }
 
     [Fact]

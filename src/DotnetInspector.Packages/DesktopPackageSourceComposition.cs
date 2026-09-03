@@ -21,6 +21,7 @@ public enum PackageAuthorityFailureKind
 {
     Configuration,
     Unsupported,
+    IncompleteMetadata,
     AuthenticationRequired,
     Timeout,
     InvalidResponse,
@@ -119,9 +120,23 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
         ObjectDisposedException.ThrowIf(
             Volatile.Read(ref _disposed) != 0,
             this);
-        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        if (!PackageExtractor.IsValidPackageId(packageId))
+        {
+            return Failed(
+                new PackageAuthorityFailure(
+                    InertString.Empty,
+                    PackageAuthorityFailureKind.Configuration,
+                    "The package ID must use the NuGet package ID grammar."));
+        }
+
         if (limit <= 0)
-            throw new ArgumentOutOfRangeException(nameof(limit));
+        {
+            return Failed(
+                new PackageAuthorityFailure(
+                    InertString.Empty,
+                    PackageAuthorityFailureKind.Configuration,
+                    "The package version limit must be greater than zero."));
+        }
 
         PackageSourceAuthorization authorization =
             new SourcePolicyPackageSourceAuthorization(sourceOptions)
@@ -207,6 +222,16 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
                     ?? throw new InvalidOperationException(
                         "The package source version operation returned neither a value nor a failure.");
                 RequireAuthority(value.Source, authority);
+                if (value.Source.TransportKind
+                        == PackageSourceKind.NuGetGallery
+                    && !value.HasAuthoritativeListingState)
+                {
+                    failures.Add(new PackageAuthorityFailure(
+                        PackageSourceDisplay.ForDiagnostics(source),
+                        PackageAuthorityFailureKind.IncompleteMetadata,
+                        $"Package source {PackageSourceDisplay.ForDiagnostics(source)} did not provide authoritative version listing state."));
+                }
+
                 foreach (PackageCandidateObservation candidate in
                          value.Candidates)
                 {
@@ -266,6 +291,16 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
                 .Take(limit ?? int.MaxValue)
                 .Select(candidate => candidate.Original),
         ];
+        try
+        {
+            operation.ThrowIfExpired();
+        }
+        catch (NuGetOperationTimeoutException)
+        {
+            operationTimedOut = true;
+            AddOperationTimeoutFailure(failures);
+        }
+
         PackageVersionDiscoveryState state = operationTimedOut
             ? PackageVersionDiscoveryState.Failed
             : failures.Count switch
@@ -418,6 +453,8 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
                 $"Package source {authority} timed out while enumerating versions.",
             PackageAuthorityFailureKind.Unsupported =>
                 $"Package source {authority} does not support version enumeration.",
+            PackageAuthorityFailureKind.IncompleteMetadata =>
+                $"Package source {authority} did not provide complete version metadata.",
             PackageAuthorityFailureKind.InvalidResponse =>
                 $"Package source {authority} returned invalid version metadata.",
             PackageAuthorityFailureKind.ResponseRejected =>
