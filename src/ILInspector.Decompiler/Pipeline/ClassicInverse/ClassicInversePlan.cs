@@ -106,6 +106,7 @@ internal sealed record ClassicInversePlan
                 $"locals={string.Join(";", Locals.Select(static l => l.ToDisplayString()))}",
                 $"names={string.Join(";", LocalNames.Select(static n => n ?? ""))}",
                 $"body={Body.Signature}",
+                $"typefacts={TypeFacts.Signature}",
                 $"physical={ClassicInverseSignature.Join(PhysicalPartition.Select(static r => r.Signature))}",
                 $"semantic={ClassicInverseSignature.Join(SemanticRealizations.Select(static r => r.Signature))}",
                 $"ancestors={ClassicInverseSignature.Join(StructuredAncestorReceipts.Select(static r => r.Signature))}",

@@ -135,9 +135,16 @@ internal static class ClassicInverseRealizationRules
             return false;
         }
 
-        if (!context.ClaimByOutput.ContainsKey(await.Operand))
+        if (!context.ClaimByOutput.TryGetValue(
+                await.Operand,
+                out ClassicInverseClaim? operandClaim))
         {
             failure = "the await operand carries no realization of its own";
+            return false;
+        }
+        if (!MatchesAwaiterBind(getResult, operandClaim.Source))
+        {
+            failure = "the await operand does not belong to this GetResult awaiter slot";
             return false;
         }
 
@@ -248,6 +255,17 @@ internal static class ClassicInverseRealizationRules
             failure = "the claimed control condition is not an inverted branch";
             return false;
         }
+        if (inverted.Operand is not LoadField
+            {
+                Instance: LoadArgument { Index: 0 },
+            } condition
+            || !ClassicInverseNodeFacts.IsMachineField(
+                condition.Field,
+                context.Shell.Machine))
+        {
+            failure = "the conditional recipe does not model a compound predicate";
+            return false;
+        }
 
         if (claim.Output is not Conditional conditional)
         {
@@ -325,6 +343,19 @@ internal static class ClassicInverseRealizationRules
                 return false;
             }
             return true;
+        }
+
+        if (source is Convert { IsChecked: false } implicitConversion
+            && output is not Convert
+            && CSharpConversionRules.IsImplicitNumericAssignment(
+                implicitConversion.Operand.ResultType ?? implicitConversion.Target,
+                implicitConversion.Target))
+        {
+            return Lockstep(
+                implicitConversion.Operand,
+                output,
+                context,
+                out failure);
         }
 
         if (!ReferenceEquals(output, context.OutputRoot)
@@ -410,13 +441,6 @@ internal static class ClassicInverseRealizationRules
                 return Lockstep(store.Value, hoistedStore.Value, context, out failure);
             }
 
-            case Convert { IsChecked: false } convert
-                when output is not Convert
-                    && CSharpConversionRules.IsImplicitNumericAssignment(
-                        convert.Operand.ResultType ?? convert.Target,
-                        convert.Target):
-                return Lockstep(convert.Operand, output, context, out failure);
-
             case StoreStackSlot spill when output is not StoreStackSlot:
                 failure = "a spilled value has no declared realization";
                 return false;
@@ -475,14 +499,101 @@ internal static class ClassicInverseRealizationRules
         return false;
     }
 
+    static bool MatchesAwaiterBind(Call getResult, IrNode operand)
+    {
+        if (getResult.Arguments is not [LoadLocalAddress awaiter]
+            || operand.Parent is not Call
+            {
+                Callee.Name: "GetAwaiter",
+                Parent: StoreLocal bind,
+            } getAwaiter
+            || getAwaiter.Arguments.Count != 1
+            || !ReferenceEquals(getAwaiter.Arguments[0], operand)
+            || bind.Index != awaiter.Index)
+        {
+            return false;
+        }
+
+        IrNode root = getResult;
+        while (root.Parent is not null)
+            root = root.Parent;
+        List<IrNode> nodes = [.. root.Descendants.Prepend(root)];
+        int resultPosition = nodes.IndexOf(getResult);
+        if (resultPosition < 0)
+            return false;
+
+        StoreLocal? reachingBind = nodes
+            .Take(resultPosition)
+            .OfType<StoreLocal>()
+            .LastOrDefault(candidate =>
+                candidate.Index == awaiter.Index
+                && candidate.Value is Call { Callee.Name: "GetAwaiter" });
+        return ReferenceEquals(reachingBind, bind);
+    }
+
     static bool PayloadEquals(IrNode source, IrNode output)
         => (source, output) switch
         {
-            (Block, Block) => true,
+            (Block left, Block right) =>
+                left.StartOffset == right.StartOffset,
             (BlockContainer, BlockContainer) => true,
-            _ => string.Equals(
-                source.Describe(),
-                output.Describe(),
-                StringComparison.Ordinal),
+            (Return, Return) => true,
+            (ExpressionStatement, ExpressionStatement) => true,
+            (LogicalNot, LogicalNot) => true,
+            (LoadArgument left, LoadArgument right) =>
+                left.Index == right.Index
+                && left.Name == right.Name
+                && Equals(left.Type, right.Type)
+                && left.IsDynamic == right.IsDynamic
+                && left.ArrayElementIsDynamic == right.ArrayElementIsDynamic,
+            (Constant left, Constant right) =>
+                Equals(left.Value, right.Value)
+                && Equals(left.Type, right.Type),
+            (Binary left, Binary right) =>
+                left.Kind == right.Kind
+                && left.IsChecked == right.IsChecked
+                && left.IsUnsigned == right.IsUnsigned,
+            (Comparison left, Comparison right) =>
+                left.Kind == right.Kind
+                && left.IsUnsigned == right.IsUnsigned,
+            (Conditional left, Conditional right) =>
+                Equals(left.MergedType, right.MergedType),
+            (Convert left, Convert right) =>
+                Equals(left.Target, right.Target)
+                && left.IsChecked == right.IsChecked
+                && left.IsUnsigned == right.IsUnsigned,
+            (Box left, Box right) => Equals(left.Type, right.Type),
+            (Call left, Call right) =>
+                left.Callee == right.Callee
+                && left.IsVirtual == right.IsVirtual
+                && Equals(left.ConstrainedTo, right.ConstrainedTo)
+                && left.ExtensionSyntaxConflict
+                    == right.ExtensionSyntaxConflict,
+            (NewObject left, NewObject right) =>
+                left.Constructor == right.Constructor
+                && left.AnonymousPropertyNames.SequenceEqual(
+                    right.AnonymousPropertyNames),
+            (LoadElement left, LoadElement right) =>
+                Equals(left.ElementType, right.ElementType)
+                && right.ResultIsDynamic
+                    == IrImporter.ArrayElementDynamicFact(right.Array),
+            (TupleExpression left, TupleExpression right) =>
+                Equals(left.TupleType, right.TupleType),
+            (ObjectInitializerExpression left,
+                ObjectInitializerExpression right) =>
+                left.IsCollection == right.IsCollection
+                && left.Members.SequenceEqual(right.Members)
+                && left.ArgumentCounts.SequenceEqual(right.ArgumentCounts)
+                && left.ConsumedMethods.SequenceEqual(
+                    right.ConsumedMethods)
+                && left.ConsumedFields.SequenceEqual(
+                    right.ConsumedFields),
+            (WithExpression left, WithExpression right) =>
+                left.Members.SequenceEqual(right.Members)
+                && left.ConsumedMethods.SequenceEqual(
+                    right.ConsumedMethods)
+                && left.ConsumedFields.SequenceEqual(
+                    right.ConsumedFields),
+            _ => false,
         };
 }

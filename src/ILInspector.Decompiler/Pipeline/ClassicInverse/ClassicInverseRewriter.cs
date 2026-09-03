@@ -22,18 +22,18 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 internal sealed class ClassicInverseRewriter
 {
-    readonly ClassicInverseRequest _request;
+    readonly ClassicInversePlanningView _planning;
     readonly ClassicInverseShellFacts _shell;
     readonly ClassicInverseCandidate _candidate;
     readonly Dictionary<Call, IrNode> _awaitClaimSources =
         new(ReferenceEqualityComparer.Instance);
 
     internal ClassicInverseRewriter(
-        ClassicInverseRequest request,
+        ClassicInversePlanningView planning,
         ClassicInverseShellFacts shell,
         ClassicInverseCandidate candidate)
     {
-        _request = request;
+        _planning = planning;
         _shell = shell;
         _candidate = candidate;
     }
@@ -83,6 +83,12 @@ internal sealed class ClassicInverseRewriter
             case LoadStackSlot:
             case StoreStackSlot:
                 return null;
+
+            case Convert { IsChecked: false } convert
+                when CSharpConversionRules.IsImplicitNumericAssignment(
+                    convert.Operand.ResultType ?? convert.Target,
+                    convert.Target):
+                return RewriteCore(convert.Operand);
         }
 
         IrNode clone = source.Clone();
@@ -127,7 +133,7 @@ internal sealed class ClassicInverseRewriter
         if (getResult.Arguments is not [LoadLocalAddress awaiterAddress])
             return null;
 
-        List<IrNode> nodes = [.. _request.ExecutionBody.Body.Descendants];
+        List<IrNode> nodes = [.. _planning.ExecutionBody.Body.Descendants];
         int position = nodes.IndexOf(getResult);
         if (position < 0)
             return null;
@@ -154,7 +160,7 @@ internal sealed class ClassicInverseRewriter
             return new LoadLocal(local, type);
         }
 
-        IrFunction kickoff = _request.KickoffBody;
+        IrFunction kickoff = _planning.KickoffBody;
         int argumentBase = kickoff.Signature.HasThis ? 1 : 0;
         for (int i = 0; i < kickoff.Signature.Parameters.Length; i++)
         {

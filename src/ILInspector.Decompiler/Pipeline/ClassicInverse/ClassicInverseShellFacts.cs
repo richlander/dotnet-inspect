@@ -157,11 +157,26 @@ internal static class ClassicInverseNodeFacts
             CallIndirect => "calli",
             LocalFunctionInvocation invocation =>
                 $"localfn:{invocation.Name}",
-            NewObject creation =>
+            NewObject creation when !IsEffectFreeTuple(creation) =>
                 $"newobj:{creation.Constructor.DeclaringType.ToDisplayString()}"
                 + $"/{creation.Constructor.ParameterTypes.Length}",
             LoadProperty property => $"call:{property.PropertyName}",
             StoreProperty property => $"store:{property.PropertyName}",
+            ArrayLength => "throw:array-length",
+            LoadElement => "throw:element-access",
+            LoadElementAddress => "throw:element-address",
+            LoadIndirect => "throw:indirect-load",
+            CastClass => "throw:cast",
+            Unbox => "throw:unbox",
+            UnboxAny => "throw:unbox-any",
+            NewArray => "new:array",
+            Convert { IsChecked: true } => "throw:checked-convert",
+            Binary { IsChecked: true } binary =>
+                $"throw:checked-{binary.Kind}",
+            Binary
+            {
+                Kind: BinaryKind.Divide or BinaryKind.Remainder,
+            } binary => $"throw:{binary.Kind}",
             LoadField load when !IsMachineRead(load, machine) =>
                 $"read:{load.Field.DeclaringType.ToDisplayString()}.{load.Field.Name}",
             LoadFieldAddress load when !IsMachineRead(load, machine) =>
@@ -187,6 +202,18 @@ internal static class ClassicInverseNodeFacts
             UnsupportedNode unsupported => $"unsupported:{unsupported.Opcode}",
             _ => null,
         };
+
+    static bool IsEffectFreeTuple(NewObject creation)
+    {
+        TypeRef type = Definition(creation.Constructor.DeclaringType);
+        return creation.Constructor.ConstructorEffectFree
+            || MemberIdentity.IsCoreLibraryType(type, "System", "ValueTuple")
+            || Enumerable.Range(1, 8).Any(arity =>
+                MemberIdentity.IsCoreLibraryType(
+                    type,
+                    "System",
+                    $"ValueTuple`{arity}"));
+    }
 
     static bool IsMachineInitTarget(IrExpression address, TypeRef machine)
         => address is LoadFieldAddress { Instance: LoadArgument { Index: 0 } } field

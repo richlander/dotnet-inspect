@@ -17,6 +17,7 @@ namespace ILInspector.Decompiler.Pipeline;
 internal sealed class ClassicInverseAccountant
 {
     readonly ClassicInverseRequest _request;
+    readonly ClassicInversePlanningView _planning;
     readonly ClassicInverseCandidate _candidate;
     readonly ClassicInverseShellFacts _shell;
     readonly ClassicInverseBudget _budget;
@@ -27,28 +28,38 @@ internal sealed class ClassicInverseAccountant
         new(ReferenceEqualityComparer.Instance);
     readonly Dictionary<IrNode, ImmutableArray<int>> _outputPaths =
         new(ReferenceEqualityComparer.Instance);
+    readonly Dictionary<IrNode, ImmutableArray<int>> _rawExecutionPaths =
+        new(ReferenceEqualityComparer.Instance);
+    readonly Dictionary<IrNode, ImmutableArray<int>> _rawKickoffPaths =
+        new(ReferenceEqualityComparer.Instance);
 
     readonly Dictionary<IrNode, ClassicInverseClaim> _claimBySource =
         new(ReferenceEqualityComparer.Instance);
     readonly Dictionary<IrNode, ClassicInverseClaim> _claimByOutput =
         new(ReferenceEqualityComparer.Instance);
 
-    readonly List<ClassicInversePhysicalRegion> _regions = [];
+    readonly List<ClassicInversePhysicalRegion> _rawRegions = [];
+    readonly List<(IrNode Node, ClassicInversePhysicalRegion Region)>
+        _rawReceiptNodes = [];
     readonly List<ClassicInverseSemanticRealization> _realizations = [];
     readonly List<ClassicInverseAncestorReceipt> _ancestors = [];
     readonly HashSet<IrNode> _covered = new(ReferenceEqualityComparer.Instance);
-    readonly HashSet<int> _claimedOffsets = [];
+    readonly HashSet<IrNode> _rawCovered =
+        new(ReferenceEqualityComparer.Instance);
+    ImmutableArray<string> _planningEffectOrder = [];
 
     BlockContainer _output = null!;
     ClassicInverseDecision? _terminal;
 
     ClassicInverseAccountant(
         ClassicInverseRequest request,
+        ClassicInversePlanningView planning,
         ClassicInverseCandidate candidate,
         ClassicInverseShellFacts shell,
         ClassicInverseBudget budget)
     {
         _request = request;
+        _planning = planning;
         _candidate = candidate;
         _shell = shell;
         _budget = budget;
@@ -60,10 +71,16 @@ internal sealed class ClassicInverseAccountant
     /// </summary>
     internal static ClassicInverseDecision Account(
         ClassicInverseRequest request,
+        ClassicInversePlanningView planning,
         ClassicInverseCandidate candidate,
         ClassicInverseShellFacts shell,
         ClassicInverseBudget budget)
-        => new ClassicInverseAccountant(request, candidate, shell, budget).Run();
+        => new ClassicInverseAccountant(
+            request,
+            planning,
+            candidate,
+            shell,
+            budget).Run();
 
     ClassicInverseDecision Run()
     {
@@ -76,8 +93,8 @@ internal sealed class ClassicInverseAccountant
 
         _output = BuildOutputContainer();
         IndexPaths(_output, _outputPaths);
-        IndexPaths(_request.ExecutionBody.Body, _executionPaths);
-        IndexPaths(_request.KickoffBody.Body, _kickoffPaths);
+        IndexPaths(_planning.ExecutionBody.Body, _executionPaths);
+        IndexPaths(_planning.KickoffBody.Body, _kickoffPaths);
         if (_terminal is not null)
             return _terminal;
 
@@ -101,6 +118,10 @@ internal sealed class ClassicInverseAccountant
 
         if (!AccountKickoff())
             return _terminal!;
+        if (!VerifyAncestorPaths())
+            return _terminal!;
+        if (!VerifyControlContexts())
+            return _terminal!;
         if (!AccountExecution())
             return _terminal!;
         if (!VerifyPartitionIsComplete())
@@ -109,9 +130,9 @@ internal sealed class ClassicInverseAccountant
             return _terminal!;
         if (!VerifyOutputIsFullyCited())
             return _terminal!;
-        if (!VerifyAncestorPaths())
+        if (!AccountRawImportSnapshots())
             return _terminal!;
-        if (!VerifyControlContexts())
+        if (!BindImportPaths())
             return _terminal!;
 
         ClassicInverseBodyNode? blueprint =
@@ -130,9 +151,9 @@ internal sealed class ClassicInverseAccountant
             blueprint,
             _candidate.Locals,
             _candidate.LocalNames,
-            _request.ExecutionBody.CaptureTypeFacts(),
+            _planning.ExecutionBody.CaptureTypeFacts(),
             _request.KickoffSourceOffset,
-            [.. _regions],
+            [.. _rawRegions],
             [.. _realizations],
             [.. _ancestors]);
         return new ClassicInverseDecision.Reconstruct(plan);
@@ -158,7 +179,7 @@ internal sealed class ClassicInverseAccountant
     /// </summary>
     bool AccountKickoff()
     {
-        IrFunction kickoff = _request.KickoffBody;
+        IrFunction kickoff = _planning.KickoffBody;
         if (kickoff.Body.Blocks is not [Block block])
         {
             return DeclineFalse(
@@ -287,6 +308,427 @@ internal sealed class ClassicInverseAccountant
         return true;
     }
 
+    bool AccountRawImportSnapshots()
+    {
+        IndexPaths(_request.KickoffBody.Body, _rawKickoffPaths);
+        IndexPaths(_request.ExecutionBody.Body, _rawExecutionPaths);
+        if (_terminal is not null)
+            return false;
+
+        if (!ValidateRawKickoff())
+            return false;
+        RecordRawRegion(
+            ClassicInverseBodyId.Kickoff,
+            _request.KickoffBody.Body,
+            ClassicInverseRegionDisposition.Protocol,
+            ownsSubtree: true,
+            "raw-kickoff-shell");
+        CoverRawSubtree(_request.KickoffBody.Body);
+
+        if (!WalkRawExecution(_request.ExecutionBody.Body))
+            return false;
+        if (_terminal is not null)
+            return false;
+        if (!VerifyRawSemanticClosure())
+            return false;
+
+        return VerifyRawPartitionIsComplete();
+    }
+
+    bool ValidateRawKickoff()
+    {
+        int createCount = 0;
+        int startCount = 0;
+        int taskCount = 0;
+        foreach (IrNode node in
+            _request.KickoffBody.Body.Descendants.Prepend(
+                _request.KickoffBody.Body))
+        {
+            if (ClassicInverseNodeFacts.IsUnknownEffectForm(node))
+            {
+                return DeclineFalse(
+                    ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+                    $"raw kickoff contains an unknown effect form "
+                        + $"'{node.Describe()}'");
+            }
+
+            string? effect =
+                ClassicInverseNodeFacts.EffectSignature(node, _shell.Machine);
+            if (effect is null)
+                continue;
+            if (IsRawKickoffProtocolEffect(
+                    node,
+                    ref createCount,
+                    ref startCount,
+                    ref taskCount))
+            {
+                continue;
+            }
+
+            return DeclineFalse(
+                ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+                $"raw kickoff effect '{node.Describe()}' is not protocol");
+        }
+        return createCount == 1 && startCount == 1 && taskCount == 1
+            || DeclineFalse(
+                ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+                "raw kickoff does not contain exactly one builder create, "
+                    + "start, and task acquisition");
+    }
+
+    bool VerifyRawSemanticClosure()
+    {
+        ImmutableArray<string> rawEffects =
+            RawSemanticEffects(_request.ExecutionBody.Body);
+        if (_terminal is not null)
+            return false;
+        ImmutableArray<string> planningEffects =
+        [
+            .. _planningEffectOrder.Select(static effect =>
+            {
+                int marker = effect.LastIndexOf("@claim:", StringComparison.Ordinal);
+                return marker < 0 ? effect : effect[..marker];
+            }),
+        ];
+        if (!rawEffects.SequenceEqual(planningEffects, StringComparer.Ordinal))
+        {
+            return DeclineFalse(
+                ClassicInverseDeclineReason.UnrealizedSemanticEffect,
+                "the raw import and planning view have different semantic "
+                    + $"effect sequences: [{string.Join(",", rawEffects)}] -> "
+                    + $"[{string.Join(",", planningEffects)}]");
+        }
+        return true;
+    }
+
+    ImmutableArray<string> RawSemanticEffects(IrNode root)
+    {
+        var effects = ImmutableArray.CreateBuilder<string>();
+        Visit(root);
+        return effects.ToImmutable();
+
+        void Visit(IrNode node)
+        {
+            ClassicInverseProtocolRule protocol =
+                ClassicInverseProtocol.Classify(node, _shell, _candidate);
+            if (protocol.Kind == ClassicInverseProtocolKind.OwnedProtocol)
+                return;
+
+            foreach (IrNode child in node.Children)
+            {
+                if (_terminal is not null)
+                    return;
+                Visit(child);
+            }
+
+            if (protocol.Kind != ClassicInverseProtocolKind.None)
+                return;
+            if (IsRawExecutionProtocolEffect(node))
+                return;
+            if (ClassicInverseNodeFacts.IsUnknownEffectForm(node))
+            {
+                _terminal = Decline(
+                    ClassicInverseDeclineReason.UnrealizedSemanticEffect,
+                    $"raw import contains an unmodeled effect form "
+                        + $"'{node.Describe()}'");
+                return;
+            }
+            string? signature =
+                ClassicInverseNodeFacts.EffectSignature(node, _shell.Machine);
+            if (signature is null || IsRawLoopElementArtifact(node))
+                return;
+            effects.Add(NormalizeRawEffect(node, signature));
+        }
+    }
+
+    bool IsRawLoopElementArtifact(IrNode node)
+        => node is LoadElement
+            && node.SourceOffset >= 0
+            && _candidate.Claims.Any(claim =>
+                claim.Rule == ClassicInverseRealizationRule.LoopElement
+                && ImportOffsets(claim.Source).Contains(node.SourceOffset));
+
+    bool IsRawExecutionProtocolEffect(IrNode node)
+        => node switch
+        {
+            Call { Callee.Name: "get_IsCompleted" } call =>
+                call.Arguments.Count == 1
+                && call.Arguments[0] is LoadLocalAddress awaiter
+                && _shell.AwaiterLocals.Contains(awaiter.Index),
+            Call { Callee.Name: "<Clone>$" } =>
+                _candidate.Recipe == "classic-sequential-await-void"
+                && _candidate.Statements.Any(statement =>
+                    statement.Descendants.Prepend(statement)
+                        .Any(candidate => candidate is WithExpression)),
+            ArrayLength =>
+                _candidate.Recipe == "classic-await-foreach-array",
+            _ => false,
+        };
+
+    string NormalizeRawEffect(IrNode node, string signature)
+    {
+        if (node is Call call && IsConsumedInitializerMethod(call.Callee))
+        {
+            return $"call:{call.Callee.DeclaringType.ToDisplayString()}."
+                + $"{call.Callee.Name}/{call.Callee.ParameterTypes.Length}";
+        }
+        return ClassicInverseRealizationRules.NormalizeEffect(
+            node,
+            signature,
+            _shell,
+            ClassicInverseRealizationRule.Statement);
+    }
+
+    bool IsConsumedInitializerMethod(MethodRef method)
+        => _planning.ExecutionBody.Body.Descendants.Any(node =>
+            node switch
+            {
+                ObjectInitializerExpression initializer =>
+                    initializer.ConsumedMethods.Any(
+                        consumed => consumed == method),
+                WithExpression with =>
+                    with.ConsumedMethods.Any(consumed => consumed == method),
+                InitializerBlock block =>
+                    block.ConsumedMethods.Any(consumed => consumed == method),
+                _ => false,
+            });
+
+    bool IsRawKickoffProtocolEffect(
+        IrNode node,
+        ref int createCount,
+        ref int startCount,
+        ref int taskCount)
+    {
+        switch (node)
+        {
+            case Call call when
+                ClassicInverseNodeFacts.IsAsyncMethodBuilder(
+                    call.Callee.DeclaringType):
+                switch (call.Callee.Name)
+                {
+                    case "Create":
+                        createCount++;
+                        return true;
+                    case "Start":
+                        startCount++;
+                        return true;
+                    case "get_Task":
+                        taskCount++;
+                        return true;
+                    default:
+                        return false;
+                }
+            case LoadProperty property when
+                ClassicInverseNodeFacts.IsAsyncMethodBuilder(
+                    property.Accessor.DeclaringType)
+                && property.PropertyName == "Task":
+                taskCount++;
+                return true;
+            case LoadFieldAddress field:
+                return ClassicInverseNodeFacts.IsMachineField(
+                    field.Field,
+                    _shell.Machine);
+            case NewObject creation:
+                return ClassicInverseNodeFacts.Definition(
+                        creation.Constructor.DeclaringType)
+                    == ClassicInverseNodeFacts.Definition(_shell.Machine);
+            case InitObject { Address: LoadLocalAddress local }:
+                return local.Index == _request.StateMachineLocal;
+            default:
+                return false;
+        }
+    }
+
+    bool WalkRawExecution(IrNode node)
+    {
+        if (!_budget.Charge())
+        {
+            _terminal = ClassicInverseDecision.FailWith(
+                ClassicInverseFailureKind.BudgetExhausted,
+                "raw import accounting exhausted the planning budget");
+            return false;
+        }
+
+        ClassicInverseProtocolRule protocol =
+            ClassicInverseProtocol.Classify(node, _shell, _candidate);
+        switch (protocol.Kind)
+        {
+            case ClassicInverseProtocolKind.OwnedProtocol:
+                RecordRawRegion(
+                    ClassicInverseBodyId.Execution,
+                    node,
+                    ClassicInverseRegionDisposition.Protocol,
+                    ownsSubtree: true,
+                    $"raw:{protocol.Name}");
+                CoverRawSubtree(node);
+                return true;
+
+            case ClassicInverseProtocolKind.ProtocolFrame:
+            case ClassicInverseProtocolKind.ProtocolContainer:
+                RecordRawRegion(
+                    ClassicInverseBodyId.Execution,
+                    node,
+                    ClassicInverseRegionDisposition.Protocol,
+                    ownsSubtree: false,
+                    $"raw:{protocol.Name}");
+                _rawCovered.Add(node);
+                return WalkRawChildren(node);
+
+            case ClassicInverseProtocolKind.TransparentContainer:
+            case ClassicInverseProtocolKind.Preserved:
+                RecordRawRegion(
+                    ClassicInverseBodyId.Execution,
+                    node,
+                    ClassicInverseRegionDisposition.Preserved,
+                    ownsSubtree: false,
+                    $"raw:{protocol.Name}");
+                _rawCovered.Add(node);
+                return WalkRawChildren(node);
+        }
+
+        if (IsRawExecutionProtocolEffect(node))
+        {
+            RecordRawRegion(
+                ClassicInverseBodyId.Execution,
+                node,
+                ClassicInverseRegionDisposition.Protocol,
+                ownsSubtree: true,
+                "raw:awaiter-protocol-effect");
+            CoverRawSubtree(node);
+            return true;
+        }
+
+        if (ClassicInverseNodeFacts.IsUnknownEffectForm(node))
+        {
+            return DeclineFalse(
+                ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+                $"raw import node '{node.Describe()}' has an unknown effect form");
+        }
+
+        string? effect =
+            ClassicInverseNodeFacts.EffectSignature(node, _shell.Machine);
+        RecordRawRegion(
+            ClassicInverseBodyId.Execution,
+            node,
+            effect is null
+                ? ClassicInverseRegionDisposition.Preserved
+                : ClassicInverseRegionDisposition.Semantic,
+            ownsSubtree: false,
+            effect is null ? "raw:pure-structure" : $"raw:user-effect:{effect}");
+        _rawCovered.Add(node);
+        return WalkRawChildren(node);
+    }
+
+    bool WalkRawChildren(IrNode node)
+    {
+        foreach (IrNode child in node.Children)
+        {
+            if (!WalkRawExecution(child))
+                return false;
+        }
+        return true;
+    }
+
+    bool VerifyRawPartitionIsComplete()
+    {
+        var receipts = new Dictionary<IrNode, ClassicInversePhysicalRegion>(
+            ReferenceEqualityComparer.Instance);
+        foreach ((IrNode node, ClassicInversePhysicalRegion region) in
+            _rawReceiptNodes)
+        {
+            if (!receipts.TryAdd(node, region))
+            {
+                return DeclineFalse(
+                    ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+                    $"raw node '{node.Describe()}' carries two dispositions");
+            }
+        }
+        foreach ((IrNode node, ClassicInversePhysicalRegion region) in
+            _rawReceiptNodes)
+        {
+            if (!region.OwnsSubtree)
+                continue;
+            foreach (IrNode descendant in node.Descendants)
+            {
+                if (receipts.ContainsKey(descendant))
+                {
+                    return DeclineFalse(
+                        ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+                        $"raw region '{region.Rule}' owns a subtree "
+                            + "that carries a second receipt");
+                }
+            }
+        }
+
+        foreach (IrNode node in
+            _request.ExecutionBody.Body.Descendants.Prepend(
+                _request.ExecutionBody.Body))
+        {
+            if (!_rawCovered.Contains(node))
+            {
+                return DeclineFalse(
+                    ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+                    $"raw execution node '{node.Describe()}' is unaccounted");
+            }
+        }
+        foreach (IrNode node in
+            _request.KickoffBody.Body.Descendants.Prepend(
+                _request.KickoffBody.Body))
+        {
+            if (!_rawCovered.Contains(node))
+            {
+                return DeclineFalse(
+                    ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+                    $"raw kickoff node '{node.Describe()}' is unaccounted");
+            }
+        }
+        return true;
+    }
+
+    bool BindImportPaths()
+    {
+        for (int i = 0; i < _realizations.Count; i++)
+        {
+            ClassicInverseSemanticRealization realization = _realizations[i];
+            ImmutableArray<ImmutableArray<int>> paths =
+                ImportPaths(realization.ImportOffsets);
+            if (paths.IsEmpty)
+            {
+                return DeclineFalse(
+                    ClassicInverseDeclineReason.MissingImportCorrespondence,
+                    $"{realization.Rule} has no raw import region");
+            }
+            _realizations[i] = realization with { ImportPaths = paths };
+        }
+
+        for (int i = 0; i < _ancestors.Count; i++)
+        {
+            ClassicInverseAncestorReceipt receipt = _ancestors[i];
+            ImmutableArray<ImmutableArray<int>> paths =
+                ImportPaths(receipt.ImportOffsets);
+            if (paths.IsEmpty)
+            {
+                return DeclineFalse(
+                    ClassicInverseDeclineReason.MissingImportCorrespondence,
+                    "an ancestor receipt has no raw import region");
+            }
+            _ancestors[i] = receipt with { ImportPaths = paths };
+        }
+        return true;
+    }
+
+    ImmutableArray<ImmutableArray<int>> ImportPaths(
+        ImmutableArray<int> offsets)
+        =>
+        [
+            .. _rawRegions
+                .Where(region =>
+                    region.Body == ClassicInverseBodyId.Execution
+                    && region.ImportOffsets.Any(offsets.Contains))
+                .Select(static region => region.Path)
+                .Distinct(),
+        ];
+
     bool IsKickoffInitialState(IrNode statement)
         => statement is StoreField
         {
@@ -335,7 +777,7 @@ internal sealed class ClassicInverseAccountant
 
     bool TryGetParameterIndex(string fieldName, out int index)
     {
-        IrFunction kickoff = _request.KickoffBody;
+        IrFunction kickoff = _planning.KickoffBody;
         int argumentBase = kickoff.Signature.HasThis ? 1 : 0;
         for (int i = 0; i < kickoff.Signature.Parameters.Length; i++)
         {
@@ -350,7 +792,7 @@ internal sealed class ClassicInverseAccountant
     }
 
     bool AccountExecution()
-        => Walk(_request.ExecutionBody.Body);
+        => Walk(_planning.ExecutionBody.Body);
 
     bool Walk(IrNode node)
     {
@@ -475,23 +917,20 @@ internal sealed class ClassicInverseAccountant
             return true;
         }
 
+        if (slots.Length != node.Children.Count
+            || slots.Distinct().Count() != slots.Length
+            || slots.Any(slot => slot < 0 || slot >= node.Children.Count))
+        {
+            return DeclineFalse(
+                ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+                $"protocol frame '{node.Describe()}' has an undesignated child");
+        }
+
         for (int i = 0; i < node.Children.Count; i++)
         {
             IrNode child = node.Children[i];
-            if (slots.Contains(i))
-            {
-                if (!Walk(child))
-                    return false;
-                continue;
-            }
-
-            RecordRegion(
-                ClassicInverseBodyId.Execution,
-                child,
-                ClassicInverseRegionDisposition.Protocol,
-                ownsSubtree: true,
-                "protocol-frame-operand");
-            CoverSubtree(child, ClassicInverseBodyId.Execution);
+            if (!Walk(child))
+                return false;
         }
         return true;
     }
@@ -532,8 +971,8 @@ internal sealed class ClassicInverseAccountant
         }
 
         foreach (IrNode node in
-            _request.ExecutionBody.Body.Descendants.Prepend(
-                _request.ExecutionBody.Body))
+            _planning.ExecutionBody.Body.Descendants.Prepend(
+                _planning.ExecutionBody.Body))
         {
             if (!_covered.Contains(node))
             {
@@ -544,8 +983,8 @@ internal sealed class ClassicInverseAccountant
         }
 
         foreach (IrNode node in
-            _request.KickoffBody.Body.Descendants.Prepend(
-                _request.KickoffBody.Body))
+            _planning.KickoffBody.Body.Descendants.Prepend(
+                _planning.KickoffBody.Body))
         {
             if (!_covered.Contains(node))
             {
@@ -562,32 +1001,16 @@ internal sealed class ClassicInverseAccountant
 
     bool VerifyRealizations()
     {
-        // Two claims may nest, but they may never partially overlap: a region
-        // that is neither disjoint from nor strictly inside another has no
-        // single owner, and its effects would be counted twice or not at all.
-        foreach (ClassicInverseClaim outer in _candidate.Claims)
-        {
-            foreach (ClassicInverseClaim inner in _candidate.Claims)
-            {
-                if (ReferenceEquals(outer, inner))
-                    continue;
-                if (Overlaps(outer.Source, inner.Source)
-                    && !IsDescendantOrSelf(inner.Source, outer.Source)
-                    && !IsDescendantOrSelf(outer.Source, inner.Source))
-                {
-                    return DeclineFalse(
-                        ClassicInverseDeclineReason.UnrealizedSemanticEffect,
-                        $"{outer.Rule} and {inner.Rule} claim partially overlapping regions");
-                }
-            }
-        }
-
         foreach (ClassicInverseClaim claim in _candidate.Claims)
         {
             ImmutableArray<string> sourceEffects =
                 RegionEffects(claim.Source, isOutput: false, claim.Rule);
+            if (_terminal is not null)
+                return false;
             ImmutableArray<string> outputEffects =
                 RegionEffects(claim.Output, isOutput: true, claim.Rule);
+            if (_terminal is not null)
+                return false;
 
             if (!ClassicInverseRealizationRules.Verify(
                     claim,
@@ -626,17 +1049,38 @@ internal sealed class ClassicInverseAccountant
                         ClassicInverseDeclineReason.MissingImportCorrespondence,
                         $"{claim.Rule} cites IL offset {offset}, absent from the import snapshot");
                 }
-                _claimedOffsets.Add(offset);
             }
 
             _realizations.Add(new ClassicInverseSemanticRealization(
                 ClassicInverseBodyId.Execution,
+                ClassicInverseCoordinateSpace.Planning,
                 PathOf(claim.Source, _executionPaths),
+                ClassicInverseCoordinateSpace.Output,
                 PathOf(claim.Output, _outputPaths),
                 claim.Rule,
+                offsets,
+                [],
                 sourceEffects,
                 outputEffects));
         }
+
+        ImmutableArray<string> sourceOrder =
+            GlobalClaimEffects(_planning.ExecutionBody.Body, isOutput: false);
+        if (_terminal is not null)
+            return false;
+        ImmutableArray<string> outputOrder =
+            GlobalClaimEffects(_output, isOutput: true);
+        if (_terminal is not null)
+            return false;
+        if (!sourceOrder.SequenceEqual(outputOrder, StringComparer.Ordinal))
+        {
+            return DeclineFalse(
+                ClassicInverseDeclineReason.UnrealizedSemanticEffect,
+                "the global semantic effect order or multiplicity changed: "
+                    + $"[{string.Join(",", sourceOrder)}] -> "
+                    + $"[{string.Join(",", outputOrder)}]");
+        }
+        _planningEffectOrder = sourceOrder;
 
         return true;
     }
@@ -655,6 +1099,13 @@ internal sealed class ClassicInverseAccountant
                     ClassicInverseDeclineReason.InventedOutputEffect,
                     $"proposed body contains an unclassifiable form '{node.Describe()}'");
             }
+            if (HasConsumedInitializerEffect(node)
+                && EnclosingClaimOutput(node) is null)
+            {
+                return DeclineFalse(
+                    ClassicInverseDeclineReason.InventedOutputEffect,
+                    $"proposed initializer effect '{node.Describe()}' cites no input effect");
+            }
             if (ClassicInverseNodeFacts.EffectSignature(node, _shell.Machine) is null)
                 continue;
             if (EnclosingClaimOutput(node) is null)
@@ -666,6 +1117,21 @@ internal sealed class ClassicInverseAccountant
         }
         return true;
     }
+
+    static bool HasConsumedInitializerEffect(IrNode node)
+        => node switch
+        {
+            ObjectInitializerExpression initializer =>
+                initializer.ConsumedMethods.Any(static method => method is not null)
+                || initializer.ConsumedFields.Any(static field => field is not null),
+            WithExpression with =>
+                with.ConsumedMethods.Any(static method => method is not null)
+                || with.ConsumedFields.Any(static field => field is not null),
+            InitializerBlock block =>
+                block.ConsumedMethods.Any(static method => method is not null)
+                || block.ConsumedFields.Any(static field => field is not null),
+            _ => false,
+        };
 
     // ---- Ledger 3: structured ancestors and control contexts ------------
 
@@ -685,6 +1151,20 @@ internal sealed class ClassicInverseAccountant
                     return false;
                 }
 
+                if (ReferenceEquals(current, _planning.ExecutionBody.Body))
+                {
+                    steps.Add(new ClassicInverseAncestorStep(
+                        ClassicInverseCoordinateSpace.Planning,
+                        PathOf(current, _executionPaths),
+                        current.Describe(),
+                        ClassicInverseAncestorKind.Transparent,
+                        "recipe-root",
+                        ClassicInverseCoordinateSpace.Output,
+                        []));
+                    current = null;
+                    continue;
+                }
+
                 if (_claimBySource.TryGetValue(current, out ClassicInverseClaim? enclosing))
                 {
                     if (!IsDescendantOrSelf(claim.Output, enclosing.Output))
@@ -695,11 +1175,34 @@ internal sealed class ClassicInverseAccountant
                                 + $"{enclosing.Rule} realization");
                     }
                     steps.Add(new ClassicInverseAncestorStep(
+                        ClassicInverseCoordinateSpace.Planning,
                         PathOf(current, _executionPaths),
                         current.Describe(),
                         ClassicInverseAncestorKind.Reproduced,
                         $"enclosing:{enclosing.Rule}",
+                        ClassicInverseCoordinateSpace.Output,
                         PathOf(enclosing.Output, _outputPaths)));
+                    current = current.Parent;
+                    continue;
+                }
+
+                if (EnclosingSourceClaim(current) is { } reproducedBy)
+                {
+                    if (!IsDescendantOrSelf(claim.Output, reproducedBy.Output))
+                    {
+                        return DeclineFalse(
+                            ClassicInverseDeclineReason.EscapedControlContext,
+                            $"{claim.Rule} realizes outside its enclosing "
+                                + $"{reproducedBy.Rule} realization");
+                    }
+                    steps.Add(new ClassicInverseAncestorStep(
+                        ClassicInverseCoordinateSpace.Planning,
+                        PathOf(current, _executionPaths),
+                        current.Describe(),
+                        ClassicInverseAncestorKind.Reproduced,
+                        $"within:{reproducedBy.Rule}",
+                        ClassicInverseCoordinateSpace.Output,
+                        PathOf(reproducedBy.Output, _outputPaths)));
                     current = current.Parent;
                     continue;
                 }
@@ -720,10 +1223,12 @@ internal sealed class ClassicInverseAccountant
                         }
                     }
                     steps.Add(new ClassicInverseAncestorStep(
+                        ClassicInverseCoordinateSpace.Planning,
                         PathOf(current, _executionPaths),
                         current.Describe(),
                         declared.Kind,
                         declared.Rule,
+                        ClassicInverseCoordinateSpace.Output,
                         declared.OutputContext is null
                             ? []
                             : PathOf(declared.OutputContext, _outputPaths)));
@@ -740,19 +1245,21 @@ internal sealed class ClassicInverseAccountant
                         $"{claim.Rule} has unmodeled ancestor '{current.Describe()}'");
                 }
                 steps.Add(new ClassicInverseAncestorStep(
+                    ClassicInverseCoordinateSpace.Planning,
                     PathOf(current, _executionPaths),
                     current.Describe(),
                     kind.Value,
                     kind.Value == ClassicInverseAncestorKind.Transparent
                         ? "shell-transparent"
                         : "shell-protocol",
+                    ClassicInverseCoordinateSpace.Output,
                     []));
                 current = current.Parent;
             }
 
-            if (!ReferenceEquals(
-                    ClassicInverseAccountant.RootOf(claim.Source),
-                    _request.ExecutionBody.Body))
+            if (!IsDescendantOrSelf(
+                    claim.Source,
+                    _planning.ExecutionBody.Body))
             {
                 return DeclineFalse(
                     ClassicInverseDeclineReason.UnmodeledStructuredAncestor,
@@ -761,11 +1268,32 @@ internal sealed class ClassicInverseAccountant
 
             _ancestors.Add(new ClassicInverseAncestorReceipt(
                 ClassicInverseBodyId.Execution,
+                ClassicInverseCoordinateSpace.Planning,
                 PathOf(claim.Source, _executionPaths),
+                ImportOffsets(claim.Source),
+                [],
                 steps.ToImmutable()));
         }
 
         return true;
+    }
+
+    ClassicInverseClaim? EnclosingSourceClaim(IrNode node)
+    {
+        for (IrNode? current = node.Parent;
+            current is not null
+                && !ReferenceEquals(current, _planning.ExecutionBody.Body);
+            current = current.Parent)
+        {
+            if (_claimBySource.TryGetValue(
+                    current,
+                    out ClassicInverseClaim? claim))
+            {
+                return claim;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -815,6 +1343,21 @@ internal sealed class ClassicInverseAccountant
 
         void Visit(IrNode node)
         {
+            if (ClassicInverseNodeFacts.IsUnknownEffectForm(node)
+                && !(rule == ClassicInverseRealizationRule.LoopElement
+                    && !isOutput
+                    && root is StoreStackSlot
+                    && node is LoadElement))
+            {
+                _terminal = Decline(
+                    isOutput
+                        ? ClassicInverseDeclineReason.InventedOutputEffect
+                        : ClassicInverseDeclineReason.UnrealizedSemanticEffect,
+                    $"{rule} contains an unmodeled effect form "
+                        + $"'{node.Describe()}'");
+                return;
+            }
+
             if (!ReferenceEquals(node, root))
             {
                 bool nested = isOutput
@@ -824,9 +1367,23 @@ internal sealed class ClassicInverseAccountant
                     return;
             }
 
+            if (VisitInitializer(node, Visit, effects))
+                return;
+
+            foreach (IrNode child in node.Children)
+            {
+                if (_terminal is not null)
+                    return;
+                Visit(child);
+            }
+
             string? signature =
                 ClassicInverseNodeFacts.EffectSignature(node, _shell.Machine);
-            if (signature is not null)
+            if (signature is not null
+                && !(rule == ClassicInverseRealizationRule.LoopElement
+                    && !isOutput
+                    && root is StoreStackSlot
+                    && node is LoadElement))
             {
                 effects.Add(ClassicInverseRealizationRules.NormalizeEffect(
                     node,
@@ -834,10 +1391,132 @@ internal sealed class ClassicInverseAccountant
                     _shell,
                     rule));
             }
+        }
+    }
+
+    ImmutableArray<string> GlobalClaimEffects(IrNode root, bool isOutput)
+    {
+        var effects = ImmutableArray.CreateBuilder<string>();
+        Visit(root);
+        return effects.ToImmutable();
+
+        void Visit(IrNode node)
+        {
+            ClassicInverseClaim? claim = isOutput
+                ? EnclosingClaimOutput(node)
+                : EnclosingClaimSource(node);
+
+            if (claim is not null
+                && ClassicInverseNodeFacts.IsUnknownEffectForm(node))
+            {
+                _terminal = Decline(
+                    isOutput
+                        ? ClassicInverseDeclineReason.InventedOutputEffect
+                        : ClassicInverseDeclineReason.UnrealizedSemanticEffect,
+                    $"claimed region contains an unmodeled effect form "
+                        + $"'{node.Describe()}'");
+                return;
+            }
+
+            if (VisitInitializer(
+                    node,
+                    Visit,
+                    claim is null ? null : effects,
+                    claim is null
+                        ? (Func<string, string>?)null
+                        : effect => effect + $"@claim:{ClaimToken(claim)}"))
+                return;
 
             foreach (IrNode child in node.Children)
+            {
+                if (_terminal is not null)
+                    return;
                 Visit(child);
+            }
+
+            if (claim is null)
+                return;
+            string? signature =
+                ClassicInverseNodeFacts.EffectSignature(node, _shell.Machine);
+            if (signature is not null
+                && !(claim.Rule == ClassicInverseRealizationRule.LoopElement
+                    && !isOutput
+                    && claim.Source is StoreStackSlot
+                    && node is LoadElement))
+            {
+                effects.Add(ClassicInverseRealizationRules.NormalizeEffect(
+                    node,
+                    signature,
+                    _shell,
+                    claim.Rule)
+                    + $"@claim:{ClaimToken(claim)}");
+            }
         }
+    }
+
+    string ClaimToken(ClassicInverseClaim claim)
+        => ClassicInverseSignature.Path(
+            PathOf(claim.Source, _executionPaths));
+
+    static bool VisitInitializer(
+        IrNode node,
+        Action<IrNode> visit,
+        ImmutableArray<string>.Builder? effects,
+        Func<string, string>? qualify = null)
+    {
+        IReadOnlyList<InitializerEntry> entries;
+        switch (node)
+        {
+            case ObjectInitializerExpression initializer:
+                visit(initializer.Creation);
+                entries = initializer.Entries;
+                break;
+            case WithExpression with:
+                visit(with.Receiver);
+                entries = with.Entries;
+                break;
+            case InitializerBlock block:
+                entries = block.Entries;
+                break;
+            default:
+                return false;
+        }
+
+        foreach (InitializerEntry entry in entries)
+        {
+            foreach (IrExpression argument in entry.Arguments)
+                visit(argument);
+            if (effects is null)
+                continue;
+            if (entry.ConsumedMethod is { } method)
+            {
+                string effect =
+                    $"call:{method.DeclaringType.ToDisplayString()}."
+                        + $"{method.Name}/{method.ParameterTypes.Length}";
+                effects.Add(qualify?.Invoke(effect) ?? effect);
+            }
+            if (entry.ConsumedField is { } field)
+            {
+                string effect =
+                    $"store:{field.DeclaringType.ToDisplayString()}.{field.Name}";
+                effects.Add(qualify?.Invoke(effect) ?? effect);
+            }
+        }
+        return true;
+    }
+
+    ClassicInverseClaim? EnclosingClaimSource(IrNode node)
+    {
+        for (IrNode? current = node; current is not null; current = current.Parent)
+        {
+            if (_claimBySource.TryGetValue(
+                    current,
+                    out ClassicInverseClaim? claim))
+            {
+                return claim;
+            }
+        }
+        return null;
     }
 
     ClassicInverseClaim? EnclosingClaimOutput(IrNode node)
@@ -851,9 +1530,6 @@ internal sealed class ClassicInverseAccountant
         }
         return null;
     }
-
-    static bool Overlaps(IrNode left, IrNode right)
-        => IsDescendantOrSelf(left, right) || IsDescendantOrSelf(right, left);
 
     /// <summary>
     /// The IL offsets one region cites, excluding the regions nested claims own.
@@ -888,6 +1564,7 @@ internal sealed class ClassicInverseAccountant
     {
         var region = new ClassicInversePhysicalRegion(
             body,
+            ClassicInverseCoordinateSpace.Planning,
             PathOf(
                 node,
                 body == ClassicInverseBodyId.Kickoff
@@ -900,9 +1577,55 @@ internal sealed class ClassicInverseAccountant
             disposition == ClassicInverseRegionDisposition.Semantic
                 ? ImportOffsets(node)
                 : []);
-        _regions.Add(region);
         _receiptNodes.Add((node, region));
     }
+
+    void RecordRawRegion(
+        ClassicInverseBodyId body,
+        IrNode node,
+        ClassicInverseRegionDisposition disposition,
+        bool ownsSubtree,
+        string rule)
+    {
+        var region = new ClassicInversePhysicalRegion(
+            body,
+            ClassicInverseCoordinateSpace.Import,
+            PathOf(
+                node,
+                body == ClassicInverseBodyId.Kickoff
+                    ? _rawKickoffPaths
+                    : _rawExecutionPaths),
+            node.Describe(),
+            disposition,
+            ownsSubtree,
+            rule,
+            ownsSubtree
+                ? RawOffsets(node)
+                : node.SourceOffset >= 0
+                    ? [node.SourceOffset]
+                    : []);
+        if (disposition == ClassicInverseRegionDisposition.Semantic
+            && (node.SourceOffset < 0
+                || !_request.ExecutionImportOffsets.Contains(
+                    node.SourceOffset)))
+        {
+            _terminal ??= Decline(
+                ClassicInverseDeclineReason.MissingImportCorrespondence,
+                $"raw semantic node '{node.Describe()}' lacks import correspondence");
+        }
+        _rawRegions.Add(region);
+        _rawReceiptNodes.Add((node, region));
+    }
+
+    static ImmutableArray<int> RawOffsets(IrNode node)
+        =>
+        [
+            .. node.Descendants.Prepend(node)
+                .Where(static candidate => candidate.SourceOffset >= 0)
+                .Select(static candidate => candidate.SourceOffset)
+                .Distinct()
+                .Order(),
+        ];
 
     void Cover(IrNode node, ClassicInverseBodyId body) => _covered.Add(node);
 
@@ -913,12 +1636,11 @@ internal sealed class ClassicInverseAccountant
             _covered.Add(descendant);
     }
 
-    static IrNode RootOf(IrNode node)
+    void CoverRawSubtree(IrNode node)
     {
-        IrNode current = node;
-        while (current.Parent is not null)
-            current = current.Parent;
-        return current;
+        _rawCovered.Add(node);
+        foreach (IrNode descendant in node.Descendants)
+            _rawCovered.Add(descendant);
     }
 
     static bool IsDescendantOrSelf(IrNode node, IrNode ancestor)

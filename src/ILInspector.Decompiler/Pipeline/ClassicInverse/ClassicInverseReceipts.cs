@@ -9,6 +9,13 @@ internal enum ClassicInverseBodyId
     Execution,
 }
 
+internal enum ClassicInverseCoordinateSpace
+{
+    Import,
+    Planning,
+    Output,
+}
+
 /// <summary>
 /// The one disposition every in-scope physical region carries. The set is
 /// closed: a region with no rule is not a region, it is a decline.
@@ -53,6 +60,7 @@ internal enum ClassicInverseAncestorKind
 /// </summary>
 internal sealed record ClassicInversePhysicalRegion(
     ClassicInverseBodyId Body,
+    ClassicInverseCoordinateSpace Space,
     ImmutableArray<int> Path,
     string NodeForm,
     ClassicInverseRegionDisposition Disposition,
@@ -61,7 +69,7 @@ internal sealed record ClassicInversePhysicalRegion(
     ImmutableArray<int> ImportOffsets)
 {
     internal string Signature =>
-        $"{Body}{ClassicInverseSignature.Path(Path)}:{NodeForm}:{Disposition}"
+        $"{Body}:{Space}{ClassicInverseSignature.Path(Path)}:{NodeForm}:{Disposition}"
         + $":{(OwnsSubtree ? "subtree" : "frame")}:{Rule}"
         + $":[{string.Join(",", ImportOffsets)}]";
 }
@@ -108,30 +116,39 @@ internal enum ClassicInverseRealizationRule
 /// </summary>
 internal sealed record ClassicInverseSemanticRealization(
     ClassicInverseBodyId Body,
+    ClassicInverseCoordinateSpace SourceSpace,
     ImmutableArray<int> SourcePath,
+    ClassicInverseCoordinateSpace OutputSpace,
     ImmutableArray<int> OutputPath,
     ClassicInverseRealizationRule Rule,
+    ImmutableArray<int> ImportOffsets,
+    ImmutableArray<ImmutableArray<int>> ImportPaths,
     ImmutableArray<string> SourceEffects,
     ImmutableArray<string> OutputEffects)
 {
     internal string Signature =>
-        $"{Body}{ClassicInverseSignature.Path(SourcePath)}"
-        + $"->{ClassicInverseSignature.Path(OutputPath)}:{Rule}"
+        $"{Body}:{SourceSpace}{ClassicInverseSignature.Path(SourcePath)}"
+        + $"->{OutputSpace}{ClassicInverseSignature.Path(OutputPath)}:{Rule}"
+        + $":il[{string.Join(",", ImportOffsets)}]"
+        + $":raw[{ClassicInverseSignature.Sequence(
+            ImportPaths.Select(ClassicInverseSignature.Path))}]"
         + $":in[{ClassicInverseSignature.Sequence(SourceEffects)}]"
         + $":out[{ClassicInverseSignature.Sequence(OutputEffects)}]";
 }
 
 /// <summary>One ancestor step on a consumed node's structured path.</summary>
 internal sealed record ClassicInverseAncestorStep(
+    ClassicInverseCoordinateSpace PathSpace,
     ImmutableArray<int> Path,
     string NodeForm,
     ClassicInverseAncestorKind Kind,
     string Rule,
+    ClassicInverseCoordinateSpace OutputContextSpace,
     ImmutableArray<int> OutputContextPath)
 {
     internal string Signature =>
-        $"{ClassicInverseSignature.Path(Path)}:{NodeForm}:{Kind}:{Rule}"
-        + $":{ClassicInverseSignature.Path(OutputContextPath)}";
+        $"{PathSpace}{ClassicInverseSignature.Path(Path)}:{NodeForm}:{Kind}:{Rule}"
+        + $":{OutputContextSpace}{ClassicInverseSignature.Path(OutputContextPath)}";
 }
 
 /// <summary>
@@ -141,10 +158,16 @@ internal sealed record ClassicInverseAncestorStep(
 /// </summary>
 internal sealed record ClassicInverseAncestorReceipt(
     ClassicInverseBodyId Body,
+    ClassicInverseCoordinateSpace ConsumedSpace,
     ImmutableArray<int> ConsumedPath,
+    ImmutableArray<int> ImportOffsets,
+    ImmutableArray<ImmutableArray<int>> ImportPaths,
     ImmutableArray<ClassicInverseAncestorStep> Steps)
 {
     internal string Signature =>
-        $"{Body}{ClassicInverseSignature.Path(ConsumedPath)}:"
+        $"{Body}:{ConsumedSpace}{ClassicInverseSignature.Path(ConsumedPath)}:"
+        + $"il[{string.Join(",", ImportOffsets)}]:"
+        + $"raw[{ClassicInverseSignature.Sequence(
+            ImportPaths.Select(ClassicInverseSignature.Path))}]:"
         + ClassicInverseSignature.Sequence(Steps.Select(static s => s.Signature));
 }

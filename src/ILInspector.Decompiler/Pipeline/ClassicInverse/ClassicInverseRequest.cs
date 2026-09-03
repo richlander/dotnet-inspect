@@ -20,20 +20,24 @@ internal sealed class ClassicInverseRequest
         MetadataMethodAddress? declaredMethod,
         MetadataMethodAddress? executionMethod,
         StateMachineRelationship? relationship,
+        object? acquisitionGuard,
         IrFunction kickoffBody,
         IrFunction executionBody,
         int stateMachineLocal,
         int kickoffSourceOffset,
-        ImmutableHashSet<int> executionImportOffsets)
+        ImmutableHashSet<int> executionImportOffsets,
+        Action<IrFunction, ImmutableArray<IIrPass>>? runPasses = null)
     {
         DeclaredMethod = declaredMethod;
         ExecutionMethod = executionMethod;
         Relationship = relationship;
+        AcquisitionGuard = acquisitionGuard;
         KickoffBody = kickoffBody;
         ExecutionBody = executionBody;
         StateMachineLocal = stateMachineLocal;
         KickoffSourceOffset = kickoffSourceOffset;
         ExecutionImportOffsets = executionImportOffsets;
+        RunPasses = runPasses;
     }
 
     internal MetadataMethodAddress? DeclaredMethod { get; }
@@ -42,13 +46,14 @@ internal sealed class ClassicInverseRequest
 
     internal StateMachineRelationship? Relationship { get; }
 
+    internal object? AcquisitionGuard { get; }
+
     /// <summary>The unmodified kickoff import snapshot.</summary>
     internal IrFunction KickoffBody { get; }
 
     /// <summary>
-    /// The execution import snapshot, raised through Decompiler-owned
-    /// prerequisite passes into a planning view. Every receipt issued from it
-    /// still maps back to <see cref="ExecutionImportOffsets"/>.
+    /// The unmodified execution import snapshot. The core derives a separate
+    /// planning view from a detached clone.
     /// </summary>
     internal IrFunction ExecutionBody { get; }
 
@@ -65,6 +70,8 @@ internal sealed class ClassicInverseRequest
     /// </summary>
     internal ImmutableHashSet<int> ExecutionImportOffsets { get; }
 
+    internal Action<IrFunction, ImmutableArray<IIrPass>>? RunPasses { get; }
+
     /// <summary>
     /// Checks that the request's identities and bodies describe one another.
     /// A request that fails this is not a healthy request outside the recipe
@@ -73,19 +80,65 @@ internal sealed class ClassicInverseRequest
     /// </summary>
     internal string? CorrelationFailure()
     {
+        bool hasOwnerEvidence = DeclaredMethod is not null
+            || ExecutionMethod is not null
+            || Relationship is not null
+            || AcquisitionGuard is not null;
+        if (hasOwnerEvidence)
+        {
+            if (DeclaredMethod is not { } ownerDeclared
+                || ExecutionMethod is not { } ownerExecution
+                || Relationship is not { } ownerRelationship
+                || AcquisitionGuard is null)
+            {
+                return "the owner-issued request evidence is incomplete";
+            }
+            if (ownerRelationship.Kind
+                    != StateMachineClaimKind.ClassicAsync
+                || ownerRelationship.Kickoff != ownerDeclared)
+            {
+                return "the declared MethodDef contradicts the classic relationship";
+            }
+            if (!ownerRelationship.TryGetMethod(
+                    StateMachineMethodRole.MoveNext,
+                    out MetadataMethodAddress relationshipExecution)
+                || relationshipExecution != ownerExecution)
+            {
+                return "the execution MethodDef is not the relationship's MoveNext role";
+            }
+        }
+
+        if (DeclaredMethod is { } declared
+            && !MatchesMethod(KickoffBody, declared))
+        {
+            return "the kickoff body does not match its owner-issued MethodDef";
+        }
+        if (ExecutionMethod is { } execution
+            && !MatchesMethod(ExecutionBody, execution))
+        {
+            return "the execution body does not match its owner-issued MethodDef";
+        }
+
         if (ExecutionBody.Name != "MoveNext")
             return "the execution body is not a MoveNext body";
 
-        if (StateMachineLocal < 0 || StateMachineLocal >= KickoffBody.Locals.Length)
+        if (!HasBodyReplacingBodies
+            && (StateMachineLocal < 0
+                || StateMachineLocal >= KickoffBody.Locals.Length))
+        {
             return "the kickoff has no state-machine local";
+        }
 
-        TypeRef declared = ClassicInverseNodeFacts.Definition(
-            KickoffBody.Locals[StateMachineLocal]);
         TypeRef executing = ClassicInverseNodeFacts.Definition(
             ExecutionBody.DeclaringType);
-        if (!declared.Equals(executing))
+        if (!HasBodyReplacingBodies)
         {
-            return "the execution body does not belong to the kickoff's state machine";
+            TypeRef stateMachineType = ClassicInverseNodeFacts.Definition(
+                KickoffBody.Locals[StateMachineLocal]);
+            if (!stateMachineType.Equals(executing))
+            {
+                return "the execution body does not belong to the kickoff's state machine";
+            }
         }
 
         if (Relationship is { } relationship
@@ -104,6 +157,32 @@ internal sealed class ClassicInverseRequest
         return null;
     }
 
+    internal bool HasBodyReplacingBodies =>
+        Relationship is not null
+        && IsBodyReplacing(KickoffBody)
+        && IsBodyReplacing(ExecutionBody);
+
+    static bool MatchesMethod(
+        IrFunction body,
+        MetadataMethodAddress method)
+        => body.MetadataToken == method.Token
+            && ClassicInverseNodeFacts.Definition(body.DeclaringType)
+                .DefinitionModuleVersionId == method.ModuleVersionId;
+
+    static bool IsBodyReplacing(IrFunction body)
+        => body.Body.Blocks is
+        [
+            {
+                Children:
+                [
+                    Throw
+                    {
+                        Value: Constant { Value: null },
+                    },
+                ],
+            },
+        ];
+
     /// <summary>
     /// The IL offsets an import snapshot carries. Used to bind receipts issued
     /// from a derived planning view back to the unmodified snapshot.
@@ -117,5 +196,33 @@ internal sealed class ClassicInverseRequest
                 offsets.Add(node.SourceOffset);
         }
         return offsets.ToImmutable();
+    }
+}
+
+internal sealed record ClassicInversePlanningView(
+    IrFunction KickoffBody,
+    IrFunction ExecutionBody)
+{
+    internal static ClassicInversePlanningView Derive(
+        ClassicInverseRequest request)
+    {
+        var kickoff = (IrFunction)request.KickoffBody.Clone();
+        var execution = (IrFunction)request.ExecutionBody.Clone();
+        Run(
+            kickoff,
+            [.. IrPasses.Default.TakeWhile(
+                pass => pass is not ClassicAsyncReconstructionPass)]);
+        Run(
+            execution,
+            IrPasses.ForReconstruction<ClassicAsyncReconstructionPass>());
+        return new ClassicInversePlanningView(kickoff, execution);
+
+        void Run(IrFunction body, ImmutableArray<IIrPass> passes)
+        {
+            if (request.RunPasses is null)
+                IrPasses.Run(body, passes);
+            else
+                request.RunPasses(body, passes);
+        }
     }
 }

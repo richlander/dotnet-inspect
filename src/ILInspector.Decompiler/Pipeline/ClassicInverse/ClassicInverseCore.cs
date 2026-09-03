@@ -30,12 +30,43 @@ internal static class ClassicInverseCore
                 ClassicInverseFailureKind.InvalidCorrelation,
                 correlation);
         }
+        if (request.HasBodyReplacingBodies)
+        {
+            return ClassicInverseDecision.DeclineWith(
+                ClassicInverseDeclineReason.NoRecipeMatched,
+                "authenticated bodies contain only reference-assembly replacement IL");
+        }
 
+        foreach (IrNode _ in
+            request.KickoffBody.Body.Descendants.Prepend(
+                request.KickoffBody.Body))
+        {
+            if (!budget.Charge())
+            {
+                return ClassicInverseDecision.FailWith(
+                    ClassicInverseFailureKind.BudgetExhausted,
+                    "kickoff planning-view derivation exhausted the planning budget");
+            }
+        }
+        foreach (IrNode _ in
+            request.ExecutionBody.Body.Descendants.Prepend(
+                request.ExecutionBody.Body))
+        {
+            if (!budget.Charge())
+            {
+                return ClassicInverseDecision.FailWith(
+                    ClassicInverseFailureKind.BudgetExhausted,
+                    "execution planning-view derivation exhausted the planning budget");
+            }
+        }
+
+        ClassicInversePlanningView planning =
+            ClassicInversePlanningView.Derive(request);
         ClassicInverseShellFacts shell =
-            ClassicInverseShellFacts.Derive(request.ExecutionBody);
+            ClassicInverseShellFacts.Derive(planning.ExecutionBody);
 
         List<ClassicInverseCandidate> candidates =
-            ClassicInverseRecipes.Match(request, shell);
+            ClassicInverseRecipes.Match(planning, shell, budget);
         if (budget.Exhausted)
         {
             return ClassicInverseDecision.FailWith(
@@ -66,6 +97,7 @@ internal static class ClassicInverseCore
 
         return ClassicInverseAccountant.Account(
             request,
+            planning,
             candidates[0],
             shell,
             budget);
@@ -82,14 +114,17 @@ internal static class ClassicInverseCore
         int kickoffSourceOffset,
         IrFunction execution,
         ImmutableHashSet<int> executionImportOffsets,
-        ClassicAsyncRequestSeed? seed)
+        ClassicAsyncRequestSeed? seed,
+        Action<IrFunction, ImmutableArray<IIrPass>>? runPasses = null)
         => new(
             seed?.DeclaredMethod,
             seed?.ExecutionMethod,
             seed?.Relationship,
+            seed?.AcquisitionGuard,
             kickoff,
             execution,
             stateMachineLocal,
             kickoffSourceOffset,
-            executionImportOffsets);
+            executionImportOffsets,
+            runPasses);
 }

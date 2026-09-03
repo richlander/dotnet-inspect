@@ -19,23 +19,40 @@ namespace ILInspector.Decompiler.Pipeline;
 internal static class ClassicInverseRecipes
 {
     internal static List<ClassicInverseCandidate> Match(
-        ClassicInverseRequest request,
-        ClassicInverseShellFacts shell)
+        ClassicInversePlanningView planning,
+        ClassicInverseShellFacts shell,
+        ClassicInverseBudget budget)
     {
         var candidates = new List<ClassicInverseCandidate>();
-        IrFunction execution = request.ExecutionBody;
+        IrFunction execution = planning.ExecutionBody;
+        foreach (IrNode _ in execution.Body.Descendants.Prepend(execution.Body))
+        {
+            if (!budget.Charge())
+                return candidates;
+        }
 
         Call? setResult = FinalSetResult(execution);
         if (setResult is null)
             return candidates;
+        TypeRef builder = ClassicInverseNodeFacts.Definition(
+            setResult.Callee.DeclaringType);
+        if (builder is not
+            {
+                Namespace: "System.Runtime.CompilerServices",
+                Name: "AsyncTaskMethodBuilder"
+                    or "AsyncTaskMethodBuilder`1",
+            })
+        {
+            return candidates;
+        }
         List<Call> getResults = GetResultCalls(execution, shell);
 
-        Add(candidates, TryTryFinally(request, shell, setResult, getResults));
-        Add(candidates, TryLoop(request, shell, setResult, getResults));
-        Add(candidates, TryConditional(request, shell, setResult, getResults));
-        Add(candidates, TrySequentialVoid(request, shell, setResult, getResults));
-        Add(candidates, TrySingleAwaitVoid(request, shell, setResult, getResults));
-        Add(candidates, TrySingleAwaitReturn(request, shell, setResult, getResults));
+        Add(candidates, TryTryFinally(planning, shell, setResult, getResults));
+        Add(candidates, TryLoop(planning, shell, setResult, getResults));
+        Add(candidates, TryConditional(planning, shell, setResult, getResults));
+        Add(candidates, TrySequentialVoid(planning, shell, setResult, getResults));
+        Add(candidates, TrySingleAwaitVoid(planning, shell, setResult, getResults));
+        Add(candidates, TrySingleAwaitReturn(planning, shell, setResult, getResults));
         return candidates;
     }
 
@@ -133,12 +150,12 @@ internal static class ClassicInverseRecipes
     // ---- Recipe: return await -------------------------------------------
 
     static ClassicInverseCandidate? TrySingleAwaitReturn(
-        ClassicInverseRequest request,
+        ClassicInversePlanningView planning,
         ClassicInverseShellFacts shell,
         Call setResult,
         List<Call> getResults)
     {
-        IrFunction execution = request.ExecutionBody;
+        IrFunction execution = planning.ExecutionBody;
         if (setResult.Arguments is not [_, LoadLocal result]
             || getResults.Count != 1
             || HasTryFinally(execution)
@@ -158,7 +175,7 @@ internal static class ClassicInverseRecipes
         {
             ResultLocal = result.Index,
         };
-        var rewriter = new ClassicInverseRewriter(request, shell, candidate);
+        var rewriter = new ClassicInverseRewriter(planning, shell, candidate);
         IrNode? value = rewriter.Rewrite(store.Value);
         if (value is not IrExpression expression)
             return null;
@@ -172,12 +189,12 @@ internal static class ClassicInverseRecipes
     // ---- Recipe: await a void-returning operation -----------------------
 
     static ClassicInverseCandidate? TrySingleAwaitVoid(
-        ClassicInverseRequest request,
+        ClassicInversePlanningView planning,
         ClassicInverseShellFacts shell,
         Call setResult,
         List<Call> getResults)
     {
-        IrFunction execution = request.ExecutionBody;
+        IrFunction execution = planning.ExecutionBody;
         if (setResult.Arguments.Count != 1
             || getResults.Count != 1
             || HasTryFinally(execution)
@@ -190,7 +207,7 @@ internal static class ClassicInverseRecipes
             return null;
 
         var candidate = new ClassicInverseCandidate("classic-await-void");
-        var rewriter = new ClassicInverseRewriter(request, shell, candidate);
+        var rewriter = new ClassicInverseRewriter(planning, shell, candidate);
         IrNode? rewritten = rewriter.Rewrite(statement);
         if (rewritten is not ExpressionStatement output)
             return null;
@@ -204,12 +221,12 @@ internal static class ClassicInverseRecipes
     // ---- Recipe: two sequential awaits, then one statement ---------------
 
     static ClassicInverseCandidate? TrySequentialVoid(
-        ClassicInverseRequest request,
+        ClassicInversePlanningView planning,
         ClassicInverseShellFacts shell,
         Call setResult,
         List<Call> getResults)
     {
-        IrFunction execution = request.ExecutionBody;
+        IrFunction execution = planning.ExecutionBody;
         if (setResult.Arguments.Count != 1
             || getResults.Count != 2
             || HasTryFinally(execution)
@@ -260,7 +277,7 @@ internal static class ClassicInverseRecipes
         candidate.MapLocal(firstResultStore.Index, firstIndex);
         candidate.MapLocal(secondStore.Index, secondIndex);
 
-        var rewriter = new ClassicInverseRewriter(request, shell, candidate);
+        var rewriter = new ClassicInverseRewriter(planning, shell, candidate);
 
         IrNode? firstValue = rewriter.Rewrite(firstResultStore.Value);
         IrNode? secondValue = rewriter.Rewrite(secondStore.Value);
@@ -299,12 +316,12 @@ internal static class ClassicInverseRecipes
     // ---- Recipe: conditional await --------------------------------------
 
     static ClassicInverseCandidate? TryConditional(
-        ClassicInverseRequest request,
+        ClassicInversePlanningView planning,
         ClassicInverseShellFacts shell,
         Call setResult,
         List<Call> getResults)
     {
-        IrFunction execution = request.ExecutionBody;
+        IrFunction execution = planning.ExecutionBody;
         if (setResult.Arguments is not [_, LoadLocal result]
             || getResults.Count != 1
             || HasTryFinally(execution)
@@ -331,14 +348,12 @@ internal static class ClassicInverseRecipes
         if (zeroStore.Parent is not Block zeroBlock)
             return null;
 
-        List<ConditionalBranch> zeroBranches = [.. execution.Body.Descendants
+        ConditionalBranch? zeroBranch = execution.Body.Descendants
             .OfType<ConditionalBranch>()
-            .Where(branch =>
+            .FirstOrDefault(branch =>
                 branch.TargetOffset == zeroBlock.StartOffset
-                && branch.Condition is LogicalNot { Operand: LoadField field }
-                && field.Instance is LoadArgument { Index: 0 }
-                && ClassicInverseNodeFacts.IsMachineField(field.Field, shell.Machine))];
-        if (zeroBranches is not [ConditionalBranch zeroBranch])
+                && branch.Condition is LogicalNot);
+        if (zeroBranch is null)
             return null;
 
         List<StoreLocal> finalStores = [.. execution.Body.Descendants
@@ -351,15 +366,20 @@ internal static class ClassicInverseRecipes
             return null;
 
         // The compiler's join branch after the awaited arm.
+        if (finalStore.Parent is not Block finalBlock)
+            return null;
         List<Branch> joins = [.. execution.Body.Descendants.OfType<Branch>()];
-        if (joins.Count > 1)
+        List<Branch> conditionalJoins = [.. joins.Where(
+            branch => branch.TargetOffset == finalBlock.StartOffset)];
+        if (conditionalJoins.Count > 1)
             return null;
 
         var candidate = new ClassicInverseCandidate("classic-await-conditional")
         {
             ResultLocal = result.Index,
         };
-        var rewriter = new ClassicInverseRewriter(request, shell, candidate);
+        var rewriter = new ClassicInverseRewriter(planning, shell, candidate);
+        rewriter.AttributeAwaitTo(getResults[0], awaitStore);
 
         IrNode? condition =
             rewriter.Rewrite(((LogicalNot)zeroBranch.Condition).Operand);
@@ -382,10 +402,6 @@ internal static class ClassicInverseRecipes
             conditional,
             ClassicInverseRealizationRule.ControlCondition);
         candidate.Claim(
-            awaitStore,
-            thenOutput,
-            ClassicInverseRealizationRule.AwaitResult);
-        candidate.Claim(
             zeroStore,
             elseOutput,
             ClassicInverseRealizationRule.ResultStore);
@@ -394,12 +410,12 @@ internal static class ClassicInverseRecipes
             ret,
             ClassicInverseRealizationRule.ResultStore);
 
-        foreach (Branch join in joins)
+        foreach (Branch join in conditionalJoins)
             candidate.DeclareProtocol(join, "conditional-join");
 
         Block? thenBlock = EnclosingBlock(awaitStore);
         Block? operandBlock = EnclosingBlock(getResults[0]) is { } resultBlock
-            ? OperandBlock(request, shell, getResults[0])
+            ? OperandBlock(planning, shell, getResults[0])
             : null;
         var thenRoots = new List<IrNode>();
         if (thenBlock is not null)
@@ -414,22 +430,22 @@ internal static class ClassicInverseRecipes
     }
 
     static Block? OperandBlock(
-        ClassicInverseRequest request,
+        ClassicInversePlanningView planning,
         ClassicInverseShellFacts shell,
         Call getResult)
-        => AwaitedOperand(request.ExecutionBody, getResult) is { } operand
+        => AwaitedOperand(planning.ExecutionBody, getResult) is { } operand
             ? EnclosingBlock(operand)
             : null;
 
     // ---- Recipe: await inside a foreach over an array --------------------
 
     static ClassicInverseCandidate? TryLoop(
-        ClassicInverseRequest request,
+        ClassicInversePlanningView planning,
         ClassicInverseShellFacts shell,
         Call setResult,
         List<Call> getResults)
     {
-        IrFunction execution = request.ExecutionBody;
+        IrFunction execution = planning.ExecutionBody;
         if (setResult.Arguments is not [_, LoadLocal finalResult]
             || getResults is not [Call getResult]
             || HasTryFinally(execution))
@@ -475,7 +491,10 @@ internal static class ClassicInverseRecipes
         }
 
         IrExpression? operand = AwaitedOperand(execution, getResult);
-        if (operand is not LoadStackSlot spilledElement)
+        List<LoadStackSlot> spilledElements = operand is null
+            ? []
+            : [.. operand.Descendants.Prepend(operand).OfType<LoadStackSlot>()];
+        if (spilledElements is not [LoadStackSlot spilledElement])
             return null;
         if (execution.Body.Descendants.OfType<StoreStackSlot>()
                 .Where(store => store.Slot == spilledElement.Slot).ToList()
@@ -496,6 +515,36 @@ internal static class ClassicInverseRecipes
         if (seed is null || finalStore is null)
             return null;
 
+        List<ConditionalBranch> boundTests = [.. execution.Body.Descendants
+            .OfType<ConditionalBranch>()
+            .Where(branch => branch.Condition is Comparison
+            {
+                Kind: ComparisonKind.LessThan,
+                Left: LoadField index,
+                Right: ArrayLength { Array: LoadField array },
+            }
+                && index.Field.Name == "<>7__wrap2"
+                && array.Field.Name == "<>7__wrap1"
+                && index.Instance is LoadArgument { Index: 0 }
+                && array.Instance is LoadArgument { Index: 0 }
+                && ClassicInverseNodeFacts.IsMachineField(
+                    index.Field,
+                    shell.Machine)
+                && ClassicInverseNodeFacts.IsMachineField(
+                    array.Field,
+                    shell.Machine))];
+        if (boundTests is not
+            [ConditionalBranch { Parent: Block boundTestBlock } boundTest])
+        {
+            return null;
+        }
+        List<Branch> entries = [.. execution.Body.Descendants
+            .OfType<Branch>()
+            .Where(branch =>
+                branch.TargetOffset == boundTestBlock.StartOffset)];
+        if (entries is not [Branch entry])
+            return null;
+
         var candidate = new ClassicInverseCandidate("classic-await-foreach-array")
         {
             ResultLocal = finalResult.Index,
@@ -511,7 +560,7 @@ internal static class ClassicInverseRecipes
         candidate.MapLocal(accumulatorStore.Index, sumIndex);
         candidate.MapLocal(finalResult.Index, sumIndex);
 
-        var rewriter = new ClassicInverseRewriter(request, shell, candidate);
+        var rewriter = new ClassicInverseRewriter(planning, shell, candidate);
         IrNode? collectionOutput = rewriter.Rewrite(collectionField);
         if (collectionOutput is not IrExpression collectionExpression)
             return null;
@@ -616,23 +665,10 @@ internal static class ClassicInverseRecipes
                     candidate.DeclareProtocol(hoistSum, "hoisted-local-transfer");
                     break;
 
-                case ConditionalBranch
-                {
-                    Condition: Comparison
-                    {
-                        Kind: ComparisonKind.LessThan,
-                        Left: LoadField { Field.Name: "<>7__wrap2" },
-                        Right: ArrayLength { Array: LoadField { Field.Name: "<>7__wrap1" } },
-                    },
-                } test:
-                    candidate.DeclareProtocol(test, "foreach-bound-test");
-                    break;
-
-                case Branch entry:
-                    candidate.DeclareProtocol(entry, "foreach-entry");
-                    break;
             }
         }
+        candidate.DeclareProtocol(boundTest, "foreach-bound-test");
+        candidate.DeclareProtocol(entry, "foreach-entry");
 
         var loopRoots = new List<IrNode>();
         if (EnclosingBlock(elementSpill) is { } spillBlock)
@@ -663,12 +699,12 @@ internal static class ClassicInverseRecipes
     // ---- Recipe: await inside try/finally --------------------------------
 
     static ClassicInverseCandidate? TryTryFinally(
-        ClassicInverseRequest request,
+        ClassicInversePlanningView planning,
         ClassicInverseShellFacts shell,
         Call setResult,
         List<Call> getResults)
     {
-        IrFunction execution = request.ExecutionBody;
+        IrFunction execution = planning.ExecutionBody;
         if (setResult.Arguments is not [_, LoadLocal result]
             || getResults.Count != 1)
         {
@@ -701,7 +737,7 @@ internal static class ClassicInverseRecipes
         {
             ResultLocal = result.Index,
         };
-        var rewriter = new ClassicInverseRewriter(request, shell, candidate);
+        var rewriter = new ClassicInverseRewriter(planning, shell, candidate);
         IrNode? value = rewriter.Rewrite(resultStore.Value);
         IrNode? finallyStatement = rewriter.Rewrite(guarded);
         if (value is not IrExpression returned
@@ -728,6 +764,16 @@ internal static class ClassicInverseRecipes
             ClassicInverseAncestorKind.Reproduced,
             "try-finally",
             output);
+        candidate.DeclareContainer(
+            tryFinally.TryBody,
+            ClassicInverseAncestorKind.Reproduced,
+            "try-body",
+            output.TryBody);
+        candidate.DeclareContainer(
+            tryFinally.FinallyBody,
+            ClassicInverseAncestorKind.Reproduced,
+            "finally-body",
+            output.FinallyBody);
 
         // The compiler runs the user's finally body only when the machine is
         // not suspended. That guard is the shell's, and the reproduced C#

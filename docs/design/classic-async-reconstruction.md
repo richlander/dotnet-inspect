@@ -135,6 +135,8 @@ ClassicInverseRequest
   Relationship         resolved owner-issued classic relationship certificate
   KickoffBody          unmodified import snapshot bound to DeclaredMethod
   ExecutionBody        unmodified import snapshot bound to ExecutionMethod
+  AcquisitionGuard     owner token used to acquire both exact MethodDefs
+  PlanningRunner       Decompiler prerequisite context for detached clones
 ```
 
 The names describe roles, not a required implementation shape. The core treats
@@ -258,18 +260,15 @@ the current host RID rather than assembling a test-local compiler command.
 The publish outputs remain under
 `artifacts/classic-async-artifact-matrix/<host-rid>/`. They can be passed
 directly to `DecompilerHarness --dump` for the PR demo. These fixture gates
-prove the stated artifact premises; they do not substitute for the unverified
-inverse-core decision gates below.
+prove the stated artifact premises and exercise the direct inverse-core
+reference/default-interface decisions below.
 
-Before #5277 supplies the authenticated request boundary, the legacy
-`ClassicAsyncReconstructionPass` still reports `Full` for both trimmed
-variants: it discovers the generated execution sibling directly and therefore
-bypasses Metadata's certificate in the ordinary-trim case. That measured
-behavior is not yet a valid core request. #5277 must attach the resolved
-relationship and explicit support-role disposition rather than preserve that
-sibling inference. The eventual end-to-end demo must reconstruct both
-retained-body trim variants through authenticated requests, while the unused
-and body-replacing cases continue to decline:
+The #5277 adapter supplies the authenticated request boundary. The
+implementation and role-preserved artifacts reconstruct through that request;
+the ordinary-trim artifact retains a request whose optional
+`SetStateMachine` role is `AbsentFromArtifact`; and the removed method forms no
+request. The retained-body trim variants reconstruct through authenticated
+requests, while the unused and body-replacing cases continue to decline:
 
 ```csharp
 int left = await first;
@@ -310,6 +309,14 @@ physical region in the unmodified import snapshot that it classifies. Derived
 structure cannot replace the physical partition or manufacture semantic
 identity. If a candidate's import correspondence is missing or ambiguous, the
 recipe declines.
+
+Receipt paths name their coordinate space explicitly: physical regions use
+`Import`, semantic and ancestor source paths use `Planning`, and reconstructed
+paths use `Output`. Planning-space semantic and ancestor receipts also carry
+the imported IL offsets that bridge them to the raw physical ledger. The core
+compares the raw and planning semantic-effect streams before publishing a plan;
+a prerequisite pass may change representation but cannot drop, duplicate, or
+reorder an effect.
 
 ## Proof-carrying plan
 
@@ -459,14 +466,16 @@ route failure without pretending the inverse made a semantic judgment.
 
 ## Validation status and implementation gates
 
-This docs-only design changes no product behavior. Its reconstruction
-properties are **unverified** until #5276's implementation runs the following
+Issue #5276's implementation verifies the reconstruction properties through these
 Release gates:
 
 | Required gate | Must fail when |
 | --- | --- |
 | `ClassicInversePlanPartitionsPhysicalRegions` | A region is missing, overlaps another region, or has an unexplained entry, use, or alias. |
+| `ClassicInversePhysicalPartitionCoversRawRegionsConsumedByRaising` | A prerequisite pass consumes a raw region and the import-space partition fails to retain it. |
 | `ClassicInversePlanRealizesEverySemanticEffectExactlyOnce` | An input effect is omitted or duplicated, an output effect lacks an input receipt, or preserved material supplies reconstructed semantics. |
+| `ClassicInverseSemanticLedgerRejectsGloballyReorderedClaims` | Individually valid realizations are reordered across claim boundaries. |
+| `ClassicInverseSemanticLedgerIncludesInitializerMemberEffects` | A raised initializer or `with` expression omits its consumed setter, `Add`, or field-store effect. |
 | `ClassicInversePlanRequiresCompleteStructuredAncestorPaths` | A consumed node has an unknown ancestor or loses a condition, loop, exception context, or structured transfer. |
 | `ClassicInverseSideEffectsInExpressionsDeclineWithoutRealization` | A call or other effect in a condition, operand, initializer, or filter is omitted because it is not an expression statement. |
 | `ClassicInverseNestedStoresDoNotEscapeTheirControlContext` | A sequential or loop store nested under structured control is emitted unconditionally. |
@@ -474,7 +483,9 @@ Release gates:
 | `ClassicInverseBodyReplacingReferenceAssembliesDecline` | A direct core request built from an authenticated SDK reference-assembly relationship with synthesized bodies does not decline. |
 | `ClassicInverseDefaultInterfaceBodiesUseMethodEvidence` | A direct core request built from authenticated managed-IL default-interface evidence is rejected solely because its declaring type is an interface. |
 | `ClassicInverseDecisionIsDetachedAndDeterministic` | A plan retains mutable IR, aliases a request body, or changes with request order or caller mutation. |
+| `ClassicInversePlanningUsesTheProvidedPassContext` | Detached view derivation drops the host's cross-method import and type-proof context. |
 | `ClassicInversePlanningFailuresRemainFailures` | Invalid correlation or core-owned budget exhaustion becomes decline, reconstruction, or empty success. |
+| `ClassicInverseCorrelationBindsOwnerIssuedRolesExactly` | The request mixes a relationship kind, kickoff, or execution MethodDef from different owner-issued evidence. |
 | `ClassicInverseAcceptedPopulationIsMeasured` | The implementation changes the accepted compiler-fixture population without an explicit expected delta and per-method review. |
 
 The first five gates need compiler-produced positives plus synthetic close
@@ -482,6 +493,11 @@ negatives. The
 [exact-head PR #5002 reproduction reconciliation](https://github.com/richlander/dotnet-inspect/pull/5002#issuecomment-5469908350)
 records the effectful-condition and nested sequential/loop-store evidence. It
 demonstrates the defect class; it is not itself an implementation gate.
+
+The core and accepted-population gates run in the normal Decompiler test
+executable. The reference-assembly and default-interface gates retain the
+class's `Speed=Slow` trait and run through the explicit artifact-matrix command
+above.
 
 An implementation PR also owes the decompiler entry gate, IR invariants,
 changed-method Render A/B, structural review, validity, compile-back fidelity

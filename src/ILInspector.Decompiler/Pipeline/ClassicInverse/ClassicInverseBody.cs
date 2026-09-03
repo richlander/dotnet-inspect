@@ -34,10 +34,14 @@ internal abstract record ClassicInverseBodyNode
     private protected static string TypeText(TypeRef? type)
         => type?.ToDisplayString() ?? "<null>";
 
-    private protected static string MethodText(MethodRef method)
+    internal static string MethodText(MethodRef method)
         => $"{method.DeclaringType.ToDisplayString()}.{method.Name}"
             + $"({string.Join(";", method.ParameterTypes.Select(static p => p.ToDisplayString()))})"
             + $"->{method.ReturnType.ToDisplayString()}";
+
+    internal static string FieldText(FieldRef field)
+        => $"{field.DeclaringType.ToDisplayString()}.{field.Name}"
+            + $":{field.Type.ToDisplayString()}";
 
     private protected static IrExpression Expr(ClassicInverseBodyNode node)
         => node.Materialize() as IrExpression
@@ -363,8 +367,13 @@ internal sealed record ClassicInverseInitializerEntry(
     ImmutableArray<ClassicInverseBodyNode> Arguments)
 {
     internal string Signature =>
-        $"entry[{Member ?? "<indexer>"}:{ConsumedMethod?.Name ?? ""}"
-        + $":{ConsumedField?.Name ?? ""}]"
+        $"entry[{Member ?? "<indexer>"}:"
+        + $"{(ConsumedMethod is null
+            ? ""
+            : ClassicInverseBodyNode.MethodText(ConsumedMethod))}:"
+        + $"{(ConsumedField is null
+            ? ""
+            : ClassicInverseBodyNode.FieldText(ConsumedField))}]"
         + $"({string.Join(",", Arguments.Select(static a => a.Signature))})";
 }
 
@@ -586,7 +595,7 @@ internal static class ClassicInverseBodyCapture
                 return arguments is null
                     ? null
                     : new ClassicInverseCallNode(
-                        call.Callee,
+                        Detach(call.Callee),
                         call.IsVirtual,
                         call.ConstrainedTo,
                         call.ExtensionSyntaxConflict,
@@ -599,7 +608,7 @@ internal static class ClassicInverseBodyCapture
                 return arguments is null
                     ? null
                     : new ClassicInverseNewObjectNode(
-                        creation.Constructor,
+                        Detach(creation.Constructor),
                         creation.AnonymousPropertyNames,
                         arguments.Value);
             }
@@ -651,6 +660,12 @@ internal static class ClassicInverseBodyCapture
         }
     }
 
+    static MethodRef Detach(MethodRef method)
+        => method with
+        {
+            ExactDefinitionAcquisitionGuard = null,
+        };
+
     internal static InitializerEntry MaterializeEntry(
         ClassicInverseInitializerEntry entry)
         => new(
@@ -697,7 +712,9 @@ internal static class ClassicInverseBodyCapture
             }
             builder.Add(new ClassicInverseInitializerEntry(
                 entry.Member,
-                entry.ConsumedMethod,
+                entry.ConsumedMethod is { } method
+                    ? Detach(method)
+                    : null,
                 entry.ConsumedField,
                 arguments.ToImmutable()));
         }

@@ -33,8 +33,6 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         ClassicAsyncRequestSeed? seed =
             (function.ClassicAsyncRequest as
                 ClassicAsyncRequestAdapterResult.RequestAvailable)?.Request;
-        if (function.IsMetadataBacked && seed is null)
-            return;
         if (!TryGetKickoff(function, out var kickoff))
             return;
         if (seed is not null
@@ -67,26 +65,38 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         ClassicInverseDecision decision;
         using (scope)
         {
-            IrFunction? moveNext = scope.Import();
-            if (moveNext is null)
+            IrFunction? rawMoveNext = scope.Import();
+            if (rawMoveNext is null)
+                return;
+            if (seed is null)
                 return;
 
-            // Bind receipts to the unmodified import snapshot before any
-            // Decompiler-owned prerequisite pass derives a planning view.
+            IrFunction rawKickoff = context.ImportMethodBody!(new MethodRef(
+                function.DeclaringType,
+                function.Name,
+                function.Signature.ReturnType,
+                [.. function.Signature.Parameters.Select(
+                    static parameter => parameter.Type)],
+                function.Signature.HasThis)
+            {
+                ExactDefinitionAddress = seed.DeclaredMethod,
+                ExactDefinitionAcquisitionGuard = seed.AcquisitionGuard,
+            })!;
+            if (rawKickoff is null)
+                return;
+
             ImmutableHashSet<int> importOffsets =
-                ClassicInverseRequest.OffsetsOf(moveNext);
-            scope.Run(
-                moveNext,
-                IrPasses.ForReconstruction<ClassicAsyncReconstructionPass>());
+                ClassicInverseRequest.OffsetsOf(rawMoveNext);
 
             decision = ClassicInverseCore.Decide(
                 ClassicInverseCore.Request(
-                    function,
+                    rawKickoff,
                     kickoff.StateMachineLocal,
                     kickoff.SourceOffset,
-                    moveNext,
+                    rawMoveNext,
                     importOffsets,
-                    seed));
+                    seed,
+                    scope.Run));
         }
 
         switch (decision)

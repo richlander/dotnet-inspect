@@ -765,17 +765,20 @@ public sealed class IrFunction : IrNode
     /// </summary>
     internal IrTypeFactSnapshot CaptureTypeFacts()
         => new(
-            TypeShapes,
-            TypeFactIdentities,
-            AmbiguousTypeFacts,
-            EnumMembers,
-            EnumUnderlyingTypes,
-            CollectionInitializerTypes,
-            UnionTypes,
-            ByRefLikeTypes,
-            InterfaceTypes,
-            EqualityOperatorFreeTypes,
-            InequalityOperatorFreeTypes);
+            TypeShapes.ToImmutableDictionary(),
+            TypeFactIdentities.ToImmutableDictionary(),
+            AmbiguousTypeFacts.ToImmutableHashSet(),
+            EnumMembers.ToImmutableDictionary(
+                static pair => pair.Key,
+                static pair => (IReadOnlyDictionary<long, string>)
+                    pair.Value.ToImmutableDictionary()),
+            EnumUnderlyingTypes.ToImmutableDictionary(),
+            CollectionInitializerTypes.ToImmutableHashSet(),
+            UnionTypes.ToImmutableHashSet(),
+            ByRefLikeTypes.ToImmutableHashSet(),
+            InterfaceTypes.ToImmutableHashSet(),
+            EqualityOperatorFreeTypes.ToImmutableHashSet(),
+            InequalityOperatorFreeTypes.ToImmutableHashSet());
 
     internal void MergeTypeFactsFrom(IrFunction body)
         => MergeTypeFactsFrom(body.CaptureTypeFacts());

@@ -157,6 +157,25 @@ public sealed class ClassicAsyncArtifactMatrixTests
     }
 
     [Fact]
+    public async Task ClassicInverseBodyReplacingReferenceAssembliesDecline()
+    {
+        ArtifactMatrix matrix = await s_matrix.Value;
+
+        ClassicInverseDecision decision = DirectDecision(
+            matrix.Reference,
+            FixtureType,
+            RecoverableMethod);
+
+        Assert.True(
+            decision is ClassicInverseDecision.Decline,
+            decision.Signature);
+        var decline = (ClassicInverseDecision.Decline)decision;
+        Assert.Equal(
+            ClassicInverseDeclineReason.NoRecipeMatched,
+            decline.Reason);
+    }
+
+    [Fact]
     public async Task
         DefaultInterfaceArtifact_AuthenticatesFromManagedMethodEvidence()
     {
@@ -168,6 +187,19 @@ public sealed class ClassicAsyncArtifactMatrixTests
             artifact.Relationship(
                 DefaultInterfaceType,
                 DefaultInterfaceMethod));
+    }
+
+    [Fact]
+    public async Task ClassicInverseDefaultInterfaceBodiesUseMethodEvidence()
+    {
+        ArtifactMatrix matrix = await s_matrix.Value;
+
+        ClassicInverseDecision decision = DirectDecision(
+            matrix.Untrimmed,
+            DefaultInterfaceType,
+            DefaultInterfaceMethod);
+
+        Assert.IsType<ClassicInverseDecision.Reconstruct>(decision);
     }
 
     static StateMachineRelationshipResult.Resolved AssertClassicRelationship(
@@ -335,6 +367,54 @@ public sealed class ClassicAsyncArtifactMatrixTests
         return CSharpPrinter.PrintRaised(
             function,
             method => IrImporter.Import(source, method));
+    }
+
+    static ClassicInverseDecision DirectDecision(
+        string assemblyPath,
+        string typeName,
+        string methodName)
+    {
+        using MetadataSource source = MetadataSource.Open(assemblyPath);
+        IrFunction kickoff = Assert.IsType<IrFunction>(
+            IrImporter.Import(source, typeName, methodName));
+        var seed = Assert.IsType<
+            ClassicAsyncRequestAdapterResult.RequestAvailable>(
+                kickoff.ClassicAsyncRequest).Request;
+
+        IrFunction planningKickoff = (IrFunction)kickoff.Clone();
+        PassContext planningContext = PassContext.ForImport(
+            method => IrImporter.Import(source, method));
+        IrPasses.Run(
+            planningKickoff,
+            [.. IrPasses.Default.TakeWhile(
+                pass => pass is not ClassicAsyncReconstructionPass)],
+            planningContext);
+
+        IrFunction execution = Assert.IsType<IrFunction>(
+            IrImporter.Import(source, seed.ExecutionMethod.Handle));
+        var importOffsets = ClassicInverseRequest.OffsetsOf(execution);
+
+        StoreField? builder = planningKickoff.Body.Descendants
+            .OfType<StoreField>()
+            .SingleOrDefault(store =>
+                store.Field.Name == "<>t__builder"
+                && store.Instance is LoadLocalAddress);
+        int stateMachineLocal = builder?.Instance is LoadLocalAddress local
+            ? local.Index
+            : -1;
+
+        return ClassicInverseCore.Decide(
+            ClassicInverseCore.Request(
+                kickoff,
+                stateMachineLocal,
+                builder?.SourceOffset ?? -1,
+                execution,
+                importOffsets,
+                seed,
+                (body, passes) => IrPasses.Run(
+                    body,
+                    passes,
+                    planningContext)));
     }
 
     static async Task<ArtifactMatrix> BuildMatrixAsync()
