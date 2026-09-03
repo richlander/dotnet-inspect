@@ -146,6 +146,10 @@ function applicationMenuItems(menu: HTMLElement): HTMLElement[] {
     .filter(item => !item.hidden);
 }
 
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(Math.max(value, minimum), maximum);
+}
+
 function setApplicationMenuOpen(
   button: HTMLElement,
   menu: HTMLElement,
@@ -163,39 +167,38 @@ function setApplicationMenuOpen(
     visualViewport?.height ?? view?.innerHeight ?? 600;
   const viewportWidth =
     visualViewport?.width ?? view?.innerWidth ?? rect.right;
-  const viewportBottom = viewportTop + viewportHeight;
-  const viewportRight = viewportLeft + viewportWidth;
   const margin = 8;
   const gap = 4;
-  const availableBelow = Math.max(
-    0,
-    viewportBottom - rect.bottom - gap - margin);
-  const availableAbove = Math.max(
-    0,
-    rect.top - gap - margin - viewportTop);
-  const menuHeight = menu.scrollHeight;
-  const placeBelow = availableBelow >= menuHeight
-    || (availableAbove < menuHeight && availableBelow >= availableAbove);
-  menu.style.top = `${placeBelow
-    ? rect.bottom + gap
-    : Math.max(
-        viewportTop + margin,
-        rect.top - gap - Math.min(menuHeight, availableAbove))
-  }px`;
-  menu.style.bottom = "auto";
+  const usableTop = viewportTop + margin;
+  const usableBottom =
+    Math.max(usableTop, viewportTop + viewportHeight - margin);
+  const usableLeft = viewportLeft + margin;
+  const usableRight =
+    Math.max(usableLeft, viewportLeft + viewportWidth - margin);
+  const usableWidth = Math.max(0, usableRight - usableLeft);
+  const belowTop = clamp(rect.bottom + gap, usableTop, usableBottom);
+  const aboveBottom = clamp(rect.top - gap, usableTop, usableBottom);
+  const availableBelow = Math.max(0, usableBottom - belowTop);
+  const availableAbove = Math.max(0, aboveBottom - usableTop);
+  const naturalMenuHeight = menu.scrollHeight;
+  const placeBelow = availableBelow >= naturalMenuHeight
+    || (availableAbove < naturalMenuHeight
+      && availableBelow >= availableAbove);
+  const availableHeight = placeBelow ? availableBelow : availableAbove;
+  menu.style.minWidth = `${Math.min(180, usableWidth)}px`;
+  menu.style.maxWidth = `${usableWidth}px`;
+  menu.style.maxHeight = `${availableHeight}px`;
   const menuWidth = menu.offsetWidth;
-  const minimumLeft = viewportLeft + margin;
-  const maximumLeft = Math.max(
-    minimumLeft,
-    viewportRight - margin - menuWidth);
-  menu.style.left = `${Math.min(
-    Math.max(rect.right - menuWidth, minimumLeft),
-    maximumLeft,
-  )}px`;
+  const menuHeight = menu.offsetHeight;
+  const maximumLeft = Math.max(usableLeft, usableRight - menuWidth);
+  const anchorRight = clamp(rect.right, usableLeft, usableRight);
+  menu.style.left =
+    `${clamp(anchorRight - menuWidth, usableLeft, maximumLeft)}px`;
   menu.style.right = "auto";
-  menu.style.maxWidth = `${Math.max(0, viewportWidth - 2 * margin)}px`;
-  menu.style.maxHeight =
-    `${placeBelow ? availableBelow : availableAbove}px`;
+  const desiredTop = placeBelow ? belowTop : aboveBottom - menuHeight;
+  const maximumTop = Math.max(usableTop, usableBottom - menuHeight);
+  menu.style.top = `${clamp(desiredTop, usableTop, maximumTop)}px`;
+  menu.style.bottom = "auto";
 }
 
 function openApplicationMenu(
@@ -359,6 +362,7 @@ export function bindWorkbenchShell(
     };
     menuView?.addEventListener("resize", resizeHandler);
     visualViewport?.addEventListener("resize", resizeHandler);
+    visualViewport?.addEventListener("scroll", resizeHandler);
   }
   root.querySelector("#dismiss-notice")
     ?.addEventListener("click", actions.onDismissNotice);
@@ -396,9 +400,38 @@ export function bindWorkbenchShell(
       if (resizeHandler) {
         menuView?.removeEventListener("resize", resizeHandler);
         visualViewport?.removeEventListener("resize", resizeHandler);
+        visualViewport?.removeEventListener("scroll", resizeHandler);
       }
     },
   };
+}
+
+export function captureApplicationMenuFocusOwner(
+  document: Document,
+): HTMLElement | null {
+  const menuButton =
+    document.querySelector<HTMLElement>("#application-menu-button");
+  return document.activeElement === menuButton ? menuButton : null;
+}
+
+export function restoreApplicationMenuFocusIfOwned(
+  document: Document,
+  owner: HTMLElement | null,
+): boolean {
+  if (!owner) return false;
+  const replacement =
+    document.querySelector<HTMLElement>("#application-menu-button");
+  if (!replacement) return false;
+  if (document.activeElement === replacement) return true;
+  if (owner.isConnected) return false;
+  const active = document.activeElement;
+  if (active?.isConnected
+      && active !== document.body
+      && active !== document.documentElement) {
+    return false;
+  }
+  replacement.focus({ preventScroll: true });
+  return true;
 }
 
 export function focusWorkbenchSearch(root: ParentNode): boolean {

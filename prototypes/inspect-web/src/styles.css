@@ -521,7 +521,7 @@ body {
 }
 .application-menu {
   position: fixed;
-  min-width: 180px;
+  min-width: min(180px, calc(100vw - 16px));
   padding: 5px;
   overflow-y: auto;
   pointer-events: auto;

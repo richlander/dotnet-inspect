@@ -147,11 +147,13 @@ import {
   bindHomeShell,
   bindLoadErrorShell,
   bindWorkbenchShell,
+  captureApplicationMenuFocusOwner,
   focusApplicationMenuButton,
   focusWorkbenchSearch,
   renderApplicationMenu,
   renderApplicationMenuButton,
   renderKeyboardHelpDialog,
+  restoreApplicationMenuFocusIfOwned,
   type ApplicationAction,
   type HomeShellBindingActions,
   type LoadErrorShellBindingActions,
@@ -7268,6 +7270,7 @@ function loadSelectionData() {
 }
 
 async function share() {
+  const focusOwner = captureApplicationMenuFocusOwner(document);
   try {
     await navigator.clipboard?.writeText(buildStateUrl().toString());
     showToast("selection link copied");
@@ -7277,8 +7280,7 @@ async function share() {
     render();
   } finally {
     requestAnimationFrame(() =>
-      document.querySelector<HTMLElement>("#application-menu-button")
-        ?.focus({ preventScroll: true }));
+      restoreApplicationMenuFocusIfOwned(document, focusOwner));
   }
 }
 
@@ -11278,7 +11280,6 @@ keybindings.register({
 keybindings.register({
   id: "workspace.drill-in",
   key: "Enter",
-  available: inspectionNavigationIsAvailable,
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
   when: event => !isTextEntry()

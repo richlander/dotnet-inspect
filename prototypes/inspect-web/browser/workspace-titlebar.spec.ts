@@ -118,6 +118,15 @@ test("the Application menu owns global actions and modal focus return", async ({
   await expect(page.locator("body")).toHaveAttribute("data-shared", "true");
   await expect(button).toBeFocused();
 
+  await page.setViewportSize({ width: 800, height: 520 });
+  await page.evaluate(() => delete document.body.dataset.shared);
+  await button.click();
+  await items.first().click();
+  await page.locator(".brand").focus();
+  await expect(page.locator(".brand")).toBeFocused();
+  await expect(page.locator("body")).toHaveAttribute("data-shared", "true");
+  await expect(page.locator(".brand")).toBeFocused();
+
   await button.click();
   await page.setViewportSize({ width: 400, height: 180 });
   const shortPopup = await box(page, "#application-menu");
@@ -129,20 +138,38 @@ test("the Application menu owns global actions and modal focus return", async ({
 
   await page.setViewportSize({ width: 400, height: 520 });
   await button.click();
-  const visualHeight = await page.evaluate(() => {
+  const visualBounds = await page.evaluate(() => {
     const viewport = window.visualViewport;
     if (!viewport) throw new Error("Visual viewport is unavailable.");
-    Object.defineProperty(
-      viewport,
-      "height",
-      { configurable: true, value: 120 });
-    viewport.dispatchEvent(new Event("resize"));
-    return viewport.height;
+    for (const [property, value] of [
+      ["height", 120],
+      ["width", 120],
+      ["offsetTop", 40],
+      ["offsetLeft", 40],
+    ] as const) {
+      Object.defineProperty(
+        viewport,
+        property,
+        { configurable: true, value });
+    }
+    viewport.dispatchEvent(new Event("scroll"));
+    return {
+      bottom: viewport.offsetTop + viewport.height - 8,
+      left: viewport.offsetLeft + 8,
+      right: viewport.offsetLeft + viewport.width - 8,
+      top: viewport.offsetTop + 8,
+    };
   });
   const visualPopup = await box(page, "#application-menu");
-  expect(visualPopup.y).toBeGreaterThanOrEqual(0);
+  expect(visualPopup.x).toBeGreaterThanOrEqual(visualBounds.left);
+  expect(visualPopup.x + visualPopup.width)
+    .toBeLessThanOrEqual(visualBounds.right);
+  expect(visualPopup.y).toBeGreaterThanOrEqual(visualBounds.top);
   expect(visualPopup.y + visualPopup.height)
-    .toBeLessThanOrEqual(visualHeight);
+    .toBeLessThanOrEqual(visualBounds.bottom);
+  expect(await page.locator("#application-menu").evaluate(menu =>
+    Number.parseFloat(getComputedStyle(menu).minWidth)))
+    .toBeLessThan(180);
   await page.keyboard.press("Escape");
 });
 
@@ -166,6 +193,7 @@ test("Keyboard help reflects current command availability and surface", async ({
   await expect(page.getByText("Select a subject or inspector")).toHaveCount(0);
   await expect(page.getByText("Move across subjects or inspectors"))
     .toHaveCount(0);
+  await expect(page.getByText("Open the selected item")).toBeVisible();
   await expect(page.getByText("Leave the current member or subject"))
     .toHaveCount(0);
 

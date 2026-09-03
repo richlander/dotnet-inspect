@@ -4,10 +4,12 @@ import {
   bindHomeShell,
   bindLoadErrorShell,
   bindWorkbenchShell,
+  captureApplicationMenuFocusOwner,
   focusWorkbenchSearch,
   renderApplicationMenu,
   renderApplicationMenuButton,
   renderKeyboardHelpDialog,
+  restoreApplicationMenuFocusIfOwned,
   workbenchShellHtml,
 } from "../src/shell-controls.ts";
 import { setProductHomeDemoCatalog } from "../src/product-home-demos.ts";
@@ -26,12 +28,14 @@ setProductHomeDemoCatalog([
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
+  readonly offsetHeight = 105;
   readonly offsetWidth = 180;
   readonly ownerDocument: FakeRoot;
   readonly scrollHeight = 105;
   readonly style: Record<string, string> = {};
   hidden = true;
   focused = false;
+  isConnected = true;
   rendered = true;
   value = "";
   private readonly attributes = new Map<string, string>();
@@ -105,12 +109,40 @@ class FakeElement {
   }
 }
 
+class FakeVisualViewport {
+  height = 900;
+  offsetLeft = 0;
+  offsetTop = 0;
+  width = 800;
+  private readonly listeners = new Map<string, EventListener[]>();
+
+  addEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  removeEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? [];
+    this.listeners.set(
+      type,
+      listeners.filter(candidate => candidate !== listener));
+  }
+
+  listenerCount(type: string) {
+    return this.listeners.get(type)?.length ?? 0;
+  }
+}
+
 class FakeRoot {
   activeElement: FakeElement | null = null;
+  readonly body = this.element();
+  readonly documentElement = this.element();
+  readonly visualViewport = new FakeVisualViewport();
   readonly defaultView = {
     innerWidth: 800,
     innerHeight: 900,
-    visualViewport: null,
+    visualViewport: this.visualViewport,
     addEventListener: (type: string, listener: EventListener) => {
       const listeners = this.viewListeners.get(type) ?? [];
       listeners.push(listener);
@@ -268,6 +300,8 @@ test("application menu follows menu-button keyboard and dismissal behavior", () 
     applicationActions(calls));
   assert.equal(root.listenerCount("pointerdown"), 1);
   assert.equal(root.viewListenerCount("resize"), 1);
+  assert.equal(root.visualViewport.listenerCount("resize"), 1);
+  assert.equal(root.visualViewport.listenerCount("scroll"), 1);
 
   assert.equal(button.dispatch("keydown", { key: "ArrowDown" }), true);
   assert.equal(menu.hidden, false);
@@ -296,6 +330,37 @@ test("application menu follows menu-button keyboard and dismissal behavior", () 
   binding.disconnect();
   assert.equal(root.listenerCount("pointerdown"), 0);
   assert.equal(root.viewListenerCount("resize"), 0);
+  assert.equal(root.visualViewport.listenerCount("resize"), 0);
+  assert.equal(root.visualViewport.listenerCount("scroll"), 0);
+});
+
+test("delayed Application actions restore focus only while the menu owns it", () => {
+  const root = new FakeRoot();
+  const button = root.add("#application-menu-button");
+  const other = root.element();
+  button.focus();
+  const owner =
+    captureApplicationMenuFocusOwner(fakeDom.document(root));
+  other.focus();
+
+  assert.equal(
+    restoreApplicationMenuFocusIfOwned(fakeDom.document(root), owner),
+    false);
+  assert.equal(root.activeElement, other);
+
+  button.focus();
+  const replacedOwner =
+    captureApplicationMenuFocusOwner(fakeDom.document(root));
+  button.isConnected = false;
+  const replacement = root.add("#application-menu-button");
+  root.activeElement = root.body;
+
+  assert.equal(
+    restoreApplicationMenuFocusIfOwned(
+      fakeDom.document(root),
+      replacedOwner),
+    true);
+  assert.equal(root.activeElement, replacement);
 });
 
 test("keyboard help is rendered from registered keybinding descriptions", () => {

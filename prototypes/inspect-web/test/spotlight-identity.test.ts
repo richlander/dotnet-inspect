@@ -1242,6 +1242,22 @@ test("keyboard help projects available global and current graph bindings", () =>
   assert.match(
     appSource,
     /const inspectionNavigationIsAvailable = \(\) =>\s*workspaceKeyboardContextIsActive\(\) && scope\(\) !== "workspace"/);
+  const drillInBinding =
+    appSource.match(/keybindings\.register\(\{\s*id: "workspace\.drill-in"[\s\S]*?\n}\);/)?.[0]
+    ?? "";
+  assert.doesNotMatch(drillInBinding, /available:/);
+  assert.match(drillInBinding, /run: \(\) => \{\s*drillIn\(\);/);
+});
+
+test("delayed Share completion preserves newer focus ownership", () => {
+  const share =
+    appSource.match(/async function share\(\) \{[\s\S]*?\n}/)?.[0] ?? "";
+  assert.match(
+    share,
+    /const focusOwner = captureApplicationMenuFocusOwner\(document\)/);
+  assert.match(
+    share,
+    /requestAnimationFrame\(\(\) =>\s*restoreApplicationMenuFocusIfOwned\(document, focusOwner\)\)/);
 });
 
 test("deferred Spotlight focus preserves newer Application-menu focus", () => {

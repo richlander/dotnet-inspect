@@ -17,11 +17,13 @@ import type {
 import {
   applicationMenuOwnsFocus,
   bindWorkbenchShell,
+  captureApplicationMenuFocusOwner,
   focusApplicationMenuButton,
   focusWorkbenchSearch,
   renderApplicationMenu,
   renderApplicationMenuButton,
   renderKeyboardHelpDialog,
+  restoreApplicationMenuFocusIfOwned,
   type ApplicationAction,
   type WorkbenchShellBinding,
   type WorkbenchShellBindingActions,
@@ -380,6 +382,13 @@ harnessKeybindings.register({
   priority: 100,
   run: () => true,
 });
+harnessKeybindings.register({
+  id: "workspace.drill-in",
+  key: "Enter",
+  allowExtraModifiers: true,
+  priority: 100,
+  run: () => true,
+});
 const graphHelpScope = graphMode ? new EventTarget() : null;
 if (graphHelpScope) {
   harnessKeybindings.register({
@@ -530,7 +539,11 @@ function setApplicationDialog(
 
 function handleApplicationAction(action: ApplicationAction): void {
   if (action === "share") {
-    document.body.dataset.shared = "true";
+    const focusOwner = captureApplicationMenuFocusOwner(document);
+    setTimeout(() => {
+      document.body.dataset.shared = "true";
+      restoreApplicationMenuFocusIfOwned(document, focusOwner);
+    }, 50);
     return;
   }
   setApplicationDialog(applicationDialog === action ? null : action);
