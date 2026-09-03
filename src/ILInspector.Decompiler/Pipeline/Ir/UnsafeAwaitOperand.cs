@@ -5,8 +5,17 @@ internal static class UnsafeAwaitOperand
     public static bool ContainsAwait(IrNode root)
         => root is AwaitExpression || root.Descendants.OfType<AwaitExpression>().Any();
 
-    public static bool WouldPlaceAwaitInUnsafeContext(IrNode root)
-        => ContainsAwait(root) && RequiresUnsafeContext(root);
+    public static bool WouldPlaceAwaitInUnsafeContext(
+        IrNode root,
+        bool usesUpdatedMemorySafetyRules)
+        => ContainsAwait(root)
+            && RequiresUnsafeContext(root, usesUpdatedMemorySafetyRules);
+
+    public static bool RequiresUnsafeContext(
+        IrNode root,
+        bool usesUpdatedMemorySafetyRules)
+        => RequiresUnsafeContext(root)
+            || !usesUpdatedMemorySafetyRules && ContainsPointerSyntax(root);
 
     public static bool RequiresUnsafeContext(IrNode root)
     {
@@ -22,10 +31,21 @@ internal static class UnsafeAwaitOperand
                 || node is LoadField field && IsPointerReceiver(field.Instance)
                 || node is StoreField fieldStore && IsPointerReceiver(fieldStore.Instance)
                 || node is LoadFieldAddress fieldAddress && IsPointerReceiver(fieldAddress.Instance)
+                || node is Call call && CallRendersPointerDereference(call)
+                || node is NewObject creation
+                    && ArgumentsRenderPointerDereference(
+                        creation.Arguments,
+                        creation.Constructor.ParameterTypes)
+                || node is LoadProperty property && IsPointerReceiver(property.Instance)
+                || node is StoreProperty propertyStore && IsPointerReceiver(propertyStore.Instance)
+                || node is EventSubscription subscription && IsPointerReceiver(subscription.Instance)
                 || node is LocalFunctionInvocation invocation
                     && (invocation.RequiresUnsafe
                         || ContainsPointer(invocation.ReturnType)
-                        || invocation.ParameterTypes.Any(ContainsPointer)))
+                        || invocation.ParameterTypes.Any(ContainsPointer)
+                        || ArgumentsRenderPointerDereference(
+                            invocation.Arguments,
+                            invocation.ParameterTypes)))
             {
                 return true;
             }
@@ -42,6 +62,31 @@ internal static class UnsafeAwaitOperand
         }
         return false;
     }
+
+    static bool CallRendersPointerDereference(Call call)
+    {
+        IReadOnlyList<IrExpression> arguments = call.Arguments;
+        if (call.Callee.HasThis)
+        {
+            if (arguments is not [var receiver, ..])
+                return false;
+            if (IsPointerReceiver(receiver))
+                return true;
+            arguments = [.. arguments.Skip(1)];
+        }
+        return ArgumentsRenderPointerDereference(
+            arguments,
+            call.Callee.ParameterTypes);
+    }
+
+    static bool ArgumentsRenderPointerDereference(
+        IReadOnlyList<IrExpression> arguments,
+        IReadOnlyList<TypeRef> parameterTypes)
+        => arguments
+            .Select((argument, index) => (argument, index))
+            .Any(pair => pair.index < parameterTypes.Count
+                && parameterTypes[pair.index].Kind == TypeRefKind.ByRef
+                && pair.argument.ResultType?.Kind == TypeRefKind.Pointer);
 
     static bool IsPointerReceiver(IrExpression? receiver)
         => receiver?.ResultType?.Kind is TypeRefKind.Pointer or TypeRefKind.FunctionPointer;
@@ -64,4 +109,11 @@ internal static class UnsafeAwaitOperand
             && (type.Kind is TypeRefKind.Pointer or TypeRefKind.FunctionPointer
                 || ContainsPointer(type.ElementType)
                 || type.TypeArguments.Any(ContainsPointer));
+
+    static bool ContainsPointerSyntax(IrNode root)
+        => root.Descendants.Prepend(root).Any(node =>
+            node is Fixed or StackAllocate
+            || node.DirectTypes.Any(ContainsPointer)
+            || node is IrExpression expression
+                && ContainsPointer(expression.ResultType));
 }

@@ -35,6 +35,13 @@ public static class AsyncFixtures
         public unsafe int* Risky => (int*)0;
     }
 
+    public readonly struct PointerTarget
+    {
+        public Task<int> GetTask() => Task.FromResult(42);
+    }
+
+    public static unsafe PointerTarget* Pointer => null;
+
     public struct Counter
     {
         public int Value;
@@ -210,6 +217,16 @@ public static class AsyncFixtures
             value = Read(holder.Risky);
         }
         return value + await task;
+    }
+
+    public static async Task<int> AwaitPointerReceiver()
+    {
+        Task<int> task;
+        unsafe
+        {
+            task = Pointer->GetTask();
+        }
+        return await task;
     }
 
     public static Task<int> set_GetTask(Task<int> task) => task;

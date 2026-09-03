@@ -122,6 +122,11 @@ consumer that requires unsafe context. When runtime-async lowering has already
 embedded the await helper in such a consumer and preserved no source evaluation
 boundary, reconstruction declines visibly at Partial fidelity rather than
 inventing a potentially reordered spill.
+Unsafe evaluations feeding an unstructured branch or switch are likewise kept
+spilled when the function contains an await, so later structuring cannot create
+an unsafe compound header around an awaiting body. If any final statement still
+requires one unsafe context that would contain an await, the statement declines
+visibly instead of emitting invalid C# or inventing an evaluation boundary.
 
 The stackalloc→`Span<T>` case is first raised from the compiler's lowering — a
 `localloc` fed to the `Span<T>(void*, int)` constructor — back into a source-level

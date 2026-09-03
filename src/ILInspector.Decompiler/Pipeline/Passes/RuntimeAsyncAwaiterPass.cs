@@ -83,7 +83,12 @@ public sealed class RuntimeAsyncAwaiterPass : IIrPass
             || getAwaiter.Callee.RequiresUnsafe
             || isCompletedAccessor.RequiresUnsafe
             || getResult.Callee.RequiresUnsafe
-            || UnsafeAwaitOperand.RequiresUnsafeContext(awaited)
+            || UnsafeAwaitOperand.RequiresUnsafeContext(
+                awaited,
+                function.UsesUpdatedMemorySafetyRules)
+            || UnsafeAwaitOperand.RequiresUnsafeContext(
+                ContainingStatement(getResult),
+                function.UsesUpdatedMemorySafetyRules)
             || !HasExclusiveControlFlow(function, branch, helperBlock.StartOffset, merge.StartOffset)
             || awaitableStore is not null
                 && !LocalDefinitionRangeOwned(
@@ -109,6 +114,14 @@ public sealed class RuntimeAsyncAwaiterPass : IIrPass
             isCompletedAccessor,
             getResult,
             awaited);
+    }
+
+    static IrNode ContainingStatement(IrNode node)
+    {
+        var current = node;
+        while (current.Parent is not null and not Block)
+            current = current.Parent;
+        return current;
     }
 
     static bool TryGetAwaitedOperand(

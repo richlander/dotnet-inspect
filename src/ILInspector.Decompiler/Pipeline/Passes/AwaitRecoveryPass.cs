@@ -28,8 +28,12 @@ public sealed class AwaitRecoveryPass : IIrPass
             if (!MemberIdentity.IsAsyncHelpersAwait(call))
                 continue;
             IrNode statement = ContainingStatement(call);
-            if (UnsafeAwaitOperand.RequiresUnsafeContext(call.Arguments[0])
-                || UnsafeAwaitOperand.RequiresUnsafeContext(statement))
+            if (UnsafeAwaitOperand.RequiresUnsafeContext(
+                    call.Arguments[0],
+                    function.UsesUpdatedMemorySafetyRules)
+                || UnsafeAwaitOperand.RequiresUnsafeContext(
+                    statement,
+                    function.UsesUpdatedMemorySafetyRules))
             {
                 MarkDeclined(function, call, statement, context);
                 continue;

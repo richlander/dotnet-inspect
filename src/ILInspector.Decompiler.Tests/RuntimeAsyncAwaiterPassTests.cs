@@ -9,6 +9,7 @@ public class RuntimeAsyncAwaiterPassTests
     const string AsyncFixtureType =
         "ILInspector.Decompiler.Fixtures.ClassicAsync.AsyncFixtures";
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
+    static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Bool = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef TaskType = TypeRef.CoreLib("System.Threading.Tasks", "Task");
     static readonly TypeRef AsyncHelpers = TypeRef.CoreLib("System.Runtime.CompilerServices", "AsyncHelpers");
@@ -193,6 +194,20 @@ public class RuntimeAsyncAwaiterPassTests
             call => call.Callee.Name == "GetAwaiter");
     }
 
+    [Fact]
+    public void UnsafeGetResultConsumer_StandsDownBecauseAwaitCannotEnterUnsafeContext()
+    {
+        var function = Synthetic(unsafeGetResultConsumer: true);
+
+        new RuntimeAsyncAwaiterPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<AwaitExpression>());
+        Assert.Contains(
+            function.Descendants.OfType<Call>(),
+            call => call.Callee.Name == "GetResult");
+    }
+
     [Theory]
     [InlineData(SyntheticBreak.NonRuntimeMethod)]
     [InlineData(SyntheticBreak.WrongHelperAssembly)]
@@ -222,7 +237,8 @@ public class RuntimeAsyncAwaiterPassTests
         string helperName = "UnsafeAwaitAwaiter",
         SyntheticBreak broken = SyntheticBreak.None,
         bool requiresUnsafeAwaiterMember = false,
-        bool requiresUnsafeOperand = false)
+        bool requiresUnsafeOperand = false,
+        bool unsafeGetResultConsumer = false)
     {
         int helperLocal = broken == SyntheticBreak.DifferentHelperLocal ? 2 : 1;
         int completedLocal = broken == SyntheticBreak.DifferentIsCompletedLocal ? 2 : 1;
@@ -290,10 +306,26 @@ public class RuntimeAsyncAwaiterPassTests
             [new LoadLocal(helperLocal, Awaiter)])));
 
         var merge = new Block(20);
-        merge.Add(new ExpressionStatement(new Call(
-            new MethodRef(Awaiter, "GetResult", Void, [], HasThis: true),
+        var getResultCall = new Call(
+            new MethodRef(
+                Awaiter,
+                "GetResult",
+                unsafeGetResultConsumer ? Int32 : Void,
+                [],
+                HasThis: true),
             isVirtual: false,
-            [new LoadLocalAddress(resultLocal, Awaiter)])));
+            [new LoadLocalAddress(resultLocal, Awaiter)]);
+        if (unsafeGetResultConsumer)
+        {
+            merge.Add(new StoreIndirect(
+                Int32,
+                new LoadArgument(1, "pointer", TypeRef.Pointer(Int32)),
+                getResultCall));
+        }
+        else
+        {
+            merge.Add(new ExpressionStatement(getResultCall));
+        }
         if (broken == SyntheticBreak.EscapedAwaiterAfterGetResult)
             merge.Add(new ExpressionStatement(new LoadLocal(1, Awaiter)));
         if (broken == SyntheticBreak.EscapedAwaitableAfterGetResult)
@@ -318,7 +350,12 @@ public class RuntimeAsyncAwaiterPassTests
             TypeRef.Definition("Synthetic", "Samples", "Holder"),
             new MethodSignature(
                 TaskType,
-                [new Parameter("awaitable", Awaitable)],
+                unsafeGetResultConsumer
+                    ? [
+                        new Parameter("awaitable", Awaitable),
+                        new Parameter("pointer", TypeRef.Pointer(Int32)),
+                    ]
+                    : [new Parameter("awaitable", Awaitable)],
                 HasThis: false,
                 GenericParameterCount: 0),
             [Awaitable, Awaiter, Awaiter],

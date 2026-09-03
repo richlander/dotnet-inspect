@@ -166,6 +166,26 @@ public class ClassicAsyncReconstructionHonestyTests
         Assert.DoesNotContain("unsafe\n{\n    return await", result.Output, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void PointerReceiverFoldedIntoAwait_DeclinesHonestly()
+    {
+        using var source = OpenClassicFixture(readSymbols: true);
+        IrFunction function = ImportAndRaise(source, "AwaitPointerReceiver");
+
+        DecompilerResult result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.False(result.RequiresAsyncBodyModifier);
+        Assert.Empty(function.Descendants.OfType<AwaitExpression>());
+        Assert.Contains(
+            function.Descendants.OfType<UnsupportedNode>(),
+            node => node.Opcode == "classic async"
+                && node.Reason.Contains(
+                    "await operand requires unsafe context",
+                    StringComparison.Ordinal));
+        Assert.DoesNotContain("unsafe\n{\n    return await", result.Output, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("SequentialWithOrdinarySetResultCall")]
     [InlineData("SequentialWithSeparateBuilderReceiver")]

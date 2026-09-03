@@ -215,7 +215,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         {
             return ReconstructionResult.UnconsumedExecutionRegion;
         }
-        if (statements.Any(UnsafeAwaitOperand.WouldPlaceAwaitInUnsafeContext))
+        if (statements.Any(statement =>
+            UnsafeAwaitOperand.WouldPlaceAwaitInUnsafeContext(
+                statement,
+                kickoff.UsesUpdatedMemorySafetyRules)))
             return ReconstructionResult.UnsafeAwaitOperand;
 
         var block = new Block(0);
@@ -246,7 +249,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
             var remapped = CloneAndRemap(operand, kickoff);
             if (remapped is not null
-                && UnsafeAwaitOperand.RequiresUnsafeContext(remapped))
+                && UnsafeAwaitOperand.RequiresUnsafeContext(
+                    remapped,
+                    kickoff.UsesUpdatedMemorySafetyRules))
             {
                 return true;
             }
@@ -970,7 +975,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             return null;
 
         var operand = CloneAndRemap(awaitedOperand, kickoff);
-        return operand is null || UnsafeAwaitOperand.RequiresUnsafeContext(operand)
+        return operand is null || UnsafeAwaitOperand.RequiresUnsafeContext(
+                operand,
+                kickoff.UsesUpdatedMemorySafetyRules)
             ? null
             : new AwaitExpression(
                 operand,
