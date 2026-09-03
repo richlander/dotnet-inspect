@@ -160,6 +160,13 @@ export function workspaceForHistory<TPackage>(
     ?? defaultLiveWorkspace(session);
 }
 
+export function rememberedLiveWorkspaceHref<TPackage>(
+  session: LiveWorkspaceSession<TPackage>,
+  canonicalHrefs: ReadonlyMap<string, string>,
+): string | null {
+  return canonicalHrefs.get(session.selectedWorkspaceId) ?? null;
+}
+
 export interface WorkspaceOperationOwner {
   workspaceId: string;
   navigationSequence: number;

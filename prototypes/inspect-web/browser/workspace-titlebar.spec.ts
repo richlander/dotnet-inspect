@@ -1109,7 +1109,7 @@ test("live Workspace selection, creation, and removal preserve package isolation
   await expect(page.locator(".workspace-detail-list"))
     .toContainText("Microsoft.Extensions.DependencyInjection");
   await expect(page.locator(".workspace-detail-list"))
-    .not.toContainText("System.Text.Json");
+    .toContainText("System.Text.Json");
   expect(page.url()).toBe(href);
 
   await page.getByRole("button", { name: "New workspace" }).click();
@@ -1128,6 +1128,8 @@ test("live Workspace selection, creation, and removal preserve package isolation
   await expect(page.locator(".workspace-heading h1")).toHaveText("Default");
   await expect(page.locator(".workspace-detail-list"))
     .toContainText("System.Text.Json");
+  await expect(page.locator(".workspace-detail-list"))
+    .not.toContainText("Microsoft.Extensions.DependencyInjection");
 });
 
 test("live Workspace history and asynchronous results retain their owner", async ({
@@ -1137,15 +1139,26 @@ test("live Workspace history and asynchronous results retain their owner", async
 
   await page.evaluate(() => window.beginDelayedWorkspaceLoadProbe());
   await page.locator('[data-workspace="extensions"]').click();
+  await page.locator('[data-workspace="default"]').click();
   await page.evaluate(() => window.completeDelayedWorkspaceLoadProbe());
   await expect(page.locator("body"))
     .toHaveAttribute("data-workspace-late-load", "rejected");
   await expect(page.locator(".workspace-detail-list"))
-    .not.toContainText("System.Text.Json");
+    .not.toContainText("Microsoft.Extensions.Http");
 
   await page.goBack();
+  await expect(page.locator(".workspace-heading h1")).toHaveText("Workspace 2");
+  await expect(page.locator(".workspace-detail-list"))
+    .not.toContainText("Microsoft.Extensions.Http");
+  await page.goBack();
+  await expect(page.locator(".workspace-heading h1")).toHaveText("Default");
+  await page.goForward();
+  await expect(page.locator(".workspace-heading h1")).toHaveText("Workspace 2");
+  await page.goForward();
   await expect(page.locator(".workspace-heading h1")).toHaveText("Default");
   await page.evaluate(() => window.restoreUnknownWorkspaceProbe());
+  await expect(page.locator(".workspace-heading h1")).toHaveText("Default");
+  await page.evaluate(() => window.restoreMissingWorkspaceProbe());
   await expect(page.locator(".workspace-heading h1")).toHaveText("Default");
 
   await page.goto(

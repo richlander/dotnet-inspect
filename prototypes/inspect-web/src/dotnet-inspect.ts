@@ -246,6 +246,7 @@ import {
   createLiveWorkspace,
   createLiveWorkspaceSession,
   defaultLiveWorkspace,
+  rememberedLiveWorkspaceHref,
   removeLiveWorkspace,
   selectLiveWorkspace,
   selectedLiveWorkspace,
@@ -890,7 +891,7 @@ type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
   }
 );
 let failedWorkspaceUrlState: FailedWorkspaceUrlState | null = null;
-let lastCanonicalWorkspaceHref: string | null = null;
+const canonicalWorkspaceHrefs = new Map<string, string>();
 let packageQueryWorkspaceFocusNavigationSeq: number | null = null;
 let packageQueryHandoffNavigationSeq: number | null = null;
 
@@ -1392,6 +1393,17 @@ function workspaceHistoryState(value: unknown = history.state) {
   return withWorkspaceHistoryId(
     value,
     state.workspaceSession.selectedWorkspaceId);
+}
+
+function rememberCanonicalWorkspaceHref(href: string) {
+  canonicalWorkspaceHrefs.set(
+    state.workspaceSession.selectedWorkspaceId,
+    href);
+}
+
+function pushCurrentWorkspaceLocation(href: string) {
+  workspaceLocation.push(href, workspaceHistoryState(null));
+  rememberCanonicalWorkspaceHref(href);
 }
 
 function emptyWorkspaceUrl(): string {
@@ -3002,10 +3014,9 @@ function renderEmptyLiveWorkspace(
   restorePackageQueryReturnFocus();
   restorePackageQueryWorkspaceFocus();
   if (options.synchronizeUrl !== false) {
-    workspaceLocation.replace(
-      emptyWorkspaceUrl(),
-      workspaceHistoryState());
-    lastCanonicalWorkspaceHref = location.href;
+    const href = emptyWorkspaceUrl();
+    workspaceLocation.replace(href, workspaceHistoryState());
+    rememberCanonicalWorkspaceHref(href);
   }
 }
 
@@ -5085,7 +5096,7 @@ async function openPlatformLensLibrary(
       platformScopeTfm(),
       `${key}.dll`,
       pack ?? "",
-      () => state.packages.includes(originPackage),
+      isCurrent,
       originPackage.version);
     const loaded = runtimeResult.packageModel;
     if (!loaded) {
@@ -7007,17 +7018,17 @@ function syncUrl() {
     syncCurrentLiveWorkspace();
     if (state.atPackageRoot && state.package && !state.loading) {
       document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
-      workspaceLocation.replace(
-        buildStateUrl().toString(),
-        workspaceHistoryState());
-      lastCanonicalWorkspaceHref = location.href;
+      const href = buildStateUrl().toString();
+      workspaceLocation.replace(href, workspaceHistoryState());
+      rememberCanonicalWorkspaceHref(href);
       return;
     }
     const snapshot = captureWorkspaceUrlState();
     if (!snapshot || state.loading) return;
     document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
-    workspaceLocation.sync(snapshot, workspaceHistoryState());
-    lastCanonicalWorkspaceHref = location.href;
+    const href = workspaceLocation.build(snapshot).toString();
+    workspaceLocation.replace(href, workspaceHistoryState());
+    rememberCanonicalWorkspaceHref(href);
   } catch {
     // Keep the last canonical URL while the active Browser state is not projectable.
   }
@@ -7646,9 +7657,7 @@ function selectWorkspace(workspaceId: string): void {
   navigationSequence.begin();
   prepareLiveWorkspaceSurface();
   render({ synchronizeUrl: false });
-  workspaceLocation.push(
-    currentWorkspaceLocation(),
-    workspaceHistoryState(null));
+  pushCurrentWorkspaceLocation(currentWorkspaceLocation());
   afterCurrentNavigationFrame(() => focusLiveWorkspace(document, workspace.id));
 }
 
@@ -7662,7 +7671,7 @@ function createWorkspace(): void {
   navigationSequence.begin();
   prepareLiveWorkspaceSurface();
   render({ synchronizeUrl: false });
-  workspaceLocation.push(emptyWorkspaceUrl(), workspaceHistoryState(null));
+  pushCurrentWorkspaceLocation(emptyWorkspaceUrl());
   afterCurrentNavigationFrame(() => focusLiveWorkspace(document, workspace.id));
 }
 
@@ -7675,12 +7684,11 @@ function removeWorkspace(workspaceId: string): void {
   adoptLiveWorkspaceProjection(workspace);
   for (const packageModel of removed.packages)
     releasePackageModelCaches(packageModel);
+  canonicalWorkspaceHrefs.delete(removed.id);
   navigationSequence.begin();
   prepareLiveWorkspaceSurface();
   render({ synchronizeUrl: false });
-  workspaceLocation.push(
-    currentWorkspaceLocation(),
-    workspaceHistoryState(null));
+  pushCurrentWorkspaceLocation(currentWorkspaceLocation());
   afterCurrentNavigationFrame(() => focusLiveWorkspace(document, workspace.id));
 }
 
@@ -7711,7 +7719,7 @@ function runHomeDemo(kind: ProductHomeDemoId) {
     observeAsync(runCallGraphDemo(kind), "Loading the call graph demo");
     return;
   }
-  workspaceLocation.push(link, workspaceHistoryState(null));
+  pushCurrentWorkspaceLocation(link);
   const loc = parseLocation();
   observeAsync(restoreWorkspaceFromLocation(loc, loc), "Loading the demo workspace");
 }
@@ -8024,15 +8032,18 @@ const packageQueryActions: PackageQueryBindingActions = {
 };
 
 function packageQueryWorkspaceHref(): string {
+  const rememberedHref = rememberedLiveWorkspaceHref(
+    state.workspaceSession,
+    canonicalWorkspaceHrefs);
+  if (rememberedHref) return rememberedHref;
   const residentPackage = state.package;
   if (!residentPackage) return "/";
-  return lastCanonicalWorkspaceHref
-    ?? buildPackageRootStateUrl(location.href, {
-      package: residentPackage.id,
-      version: residentPackage.version,
-      framework: residentPackage.activeFramework,
-      lens: state.packageLens,
-    }).toString();
+  return buildPackageRootStateUrl(location.href, {
+    package: residentPackage.id,
+    version: residentPackage.version,
+    framework: residentPackage.activeFramework,
+    lens: state.packageLens,
+  }).toString();
 }
 
 function renderPackageQueryPage() {
@@ -10340,8 +10351,10 @@ async function loadRuntimePack(
   platformVersion = "",
 ): Promise<RuntimeLoadResult> {
   const operationWorkspaceId = state.workspaceSession.selectedWorkspaceId;
+  const operationNavigationSequence = navigationSequence.current();
   const operationIsCurrent = () =>
     state.workspaceSession.selectedWorkspaceId === operationWorkspaceId
+    && navigationSequence.isCurrent(operationNavigationSequence)
     && isCurrent();
   const result = await packageAcquisition.loadRuntimePack(
     framework,
@@ -10361,8 +10374,10 @@ async function loadRuntimePackAssembly(
   platformVersion = "",
 ): Promise<RuntimeLoadResult> {
   const operationWorkspaceId = state.workspaceSession.selectedWorkspaceId;
+  const operationNavigationSequence = navigationSequence.current();
   const operationIsCurrent = () =>
     state.workspaceSession.selectedWorkspaceId === operationWorkspaceId
+    && navigationSequence.isCurrent(operationNavigationSequence)
     && isCurrent();
   const result = await packageAcquisition.loadRuntimePackAssembly(
     framework,
@@ -10523,7 +10538,9 @@ async function runCallGraphDemo(demoId: ProductHomeDemoId) {
       overload,
       true);
     state.loading = false;
-    render();
+    syncCurrentLiveWorkspace();
+    pushCurrentWorkspaceLocation(buildStateUrl().toString());
+    render({ synchronizeUrl: false });
     await renderMermaidCallGraph();
   } catch (error) {
     if (!operationIsCurrent()) return;
@@ -11605,6 +11622,7 @@ window.addEventListener("popstate", () => {
     clearNavigationError();
     prepareLiveWorkspaceSurface();
     syncCurrentLiveWorkspace();
+    rememberCanonicalWorkspaceHref(location.href);
     render({ synchronizeUrl: false });
     return;
   }

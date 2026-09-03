@@ -5,6 +5,7 @@ import {
   createLiveWorkspace,
   createLiveWorkspaceSession,
   defaultLiveWorkspace,
+  rememberedLiveWorkspaceHref,
   removeLiveWorkspace,
   selectLiveWorkspace,
   selectedLiveWorkspace,
@@ -79,6 +80,20 @@ test("browser history preserves Workspace association without dropping other sta
       session,
       withWorkspaceHistoryId(null, "unknown-id")).id,
     "default-id");
+});
+
+test("an empty Workspace retains its session-only canonical return route", () => {
+  const session = createLiveWorkspaceSession<string>("default-id");
+  const canonicalHrefs = new Map([
+    ["default-id", "https://example.test/#workspace"],
+  ]);
+
+  assert.equal(
+    rememberedLiveWorkspaceHref(session, canonicalHrefs),
+    "https://example.test/#workspace");
+  assert.equal(
+    rememberedLiveWorkspaceHref(session, new Map()),
+    null);
 });
 
 test("late operations cannot mutate a newly selected Workspace", () => {

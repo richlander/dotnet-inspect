@@ -463,6 +463,9 @@ selects a known associated Workspace and only then applies the entry's URL
 restoration. An absent or unknown ID selects Default; traversal never creates a
 Workspace from history metadata. The URL continues to carry the product-owned
 portable state and remains authoritative for the selected projection.
+Session-only canonical return locations used by routed surfaces such as Package
+query are retained per browser-session Workspace ID; selecting one Workspace
+cannot expose another Workspace's canonical snapshot through a return link.
 
 `/#workspace` is the Workspace-subject route when no portable package snapshot
 belongs to that history entry. During the same browser session, restoring that
@@ -497,15 +500,20 @@ these named Inspect Web tests. Descriptor-rendering and widget-focus gates for
 this same test file are recorded in
 [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md#implementation-gates):
 
-- `workspace-session.test.ts` and an outcome-level Browser gate:
-  `live Workspace history and asynchronous results retain their owner` covers
-  two Workspaces with overlapping coordinates, a delayed acquisition that
-  completes after switching, Back and Forward between their history entries,
-  an absent and unknown history Workspace ID, and `/#workspace` refresh. It
-  proves that late work changes neither the selected nor foreign projection,
-  traversal selects only a known Workspace or Default before restoration,
-  equal coordinates do not alias caches, and an empty route cannot resurrect a
-  closed package.
+- `workspace-session.test.ts`, the production-component Browser gate
+  `live Workspace history and asynchronous results retain their owner`, and
+  the composition-root assertions in `spotlight-identity.test.ts` jointly cover
+  two Workspaces with overlapping coordinates, a delayed acquisition across an
+  A-to-B-to-A switch, Back and Forward between their history entries, absent
+  and unknown history Workspace IDs, per-Workspace canonical return locations,
+  Query and Credits history-adoption ordering, generation-gated runtime
+  acquisition, and `/#workspace` refresh. The Browser harness runs the
+  production Workspace collection and renderer/binder helpers rather than the
+  full Wasm application; the composition-root assertions pin their production
+  wiring. Together they prove that late work changes neither the selected nor
+  foreign projection, traversal selects only a known Workspace or Default
+  before restoration, equal coordinates do not alias session identity, and an
+  empty route cannot resurrect a closed package.
 - `navigation-consumer.test.ts`:
   `typed outcomes commit only returned state and release authority` covers
   applied, unavailable with and without a replacement snapshot, rejected,

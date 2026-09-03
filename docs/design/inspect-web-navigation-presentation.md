@@ -430,8 +430,9 @@ session-created Workspaces are not yet persisted.
 
 Product demos always replace the Default Workspace with the demo's exact
 resolved coordinates and view. They neither create Workspace rows nor merge
-their coordinates into a selected user-created Workspace. Ordinary package
-opening targets the selected Workspace.
+their coordinates into a selected user-created Workspace. A successful demo
+pushes its resolved destination so Browser Back returns to the initiating Home
+entry. Ordinary package opening targets the selected Workspace.
 
 Closing an inactive coordinate preserves the active coordinate's inspection
 state and keeps Workspace selected. Closing the active coordinate selects the

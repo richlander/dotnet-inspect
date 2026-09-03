@@ -2593,7 +2593,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
   assert.match(sync, /state\.atPackageRoot/);
   assert.match(
     sync,
-    /workspaceLocation\.replace\(\s*buildStateUrl\(\)\.toString\(\),\s*workspaceHistoryState\(\)\)/);
+    /const href = buildStateUrl\(\)\.toString\(\);\s*workspaceLocation\.replace\(href, workspaceHistoryState\(\)\);\s*rememberCanonicalWorkspaceHref\(href\)/);
   assert.match(
     stateUrl,
     /state\.atPackageRoot && state\.package[\s\S]*buildPackageRootStateUrl/);
@@ -2772,6 +2772,9 @@ test("home demos restore the complete parsed location", () => {
   assert.match(
     callGraphDemo,
     /state\.selectedTypeId = type\.id;\s*state\.atPackageRoot = false;\s*state\.lens = "api";\s*state\.packageLens = "overview";\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\);\s*state\.platformStack = \[\];\s*state\.memberBrowseTypeId = type\.id;[\s\S]*state\.selectedMemberKey = member\.key;[\s\S]*state\.selectedOverloadIndex = overloadIndex;[\s\S]*state\.memberSection = "call-graph";[\s\S]*state\.memberCallGraph = result\.callGraph;[\s\S]*await renderMermaidCallGraph\(\)/);
+  assert.match(
+    callGraphDemo,
+    /state\.loading = false;\s*syncCurrentLiveWorkspace\(\);\s*pushCurrentWorkspaceLocation\(buildStateUrl\(\)\.toString\(\)\);\s*render\(\{ synchronizeUrl: false \}\)/);
   const platformHistory =
     appSource.match(/async function restorePlatformScopeThenDeepLink\([\s\S]*?\n}\n\n\/\/ Load and scope/)?.[0]
     ?? "";
@@ -2792,7 +2795,7 @@ test("lens-scoped Platform library changes reset type-specific member state", ()
     ?? "";
   assert.match(
     picker,
-    /originPackage: AppPackage = currentPackage\(\),[\s\S]*noticeRetryState: NoticeRetryState \| null = null[\s\S]*if \(!state\.packages\.includes\(originPackage\)[\s\S]*!packageIdentityEquals\(state\.package, originPackage\)[\s\S]*state\.queryNoticeRetryAction === noticeRetryState\.action[\s\S]*state\.queryNotice = removeAppendedNotice\([\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*const pack = selectedPack \|\| platformPackForAssembly\(key\);[\s\S]*const runtimeResult = await loadRuntimePackAssembly\([\s\S]*\(\) => state\.packages\.includes\(originPackage\),[\s\S]*originPackage\.version\);[\s\S]*const loaded = runtimeResult\.packageModel;[\s\S]*previous: state\.queryNotice[\s\S]*const retryAction = \(\) =>\s*openPlatformLensLibrary\([\s\S]*noticeState\);[\s\S]*runtimeResult\.failureMessage[\s\S]*noticeState\.appended = state\.queryNotice;[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[key\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*lens === "integrations"[\s\S]*loadPackageIntegrations\(\)[\s\S]*lens === "opportunities"[\s\S]*loadPackageOpportunities\(\)[\s\S]*lens === "analysis"[\s\S]*loadPackagePerformance\(\)[\s\S]*loadPackageMetadata\(\)/);
+    /originPackage: AppPackage = currentPackage\(\),[\s\S]*noticeRetryState: NoticeRetryState \| null = null[\s\S]*if \(!state\.packages\.includes\(originPackage\)[\s\S]*!packageIdentityEquals\(state\.package, originPackage\)[\s\S]*state\.queryNoticeRetryAction === noticeRetryState\.action[\s\S]*state\.queryNotice = removeAppendedNotice\([\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*const pack = selectedPack \|\| platformPackForAssembly\(key\);[\s\S]*const runtimeResult = await loadRuntimePackAssembly\([\s\S]*isCurrent,[\s\S]*originPackage\.version\);[\s\S]*const loaded = runtimeResult\.packageModel;[\s\S]*previous: state\.queryNotice[\s\S]*const retryAction = \(\) =>\s*openPlatformLensLibrary\([\s\S]*noticeState\);[\s\S]*runtimeResult\.failureMessage[\s\S]*noticeState\.appended = state\.queryNotice;[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[key\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*lens === "integrations"[\s\S]*loadPackageIntegrations\(\)[\s\S]*lens === "opportunities"[\s\S]*loadPackageOpportunities\(\)[\s\S]*lens === "analysis"[\s\S]*loadPackagePerformance\(\)[\s\S]*loadPackageMetadata\(\)/);
   assert.doesNotMatch(picker, /select\.isConnected/);
   assert.match(
     appSource,
@@ -2925,10 +2928,10 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /function focusTypeList\([\s\S]*afterCurrentNavigationFrame\(\(\) => \{[\s\S]*"#type-list"/);
   assert.match(
     appSource,
-    /workspaceLocation\.replace\(\s*buildStateUrl\(\)\.toString\(\),\s*workspaceHistoryState\(\)\)/);
+    /const href = buildStateUrl\(\)\.toString\(\);\s*workspaceLocation\.replace\(href, workspaceHistoryState\(\)\);\s*rememberCanonicalWorkspaceHref\(href\)/);
   assert.match(
     appSource,
-    /workspaceLocation\.sync\(snapshot, workspaceHistoryState\(\)\)/);
+    /const href = workspaceLocation\.build\(snapshot\)\.toString\(\);\s*workspaceLocation\.replace\(href, workspaceHistoryState\(\)\);\s*rememberCanonicalWorkspaceHref\(href\)/);
   assert.equal(
     appSource.match(
       /\? withScopeQuery\(state\.packageQueryState\.request, validPrefix\)/g)
@@ -2959,7 +2962,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /workspaceHref: packageQueryWorkspaceHref\(\)/);
   assert.match(
     appSource,
-    /function packageQueryWorkspaceHref\(\): string \{[\s\S]*lastCanonicalWorkspaceHref[\s\S]*buildPackageRootStateUrl/);
+    /const canonicalWorkspaceHrefs = new Map<string, string>\(\);[\s\S]*function packageQueryWorkspaceHref\(\): string \{\s*const rememberedHref = rememberedLiveWorkspaceHref\(\s*state\.workspaceSession,\s*canonicalWorkspaceHrefs\);\s*if \(rememberedHref\) return rememberedHref;[\s\S]*buildPackageRootStateUrl/);
   assert.match(
     appSource,
     /const focusWorkspace = state\.packageQueryOpen;\s*if \(focusWorkspace\) \{\s*state\.packageQueryOpen = false;\s*packageQueryController\.cancel\(\);\s*state\.packageQueryNavigationError = "";\s*\}\s*const navigationSeq = navigationSequence\.begin\(\);\s*if \(focusWorkspace\) \{\s*packageQueryWorkspaceFocusNavigationSeq = navigationSeq;\s*\}\s*workspaceLocation\.push/);
@@ -5729,10 +5732,25 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /workspaceOperationIsCurrent\(/);
   assert.match(
     appSource,
+    /async function loadRuntimePack\([\s\S]*const operationWorkspaceId = state\.workspaceSession\.selectedWorkspaceId;\s*const operationNavigationSequence = navigationSequence\.current\(\);[\s\S]*navigationSequence\.isCurrent\(operationNavigationSequence\)[\s\S]*packageAcquisition\.loadRuntimePack\(/);
+  assert.match(
+    appSource,
+    /async function loadRuntimePackAssembly\([\s\S]*const operationWorkspaceId = state\.workspaceSession\.selectedWorkspaceId;\s*const operationNavigationSequence = navigationSequence\.current\(\);[\s\S]*navigationSequence\.isCurrent\(operationNavigationSequence\)[\s\S]*packageAcquisition\.loadRuntimePackAssembly\(/);
+  assert.match(
+    appSource,
     /workspaceForHistory\(\s*state\.workspaceSession,\s*history\.state\)/);
   assert.match(
     appSource,
+    /function pushCurrentWorkspaceLocation\(href: string\) \{\s*workspaceLocation\.push\(href, workspaceHistoryState\(null\)\);\s*rememberCanonicalWorkspaceHref\(href\);\s*\}[\s\S]*function selectWorkspace\([\s\S]*pushCurrentWorkspaceLocation\(currentWorkspaceLocation\(\)\)/);
+  assert.match(
+    appSource,
+    /function removeWorkspace\([\s\S]*canonicalWorkspaceHrefs\.delete\(removed\.id\);[\s\S]*pushCurrentWorkspaceLocation\(currentWorkspaceLocation\(\)\)/);
+  assert.match(
+    appSource,
     /function renderEmptyLiveWorkspace\([\s\S]*state\.spotlightOpen \? spotlight\.modalHtml\(\)[\s\S]*restorePackageQueryReturnFocus\(\);[\s\S]*restorePackageQueryWorkspaceFocus\(\)/);
+  assert.match(
+    appSource,
+    /if \(emptyWorkspace\) \{[\s\S]*syncCurrentLiveWorkspace\(\);\s*rememberCanonicalWorkspaceHref\(location\.href\);\s*render\(\{ synchronizeUrl: false \}\)/);
   assert.match(
     appSource,
     /function releasePackageModelCaches\([\s\S]*workspace\.id !== state\.workspaceSession\.selectedWorkspaceId[\s\S]*flatMap\(workspace => workspace\.packages\)[\s\S]*workspaceDependencyKey\(item\) === dependencyKey/);

@@ -44,6 +44,7 @@ declare global {
     rerenderScopeBarProbe: () => void;
     beginDelayedWorkspaceLoadProbe: () => void;
     completeDelayedWorkspaceLoadProbe: () => void;
+    restoreMissingWorkspaceProbe: () => void;
     restoreUnknownWorkspaceProbe: () => void;
   }
 }
@@ -146,7 +147,7 @@ updateSelectedLiveWorkspace(workspaceSession, {
 });
 createLiveWorkspace(workspaceSession, "extensions");
 updateSelectedLiveWorkspace(workspaceSession, {
-  packages: coordinates.slice(1),
+  packages: coordinates.slice(0, 2),
   activePackageKey:
     "Microsoft.Extensions.DependencyInjection@10.0.0::net10.0",
   shareBasis: null,
@@ -481,7 +482,7 @@ window.completeDelayedWorkspaceLoadProbe = () => {
     document.body.dataset.workspaceLateLoad = "rejected";
     return;
   }
-  const latePackage = coordinates[0];
+  const latePackage = coordinates[2];
   if (!latePackage) throw new Error("The delayed package fixture is missing.");
   selectedLiveWorkspace(workspaceSession).packages = [
     ...selectedLiveWorkspace(workspaceSession).packages,
@@ -494,5 +495,9 @@ window.restoreUnknownWorkspaceProbe = () => {
   const workspace = workspaceForHistory(
     workspaceSession,
     withWorkspaceHistoryId(null, "unknown"));
+  renderHarnessWorkspace(workspace.id, false);
+};
+window.restoreMissingWorkspaceProbe = () => {
+  const workspace = workspaceForHistory(workspaceSession, null);
   renderHarnessWorkspace(workspace.id, false);
 };
