@@ -226,6 +226,56 @@ public sealed class CliRowSelectionArgumentAdapterTests
         Assert.Empty(
             requiredLimit.Occurrences);
 
+        CliRowSelectionArgumentResult compactRequired =
+            fixture.Success(
+                [
+                    "demo",
+                    "--required",
+                    "-n2",
+                    "-n",
+                    "3"
+                ]);
+        Assert.Equal(
+            "-n2",
+            compactRequired.ParseResult.GetValue(
+                fixture.Required));
+        CliRowSelectionOccurrence<string> compactLimit =
+            Assert.Single(
+                compactRequired.Occurrences);
+        Assert.Equal(
+            CliRowSelectionOccurrenceKind.Limit,
+            compactLimit.Kind);
+        Assert.Equal(3, compactLimit.Position);
+        Assert.Equal("3", compactLimit.Value);
+
+        CliRowSelectionArgumentResult prefixedOption =
+            fixture.Success(
+                [
+                    "demo",
+                    "-nologo",
+                    "-n",
+                    "2"
+                ]);
+        CliRowSelectionOccurrence<string> prefixedLimit =
+            Assert.Single(
+                prefixedOption.Occurrences);
+        Assert.Equal(2, prefixedLimit.Position);
+        Assert.Equal("2", prefixedLimit.Value);
+
+        CliRowSelectionArgumentResult bundledOptions =
+            fixture.Success(
+                [
+                    "demo",
+                    "-abc",
+                    "-n",
+                    "4"
+                ]);
+        CliRowSelectionOccurrence<string> bundledLimit =
+            Assert.Single(
+                bundledOptions.Occurrences);
+        Assert.Equal(2, bundledLimit.Position);
+        Assert.Equal("4", bundledLimit.Value);
+
         CliRowSelectionArgumentResult requiredAttachedModifier =
             fixture.Lower(
                 [
@@ -339,6 +389,24 @@ public sealed class CliRowSelectionArgumentAdapterTests
         Assert.Empty(
             unavailable.Occurrences);
 
+        Fixture aliasedShorthand =
+            new(
+                limitName: "--limit",
+                limitAlias: "-n");
+        CliRowSelectionArgumentResult aliased =
+            aliasedShorthand.Success(
+                [
+                    "demo",
+                    "-5"
+                ]);
+        Assert.Equal(
+            [
+                "demo",
+                "-n",
+                "5"
+            ],
+            aliased.Arguments);
+
         CliRowSelectionFailure repeated =
             fixture.LoweringFailure(
                 [
@@ -361,6 +429,24 @@ public sealed class CliRowSelectionArgumentAdapterTests
             CliRowSelectionFailureReason.RepeatedGesture,
             repeated.Reason);
         Assert.Equal(2, repeated.Position);
+
+        CliRowSelectionArgumentResult protectedSuffix =
+            fixture.Success(
+                [
+                    "demo",
+                    "-51",
+                    "--required",
+                    "-5"
+                ]);
+        Assert.Equal(
+            "-5",
+            protectedSuffix.ParseResult.GetValue(
+                fixture.Required));
+        CliRowSelectionOccurrence<string> protectedLimit =
+            Assert.Single(
+                protectedSuffix.Occurrences);
+        Assert.Equal(1, protectedLimit.Position);
+        Assert.Equal("51", protectedLimit.Value);
     }
 
     [Fact]
@@ -533,6 +619,19 @@ public sealed class CliRowSelectionArgumentAdapterTests
         Assert.Equal(
             ["true"],
             positionals);
+
+        CliRowSelectionFailure repeatedOrder =
+            fixture.LoweringFailure(
+                [
+                    "demo",
+                    "--order-by=--order-by",
+                    "--order-by",
+                    "confidence"
+                ]);
+        Assert.Equal(
+            CliRowSelectionFailureReason.RepeatedGesture,
+            repeatedOrder.Reason);
+        Assert.Equal(2, repeatedOrder.Position);
     }
 
     [Fact]
@@ -585,10 +684,13 @@ public sealed class CliRowSelectionArgumentAdapterTests
             bool includePositionals = true,
             CliRowSelectionCapabilities capabilities =
                 CliRowSelectionCapabilities.All,
-            string limitName = "-n")
+            string limitName = "-n",
+            string? limitAlias = null)
         {
             Limit =
-                RowValueOption(limitName);
+                RowValueOption(
+                    limitName,
+                    limitAlias);
             Rows =
                 RowValueOption("--rows");
             Top =
@@ -620,6 +722,14 @@ public sealed class CliRowSelectionArgumentAdapterTests
                 };
             Flag =
                 ModifierOption("--flag");
+            NoLogo =
+                ModifierOption("-nologo");
+            ShortA =
+                ModifierOption("-a");
+            ShortB =
+                ModifierOption("-b");
+            ShortC =
+                ModifierOption("-c");
             Positionals =
                 new("values")
                 {
@@ -642,7 +752,11 @@ public sealed class CliRowSelectionArgumentAdapterTests
                     TailLines,
                     Required,
                     Optional,
-                    Flag
+                    Flag,
+                    NoLogo,
+                    ShortA,
+                    ShortB,
+                    ShortC
                 };
             if (includePositionals)
             {
@@ -694,6 +808,14 @@ public sealed class CliRowSelectionArgumentAdapterTests
 
         public Option<bool> Flag { get; }
 
+        public Option<bool> NoLogo { get; }
+
+        public Option<bool> ShortA { get; }
+
+        public Option<bool> ShortB { get; }
+
+        public Option<bool> ShortC { get; }
+
         public Argument<string[]> Positionals { get; }
 
         public CliRowSelectionArgumentResult Lower(
@@ -732,13 +854,19 @@ public sealed class CliRowSelectionArgumentAdapterTests
         }
 
         private static Option<string[]> RowValueOption(
-            string name) =>
-            new(name)
-            {
-                Arity =
-                    ArgumentArity.OneOrMore,
-                AllowMultipleArgumentsPerToken = false
-            };
+            string name,
+            string? alias = null)
+        {
+            Option<string[]> option =
+                alias is null
+                    ? new(name)
+                    : new(name, alias);
+            option.Arity =
+                ArgumentArity.OneOrMore;
+            option.AllowMultipleArgumentsPerToken =
+                false;
+            return option;
+        }
 
         private static Option<string?> RequiredValueOption(
             string name) =>
