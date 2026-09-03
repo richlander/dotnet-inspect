@@ -1,4 +1,8 @@
 <Solution>
+  <Folder Name="/eng/">
+    <Project Path="eng/DependencyPolicy.Tests/DependencyPolicy.Tests.csproj" />
+    <Project Path="eng/DependencyPolicy/DependencyPolicy.csproj" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/DiffAsmFixtures.Caller/DiffAsmFixtures.Caller.csproj" />
     <Project Path="src/DiffAsmFixtures.LibA/DiffAsmFixtures.LibA.csproj" />
