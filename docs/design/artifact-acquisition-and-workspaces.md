@@ -332,22 +332,38 @@ path once the group is quiescent. Its
 checked properties, focused negative controls, reachability probes, commands,
 and results.
 
-The model abstracts away budget arithmetic, adapter identity, content digests,
-and query-lease authorization, and it bounds the state space to one outstanding
-published group's lease lifecycle at a time (a fresh admission cannot publish
-while the previous group awaits lease release); this is a scope-bounding
-simplification of the model, not a claim about real concurrent groups. A
-demand's requested generation is also fixed once it arrives; the model does not
-represent a caller re-deriving a different generation when it replans after an
-incompatible admission terminates.
+The shipped artifact-session lifetime handoff is checked separately by
+[`docs/models/artifact-session-group-release/ArtifactSessionGroupRelease.tla`](../models/artifact-session-group-release/ArtifactSessionGroupRelease.tla).
+Its [model guide](../models/artifact-session-group-release/README.md) records
+the bounded two-dependent-group topology, three named group-release owner
+instances, exact transfer-set and receipt joins, the coordinated-close fault
+path that retains artifact resources until an adjacent owner requests and
+settles the missing physical release, reachability for the retained-pending
+state, and focused controls for incomplete, duplicate, foreign, partial,
+unauthorized-release, and unreported outcomes. It preserves the product's join
+currency as the exact artifact-session registration, complete dependent-group
+set, release-request origin, and each group's owner-issued terminal
+receipt/result. Artifact cleanup observes those receipts but never becomes a
+second physical-release authority. The model establishes those bounded
+interaction properties, not implementation conformance.
 
-The model checks the design intent stated in the prose above. The asynchronous
-`InspectionWorkspace` now owns the exact published-session-to-dependent-group
-association and disposes the session only after all recorded group release
-receipts complete. `ArtifactSetSession` still serves one caller per generation
-with no workspace-wide reservation, multi-demand join, or
-incompatible-generation wait. Closing those admission gaps remains future
-implementation work, not a defect this model found.
+The admission model abstracts away budget arithmetic, adapter identity,
+content digests, and query-lease authorization, and it bounds the state space
+to one outstanding published group's lease lifecycle at a time (a fresh
+admission cannot publish while the previous group awaits lease release); this
+is a scope-bounding simplification of the model, not a claim about real
+concurrent groups. A demand's requested generation is also fixed once it
+arrives; the model does not represent a caller re-deriving a different
+generation when it replans after an incompatible admission terminates.
+
+The admission model checks the design intent stated in the prose above. The
+asynchronous `InspectionWorkspace` now owns the exact
+published-session-to-dependent-group association and disposes the session only
+after all recorded group release receipts complete; the focused group-release
+model checks that shipped interaction. `ArtifactSetSession` still serves one
+caller per generation with no workspace-wide reservation, multi-demand join,
+or incompatible-generation wait. Closing those admission gaps remains future
+implementation work, not a defect the admission model found.
 
 TLC 2026.08.21.155922 (rev `9787e65`, from the pinned `tla2tools.jar` v1.8.0 —
 see [`docs/runbooks/tla-plus-setup.md`](../runbooks/tla-plus-setup.md))
