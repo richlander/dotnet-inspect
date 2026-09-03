@@ -42,7 +42,17 @@ test("the empty command scope offers the root command grammar", () => {
 
   assert.deepEqual(
     items.map(item => item.value),
-    ["type", "types", "show", "framework", "find", "clear", "share"],
+    [
+      "type",
+      "types",
+      "show",
+      "framework",
+      "find",
+      "clear",
+      "share",
+      "settings",
+      "keyboard help",
+    ],
   );
   assert.ok(items.every(item => item.category === "command"));
 });
@@ -189,6 +199,8 @@ test("trailing whitespace preserves completed command arguments", () => {
     ["types kind ", "types kind"],
     ["clear ", "clear"],
     ["share ", "share"],
+    ["settings ", "settings"],
+    ["keyboard help ", "keyboard help"],
   ];
   for (const [command, expected] of executableCommands) {
     assert.deepEqual(
@@ -201,6 +213,8 @@ test("trailing whitespace preserves completed command arguments", () => {
     "show metadata extra ",
     "clear clear",
     "share share ",
+    "settings settings ",
+    "keyboard help extra ",
     "bogus clear",
     "bogus ",
     "ty ",

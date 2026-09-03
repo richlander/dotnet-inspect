@@ -118,7 +118,7 @@ export DOTNET_INSPECT_PACKAGE_FIXTURE_USER="$(gh api user --jq .login)"
 read -rsp "GitHub Packages PAT: " DOTNET_INSPECT_PACKAGE_FIXTURE_TOKEN
 export DOTNET_INSPECT_PACKAGE_FIXTURE_TOKEN
 dotnet run --project src/dotnet-inspect.Tests -c Release -- \
-  -method '*Package_Manifest_RendersToolManifestRows*'
+  --filter-method '*Package_Manifest_RendersToolManifestRows*'
 unset DOTNET_INSPECT_PACKAGE_FIXTURE_TOKEN
 ```
 
