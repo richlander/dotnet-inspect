@@ -398,6 +398,143 @@ public sealed class PolicyEvaluatorTests
     }
 
     [Fact]
+    public void App_ReportsEmptyEnvironmentDotnetHostAsConfigurationError()
+    {
+        const string variable = "DOTNET_HOST_PATH";
+        string? originalHost = Environment.GetEnvironmentVariable(variable);
+        TextWriter originalError = Console.Error;
+        using var error = new StringWriter();
+
+        try
+        {
+            Environment.SetEnvironmentVariable(variable, "");
+            Console.SetError(error);
+
+            int exitCode = DependencyPolicyApp.Run(
+                ["--repository", FindRepositoryRoot()]);
+
+            Assert.Equal(2, exitCode);
+            Assert.Equal(
+                $"error DP0002: The dotnet host path must be non-empty."
+                + Environment.NewLine,
+                error.ToString());
+        }
+        finally
+        {
+            Console.SetError(originalError);
+            Environment.SetEnvironmentVariable(variable, originalHost);
+        }
+    }
+
+    [Fact]
+    public void App_ReportsViolationsWithDeterministicDiagnosticAndExitCode()
+    {
+        ImmutableArray<DependencyViolation> violations =
+        [
+            new(
+                "leaf",
+                "docs/overview.md",
+                DependencyGraphKind.Project,
+                "Leaf",
+                "Repository.Dependency"),
+        ];
+        using var error = new StringWriter();
+
+        int exitCode = DependencyPolicyApp.ReportViolations(
+            violations,
+            error);
+
+        Assert.Equal(1, exitCode);
+        Assert.Equal(
+            "error DP0001: leaf [project] Leaf -> Repository.Dependency "
+            + "is not permitted (docs/overview.md)"
+            + Environment.NewLine
+            + "Dependency policy failed with 1 violation(s)."
+            + Environment.NewLine,
+            error.ToString());
+    }
+
+    [Fact]
+    public void Reader_IncludesBuildOnlyProjectReference()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = Policy(
+            new DependencyRule
+            {
+                Id = "build-only",
+                Source = "docs/dependency-policy.md",
+                Graphs = [DependencyGraphKind.Project],
+                Targets = ["DotnetInspector.Queries.Tests"],
+                Deny = ["ILInspector.Analysis.CallerGraphTarget"],
+            });
+        RepositoryDependencyGraph graph = RepositoryGraphReader.Read(
+            repository,
+            Path.Combine(repository, "dotnet-inspect.slnx"),
+            "Release",
+            FindDotnetHost(),
+            policy);
+
+        DependencyViolation violation = Assert.Single(
+            PolicyEvaluator.Evaluate(policy, graph));
+
+        Assert.Equal("DotnetInspector.Queries.Tests", violation.Target);
+        Assert.Equal(
+            "ILInspector.Analysis.CallerGraphTarget",
+            violation.Dependency);
+        Assert.Equal(DependencyGraphKind.Project, violation.Graph);
+    }
+
+    [Fact]
+    public void CheckedInPolicyTreatsTsJsExportContractsAsDependencyFree()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule rule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id == "dependency-free-contract-floors");
+        Assert.Contains("TsJsExport.Contracts", rule.Targets);
+        RepositoryDependencyGraph graph = RepositoryDependencyGraph.Create(
+            [
+                Node(
+                    "TsJsExport.Contracts",
+                    projectReferences: ["Repository.Dependency"],
+                    assemblyReferences: ["Repository.Dependency"]),
+                Node("Repository.Dependency"),
+            ]);
+
+        DependencyViolation[] violations = PolicyEvaluator
+            .Evaluate(
+                new DependencyPolicyDocument
+                {
+                    SchemaVersion = policy.SchemaVersion,
+                    Solution = policy.Solution,
+                    Configuration = policy.Configuration,
+                    Rules =
+                    [
+                        new DependencyRule
+                        {
+                            Id = rule.Id,
+                            Source = rule.Source,
+                            Graphs = rule.Graphs,
+                            Targets = ["TsJsExport.Contracts"],
+                            AllowOnly = rule.AllowOnly,
+                        },
+                    ],
+                },
+                graph)
+            .ToArray();
+
+        Assert.Equal(2, violations.Length);
+        Assert.Contains(
+            violations,
+            violation => violation.Graph == DependencyGraphKind.Project);
+        Assert.Contains(
+            violations,
+            violation => violation.Graph == DependencyGraphKind.Assembly);
+    }
+
+    [Fact]
     public void CheckedInBroadProductRulesExcludeCallerGraphFixtures()
     {
         string repository = FindRepositoryRoot();
@@ -470,5 +607,29 @@ public sealed class PolicyEvaluatorTests
 
         throw new InvalidOperationException(
             "Could not locate the repository root.");
+    }
+
+    private static string FindDotnetHost()
+    {
+        string? host = Environment.GetEnvironmentVariable(
+            "DOTNET_HOST_PATH");
+        if (!string.IsNullOrWhiteSpace(host))
+        {
+            return host;
+        }
+
+        string? root = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+        if (!string.IsNullOrWhiteSpace(root))
+        {
+            string candidate = Path.Combine(
+                root,
+                OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return "dotnet";
     }
 }

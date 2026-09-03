@@ -5,7 +5,7 @@
   "rules": [
     {
       "id": "dependency-free-contract-floors",
-      "source": "docs/overview.md and docs/design/inspection-layers.md",
+      "source": "docs/overview.md, docs/design/inspection-layers.md, and docs/design/ts-jsexport.md",
       "graphs": [
         "project",
         "assembly"
@@ -17,7 +17,8 @@
         "ILInspector.Findings",
         "ILInspector.MetadataPrimitives",
         "InertText",
-        "SourceLinkFetch"
+        "SourceLinkFetch",
+        "TsJsExport.Contracts"
       ],
       "allowOnly": [
         "$platform"

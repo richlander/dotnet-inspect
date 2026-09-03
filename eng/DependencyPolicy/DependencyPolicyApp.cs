@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 
 namespace DependencyPolicy;
@@ -29,6 +30,12 @@ internal static class DependencyPolicyApp
             string dotnetHost = options.DotnetHost
                 ?? Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")
                 ?? "dotnet";
+            if (string.IsNullOrWhiteSpace(dotnetHost))
+            {
+                throw new DependencyPolicyException(
+                    "The dotnet host path must be non-empty.");
+            }
+
             RepositoryDependencyGraph graph = RepositoryGraphReader.Read(
                 repository,
                 solution,
@@ -37,17 +44,12 @@ internal static class DependencyPolicyApp
                 policy);
             var violations = PolicyEvaluator.Evaluate(policy, graph);
 
-            foreach (DependencyViolation violation in violations)
+            int violationExitCode = ReportViolations(
+                violations,
+                Console.Error);
+            if (violationExitCode != 0)
             {
-                Console.Error.WriteLine($"error DP0001: {violation}");
-            }
-
-            if (violations.Length != 0)
-            {
-                Console.Error.WriteLine(
-                    $"Dependency policy failed with "
-                    + $"{violations.Length} violation(s).");
-                return 1;
+                return violationExitCode;
             }
 
             int inspectedAssemblyCount = graph.Projects.Values.Count(
@@ -85,6 +87,26 @@ internal static class DependencyPolicyApp
                 + exception.Message);
             return 2;
         }
+    }
+
+    internal static int ReportViolations(
+        ImmutableArray<DependencyViolation> violations,
+        TextWriter error)
+    {
+        foreach (DependencyViolation violation in violations)
+        {
+            error.WriteLine($"error DP0001: {violation}");
+        }
+
+        if (violations.Length == 0)
+        {
+            return 0;
+        }
+
+        error.WriteLine(
+            $"Dependency policy failed with "
+            + $"{violations.Length} violation(s).");
+        return 1;
     }
 
     private static Options ParseOptions(string[] args)

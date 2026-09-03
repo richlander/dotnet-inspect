@@ -24,9 +24,12 @@ project edge. The gate must inspect both to cover the stated boundaries.
 ## Evidence model
 
 The tool generates the evaluated Release restore graph for
-`dotnet-inspect.slnx`. It obtains direct project references from every target
-framework in that graph, so conditional and imported `ProjectReference` items
-are visible.
+`dotnet-inspect.slnx`. That graph supplies project inventory and target
+frameworks. For every project selected by a project-graph rule, the tool asks
+MSBuild for its evaluated `ProjectReference` items once per target framework.
+Conditional, imported, and build-only references such as
+`ReferenceOutputAssembly="false"` are therefore visible even when NuGet's
+restore graph omits them.
 
 For compiled evidence, it asks MSBuild for `TargetPath` for every project
 selected by an assembly rule, opens that exact Release output through
@@ -128,9 +131,10 @@ dotnet run --project eng/DependencyPolicy -c Release --no-build
 ```
 
 The test executable covers strict schema handling, platform/repository/external
-classification, allow-only and deny rules, exceptions, target exclusions, and
-non-vacuity. The final command evaluates the real Release project and assembly
-graphs.
+classification, allow-only and deny rules, exceptions, target exclusions,
+non-vacuity, deterministic DP0001/DP0002 outcomes, and a real evaluated
+`ReferenceOutputAssembly="false"` edge. The final command evaluates the real
+Release project and assembly graphs.
 
 ## Non-claims
 

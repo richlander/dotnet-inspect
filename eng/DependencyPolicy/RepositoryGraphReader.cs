@@ -115,6 +115,11 @@ internal static class RepositoryGraphReader
                 restore,
                 "frameworks",
                 projectPath);
+            string[] targetFrameworks = frameworks
+                .EnumerateObject()
+                .Select(framework => framework.Name)
+                .Order(StringComparer.Ordinal)
+                .ToArray();
             foreach (JsonProperty framework in frameworks.EnumerateObject())
             {
                 if (!framework.Value.TryGetProperty(
@@ -146,11 +151,29 @@ internal static class RepositoryGraphReader
                         projectName,
                         projectPath,
                         relativeProjectPath,
-                        references)))
+                        references,
+                        targetFrameworks)))
             {
                 throw new DependencyPolicyException(
                     $"Restore graph contains duplicate project '{projectPath}'.");
             }
+        }
+
+        foreach (ProjectDraft draft in drafts.Values.Where(project =>
+            policy.Rules.Any(rule =>
+                rule.Graphs.Contains(DependencyGraphKind.Project)
+                && DependencyPattern.Selects(
+                    rule,
+                    project.ProjectName,
+                    project.RelativeProjectPath))))
+        {
+            draft.ReferencePaths.Clear();
+            draft.ReferencePaths.UnionWith(
+                QueryProjectReferences(
+                    repository,
+                    draft,
+                    configuration,
+                    dotnetHost));
         }
 
         var projectNamesByPath = drafts.Values.ToDictionary(
@@ -331,6 +354,99 @@ internal static class RepositoryGraphReader
                     targetPath));
     }
 
+    private static HashSet<string> QueryProjectReferences(
+        string repository,
+        ProjectDraft project,
+        string configuration,
+        string dotnetHost)
+    {
+        if (project.TargetFrameworks.Length == 0)
+        {
+            throw new DependencyPolicyException(
+                $"Restore graph project '{project.ProjectName}' has no "
+                + "target frameworks.");
+        }
+
+        var references = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string targetFramework in project.TargetFrameworks)
+        {
+            ProcessResult result = RunDotnet(
+                dotnetHost,
+                Path.GetDirectoryName(project.ProjectPath)!,
+                [
+                    "msbuild",
+                    project.ProjectPath,
+                    "-getItem:ProjectReference",
+                    $"-p:Configuration={configuration}",
+                    $"-p:TargetFramework={targetFramework}",
+                    "-p:MSBuildEnableWorkloadResolver=false",
+                    "-nologo",
+                    "-v:q",
+                ]);
+            if (result.TimedOut || result.ExitCode != 0)
+            {
+                throw new DependencyPolicyException(
+                    $"Could not evaluate ProjectReference items for "
+                    + $"'{project.ProjectPath}' targeting "
+                    + $"'{targetFramework}'."
+                    + $"{Environment.NewLine}stdout:{Environment.NewLine}"
+                    + result.StandardOutput
+                    + $"{Environment.NewLine}stderr:{Environment.NewLine}"
+                    + result.StandardError);
+            }
+
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(
+                    result.StandardOutput);
+                JsonElement items = RequiredObject(
+                    document.RootElement,
+                    "Items",
+                    $"evaluated project '{project.ProjectPath}'");
+                if (!items.TryGetProperty(
+                        "ProjectReference",
+                        out JsonElement projectReferences)
+                    || projectReferences.ValueKind != JsonValueKind.Array)
+                {
+                    throw new DependencyPolicyException(
+                        $"Evaluated ProjectReference items for "
+                        + $"'{project.ProjectPath}' targeting "
+                        + $"'{targetFramework}' must be an array.");
+                }
+
+                foreach (JsonElement reference
+                    in projectReferences.EnumerateArray())
+                {
+                    if (reference.ValueKind != JsonValueKind.Object
+                        || !reference.TryGetProperty(
+                            "FullPath",
+                            out JsonElement fullPath)
+                        || fullPath.ValueKind != JsonValueKind.String
+                        || string.IsNullOrWhiteSpace(fullPath.GetString()))
+                    {
+                        throw new DependencyPolicyException(
+                            $"Evaluated ProjectReference item for "
+                            + $"'{project.ProjectPath}' targeting "
+                            + $"'{targetFramework}' has no FullPath.");
+                    }
+
+                    references.Add(CanonicalRepositoryPath(
+                        repository,
+                        fullPath.GetString()!));
+                }
+            }
+            catch (JsonException exception)
+            {
+                throw new DependencyPolicyException(
+                    $"Could not decode evaluated ProjectReference items for "
+                    + $"'{project.ProjectPath}' targeting "
+                    + $"'{targetFramework}': {exception.Message}");
+            }
+        }
+
+        return references;
+    }
+
     private static ProcessResult RunDotnet(
         string dotnetHost,
         string workingDirectory,
@@ -493,7 +609,8 @@ internal static class RepositoryGraphReader
         string ProjectName,
         string ProjectPath,
         string RelativeProjectPath,
-        HashSet<string> ReferencePaths);
+        HashSet<string> ReferencePaths,
+        string[] TargetFrameworks);
 
     private sealed record ProcessResult(
         bool TimedOut,
