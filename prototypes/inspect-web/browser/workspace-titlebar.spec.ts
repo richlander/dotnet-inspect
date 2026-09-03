@@ -27,16 +27,17 @@ test("the title bar contains the inspected target without tab-like workspace ide
   const forward = await box(page, "#nav-forward");
 
   expect(titleNavigation.x + titleNavigation.width).toBeCloseTo(1440, 0);
-  expect(titleNavigation.width).toBeCloseTo(240, 0);
+  expect(titleNavigation.width).toBeCloseTo(284, 0);
   expect(forward.x + forward.width).toBeLessThanOrEqual(search.x);
-  expect(search.width).toBeCloseTo(180, 0);
+  expect(search.width).toBeCloseTo(224, 0);
   expect(search.x + search.width).toBeCloseTo(1440, 0);
   await expect(page.locator(".titlebar .inspected-target")).toBeVisible();
   await expect(page.locator(".titlebar .subject-path-segment.root"))
     .toHaveText("System.Text.Json");
   await expect(page.locator(".titlebar #open-search")).toBeVisible();
   await expect(page.locator(".title-search-label-full"))
-    .toHaveText("Search symbols");
+    .toHaveText("Search types, members, packages");
+  await expect(page.locator("#open-search kbd")).toHaveCount(0);
   await expect(page.locator(".titlebar .nav-history")).toBeVisible();
   await expect(page.locator(".titlebar #share")).toHaveCount(0);
   await expect(page.locator(".titlebar #open-settings")).toHaveCount(0);
@@ -401,15 +402,15 @@ test("right-side actions yield from labels to arrows to nothing", async ({
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/browser/workspace-titlebar.html?member=1");
   await expect(page.locator(".title-search-label-full"))
-    .toHaveText("Search symbols");
+    .toHaveText("Search types, members, packages");
   await expect(page.locator(".title-search-label-full")).toBeVisible();
   await expect(page.locator(".title-search-label-compact")).toBeHidden();
 
-  await page.setViewportSize({ width: 1060, height: 900 });
+  await page.setViewportSize({ width: 1125, height: 900 });
   await expect(page.locator(".title-search-label-full")).toBeHidden();
   await expect(page.locator(".title-search-label-compact")).toBeVisible();
 
-  await page.setViewportSize({ width: 1062, height: 900 });
+  await page.setViewportSize({ width: 1126, height: 900 });
   const fullLabel = page.locator(".title-search-label-full");
   await expect(fullLabel).toBeVisible();
   const fullLabelWidth = await fullLabel.evaluate(element => ({

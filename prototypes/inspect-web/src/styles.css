@@ -168,8 +168,8 @@ body {
 
 .title-navigation {
   display: flex;
-  flex: 0 4 240px;
-  max-width: 240px;
+  flex: 0 4 284px;
+  max-width: 284px;
   min-width: 0;
   margin-left: auto;
   gap: 6px;
@@ -447,7 +447,7 @@ body {
   flex: 1 1 auto;
   width: auto;
   min-width: 0;
-  max-width: 180px;
+  max-width: 224px;
   height: 28px;
   display: flex;
   align-items: center;
@@ -476,12 +476,6 @@ body {
   white-space: nowrap;
 }
 .title-search-label-compact { display: none; }
-.title-search kbd {
-  flex: none;
-  margin-left: auto;
-  color: var(--dim);
-  font: 9px var(--mono);
-}
 .application-menu-slot {
   align-self: stretch;
   display: grid;
@@ -1496,15 +1490,14 @@ kbd {
   .workspace-view-details div { grid-template-columns: 80px minmax(0, 1fr); }
 }
 
-@container title-navigation (max-width: 224px) {
+@container title-navigation (max-width: 280px) {
   .title-search {
     flex: none;
     width: auto;
     padding: 0 10px;
   }
   .title-search-glyph,
-  .title-search-label-full,
-  .title-search kbd { display: none; }
+  .title-search-label-full { display: none; }
   .title-search-label-compact { display: inline; }
 }
 
@@ -1623,6 +1616,11 @@ kbd {
   border-top: 1px solid var(--line);
   color: var(--dim);
   font: 10px var(--mono);
+}
+.spotlight-foot span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 @keyframes spotlight-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes spotlight-rise { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }

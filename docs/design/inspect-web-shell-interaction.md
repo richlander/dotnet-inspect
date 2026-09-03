@@ -321,10 +321,10 @@ Spotlight as the one search experience for:
 - platform inputs; and
 - commands.
 
-The title-line Search control uses the compact expanded label `Search symbols`
-and transfers focus to Spotlight's editable input when activated. Packages,
-loaded coordinates, platform inputs, and commands remain available inside the
-same Spotlight experience; the shorter shell label does not narrow its scope.
+The title-line Search control uses the expanded label
+`Search types, members, packages` and transfers focus to Spotlight's editable
+input when activated. The control does not carry a visible shortcut badge;
+Spotlight's footer lists `Ctrl P` alongside its existing navigation guidance.
 Its compact `Search` label and hidden responsive states do not change the
 keyboard shortcut or Spotlight behavior.
 
