@@ -7,7 +7,7 @@ import {
 } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { auditedBuild, shippedChunks } from "./vite-audit.ts";
+import { auditedBuild, shippedArtifacts } from "./vite-audit.ts";
 
 const inspectWebRoot = fileURLToPath(new URL("../", import.meta.url));
 const unstablePackagePrefix = "typescript/unstable/";
@@ -33,10 +33,10 @@ test("the shipped Vite graph excludes TypeScript semantic tooling", async () => 
   assert.ok(existsSync(typeScriptApi));
 
   const audited = await auditedBuild(inspectWebRoot);
-  const shipped = shippedChunks(inspectWebRoot);
+  const shipped = shippedArtifacts(inspectWebRoot);
   assert.ok(audited.chunks.length > 0, "the audited build emitted no chunks");
-  assert.deepEqual(shipped, audited.chunks,
-    "`npm run build` emitted different code than the exclusion-audited build");
+  assert.deepEqual(shipped, audited.artifacts,
+    "`npm run build` emitted a different artifact than the exclusion-audited build");
 
   const read = new Set(audited.readFiles.map(file => resolve(file)));
   assert.ok(audited.readFiles.length > 20);
@@ -44,8 +44,10 @@ test("the shipped Vite graph excludes TypeScript semantic tooling", async () => 
   assert.ok(!read.has(resolve(semanticTest)));
   assert.ok(![...read].some(file =>
     file.includes(`${sep}node_modules${sep}typescript${sep}`)));
-  assert.ok(!shipped.some(chunk =>
-    chunk.includes("TypeScriptSemanticFactsHandle")
-    || chunk.includes(`${unstablePackagePrefix}sync`)
-    || chunk.includes(`${unstablePackagePrefix}ast`)));
+  assert.ok(!shipped.some(artifact => {
+    const contents = artifact.contents.toString("utf8");
+    return contents.includes("TypeScriptSemanticFactsHandle")
+      || contents.includes(`${unstablePackagePrefix}sync`)
+      || contents.includes(`${unstablePackagePrefix}ast`);
+  }));
 });

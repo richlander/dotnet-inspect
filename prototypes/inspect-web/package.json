@@ -27,7 +27,7 @@
     "oxlint-tsgolint": "7.0.2001",
     "type-fest": "5.8.0",
     "typescript": "7.0.2",
-    "vite": "^7.0.6"
+    "vite": "^8.2.2"
   },
   "dependencies": {
     "dompurify": "3.4.14",
