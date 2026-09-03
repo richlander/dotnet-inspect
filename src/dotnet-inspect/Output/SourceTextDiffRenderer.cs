@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 
+using DotnetInspector.Presentation;
 using DotnetInspector.Views;
 using ILInspector.Findings;
 using ILInspector.Text;
@@ -46,12 +47,12 @@ internal static class SourceTextDiffRenderer
         if (!statistics.HasDifferences)
             return new SourceDiffOutput($"{beforeLabel} and {afterLabel} are identical.", analysis);
 
-        MappedTextDiff mapped = CreateMappedDiff(
+        MappedTextDiff mapped = TextAnalysisDiffPresentation.CreateMappedTextDiff(
             analysis,
-            before,
-            after,
             beforeLabel,
-            afterLabel);
+            FinalLineTerminator(before),
+            afterLabel,
+            FinalLineTerminator(after));
         return detailed
             ? SourceDiffOutput.CreateDetailed(analysis, mapped)
             : SourceDiffOutput.CreateSummary(
@@ -77,82 +78,6 @@ internal static class SourceTextDiffRenderer
                 $"{statistics.MovedBefore} {beforeLabel} -> "
                 + $"{statistics.MovedAfter} {afterLabel}"),
         ];
-
-    static MappedTextDiff CreateMappedDiff(
-        AnalysisDiff<string> analysis,
-        string before,
-        string after,
-        string beforeLabel,
-        string afterLabel)
-    {
-        var anchors = analysis.Relations
-            .OfType<AnalysisDiffRelation.Correspondence>()
-            .Where(relation =>
-                relation.Content == AnalysisDiffContentKind.Unchanged
-                && relation.Placement == AnalysisDiffPlacementKind.Stable
-                && relation.BeforeCoordinates.Length == 1
-                && relation.AfterCoordinates.Length == 1)
-            .Select(relation => (
-                Before: relation.BeforeCoordinates[0],
-                After: relation.AfterCoordinates[0]))
-            .OrderBy(anchor => anchor.Before)
-            .ToArray();
-
-        var changes = new List<TextDiffChange>();
-        int beforePosition = 0;
-        int afterPosition = 0;
-        foreach ((int beforeAnchor, int afterAnchor) in anchors)
-        {
-            if (beforeAnchor < beforePosition || afterAnchor < afterPosition)
-            {
-                throw new InvalidOperationException(
-                    "Stable source-text anchors must preserve endpoint order.");
-            }
-
-            AddChange(
-                changes,
-                beforePosition,
-                beforeAnchor,
-                afterPosition,
-                afterAnchor);
-            beforePosition = beforeAnchor + 1;
-            afterPosition = afterAnchor + 1;
-        }
-        AddChange(
-            changes,
-            beforePosition,
-            analysis.Before.Length,
-            afterPosition,
-            analysis.After.Length);
-
-        return new MappedTextDiff(
-            new TextDiffSequence(
-                analysis.Before,
-                beforeLabel,
-                FinalLineTerminator(before)),
-            new TextDiffSequence(
-                analysis.After,
-                afterLabel,
-                FinalLineTerminator(after)),
-            changes);
-    }
-
-    static void AddChange(
-        List<TextDiffChange> changes,
-        int beforeStart,
-        int beforeEnd,
-        int afterStart,
-        int afterEnd)
-    {
-        int beforeCount = beforeEnd - beforeStart;
-        int afterCount = afterEnd - afterStart;
-        if (beforeCount == 0 && afterCount == 0)
-            return;
-
-        changes.Add(new TextDiffChange(
-            new TextDiffRange(beforeStart, beforeCount),
-            new TextDiffRange(afterStart, afterCount)));
-    }
 
     static TextDiffLineTerminator FinalLineTerminator(string text)
         => text.Length == 0

@@ -177,12 +177,13 @@ counts from the producer-owned `AnalysisDiff<string>`. Changed and moved are
 independent facets, so the same Before and After population can contribute to
 both; unequal correspondence cardinalities remain explicit. Detailed
 verbosity (`-v:d`) lowers that analysis to a complete Markout
-`MappedTextDiff`. Stable unchanged one-to-one correspondences become
-presentation anchors; every other relation becomes conventional removal and
-addition text, so movement identity is intentionally absent from the rendered
-patch while remaining available to statistics. Both forms identify the PDB
-source location and distinguish exact document-byte checksum agreement from
-agreement after CR/LF normalization.
+`MappedTextDiff` through the host-neutral `DotnetInspector.Presentation`
+adapter. Stable unchanged one-to-one correspondences become presentation
+anchors; every other relation becomes conventional removal and addition text,
+so movement identity is intentionally absent from the rendered patch while
+remaining available to statistics. Both forms identify the PDB source location
+and distinguish exact document-byte checksum agreement from agreement after
+CR/LF normalization.
 `TextFindingsTests` gates the complete source-line relation partition,
 including unequal replacement populations, moved lines, line-ending
 equivalence, and final-line terminators. `SourceTextDiffRendererTests` gates
