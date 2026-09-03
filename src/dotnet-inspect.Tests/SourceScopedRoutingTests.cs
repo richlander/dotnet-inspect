@@ -901,6 +901,47 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Fact]
+    public async Task SourceClientComposition_PreservesRawProviderQuerySpelling()
+    {
+        const string ConfiguredIndex =
+            "https://feed.example/%7E/private/index.json";
+        const string Flat =
+            "https://feed.example/flat2/";
+        const string PackageName = "raw-provider-query";
+        var credentialSource = new RecordingCredentialSource();
+        var handler = new AuthenticationIsolationHandler(
+            ConfiguredIndex,
+            Flat,
+            PackageName,
+            "1.0.0",
+            requireAuthentication: true);
+        await using var composition = new DesktopPackageSourceComposition(
+            TimeSpan.FromSeconds(5),
+            credentialSource,
+            (_, isGallery) =>
+            {
+                Assert.False(isGallery);
+                return handler;
+            });
+
+        PackageVersionDiscoveryResult result =
+            await composition.GetVersionsAsync(
+                PackageName,
+                includePrerelease: false,
+                limit: null,
+                new NuGetSourceOptions { Sources = [ConfiguredIndex] },
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Equal(PackageVersionDiscoveryState.Authoritative, result.State);
+        Assert.Equal(["1.0.0"], result.Versions);
+        Assert.Equal(
+            ConfiguredIndex,
+            Assert.Single(credentialSource.Queries).OriginalString);
+        Assert.True(handler.SawAuthorization);
+    }
+
+    [Fact]
     public async Task PackageVersionListing_CanonicalGalleryExcludesUnlistedWithoutPluginContext()
     {
         const string PackageName = "gallery-listing-contract";

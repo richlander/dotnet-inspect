@@ -104,9 +104,12 @@ credential-bearing URL to fill a missing identity.
 
 `ConfiguredAuthority_QueryDistinctSameProducerSourcesRemainDistinct`,
 `ConfiguredAuthority_CredentialPathRotationsRemainDistinctWithoutDiagnosticDisclosure`,
-`ConfiguredAuthority_RawPathDistinctionsRemainSeparate`, and
-`PackageVersionListing_EncodedPathCredentialDoesNotCrossToLiteralPath` are the
-required Release gates for these distinctions.
+`ConfiguredAuthority_RawPathDistinctionsRemainSeparate`,
+`PackageVersionListing_EncodedPathCredentialDoesNotCrossToLiteralPath`, and
+`SourceClientComposition_PreservesRawProviderQuerySpelling`, together with the
+authentication owner's
+`CredentialRequestPreservesOriginalSourceSpelling`, are the required Release
+gates for these distinctions.
 
 ## Classification precedes authority and transport
 
@@ -204,11 +207,13 @@ route while the shared operation context remains live. The authority fails
 only after no applicable route can produce the required evidence.
 
 For configurable V3 routes, the package owner supplies the same association
-and canonical authority decision consumed by the authentication owner. Reusing
-or disposing a route does not independently create or retire authentication
-authority. Replacing or releasing the configured authority retires its
-authentication context under that owner's contract. Gallery remains
-plugin-authentication-free.
+and canonical authority decision consumed by the authentication owner. The
+provider-query URI retains the exact configured spelling selected for that
+authority; parsing it for resource authorization cannot replace its plugin
+lookup identity. Reusing or disposing a route does not independently create or
+retire authentication authority. Replacing or releasing the configured
+authority retires its authentication context under that owner's contract.
+Gallery remains plugin-authentication-free.
 
 Package-layer compatibility requests must execute through the selected
 authority's source-bound request policy. A feed-advertised or redirect target
