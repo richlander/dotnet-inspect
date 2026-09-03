@@ -2,14 +2,11 @@
 
 Tool for inspecting .NET libraries and NuGet packages. It is for .NET what
 `docker inspect` and `kubectl describe` are for containers: view package
-metadata, API surfaces, dependencies, source provenance, implementation
-receipts, and version-to-version changes.
+metadata, API surfaces, dependencies, and source.
 
-Source is the distribution medium for most developer ecosystems. .NET is unique,
-offering a standardized binary format. That's the main reason that nuget.org ships
-binaries. That means that .NET needs something more than LSP to see inside 
-package references in an agent evironment. That's where `dotnet-inspect` fits.
-It reads .NET binaries to answer basic questions and unlock deep insights.
+Source is the distribution medium for most developer ecosystems. .NET offers
+a standardized binary format that defines the ecosystem. That's the main reason that NuGet packages include binaries not source. It also means that .NET needs something more than an LSP to reason about application assets, particularly a
+`PackageReference`. That's where `dotnet-inspect` fits. It reads .NET binaries to answer basic questions about types and members and unlocks deeper insights like call graphs and seeing what really changed across two binary versions.
 
 ## Install or run
 
