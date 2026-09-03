@@ -1,4 +1,5 @@
 using ILInspector.Decompiler.Annotations;
+using ILInspector.Findings;
 
 namespace ILInspector.Research;
 
@@ -18,7 +19,7 @@ sealed class MethodHeaderLeverageFactProducer : IResearchFactProducer
         ResearchFactRequirements.ForAssembly(
             ILInspector.Analysis.LibraryBodyAnalysisFeatures.MethodEvidence);
 
-    public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context) => [];
+    public IReadOnlyList<Finding<IAnnotation>> Produce(ResearchFactContext context) => [];
 
     public IReadOnlyList<ResearchHeaderFact> ProduceHeaderFacts(ResearchFactContext context)
     {
