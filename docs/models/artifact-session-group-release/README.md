@@ -67,7 +67,8 @@ The model does not cover:
 - exception payloads, cleanup-failure ordering, close-report serialization,
   or thread scheduling;
 - later session-related group rejection, which remains gated by
-  `RegisterArtifactSession_RejectsForeignOrIncompleteGroupSet`;
+  `RegisterArtifactSession_RejectsForeignOrIncompleteGroupSet` and
+  `RegisterArtifactSession_RejectsLaterCoordinatedGroup`;
 - product capability, product substrate, host, or rendering behavior; or
 - implementation conformance.
 
@@ -137,9 +138,11 @@ issued that request.
 | `BrokenCleanupOmission.cfg` | Drops a failed artifact cleanup result from terminal close; it must violate report visibility. |
 
 The reachability configurations intentionally negate their named observations,
-so exit code 12 means TLC reached the required neighboring positive behavior.
-They remain unlisted in the sparse exact-outcome manifest; the positive
-configurations and focused contract mutations are the repository gates.
+so exit code 12 means TLC reached the required positive behavior. The sparse
+exact-outcome manifest enforces the contract-defining retained-fault,
+adjacent-owner recovery, and post-transfer unrelated-admission paths. The
+already-terminal and mixed-result configurations remain unlisted neighboring
+evidence.
 
 ## Running TLC
 
