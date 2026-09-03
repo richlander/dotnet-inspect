@@ -63,14 +63,18 @@ static class NuGetTargetFrameworkIdentity
             }
 
             string shortFolder = framework.GetShortFolderName().ToLowerInvariant();
+            NuGetFramework roundTripped = NuGetFramework.ParseFolder(shortFolder);
             if ((framework.Framework.Equals(
                         FrameworkConstants.FrameworkIdentifiers.Portable,
                         StringComparison.Ordinal)
                     && HasUnsupportedComponent(shortFolder))
+                || !framework.Framework.Equals(
+                    roundTripped.Framework,
+                    StringComparison.OrdinalIgnoreCase)
                 || (requirePlatformRoundTrip
                     && !NuGetFrameworkFullComparer.Instance.Equals(
                         framework,
-                        NuGetFramework.ParseFolder(shortFolder)))
+                        roundTripped))
                 || !PackageCoordinateResolver.IsAcquisitionTargetText(shortFolder))
                 return false;
 
@@ -149,10 +153,13 @@ static class NuGetTargetFrameworkIdentity
                 "PlatformVersion",
                 StringComparison.OrdinalIgnoreCase))
             {
+                string version = value[0] is 'v' or 'V'
+                    ? value[1..]
+                    : value;
                 if (!string.Equals(rawValue, value, StringComparison.Ordinal)
-                    || !Version.TryParse(
-                        value.TrimStart('v', 'V'),
-                        out platformVersion))
+                    || version.Length == 0
+                    || version[0] is 'v' or 'V'
+                    || !Version.TryParse(version, out platformVersion))
                 {
                     return false;
                 }

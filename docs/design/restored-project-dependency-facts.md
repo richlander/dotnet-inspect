@@ -136,11 +136,15 @@ repaired by removing whitespace.
 The query additionally recognizes `Platform` and `PlatformVersion` attributes
 for `.NETCoreApp` version 5 or later because NuGet long-form parsing does not
 retain them. Platform text must be an ASCII alphanumeric token, platform
-version must parse as a version, and a profile cannot coexist with a platform.
-The resulting framework is canonical only when its short-folder spelling
-parses back to the same full NuGet framework identity. This round trip prevents
-distinct platform and platform-version pairs from collapsing into one short
-spelling. Text outside these rules remains opaque rather than being repaired.
+version must parse as a version after at most one optional leading `v` or `V`,
+and a profile cannot coexist with a platform.
+
+Every admitted long form must produce a short-folder spelling that parses back
+to the same NuGet framework identifier. A manually constructed platform
+framework must additionally parse back to the same full NuGet framework
+identity. These round trips prevent framework families and distinct platform
+and platform-version pairs from collapsing into one short spelling. Text
+outside these rules remains opaque rather than being repaired.
 
 Root, declaration-group, graph-node, and graph-edge identities are issued
 within that selection:

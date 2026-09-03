@@ -298,11 +298,17 @@ public sealed class RestoredProjectDependencyFactsQueryTests
         ".NETCoreApp,Version=v8.0,Platform=unsupported",
         "net8.0-unsupported")]
     [InlineData(
+        ".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion=V1.0",
+        "net8.0-windows1.0")]
+    [InlineData(
         ".NETCoreApp,Version=v8",
         "net8.0")]
     [InlineData(
         ".NETPortable,Version=v0.0,Profile=net45+win8",
         "portable-net45+win8")]
+    [InlineData(
+        ".NETFramework,Version=v4.8",
+        "net48")]
     public void Execute_SchemaVersion3_NuGetLongFormSemanticsRemainCanonical(
         string longFramework,
         string shortFramework)
@@ -384,6 +390,38 @@ public sealed class RestoredProjectDependencyFactsQueryTests
         const string longFramework =
             ".NETCoreApp,Version=v8.0,Platform=foo2,PlatformVersion=1.0";
         const string differentShortFramework = "net8.0-foo21.0";
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                [longFramework] = new JsonObject(),
+            },
+            rootGroups: new JsonObject
+            {
+                [longFramework] = new JsonArray(),
+            },
+            frameworks: new JsonObject
+            {
+                [differentShortFramework] = new JsonObject
+                {
+                    ["dependencies"] = new JsonObject(),
+                },
+            },
+            version: 3);
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                bytes,
+                new RestoredProjectTargetRequest(differentShortFramework)));
+
+        Assert.Null(facts.SelectedTarget);
+        Assert.IsType<RestoredProjectGraphResult.Unavailable>(facts.Graph);
+    }
+
+    [Fact]
+    public void Execute_SchemaVersion3_LossyFrameworkFamilySpellingDoesNotMatchAnotherIdentity()
+    {
+        const string longFramework = ".NETFramework,Version=v10.0";
+        const string differentShortFramework = "net10.0";
         byte[] bytes = SyntheticDocument(
             targets: new JsonObject
             {
@@ -1218,6 +1256,8 @@ public sealed class RestoredProjectDependencyFactsQueryTests
     [InlineData(".NETCoreApp,Version=v8.0,Platform= windows")]
     [InlineData(".NETCoreApp,Version=v8.0,Platform=windows ")]
     [InlineData(".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion= 1.0")]
+    [InlineData(".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion=vv1.0")]
+    [InlineData(".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion=vV1.0")]
     [InlineData(".NETCoreApp,Version=v8.0,Profile=bogus,Platform=windows")]
     [InlineData(".NETCoreApp,Version=v3.1,Platform=windows")]
     [InlineData(".NETFramework,Version=v4.8,Platform=windows")]
