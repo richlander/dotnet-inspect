@@ -1409,21 +1409,15 @@ public static class MemberBodyProducer
         MethodSignature<string> signature)
     {
         var parameterHandles = method.GetParameters();
+        string[] parameterNames = MetadataParameterNames.Resolve(
+            reader,
+            parameterHandles,
+            signature.ParameterTypes.Length);
         var parameters = new List<string>();
         for (int i = 0; i < signature.ParameterTypes.Length; i++)
         {
-            string? name = null;
-            foreach (var parameterHandle in parameterHandles)
-            {
-                var parameter = reader.GetParameter(parameterHandle);
-                if (parameter.SequenceNumber == i + 1)
-                {
-                    name = reader.GetString(parameter.Name);
-                    break;
-                }
-            }
-
-            parameters.Add($"{signature.ParameterTypes[i]} {ContainedIdentifier(string.IsNullOrEmpty(name) ? $"arg{i}" : name)}");
+            parameters.Add(
+                $"{signature.ParameterTypes[i]} {ContainedIdentifier(parameterNames[i])}");
         }
 
         return $"{signature.ReturnType} .ctor({string.Join(", ", parameters)})";

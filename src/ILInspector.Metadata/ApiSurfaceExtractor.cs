@@ -3383,6 +3383,16 @@ public static class ApiSurfaceExtractor
 
         List<string> parameters = [];
         List<ApiParameter> parameterModels = [];
+        var parameterInfos = Enumerable.Range(1, paramTypes.Length)
+            .Select(sequenceNumber => GetParameterInfo(
+                reader,
+                paramHandles,
+                sequenceNumber,
+                beforeRetainText,
+                attributeMaterialize))
+            .ToArray();
+        string[] parameterNames = CSharpParameterNames.Allocate(
+            parameterInfos.Select(info => info.name).ToArray());
         for (int i = 0; i < paramTypes.Length; i++)
         {
             // Apply nullability to this parameter's type tree
@@ -3411,15 +3421,8 @@ public static class ApiSurfaceExtractor
 
             // Parameter handles may include return parameter at SequenceNumber 0
             // Actual parameters have SequenceNumber 1, 2, 3...
-            var (paramName, isParams, refKind, hasDefault, defaultValue, attributes) =
-                GetParameterInfo(
-                    reader,
-                    paramHandles,
-                    i + 1,
-                    beforeRetainText,
-                    attributeMaterialize);
-            paramName ??= $"arg{i}";
-
+            var (_, isParams, refKind, hasDefault, defaultValue, attributes) =
+                parameterInfos[i];
             var isByRef = type.StartsWith("ref ", StringComparison.Ordinal);
             if (isByRef)
             {
@@ -3443,7 +3446,7 @@ public static class ApiSurfaceExtractor
                 beforeDecodeWork);
             var paramStr = FormatParameter(
                 type,
-                paramName,
+                parameterNames[i],
                 modifier,
                 hasDefault,
                 defaultValue,
@@ -3453,7 +3456,7 @@ public static class ApiSurfaceExtractor
             var parameterModel = new ApiParameter
             {
                 Attributes = attributes,
-                Name = paramName,
+                Name = parameterNames[i],
                 Type = type,
                 CanonicalType = canonicalType,
                 StructuralType = paramTypes[i].HasStructuralPayload
@@ -4560,6 +4563,16 @@ public static class ApiSurfaceExtractor
         var paramTypes = treeSignature.ParameterTypes;
         List<string> indexerParameters = [];
         List<ApiParameter> parameterModels = [];
+        var parameterInfos = Enumerable.Range(1, paramTypes.Length)
+            .Select(sequenceNumber => GetParameterInfo(
+                reader,
+                paramHandles,
+                sequenceNumber,
+                beforeRetainText,
+                attributeMaterialize))
+            .ToArray();
+        string[] parameterNames = CSharpParameterNames.Allocate(
+            parameterInfos.Select(info => info.name).ToArray());
         for (var i = 0; i < paramTypes.Length; i++)
         {
             var paramBytes = NullabilityReader.GetParameterNullableBytes(
@@ -4584,15 +4597,8 @@ public static class ApiSurfaceExtractor
                     beforeDecodeWork));
             var paramType = paramTypes[i].Render();
             var canonicalParamType = paramTypes[i].RenderCanonical();
-            var (paramName, isParams, refKind, hasDefault, defaultValue, attributes) =
-                GetParameterInfo(
-                    reader,
-                    paramHandles,
-                    i + 1,
-                    beforeRetainText,
-                    attributeMaterialize);
-            paramName ??= $"arg{i}";
-
+            var (_, isParams, refKind, hasDefault, defaultValue, attributes) =
+                parameterInfos[i];
             var isByRef = paramType.StartsWith("ref ", StringComparison.Ordinal);
             if (isByRef)
             {
@@ -4616,7 +4622,7 @@ public static class ApiSurfaceExtractor
                 beforeDecodeWork);
             var parameter = FormatParameter(
                 paramType,
-                paramName,
+                parameterNames[i],
                 modifier,
                 hasDefault,
                 defaultValue,
@@ -4625,7 +4631,7 @@ public static class ApiSurfaceExtractor
             var parameterModel = new ApiParameter
             {
                 Attributes = attributes,
-                Name = paramName,
+                Name = parameterNames[i],
                 Type = paramType,
                 CanonicalType = canonicalParamType,
                 StructuralType = paramTypes[i].HasStructuralPayload

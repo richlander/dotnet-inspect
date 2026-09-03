@@ -95,6 +95,19 @@ public class PipelineImporterTests
 
                 var declaration = MetadataDeclarationQuery.GetMethod(reader, type, method);
                 Assert.Equal("arg0", Assert.Single(declaration.Signature.Parameters).Name);
+
+                var surface = ApiSurfaceExtractor.Extract(pe, includeAll: true);
+                var surfaceType = Assert.Single(
+                    surface.Types,
+                    candidate => candidate.Name == "EmptyParamSample");
+                var surfaceMethod = Assert.Single(
+                    surfaceType.Members,
+                    candidate => candidate.Name == "Echo");
+                Assert.Equal("int Echo(int arg0)", surfaceMethod.Signature);
+                Assert.StartsWith(
+                    "public static int Echo(int arg0)",
+                    new ILInspector.CSharp.CSharpFormatter()
+                        .FormatMember(surfaceType, surfaceMethod));
             }
 
             using var source = MetadataSource.Open(path);
@@ -106,6 +119,59 @@ public class PipelineImporterTests
 
             IrPasses.Run(function);
             Assert.Equal("return arg0;", CSharpPrinter.Print(function).Output!.TrimEnd());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Import_SynthesizedParameterName_DoesNotCollideWithArtifactName()
+    {
+        string path = EmitMethodWithCollidingParameterName();
+        try
+        {
+            using (var stream = File.OpenRead(path))
+            using (var pe = new PEReader(stream))
+            {
+                MetadataReader reader = pe.GetMetadataReader();
+                TypeDefinition type = reader.GetTypeDefinition(
+                    reader.TypeDefinitions.Single(handle =>
+                        reader.GetString(reader.GetTypeDefinition(handle).Name)
+                            == "CollidingParamSample"));
+                MethodDefinition method = type.GetMethods()
+                    .Select(reader.GetMethodDefinition)
+                    .Single(candidate => reader.GetString(candidate.Name) == "Sum");
+
+                var declaration = MetadataDeclarationQuery.GetMethod(reader, type, method);
+                Assert.Equal(
+                    ["arg0_1", "arg0"],
+                    declaration.Signature.Parameters.Select(parameter => parameter.Name).ToArray());
+
+                var surface = ApiSurfaceExtractor.Extract(pe, includeAll: true);
+                var surfaceType = Assert.Single(
+                    surface.Types,
+                    candidate => candidate.Name == "CollidingParamSample");
+                var surfaceMethod = Assert.Single(
+                    surfaceType.Members,
+                    candidate => candidate.Name == "Sum");
+                Assert.Equal(
+                    "int Sum(int arg0_1, int arg0)",
+                    surfaceMethod.Signature);
+            }
+
+            using var source = MetadataSource.Open(path);
+            var function = IrImporter.Import(source, "CollidingParamSample", "Sum");
+
+            Assert.Equal(
+                ["arg0_1", "arg0"],
+                function!.Signature.Parameters.Select(parameter => parameter.Name).ToArray());
+
+            IrPasses.Run(function);
+            Assert.Equal(
+                "return arg0_1 + arg0;",
+                CSharpPrinter.Print(function).Output!.TrimEnd());
         }
         finally
         {
@@ -262,6 +328,33 @@ public class PipelineImporterTests
         string path = Path.Combine(
             Path.GetTempPath(),
             $"EmptyParamName-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
+    static string EmitMethodWithCollidingParameterName()
+    {
+        var assemblyName = new AssemblyName("CollidingParamName");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        var type = module.DefineType("CollidingParamSample", TypeAttributes.Public);
+        var method = type.DefineMethod(
+            "Sum",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(int),
+            [typeof(int), typeof(int)]);
+        method.DefineParameter(1, ParameterAttributes.None, null);
+        method.DefineParameter(2, ParameterAttributes.None, "arg0");
+        var il = method.GetILGenerator();
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Add);
+        il.Emit(OpCodes.Ret);
+        type.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"CollidingParamName-{Guid.NewGuid():N}.dll");
         assembly.Save(path);
         return path;
     }

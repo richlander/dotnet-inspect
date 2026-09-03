@@ -707,13 +707,14 @@ public static class MetadataDeclarationQuery
         ParameterHandleCollection parameterHandles,
         IReadOnlyList<string> parameterTypes)
     {
+        string[] parameterNames = MetadataParameterNames.Resolve(
+            reader,
+            parameterHandles,
+            parameterTypes.Count);
         var parameters = new List<ApiParameter>();
         for (var index = 0; index < parameterTypes.Count; index++)
         {
             var parameterInfo = GetParameterInfo(reader, parameterHandles, index + 1);
-            var name = parameterInfo.Name is { Length: > 0 } parameterName
-                ? parameterName
-                : $"arg{index}";
             var type = parameterTypes[index];
             string? modifier = null;
             if (type.StartsWith("ref ", StringComparison.Ordinal))
@@ -768,7 +769,7 @@ public static class MetadataDeclarationQuery
             parameters.Add(new ApiParameter
             {
                 Attributes = attributes,
-                Name = name,
+                Name = parameterNames[index],
                 Type = type,
                 Modifier = modifier,
                 HasDefault = hasDefault,

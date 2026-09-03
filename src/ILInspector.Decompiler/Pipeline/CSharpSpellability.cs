@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using CSharpText;
 using ILInspector.Metadata;
 
@@ -18,7 +19,10 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 internal static class CSharpSpellability
 {
-    internal readonly record struct NameIssue(string Discriminator, string Reason);
+    internal readonly record struct NameIssue(
+        string Discriminator,
+        string Reason,
+        DecompilerFidelityLocation? Location = null);
 
     enum PlaceKind { Argument, Local, StackSlot }
     enum ExplicitTypeContext
@@ -66,6 +70,10 @@ internal static class CSharpSpellability
 
         return node switch
         {
+            IrFunction function => ScopedNamesIssue(
+                function.Signature.Parameters,
+                function.LocalNames,
+                function.EliminatedLocalSlots),
             Call call => MethodIssue(call.Callee),
             NewObject newObject => ConstructorIssue(newObject.Constructor),
             AddressOfMethod address => MethodGroupTargetIssue(address.Method),
@@ -86,11 +94,58 @@ internal static class CSharpSpellability
             DeconstructionTarget target => DeconstructionTargetIssue(target),
             RecursivePropertyDeclarationPattern pattern => PropertyIssue(pattern.PropertyName),
             EventSubscription subscription => PropertyIssue(subscription.EventName),
-            LocalFunctionStatement statement => LocalFunctionIssue(statement.Name),
+            Lambda lambda => ScopedNamesIssue(lambda.Parameters, lambda.LocalNames),
+            LocalFunctionStatement statement => LocalFunctionIssue(statement.Name)
+                ?? ScopedNamesIssue(statement.Parameters, statement.LocalNames),
             LocalFunctionInvocation invocation => LocalFunctionIssue(invocation.Name),
             _ => null,
         };
     }
+
+    static NameIssue? ScopedNamesIssue(
+        ImmutableArray<Parameter> parameters,
+        ImmutableArray<string?> localNames,
+        IReadOnlySet<int>? eliminatedLocalSlots = null)
+    {
+        var parameterNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var parameter in parameters)
+        {
+            if (!HasLosslessBodyIdentifierSpelling(parameter.Name))
+            {
+                return Issue(
+                    DecompilerFidelityDiscriminators.UnspellableParameterName,
+                    $"parameter name '{parameter.Name}' has no lossless C# spelling");
+            }
+            if (!parameterNames.Add(parameter.Name))
+            {
+                return Issue(
+                    DecompilerFidelityDiscriminators.UnspellableParameterName,
+                    $"duplicate parameter name '{parameter.Name}' has no lossless C# binding");
+            }
+        }
+
+        for (var index = 0; index < localNames.Length; index++)
+        {
+            string? name = localNames[index];
+            if (name is null || eliminatedLocalSlots?.Contains(index) == true)
+                continue;
+            if (!HasLosslessBodyIdentifierSpelling(name))
+            {
+                return new NameIssue(
+                    DecompilerFidelityDiscriminators.UnspellableLocalName,
+                    $"local name '{name}' has no lossless C# spelling",
+                    DecompilerFidelityLocation.AtLocal(index));
+            }
+        }
+
+        return null;
+    }
+
+    static bool HasLosslessBodyIdentifierSpelling(string name)
+        => CSharpIdentifier.IsIdentifierLike(name)
+            && !name.Any(static character =>
+                char.IsSurrogate(character)
+                || char.GetUnicodeCategory(character) == UnicodeCategory.Format);
 
     /// <summary>
     /// Whether the printer can spell <paramref name="expression"/> as a value the

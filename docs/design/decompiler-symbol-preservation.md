@@ -129,16 +129,16 @@ to runnable fixture commands under [Fixture probes](#fixture-probes).
 
 | Scenario | Current contract | Probe | Regression gate |
 | -------- | ---------------- | ----- | --------------- |
-| Metadata declarations | Preserve artifact namespace, type, field, property, event, method, parameter, and generic-parameter names when their C# positions admit a lossless spelling. Escape C# keywords without changing identifier identity; surface typed refusal or partial fidelity for unrepresentable identities. | P1, P26 | `KeywordIdentifierTests.KeywordParameter_IsEscaped`, `MetadataDeclarationQueryTests`, `TypeShellProducerTests.HostileMetadataSelfNameIsNotRendered`, and `UnspeakableNameFidelityTests`; whole-type composition and the generic-name portion are manually probed. |
+| Metadata declarations | Preserve ordinary and keyword artifact namespace, type, field, property, event, method, parameter, and generic-parameter names. Escape C# keywords without changing identifier identity. Parameter and retained-local identities without a lossless C# spelling lower body fidelity; type declarations can return a typed refusal. Full Unicode admission remains incomplete (P28). | P1, P26, P28 | `KeywordIdentifierTests.KeywordParameter_IsEscaped`, `MetadataDeclarationQueryTests`, `PipelineImporterTests.Import_MissingParameterName_SynthesizesOrdinalName`, `TypeShellProducerTests.HostileMetadataSelfNameIsNotRendered`, and `UnspeakableNameFidelityTests`; whole-type composition and the generic-name portion are manually probed. |
 | PDB local variables | Prefer an admitted Portable PDB local name associated with the exact IL slot and scope when the current per-slot model and function-wide collision allocation can represent it. P24 and P27 record the two scope-reuse gaps. | P2, P24, P27 | `IrImporterTests.LocalNames_RecoveredFromPdb_RenderSourceNamesNotVSlots`; P24 is manually probed, while `PdbLocalNameScopeTests.ReusedSlotWithDifferentScopeNames_ExposesCurrentLastNameLoss` pins P27's artifact shape and current loss. |
 | Lambda parameters and captures | When an authenticated lambda raise succeeds, preserve generated-method parameter names and substitute authenticated captured-field names back to their source identifiers. | P3 | `LambdaRaisingPassTests.NonCapturingExpressionBody_RaisesSimpleLambda` and `CapturingExpressionBody_SubstitutesCaptureAndRaisesLambda` |
 | Expression-tree lambda parameters | When the fully owned expression-tree factory shape raises, preserve each `Expression.Parameter` string as the lambda parameter identity. | P23 | `ExpressionTreeFidelityTests.SimpleArithmeticLambda_RecoversLambda_StaysFull` |
 | Dynamic member names | When the authenticated runtime-binder call-site shape raises, preserve its member-name string as the dynamic member identity. | P23 | `DynamicCallSitePassTests.CanonicalPositive_PrintsDynamicMemberAccess` |
-| Local-function declarations and parameters | When an authenticated local-function raise succeeds, recover the source function name and generated-method parameter names, and bind calls to the raised declaration. | P4 | `LocalFunctionRaisingPassTests.StaticLocalFunction_RecoveredAsDeclarationAndUnqualifiedCall` |
+| Local-function declarations and parameters | When an authenticated local-function raise succeeds, recover ordinary source function and generated-method parameter names, and bind calls to the raised declaration. P28 tracks full-grammar admission across authenticated generated-name paths. | P4, P28 | `LocalFunctionRaisingPassTests.StaticLocalFunction_RecoveredAsDeclarationAndUnqualifiedCall` |
 | Anonymous-object properties | Preserve property metadata names when the current same-assembly anonymous-type shape raises, and bind initializer values to those names. The current admission is name-pattern-based (#5585) and uses the narrow identifier grammar tracked by #5616. | P5, P23 | `AnonymousObjectPassTests` gates ASCII positive output, not generated-type authentication or full Unicode admission. |
 | Tuple elements in signatures | Preserve `TupleElementNamesAttribute` names on supported method returns and parameters, properties, and events. Composed field declarations remain a recoverable gap. | P6 | `TupleTypeViewTests` gates metadata decoding across all positions; method/property/event composition is manually probed. |
-| Iterator hoisted locals | Recover a source local name from authenticated iterator state-machine evidence when reconstruction owns the corresponding field and use. | P7 | `IteratorReconstructionPassTests.CountingLoopIterator_RendersLoopAndYield` |
-| Classic async local names | Product import authenticates the exact kickoff, state machine, and `MoveNext` before decoding `alpha` from its hoisted field. It preserves `beta` from the matching PDB local. Without symbols, `alpha` remains preserved while `beta` falls back to `V_1`. | P8 | `PipelineImporterTests.Import_CarriesAuthenticatedClassicRequestSeed` and `ClassicAsyncRequestAdapterTests.ClassicPass_ImportsCertifiedExecutionMethod` gate owner authentication; `ClassicAsyncReconstructionHonestyTests.SequentialAwaitLocalNameComesFromSymbols` gates the raised names with PDBs. The no-symbol result is manually probed; #5587 tracks correcting its vacuous focused test. |
+| Iterator hoisted locals | Recover an ordinary source local name from authenticated iterator state-machine evidence when reconstruction owns the corresponding field and use. P28 records the keyword and full-Unicode spelling gap. | P7, P28 | `IteratorReconstructionPassTests.CountingLoopIterator_RendersLoopAndYield` |
+| Classic async local names | Product import authenticates the exact kickoff, state machine, and `MoveNext` before decoding ordinary `alpha` from its hoisted field. It preserves `beta` from the matching PDB local. Without symbols, `alpha` remains preserved while `beta` falls back to `V_1`. P28 records the full-grammar generated-name gap. | P8, P28 | `PipelineImporterTests.Import_CarriesAuthenticatedClassicRequestSeed` and `ClassicAsyncRequestAdapterTests.ClassicPass_ImportsCertifiedExecutionMethod` gate owner authentication; `ClassicAsyncReconstructionHonestyTests.SequentialAwaitLocalNameComesFromSymbols` gates the raised names with PDBs. The no-symbol result is manually probed; #5587 tracks correcting its vacuous focused test. |
 
 These guarantees are conditional on successful reconstruction. A method may
 carry a recoverable substring in a generated metadata name while the containing
@@ -159,6 +159,7 @@ output does not preserve it.
 | Full C# identifier grammar on PDB locals | Exact slot-bound names include the keyword `class` and combining-mark identifier `A\u0301`; C# can losslessly spell them as `@class` and `A\u0301`. | PDB-name admission rejects keywords before escaping and accepts a narrower character grammar, so output synthesizes replacements. | Admit compiler-supported identifier identities, reserve the underlying identity for collisions, and apply position-appropriate escaping. | [#5586](https://github.com/richlander/dotnet-inspect/issues/5586), P14 |
 | Generated backing-field and primary-constructor names | Auto-property fields have matching property rows; primary-constructor captures can be bound to exact constructor parameters and compiler-generated owner evidence. | Current output decodes `<Property>k__BackingField` from grammar plus the property row and `<parameter>P` from grammar alone. | Authenticate each generated field and its exact source-symbol binding before decoding. | [#5595](https://github.com/richlander/dotnet-inspect/issues/5595), P22 |
 | Full C# identifier grammar in semantic-name consumers | Owned expression-tree and dynamic lowerings retain identifier strings; anonymous types retain property metadata names. | Combining-mark names make all three raises decline because they share the narrow `IsEscapableIdentifier` admission. | Admit the compiler-supported grammar only after each lowering establishes the string or metadata name's typed binding. | [#5616](https://github.com/richlander/dotnet-inspect/issues/5616), P23 |
+| Full C# identifier grammar across metadata and authenticated generated names | Metadata and certified iterator/classic-async lowerings retain exact identifier identities, including keywords and combining-mark names. | Some method, type-segment, generic-parameter, and generated-local paths still use the narrower `IsEscapable` admission. Valid names can lower fidelity or fall back to `V_n`. | Use one compiler-characterized, position-aware admission contract while keeping metadata, generated, semantic-literal, and PDB evidence ownership distinct. | [#5657](https://github.com/richlander/dotnet-inspect/issues/5657), P28 |
 | Same-named PDB locals in disjoint scopes | Distinct PDB local rows bind `same` to different IL slots and non-overlapping `LocalScope` ranges. | The function-wide allocator preserves the first `same` and replaces the second despite the legal disjoint scopes. | Allocate final names against lexical overlap rather than whole-function use, while retaining collision safety. | [#5617](https://github.com/richlander/dotnet-inspect/issues/5617), P24 |
 | Different PDB names for one reused slot | Distinct PDB local rows bind `first` and `second` to the same IL slot in non-overlapping `LocalScope` ranges. | The per-slot importer keeps only the later name and can apply `second` to uses in the earlier `first` scope. | Carry scope-qualified local identity through import and final declaration placement. | [#5617](https://github.com/richlander/dotnet-inspect/issues/5617), P27 |
 | Tuple element names on composed fields | `TupleElementNamesAttribute` identifies the field's element names, and the metadata view decodes them. | Type source renders `ValueTuple<int, string> NamedTupleField` while neighboring property and event declarations retain tuple names. | Carry the field's typed tuple-name evidence into composed C# field declarations. | [#5618](https://github.com/richlander/dotnet-inspect/issues/5618), P6 |
@@ -176,9 +177,9 @@ The current decline behavior is itself gated:
   current fallback spelling until #5586.
 
 The combining-mark half of P14, both P22 generated-field paths, all three P23
-Unicode paths, P24, and P6's composed-field result are manual fixture probes.
-P27 is an automated synthetic-artifact probe of the current loss. Their issues
-own the missing target-positive and close-negative gates.
+Unicode paths, P24, both P28 paths, and P6's composed-field result are manual
+fixture probes. P27 is an automated synthetic-artifact probe of the current
+loss. Their issues own the missing target-positive and close-negative gates.
 
 Those tests are safety rails, not declarations that the gaps are complete.
 
@@ -191,7 +192,7 @@ presentations:
 | -------- | ------- | -------- | -------------- |
 | Library and deterministic harness | Stable `V_index` local names | Keep artifact-independent output stable for fidelity and corpus comparison. | P9; `IrImporterTests.OpenWithoutSymbols_IgnoresPdb_RendersVSlotsNotSourceNames` |
 | User-facing product source views | Readable names such as `num`, `num2`, or type/role-derived names | Derive only from typed IR evidence, avoid collisions, and never claim source identity. Fall back to `V_index` when evidence is insufficient. | P10; `ReadableLocalNamesTests`, `StyleOptionCatalogTests.ProductDefaults_EnableReadableNames_WithoutChangingLibraryDefaults`, and `ByteNeutralityGateTests` |
-| Metadata parameters without names | Stable `arg{ordinal}` parameter names | A signature can retain parameter types without optional Param rows, or with a Param row whose name is empty. Use a legal ordinal-based name without claiming authored identity. | P25; `MetadataDeclarationQueryTests.MethodDeclaration_SynthesizesParameterWhenParamRowIsAbsent` and `PipelineImporterTests.Import_MissingParameterName_SynthesizesOrdinalName` gate both metadata shapes and Decompiler composition. |
+| Metadata parameters without names | Stable `arg{ordinal}` parameter names, adding the smallest `_n` suffix needed to avoid an artifact-name collision | A signature can retain parameter types without optional Param rows, or with a Param row whose name is empty. Reserve all surviving artifact identities before allocating a legal fallback without claiming authored identity. | P25; `MetadataDeclarationQueryTests.MethodDeclaration_SynthesizesParameterWhenParamRowIsAbsent`, `PipelineImporterTests.Import_MissingParameterName_SynthesizesOrdinalName`, and `Import_SynthesizedParameterName_DoesNotCollideWithArtifactName` gate absent/empty names, composed declarations, and collision allocation. |
 
 The complete synthesis policy is owned by
 [Readable local names](readable-local-names.md). Improving an `S_N`, `V_N`, or
@@ -202,6 +203,11 @@ in source, but the Release artifact retained only the value flow, so any
 replacement for `S_256` would still be synthesized. P15 is a manual fixture
 probe; no focused automated gate currently asserts that `y` is absent.
 
+Fidelity reflects the evidence available to a particular inspection. The same
+IL can therefore render identical fallback text at Full fidelity without
+symbols and at Partial fidelity when a matching PDB exposes an exact local
+identity that C# cannot represent. P26 gates that deliberate distinction.
+
 ## Names that reconstructed source cannot promise
 
 The following cases either lack enough artifact evidence for an exact authored
@@ -211,7 +217,7 @@ evolve.
 
 | Scenario | Why exact preservation is unavailable | Required behavior | Probe |
 | -------- | ------------------------------------- | ----------------- | ----- |
-| C#-unrepresentable metadata identity | ECMA-335 permits namespace, type, and member names such as `A+B` or `bad-name`, but those exact identities have no lossless legal spelling in their C# positions. | Preserve typed metadata identity and surface a typed refusal or partial-fidelity output. Do not sanitize the name and claim a different binding. | P26 |
+| C#-unrepresentable metadata or PDB identity | ECMA-335 permits namespace, type, member, and parameter names such as `A+B` or `bad-name`; a PDB can bind the same text to a local. Those exact identities have no lossless legal spelling in their C# positions. | Preserve typed identity and surface a typed refusal or partial-fidelity output. Do not sanitize the name and claim a different binding. | P26 |
 | Optimized-away local | `pointer` has no IL local slot and no Portable PDB `LocalVariable`; only `value` survives. | Preserve `value`; express the remaining address/dereference semantics without inventing `pointer`. | P16 |
 | Runtime-async stack value | The runtime-async fixture PDB names only slot-backed `beta`; `alpha` remains on the lowered value path without a named local record. The classic lowering instead hoists `alpha` into the named state-machine field `<alpha>5__2`; `beta` is a slot-backed PDB local in both lowerings. | Preserve `beta`; synthesize or structure the other runtime-async value honestly. Do not copy `alpha` from fixture source or from the classic sibling. | P17 |
 | Source label | IL branches retain target offsets, not a source label such as `done`. | Structure the control flow or use an IL-derived label when a retained branch requires one. Do not claim the authored label. | P18 |
@@ -672,11 +678,17 @@ dotnet run --project tests/ILInspector.Metadata.Tests -c Release --no-build -- \
 
 dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
   -method '*Import_MissingParameterName_SynthesizesOrdinalName*'
+
+dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+  -method '*Import_SynthesizedParameterName_DoesNotCollideWithArtifactName*'
 ```
 
 The first test emits a fixture method whose signature has one parameter type
-but no Param row. The second emits a present Param row with an empty name. Both
-paths use `arg0`; that spelling is ordinal synthesis, not source identity.
+but no Param row. The second covers both that shape and a present Param row
+with an empty name; both use `arg0`, which is ordinal synthesis rather than
+source identity. The third emits an unnamed ordinal zero beside an artifact
+parameter named `arg0`; all metadata, composed-source, and Decompiler paths
+preserve the artifact name and synthesize the distinct fallback `arg0_1`.
 
 ### P26: metadata identities without a C# spelling
 
@@ -690,8 +702,9 @@ dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
 
 The first synthetic metadata fixture uses legal type identities that C# cannot
 spell losslessly and verifies whole-type source returns a typed refusal. The
-second fixture matrix verifies unspellable member identities lower body
-fidelity instead of being presented as preserved C# identifiers.
+second fixture matrix verifies unspellable member, parameter, and retained PDB
+local identities lower body fidelity instead of being presented as preserved
+C# identifiers.
 
 ### P27: different PDB names for one reused slot
 
@@ -705,6 +718,36 @@ that slot `first` in scope `[3,14)` and `second` in scope `[14,27)`. Current
 import retains only `second` and can use it in both ranges. The fixture test
 pins that evidence and current loss; #5617 owns the scope-qualified target
 representation and close negative cases.
+
+### P28: full identifier grammar across authenticated name paths
+
+```bash
+inspect_member \
+  ILInspector.Decompiler.Tests.CfgSampleClass \
+  KeywordNamedIteratorLocal \
+  "$CFG"
+
+dotnet run --project src/dotnet-inspect -c Release --no-build -- \
+  member \
+  CSharpText.Tests.UnicodeIdentifierFixtures \
+  CombiningMarkGenericParameter \
+  --library "$CSHARP_TEXT" \
+  -S "Fidelity Causes; Decompiled Source" --tips q
+
+dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+  -method '*FullGrammarGenericParameterName_ExposesCurrentNarrowAdmission*'
+```
+
+The first compiler-produced artifact retains `class` in authenticated iterator
+state-machine evidence; current local allocation renders a synthesized `num`
+rather than the lossless C# spelling `@class`. The second artifact retains the
+generic-parameter identity `T\u0301`; output prints that exact identity, but
+fidelity accounting incorrectly reports `unspellable-generic-parameter-name`.
+The focused test pins that classification until #5657 corrects it.
+
+Issue #5657 owns the compiler-characterized admission contract across these
+metadata and authenticated generated-name paths. P14 and P23 remain the focused
+owners for PDB-local and semantic-IL evidence respectively.
 
 ## Change discipline
 

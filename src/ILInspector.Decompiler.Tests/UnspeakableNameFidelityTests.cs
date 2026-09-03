@@ -456,6 +456,156 @@ public class UnspeakableNameFidelityTests
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
     }
 
+    [Fact]
+    public void UnspellableParameterName_DegradesToPartial()
+    {
+        var parameter = new Parameter("bad-name", Int32);
+        var body = Container(new Return(new LoadArgument(0, parameter.Name, Int32)));
+        var function = Function(Int32, [parameter], [], body);
+
+        var issue = CSharpSpellability.InspectUnrepresentableMetadataName(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Equal(
+            DecompilerFidelityDiscriminators.UnspellableParameterName,
+            issue?.Discriminator);
+    }
+
+    [Theory]
+    [InlineData("A\u00AD")]
+    [InlineData("A\u200E")]
+    [InlineData("\uFEFFA")]
+    [InlineData("\U00010400")]
+    public void IdentityChangingOrCompilerRejectedParameterName_DegradesToPartial(
+        string name)
+    {
+        var function = Function(
+            Int32,
+            [new Parameter(name, Int32)],
+            [],
+            Container(new Return(new LoadArgument(0, name, Int32))));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void DuplicateParameterName_DegradesToPartial()
+    {
+        var function = Function(
+            Int32,
+            [new Parameter("value", Int32), new Parameter("value", Int32)],
+            [],
+            Container(new Return(new LoadArgument(0, "value", Int32))));
+
+        var issue = CSharpSpellability.InspectUnrepresentableMetadataName(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Equal(
+            DecompilerFidelityDiscriminators.UnspellableParameterName,
+            issue?.Discriminator);
+        Assert.Contains("duplicate parameter name", issue?.Reason);
+    }
+
+    [Fact]
+    public void UnspellableRetainedLocalName_DegradesToPartial()
+    {
+        var function = Function(
+            [Int32],
+            Container(
+                new StoreLocal(0, Int32, new Constant(1, Int32)),
+                new Return(null)));
+        function.LocalNames = ["bad-name"];
+
+        var issue = CSharpSpellability.InspectUnrepresentableMetadataName(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Equal(
+            DecompilerFidelityDiscriminators.UnspellableLocalName,
+            issue?.Discriminator);
+    }
+
+    [Fact]
+    public void UnspellablePdbName_LowersFidelityWithoutChangingFallbackOutput()
+    {
+        var function = Function(
+            [Int32],
+            Container(
+                new StoreLocal(0, Int32, new Constant(1, Int32)),
+                new Return(new LoadLocal(0, Int32))));
+        string withoutSymbols = CSharpPrinter.Print(function).Output!;
+
+        function.LocalNames = ["bad-name"];
+        string withSymbols = CSharpPrinter.Print(function).Output!;
+
+        Assert.Equal(withoutSymbols, withSymbols);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Theory]
+    [InlineData("class")]
+    [InlineData("A\u0301")]
+    public void FullGrammarParameterName_StaysFull(string name)
+    {
+        var function = Function(
+            Int32,
+            [new Parameter(name, Int32)],
+            [],
+            Container(new Return(new LoadArgument(0, name, Int32))));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Null(CSharpSpellability.InspectUnrepresentableMetadataName(function));
+    }
+
+    [Theory]
+    [InlineData("class")]
+    [InlineData("A\u0301")]
+    public void FullGrammarRetainedLocalName_IsNotUnrepresentable(string name)
+    {
+        var function = Function(
+            [Int32],
+            Container(
+                new StoreLocal(0, Int32, new Constant(1, Int32)),
+                new Return(null)));
+        function.LocalNames = [name];
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Null(CSharpSpellability.InspectUnrepresentableMetadataName(function));
+    }
+
+    [Fact]
+    public void UnspellableRaisedLambdaParameterName_DegradesToPartial()
+    {
+        var lambda = new Lambda(
+            Action,
+            [new Parameter("bad-name", Int32)],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Container(new Return(null)));
+        var function = Function(Action, [], [], Container(new Return(lambda)));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
+    public void UnspellableRaisedLocalFunctionParameterName_DegradesToPartial()
+    {
+        var statement = new LocalFunctionStatement(
+            "Local",
+            Void,
+            [new Parameter("bad-name", Int32)],
+            isStatic: true,
+            locals: [],
+            localNames: [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Container(new Return(null)));
+        var function = Function([], Container(statement, new Return(null)));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
     sealed class StreamOnlyResolver : IAssemblyReferenceResolver
     {
         readonly byte[] _image;

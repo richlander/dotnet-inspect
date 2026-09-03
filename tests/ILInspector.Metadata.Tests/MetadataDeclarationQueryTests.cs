@@ -90,6 +90,46 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void ParameterNameResolution_ReservesLaterArtifactName()
+    {
+        string path = EmitMethodWithParameterRows(null, "arg0");
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            var reader = peReader.GetMetadataReader();
+            var type = reader.GetTypeDefinition(
+                reader.TypeDefinitions.Single(handle =>
+                    reader.GetString(reader.GetTypeDefinition(handle).Name)
+                        == "ParameterRowSample"));
+            var method = type.GetMethods()
+                .Select(reader.GetMethodDefinition)
+                .Single(candidate => reader.GetString(candidate.Name) == "Sum");
+
+            Assert.Equal(
+                ["arg0_1", "arg0"],
+                MetadataParameterNames.Resolve(reader, method.GetParameters(), 2));
+
+            var signature = GuardedSignatureText.MethodText(
+                    reader,
+                    method,
+                    context: null)
+                .GetValueOrThrow();
+            Assert.Equal(
+                "int Sum(int arg0_1, int arg0)",
+                SignatureRenderer.RenderDecodedSignature(
+                    reader,
+                    method,
+                    "Sum",
+                    signature));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void PropertyDeclaration_ExposesAbstractAccessorShape()
     {
         var type = GetTypeDefinition(typeof(MetadataDeclarationQueryFixtures.AbstractBase));
@@ -322,6 +362,41 @@ public sealed class MetadataDeclarationQueryTests
         type.CreateType();
 
         string path = Path.Combine(Path.GetTempPath(), $"MissingParamRow-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
+    static string EmitMethodWithParameterRows(params string?[] parameterNames)
+    {
+        var assemblyName = new AssemblyName("ParameterRows");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        var type = module.DefineType("ParameterRowSample", TypeAttributes.Public);
+        var method = type.DefineMethod(
+            "Sum",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(int),
+            Enumerable.Repeat(typeof(int), parameterNames.Length).ToArray());
+        for (var index = 0; index < parameterNames.Length; index++)
+        {
+            method.DefineParameter(
+                index + 1,
+                ParameterAttributes.None,
+                parameterNames[index]);
+        }
+        var il = method.GetILGenerator();
+        il.Emit(OpCodes.Ldarg_0);
+        for (var index = 1; index < parameterNames.Length; index++)
+        {
+            il.Emit(OpCodes.Ldarg, index);
+            il.Emit(OpCodes.Add);
+        }
+        il.Emit(OpCodes.Ret);
+        type.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"ParameterRows-{Guid.NewGuid():N}.dll");
         assembly.Save(path);
         return path;
     }

@@ -63,7 +63,10 @@ public static class MethodImporter
         var decoded = GuardedDecode.MethodSignature(reader, method, scope);
 
         var parameters = ImmutableArray.CreateBuilder<Parameter>(decoded.ParameterTypes.Length);
-        var namesByIndex = new Dictionary<int, string>();
+        string[] parameterNames = MetadataParameterNames.Resolve(
+            reader,
+            method.GetParameters(),
+            decoded.ParameterTypes.Length);
         var hasDefaultByIndex = new Dictionary<int, bool>();
         var dynamicByIndex = new Dictionary<int, bool>();
         var arrayElementDynamicByIndex = new Dictionary<int, MetadataFactState>();
@@ -73,9 +76,6 @@ public static class MethodImporter
             if (parameter.SequenceNumber > 0)
             {
                 int index = parameter.SequenceNumber - 1;
-                string name = reader.GetString(parameter.Name);
-                if (name.Length > 0)
-                    namesByIndex[index] = name;
                 hasDefaultByIndex[index] = HasDefault(reader, parameter);
                 // A by-ref parameter (`ref`/`in`/`out`) carries the ByRef modifier
                 // at DynamicAttribute flag index 0, so the element dynamic-ness sits
@@ -99,7 +99,7 @@ public static class MethodImporter
         }
         for (int i = 0; i < decoded.ParameterTypes.Length; i++)
             parameters.Add(new Parameter(
-                namesByIndex.GetValueOrDefault(i, $"arg{i}"),
+                parameterNames[i],
                 decoded.ParameterTypes[i],
                 hasDefaultByIndex.GetValueOrDefault(i),
                 dynamicByIndex.GetValueOrDefault(i))

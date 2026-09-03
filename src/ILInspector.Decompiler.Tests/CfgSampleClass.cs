@@ -5316,6 +5316,12 @@ public class CfgSampleClass
         return n;
     }
 
+    public static IEnumerable<int> KeywordNamedIteratorLocal(int value)
+    {
+        for (int @class = 0; @class < value; @class++)
+            yield return @class;
+    }
+
     // The expression form deliberately converts a value type to IDisposable.
     // Eliding the compiler temp must preserve that boxing conversion rather than
     // changing the resource to value-type constrained disposal (#4113 review).

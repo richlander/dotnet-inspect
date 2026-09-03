@@ -21,4 +21,7 @@ public static class UnicodeIdentifierFixtures
 
     public static object CombiningMarkAnonymousProperty(int A\u0301)
         => new { A\u0301 };
+
+    public static T\u0301 CombiningMarkGenericParameter<T\u0301>()
+        => default!;
 }
