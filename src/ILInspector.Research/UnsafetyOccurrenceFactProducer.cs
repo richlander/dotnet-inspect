@@ -17,7 +17,7 @@ sealed class UnsafetyOccurrenceFactProducer : IResearchFactProducer
         ResearchFactRequirements.ForMember(
             LibraryBodyAnalysisFeatures.MethodEvidence);
 
-    public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context)
+    public IReadOnlyList<Finding<IAnnotation>> Produce(ResearchFactContext context)
     {
         var function = context.Imported;
         if (context.Assembly is not { } assembly || function.MetadataToken == 0)
@@ -31,7 +31,9 @@ sealed class UnsafetyOccurrenceFactProducer : IResearchFactProducer
             .. AnalysisFindings.InspectUnsafety(
                     occurrences,
                     new FindingSubject(subject.Id, subject.Display))
-                .Select(finding => ToAnnotation(finding.Payload)),
+                .Select(finding => ResearchFactFinding.Project(
+                    finding,
+                    ToAnnotation(finding.Payload))),
         ];
     }
 

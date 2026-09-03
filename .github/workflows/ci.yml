@@ -28,6 +28,11 @@ on:
   merge_group:
     types: [checks_requested]
 
+# Least privilege by default. Jobs needing more declare it themselves; a
+# job-level block replaces this default rather than adding to it.
+permissions:
+  contents: read
+
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
@@ -56,6 +61,11 @@ jobs:
   # ubuntu-26.04 coverage without making it the scheduler for every run.
   changes:
     runs-on: ubuntu-24.04
+    # eng/ci-detect-changes.sh reads the pull request and its file list from
+    # the Pull requests API, which contents:read alone does not cover.
+    permissions:
+      contents: read
+      pull-requests: read
     timeout-minutes: 10
     outputs:
       plan: ${{ steps.plan.outputs.plan }}
