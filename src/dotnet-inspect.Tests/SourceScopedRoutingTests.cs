@@ -1132,6 +1132,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
     [Theory]
     [InlineData("https://example.invalid/%zz/index.json")]
     [InlineData("https://pkgs.dev.azure.com/")]
+    [InlineData("https://-foo.example/v3/index.json")]
     public async Task PackageVersionListing_UnusableSourceSetupIsTypedBeforeTransport(
         string unusableSource)
     {

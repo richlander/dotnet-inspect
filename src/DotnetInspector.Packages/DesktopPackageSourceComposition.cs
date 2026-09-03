@@ -722,7 +722,8 @@ internal sealed class ConfiguredPackageAuthorityKey :
             || !NuGetHttpRequest.HasValidRawText(
                 source.Url,
                 allowNonAscii: true)
-            || !NuGetSourceRequest.TryEndpointUrl(source.Url, out _))
+            || !NuGetSourceRequest.TryEndpointUrl(source.Url, out _)
+            || !NuGetSourceRequest.CanProjectEndpoint(endpoint))
         {
             problem =
                 "The package source service-index endpoint is unusable.";

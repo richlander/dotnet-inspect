@@ -160,8 +160,8 @@ The classification boundary is gated by
 `SourceClassification_UnsupportedSchemeCreatesNoAuthorityOrRequest`, and
 `LocalCapabilityAbsence_IsVisibleNonHttpAndIncomplete`.
 `PackageVersionListing_UnusableSourceSetupIsTypedBeforeTransport` additionally
-gates malformed HTTP syntax and an unusable credential-provider scope at the
-live CLI boundary.
+gates malformed HTTP syntax, hosts rejected by NuGetFetch endpoint projection,
+and an unusable credential-provider scope at the live CLI boundary.
 
 ## Resolving active and eligible authorities
 
