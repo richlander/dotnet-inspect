@@ -159,8 +159,9 @@ Those remain owned by their product contracts and named Release gates.
 
 Follow the repository
 [TLA+ setup runbook](../../../runbooks/tla-plus-setup.md). The repository gate
-runs every configuration in this directory because the contract-defining
-verdicts are listed in `eng/tla-expected-exit-codes.txt`.
+runs every configuration in a selected model directory. Entries in
+`eng/tla-expected-exit-codes.txt` additionally require the listed
+configurations to produce their exact semantic verdict.
 
 The exhaustive safety and liveness configurations retain the complete input
 cross-product and are recorded below from a pinned local run. They are
