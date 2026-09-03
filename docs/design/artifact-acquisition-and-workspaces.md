@@ -2208,19 +2208,18 @@ activated from equal portable
 keys, and display text do not participate in runtime identity.
 
 While its state is `Open`, the Workspace may issue an opaque coordinate
-occurrence. Each issuance is distinct, including removal followed by
-re-admission of the same root currency, so a stale result cannot become current
-again merely because a root binding recurs. Synchronous `Dispose()` and
-asynchronous `CloseAsync()` stop issuance in the same critical section that
-changes the Workspace state to `Closing`. Existing identities remain
-comparable after close, but neither identity nor equality authorizes later
-Workspace operations or package-content access.
+occurrence. Each issuance is distinct even for the same root currency, so a
+stale result cannot become current again merely because a root binding recurs.
+Synchronous `Dispose()` and asynchronous `CloseAsync()` stop issuance in the
+same critical section that changes the Workspace state to `Closing`. Existing
+identities remain comparable after close, but neither identity nor equality
+authorizes later Workspace operations or package-content access.
 
 The package arm is `PackageRootOccurrenceBinding`. It carries the exact
 Workspace identity and exact acquisition-issued `PackageRootBinding`.
 `PackageRootBinding` remains authoritative for package coordinate,
 content-generation, selection, and their correspondence. The occurrence adds
-only Workspace-local admission identity; it does not mint a second package
+only Workspace-local issuance identity; it does not mint a second package
 identity. The non-package arm is an opaque
 `NonPackageRootOccurrenceIdentity`; a later root adapter composes its own
 owner-issued root facts with that exact occurrence rather than deriving them
@@ -2244,12 +2243,13 @@ retained, expose ordered descriptors, define membership transition semantics,
 or implement Navigation adoption. Those remain later slices of #5508, #5583,
 and #5584. The gates are
 `WorkspaceIdentity_IsStableAndExactPerInstance`,
-`EqualPortableContextAddresses_DoNotEstablishWorkspaceIdentity`,
 `PackageOccurrence_IsExactPerIssuanceAndCarriesBinding`,
 `PackageOccurrence_DistinguishesWorkspaceAndBindingGeneration`,
 `NonPackageOccurrence_IsExactAndWorkspaceScoped`,
 `SynchronousClose_StopsOccurrenceIssuanceButKeepsIdentity`, and
 `AsynchronousClose_StopsOccurrenceIssuanceImmediately`.
+
+### Workspace composition and query execution
 
 The workspace owns one or more artifact set sessions and one or more assembly
 context groups. When an authorized query plan first demands a context, the

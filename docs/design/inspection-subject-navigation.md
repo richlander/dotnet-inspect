@@ -217,11 +217,12 @@ their protected Navigation consumption is #5584.
 Artifact acquisition and package realization own package coordinate,
 `PackageRootBinding`, content-generation, selection, and acquired-descendant
 identity currencies. #5508 composes a Workspace-local occurrence with those
-existing currencies rather than minting a parallel package identity. Repeated
-admission of the same `PackageRootBinding` receives a distinct occurrence, but
-the carried binding remains the only package correspondence proof. Navigation
-consumes only that owner-issued exact occurrence binding; a portable package
-coordinate alone cannot identify one retained occurrence.
+existing currencies rather than minting a parallel package identity. Each
+issuance for the same `PackageRootBinding` creates a distinct occurrence; later
+Workspace membership operations retain that exact occurrence while the carried
+binding remains the only package correspondence proof. Navigation consumes only
+that owner-issued exact occurrence binding; a portable package coordinate alone
+cannot identify one retained occurrence.
 
 [Type, member, and API representation](type-member-api-representation.md) owns
 the Type and Member identity currencies used here.

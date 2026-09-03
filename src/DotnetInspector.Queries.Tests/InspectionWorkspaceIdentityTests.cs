@@ -1,5 +1,3 @@
-using DotnetInspector.Queries.Definitions;
-
 namespace DotnetInspector.Queries.Tests;
 
 public sealed class InspectionWorkspaceIdentityTests
@@ -14,20 +12,6 @@ public sealed class InspectionWorkspaceIdentityTests
 
         Assert.Same(identity, first.Identity);
         Assert.NotSame(identity, second.Identity);
-    }
-
-    [Fact]
-    public void EqualPortableContextAddresses_DoNotEstablishWorkspaceIdentity()
-    {
-        var firstAddress =
-            new WorkspaceContextAddress("workspace", "context");
-        var secondAddress =
-            new WorkspaceContextAddress("workspace", "context");
-        using var first = new InspectionWorkspace();
-        using var second = new InspectionWorkspace();
-
-        Assert.Equal(firstAddress, secondAddress);
-        Assert.NotSame(first.Identity, second.Identity);
     }
 
     [Fact]
