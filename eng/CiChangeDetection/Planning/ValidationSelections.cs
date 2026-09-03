@@ -37,6 +37,7 @@ internal sealed class ValidationSelections
 {
     internal ValidationSelections(
         bool test,
+        bool dependencyPolicy,
         bool cSharpDiffSmoke,
         bool decompilerGates,
         bool markdownlint,
@@ -59,6 +60,7 @@ internal sealed class ValidationSelections
         }
 
         Test = test;
+        DependencyPolicy = dependencyPolicy;
         CSharpDiffSmoke = cSharpDiffSmoke;
         DecompilerGates = decompilerGates;
         Markdownlint = markdownlint;
@@ -75,6 +77,8 @@ internal sealed class ValidationSelections
     }
 
     internal bool Test { get; }
+
+    internal bool DependencyPolicy { get; }
 
     internal bool CSharpDiffSmoke { get; }
 
@@ -115,12 +119,12 @@ internal sealed class ValidationSelections
 
     /// <summary>
     /// Applies the repository's event rules to raw routing selections. A push
-    /// runs neither the pre-merge test matrix nor the validations placed
-    /// behind it; documentation lint, the Browser/Wasm lane, the TLA+ lane,
-    /// and the CodeQL lanes have no event gate. CodeQL keeps running on a
-    /// push because code scanning alerts are reported against the default
-    /// branch: gating it on the pre-merge event would leave that baseline
-    /// frozen at whatever last ran before the merge.
+    /// runs the focused dependency-policy composition gate rather than the
+    /// pre-merge test matrix; documentation lint, the Browser/Wasm lane, the
+    /// TLA+ lane, and the CodeQL lanes have no event gate. CodeQL keeps
+    /// running on a push because code scanning alerts are reported against
+    /// the default branch: gating it on the pre-merge event would leave that
+    /// baseline frozen at whatever last ran before the merge.
     /// </summary>
     /// <param name="selections">The raw routing selections.</param>
     /// <param name="kind">The provenance kind supplying the event rule.</param>
@@ -132,6 +136,7 @@ internal sealed class ValidationSelections
         bool preMerge = kind != PlanEventKind.Push;
         return new ValidationSelections(
             test: selections.Code && preMerge,
+            dependencyPolicy: kind == PlanEventKind.Push,
             cSharpDiffSmoke: selections.CSharpDiff && preMerge,
             decompilerGates: selections.Decompiler && preMerge,
             markdownlint: selections.Docs,

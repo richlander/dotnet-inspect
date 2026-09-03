@@ -187,6 +187,11 @@ policy input cannot silently remove validation. A deliberately conservative
 selection must be represented in a valid plan and tested as policy, not
 reached through an accidental parsing fallback.
 
+Every push selects `dependencyPolicy` independently of changed paths. The
+focused consumer rebuilds and checks the composed Release graph after merge;
+pull-request and merge-group candidates instead run the same policy inside
+their selected pre-merge test job.
+
 Two conservative inventory policies are current and named. When
 `eng/inspect-web-gate-projects.txt` is missing or malformed, every `src`
 change broadens to the Browser/Wasm lane. When
@@ -246,7 +251,7 @@ Conceptually:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "status": "planned",
   "provenance": {
     "kind": "pullRequestSyntheticCandidate",
@@ -259,6 +264,7 @@ Conceptually:
   },
   "validations": {
     "test": true,
+    "dependencyPolicy": false,
     "markdownlint": false,
     "ilRoundtrip": true,
     "tla": true
@@ -281,10 +287,10 @@ Path corpora and refusal diagnostics remain outside the plan.
 Concretely, the serialized plan is one compact UTF-8 JSON object containing
 only printable ASCII, with deterministic property order, lower camel member
 names, no newline, and lowercase digests. Its `validations` member always
-carries every field — `test`, `csharpDiffSmoke`, `decompilerGates`,
-`markdownlint`, `ilDiffSmoke`, `ilRoundTrip`, `pack`, `buildNet10`,
-`inspectWeb`, `skillGate`, `tla`, `codeqlActions`, `codeqlCSharp`, and
-`codeqlJavaScript` — so a consumer never distinguishes
+carries every field — `test`, `dependencyPolicy`, `csharpDiffSmoke`,
+`decompilerGates`, `markdownlint`, `ilDiffSmoke`, `ilRoundTrip`, `pack`,
+`buildNet10`, `inspectWeb`, `skillGate`, `tla`, `codeqlActions`,
+`codeqlCSharp`, and `codeqlJavaScript` — so a consumer never distinguishes
 "false" from "absent". `ilRoundTrip` implies `test` as a construction
 invariant. A scope descriptor names its artifact, record framing, record
 count, and digest; the TLA+ artifact is `ci-plan-tla-paths0`. The plan

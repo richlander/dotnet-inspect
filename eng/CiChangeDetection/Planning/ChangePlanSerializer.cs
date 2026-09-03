@@ -14,6 +14,7 @@ internal static class ChangePlanSerializer
     private static readonly string[] ValidationNames =
     [
         "test",
+        "dependencyPolicy",
         "csharpDiffSmoke",
         "decompilerGates",
         "markdownlint",
@@ -244,7 +245,8 @@ internal static class ChangePlanSerializer
                 values[10],
                 values[11],
                 values[12],
-                values[13]);
+                values[13],
+                values[14]);
 
             JsonElement scopesElement =
                 RequireObject(root.GetProperty("scopes"), "scopes");
@@ -309,6 +311,7 @@ internal static class ChangePlanSerializer
     private static bool[] ValidationValues(ValidationSelections validations) =>
     [
         validations.Test,
+        validations.DependencyPolicy,
         validations.CSharpDiffSmoke,
         validations.DecompilerGates,
         validations.Markdownlint,

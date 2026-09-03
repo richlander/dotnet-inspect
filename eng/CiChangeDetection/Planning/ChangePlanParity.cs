@@ -109,6 +109,11 @@ internal static class ChangePlanParity
             effective.Test,
             scenario);
         AssertEffective(
+            "dependencyPolicy",
+            kind == PlanEventKind.Push,
+            effective.DependencyPolicy,
+            scenario);
+        AssertEffective(
             "csharpDiffSmoke",
             Raw(values, "csharpdiff") && preMerge,
             effective.CSharpDiffSmoke,
