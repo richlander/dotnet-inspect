@@ -188,6 +188,7 @@ public class InspectionAcquisitionPlanTests
             foreach (byte[] image in new[]
                      {
                          BuildNativePeImage(),
+                         BuildDosOnlyImage(),
                          new byte[] { 0x01, 0x02, 0x03 },
                      })
             {
@@ -200,6 +201,15 @@ public class InspectionAcquisitionPlanTests
                 Assert.Null(
                     ResolvedAssemblyReference.CreateFromPathIfManaged(
                         path,
+                        AssemblyResolutionProvenance.Local("test")));
+                Assert.IsType<
+                    AssemblyDescriptorSelectionResult.Descriptorless>(
+                        ResolvedAssemblyReference.SelectFromStream(
+                            () => new MemoryStream(image, writable: false),
+                            AssemblyResolutionProvenance.Local("test")));
+                Assert.Null(
+                    ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                        () => new MemoryStream(image, writable: false),
                         AssemblyResolutionProvenance.Local("test")));
             }
         }
@@ -2226,6 +2236,13 @@ public class InspectionAcquisitionPlanTests
         writer.Write((ushort)0);
         writer.Write(0x60000020u);
         image[0x200] = 0xC3;
+        return image;
+    }
+
+    static byte[] BuildDosOnlyImage()
+    {
+        var image = new byte[0x80];
+        BinaryPrimitives.WriteUInt16LittleEndian(image, 0x5A4D);
         return image;
     }
 

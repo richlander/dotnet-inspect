@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
@@ -522,7 +523,7 @@ public sealed class ResolvedAssemblyReference
         Func<AssemblyReferenceIdentity, ResolvedAssemblyReference>
             createDescriptor)
     {
-        if (stream.CanSeek && !HasDosHeaderSignature(stream))
+        if (stream.CanSeek && !HasPortableExecutableSignature(stream))
         {
             return new AssemblyDescriptorSelectionResult.Descriptorless(
                 compatibilityException: null);
@@ -597,13 +598,42 @@ public sealed class ResolvedAssemblyReference
         }
     }
 
-    static bool HasDosHeaderSignature(Stream stream)
+    static bool HasPortableExecutableSignature(Stream stream)
     {
+        const int PeHeaderOffsetLocation = 0x3c;
+        const uint PeSignature = 0x00004550;
+
         long position = stream.Position;
         try
         {
-            return stream.ReadByte() == 'M'
-                && stream.ReadByte() == 'Z';
+            if (stream.ReadByte() != 'M'
+                || stream.ReadByte() != 'Z')
+            {
+                return false;
+            }
+
+            if (stream.Length - position
+                < PeHeaderOffsetLocation + sizeof(int))
+            {
+                return false;
+            }
+
+            stream.Position = position + PeHeaderOffsetLocation;
+            Span<byte> offsetBytes = stackalloc byte[sizeof(int)];
+            stream.ReadExactly(offsetBytes);
+            int peHeaderOffset =
+                BinaryPrimitives.ReadInt32LittleEndian(offsetBytes);
+            if (peHeaderOffset < 0
+                || peHeaderOffset > stream.Length - position - sizeof(uint))
+            {
+                return false;
+            }
+
+            stream.Position = position + peHeaderOffset;
+            Span<byte> signatureBytes = stackalloc byte[sizeof(uint)];
+            stream.ReadExactly(signatureBytes);
+            return BinaryPrimitives.ReadUInt32LittleEndian(signatureBytes)
+                == PeSignature;
         }
         finally
         {

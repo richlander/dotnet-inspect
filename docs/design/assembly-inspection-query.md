@@ -240,7 +240,9 @@ this compatibility correction does not change artifact selection.
 path and stream callers consume the corrected classification through the
 nullable shims while they migrate. The stream entry point remains
 browser/Wasm-compatible; browser layering continues to prohibit host code from
-constructing Metadata descriptors directly. The contract is gated by
+constructing Metadata descriptors directly, gated by
+`BrowserEngineLayeringTests.BanListForbidsEverySessionAndImageDoor`. The
+selection contract is gated by
 `SelectFromPath_ReturnsDescriptorWithSelectedProvenance`,
 `DescriptorSelection_ClassifiesDescriptorlessImages`,
 `PathFactories_BlankAssemblyName_IsRejected`,
