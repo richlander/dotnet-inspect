@@ -946,7 +946,9 @@ deterministic scheduling rather than a real browser worker. It includes:
   failure without posting `Start`;
 - current-source malformed or protocol-invalid messages before `Ready`
   immediately closing the partial realm with their specific failure kind,
-  while the corresponding post-readiness faults use bounded draining;
+  while the corresponding post-readiness faults use bounded draining,
+  operation closure delivery preceding the external runtime-failure observer
+  so reentrant cancellation cannot replace the committed boundary outcome;
 - strictly increasing operation sequences with legal gaps, high-water replay
   rejection after record release, a valid newer sequence for a fresh ID,
   active duplicate IDs consuming that sequence before failure, no silent
@@ -978,7 +980,8 @@ deterministic scheduling rather than a real browser worker. It includes:
   epoch;
 - worker and main-side epoch-work high-water and active-set validation,
   unmatched or duplicate finish, allowance mismatch, and release on epoch
-  close;
+  close, including delayed physical admission and work-start messages during
+  draining remaining eligible only to prove later settlement or finish;
 - an initial operation transferring an anticipated shared producer to an
   epoch-work lease before quiescence, lease release followed by a feature-owned
   fixture retaining epoch-local cache state, a later ordinary operation
@@ -999,7 +1002,8 @@ deterministic scheduling rather than a real browser worker. It includes:
 - current-epoch invalid ordering as protocol failure and old-epoch messages as
   stale no-ops;
 - failure-complete sink notification and record release when adapter callbacks
-  throw; and
+  throw, plus synchronous fake-worker admission aborting before invocation when
+  its response reentrantly terminates the realm; and
 - a neighboring browser-native producer proving operation authority does not
   depend on the worker adapter.
 

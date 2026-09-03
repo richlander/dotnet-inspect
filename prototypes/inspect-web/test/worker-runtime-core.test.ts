@@ -11,6 +11,7 @@ import {
   type OperationProducerSink,
   type OperationSession,
   type OperationStartResult,
+  type PreparedOperationProducer,
 } from "../src/operation-authority.ts";
 import {
   FakeWorkerOperationCatalog,
@@ -115,6 +116,7 @@ interface HarnessOptions {
   readonly drainBudgetMilliseconds?: number;
   readonly failure?: (failure: WorkerRuntimeFailure<TestDiagnostic>) => void;
   readonly workerProducerClassIdleAllowanceMilliseconds?: number;
+  readonly workerAllowance?: WorkerLivenessAllowance;
 }
 
 interface ProducerClassDefinition {
@@ -269,7 +271,7 @@ function createHarness(options: HarnessOptions = {}): TestHarness {
     const operations = new FakeWorkerOperationCatalog();
     operations.register({
       kind: "echo",
-      allowance,
+      allowance: options.workerAllowance ?? allowance,
       input: stringDecoder(),
       rejectInvalidPayload: detail => ({
         error: "invalid-payload",
@@ -2848,6 +2850,147 @@ test("failure notification cannot reentrantly admit a new operation", async () =
     ).length,
     0,
   );
+});
+
+test("operation closure precedes a reentrant failure-observer cancellation", async () => {
+  const active: {
+    handle: OperationHandle<string, string> | null;
+  } = { handle: null };
+  const settlement = deferred<TestSettlement>();
+  const harness = createHarness({
+    invoke: () => settlement.promise,
+    failure: () => {
+      active.handle?.cancel("user");
+    },
+  });
+  await startReady(harness);
+  const operationSession = session(harness.adapter);
+  active.handle = started(
+    operationSession.session.start("input", harness.adapter),
+  );
+  await harness.environment.flushAsync();
+
+  harness.workers[0]!.emitRaw({ malformed: true });
+
+  assert.deepEqual(await active.handle.outcome, {
+    kind: "failed",
+    error: "boundary:protocol",
+  });
+});
+
+test("operation closure identity is fixed before sink callbacks run", async () => {
+  const settlement = deferred<TestSettlement>();
+  const harness = createHarness({ invoke: () => settlement.promise });
+  await startReady(harness);
+  const identity = captureIdentity();
+  const terminals: unknown[] = [];
+  let binding: PreparedOperationProducer | null = null;
+  const sink: OperationProducerSink<string, string, string> = {
+    reportProgress: () => undefined,
+    reportUnexpectedFailure: () => {
+      binding?.requestCancellation("user");
+      return undefined;
+    },
+    reportTerminal: outcome => {
+      terminals.push(outcome);
+      return undefined;
+    },
+    reportQuiesced: () => undefined,
+  };
+  binding = preparedBinding(
+    harness.adapter.prepare(identity, "input", sink),
+  );
+  binding.activate();
+  await harness.environment.flushAsync();
+
+  harness.workers[0]!.emitRaw({ malformed: true });
+
+  assert.deepEqual(terminals, [{
+    kind: "failed",
+    error: "boundary:protocol",
+  }]);
+  assert.deepEqual(
+    operationMessages(harness.workers[0]!),
+    ["initialize", "start"],
+  );
+});
+
+test("synchronous fake admission cannot invoke after restart releases the realm", async () => {
+  let harness: TestHarness;
+  let invokeCount = 0;
+  harness = createHarness({
+    allowance: { kind: "bounded", maxSilentActiveMilliseconds: 20 },
+    workerAllowance: { kind: "bounded", maxSilentActiveMilliseconds: 19 },
+    invoke: input => {
+      invokeCount++;
+      return { kind: "succeeded", value: input };
+    },
+    failure: () => {
+      harness.host.restart();
+    },
+  });
+  await startReady(harness);
+  const operationSession = session(harness.adapter);
+  started(operationSession.session.start("input", harness.adapter));
+
+  await harness.environment.flushAsync();
+
+  assert.equal(harness.host.snapshot().phase, "closed");
+  assert.equal(harness.workers[0]!.terminated, true);
+  assert.equal(invokeCount, 0);
+});
+
+test("draining tracks delayed physical admission through settlement", async () => {
+  const harness = createHarness();
+  await startReady(harness);
+  const operationSession = session(harness.adapter);
+  const handle = started(
+    operationSession.session.start("input", harness.adapter),
+  );
+
+  harness.workers[0]!.emitError("worker event");
+  await harness.environment.flushAsync();
+
+  assert.equal(harness.host.snapshot().phase, "closed");
+  assert.equal(harness.host.snapshot().activeOperations, 0);
+  assert.deepEqual(await handle.outcome, {
+    kind: "failed",
+    error: "boundary:worker-message",
+  });
+  await handle.quiesced;
+});
+
+test("draining tracks delayed epoch work until its physical finish", async () => {
+  const settlement = deferred<TestSettlement>();
+  const harness = createHarness({ invoke: () => settlement.promise });
+  await startReady(harness);
+  const operationSession = session(harness.adapter);
+  const handle = started(
+    operationSession.session.start("input", harness.adapter),
+  );
+  await harness.environment.flushAsync();
+  harness.workers[0]!.emitError("worker event");
+
+  harness.workers[0]!.emitRaw(workerEnvelope(1, {
+    kind: "epoch-work-started",
+    workSequence: 1,
+    allowance: { kind: "bounded", maxSilentActiveMilliseconds: 30 },
+  }));
+  assert.equal(harness.host.snapshot().activeEpochWork, 1);
+  harness.workers[0]!.emitRaw(workerEnvelope(1, {
+    kind: "settled",
+    operation: { operationId: handle.id, operationSequence: 1 },
+    settlement: { kind: "succeeded", value: "physically-released" },
+  }));
+  assert.equal(harness.host.snapshot().phase, "draining");
+
+  harness.workers[0]!.emitRaw(workerEnvelope(1, {
+    kind: "epoch-work-finished",
+    workSequence: 1,
+  }));
+
+  assert.equal(harness.host.snapshot().phase, "closed");
+  await handle.quiesced;
 });
 
 test("disposed hosts reject restart and remain quiescent", async () => {

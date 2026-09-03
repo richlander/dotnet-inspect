@@ -1123,13 +1123,13 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
         );
         if (decoded.kind === "failure") return decoded;
         if (!record.logicalClosureReported) {
+          record.logicalClosureReported = true;
           invoke(current => {
             current.reportTerminal({
               kind: "failed",
               error: decoded.value.error,
             });
           });
-          record.logicalClosureReported = true;
         }
         return { kind: "success" };
       },
@@ -1152,6 +1152,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
         });
         if (decoded.kind === "failure") return decoded;
         if (!record.logicalClosureReported) {
+          record.logicalClosureReported = true;
           const settlement = decoded.value.settlement;
           if (settlement.kind === "failed"
             && settlement.failureKind === "unexpected") {
@@ -1177,12 +1178,12 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
               });
             }
           });
-          record.logicalClosureReported = true;
         }
         return { kind: "success" };
       },
       reportClosure: closure => {
         if (record.logicalClosureReported) return;
+        record.logicalClosureReported = true;
         if (closure.kind === "planned-restart") {
           invoke(current => {
             current.reportTerminal({
@@ -1201,14 +1202,13 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
             });
           });
         }
-        record.logicalClosureReported = true;
       },
       reportCancellation: reason => {
         if (record.logicalClosureReported) return;
+        record.logicalClosureReported = true;
         invoke(current => {
           current.reportTerminal({ kind: "canceled", reason });
         });
-        record.logicalClosureReported = true;
       },
       reportQuiescence: () => {
         if (record.quiescenceReported) return;
@@ -1520,11 +1520,20 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       case "epoch-work-finished":
         this.#receiveEpochWorkFinished(epoch, envelope.workSequence, true);
         return;
+      case "accepted":
+        this.#receiveAccepted(epoch, envelope, true);
+        return;
+      case "epoch-work-started":
+        this.#receiveEpochWorkStarted(
+          epoch,
+          envelope.workSequence,
+          envelope.allowance,
+          true,
+        );
+        return;
       case "heartbeat":
       case "probe-acknowledged":
-      case "accepted":
       case "progress":
-      case "epoch-work-started":
       case "ready":
       case "startup-failed":
       case "epoch-failed":
@@ -1546,19 +1555,24 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
   #receiveAccepted(
     epoch: MainEpoch<TDiagnostic>,
     envelope: Extract<RawWorkerToMainEnvelope, { readonly kind: "accepted" }>,
+    draining = false,
   ): void {
     const record = this.#findOperation(epoch, envelope.operation);
     if (record === null
       || record.phase !== "awaiting-admission"
       || !sameAllowance(record.registration.allowance, envelope.allowance)) {
-      this.#protocolFailure(epoch, envelope);
+      if (!draining) this.#protocolFailure(epoch, envelope);
       return;
     }
-    if (!this.#commitCommandResponse(epoch, "start", envelope.operation))
+    if (!draining
+      && !this.#commitCommandResponse(epoch, "start", envelope.operation)) {
       return;
+    }
     record.phase = "accepted";
-    this.#recordTaskEvidence(epoch);
-    this.#topologyChanged(epoch);
+    if (!draining) {
+      this.#recordTaskEvidence(epoch);
+      this.#topologyChanged(epoch);
+    }
   }
 
   #receiveRejected(
@@ -1659,15 +1673,16 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     epoch: MainEpoch<TDiagnostic>,
     sequence: number,
     allowance: WorkerLivenessAllowance,
+    draining = false,
   ): void {
     if (sequence <= epoch.workHighWater
       || !this.#producerClasses.acceptsLeaseAllowance(allowance)) {
-      this.#protocolFailure(epoch, { sequence, allowance });
+      if (!draining) this.#protocolFailure(epoch, { sequence, allowance });
       return;
     }
     epoch.workHighWater = sequence;
     epoch.epochWork.set(sequence, allowance);
-    this.#topologyChanged(epoch);
+    if (!draining) this.#topologyChanged(epoch);
   }
 
   #receiveEpochWorkFinished(
@@ -2008,11 +2023,10 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     epoch.phase = "draining";
     epoch.drainDeadline = this.#options.clock.now()
       + this.#options.drainBudgetMilliseconds;
-    if (closure.kind === "unexpected-failure")
-      this.#reportFailure(closure.failure);
-
     for (const record of epoch.operations.values())
       this.#reportOperationClosure(record, closure);
+    if (closure.kind === "unexpected-failure")
+      this.#reportFailure(closure.failure);
 
     if (immediate) {
       this.#hardTerminate(epoch);
@@ -2245,7 +2259,7 @@ interface FakeWorkerOperationDispatchHandlers {
   readonly accepted: (
     allowance: WorkerLivenessAllowance,
     cancel: FakeWorkerCancel | null,
-  ) => void;
+  ) => boolean;
   readonly rejected: (error: unknown, diagnostic: unknown) => void;
   readonly settled: (
     settlement: ManagedOperationSettlement<unknown, unknown, unknown>,
@@ -2307,12 +2321,13 @@ export class FakeWorkerOperationCatalog {
           return;
         }
         const cancel = registration.cancel;
-        handlers.accepted(
+        const accepted = handlers.accepted(
           registration.allowance,
           cancel === undefined
             ? null
             : (operation, reason) => cancel(operation, reason),
         );
+        if (!accepted) return;
         let result:
           | ManagedOperationSettlement<
             TValue,
@@ -2660,6 +2675,7 @@ implements WorkerRuntimeTransportBinding, WorkerRuntimeSource {
       context,
       {
         accepted: (allowance, cancel) => {
+          if (this.#terminated || this.#failed) return false;
           this.#active.set(envelope.operation.operationId, {
             operation: envelope.operation,
             cancel,
@@ -2674,6 +2690,7 @@ implements WorkerRuntimeTransportBinding, WorkerRuntimeSource {
               allowance,
             });
           }
+          return !this.#terminated && !this.#failed;
         },
         rejected: (error, diagnostic) => {
           this.#rejectStart(envelope, error, diagnostic);
