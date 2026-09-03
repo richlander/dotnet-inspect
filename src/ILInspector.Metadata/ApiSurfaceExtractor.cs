@@ -200,16 +200,27 @@ public static class ApiSurfaceExtractor
                     continue;
 
                 var (typeNamespace, typeName) = GetApiTypeNameParts(reader, typeDefHandle);
+                MetadataTypeDefinitionName definitionName =
+                    MetadataTypeDefinitionNameReader.Read(
+                        reader,
+                        typeDefHandle)
+                    switch
+                    {
+                        MetadataTypeDefinitionNameReadResult.Read read =>
+                            read.Name,
+                        MetadataTypeDefinitionNameReadResult.Rejected rejected =>
+                            throw new MetadataRowRejectedException(
+                                "type identity",
+                                rejected.Failure),
+                        _ => throw new InvalidOperationException(
+                            "Unknown type-definition name result.")
+                    };
                 var apiType = new ApiType
                 {
                     Namespace = typeNamespace,
                     Name = typeName,
                     MetadataName = GetMetadataName(reader, typeDefHandle),
-                    DefinitionName =
-                        MetadataTypeDefinitionNameReader.Read(reader, typeDefHandle)
-                        is MetadataTypeDefinitionNameReadResult.Read read
-                            ? read.Name
-                            : null,
+                    DefinitionName = definitionName,
                     IntroducedTypeParameterCounts =
                         MetadataDeclarationQuery.GetIntroducedTypeParameterCounts(
                             reader,
@@ -1654,12 +1665,14 @@ public static class ApiSurfaceExtractor
                     evt.GetCustomAttributes(),
                     out var obsoleteMessage,
                     observeDecodeWork);
+                TypeNode? structuralEventNode = null;
                 var eventType = ResolveRequiredTypeName(
                     reader,
                     evt.Type,
                     typeContext,
                     observeText,
-                    observeDecodeWork);
+                    observeDecodeWork,
+                    captureTypeNode: node => structuralEventNode = node);
                 var eventNullableBytes = NullabilityReader.GetNullableBytes(
                     reader,
                     evt.GetCustomAttributes(),
@@ -1765,6 +1778,14 @@ public static class ApiSurfaceExtractor
                     SignatureModel = new ApiSignature
                     {
                         ReturnType = eventType,
+                        StructuralReturnType =
+                            structuralEventNode is
+                                {
+                                    IsDegraded: false,
+                                    HasStructuralPayload: true
+                                }
+                                ? structuralEventNode.StructuralIdentity()
+                                : null,
                         MemberName = eventName,
                         Accessors = accessorModels
                     },
@@ -2893,6 +2914,10 @@ public static class ApiSurfaceExtractor
                 }
                 if (ReferenceEquals(targetType, declaringType))
                     continue;
+                MetadataTypeDefinitionName declaringTypeDefinitionName =
+                    declaringType.DefinitionName
+                    ?? throw new InvalidOperationException(
+                        "An extension declaration must retain exact Type identity before projection.");
                 string declaringTypeCanonicalName =
                     ApiMemberIdentity.FormatTypeAnchorName(declaringType);
                 if (targetType.Members.Any(member =>
@@ -2928,6 +2953,8 @@ public static class ApiSurfaceExtractor
                     DeclaringType = declaringType.FullName,
                     DeclaringTypeCanonicalName =
                         declaringTypeCanonicalName,
+                    DeclaringTypeDefinitionName =
+                        declaringTypeDefinitionName,
                     DeclaringOverloadIndex = declaringOverloadIndex,
                     IsObsolete = extension.IsObsolete,
                     ObsoleteMessage = extension.ObsoleteMessage,
@@ -4107,13 +4134,14 @@ public static class ApiSurfaceExtractor
         EntityHandle handle,
         GenericContext? context = null,
         Action<string>? beforeRetainText = null,
-        Action<int>? beforeDecodeWork = null)
+        Action<int>? beforeDecodeWork = null,
+        Action<TypeNode>? captureTypeNode = null)
     {
-        if (beforeDecodeWork is not null)
+        if (beforeDecodeWork is not null || captureTypeNode is not null)
         {
             var provider =
                 new TypeNodeProvider(beforeMaterialize: beforeDecodeWork);
-            _ = handle.Kind switch
+            TypeNode? typeNode = handle.Kind switch
             {
                 HandleKind.TypeDefinition => provider.GetTypeFromDefinition(
                     reader,
@@ -4131,6 +4159,8 @@ public static class ApiSurfaceExtractor
                     (TypeNode)new DegradedTypeNode()),
                 _ => null,
             };
+            if (typeNode is not null)
+                captureTypeNode?.Invoke(typeNode);
         }
 
         string resolved = TypeResolver.ResolveTypeName(reader, handle, context) switch
@@ -5104,6 +5134,7 @@ public static class ApiSurfaceExtractor
         AddText(ref count, member.ExtendedType);
         AddText(ref count, member.DeclaringType);
         AddText(ref count, member.DeclaringTypeCanonicalName);
+        AddText(ref count, member.DeclaringTypeDefinitionName);
         AddText(ref count, member.EnumValueLiteral);
         AddText(ref count, member.JsonPropertyName);
         AddText(ref count, member.GetterAccessibility);

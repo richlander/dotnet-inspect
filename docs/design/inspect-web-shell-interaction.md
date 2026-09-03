@@ -2,25 +2,27 @@
 
 This document owns the persistent `dotnet-inspect` shell and the shared
 transient and routed surfaces it launches: the workspace title bar and shell
-actions, shared menu/modal semantics, Spotlight Search, Open, Settings entry,
-the command palette, and the routed-versus-modal classification that governs
-focus return and history interaction. It does not own which subject, target,
-or lens is active, the contents of coordinate selectors, or the consumer
-effect lifecycle that resolves focus after a navigation result installs; those
-are separately owned.
+actions, the Application menu, shared menu/modal semantics, Spotlight Search,
+Open, Settings entry, Keyboard help, the command palette, and the
+routed-versus-modal classification that governs focus return and history
+interaction. It does not own which subject, target, or lens is active, the
+contents of coordinate selectors, or the consumer effect lifecycle that
+resolves focus after a navigation result installs; those are separately owned.
 
 ## Ownership and boundaries
 
 This owner defines:
 
-- the persistent shell's visible text actions (`Search`, `Open`, `Help`,
-  `Settings`) and the `dotnet-inspect` Home control;
+- the persistent shell's visible `Search` and `Open` actions, one stable
+  Application menu for `Share`, `Settings`, and `Keyboard help`, and the
+  `dotnet-inspect` Home control;
 - the title line's allocation among the product root, the navigation-
   presentation-owned inspected target, and trailing Search/history cluster;
 - the generic modal-dialog contract (accessible name, initial focus, inert
   background, tab containment, Escape, one-modal-at-a-time, and
-  ordinary-dismissal focus return) shared by Spotlight, Open, Settings, the
-  narrow navigation drawer, and the full-bleed Annotated Source viewer;
+  ordinary-dismissal focus return) shared by Spotlight, Open, Settings,
+  Keyboard help, the narrow navigation drawer, and the full-bleed Annotated
+  Source viewer;
 - the classification that Home, Workspace, Package query, and Diagnostics are
   routed full-bleed surfaces rather than dialogs;
 - Spotlight Search's input and package-scope behavior;
@@ -96,11 +98,18 @@ current workspace.
 The title line shows the applicable Package, Library, Type, and Member identity
 as one typed path.
 
-The second persistent row begins with the Workspace, Package, Type, and Member
-subject ladder and the active subject's inspectors. Share, Settings, contextual
-actions, and Help occupy its trailing side, with Help last. That action region
-may collapse completely under pressure rather than reducing the subject and
-inspector strip to permanent tab-like chrome.
+The second persistent line includes the Navigation Presentation-owned subject
+and inspector region: the Workspace, Package, Type, and Member subject ladder
+followed by the active subject's inspectors. `Share`, `Settings`,
+`Keyboard help`, and contextual working-surface actions are not children of
+that region or items in either SlideStrip.
+
+The shell exposes one stable Application menu control separately from the
+subject zone. [Inspect Web Surface
+Composition](inspect-web-surface-composition.md) owns its page-level placement,
+its relationship to overflowing content, and the responsive allocation that
+keeps it outside the subject and inspector region. The control's interaction
+identity and menu inventory do not change with viewport width.
 
 Search is an input-like control in the title line that opens Spotlight. It is
 not editable in place and does not become a dominant centered command control.
@@ -114,10 +123,19 @@ global title line exposes:
 dotnet-inspect (Home)   inspected target   Back   Forward   Search
 ```
 
-The subject zone exposes:
+The subject zone exposes only navigation:
 
 ```text
-Workspace Package Type Member   inspectors   Share   Settings   Help
+Workspace Package Type Member   inspectors
+```
+
+The separate Application menu exposes:
+
+```text
+Application
+  Share
+  Settings
+  Keyboard help
 ```
 
 The dotnet-bot image is the product mark. The visible `dotnet-inspect` label
@@ -137,14 +155,104 @@ The shell may land before adjacent redesign owners. During that transition:
 - Open remains absent rather than appearing disabled or committing a
   success-shaped placeholder action;
 - the `dotnet-inspect` root control is the sole persistent Home affordance;
-- Share, Settings, and keyboard Help occupy the subject zone, with Help last;
-  and
+- existing direct Share, Settings, and keyboard Help controls may remain in the
+  subject row until
+  [Surface Composition's placement contract](inspect-web-surface-composition.md#shell-navigation-and-application-actions)
+  is implemented;
+- that adoption replaces the direct controls atomically with the one
+  Application menu rather than rendering both action homes; and
 - retained packages may provisionally supply Workspace entries and Package
   version/framework controls in Package content before product-issued
   descriptors replace that data.
 
 This sequencing changes no package-selection or acquisition semantics and does
 not claim completion of the redesign.
+
+## Convention and comparison evidence
+
+The Application menu starts from three established patterns:
+
+- Firefox's application menu provides one stable, compact home for
+  application-level actions such as Settings and Help instead of distributing
+  them across content-specific chrome. The useful transfer is the persistent
+  action home, not Firefox's broad inventory or nested navigation
+  ([Mozilla menu reference](https://support.mozilla.org/en-US/kb/menus-reference)).
+- The WAI-ARIA Authoring Practices
+  [Menu Button Pattern](https://www.w3.org/WAI/ARIA/apg/patterns/menu-button/)
+  supplies the button, menu, focus, and keyboard baseline.
+- VS Code keeps commands reachable through both visible menus and the Command
+  Palette. The useful transfer is action parity, not VS Code's desktop
+  application menu bar or user-editable keybinding system
+  ([VS Code keyboard shortcuts](https://code.visualstudio.com/docs/configure/keybindings)).
+
+The deliberate divergence is that this menu remains small and non-navigational.
+It contains only the shell-owned Share, Settings, and Keyboard help actions.
+Search, Open, browser history, subjects, inspectors, coordinates, and
+contextual working-surface actions keep their existing dedicated owners and
+locations. The button is the canonical action home at every supported width,
+not an overflow fallback whose inventory changes when space becomes scarce.
+
+## Application menu
+
+The Application menu is one persistent shell control wherever the inspection
+shell is rendered. Its visible control uses the conventional three-line
+application-menu glyph with the complete accessible name and title
+`Application menu`. It has one stable logical identity across shell
+replacement so modal dismissal resolves the current rendered button rather
+than retaining an element reference from an older shell lifetime.
+
+The button follows the Menu Button Pattern:
+
+- it is a button with `aria-haspopup="menu"`, `aria-expanded`, and
+  `aria-controls`;
+- Enter, Space, or Down Arrow opens the menu and focuses its first item;
+- Up Arrow opens the menu and focuses its last item;
+- the menu has `role="menu"`, and its actions have `role="menuitem"` and are
+  outside the page Tab sequence while the menu is closed;
+- Up and Down Arrow wrap through the menu, while Home and End move to its
+  bounds;
+- Enter or Space activates the focused action;
+- Escape closes the menu and returns focus to the Application menu button;
+- Tab or Shift+Tab closes the menu and continues through ordinary document
+  order rather than trapping focus; and
+- outside-pointer dismissal leaves focus at the pointer's resulting target
+  rather than moving it back to the button.
+
+The menu inventory is stable among the actions applicable to the current
+surface:
+
+1. `Share` appears whenever a retained inspection workspace supplies an
+   explicit Share outcome. A non-projectable workspace retains the item because
+   activation must present the owner-issued reason; a surface with no Share
+   action omits it rather than rendering a disabled placeholder.
+2. A separator divides the current-workspace action from the application-wide
+   actions.
+3. `Settings` opens Unified Settings.
+4. `Keyboard help` opens the shared keyboard-reference dialog.
+
+Changing viewport width does not move an action between direct and menu forms,
+reorder the inventory, or remove the Application menu button. Contextual
+actions such as Copy, Explore, graph controls, source actions, and
+`Open in workspace` never enter this menu.
+
+Action activation closes the menu before dispatch:
+
+- Share returns focus to the Application menu button, submits the same explicit
+  canonical Share operation used by the command palette, and announces copy
+  success without moving focus. A non-projectable outcome or clipboard failure
+  is visibly surfaced and leaves focus on the button.
+- Settings and Keyboard help close the menu without an intermediate focus
+  return, then apply their modal initial-focus rules. Ordinary dismissal
+  returns to the current Application menu button without reopening the menu.
+- A committed navigation action, browser-history transition, or route change
+  that removes the inspection shell follows Navigation Consumer's destination
+  focus contract instead of trying to restore the removed button.
+
+If shell maintenance replaces the open menu without navigation, the menu
+closes and focus moves to the replacement Application menu button. If
+maintenance replaces the shell while Settings or Keyboard help is open, the
+modal remains focused and its eventual dismissal resolves the replacement
+button by logical identity.
 
 ## Shared menu and modal semantics
 
@@ -153,8 +261,8 @@ invoker and the modal applies its initial-focus rule. The stable menu-button
 invoker, not the removed menu item, becomes the modal's ordinary-dismissal
 return target; dismissal does not reopen the menu.
 
-Spotlight, Open, Settings, the narrow navigation drawer, and the full-bleed
-Annotated Source viewer are modal dialogs:
+Spotlight, Open, Settings, Keyboard help, the narrow navigation drawer, and the
+full-bleed Annotated Source viewer are modal dialogs:
 
 - each has a visible accessible name and close action;
 - opening moves focus to its primary input, current selection, or heading;
@@ -213,10 +321,13 @@ Spotlight as the one search experience for:
 - platform inputs; and
 - commands.
 
-The title-line Search control advertises the search scope in its expanded label
-and transfers focus to Spotlight's editable input when activated. Its compact
-`Search` label and hidden responsive states do not change the keyboard shortcut
-or Spotlight behavior.
+The title-line Search control uses the expanded label
+`Search types, members, packages` and transfers focus to Spotlight's editable
+input when activated. The control does not carry a visible shortcut badge;
+Spotlight's footer lists `Ctrl P` alongside its existing navigation guidance
+and wraps that guidance rather than clipping it at narrow supported widths. Its
+compact `Search` label and hidden responsive states do not change the keyboard
+shortcut or Spotlight behavior.
 
 Coordinate activation always opens the coordinate menu. That menu contains an
 explicit `Search packages` action that closes the menu and opens Spotlight in
@@ -256,9 +367,22 @@ to be binary or base64.
 
 ### Settings
 
-Settings opens the one shared configuration experience. Separate persistent
-theme controls, a global Taste button, and duplicate settings popovers are
-removed.
+The Application menu's Settings action opens the one shared configuration
+experience. Separate persistent theme controls, a global Taste button, and
+duplicate settings popovers are removed.
+
+### Keyboard help
+
+The Application menu's `Keyboard help` action opens one dialog named
+`Keyboard help`. It presents the current shell, navigation, inspection, and
+working-surface shortcuts using the same command names exposed through the
+command palette and visible controls. It does not create a second command
+registry, define another owner's shortcut semantics, or list unavailable
+commands as though they were supported.
+
+Initial focus moves to the dialog's visible heading. The dialog follows the
+shared modal containment, Escape, close, one-modal-at-a-time, and
+ordinary-dismissal focus-return rules.
 
 ## Command palette
 
@@ -275,6 +399,8 @@ type System.Text.Json.JsonSerializer
 member DeserializeAsync
 show source
 share
+settings
+keyboard help
 ```
 
 Command execution uses the same state transitions as pointer interaction and
@@ -286,12 +412,39 @@ site does not introduce a broad set of single-letter page shortcuts. One
 discoverable palette shortcut plus ordinary control-specific keyboard behavior
 is sufficient.
 
+## Implementation gates
+
+Before implementation claims this application-control contract, it must add
+and pass these named Inspect Web tests:
+
+- `shell-controls.test.ts`:
+  `application menu owns Share Settings and Keyboard help` proves the exact
+  menu inventory and order, conditional Share omission, non-projectable Share
+  reason, ARIA relationships, menu-button keyboard behavior, outside-pointer
+  dismissal, and the absence of contextual or navigation actions.
+- `workspace-titlebar.spec.ts`:
+  `application menu preserves action and focus continuity` proves Share
+  success and failure focus, Settings and Keyboard help initial focus and
+  dismissal return, shell replacement while the menu or a launched modal is
+  open, and stable action inventory across wide and narrow viewports.
+- `command-bar.test.ts`:
+  `application actions share one dispatch path with the command palette`
+  proves Share, Settings, and Keyboard help parity without a second action
+  registry.
+
+These gates exercise the Shell Interaction-owned control in a focused harness.
+Surface Composition's later placement adoption owns the geometry proving that
+the control remains outside the subject and inspector region and visible
+beside overflowing content.
+
 ## Non-claims
 
 This document does not decide which subject, coordinate, or lens is active,
 does not define effect-authority validation or browser-history commitment
 after a navigation result installs, and does not define page-level placement
-or responsive composition.
+or responsive composition. It does not turn the Application menu into a
+generic overflow-control substrate, place contextual working-surface actions,
+or redefine another owner's command or keyboard semantics.
 
 ## Acceptance scenarios
 
@@ -311,18 +464,53 @@ outcomes.
    contains the subject and inspector strip.
 5. Select Package and confirm that Version and Framework appear in its working
    surface. Confirm that every product-issued subject-path segment copies its
-   own typed canonical name, there is no separate Copy name action, and Share
-   remains with the exact identity. `dotnet-inspect` is the sole Home
-   affordance.
+   own typed canonical name, there is no separate Copy name action, and the
+   Application menu's Share action retains the exact workspace identity.
+   `dotnet-inspect` is the sole Home affordance.
 6. Narrow the viewport or lengthen the inspected target and confirm that the
    title-line action cluster progresses from full Search, to `Search`, to
-   arrows, to nothing. Confirm that the second-row actions may also disappear
-   and that Help is their final element.
+   arrows, to nothing. Confirm that the subject row contains only subject and
+   inspector navigation and that narrowing does not change the Application
+   menu's action inventory.
 7. Confirm that the product bot and inspected-target root mark retain distinct
    bounded icon slots and the current target leaf uses the shared accent.
 8. Confirm that no persistent package-query input or centered command-center
    control appears, and that Back and Forward sit immediately left of the
    visible flush-right Search control, which opens Spotlight.
+
+### Application menu scenarios
+
+1. Confirm that one `Application menu` button exists separately from the
+   subject and inspector tablists and retains one logical identity across shell
+   replacement.
+2. Open it by pointer, Enter, Space, Down Arrow, and Up Arrow. Confirm its ARIA
+   relationships, initial item, wrapped Arrow navigation, Home and End bounds,
+   Escape return, Tab continuation, and outside-pointer dismissal.
+3. In a retained projectable workspace, confirm that the menu contains Share,
+   a separator, Settings, and Keyboard help in that order. On a surface with no
+   Share action, confirm that Share and the now-unnecessary separator are
+   absent. Supply a non-projectable workspace and confirm that Share remains
+   present and activation surfaces its owner-issued reason.
+4. Activate Share and confirm that the menu closes, focus returns to the
+   Application menu button, the canonical link is copied once, and success is
+   announced without moving focus. Reject clipboard access and confirm a
+   visible failure with the same focus.
+5. Activate Settings and Keyboard help. Confirm that each closes the menu
+   without intermediate focus return, applies its modal initial-focus rule, and
+   returns to the current Application menu button on ordinary dismissal without
+   reopening the menu.
+6. Replace the shell while the menu is open and confirm that it closes and
+   focus moves to the replacement button. Replace the shell while Settings or
+   Keyboard help is open and confirm that modal focus remains contained and
+   dismissal resolves the replacement button.
+7. Resize repeatedly across the supported range and confirm that the button and
+   applicable action inventory remain stable rather than changing between
+   direct and overflow forms.
+8. Confirm that Search, Open, history, subjects, inspectors, coordinates,
+   Copy, Explore, graph actions, source actions, and `Open in workspace` do not
+   enter the menu.
+9. Invoke Share, Settings, and Keyboard help through the command palette and
+   confirm that each uses the same dispatch and outcome path as its menu item.
 
 ### Search input
 
@@ -347,6 +535,9 @@ outcomes.
    becomes the initial prefix without starting source work.
 10. Repeat with text that is not a valid package-ID prefix and confirm that the
     query surface starts with an empty prefix.
+11. Open general and command-scoped Spotlight at the narrow supported width and
+    confirm that every footer-guidance item, including `Ctrl P search`, remains
+    visible within the modal.
 
 ### Local Open
 
@@ -359,8 +550,8 @@ outcomes.
 
 ### Modal and routed surfaces
 
-1. Open and close Spotlight, Open, and Settings by pointer, keyboard, and
-   Escape.
+1. Open and close Spotlight, Open, Settings, and Keyboard help by pointer,
+   keyboard, and Escape.
 2. Confirm accessible naming, initial focus, modal containment, inert
    background content, and focus return for each.
 3. Launch Diagnostics from Settings and Spotlight and confirm that focus moves

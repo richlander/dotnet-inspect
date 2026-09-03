@@ -10,29 +10,49 @@ namespace DotnetInspector.Queries;
 public static class InspectionGraphIntegrationsCatalog
 {
     static InspectionGraphOccurrenceIdentityProjection
-        OccurrenceIdentity { get; } =
+        OccurrenceIdentity
+    { get; } =
         new IntegrationOccurrenceIdentityProjection();
 
     static InspectionGraphEndpointProjection
-        OpportunityEndpointProjection { get; } =
+        OpportunityEndpointProjection
+    { get; } =
         new OpportunityEndpointProjectionImpl();
 
     public static InspectionGraphEvidenceDescriptor ExtensionEvidence { get; } =
         new("metadata.extension-api", InspectionGraphOwner.Metadata);
 
     public static InspectionGraphEvidenceDescriptor IntegrationEvidence
-        { get; } =
+    { get; } =
         new("metadata.integration-api", InspectionGraphOwner.Metadata);
 
     public static InspectionGraphEvidenceDescriptor ReferenceEvidence { get; } =
         new("metadata.assembly-reference", InspectionGraphOwner.Metadata);
 
     public static InspectionGraphEvidenceDescriptor OpportunityEvidence
-        { get; } =
+    { get; } =
         new("metadata.integration-opportunity", InspectionGraphOwner.Metadata);
+
+    public static InspectionGraphEvidenceDescriptor CensusObservedEvidence
+    { get; } =
+        new(
+            "queries.integration-census-observed",
+            InspectionGraphOwner.Queries);
+
+    public static InspectionGraphEvidenceDescriptor CensusOpportunityEvidence
+    { get; } =
+        new(
+            "queries.integration-census-opportunity",
+            InspectionGraphOwner.Queries);
 
     public static InspectionGraphEvidenceDescriptor FailureEvidence { get; } =
         new("queries.integration-graph-failure", InspectionGraphOwner.Queries);
+
+    public static InspectionGraphEvidenceDescriptor CensusFailureEvidence
+    { get; } =
+        new(
+            "queries.integration-census-incomplete",
+            InspectionGraphOwner.Queries);
 
     public static InspectionGraphRelationshipDescriptor Extension { get; } =
         new(
@@ -66,14 +86,20 @@ public static class InspectionGraphIntegrationsCatalog
             [ExtensionEvidence]);
 
     public static InspectionGraphRelationshipDescriptor IntegrationObserved
-        { get; } =
+    { get; } =
         new(
             "integration.observed",
             InspectionGraphOwner.Metadata,
             InspectionGraphRelationshipSemantics.Observed,
-            [InspectionGraphSubjectKind.Member],
+            [
+                InspectionGraphSubjectKind.Member,
+                InspectionGraphSubjectKind.Type,
+            ],
             [InspectionGraphSubjectKind.Type],
-            [InspectionGraphSubjectKind.Member],
+            [
+                InspectionGraphSubjectKind.Member,
+                InspectionGraphSubjectKind.Type,
+            ],
             [InspectionGraphSubjectKind.Type],
             [
                 new(
@@ -95,10 +121,13 @@ public static class InspectionGraphIntegrationsCatalog
             ],
             InspectionGraphEndpointProjection.Exact,
             OccurrenceIdentity,
-            [IntegrationEvidence]);
+            [
+                IntegrationEvidence,
+                CensusObservedEvidence,
+            ]);
 
     public static InspectionGraphRelationshipDescriptor MetadataReference
-        { get; } =
+    { get; } =
         new(
             "metadata.reference",
             InspectionGraphOwner.Metadata,
@@ -130,7 +159,8 @@ public static class InspectionGraphIntegrationsCatalog
             [ReferenceEvidence]);
 
     public static InspectionGraphRelationshipDescriptor
-        IntegrationOpportunity { get; } =
+        IntegrationOpportunity
+    { get; } =
         new(
             "integration.opportunity",
             InspectionGraphOwner.Metadata,
@@ -159,16 +189,23 @@ public static class InspectionGraphIntegrationsCatalog
             ],
             OpportunityEndpointProjection,
             OccurrenceIdentity,
-            [OpportunityEvidence]);
+            [
+                OpportunityEvidence,
+                CensusOpportunityEvidence,
+            ]);
 
     public static InspectionGraphFailureDescriptor ProjectionFailure { get; } =
         new(
             "queries.integration-graph-incomplete",
             InspectionGraphOwner.Queries,
-            [FailureEvidence]);
+            [
+                FailureEvidence,
+                CensusFailureEvidence,
+            ]);
 
     public static ImmutableArray<InspectionGraphRelationshipDescriptor>
-        Relationships { get; } =
+        Relationships
+    { get; } =
         [
             Extension,
             IntegrationObserved,
@@ -209,6 +246,8 @@ public static class InspectionGraphIntegrationsCatalog
                             opportunity.Integration,
                             opportunity.GetConcept()),
                         opportunity.Target),
+                InspectionGraphIntegrationCensusCandidateEvidence census =>
+                    census.Attempt.Address,
                 _ => throw new ArgumentException(
                     "Unsupported Integration graph occurrence evidence.",
                     nameof(occurrence)),
@@ -314,19 +353,37 @@ public static class InspectionGraphIntegrationsCatalog
 
             if (occurrence.SourceSubject == endpoint)
                 return true;
-            return occurrence.SourceSubject
+            if (occurrence.SourceSubject
                     is InspectionGraphSubject.TypeSubject
-                    {
-                        Identity:
-                            InspectionGraphTypeIdentity.AcquiredDefinition
-                            source,
-                    }
+                {
+                    Identity:
+                            InspectionGraphTypeIdentity.CensusType
+                            sourceType,
+                }
                 && endpoint
                     is InspectionGraphSubject.AssemblySubject
-                    {
-                        Identity:
+                {
+                    Identity:
+                            InspectionGraphAssemblyIdentity
+                                .CensusParticipant sourceAssembly,
+                })
+            {
+                return sourceType.Identity.Participant.Equals(
+                    sourceAssembly.Participant);
+            }
+            return occurrence.SourceSubject
+                    is InspectionGraphSubject.TypeSubject
+            {
+                Identity:
+                            InspectionGraphTypeIdentity.AcquiredDefinition
+                            source,
+            }
+                && endpoint
+                    is InspectionGraphSubject.AssemblySubject
+                {
+                    Identity:
                             InspectionGraphAssemblyIdentity.Acquired assembly,
-                    }
+                }
                 && ReferenceEquals(
                     source.Registration,
                     assembly.Registration);
@@ -513,6 +570,49 @@ public sealed record InspectionGraphOpportunityEvidence(
                 : null;
 }
 
+/// <summary>
+/// Exact Census candidate-attempt evidence retained by one admitted
+/// Integration occurrence.
+/// </summary>
+public sealed record InspectionGraphIntegrationCensusCandidateEvidence :
+    IInspectionGraphOccurrenceEvidence
+{
+    public InspectionGraphIntegrationCensusCandidateEvidence(
+        IntegrationCandidateAttempt.Classified attempt)
+    {
+        ArgumentNullException.ThrowIfNull(attempt);
+        if (attempt.Disposition is not IntegrationCandidateDisposition.In)
+        {
+            throw new ArgumentException(
+                "Only an In candidate attempt can contribute graph evidence.",
+                nameof(attempt));
+        }
+        if (!ReferenceEquals(
+                attempt.Address.Candidate.Relationship,
+                InspectionGraphIntegrationsCatalog.IntegrationObserved)
+            && !ReferenceEquals(
+                attempt.Address.Candidate.Relationship,
+                InspectionGraphIntegrationsCatalog.IntegrationOpportunity))
+        {
+            throw new ArgumentException(
+                "The candidate relationship is not supported by the Integration Census graph.",
+                nameof(attempt));
+        }
+
+        Attempt = attempt;
+    }
+
+    public IntegrationCandidateAttempt.Classified Attempt { get; }
+
+    public InspectionGraphEvidenceDescriptor Descriptor =>
+        ReferenceEquals(
+            Attempt.Address.Candidate.Relationship,
+            InspectionGraphIntegrationsCatalog.IntegrationObserved)
+                ? InspectionGraphIntegrationsCatalog.CensusObservedEvidence
+                : InspectionGraphIntegrationsCatalog
+                    .CensusOpportunityEvidence;
+}
+
 /// <summary>Why available workspace evidence could not enter the graph.</summary>
 public enum InspectionGraphIntegrationFailureKind
 {
@@ -530,6 +630,49 @@ public enum InspectionGraphIntegrationFailureKind
     TargetTypeRejected,
     OpportunityTargetMissing,
     OpportunityTargetAmbiguous,
+}
+
+/// <summary>
+/// Typed incomplete Census receipts retained by a graph projection.
+/// </summary>
+public sealed record InspectionGraphIntegrationCensusFailureEvidence :
+    IInspectionGraphDiagnosticEvidence
+{
+    public InspectionGraphIntegrationCensusFailureEvidence(
+        IntegrationCensusSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        SourceAttempts =
+        [
+            .. snapshot.SourceAttempts.Where(static attempt =>
+                attempt is not IntegrationSourceParticipantAttempt.Available),
+        ];
+        ProducerPolicyAttempts =
+        [
+            .. snapshot.ProducerPolicyAttempts.Where(static attempt =>
+                attempt is not IntegrationProducerPolicyAttempt.Completed),
+        ];
+        CandidateAttempts = snapshot.FailedCandidateAttempts;
+        if (SourceAttempts.IsEmpty
+            && ProducerPolicyAttempts.IsEmpty
+            && CandidateAttempts.IsEmpty)
+        {
+            throw new ArgumentException(
+                "Integration Census graph failure evidence requires an incomplete snapshot.",
+                nameof(snapshot));
+        }
+    }
+
+    public ImmutableArray<IntegrationSourceParticipantAttempt> SourceAttempts
+    { get; }
+    public ImmutableArray<IntegrationProducerPolicyAttempt>
+        ProducerPolicyAttempts
+    { get; }
+    public ImmutableArray<IntegrationCandidateAttempt.Failed> CandidateAttempts
+    { get; }
+
+    public InspectionGraphEvidenceDescriptor Descriptor =>
+        InspectionGraphIntegrationsCatalog.CensusFailureEvidence;
 }
 
 /// <summary>One incomplete Integration graph contribution.</summary>
@@ -557,7 +700,7 @@ public sealed record InspectionGraphIntegrationFailureEvidence :
     }
 
     public ImmutableArray<InspectionGraphIntegrationFailureDetail> Details
-        { get; }
+    { get; }
 
     public InspectionGraphEvidenceDescriptor Descriptor =>
         InspectionGraphIntegrationsCatalog.FailureEvidence;
@@ -846,6 +989,33 @@ public static class InspectionGraphIntegrationsQuery
             request);
     }
 
+    internal static AssemblyBindingSelection SelectBindingForVersion(
+        IAssemblyBindingPolicy policy,
+        AssemblyBindingPolicyVersion expectedVersion,
+        AssemblyBindingRequest request)
+    {
+        if (!ReferenceEquals(policy.Version, expectedVersion))
+        {
+            throw new InvalidOperationException(
+                "The participant binding-policy snapshot changed during Integration graph construction.");
+        }
+
+        AssemblyBindingSelectionSnapshot? snapshot =
+            policy.Select(request);
+        if (snapshot is not null
+            && !ReferenceEquals(
+                snapshot.Version,
+                expectedVersion))
+        {
+            throw new InvalidOperationException(
+                "The participant binding-policy snapshot changed during Integration graph construction.");
+        }
+
+        return AssemblyBindingSelection.ValidateForRequest(
+            request,
+            snapshot?.Selection);
+    }
+
     static InspectionGraphDocument CreateSelectedSource(
         WorkspaceContextLoadOutcome.Loaded context,
         InspectionGraphModeRequest modeRequest,
@@ -934,6 +1104,7 @@ public static class InspectionGraphIntegrationsQuery
     sealed class Builder
     {
         readonly WorkspaceContextLoadOutcome.Loaded _context;
+        readonly AssemblyBindingPolicyVersion _bindingPolicyVersion;
         readonly InspectionGraphPackageBoundary _boundary;
         readonly List<InspectionGraphNode> _nodes;
         readonly ImmutableArray<InspectionGraphGroup> _groups;
@@ -967,6 +1138,7 @@ public static class InspectionGraphIntegrationsQuery
             InspectionGraphPackageBoundary boundary)
         {
             _context = context;
+            _bindingPolicyVersion = context.Group.BindingPolicyVersion;
             _boundary = boundary;
             InspectionGraphDocument packageDocument = boundary.Project(
                 InspectionGraphPackageBoundaryLens.PackageGroups);
@@ -1576,6 +1748,7 @@ public static class InspectionGraphIntegrationsQuery
         internal InspectionGraphDocument Build(
             InspectionGraphModeRequest modeRequest)
         {
+            EnsureBindingPolicyVersions();
             InspectionGraphEdge[] edges =
             [
                 .. _edges.Select((edge, id) =>
@@ -1896,9 +2069,10 @@ public static class InspectionGraphIntegrationsQuery
                     source.Assembly),
                 AssemblyResolutionScope.Any);
             AssemblyBindingSelection selection =
-                AssemblyBindingSelection.ValidateForRequest(
-                    request,
-                    source.BindingPolicy.Select(request));
+                SelectBindingForVersion(
+                    source.BindingPolicy,
+                    _bindingPolicyVersion,
+                    request);
             if (selection
                 is AssemblyBindingSelection.Selected selected)
             {
@@ -1935,6 +2109,27 @@ public static class InspectionGraphIntegrationsQuery
                     .BindingUnavailable,
             };
             return false;
+        }
+
+        void EnsureBindingPolicyVersions()
+        {
+            foreach (AssemblyContextParticipant participant
+                in _participants.Values)
+            {
+                EnsureBindingPolicyVersion(participant);
+            }
+        }
+
+        void EnsureBindingPolicyVersion(
+            AssemblyContextParticipant participant)
+        {
+            if (!ReferenceEquals(
+                    participant.BindingPolicy.Version,
+                    _bindingPolicyVersion))
+            {
+                throw new InvalidOperationException(
+                    "The participant binding-policy snapshot changed during Integration graph construction.");
+            }
         }
 
         int AddNode(
@@ -2108,7 +2303,7 @@ public static class InspectionGraphIntegrationsQuery
             internal int FromNodeId { get; } = fromNodeId;
             internal int ToNodeId { get; } = toNodeId;
             internal InspectionGraphRelationshipDescriptor Relationship
-                { get; } = relationship;
+            { get; } = relationship;
             internal List<int> OccurrenceIds { get; } = [];
         }
 
@@ -2116,7 +2311,7 @@ public static class InspectionGraphIntegrationsQuery
         {
             internal int TargetId { get; } = targetId;
             internal List<InspectionGraphIntegrationFailureDetail> Details
-                { get; } = [];
+            { get; } = [];
         }
 
         readonly record struct FailureKey(

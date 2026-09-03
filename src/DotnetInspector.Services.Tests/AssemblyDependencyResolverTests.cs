@@ -1,7 +1,10 @@
+using System.IO.Compression;
+using System.Net;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using DotnetInspector.Packages;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Services.Tests;
@@ -151,7 +154,7 @@ public class AssemblyDependencyResolverTests
                                     Culture: null,
                                     PublicKeyToken: null)),
                             AssemblyBindingOrigin.Global(),
-                            AssemblyResolutionScope.Any)));
+                            AssemblyResolutionScope.Any)).Selection);
 
             Assert.Equal(
                 AssemblyBindingFailureKind.CandidateUnavailable,
@@ -199,7 +202,7 @@ public class AssemblyDependencyResolverTests
                                     Culture: null,
                                     PublicKeyToken: null)),
                             AssemblyBindingOrigin.Global(),
-                            AssemblyResolutionScope.Any)));
+                            AssemblyResolutionScope.Any)).Selection);
 
             Assert.Equal(
                 AssemblyBindingFailureKind.CandidateUnavailable,
@@ -256,7 +259,7 @@ public class AssemblyDependencyResolverTests
                     new AssemblyBindingRequest(
                         AssemblyBindingTarget.Reference(platformIdentity),
                         AssemblyBindingOrigin.Global(),
-                        AssemblyResolutionScope.Any)));
+                        AssemblyResolutionScope.Any)).Selection);
 
             Assert.Equal(
                 AssemblyBindingMissDisposition.NameOwnedNoMatch,
@@ -293,7 +296,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Platform);
 
         var missing = Assert.IsType<AssemblyBindingSelection.Missing>(
-            resolver.Select(request));
+            resolver.Select(request).Selection);
 
         Assert.Equal(
             AssemblyBindingMissDisposition.NoNameOwner,
@@ -326,7 +329,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var missing = Assert.IsType<AssemblyBindingSelection.Missing>(
-            resolver.Select(request));
+            resolver.Select(request).Selection);
 
         Assert.Equal(
             AssemblyBindingMissDisposition.NoNameOwner,
@@ -350,7 +353,7 @@ public class AssemblyDependencyResolverTests
             AssemblyBindingOrigin.Global(),
             AssemblyResolutionScope.Any);
         var owned = Assert.IsType<AssemblyBindingSelection.Missing>(
-            resolver.Select(ownedRequest));
+            resolver.Select(ownedRequest).Selection);
 
         Assert.Equal(
             AssemblyBindingMissDisposition.NameOwnedNoMatch,
@@ -382,7 +385,7 @@ public class AssemblyDependencyResolverTests
                 new AssemblyBindingRequest(
                     AssemblyBindingTarget.Reference(platformIdentity),
                     AssemblyBindingOrigin.Global(),
-                    AssemblyResolutionScope.Any)));
+                    AssemblyResolutionScope.Any)).Selection);
 
         Assert.IsType<AssemblyResolutionProvenance.PlatformAsset>(
             selected.Assembly.Provenance);
@@ -441,7 +444,7 @@ public class AssemblyDependencyResolverTests
                                     AssemblyReferenceIdentity
                                         .ComputePublicKeyToken(selectedKey))),
                             AssemblyBindingOrigin.Global(),
-                            AssemblyResolutionScope.Any)));
+                            AssemblyResolutionScope.Any)).Selection);
 
             Assert.Equal(candidates[1], selection.Assembly.Path);
         }
@@ -497,10 +500,10 @@ public class AssemblyDependencyResolverTests
 
         var selected = Assert.IsType<
             AssemblyBindingSelection.Selected>(
-                resolver.Select(request));
+                resolver.Select(request).Selection);
         var repeated = Assert.IsType<
             AssemblyBindingSelection.Selected>(
-                resolver.Select(request));
+                resolver.Select(request).Selection);
 
         Assert.Same(selected.Assembly, repeated.Assembly);
 
@@ -580,14 +583,148 @@ public class AssemblyDependencyResolverTests
 
         var selected = Assert.IsType<
             AssemblyBindingSelection.Selected>(
-                group.Select(request));
-        _ = group.Select(request);
+                group.Select(request).Selection);
+        _ = group.Select(request).Selection;
 
         Assert.Same(coreLibrary, selected.Assembly);
         Assert.Equal(0, firstOpens);
         Assert.Equal(1, secondOpens);
         Assert.Equal(0, firstPolicy.SelectionCount);
         Assert.Equal(1, secondPolicy.SelectionCount);
+    }
+
+    [Fact]
+    public void AssemblyGroup_DuplicateRegistrationIsRejected()
+    {
+        ResolvedAssemblyReference assembly = Descriptor(
+            new AssemblyReferenceIdentity(
+                "Duplicate.Owner",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("duplicate owner"));
+
+        Assert.Throws<ArgumentException>(
+            () => new SourceRelativeAssemblyGroupBindingPolicy(
+                [
+                    (assembly, (IAssemblyBindingPolicy)MissingPolicy.Instance),
+                    (assembly, (IAssemblyBindingPolicy)MissingPolicy.Instance),
+                ]));
+    }
+
+    [Fact]
+    public async Task AssemblyGroup_ConcurrentLearnedRoutesAreBothRetained()
+    {
+        ResolvedAssemblyReference defaultOwner = Descriptor(
+            new AssemblyReferenceIdentity(
+                "Default.Owner",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("default owner"));
+        ResolvedAssemblyReference firstOwner = Descriptor(
+            new AssemblyReferenceIdentity(
+                "First.Owner",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("first owner"));
+        ResolvedAssemblyReference secondOwner = Descriptor(
+            new AssemblyReferenceIdentity(
+                "Second.Owner",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("second owner"));
+        ResolvedAssemblyReference firstCandidate = Descriptor(
+            new AssemblyReferenceIdentity(
+                "First.Candidate",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("first candidate"));
+        ResolvedAssemblyReference secondCandidate = Descriptor(
+            new AssemblyReferenceIdentity(
+                "Second.Candidate",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("second candidate"));
+        using var barrier = new Barrier(2);
+        var defaultPolicy = new FixedSelectionPolicy(
+            AssemblyBindingSelection.NameNotOwned());
+        var firstPolicy =
+            new CoordinatedSelectedPolicy(
+                firstCandidate,
+                barrier);
+        var secondPolicy =
+            new CoordinatedSelectedPolicy(
+                secondCandidate,
+                barrier);
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (defaultOwner, (IAssemblyBindingPolicy)defaultPolicy),
+                (firstOwner, (IAssemblyBindingPolicy)firstPolicy),
+                (secondOwner, (IAssemblyBindingPolicy)secondPolicy),
+            ]);
+        AssemblyBindingPolicyVersion version = group.Version;
+
+        Task<AssemblyBindingSelectionSnapshot> firstSelection = Task.Run(
+            () => group.Select(
+                new AssemblyBindingRequest(
+                    AssemblyBindingTarget.Reference(
+                        firstCandidate.Identity),
+                    AssemblyBindingOrigin.FromAssembly(firstOwner),
+                    AssemblyResolutionScope.Any)));
+        Task<AssemblyBindingSelectionSnapshot> secondSelection = Task.Run(
+            () => group.Select(
+                new AssemblyBindingRequest(
+                    AssemblyBindingTarget.Reference(
+                        secondCandidate.Identity),
+                    AssemblyBindingOrigin.FromAssembly(secondOwner),
+                    AssemblyResolutionScope.Any)));
+
+        AssemblyBindingSelectionSnapshot[] snapshots =
+            await Task.WhenAll(firstSelection, secondSelection);
+
+        Assert.Same(
+            firstCandidate,
+            Assert.IsType<AssemblyBindingSelection.Selected>(
+                snapshots[0].Selection).Assembly);
+        Assert.Same(
+            secondCandidate,
+            Assert.IsType<AssemblyBindingSelection.Selected>(
+                snapshots[1].Selection).Assembly);
+        Assert.All(
+            snapshots,
+            snapshot => Assert.Same(version, snapshot.Version));
+
+        var probe = new AssemblyReferenceIdentity(
+            "Probe",
+            new Version(1, 0, 0, 0),
+            null,
+            null);
+        var firstProbe = Assert.IsType<
+            AssemblyBindingSelection.Selected>(
+                group.Select(
+                    new AssemblyBindingRequest(
+                        AssemblyBindingTarget.Reference(probe),
+                        AssemblyBindingOrigin.FromAssembly(firstCandidate),
+                        AssemblyResolutionScope.Any)).Selection);
+        var secondProbe = Assert.IsType<
+            AssemblyBindingSelection.Selected>(
+                group.Select(
+                    new AssemblyBindingRequest(
+                        AssemblyBindingTarget.Reference(probe),
+                        AssemblyBindingOrigin.FromAssembly(secondCandidate),
+                        AssemblyResolutionScope.Any)).Selection);
+
+        Assert.Same(firstCandidate, firstProbe.Assembly);
+        Assert.Same(secondCandidate, secondProbe.Assembly);
+        Assert.Equal(0, defaultPolicy.SelectionCount);
+        Assert.Equal(2, firstPolicy.SelectionCount);
+        Assert.Equal(2, secondPolicy.SelectionCount);
+        Assert.Same(version, group.Version);
     }
 
     [Theory]
@@ -703,7 +840,7 @@ public class AssemblyDependencyResolverTests
 
         var unavailable = Assert.IsType<
             AssemblyBindingSelection.Unavailable>(
-                group.Select(request));
+                group.Select(request).Selection);
 
         Assert.Equal(
             AssemblyBindingFailureKind.IdentityPolicyRequired,
@@ -747,7 +884,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Platform);
 
         var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Equal([first, second], ambiguous.Assemblies);
     }
@@ -785,7 +922,7 @@ public class AssemblyDependencyResolverTests
 
         var unavailable = Assert.IsType<
             AssemblyBindingSelection.Unavailable>(
-                group.Select(request));
+                group.Select(request).Selection);
 
         Assert.Equal(
             AssemblyBindingFailureKind.IdentityPolicyRequired,
@@ -822,7 +959,7 @@ public class AssemblyDependencyResolverTests
 
         var selected = Assert.IsType<
             AssemblyBindingSelection.Selected>(
-                group.Select(request));
+                group.Select(request).Selection);
 
         Assert.Same(root, selected.Assembly);
     }
@@ -861,7 +998,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var result = Assert.IsType<AssemblyBindingSelection.Selected>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Same(selected, result.Assembly);
     }
@@ -905,7 +1042,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Same(designated, selected.Assembly);
         Assert.Same(platform, Assert.Single(selected.ShadowedAssemblies));
@@ -946,7 +1083,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var missing = Assert.IsType<AssemblyBindingSelection.Missing>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Equal(disposition, missing.Disposition);
         Assert.Equal(1, policy.SelectionCount);
@@ -984,7 +1121,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var missing = Assert.IsType<AssemblyBindingSelection.Missing>(
-            group.Select(request));
+            group.Select(request).Selection);
         Assert.Equal(
             AssemblyBindingMissDisposition.Undifferentiated,
             missing.Disposition);
@@ -1023,7 +1160,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Same(designated, selected.Assembly);
         Assert.Equal(1, policy.SelectionCount);
@@ -1052,7 +1189,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var missing = Assert.IsType<AssemblyBindingSelection.Missing>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Equal(
             AssemblyBindingMissDisposition.NoNameOwner,
@@ -1093,7 +1230,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Equal(2, ambiguous.Assemblies.Length);
         Assert.Contains(first, ambiguous.Assemblies);
@@ -1121,7 +1258,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Platform);
 
         var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Same(designated, selected.Assembly);
         Assert.Empty(selected.ShadowedAssemblies);
@@ -1156,7 +1293,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Platform);
 
         var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Same(designated, selected.Assembly);
         Assert.Empty(selected.ShadowedAssemblies);
@@ -1196,7 +1333,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var unavailable = Assert.IsType<AssemblyBindingSelection.Unavailable>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Equal(
             AssemblyBindingFailureKind.IdentityPolicyRequired,
@@ -1241,7 +1378,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Same(designated, selected.Assembly);
         Assert.Same(platform, Assert.Single(selected.ShadowedAssemblies));
@@ -1288,7 +1425,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var unavailable = Assert.IsType<AssemblyBindingSelection.Unavailable>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Equal(
             AssemblyBindingFailureKind.CandidateUnavailable,
@@ -1337,7 +1474,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Equal(2, ambiguous.Assemblies.Length);
         Assert.Contains(root, ambiguous.Assemblies);
@@ -1381,7 +1518,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Equal(2, ambiguous.Assemblies.Length);
         Assert.Contains(root, ambiguous.Assemblies);
@@ -1434,7 +1571,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Same(designated, selected.Assembly);
         Assert.Equal(2, selected.ShadowedAssemblies.Length);
@@ -1481,7 +1618,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Same(platform, selected.Assembly);
         Assert.Empty(selected.ShadowedAssemblies);
@@ -1552,7 +1689,7 @@ public class AssemblyDependencyResolverTests
                 scope);
 
             var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-                resolver.Select(request));
+                resolver.Select(request).Selection);
 
             Assert.Equal(designatedPath, selected.Assembly.Path);
             Assert.IsType<AssemblyResolutionProvenance.DesignatedAsset>(
@@ -1598,7 +1735,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Platform);
 
         var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-            resolver.Select(request));
+            resolver.Select(request).Selection);
 
         Assert.Equal(platformPath, selected.Assembly.Path);
         Assert.IsType<AssemblyResolutionProvenance.DesignatedAsset>(
@@ -1648,7 +1785,7 @@ public class AssemblyDependencyResolverTests
 
             var unavailable =
                 Assert.IsType<AssemblyBindingSelection.Unavailable>(
-                    resolver.Select(request));
+                    resolver.Select(request).Selection);
 
             Assert.Equal(
                 AssemblyBindingFailureKind.CandidateUnavailable,
@@ -1698,7 +1835,7 @@ public class AssemblyDependencyResolverTests
 
             var unavailable =
                 Assert.IsType<AssemblyBindingSelection.Unavailable>(
-                    resolver.Select(request));
+                    resolver.Select(request).Selection);
 
             Assert.Equal(
                 AssemblyBindingFailureKind.CandidateUnavailable,
@@ -1744,7 +1881,7 @@ public class AssemblyDependencyResolverTests
                 AssemblyResolutionScope.Platform);
 
             var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-                resolver.Select(request));
+                resolver.Select(request).Selection);
 
             Assert.Equal(designatedPath, selected.Assembly.Path);
             Assert.IsType<AssemblyResolutionProvenance.DesignatedAsset>(
@@ -1784,7 +1921,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Platform);
 
         var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-            resolver.Select(request));
+            resolver.Select(request).Selection);
 
         Assert.IsType<AssemblyResolutionProvenance.DesignatedAsset>(
             selected.Assembly.Provenance);
@@ -1828,7 +1965,7 @@ public class AssemblyDependencyResolverTests
                 AssemblyResolutionScope.Platform);
 
             var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-                resolver.Select(request));
+                resolver.Select(request).Selection);
 
             Assert.Equal(platformPath, selected.Assembly.Path);
             Assert.IsType<AssemblyResolutionProvenance.PlatformAsset>(
@@ -1877,7 +2014,7 @@ public class AssemblyDependencyResolverTests
                 AssemblyResolutionScope.Platform);
 
             var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-                resolver.Select(request));
+                resolver.Select(request).Selection);
 
             Assert.Equal(platformPath, selected.Assembly.Path);
             Assert.IsType<AssemblyResolutionProvenance.DesignatedAsset>(
@@ -1931,7 +2068,7 @@ public class AssemblyDependencyResolverTests
                 AssemblyResolutionScope.Any);
 
             var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-                resolver.Select(request));
+                resolver.Select(request).Selection);
 
             Assert.IsType<AssemblyResolutionProvenance.DesignatedAsset>(
                 selected.Assembly.Provenance);
@@ -2007,7 +2144,7 @@ public class AssemblyDependencyResolverTests
                 AssemblyResolutionScope.Any);
 
             var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
-                resolver.Select(request));
+                resolver.Select(request).Selection);
 
             Assert.Equal(2, ambiguous.Assemblies.Length);
             Assert.All(
@@ -2063,7 +2200,7 @@ public class AssemblyDependencyResolverTests
                 AssemblyResolutionScope.Any);
 
             var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-                resolver.Select(request));
+                resolver.Select(request).Selection);
 
             Assert.Equal(siblingPath, selected.Assembly.Path);
             Assert.IsType<AssemblyResolutionProvenance.LocalAsset>(
@@ -2120,11 +2257,53 @@ public class AssemblyDependencyResolverTests
 
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
+        public AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request)
         {
-            SelectionCount++;
-            return AssemblyBindingSelection.Found(selected);
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore()
+            {
+                SelectionCount++;
+                return AssemblyBindingSelection.Found(selected);
+
+            }
+        }
+    }
+
+    sealed class CoordinatedSelectedPolicy(
+        ResolvedAssemblyReference selected,
+        Barrier firstSelectionBarrier) : IAssemblyBindingPolicy
+    {
+        int _selectionCount;
+
+        internal int SelectionCount =>
+            Volatile.Read(ref _selectionCount);
+
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore()
+            {
+                if (Interlocked.Increment(ref _selectionCount) == 1
+                    && !firstSelectionBarrier.SignalAndWait(
+                        TimeSpan.FromSeconds(30)))
+                {
+                    throw new TimeoutException(
+                        "Concurrent binding selections did not rendezvous.");
+                }
+
+                return AssemblyBindingSelection.Found(selected);
+
+            }
         }
     }
 
@@ -2134,9 +2313,16 @@ public class AssemblyDependencyResolverTests
 
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            AssemblyBindingSelection.NameNotOwned();
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                AssemblyBindingSelection.NameNotOwned();
+        }
     }
 
     static AssemblyBindingSelection Missing(
@@ -2159,11 +2345,19 @@ public class AssemblyDependencyResolverTests
 
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
+        public AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request)
         {
-            SelectionCount++;
-            return selection;
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore()
+            {
+                SelectionCount++;
+                return selection;
+
+            }
         }
     }
 
@@ -2253,6 +2447,84 @@ public class AssemblyDependencyResolverTests
         finally
         {
             Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ResolveAll_NestedPackageRootsUseTheMostSpecificPackageContext()
+    {
+        string outerRoot = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-nested-package-root-").FullName;
+        try
+        {
+            string packagesRoot = Path.Combine(
+                outerRoot,
+                ".nuget",
+                "packages");
+            string rootPackage = Path.Combine(outerRoot, "root-extraction");
+            string targetDirectory = Path.Combine(
+                rootPackage,
+                "lib",
+                "net8.0");
+            Directory.CreateDirectory(targetDirectory);
+            string targetPath = Path.Combine(targetDirectory, "Root.dll");
+            File.WriteAllText(targetPath, "");
+            File.WriteAllText(
+                Path.Combine(rootPackage, "root.package.nuspec"),
+                """
+                <?xml version="1.0" encoding="utf-8"?>
+                <package>
+                  <metadata>
+                    <id>Root.Package</id>
+                    <version>1.0.0</version>
+                    <dependencies>
+                      <group targetFramework="net8.0">
+                        <dependency id="Shared.Package" version="8.0.0" />
+                      </group>
+                    </dependencies>
+                  </metadata>
+                </package>
+                """);
+
+            string dependencyDirectory = Path.Combine(
+                packagesRoot,
+                "shared.package",
+                "8.0.0",
+                "lib",
+                "net8.0");
+            Directory.CreateDirectory(dependencyDirectory);
+            string dependencyPath = Path.Combine(
+                dependencyDirectory,
+                "Shared.dll");
+            File.WriteAllBytes(dependencyPath, [1, 2, 3]);
+
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(targetPath)
+                {
+                    PackageRoots = [outerRoot, packagesRoot],
+                    RootPackageDirectory = rootPackage,
+                    TargetFramework = "net8.0",
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeSiblingAssemblies = false,
+                    IncludeDepsJsonAssets = false,
+                });
+
+            ResolvedAssemblyDependency dependency = Assert.Single(
+                resolver.ResolveAll());
+            Assert.Equal(dependencyPath, dependency.Path);
+            Assert.Equal(
+                AssemblyDependencyProvenance.PackageDependency,
+                dependency.Provenance);
+            Assert.Equal(
+                "shared.package",
+                dependency.PackageId,
+                ignoreCase: true);
+            Assert.Equal("8.0.0", dependency.PackageVersion);
+        }
+        finally
+        {
+            Directory.Delete(outerRoot, recursive: true);
         }
     }
 
@@ -2444,6 +2716,259 @@ public class AssemblyDependencyResolverTests
         }
     }
 
+    [Theory]
+    [InlineData("8.0.0")]
+    [InlineData("8.0.0-Beta")]
+    public async Task ResolveAll_SourcePolicyUsesTheSameAdmittedCachePayloadAsPackageReplay(
+        string dependencyVersion)
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-package-policy-").FullName;
+        string appCache = Path.Combine(root, "app-cache");
+        string globalRoot = Path.Combine(root, "global");
+        string rootPackage = Path.Combine(root, "root-extraction");
+        string staging = Path.Combine(root, "staging");
+        const string source = "https://authorized.test/v3/index.json";
+        const string otherSource = "https://other.test/v3/index.json";
+        const string dependencyId = "Shared.Package";
+        string? previousNuGetPackages =
+            Environment.GetEnvironmentVariable("NUGET_PACKAGES");
+        Environment.SetEnvironmentVariable(
+            "NUGET_PACKAGES",
+            globalRoot);
+        NuGetCache.Initialize(
+            "dotnet-inspect-test",
+            appCache,
+            skipNuGetCache: false);
+        try
+        {
+            string targetDir = Path.Combine(rootPackage, "lib", "net8.0");
+            Directory.CreateDirectory(targetDir);
+            string targetPath = Path.Combine(targetDir, "Root.dll");
+            File.WriteAllText(targetPath, "");
+            File.WriteAllText(
+                Path.Combine(rootPackage, "root.package.nuspec"),
+                $"""
+                <?xml version="1.0" encoding="utf-8"?>
+                <package>
+                  <metadata>
+                    <id>Root.Package</id>
+                    <version>1.0.0</version>
+                    <dependencies>
+                      <group targetFramework="net8.0">
+                        <dependency id="Shared.Package" version="{dependencyVersion}" />
+                      </group>
+                    </dependencies>
+                  </metadata>
+                </package>
+                """);
+
+            byte[] appAssembly = [1, 2, 3, 4];
+            byte[] globalAssembly = [5, 6, 7, 8];
+            byte[] appPackage = TestPackageArchive.Create(
+                ("shared.package.nuspec", """
+                    <?xml version="1.0" encoding="utf-8"?>
+                    <package>
+                      <metadata>
+                        <id>Shared.Package</id>
+                        <version>8.0.0-Beta</version>
+                      </metadata>
+                    </package>
+                    """u8.ToArray()),
+                ("lib/net8.0/Shared.dll", appAssembly));
+            Directory.CreateDirectory(staging);
+            string appNupkg = Path.Combine(
+                staging,
+                $"shared.package.{dependencyVersion.ToLowerInvariant()}.nupkg");
+            File.WriteAllBytes(appNupkg, appPackage);
+            string appExtracted = Path.Combine(staging, "extracted");
+            ZipFile.ExtractToDirectory(appNupkg, appExtracted);
+            NuGetCache.CommitPackage(
+                appExtracted,
+                appNupkg,
+                dependencyId,
+                dependencyVersion,
+                NuGetCache.GetSourceKey(source));
+
+            string globalPackage = Path.Combine(
+                globalRoot,
+                dependencyId.ToLowerInvariant(),
+                dependencyVersion.ToLowerInvariant());
+            string globalAssetDirectory = Path.Combine(
+                globalPackage,
+                "lib",
+                "net8.0");
+            Directory.CreateDirectory(globalAssetDirectory);
+            File.WriteAllText(
+                Path.Combine(globalPackage, ".nupkg.metadata"),
+                $$"""{"source":"{{source}}"}""");
+            File.WriteAllText(
+                Path.Combine(globalPackage, "shared.package.nuspec"),
+                $"""
+                <?xml version="1.0" encoding="utf-8"?>
+                <package>
+                  <metadata>
+                    <id>Shared.Package</id>
+                    <version>{dependencyVersion}</version>
+                  </metadata>
+                </package>
+                """);
+            string globalAsset = Path.Combine(globalAssetDirectory, "Shared.dll");
+            File.WriteAllBytes(globalAsset, globalAssembly);
+
+            var options = new AssemblyDependencyResolutionOptions(targetPath)
+            {
+                PackageRoots = [globalRoot],
+                RootPackageDirectory = rootPackage,
+                PackageSourceOptions = new NuGetSourceOptions
+                {
+                    Sources = [source],
+                },
+                UsePackageSourcePolicy = true,
+                TargetFramework = "net8.0",
+                IncludeTrustedPlatformAssemblies = false,
+                IncludeAspNetCoreSharedFramework = false,
+                IncludeSiblingAssemblies = false,
+                IncludeDepsJsonAssets = false,
+                PreferImplementationAssemblies = true,
+            };
+
+            ResolvedAssemblyDependency appDependency = Assert.Single(
+                new AssemblyDependencyResolver(options).ResolveAll());
+            string appAsset = appDependency.Path;
+            Assert.Equal(
+                dependencyId,
+                appDependency.PackageId,
+                ignoreCase: true);
+            Assert.Equal(
+                dependencyVersion,
+                appDependency.PackageVersion,
+                ignoreCase: true);
+            Assert.Equal(appAssembly, File.ReadAllBytes(appAsset));
+            Assert.StartsWith(
+                Path.GetFullPath(NuGetCache.GetPackageContentCachePath()),
+                Path.GetFullPath(appAsset),
+                StringComparison.Ordinal);
+            using var client = new HttpClient(new NoNetworkHandler());
+            PackageExtractionOutcome appReplay =
+                await PackageExtractor.ExtractPackageAsync(
+                    client,
+                    $"{dependencyId}@{dependencyVersion}",
+                    sourceOptions: options.PackageSourceOptions);
+            Assert.True(appReplay.IsSuccess);
+            Assert.Equal(
+                Path.GetDirectoryName(
+                    Path.GetDirectoryName(
+                        Path.GetDirectoryName(appAsset)))!,
+                appReplay.Result!.ExtractPath);
+
+            File.WriteAllBytes(appAsset, [4, 3, 2, 1]);
+            string fallbackAsset = Assert.Single(
+                new AssemblyDependencyResolver(options).ResolveAll()).Path;
+            Assert.Equal(globalAsset, fallbackAsset);
+            Assert.Equal(globalAssembly, File.ReadAllBytes(fallbackAsset));
+            using var globalClient =
+                new HttpClient(new NoNetworkHandler());
+            PackageExtractionOutcome globalReplay =
+                await PackageExtractor.ExtractPackageAsync(
+                    globalClient,
+                    $"{dependencyId}@{dependencyVersion}",
+                    sourceOptions: options.PackageSourceOptions);
+            Assert.True(
+                globalReplay.IsSuccess,
+                globalReplay.ErrorMessage);
+            Assert.Equal(
+                globalPackage,
+                globalReplay.Result!.ExtractPath);
+
+            File.WriteAllText(
+                Path.Combine(globalPackage, ".nupkg.metadata"),
+                $$"""{"source":"{{otherSource}}"}""");
+            Assert.Empty(
+                new AssemblyDependencyResolver(options).ResolveAll());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "NUGET_PACKAGES",
+                previousNuGetPackages);
+            NuGetCache.Initialize("dotnet-inspect");
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void PackageDependencyReferencePaths_SourceMappingDenialAndInvalidCoordinatesAreUnavailable()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-package-policy-denial-").FullName;
+        try
+        {
+            string rootPackage = Path.Combine(root, "root-extraction");
+            string targetDirectory = Path.Combine(
+                rootPackage,
+                "lib",
+                "net8.0");
+            Directory.CreateDirectory(targetDirectory);
+            string targetPath = Path.Combine(targetDirectory, "Root.dll");
+            File.WriteAllText(targetPath, "");
+            File.WriteAllText(
+                Path.Combine(rootPackage, "root.package.nuspec"),
+                """
+                <?xml version="1.0" encoding="utf-8"?>
+                <package>
+                  <metadata>
+                    <id>Root.Package</id>
+                    <version>1.0.0</version>
+                    <dependencies>
+                      <group targetFramework="net8.0">
+                        <dependency id="Unmapped.Package" version="1.0.0" />
+                        <dependency id="../../escape" version="1.0.0" />
+                        <dependency id="Invalid.Version" version="1.0.0/../x" />
+                      </group>
+                    </dependencies>
+                  </metadata>
+                </package>
+                """);
+            string configPath = Path.Combine(root, "nuget.config");
+            File.WriteAllText(
+                configPath,
+                """
+                <?xml version="1.0" encoding="utf-8"?>
+                <configuration>
+                  <packageSources>
+                    <clear />
+                    <add key="mapped" value="https://mapped.test/v3/index.json" />
+                  </packageSources>
+                  <packageSourceMapping>
+                    <packageSource key="mapped">
+                      <package pattern="Allowed.*" />
+                    </packageSource>
+                  </packageSourceMapping>
+                </configuration>
+                """);
+
+            IReadOnlyList<string> references =
+                AssemblyDependencyResolver.PackageDependencyReferencePaths(
+                    targetPath,
+                    packageRoots: [root],
+                    preferImplementationAssemblies: true,
+                    rootPackageDirectory: rootPackage,
+                    targetFramework: "net8.0",
+                    sourceOptions: new NuGetSourceOptions
+                    {
+                        ConfigFile = configPath,
+                    },
+                    useSourcePolicy: true);
+
+            Assert.Empty(references);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public void Resolve_PlatformTrustFindsTrustedAssemblyWhenPackageCandidateHasSameName()
     {
@@ -2506,6 +3031,15 @@ public class AssemblyDependencyResolverTests
         string path = Path.Combine(assetDir, fileName);
         File.WriteAllText(path, "");
         return path;
+    }
+
+    sealed class NoNetworkHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.NotFound));
     }
 
     static byte[] BuildAssembly(

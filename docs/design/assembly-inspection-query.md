@@ -214,6 +214,20 @@ readers all use that same check. Compatibility path and stream factories remain
 available while their callers migrate; they do not manufacture an artifact
 registration.
 
+The compatibility package-role path continues to use
+`CreateFromStreamWithFallbackIdentity`.
+`CreateFromArtifactWithFallbackIdentity` is its artifact-backed peer for a
+later migration that must preserve a selected malformed, native, module, or
+empty-MVID asset as a visible rejection carrier. An image with a decodable
+assembly identity retains that identity, and a non-empty MVID is bound when
+available. A fallback descriptor retains the exact artifact registration, but
+the fallback identity is not assembly evidence: every later artifact-backed
+open revalidates the image and rejects it. This is gated by
+`ArtifactFallbackDescriptor_PreservesExactRegistrationAndValidIdentity` and
+`ArtifactFallbackDescriptor_RetainsRejectedSelectedImages`. The content-free
+admission contract below remains stricter and does not publish these
+compatibility rejection carriers.
+
 This bridge does not consume workspace roles or source-specific provenance.
 Those remain owner-issued evidence for workspace admission and trust policy.
 PDB artifact acquisition, symbol stores, and SourceLink policy are separate
@@ -1004,6 +1018,225 @@ Mapping that constructs inspection facts belongs below the CLI; mapping typed
 facts into a presentation view does not move into the query merely to reduce
 adapter code. This keeps the assembly owner from regressing into formatter
 logic without making view types the currency of the service boundary.
+
+### 4. `MemorySafetyMetadataIndex` — shared module and member meaning
+
+Memory-safety rule selection and member caller contracts are Metadata facts.
+`MemorySafetyMetadataIndex` derives them once from one `MetadataReader`, preserving
+the physical evidence and typed non-success states. Analysis may combine those
+facts with IL-body evidence, while the Decompiler may use them to reconstruct C#;
+neither subsystem re-decodes the marker or depends on the other. This is the same
+layering used by
+[`StateMachineRelationshipIndex`](state-machine-relationship-index.md): Metadata
+authenticates shared structure, then each higher layer owns its distinct policy.
+
+#### Derivation rules
+
+Every clause below instantiates four rules. They are stated once because each
+was otherwise rediscovered a clause at a time, and because a new clause is
+correct only if it names the rule it follows.
+
+**R1 — Authenticate a carrier by structured identity, at the strength its
+provenance permits.** A carrier is identified by the structured top-level name
+of its constructor's *declaring type* — never by flattened display text, by the
+constructor token's kind, or by one component of an assembly identity. The
+required strength depends on whether the compiler can emit the construct
+locally. A marker the compiler synthesizes whenever the framework lacks it, as
+with the rules markers, can be authenticated only by name, because a locally
+defined unsigned TypeDef is legitimate output and demanding more would reject
+real assemblies. A construct the compiler never synthesizes, as with
+`FixedBufferAttribute`, must additionally arrive through the shape real
+compiler output uses: a core contract carrying a platform key. Neither test is
+a trust anchor, because single-file inspection can verify neither a name nor a
+key; both are fidelity filters that stop a lookalike from being read as the
+construct it resembles.
+
+**R2 — Derive an answer only from rows proven observable.** SRM's owner-range
+lookups and accessor projections can silently omit physical rows: a false
+sorted claim hides `CustomAttribute` rows from every range lookup, and
+`PropertyAccessors`/`EventAccessors` expose one slot per semantic role while
+counting a single owner's rows in a `ushort`. Any table an answer depends on is
+therefore proven whole before it is read — by verifying physical ordering, or
+by accounting projected rows against the physical row count.
+
+**R3 — Validate a relationship before inheriting through it.** A projected edge
+is not a validated edge. Inheriting a contract requires the relationship itself
+to satisfy its spec constraints, and an ambiguous edge inherits nothing.
+
+**R4 — Never render a refusal as a negative answer, and scope a failure to what
+it actually invalidates.** Budget exhaustion, an undecodable signature, and a
+malformed row are refusals: none may present as absence, and none may suppress
+evidence that was already definitely observed. A defect confined to one
+identifiable row drops that row and records the failure while the rest of the
+map survives; a defect that makes a whole projection untrustworthy makes every
+dependent answer `Unavailable`. Never the reverse.
+
+These rules are candidates for the shared substrate pattern tracked by
+[#5273](https://github.com/richlander/dotnet-inspect/issues/5273); this section
+binds only `MemorySafetyMetadataIndex`.
+
+R2 and R3 are discharged by construction rather than one site at a time, because
+each was otherwise satisfied only where a reviewer had already found an instance.
+Every projection an answer reads through is proven before any answer is derived:
+attribute owner ranges by verifying `CustomAttribute` parent ordering, and
+declaring-type resolution by pairing each enumeration that reads physical rows
+against the search that must agree with it — `NestedClass` against
+`GetDeclaringType`, the TypeDef method ranges against a method's declaring type,
+and `PropertyMap`/`EventMap` against their owners — then accounting the reachable
+rows against the physical row counts. A projection that cannot observe every row
+makes the module result `Unavailable`, because the defect invalidates the whole
+map rather than one identifiable row.
+
+Accessor relationships are validated for their ECMA-335 II.22.28 role shape
+before a contract inherits through them. The validation is limited to properties
+real compiler output always satisfies — accessors are `specialname`, an adder or
+remover takes exactly one argument, and a getter or setter takes exactly the
+property's index arity, or one more for a setter — so a legitimate accessor is
+never dropped, and an undecodable signature is treated as a refusal rather than a
+violation. This validates shape, not full signature-type identity: the
+unvalidated residue can only make a member over-report as requiring unsafe,
+which an assembly author gains nothing by forging, whereas rejecting a
+legitimate accessor would under-report and hide real unsafety.
+
+A refusal carries the evidence it already gathered. When the module scan
+exhausts its budget or cannot read a row, the markers decoded from earlier rows
+travel with the failure instead of being replaced by an empty observation set,
+so the refusal never erases evidence the artifact definitely supplied (R4).
+
+The module result is based only on
+`System.Runtime.CompilerServices.MemorySafetyRulesAttribute` rows attached to the
+ModuleDef. AssemblyDef, TypeDef, and member rows with the same attribute name do
+not select the module model. Carrier identity is the structured top-level metadata
+type name; a nested TypeDef or TypeRef whose flattened display text is identical
+does not authenticate either the module marker or a member contract. Identity is
+judged from the constructor's declaring type, not from the constructor token's
+kind: a locally defined carrier authenticates through a MethodDef constructor or
+through a MemberRef naming that same TypeDef, because ECMA-335 permits both
+spellings and the compiler synthesizes these markers locally whenever the target
+framework does not supply them.
+
+| State | Module evidence | Compatibility contract |
+| --- | --- | --- |
+| Legacy | No ModuleDef marker | Version 1 pointer-signature inference |
+| Updated | Every decoded marker has value `2` | Version 2 attribute contracts |
+| Unsupported | Every decoded marker has the same value other than `2` | Preserve the integer; use version 1 compatibility inference |
+| Malformed | Any authentic ModuleDef marker cannot be decoded as exactly one `int` argument | Preserve every observation; use version 1 compatibility inference |
+| Conflicting | Decoded ModuleDef markers carry different integers | Member contracts are unavailable |
+
+Repeated identical decoded markers do not create semantic ambiguity. The result
+retains every row and its value, while normalization selects the one unique model
+they all claim. A malformed row prevents that proof regardless of other valid
+rows. This intentionally differs from Roslyn's first-marker-wins import behavior:
+inspection reports conflicting artifact evidence rather than making row order
+authoritative. `MemorySafetyMetadataIndex_DuplicateIdenticalMarkersRetainEvidence`
+and `MemorySafetyMetadataIndex_ConflictingMarkersMakeContractsUnavailable` gate
+the distinction.
+
+Member queries accept MethodDef (including constructors), FieldDef, PropertyDef,
+and EventDef handles and return `None`, `Implicit`, `Explicit`, or `Unavailable`
+with the evidence used. Nil, out-of-range, and unsupported handle kinds return a
+typed unavailable result rather than absence or an exception.
+
+- Under Legacy, Unsupported, and Malformed module states, pointer or function
+  pointer shape in the callable signature produces `Implicit`. A compiler fixed
+  buffer source FieldDef is excluded from pointer-based propagation only after
+  its platform `FixedBufferAttribute(Type, int)` carrier and complete value are
+  authenticated within the member attribute and name-work budgets. Both the
+  carrier's declaring assembly and any assembly qualification on the serialized
+  element type must be a core contract — `System.Private.CoreLib`,
+  `System.Runtime`, `mscorlib`, or `netstandard` — carrying a platform key.
+  That pairing is a fidelity filter, not a trust anchor: a single-file
+  inspection can verify neither the name nor the key, but it can require the
+  shape the compiler actually emits, so a lookalike reached through an
+  unrelated library is not read as the compiler construct it resembles. A
+  malformed or unavailable fixed-buffer carrier cannot become a fixed-buffer
+  exemption.
+  The exemption applies only to a definite pointer, so it never substitutes for
+  a signature the index did not decode: a signature that cannot be decoded is
+  `Unavailable` unless a definite pointer was already observed, whatever the
+  fixed-buffer evidence says. Legacy, Unsupported, and Malformed results still
+  retain
+  direct and associated `RequiresUnsafeAttribute` evidence without using it to
+  change the compatibility contract.
+- Under Updated rules, one or more well-formed
+  `System.Diagnostics.CodeAnalysis.RequiresUnsafeAttribute` rows on the member
+  produce `Explicit`; the historical
+  `System.Runtime.CompilerServices.RequiresUnsafeAttribute` spelling is also
+  recognized. A same-named row whose constructor or value cannot be honored makes
+  that carrier unavailable. Pointer shape alone does not propagate an Updated
+  contract.
+- A MethodDef accessor first uses its own attribute rows. A valid direct carrier
+  is decisive. Only when the direct carrier is absent does it inherit a
+  PropertyDef or EventDef contract through MethodSemantics. PropertyDef and
+  EventDef queries do not infer a contract in the reverse direction from
+  attributed accessors.
+- An inherited contract requires the accessor and its associated PropertyDef or
+  EventDef to be declared by the same TypeDef, as ECMA-335 II.22.28 requires.
+  SRM projects a `MethodSemantics` row without that check, so a crafted
+  cross-type row would otherwise carry one type's declaration onto an unrelated
+  method. Such a row is rejected like any other invalid row: the association is
+  dropped and the malformed-row failure is recorded, while the rest of the map
+  survives.
+- Under Conflicting module rules, every otherwise supported member query is
+  `Unavailable`; raw marker and member evidence remain available for diagnosis.
+
+Construction is bounded and fail-closed. Every attribute-derived answer depends
+on SRM's owner-range lookups, which binary-search physical rows whenever the
+tables stream claims the `CustomAttribute` table is sorted. Construction
+therefore walks that table once and proves its `HasCustomAttribute` parent coded
+indices are non-decreasing, as ECMA-335 II.22 requires. An image that asserts the
+sorted claim over unsorted rows can otherwise hide module markers and member
+carriers from every range lookup, so an unordered table makes the whole index
+unavailable instead of reporting a contract derived from rows it cannot observe.
+This conservatively rejects any image whose `CustomAttribute` table is not
+physically sorted by parent, including indirection-table images.
+
+Module-marker failure is represented by
+an unavailable rules result. Accessor-association failure is exposed separately:
+a valid direct member carrier remains decisive, while a method that needs an
+incomplete fallback scan is unavailable. `PropertyAccessors` and `EventAccessors`
+expose one slot per semantic role and SRM counts a single owner's rows in a
+`ushort`, so duplicate rows, rows whose owner is unreachable, and a 65,536-row
+wrap all vanish from the projection without an error. Association construction
+therefore accounts for projected accessor rows against the physical
+`MethodSemantics` row count and, on any shortfall, discards every association and
+makes association-dependent queries unavailable.
+
+Per-member attribute and signature
+failures remain scoped to that member. Fixed-buffer evidence distinguishes
+present, absent, unavailable, and not examined, and its serialized
+`System.Type` argument is parsed as a whole assembly-qualified identity rather
+than truncated at the first comma: a qualified element type must name a core
+contract signed with a platform key, so an attacker-qualified `System.Int32`
+cannot claim the fixed-buffer exemption for a definite pointer field. Dedicated row and name-work budgets bound custom-attribute identity and
+association scans, including every PropertyDef, EventDef, and MethodSemantics
+row that contributes accessor relationships.
+`MemorySafetyMetadataIndex_RecognizesCompilerProducedModels`,
+`MemorySafetyMetadataIndex_UsesVersionSpecificMemberContracts`,
+`AccessorFallsBackToAssociatedDefinitionCarrier`,
+`DirectAccessorCarrierWinsBeforeAssociatedFallback`,
+`UnsortedCustomAttributeRowsFailClosed`,
+`UnobservedMethodSemanticsRowsMakeAssociationsUnavailable`,
+`FixedBufferCarrierCannotSuppressAnUndecodableSignature`,
+`FixedBufferExemptionRequiresPlatformElementTypeIdentity`,
+`FixedBufferExemptionRequiresACoreContractCarrier`,
+`LocalRulesCarrierAuthenticatesThroughEitherConstructorSpelling`,
+`NestedLocalRulesCarrierStaysRejectedThroughAMemberReference`,
+`CrossTypeAccessorSemanticsDoesNotCarryAnAssociatedCarrier`,
+`UnorderedNestedClassRowsFailClosed`,
+`OrderedNestedClassRowsRejectASpoofedNestedCarrier`,
+`OrdinaryMethodNamedAsEventAdderInheritsNoCarrier`,
+`OrphanedMethodDefRowsFailClosed`,
+`PropertySetterWithGetterArityInheritsNoCarrier`,
+`BudgetRefusalKeepsMarkersAlreadyDecoded`, and
+`MemorySafetyMetadataIndex_InvalidHandlesAreUnavailable` gate the shared
+contract.
+
+The index does not inspect method bodies, classify inner `unsafe` use or safe
+boundaries, reconstruct source syntax, read project policy, infer
+project-to-binary provenance, or choose presentation. The vocabulary and
+cross-layer composition of those later answers remain owned by
+[`memory-safety-models.md`](memory-safety-models.md).
 
 ## The sibling seam: method-body / coordinate inspection
 

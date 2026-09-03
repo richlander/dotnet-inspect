@@ -18,8 +18,11 @@ package version is absent; an unreadable or metadata-incapable higher source pro
 rather than borrowing another feed's answer.
 
 Metadata cache entries include the canonical source identity, so equal package coordinates from
-different feeds cannot share aggregate metadata. The filesystem-derived package inspection cache
-uses the same producer identity for the same reason.
+different feeds cannot share aggregate metadata. The
+[package index cache](package-index-cache.md) separately owns persistent
+filesystem-derived inspection results. Its current producer-scoped key is a
+legacy boundary; the target consumes package-owned authority and retained
+content identity rather than treating producer identity as authorization.
 
 Endpoints on the explicitly configured feed origin use the feed client and its scoped credentials.
 That exact host and port may resolve to private addresses; redirects and cross-origin connections

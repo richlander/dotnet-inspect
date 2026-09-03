@@ -281,6 +281,70 @@ public class TfmSelectorTests : IDisposable
     }
 
     [Fact]
+    public void FindAssemblyInPackage_ExactRelativePathWinsOverAHigherTfmWithTheSameFileName()
+    {
+        var requested = WriteDll("lib/net8.0/Target.dll");
+        WriteDll("lib/net10.0/Target.dll");
+
+        var (path, tfm) = TfmSelector.FindAssemblyInPackage(
+            _tempDir,
+            "lib/net8.0/Target.dll");
+
+        Assert.Equal(requested, path);
+        Assert.Equal("net8.0", tfm);
+    }
+
+    [Fact]
+    public void FindExactPackageAsset_PrefersExactCaseAndRejectsAmbiguousCaseFolding()
+    {
+        string upper = Path.Combine(_tempDir, "lib", "net8.0", "Target.dll");
+        string lower = Path.Combine(_tempDir, "lib", "net8.0", "target.dll");
+        string[] paths = [upper, lower];
+
+        Assert.Equal(
+            upper,
+            TfmSelector.FindExactPackageAsset(
+                paths,
+                _tempDir,
+                "lib/net8.0/Target.dll"));
+        Assert.Null(
+            TfmSelector.FindExactPackageAsset(
+                paths,
+                _tempDir,
+                "lib/net8.0/TARGET.dll"));
+    }
+
+    [Fact]
+    public void FindAssemblyInPackage_PathQualifiedAmbiguousCaseDoesNotFallBackToFileName()
+    {
+        string upper = Path.Combine(_tempDir, "lib", "net8.0", "Target.dll");
+        string lower = Path.Combine(_tempDir, "lib", "net8.0", "target.dll");
+
+        var (path, tfm) = TfmSelector.FindAssemblyInPackage(
+            [upper, lower],
+            _tempDir,
+            "lib/net8.0/TARGET.dll",
+            tfm: null);
+
+        Assert.Null(path);
+        Assert.Null(tfm);
+    }
+
+    [Fact]
+    public void FindAssemblyInPackage_PathQualifiedCaseMismatchIsNotAnExactAsset()
+    {
+        WriteDll("lib/net8.0/Target.dll");
+        string differentlyCased = "lib/net8.0/target.dll";
+
+        var (path, tfm) = TfmSelector.FindAssemblyInPackage(
+            _tempDir,
+            differentlyCased);
+
+        Assert.Null(path);
+        Assert.Null(tfm);
+    }
+
+    [Fact]
     public void FindAssemblyByTfm_FiltersResourceAssemblies()
     {
         var primary = WriteDll("tools/net8.0/any/MyTool.dll");

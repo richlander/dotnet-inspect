@@ -34,7 +34,12 @@ import {
   typeScriptSourceExtensions,
 } from "./project-source-inventory.ts";
 import { verifySiteArtifact } from "../scripts/verify-site-artifact.ts";
-import { auditedBuild, builtinPluginNames, bundlerReadFiles } from "./vite-audit.ts";
+import {
+  auditedBuild,
+  builtinPluginNames,
+  bundlerReadFiles,
+  shippedArtifacts,
+} from "./vite-audit.ts";
 
 interface PackageLockEntry {
   readonly link?: boolean;
@@ -1026,6 +1031,24 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
     /ts_output_file="\$repo_root\/prototypes\/inspect-web\/engine\/inspect-web-engine\.ts"/);
   assert.match(
     engineGenerationScript,
+    /context_type="InspectWeb\.Engine\.InspectWebJsExportContext"/);
+  assert.match(
+    engineGenerationScript,
+    /--context "\$context_type"/);
+  assert.match(
+    engineGenerationScript,
+    /--assembly-search-path "\$source_assembly_directory"/);
+  assert.match(
+    engineGenerationScript,
+    /context_artifact_name="InspectWeb\.Engine\.ts"/);
+  assert.match(
+    engineGenerationScript,
+    /generator_build_properties\+=\("-p:VersionPrefix=\$contract_version_prefix"\)/);
+  assert.match(
+    engineGenerationScript,
+    /-p:VersionPrefix="\$version_prefix"[\s\S]*--contract[\s\S]*"\$version_prefix"/);
+  assert.match(
+    engineGenerationScript,
     /Microsoft\.NETCore\.App\.Runtime\.Mono\.browser-wasm[\s\S]*dotnet\.d\.ts/);
   assert.match(
     engineGenerationScript,
@@ -1116,13 +1139,184 @@ test("every source file is covered by a lint target", () => {
 // into a chunk with no asset file, no manifest entry and no map entry at all. Either way
 // it ships and runs, and either way no source map ever names it.
 //
-// So the question moved from what the bundler emitted to what it read. `getWatchFiles`
-// is Rollup's own record of that, and it does not care how a file was referenced or what
-// it is called -- modules, entry HTML, assets emitted or inlined, plugin reads. Both
-// reviewers across both rounds proposed widening an enumeration instead: more extensions,
-// a ban on script shapes, an audit of asset `originalFileNames`. That is the move that
-// failed in rounds 3, 4 and 5, and the asset pipeline is exactly what it would have
-// missed again.
+// So the question moved from what the bundler emitted to what it took as input. Vite 8's
+// Rolldown graph accounts for modules, entry HTML and CSS, and a second build with asset
+// inlining disabled exposes every asset source through `originalFileNames`. Both answers
+// come from the real Vite build; neither parses source or guesses which extensions matter.
+// This fixture keeps the pathological small-asset case executable.
+test("the bundler input audit includes inlined asset sources", async () => {
+  const root = mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-"));
+  try {
+    writeFileSync(
+      join(root, "index.html"),
+      '<script type="module" src="/main.js"></script>',
+    );
+    writeFileSync(
+      join(root, "main.js"),
+      'globalThis.asset = new URL("./payload.js", import.meta.url).href;',
+    );
+    writeFileSync(join(root, "payload.js"), "unchecked payload");
+
+    const read = (await bundlerReadFiles(root)).map(file => resolve(file));
+
+    assert.ok(read.includes(resolve(root, "payload.js")));
+  }
+  finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the bundler input audit includes query-bearing module sources", async () => {
+  const root = mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-"));
+  try {
+    writeFileSync(
+      join(root, "index.html"),
+      '<script type="module" src="/main.js"></script>',
+    );
+    writeFileSync(
+      join(root, "main.js"),
+      'import payload from "./payload.txt?raw"; globalThis.payload = payload;',
+    );
+    writeFileSync(join(root, "payload.txt"), "unchecked payload");
+
+    const read = (await bundlerReadFiles(root)).map(file => resolve(file));
+
+    assert.ok(read.includes(resolve(root, "payload.txt")));
+  }
+  finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the bundler input audit includes worker module sources", async () => {
+  const root = mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-"));
+  try {
+    writeFileSync(
+      join(root, "index.html"),
+      '<script type="module" src="/main.js"></script>',
+    );
+    writeFileSync(
+      join(root, "main.js"),
+      'new Worker(new URL("./worker-payload.js", import.meta.url), { type: "module" });',
+    );
+    writeFileSync(join(root, "worker-payload.js"), "self.postMessage('unchecked payload');");
+
+    const read = (await bundlerReadFiles(root)).map(file => resolve(file));
+
+    assert.ok(read.includes(resolve(root, "worker-payload.js")));
+  }
+  finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the bundler input audit includes CSS imports and explicitly inlined assets", async () => {
+  const root = mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-"));
+  try {
+    writeFileSync(
+      join(root, "index.html"),
+      '<link rel="stylesheet" href="/styles.css">'
+        + '<script type="module" src="/main.js"></script>',
+    );
+    writeFileSync(join(root, "main.js"), "globalThis.main = true;");
+    writeFileSync(
+      join(root, "styles.css"),
+      '@import "./more.css"; .asset { background: url("./payload.svg?inline"); }',
+    );
+    writeFileSync(join(root, "more.css"), ".imported { color: green; }");
+    writeFileSync(join(root, "payload.svg"), "<svg>unchecked payload</svg>");
+
+    const read = (await bundlerReadFiles(root)).map(file => resolve(file));
+
+    assert.ok(read.includes(resolve(root, "more.css")));
+    assert.ok(read.includes(resolve(root, "payload.svg")));
+  }
+  finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the bundler input audit includes worker asset sources", async () => {
+  const root = mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-"));
+  try {
+    writeFileSync(
+      join(root, "index.html"),
+      '<script type="module" src="/main.js"></script>',
+    );
+    writeFileSync(
+      join(root, "main.js"),
+      'new Worker(new URL("./worker.js", import.meta.url), { type: "module" });',
+    );
+    writeFileSync(
+      join(root, "worker.js"),
+      'import "./worker.css"; self.asset = new URL("./payload.svg", import.meta.url).href;',
+    );
+    writeFileSync(join(root, "payload.svg"), "<svg>unchecked payload</svg>");
+    writeFileSync(
+      join(root, "worker.css"),
+      '@import "./worker-more.css"; .asset { background: url("./worker-inline.svg?inline"); }',
+    );
+    writeFileSync(join(root, "worker-more.css"), ".imported { color: purple; }");
+    writeFileSync(join(root, "worker-inline.svg"), "<svg>worker inline payload</svg>");
+
+    const read = (await bundlerReadFiles(root)).map(file => resolve(file));
+
+    assert.ok(read.includes(resolve(root, "payload.svg")));
+    assert.ok(read.includes(resolve(root, "worker-more.css")));
+    assert.ok(read.includes(resolve(root, "worker-inline.svg")));
+  }
+  finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the shipped comparison includes HTML and non-JavaScript output", async () => {
+  const parent = fileURLToPath(new URL("../", import.meta.url));
+  const root = mkdtempSync(join(parent, ".vite-audit-"));
+  try {
+    writeFileSync(
+      join(root, "package.json"),
+      JSON.stringify({ type: "module", scripts: { build: "vite build" } }),
+    );
+    writeFileSync(
+      join(root, "index.html"),
+      '<script type="module" src="/main.js"></script>',
+    );
+    writeFileSync(join(root, "main.js"), "globalThis.main = true;");
+    writeFileSync(
+      join(root, "vite.config.js"),
+      "export default { plugins: process.env.npm_lifecycle_event === \"build\""
+        + " ? [{ name: \"conditional-html\", transformIndexHtml(html) {"
+        + " return html + \"<!-- conditional payload -->\"; } }] : [] };\n",
+    );
+
+    const audited = await auditedBuild(root);
+    const shipped = shippedArtifacts(root);
+    const auditedJavaScript = audited.artifacts
+      .filter(artifact => artifact.fileName.endsWith(".js"));
+    const shippedJavaScript = shipped
+      .filter(artifact => artifact.fileName.endsWith(".js"));
+    const auditedHtml = audited.artifacts
+      .find(artifact => artifact.fileName === "index.html");
+    const shippedHtml = shipped
+      .find(artifact => artifact.fileName === "index.html");
+
+    assert.deepEqual(shippedJavaScript, auditedJavaScript,
+      "the fixture must differ only outside JavaScript output");
+    assert.ok(auditedHtml !== undefined);
+    assert.ok(shippedHtml !== undefined,
+      "the shipped snapshot must include non-JavaScript output");
+    assert.ok(!auditedHtml.contents.includes("conditional payload"));
+    assert.ok(shippedHtml.contents.includes("conditional payload"),
+      "the shipped snapshot must expose the conditional HTML change");
+    assert.notDeepEqual(shipped, audited.artifacts,
+      "an HTML-only conditional plugin must change the complete shipped artifact");
+  }
+  finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("the lint covers every file the bundler reads", async () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
 
@@ -1207,7 +1401,7 @@ test("the lint covers every file the bundler reads", async () => {
     `expected the files the build reads, found ${read.length}; a build that reads almost `
       + "nothing would satisfy the assertion below without covering anything");
 
-  // Five files this build reads are not checked source, and each is already accounted
+  // Three graph inputs are not checked source, and each is already accounted
   // for elsewhere, so they are pinned as an exact list rather than filtered by a rule
   // that would also let a payload through.
   //
@@ -1221,8 +1415,7 @@ test("the lint covers every file the bundler reads", async () => {
   //
   // `../annotated-source-viewer/*` is the sibling prototype this project imports from.
   // Its `document-model.js` is in the TypeScript program but covered by no lint target,
-  // which is issue #4780, and its `package.json` is read for resolution. Both predate
-  // this branch.
+  // which is issue #4780.
   //
   // `index.html` is the entry document. It is read by the bundler and gated by neither
   // half of the test below -- oxlint reads script, and the compiler has no account of a
@@ -1232,9 +1425,6 @@ test("the lint covers every file the bundler reads", async () => {
   // lists as inert. So the script it can reach is a module under a lint target, or a
   // remote URL carrying an `integrity` digest -- which that gate requires precisely
   // because no compiler or lint here reads those bytes.
-  //
-  // `package.json` is read for dependency resolution rather than compiled, and the gates
-  // above already assert its contents field by field.
   //
   // `src/styles.css` is style content. It sits under a lint target, but oxlint reads
   // script and the compiler has no account of a stylesheet at all, so it cannot clear
@@ -1246,10 +1436,8 @@ test("the lint covers every file the bundler reads", async () => {
   // it too, so the pin has to be deleted deliberately rather than quietly outliving the
   // gaps it describes.
   const knownReadButUngated = [
-    "../annotated-source-viewer/package.json",
     "../annotated-source-viewer/src/document-model.js",
     "index.html",
-    "package.json",
     "src/styles.css",
   ];
 
@@ -1319,17 +1507,17 @@ test("the bundler has no unread path into the shipped output", async () => {
       + "to the gate that audits what the build reads. Adding one means answering for "
       + "what it injects, so this gate has to be reckoned with rather than edited away");
   assert.deepStrictEqual(audited.unaccountedRollupPlugins, [],
-    "Rollup is running plugins Vite never resolved, so they are invisible to the plugin "
-      + "list above. `build.rollupOptions.plugins` is handed straight to Rollup and does "
-      + "this, and because such a plugin transforms both builds alike the gate below sees "
-      + "nothing to disagree about either");
+    "the resolved build config declares direct Rolldown plugins outside Vite's plugin "
+      + "list. `build.rollupOptions.plugins` is handed straight to Rolldown, and because "
+      + "such a plugin transforms both builds alike the gate below sees nothing to "
+      + "disagree about either");
   assert.deepStrictEqual(audited.rollupOutputPlugins, [],
-    "the build declares Rollup output plugins. Those run at generate time and can rewrite "
+    "the build declares Rolldown output plugins. Those run at generate time and can rewrite "
       + "a chunk after every gate above has read it, so this project keeps none");
   assert.equal(audited.workerPluginCount, 0,
-    "the build declares worker plugins. This project bundles no workers, and a worker "
-      + "plugin injects into a bundle these gates do not audit, so the two have to stay "
-      + "that way together");
+    "the build declares project worker plugins. The audit injects its own worker plugin "
+      + "to account for every nested worker graph; another plugin could add inputs outside "
+      + "that accounting, so project worker plugins remain forbidden");
 });
 
 // Being under a lint target turns out not to mean the lint reads the file. oxlint applies

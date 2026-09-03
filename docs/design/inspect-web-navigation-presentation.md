@@ -16,8 +16,9 @@ browser history; that model belongs to
 This owner defines:
 
 - the Workspace, Package, Library, Type, and Member subject hierarchy, the
-  title-line inspected-target region, and the second-row subject/inspector
-  strip;
+  title-line inspected-target region, and the second-row Slideable Subject
+  Strip that first adopts the reusable
+  [SlideStrip](inspect-web-slide-strip.md) control;
 - the Workspace subject that owns retained-coordinate management;
 - lens-tab rendering, roving-tabindex interaction, and no-effective-lens
   status presentation;
@@ -68,7 +69,10 @@ This document consumes, without redefining:
   facet-availability outcomes issued by the
   [View Facet Registry](view-facet-registry.md);
 - [Browser package sources](browser-package-sources.md#default-feed-decision)
-  for browser source selection and default-feed policy; and
+  for browser source selection and default-feed policy;
+- [Inspect Web SlideStrip](inspect-web-slide-strip.md) for ordered item
+  representation modes, contiguous windows, capacity handling, edge
+  disclosure, and focus preservation within each strip; and
 - the returned effect authority and synchronization disposition that
   [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md)
   validates before this document's rendered focus targets receive focus.
@@ -96,43 +100,219 @@ An inspection workspace has two persistent lines before its primary content:
 
 1. The title line begins with `dotnet-inspect`, then renders the icon-backed
    ordered active subject path, Search, and browser-history actions.
-2. The full-width **subject zone** renders the subject ladder, active
-   inspectors, then lower-priority shell actions before the working-content
-   grid.
+2. The **subject zone** renders the Slideable Subject Strip before the
+   working-content grid.
 
 The two rows together follow the CLI's product-to-subject-to-inspector grammar
 but are not command text. Inventories, hierarchy menus, and other target
 navigation stay inside the working surface.
 
-### Subject and inspector strip
+### Slideable Subject Strip
 
-The subject strip begins with the presentation-owned Workspace entry into
+The Slideable Subject Strip is a Navigation Presentation composition of two
+independently styled `SlideStrip` controls and two semantically separate
+tablists:
+
+```text
+[ subject SlideStrip ] [allocation controls] [ inspector SlideStrip ]
+```
+
+The subject tablist begins with the presentation-owned Workspace entry into
 retained-coordinate management, then renders the ordered root, Library, Type,
 and Member subject descriptors supplied by Inspection Subject Navigation. The
 prototype establishes `Workspace`, `Package`, `Type`, and `Member` now;
 Library joins when its product descriptor and behavior are ready. The current
 subject is selected programmatically and is not conveyed by color alone.
-The named subject tablist uses one tab stop and manual activation. Left and
-Right Arrow move focus through the rendered subjects, Home and End move to the
-first and last subject, and focus movement does not select a subject until
-Enter or Space activates it. Every subject references the shared subject panel,
-which is labelled by the active subject.
 
-The inspector strip immediately follows the subject strip. It contains the
-active subject's owner-ordered lenses or, for Member, its applicable sections.
-Subject changes replace the inspector set; inspectors never become workspace
-coordinate switchers or inspected-subject identities.
+The inspector tablist follows the subjects and contains the active subject's
+owner-ordered lenses or, for Member, its applicable sections. Subject changes
+replace the inspector set; inspectors never become workspace coordinate
+switchers or inspected-subject identities. Application and contextual actions
+are not inventory items in either strip.
 
-At the narrow shell breakpoint, each inspector collapses from its visible
-label-and-order pair to the single boxed order symbol. The owner-issued label
-remains the control's accessible name and hover title, and the current
-inspector remains selected programmatically. Compact rendering does not change
-descriptor identity, order, activation, or keyboard behavior.
+The subject strip maps each subject descriptor to:
 
-The combined subject/inspector region consumes only the width it needs and may
-scroll horizontally under pressure. Remaining second-row width stays available
-for Share, Settings, contextual actions, and the trailing Help action rather
-than carrying a tab-like active-package label.
+- its owner-issued label as Label;
+- no Short Label or Icon in the first adoption;
+- its owner-order Index, available to the generic control but excluded from the
+  first subject policy; and
+- a Label mode with minimum visible count one.
+
+The inspector strip maps each inspector descriptor to:
+
+- its owner-issued label as Label;
+- a Short Label derived by uppercasing the first character of each displayed
+  label word, such as `O`, `CG`, or `AS`;
+- an optional owner-issued Unicode Icon;
+- its boxed one-based owner-order number as Index; and
+- preferred-to-minimum modes Label, Short Label, Icon, and Index, skipping
+  optional modes that cannot represent the complete installed inventory.
+
+The inspector Label mode requests at least two visible items. Each compact mode
+also requests at least two, so the strip prefers the first viable compact mode
+that preserves multiple inspectors over a one-label window. A one-inspector
+inventory clamps those requests to one. When no mode can fit two controls,
+SlideStrip's one-item floor applies.
+
+The subject strip's initial anchor is the active subject. The inspector strip's
+initial anchor is the effective inspector. Equal-ranked windows expand toward
+the following item before the preceding item in both strips.
+
+When a non-empty inventory has no effective inspector, its first owner-ordered
+inspector is the presentation-priority origin without becoming selected and
+without changing the independently focused roving tab. Short labels, icons,
+and inspector indexes are presentation vocabulary; they are never parsed or
+submitted as action identity. The complete Label remains every control's
+accessible name and hover title.
+
+The composite, rather than either `SlideStrip`, owns width allocation between
+the regions. A strip's **policy minimum width** is the normal inline size
+required by its least-capacity policy outcome around SlideStrip's effective
+required identity: pending navigation destination, otherwise current focus,
+otherwise retained leading identity or initial anchor. That is one Label for
+subjects and two Index controls for inspectors, clamped to the installed
+inspector count. One fixed non-interactive separator remains between non-empty
+strips in every allocation state. Every fit calculation below uses the
+composite width remaining after that measured separator; the allocation
+controls are adjacent controls whose width is reserved only while they are
+mounted. Each first-adopter policy also supplies a positive fallback-visibility
+floor that preserves its complete focus indicator and a recognizable portion
+of Label or Index content.
+
+1. When both complete inventories fit in Label mode, they consume natural width
+   and the allocation controls are absent.
+2. While the controls and both policy minimum widths fit, the composite builds
+   one finite **stable allocation ladder**. It enumerates every distinct
+   inspector mode and window reachable while subjects retain their policy
+   minimum. For each inspector result, it reserves exactly that result's normal
+   inline width, gives all remaining width to subjects, and records the
+   resulting subject mode and window.
+3. The composite collapses result pairs with equal richness — the same visible
+   subject count plus the same inspector mode and visible count — to the
+   representative window nearest the strips' current continuity state. It then
+   removes every dominated pair for which another allocation shows at least as
+   rich a subject result and at least as rich an inspector result, with one
+   strict improvement. The remaining Pareto levels are ordered from
+   inspector-rich to subject-rich; each successive level strictly increases
+   the visible subject result and strictly decreases the inspector result.
+   SlideStrip's policy and adjacent capacity thresholds define inspector
+   richness; the Label-only subject result is richer when it contains more
+   visible subjects.
+4. The first level is inspector-first and the last is subject-forward.
+   `Show more subjects` moves to the next level; `Show more inspectors` moves
+   to the previous level. A single-level ladder is both bounds and disables
+   both controls. Because duplicate and dominated pairs are absent, every
+   enabled activation changes the intended region's visible result and neither
+   strip mixes representations.
+5. **Control-free pressure** begins when the composite cannot fit both
+   allocation controls and both strips' policy minimum widths. The controls are
+   omitted. When the remaining width can fit both policy minima, the subject
+   receives its minimum and the inspector receives the rest long enough to
+   select its result. The inspector retains only the exact width required by
+   that mode and window; the subject receives all remaining width.
+6. **Terminal deficit** begins only when the control-free width cannot fit both
+   policy minima. One subject share and two inspector shares define the target,
+   with any rounding remainder assigned to the inspector. The composite then
+   chooses the allocation that first minimizes total assigned width left unused
+   by the two rendered windows, then minimizes distance from that target; a
+   remaining tie gives the larger share to the inspector. Unused width is
+   allocation beyond a normal-sized rendered window; a clipped fallback
+   singleton consumes its complete share. This treats the ratio as a bias
+   rather than a hard cap and returns compact-mode slack to a clipped peer.
+   Each strip independently selects its mode and largest fitting contiguous
+   window at the candidate allocation. A share below the policy minimum uses
+   SlideStrip's one-item floor and uses the fallback singleton only when no
+   normal-sized item fits. An item wider than its viewport follows the
+   focused-item alignment rule.
+7. A terminal candidate must give each non-empty strip at least its
+   fallback-visibility floor. If the composite viewport cannot fit both floors
+   and the separator, the composite retains that internal minimum width and
+   scrolls inside its assigned page boundary. It never assigns zero width to a
+   non-empty strip and never forces page-level horizontal overflow.
+
+An empty inspector inventory omits the inspector strip and both allocation
+controls. The subject strip then receives the composite's complete width and
+renders the largest full-Label window that fits. The subject inventory is never
+empty because Workspace remains its presentation-owned root entry. If that
+width is below the subject fallback-visibility floor, the subject-only
+composite retains the floor in an internally scrolling viewport inside its
+assigned page boundary.
+
+On initial or reset inspector-first placement, when the inspector viewport can
+fit two Labels, the window contains the effective inspector and one adjacent
+inspector. A later user-directed slide retains its own window and may move the
+effective inspector out of view without changing selection. When two Labels no
+longer fit, the inspector uses the first viable compact mode that exposes at
+least two controls. A user-requested subject-forward allocation may therefore
+change the complete inspector window uniformly from Label to Short Label, Icon,
+or Index.
+
+Both allocation buttons remain mounted between the all-preferred and
+control-free states and use `aria-disabled="true"` at their respective bounds.
+Their accessible names are `Show more subjects` and `Show more inspectors`;
+visible arrows are only direction cues. Allocation changes do not alter
+subject or inspector identity, order, availability, activation, selection, or
+keyboard behavior.
+
+The retained allocation is the composite-local stable-ladder ordinal, distinct
+from either strip's retained window. SSS uses the active subject identity and
+ordered inspector identity sequence as its allocation-continuity key.
+Selection changes, asynchronous shell replacement, and resize retain and clamp
+the ordinal against the recomputed ladder while that key is unchanged; a new
+subject or changed inspector sequence resets to inspector-first. Control-free
+pressure, terminal deficit, or an all-preferred fit may temporarily replace the
+rendered allocation without discarding the retained ordinal. Each strip
+separately retains its own window under the generic continuity contract. None
+of this state enters workspace packets, Share URLs, browser history, or product
+navigation results.
+
+Allocation-button bounds and activation use the currently rendered stable
+level, not an unclamped retained request. An enabled button always selects the
+adjacent Pareto level and therefore cannot converge to the same rendered pair.
+
+The subject strip's window-continuity key is its ordered subject identity
+sequence plus subject-policy version. The inspector strip's key is the active
+subject identity, ordered inspector identity sequence, and inspector-policy
+version. Width and focus movement do not replace either key.
+
+The subject tablist uses one tab stop and manual activation. Left and Right
+Arrow move focus through the complete installed subject order, sliding the
+window by the smallest amount needed when focus reaches a hidden item. Home and
+End move to the first and last subject. Focus movement does not select a
+subject until Enter or Space activates it. Every subject references the shared
+subject panel, which is labelled by the active subject. The inspector tablist
+retains the equivalent lens semantics below. Allocation-button activation
+changes only allocation and focus remains on the button. Each strip's leading
+and trailing highlights disclose hidden items but add no tab stop. Any sliding
+animation preserves the focused element and is omitted when reduced motion is
+requested.
+
+When a window, mode, or allocation change excludes the sole roving-tab-stop
+holder while that tablist is unfocused, the adopter moves `tabindex="0"` without
+moving focus or selection. It uses the active tab when that tab is visible;
+otherwise it uses the nearest visible item in owner order, with the strip's
+preferred direction breaking equal-distance ties. The visible tablist always
+retains exactly one tab stop.
+
+Whenever a presentation-local capacity or measurement change removes an
+allocation control that owns focus, the composite transfers focus before
+removal. This includes transitions to all-preferred or control-free pressure.
+`Show more subjects` moves focus and the subject tablist's sole roving tab stop
+to its active tab; `Show more inspectors` does the same for the active
+inspector tab. If the inspector tablist has no active tab, focus moves to the
+active subject tab. Removing unfocused allocation controls does not move focus.
+
+When asynchronous navigation or snapshot installation removes a focused
+allocation control, Navigation Consumer's destination-lifetime rule governs
+instead: the UI synchronously parks focus on the persistent `dotnet-inspect`
+shell control before replacement, and only current returned effect authority
+may move focus to a result-derived destination after installation. The
+composite does not choose that destination or bypass the parking step.
+
+`Slideable` combines each reusable strip's contiguous-window movement with the
+composite's discrete boundary movement. It does not add pointer drag,
+continuous user-sized layout, mixed per-item fallback, or persisted pixel
+width.
 
 ### Inspected target
 
@@ -184,9 +364,11 @@ Search/history cluster. That cluster yields space before the target path and
 may not become another persistent tab strip, coordinate selector, or
 independently reconstructed identity.
 
-Second-row `Share` copies the canonical workspace link. A separate `Copy name`
-action is absent because copy belongs to the segment whose typed identity is
-being copied.
+The subject zone contains no Share or separate `Copy name` action. Copy belongs
+to the segment whose typed identity is being copied; the shell-owned
+Application menu exposes canonical workspace Share outside both SlideStrips as
+placed by
+[Inspect Web Surface Composition](inspect-web-surface-composition.md#shell-navigation-and-application-actions).
 
 Browser Back and Forward own navigation history. Compact Back and Forward
 buttons sit immediately to the left of the visible Spotlight Search control.
@@ -198,28 +380,50 @@ finally the arrows disappear.
 
 ### Workspace surface
 
-Workspace is the first subject and the only persistent entry point for retained
-coordinate management. Its working surface consumes product-issued descriptors
-for every open coordinate and shows:
+Workspace is the first subject and the persistent entry point for workspace
+packet inspection and retained-coordinate management. The primary inventory is
+the set of product-issued packets, not the deduplicated runtime workspaces that
+realize them. A packet composes its Workspace, navigation, and initial view as
+defined by [Workspace Definitions](workspace-definitions.md); two packets remain
+separately selectable when they reuse the same underlying Workspace. The first
+browser adoption retains resolved product demo scenarios for the current
+session.
+
+Selecting a packet is observational: it changes the packet detail shown in the
+content pane and starts no acquisition or inspection work. The detail shows its
+owner-issued title and summary, declared workspace members, initial navigation
+target, and initial view. A separate, explicit `Open workspace` action executes
+the selected packet. The selected packet's title replaces the generic
+`Workspace` content heading and inspected-target label.
+
+Selection and runtime state remain separate. The selected packet title orients
+the packet viewer; it does not claim that the packet uniquely owns the loaded
+Workspace or that its initial view is active. The loaded Workspace section
+reports runtime state without inferring packet identity from matching
+coordinates. Packet selection preserves focus on the selected inventory entry.
+
+The same content pane separately lists the runtime Workspace's loaded
+coordinates with:
 
 - coordinate identity and acquisition kind;
 - optional owner-issued current-subject context;
-- loading, ready, or failed state;
-- an activation action; and
+- loading, ready, or failed state; and
 - an explicit Close action.
 
-Activating or closing an entry submits its opaque identity and renders the
-returned workspace outcome. The UI does not choose a subject, lens, successor,
-or fallback for the product. Separate coordinates remain separate even when
-their display package IDs match.
+Opening a packet or closing a coordinate submits its opaque identity and
+renders the returned workspace outcome. The UI does not choose a subject, lens,
+successor, or fallback for the product. Separate packets remain separate even
+when their display package IDs and complete coordinate sets match.
 
 Closing an inactive coordinate preserves the active coordinate's inspection
 state and keeps Workspace selected. Closing the active coordinate selects the
-returned successor while remaining in Workspace. Share and refresh preserve
-the Workspace subject and its retained coordinates.
+returned successor while remaining in Workspace. Share and refresh preserve the Workspace subject and its retained coordinates.
+The home-demo packet inventory is session-scoped until scenario identity is
+part of the share format; after refresh, the generic current Workspace remains
+viewable without reconstructing a demo identity from matching coordinates.
 
-Workspace renders stable focus targets for its heading and every coordinate
-entry, including the returned active entry. Post-result focus and failure
+Workspace renders stable focus targets for its heading, every packet entry, and
+every coordinate action. Post-result focus and failure
 handling are owned by
 [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md#workspace-result-focus).
 
@@ -235,8 +439,8 @@ or member section is a tab with `role="tab"` and `aria-selected`, including
 identically labelled tabs owned by different subjects. An effective lens is
 selected programmatically rather than conveyed by color alone. When no
 effective lens exists, every tab has `aria-selected="false"`. An empty
-descriptor collection omits the tablist and leaves the no-effective-lens status region as
-the content following the subject/inspector strip.
+descriptor collection omits the tablist and leaves the no-effective-lens status
+region as the content following the Slideable Subject Strip.
 
 Each tablist has the accessible name `<Subject> lenses`. The effective tab
 references its panel with `aria-controls`; the panel uses `role="tabpanel"` and
@@ -444,12 +648,15 @@ The old full-width `PACKAGE` row remains removed. Package version and TFM
 controls render in the Package working surface:
 
 ```text
-dotnet-inspect  ⬡ System.Text.Json                         Search...  ← →
-Workspace Package Type Member  Overview Dependencies Metadata  Share Settings ?
+dotnet-inspect  ⬡ System.Text.Json                         ← →  Search
+Workspace Package Type Member | Overview Dependencies Metadata        ☰
 
 Package coordinate
 Version 10.0.0   Framework net10.0
 ```
+
+The trailing Application menu occupies its own Surface Composition-owned slot;
+it is not a subject or inspector item.
 
 The coordinate editor is available while Package is selected, across its
 inspectors. It is absent from Workspace, Library, Type, and Member so package
@@ -483,6 +690,8 @@ composition, effect-authority validation, synchronization debt, or
 destination-lifetime focus and announcement ordering. It does not define
 selector-pill visual states or progressive filter disclosure. It does not
 define shell actions, modal/routed classification, or page-level placement.
+It does not define continuous resizing or a draggable divider for the
+Slideable Subject Strip.
 It does not invent subject or lens recommendation, reconciliation, or
 fallback policy beyond what the product returns. It does not define
 aggregate-vs-single-library result semantics, capability-arity rules, or
@@ -535,6 +744,20 @@ add and pass these named Inspect Web tests:
   cancellation, synchronous focus parking, native-select replacement, tablist
   omission, result-authorized focus, and rejection of an outgoing-renderer menu
   invoker as a post-replacement focus target.
+- `scope-bar.test.ts` and `workspace-titlebar.spec.ts`:
+  `slideable subject strip composes reusable strips without losing navigation`
+  cover the separate subject and inspector whole-strip mode policies,
+  contiguous windows and edge indicators, inspector-first width allocation,
+  stable Pareto-ladder construction, duplicate and dominated result removal,
+  exact selected-window slack return, adjacent non-no-op allocation controls,
+  single-label subject capacity, multi-item compact inspector capacity,
+  control-free removal, terminal-deficit unused-width then ratio-distance
+  ordering and inspector tie-break, fallback-visibility floors, two-strip and
+  subject-only internal-minimum scrolling, explicit first-adopter
+  window-continuity keys, unfocused visible roving-tab-stop relocation,
+  presentation-local window and allocation retention, reduced-motion behavior,
+  and focus/tab-stop preservation across allocation changes and asynchronous
+  shell replacement.
 
 The implementation fixture supplies typed product results through the normal
 navigation boundary. It does not construct a parallel host catalog or bypass
@@ -577,8 +800,90 @@ are proved by the gates in
 7. Supply a typed transition failure and confirm that it is visible without the
    UI selecting another subject and that focus returns to the subject
    menu-button invoker.
-8. Confirm that the trailing `Copy target` button remains visible and copies
-   the product-issued canonical target rather than display text.
+8. Confirm that every copyable inspected-target segment copies its own
+   product-issued canonical identity rather than display text and that no
+   separate `Copy target` action occupies the subject zone.
+
+### Slideable strip allocation
+
+1. Render Workspace, Package, Library, Type, and Member with five Member
+   inspectors at a width where every Label fits. Confirm that both tablists use
+   natural-width Label mode and the allocation controls are absent.
+2. Narrow through subject windows containing five, four, three, two, and one
+   complete Label. Confirm that no subject is replaced by `[W]`, another short
+   form, or Index. Slide an interior two-subject window by one position and
+   confirm that leading and trailing highlights exactly disclose hidden items.
+3. Continue through inspector widths that fit all Labels, three Labels, and
+   two Labels. Narrow below the two-Label threshold and confirm that the entire
+   inspector window changes to the first viable Short Label, Icon, or Index
+   mode that exposes at least two controls. Confirm that no window mixes a
+   complete Label with a compact representation. Omit Short Label and Icon from
+   one inspector and confirm that both whole-strip modes are skipped in favor
+   of Index.
+4. Move the active inspector to the final owner-ordered entry and confirm that
+   the initial window contains it and expands toward the nearest preceding
+   inspector without reordering either control. Install a non-empty inventory
+   with no effective inspector and confirm that the initial window begins at
+   the first owner-ordered inspector without selecting it or moving the focused
+   roving tab. Install an empty inspector inventory and confirm that the
+   inspector strip and both allocation controls are absent while the subject
+   strip uses the complete composite width.
+5. Enumerate the stable allocation ladder and confirm that duplicate result
+   pairs and pairs dominated in both regions are absent. Activate
+   `Show more subjects` repeatedly and confirm that each activation selects the
+   adjacent level, strictly increases the visible subject result, and strictly
+   decreases inspector richness. Confirm that exact inspector-result width
+   return may admit multiple additional full subject Labels at one level and
+   that no subject, inspector, selection, or product navigation identity
+   changes.
+6. Activate `Show more inspectors` and confirm that each activation selects the
+   adjacent level, strictly increases inspector richness, and strictly
+   decreases the visible subject result. Reproduce a measurement where a raw
+   previous subject threshold would return through slack to the same pair and
+   confirm that the deduplicated ladder instead reaches the next inspector
+   result. Confirm that focus remains on the allocation button. At each bound,
+   confirm that the corresponding mounted button is `aria-disabled="true"` and
+   activation has no effect.
+7. Rove focus to an inactive subject and inspector and replace the shell
+   asynchronously. Confirm that the focused typed tab remains the sole tab
+   stop in its tablist, each retained window still contains its focus, and
+   allocation bias survives while the subject and ordered inspector identity
+   sequence remain installed. Change that sequence without changing the
+   subject and confirm that allocation resets to inspector-first.
+   Then move focus outside each tablist and change its window so the previous
+   tab-stop holder is hidden. Confirm that focus and selection do not move and
+   that the active visible tab, or otherwise the nearest visible item, becomes
+   the sole tab stop.
+8. Focus each allocation button in turn and install a presentation that removes
+   it through a presentation-local resize or measurement change: all labels
+   fitting and control-free pressure. Confirm that focus and the sole roving
+   tab stop transfer to the active tab in the named region before removal.
+   Confirm that an absent active inspector falls back to the active subject and
+   that removing unfocused allocation controls does not move focus. Repeat
+   through asynchronous label and inventory replacement, including an empty
+   inspector inventory; confirm that focus first parks on the persistent
+   `dotnet-inspect` shell control and moves to a result-derived destination only
+   under Navigation Consumer's current effect authority.
+9. Narrow until the controls plus both policy minima cannot fit but the minima
+   fit after control removal. Confirm that the controls disappear, both minima
+   remain satisfied, and inspector width beyond its selected compact or Label
+   window returns to subjects.
+   Continue into terminal deficit and confirm that the one-subject-share to
+   two-inspector-share target first minimizes unused rendered-window capacity
+   and then minimizes distance from the target, with ties favoring inspector
+   width. Confirm that compact-mode slack returns to a clipped peer. Confirm
+   that each strip selects one uniform mode and contiguous window, using a
+   fallback singleton only when its share cannot fit a normal item. Focus an
+   item wider than its viewport and confirm that its visible portion is
+   maximized; with focus in one strip, confirm that a distinct active anchor
+   does not displace it. Confirm that every compact control retains its full
+   accessible name and title and neither strip nor the page overflows its
+   assigned boundary. Narrow below both fallback-visibility floors plus the
+   separator and confirm that the composite scrolls internally at that minimum
+   rather than assigning either strip zero width.
+10. Repeat the allocation transitions with reduced motion enabled and confirm
+    that modes, windows, edge indicators, and focus reach the same final states
+    without sliding animation.
 
 ### Lens inventory and outcomes
 

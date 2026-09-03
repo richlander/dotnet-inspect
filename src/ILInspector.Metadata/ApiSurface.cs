@@ -567,8 +567,8 @@ public class ApiSignature
 
     /// <summary>
     /// Opaque structural return-type identity for call-graph selectors. Null on
-    /// older serialized surfaces and members whose display spelling is already
-    /// injective.
+    /// older serialized surfaces and members whose normalized display spelling
+    /// already supplies the complete selector identity.
     /// </summary>
     public string? StructuralReturnType { get; set; }
 
@@ -640,8 +640,8 @@ public class ApiParameter
 
     /// <summary>
     /// Opaque structural parameter-type identity for call-graph selectors. Null on
-    /// older serialized surfaces and parameters whose display spelling is already
-    /// injective.
+    /// older serialized surfaces and parameters whose normalized display spelling
+    /// already supplies the complete selector identity.
     /// </summary>
     public string? StructuralType { get; set; }
 
@@ -1338,6 +1338,18 @@ public class ApiMember
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? DeclaringTypeCanonicalName { get; set; }
+
+    /// <summary>
+    /// Exact metadata lookup name of the declaring Type when this Member is
+    /// projected beneath another <see cref="ApiType"/>.
+    /// </summary>
+    /// <remarks>
+    /// Null for Members declared on their containing Type and for older
+    /// serialized surfaces. Consumers that require exact declaration identity
+    /// must not reconstruct this value from declaring-Type display text.
+    /// </remarks>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public MetadataTypeDefinitionName? DeclaringTypeDefinitionName { get; set; }
 
     /// <summary>
     /// 1-based overload index in <see cref="DeclaringType"/> for projected members.

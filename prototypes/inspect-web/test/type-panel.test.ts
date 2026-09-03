@@ -4,6 +4,7 @@ import {
   bindTypePanel,
   renderGraphMemberPending,
   renderMemberNav,
+  renderSourcePageActions,
   renderTypeMetadata,
   renderTypeNav,
   renderTypeSource,
@@ -23,6 +24,7 @@ import { fakeDom } from "./fake-dom.ts";
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
   value = "";
+  open = false;
   focused = false;
   private readonly listeners = new Map<string, EventListener[]>();
 
@@ -203,6 +205,8 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
       calls.push(`member-jump-trait:${value}`),
     onMemberFilterChange: value => calls.push(`member-filter:${value}`),
     onMemberFilterClear: () => calls.push("member-filter-clear"),
+    onMemberFilterDisclosureToggle: value =>
+      calls.push(`member-filter-disclosure:${value}`),
     onMemberFilterKeyDown: (event, value) => {
       calls.push(`member-filter-key:${event.key}:${value}`);
       return true;
@@ -239,6 +243,9 @@ test("type panel bindings dispatch member filters without eager work", () => {
   root.addAll("[data-member-trait-filter]", allTraits, trait);
   const filter = root.add("#member-filter", new FakeElement());
   filter.value = "parse";
+  const disclosure = root.add(
+    "[data-member-filter-disclosure]",
+    new FakeElement());
   const clear = root.add("#clear-member-filter", new FakeElement());
   const calls: string[] = [];
 
@@ -259,6 +266,8 @@ test("type panel bindings dispatch member filters without eager work", () => {
     "member-trait:isStatic",
   ]);
   filter.dispatch("input");
+  disclosure.open = true;
+  disclosure.dispatch("toggle");
   const arrow = keyboardEvent("ArrowDown");
   dispatchKey(keybindings, filter, arrow);
   clear.dispatch("click");
@@ -267,6 +276,7 @@ test("type panel bindings dispatch member filters without eager work", () => {
     "member-access:protected",
     "member-trait:isStatic",
     "member-filter:parse",
+    "member-filter-disclosure:true",
     "member-filter-key:ArrowDown:parse",
     "member-filter-clear",
   ]);
@@ -842,7 +852,7 @@ test("type metadata renders composition, interfaces, and derived types once load
   assert.match(html, /data-member-jump-kind="method"/);
 });
 
-test("type PDB source renders the provenance and copy action once loaded", () => {
+test("type PDB source renders code above provenance once loaded", () => {
   const html = renderTypeSource({
     item: jsonSerializer,
     currentSignature: "sig",
@@ -858,8 +868,39 @@ test("type PDB source renders the provenance and copy action once loaded", () =>
 
   assert.match(html, /PDB Source/);
   assert.match(html, /SourceLink/);
-  assert.match(html, /id="copy-type-source"/);
-  assert.match(html, /open source ↗/);
+  assert.match(
+    html,
+    /<pre[^>]*role="region"[^>]*aria-label="Source code"[\s\S]*class JsonSerializer \{\}[\s\S]*<\/pre>[\s\S]*<footer class="source-provenance">/);
+  assert.doesNotMatch(html, /copy-type-source|open source/);
+});
+
+test("source page actions render copy and open for the page-owned group", () => {
+  const html = renderSourcePageActions({
+    source: {
+      provider: "pdb",
+      provenance: "SourceLink",
+      url: "https://example.test/source.cs?x=1&y=2",
+      text: "class JsonSerializer {}",
+    },
+    copyButtonId: "copy-type-source",
+    escapeHtml,
+  });
+
+  assert.match(html, /id="copy-type-source"[^>]*>Copy<\/button>/);
+  assert.match(
+    html,
+    /class="shell-action-link" href="https:\/\/example\.test\/source\.cs\?x=1&amp;y=2" target="_blank" rel="noreferrer">Open<\/a>/);
+});
+
+test("source page actions disable copy until source is available", () => {
+  const html = renderSourcePageActions({
+    source: null,
+    copyButtonId: "copy-source",
+    escapeHtml,
+  });
+
+  assert.match(html, /id="copy-source"[^>]* disabled>Copy<\/button>/);
+  assert.doesNotMatch(html, /shell-action-link/);
 });
 
 test("decompiled type source discloses an escaped PDB-source limitation", () => {

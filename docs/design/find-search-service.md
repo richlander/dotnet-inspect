@@ -6,14 +6,16 @@ one or more parsed type patterns, it collects Metadata-issued candidates,
 classifies each pattern, and returns flat `TypeFindResult` rows with source
 provenance.
 
-[CLI host architecture](../cli-architecture.md) owns parsing, default scope,
-source authorization, operation lifetime, diagnostics, exit status, and
-rendering. [Inspection layers](inspection-layers.md) owns the boundary between
-the host, typed queries, and Metadata facts. `AssemblyContextTypeInventoryQuery`
-owns the candidate inventory; `ILInspector.Metadata.TypeMatcher` owns the type
-matching grammar and similarity calculation. [Output shapes](output-shapes.md)
-and [progressive disclosure](progressive-disclosure.md) own projection,
-formatting, and presentation limits.
+[CLI host architecture](../cli-architecture.md) owns parsing, source
+authorization, operation lifetime, diagnostics, exit status, and rendering.
+[Search scope resolution](search-scope-resolution.md) owns default activation
+and explicit scope-group normalization. [Inspection
+layers](inspection-layers.md) owns the boundary between the host, typed
+queries, and Metadata facts. `AssemblyContextTypeInventoryQuery` owns the
+candidate inventory; `ILInspector.Metadata.TypeMatcher` owns the type matching
+grammar and similarity calculation. [Output shapes](output-shapes.md) and
+[progressive disclosure](progressive-disclosure.md) own projection, formatting,
+and presentation limits.
 
 ## Baseline and scope
 

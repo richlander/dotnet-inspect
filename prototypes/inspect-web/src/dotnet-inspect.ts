@@ -3,7 +3,6 @@ import {
   activeSourceOperationKind,
   assemblyDescriptorForType,
   assertNever,
-  pdbSourceLimitationHtml,
   callGraphAssemblyIdentityMatches,
   callGraphDiagnosticsMessage,
   callGraphTargetMatchesType,
@@ -33,11 +32,9 @@ import {
   packageForView,
   packageIdentityKey,
   packageLenses,
-  parameterTitleHtml,
   partitionGraphMembers,
   platformPackForGraphAssembly,
   platformPackFromProvenance,
-  removeWorkspacePackage,
   removeAppendedNotice,
   retainGraphMemberProjection,
   retainWorkspacePackage,
@@ -144,12 +141,21 @@ import {
   type PlatformLibraryLens,
 } from "./library-controls.ts";
 import {
+  applicationMenuOwnsFocus,
   bindHomeShell,
   bindLoadErrorShell,
   bindWorkbenchShell,
+  captureApplicationMenuFocusOwner,
+  focusApplicationMenuButton,
   focusWorkbenchSearch,
+  renderApplicationMenu,
+  renderApplicationMenuButton,
+  renderKeyboardHelpDialog,
+  restoreApplicationMenuFocusIfOwned,
+  type ApplicationAction,
   type HomeShellBindingActions,
   type LoadErrorShellBindingActions,
+  type WorkbenchShellBinding,
   type WorkbenchShellBindingActions,
   workbenchShellHtml,
 } from "./shell-controls.ts";
@@ -163,6 +169,7 @@ import {
   createSourceInspectionCoordinator,
   type GraphSourceRequest,
 } from "./source-inspection.ts";
+import { createOperationAuthorityPage } from "./operation-authority.ts";
 import {
   createMetadataInspectionCoordinator,
   type AppExplorerState,
@@ -228,12 +235,18 @@ import {
 import {
   bindScopeBar,
   captureScopeBarFocus,
+  createScopeBarState,
   renderScopeBar as renderScopeBarPure,
   restoreScopeBarFocus,
+  scopeBarShortLabel,
+  type ScopeBarBinding,
 } from "./scope-bar.ts";
 import {
   bindWorkspaceSubject,
+  focusWorkspace,
   renderWorkspaceSubject,
+  renderWorkspaceView as renderWorkspaceViewPure,
+  workspaceOccurrenceActionsAreVisible,
 } from "./workspace-subject.ts";
 import {
   bindDocViewer,
@@ -262,6 +275,8 @@ import {
   bindTypePanel,
   renderGraphMemberPending,
   renderMemberNav,
+  renderSourcePageActions,
+  renderSourceResult,
   renderTypeMetadata,
   renderTypeNav,
   renderTypeSource,
@@ -369,6 +384,8 @@ import type {
   BrowserTypeMetadata,
   BrowserTypeSurface,
   BrowserWorkspaceShareState,
+  BrowserWorkspacePackageOccurrenceActivation,
+  BrowserWorkspacePackageOccurrenceView,
 } from "./inspect-web-engine.d.ts";
 
 type EngineModule = typeof import("./inspect-web-engine.d.ts");
@@ -403,6 +420,12 @@ let inspectPackageMetadataTable: EngineModule["queryPackageMetadataTable"];
 let inspectPackageOpportunities: EngineModule["queryPackageOpportunities"];
 let inspectPackagePerformance: EngineModule["queryPackagePerformance"];
 let inspectPackageVersions: EngineModule["queryPackageVersions"];
+let inspectQueryWorkspacePackageOccurrences:
+  EngineModule["queryWorkspacePackageOccurrences"];
+let inspectActivateWorkspacePackageOccurrence:
+  EngineModule["activateWorkspacePackageOccurrence"];
+let inspectClearWorkspacePackageOccurrences:
+  EngineModule["clearWorkspacePackageOccurrences"];
 let inspectPlatformHeapEntries: EngineModule["queryPlatformHeapEntries"];
 let inspectPlatformIntegrations: EngineModule["queryPlatformIntegrations"];
 let inspectPlatformMetadata: EngineModule["queryPlatformMetadata"];
@@ -457,6 +480,12 @@ async function loadEngineModule() {
     queryPackageOpportunities: inspectPackageOpportunities,
     queryPackagePerformance: inspectPackagePerformance,
     queryPackageVersions: inspectPackageVersions,
+    queryWorkspacePackageOccurrences:
+      inspectQueryWorkspacePackageOccurrences,
+    activateWorkspacePackageOccurrence:
+      inspectActivateWorkspacePackageOccurrence,
+    clearWorkspacePackageOccurrences:
+      inspectClearWorkspacePackageOccurrences,
     queryPlatformHeapEntries: inspectPlatformHeapEntries,
     queryPlatformIntegrations: inspectPlatformIntegrations,
     queryPlatformMetadata: inspectPlatformMetadata,
@@ -631,6 +660,7 @@ let homeReadyGlintPending = true;
 const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   statusBarExpanded: false,
+  memberFiltersExpanded: false,
   packages: [],
   package: null,
   home: false,
@@ -731,6 +761,10 @@ const initialState = {
   memberDocumentationKey: "",
   lens: "api" as const,
   packageLens: "overview" as const,
+  workspaceOccurrences: null,
+  workspaceOccurrenceSignature: "",
+  workspaceOccurrenceLoading: false,
+  workspaceOccurrenceError: "",
   workspaceSubjectOpen: false,
   atPackageRoot: false,
   typeFilter: "",
@@ -774,6 +808,7 @@ const initialState = {
   taste: loadStoredTaste(),
   settings: false,
   settingsReturn: "home",
+  keyboardHelp: false,
   typeCursor: 0,
   history: [],
   loading: true,
@@ -794,6 +829,7 @@ const initialState = {
 interface StateOverrides {
   packages: AppPackage[];
   package: AppPackage | null;
+  workspaceOccurrences: BrowserWorkspacePackageOccurrenceView | null;
   workspaceShareBasis: BrowserWorkspaceShareState | null;
   platformIndex: PlatformIndex | null;
   queryNoticeRetryAction: RetryAction;
@@ -852,6 +888,9 @@ interface StateOverrides {
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
 
 const state: AppState = initialState;
+const scopeBarState = createScopeBarState();
+let scopeBarBinding: ScopeBarBinding | null = null;
+let workbenchShellBinding: WorkbenchShellBinding | null = null;
 type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
   | { kind: "canonical" }
   | {
@@ -929,8 +968,11 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
 }
 
 const keybindings = createWorkbenchKeybindings();
+let keyboardHelpBindings = keybindings.bindingsFor();
+const operationAuthority = createOperationAuthorityPage();
 const sourceInspection = createSourceInspectionCoordinator({
   state,
+  operationAuthority,
   queryMemberSource: request => inspectMemberSource(
     request.packageId,
     request.version,
@@ -960,6 +1002,10 @@ const sourceInspection = createSourceInspectionCoordinator({
     taste),
   memberSourceHasConcreteOverload,
   cancelEngineSourceRequest: () => cancelSourceInspection?.(),
+  reportOperationDiagnostic: diagnostic => {
+    console.error("Source operation authority failure.", diagnostic);
+    return undefined;
+  },
   describeError: errorMessage,
   render,
   renderPreservingMemberFocus,
@@ -1566,11 +1612,13 @@ function isInteractiveElement(element: Element | null) {
 function focusTypeList(generation = spotlightFocusGeneration) {
   if (generation !== spotlightFocusGeneration
       || state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen
-      || isTextEntry()) return;
+      || state.settings || state.keyboardHelp
+      || applicationMenuOwnsFocus(document) || isTextEntry()) return;
   afterCurrentNavigationFrame(() => {
     if (generation !== spotlightFocusGeneration
         || state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen
-        || isTextEntry()) return;
+        || state.settings || state.keyboardHelp
+        || applicationMenuOwnsFocus(document) || isTextEntry()) return;
     document.querySelector<HTMLElement>("#type-list")?.focus();
   });
 }
@@ -1900,29 +1948,108 @@ function selectWorkspacePackage(
   render();
 }
 
-function closeWorkspacePackage(packageKey: string) {
-  const removal = removeWorkspacePackage(state.packages, state.package, packageKey);
-  if (!removal.closed) return;
-  const activeChanged =
-    !packageIdentityEquals(removal.active, state.package);
-  if (!removal.active && !clearWorkspaceRouteFailure()) {
-    render();
-    return;
-  }
+function workspaceOccurrenceRequest() {
+  return state.packages
+    .filter(item => !item.isRuntimePack)
+    .map(item => ({
+      package: item.id,
+      version: item.version,
+      framework: item.activeFramework,
+    }));
+}
 
-  state.packages = removal.packages;
-  releasePackageModelCaches(removal.closed);
-  if (removal.active) {
-    if (activeChanged) {
-      selectWorkspacePackage(removal.active, { stayInWorkspace: true });
-    } else {
-      render();
+function ensureWorkspaceOccurrenceView() {
+  if (!state.engineReady) return;
+  const signature = JSON.stringify(workspaceOccurrenceRequest());
+  if (signature === state.workspaceOccurrenceSignature) return;
+
+  state.workspaceOccurrenceSignature = signature;
+  if (state.workspaceOccurrenceLoading) return;
+  void queryWorkspaceOccurrenceView();
+}
+
+let workspaceOccurrenceRevision = 0;
+
+async function queryWorkspaceOccurrenceView() {
+  const signature = state.workspaceOccurrenceSignature;
+  const revision = workspaceOccurrenceRevision;
+  let superseded = false;
+  state.workspaceOccurrenceLoading = true;
+  state.workspaceOccurrenceError = "";
+  try {
+    const view = await inspectQueryWorkspacePackageOccurrences(signature);
+    superseded = view.superseded;
+    if (!superseded
+      && revision === workspaceOccurrenceRevision
+      && signature === state.workspaceOccurrenceSignature) {
+      state.workspaceOccurrences = view;
     }
+  } catch (error: unknown) {
+    if (revision === workspaceOccurrenceRevision
+      && signature === state.workspaceOccurrenceSignature) {
+      state.workspaceOccurrences = null;
+      state.workspaceOccurrenceError =
+        error instanceof Error ? error.message : String(error);
+    }
+  } finally {
+    state.workspaceOccurrenceLoading = false;
+    if (workspaceOccurrenceViewIsVisible()
+      && (superseded
+        || revision !== workspaceOccurrenceRevision
+        || signature !== state.workspaceOccurrenceSignature)) {
+      state.workspaceOccurrenceSignature =
+        JSON.stringify(workspaceOccurrenceRequest());
+      void queryWorkspaceOccurrenceView();
+    }
+    render();
+  }
+}
+
+function retryWorkspaceOccurrenceView() {
+  state.workspaceOccurrenceSignature = "";
+  ensureWorkspaceOccurrenceView();
+  render();
+}
+
+function clearWorkspaceOccurrenceView() {
+  inspectClearWorkspacePackageOccurrences();
+  workspaceOccurrenceRevision++;
+  state.workspaceOccurrenceSignature = "";
+  state.workspaceOccurrences = null;
+  state.workspaceOccurrenceError = "";
+}
+
+function workspaceOccurrenceViewIsVisible() {
+  return workspaceOccurrenceActionsAreVisible({
+    engineReady: state.engineReady,
+    scope: scope(),
+    explorerOpen: state.explorer?.open === true,
+    creditsOpen: state.credits,
+    packageQueryOpen: state.packageQueryOpen,
+    loading: state.loading,
+    error: state.error,
+    home: state.home,
+    hasPackage: state.package !== null,
+  });
+}
+
+function activateWorkspacePackageOccurrence(action: string) {
+  const result: BrowserWorkspacePackageOccurrenceActivation =
+    inspectActivateWorkspacePackageOccurrence(action);
+  if (!result.activated || !result.package) {
+    state.workspaceOccurrenceSignature = "";
+    ensureWorkspaceOccurrenceView();
+    showToast(
+      result.superseded
+        ? "That Workspace view was replaced. Package actions have been refreshed."
+        : "The package occurrence could not be activated.",
+    );
     return;
   }
 
-  state.package = null;
-  goHome();
+  const packageModel = createNuGetPackageModel(result.package);
+  retainPackageModel(packageModel);
+  selectWorkspacePackage(packageModel);
 }
 
 function activatePackage(
@@ -2120,32 +2247,44 @@ function availableMemberTraits(type: AppTypeSurface) {
 }
 
 function renderMemberFilterControls(type: AppTypeSurface) {
-  const groups = publicMemberGroups(type);
-  const visible = visibleMemberGroups(type);
   const kinds = memberKinds(type);
   const accessibilities = memberAccessibilities(type);
   const traits = availableMemberTraits(type);
+  const activeTrait = traits.find(
+    ([property]) => property === state.memberTraitFilter)?.[1];
+  const filterSummary = [
+    state.memberTextFilter ? `text: ${state.memberTextFilter}` : "",
+    state.memberKindFilter === "all"
+      ? ""
+      : state.memberKindFilter.replaceAll("-", " "),
+    state.memberAccessibilityFilter === "all"
+      ? ""
+      : state.memberAccessibilityFilter,
+    activeTrait ?? "",
+  ].filter(Boolean).join(" · ") || "All members";
   return `
-    <div class="type-search member-search">
-      <span aria-hidden="true">/</span>
-      <input id="member-filter" aria-label="Filter members and signatures" value="${escapeHtml(state.memberTextFilter)}" placeholder="Filter members and signatures" autocomplete="off" spellcheck="false" />
-      <button class="tiny-button" id="clear-member-filter" title="Clear member filters" aria-label="Clear member filters">×</button>
-    </div>
-    <div class="member-filter-stack">
-      <div class="namespace-chips kind-chips" aria-label="Member kind filters">
-        <button class="${state.memberKindFilter === "all" ? "active" : ""}" data-member-kind-filter="all" aria-pressed="${state.memberKindFilter === "all"}">all kinds</button>
-        ${kinds.map(kind => `<button class="${state.memberKindFilter === kind ? "active" : ""}" data-member-kind-filter="${escapeHtml(kind)}" aria-pressed="${state.memberKindFilter === kind}">${escapeHtml(kind.replaceAll("-", " "))}</button>`).join("")}
+    <details class="member-filter-disclosure" data-member-filter-disclosure${state.memberFiltersExpanded ? " open" : ""}>
+      <summary><span aria-hidden="true">›</span><strong>Filters</strong><small>${escapeHtml(filterSummary)}</small></summary>
+      <div class="type-search member-search">
+        <span aria-hidden="true">/</span>
+        <input id="member-filter" aria-label="Filter members and signatures" value="${escapeHtml(state.memberTextFilter)}" placeholder="Filter members and signatures" autocomplete="off" spellcheck="false" />
+        <button class="tiny-button" id="clear-member-filter" title="Clear member filters" aria-label="Clear member filters">×</button>
       </div>
-      ${accessibilities.length ? `<div class="namespace-chips access-chips" aria-label="Member accessibility filters">
-        <button class="${state.memberAccessibilityFilter === "all" ? "active" : ""}" data-member-access-filter="all" aria-pressed="${state.memberAccessibilityFilter === "all"}">all access</button>
-        ${accessibilities.map(accessibility => `<button class="${state.memberAccessibilityFilter === accessibility ? "active" : ""}" data-member-access-filter="${escapeHtml(accessibility)}" aria-pressed="${state.memberAccessibilityFilter === accessibility}">${escapeHtml(accessibility)}</button>`).join("")}
-      </div>` : ""}
-      ${traits.length ? `<div class="namespace-chips member-trait-chips" aria-label="Member trait filters">
-        <button class="${!state.memberTraitFilter ? "active" : ""}" data-member-trait-filter="" aria-pressed="${!state.memberTraitFilter}">all traits</button>
-        ${traits.map(([property, label]) => `<button class="${state.memberTraitFilter === property ? "active" : ""}" data-member-trait-filter="${property}" aria-pressed="${state.memberTraitFilter === property}">${label}</button>`).join("")}
-      </div>` : ""}
-    </div>
-    <div class="member-filter-result">${visible.length} of ${groups.length} member groups</div>`;
+      <div class="member-filter-stack">
+        <div class="namespace-chips kind-chips" aria-label="Member kind filters">
+          <button class="${state.memberKindFilter === "all" ? "active" : ""}" data-member-kind-filter="all" aria-pressed="${state.memberKindFilter === "all"}">all kinds</button>
+          ${kinds.map(kind => `<button class="${state.memberKindFilter === kind ? "active" : ""}" data-member-kind-filter="${escapeHtml(kind)}" aria-pressed="${state.memberKindFilter === kind}">${escapeHtml(kind.replaceAll("-", " "))}</button>`).join("")}
+        </div>
+        ${accessibilities.length ? `<div class="namespace-chips access-chips" aria-label="Member accessibility filters">
+          <button class="${state.memberAccessibilityFilter === "all" ? "active" : ""}" data-member-access-filter="all" aria-pressed="${state.memberAccessibilityFilter === "all"}">all access</button>
+          ${accessibilities.map(accessibility => `<button class="${state.memberAccessibilityFilter === accessibility ? "active" : ""}" data-member-access-filter="${escapeHtml(accessibility)}" aria-pressed="${state.memberAccessibilityFilter === accessibility}">${escapeHtml(accessibility)}</button>`).join("")}
+        </div>` : ""}
+        ${traits.length ? `<div class="namespace-chips member-trait-chips" aria-label="Member trait filters">
+          <button class="${!state.memberTraitFilter ? "active" : ""}" data-member-trait-filter="" aria-pressed="${!state.memberTraitFilter}">all traits</button>
+          ${traits.map(([property, label]) => `<button class="${state.memberTraitFilter === property ? "active" : ""}" data-member-trait-filter="${property}" aria-pressed="${state.memberTraitFilter === property}">${label}</button>`).join("")}
+        </div>` : ""}
+      </div>
+    </details>`;
 }
 
 function compositionFilterButton(
@@ -2260,6 +2399,12 @@ function memberSourceHasConcreteOverload() {
     && selectedConcreteOverload(
       member.overloads,
       state.selectedOverloadIndex));
+}
+
+function memberSectionUsesWorkingSurface(section: MemberSection) {
+  return section === "overview"
+    || section === "call-graph"
+    || section === "facts";
 }
 
 function currentSourceOperationKind() {
@@ -2598,19 +2743,25 @@ function typeDisplayName(
 
 function render(options: { synchronizeUrl?: boolean } = {}) {
   sourceInspection.cancelHiddenRequest();
-  document.body.classList.remove("package-query-route");
-  const scopeBarFocus = document.activeElement instanceof HTMLElement
-    ? captureScopeBarFocus(document.activeElement)
-    : null;
-
-  // The Settings page is a modal-style full view layered over whatever the user came from
-  // (home or a package). It owns no URL — it's a preferences panel, not shareable content —
-  // so it renders first and returns; closeSettings restores the underlying view.
-  if (state.settings) {
-    loadingBotSrc = null;
-    renderSettingsViewHtml();
-    return;
+  if (!workspaceOccurrenceViewIsVisible()
+    && (state.workspaceOccurrenceSignature
+      || state.workspaceOccurrences)) {
+    clearWorkspaceOccurrenceView();
   }
+  document.body.classList.remove("package-query-route");
+  const applicationMenuHadFocus = applicationMenuOwnsFocus(document);
+  const focusedElement = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
+  const scopeBarOwnsFocus = focusedElement
+    ?.closest("[data-scope-bar]") != null;
+  const scopeBarFocus = focusedElement
+    ? captureScopeBarFocus(focusedElement)
+    : null;
+  scopeBarBinding?.disconnect();
+  workbenchShellBinding?.disconnect();
+  workbenchShellBinding = null;
+
   // The Metadata Explorer is a full-bleed "browse the database" view layered over the
   // package workbench. Like Settings it owns no URL and renders first, returning to the
   // Metadata lens on close.
@@ -2679,22 +2830,65 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     state.lens = "api";
   }
   state.typeCursor = Math.min(state.typeCursor, Math.max(visible.length - 1, 0));
+  const activeScope = scope();
+  const sourcePageKind =
+    activeScope === "type" && state.lens === "source"
+      ? "type"
+      : activeScope === "member"
+        && state.memberSection === "source"
+        && memberSourceHasConcreteOverload()
+        ? "member"
+        : null;
+  const currentTypeSourceSignature = current
+    ? typeSourceSignature(
+        current,
+        currentPackage(),
+        state.taste,
+        memberRequestKey)
+    : "";
+  const sourcePageSource =
+    sourcePageKind === "member"
+      ? state.memberSource
+      : sourcePageKind === "type"
+        && state.typeSourceKey === currentTypeSourceSignature
+        ? state.typeSource
+        : null;
+  const sourceWorkingSurface =
+    sourcePageKind !== null && sourcePageSource !== null;
+  const apiWorkingSurface =
+    activeScope === "type" && state.lens === "api";
+  const currentMember = current ? selectedMember(current) : undefined;
+  const memberOverloadPicker =
+    currentMember !== undefined
+    && currentMember.overloads.length > 1
+    && !selectedConcreteOverload(
+      currentMember.overloads,
+      state.selectedOverloadIndex);
+  const memberWorkingSurface =
+    activeScope === "member"
+    && current !== null
+    && currentPendingGraphMember() === null
+    && (memberOverloadPicker
+      || memberSectionUsesWorkingSurface(state.memberSection));
   const annotatedPageContext =
-    scope() === "member"
+    activeScope === "member"
     && state.memberSection === "annotated"
     && memberSourceHasConcreteOverload();
   const annotatedWorkingSurface =
     annotatedPageContext && state.memberAnnotatedEmbedded !== null;
-  const annotatedActionsEnabled =
-    annotatedWorkingSurface;
   const subjectPath = currentInspectedSubjectPath();
   const subjectPathLabel = subjectPath.map(segment => segment.label).join(" > ");
   const inspectorPanelSemantics = hasEffectiveInspector()
     ? ' role="tabpanel" aria-labelledby="active-inspector-tab"'
     : "";
 
+  if (scopeBarOwnsFocus) {
+    app.tabIndex = -1;
+    app.focus({ preventScroll: true });
+  }
+  const applicationModalOpen = state.settings || state.keyboardHelp;
   app.innerHTML = `
-    <div class="workbench"${state.memberAnnotatedModal ? " inert" : ""}>
+    <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
         inspectedTargetHtml: `
           <div class="inspected-target" aria-label="Inspected target">
@@ -2713,21 +2907,31 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
               <span class="title-search-glyph" aria-hidden="true">⌕</span>
               <span class="title-search-label title-search-label-full">Search types, members, packages</span>
               <span class="title-search-label title-search-label-compact">Search</span>
-              <kbd>Ctrl P</kbd>
             </button>
           </nav>`,
       })}
 
       <header class="subject-zone" aria-label="Subjects and inspectors">
-        ${renderScopeBar()}
-        <nav class="shell-actions${annotatedPageContext ? " annotated-page-actions" : ""}" aria-label="Application">
-          <button id="share" type="button">Share</button>
-          ${annotatedPageContext
-            ? renderAnnotatedSourcePageActions(annotatedActionsEnabled)
+        <div class="subject-inspector-region">${renderScopeBar()}</div>
+        <div class="shell-actions${annotatedPageContext ? " annotated-page-actions" : ""}${sourcePageKind ? " source-page-actions" : ""}">
+          ${annotatedPageContext || sourcePageKind
+            ? `<div class="working-surface-actions" role="group" aria-label="${annotatedPageContext ? "Annotated Source actions" : "Source actions"}">
+                ${annotatedPageContext
+                  ? renderAnnotatedSourcePageActions(annotatedWorkingSurface)
+                  : ""}
+                ${sourcePageKind
+                  ? renderSourcePageActions({
+                      source: sourcePageSource,
+                      copyButtonId: sourcePageKind === "member"
+                        ? "copy-source"
+                        : "copy-type-source",
+                      escapeHtml,
+                    })
+                  : ""}
+              </div>`
             : ""}
-          <button id="open-settings" type="button">Settings</button>
-          <button id="help" type="button" aria-label="Keyboard help">?</button>
-        </nav>
+          ${renderApplicationMenuButton()}
+        </div>
       </header>
 
       <div class="notice-stack">
@@ -2754,7 +2958,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
         ${renderNavPane(current, visible)}
 
         <section class="detail-pane">
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -2773,6 +2977,11 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
       ${state.graphSourceOpen ? renderGraphSource() : ""}
       ${state.docViewerOpen ? renderDocViewer() : ""}
     </div>
+    ${renderApplicationMenu(true)}
+    ${state.settings ? renderSettingsViewHtml() : ""}
+    ${state.keyboardHelp
+      ? renderKeyboardHelpDialog(keyboardHelpBindings)
+      : ""}
     ${renderAnnotatedSourceModal()}`;
 
   const packageIcon =
@@ -2784,7 +2993,27 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     };
   }
   bindEvents();
-  if (scopeBarFocus) restoreScopeBarFocus(document, scopeBarFocus);
+  if (state.settings) {
+    document.querySelector<HTMLElement>("#settings-title")
+      ?.focus({ preventScroll: true });
+  } else if (state.keyboardHelp) {
+    document.querySelector<HTMLElement>("#keyboard-help-title")
+      ?.focus({ preventScroll: true });
+  } else if (applicationMenuHadFocus) {
+    focusApplicationMenuButton(document);
+  }
+  if (scopeBarOwnsFocus) {
+    let restored = false;
+    if (scopeBarFocus) {
+      scopeBarBinding?.revealFocusTarget(scopeBarFocus);
+      restored = restoreScopeBarFocus(document, scopeBarFocus);
+    }
+    if (!restored) {
+      document.querySelector<HTMLElement>(".brand")
+        ?.focus({ preventScroll: true });
+    }
+    app.removeAttribute("tabindex");
+  }
   restorePackageQueryReturnFocus();
   restorePackageQueryWorkspaceFocus();
   recordNav();
@@ -2887,7 +3116,11 @@ function inspectedSubjectPath(
   current: AppTypeSurface | null | undefined,
 ): readonly SubjectPathSegment[] {
   if (scope() === "workspace") {
-    return [{ kind: "workspace", label: "Workspace", copyable: false }];
+    return [{
+      kind: "workspace",
+      label: "Default Workspace",
+      copyable: false,
+    }];
   }
   const path: SubjectPathSegment[] = [{
     kind: "package",
@@ -2938,10 +3171,9 @@ function renderInspectedSubjectPath(
 
 function renderWorkspaceNavPane() {
   return renderWorkspaceSubject({
-    packages: state.packages,
-    activePackage: state.package,
+    packageCount: state.packages.length,
+    selected: state.workspaceSubjectOpen,
     escapeHtml,
-    packageIdentityKey,
   });
 }
 
@@ -3008,6 +3240,53 @@ function hasEffectiveInspector(): boolean {
   return typeLensesFor(state.package).some(([id]) => id === state.lens);
 }
 
+function packageLensPresentation(
+  id: PackageLens,
+): string {
+  switch (id) {
+    case "overview": return "◫";
+    case "dependencies": return "⇄";
+    case "integrations": return "⌁";
+    case "opportunities": return "◇";
+    case "analysis": return "∿";
+    case "metadata": return "≡";
+    default: return assertNever(id, "package lens presentation");
+  }
+}
+
+function typeLensPresentation(
+  id: TypeLens,
+): string {
+  switch (id) {
+    case "api": return "⌘";
+    case "metadata": return "≡";
+    case "source": return "⌑";
+    default: return assertNever(id, "type lens presentation");
+  }
+}
+
+function memberSectionPresentation(
+  id: MemberSection,
+): string {
+  switch (id) {
+    case "overview": return "◫";
+    case "call-graph": return "⑂";
+    case "facts": return "·";
+    case "source": return "⌑";
+    case "annotated": return "✎";
+    default: return assertNever(id, "member section presentation");
+  }
+}
+
+function scopeBarInspectorDefinitions<TId extends string>(
+  definitions: readonly (readonly [TId, string])[],
+  presentation: (id: TId) => string,
+): readonly (readonly [TId, string, string, string])[] {
+  return definitions.map(([id, label]) => {
+    return [id, label, scopeBarShortLabel(label), presentation(id)];
+  });
+}
+
 function renderScopeBar() {
   const sc = scope();
   const selected = selectedType();
@@ -3027,7 +3306,9 @@ function renderScopeBar() {
   if (sc === "package") {
     return renderScopeBarPure({
       scope: sc,
-      strip: packageLensesFor(state.package),
+      strip: scopeBarInspectorDefinitions(
+        packageLensesFor(state.package),
+        packageLensPresentation),
       activeStripId: state.packageLens,
       stripAttribute: "data-package-lens",
       panelId: "inspector-panel",
@@ -3039,7 +3320,9 @@ function renderScopeBar() {
     const member = selectedMember(selected);
     return renderScopeBarPure({
       scope: sc,
-      strip: member ? memberSectionsFor(member) : [],
+      strip: scopeBarInspectorDefinitions(
+        member ? memberSectionsFor(member) : [],
+        memberSectionPresentation),
       activeStripId: state.memberSection,
       stripAttribute: "data-member-section",
       panelId: "inspector-panel",
@@ -3053,7 +3336,9 @@ function renderScopeBar() {
       scope: sc,
       // `typeLensesFor` rather than the raw catalog: a runtime pack offers only the API
       // lens, and reading the catalog directly here would skip that restriction.
-      strip: typeLensesFor(state.package),
+      strip: scopeBarInspectorDefinitions(
+        typeLensesFor(state.package),
+        typeLensPresentation),
       activeStripId: state.lens,
       stripAttribute: "data-lens",
       panelId: "inspector-panel",
@@ -3108,26 +3393,14 @@ function renderPackageView() {
 }
 
 function renderWorkspaceView() {
-  const packages = state.packages.filter(item => !item.isRuntimePack);
-  const current = state.package && !state.package.isRuntimePack
-    ? state.package
-    : packages[0] ?? null;
-  const platform = runtimePackPackage();
-  return `<header class="type-heading workspace-heading">
-    <div class="type-badge">W</div>
-    <div>
-      <div class="type-namespace">Inspection workspace</div>
-      <h1>Workspace</h1>
-      <code class="type-signature">${packages.length} coordinate${packages.length === 1 ? "" : "s"} · platform ${platform ? "available" : "not loaded"}</code>
-    </div>
-  </header>
-  <section class="workspace-overview">
-    <h2>Current coordinate</h2>
-    ${current
-      ? `<p><strong>${escapeHtml(current.id)}</strong> ${escapeHtml(current.version)} · ${escapeHtml(current.activeFramework)}</p>`
-      : "<p>No package coordinate is open.</p>"}
-    <p>Use Search to open another package. Platform libraries are included when the workspace requires them.</p>
-  </section>`;
+  ensureWorkspaceOccurrenceView();
+  return renderWorkspaceViewPure({
+    occurrences: state.workspaceOccurrences?.occurrences ?? [],
+    packages: state.packages,
+    loading: state.workspaceOccurrenceLoading,
+    error: state.workspaceOccurrenceError,
+    escapeHtml,
+  });
 }
 
 function packageLensBody() {
@@ -4175,7 +4448,24 @@ function renderTypeSourceHtml(item: AppTypeSurface) {
     currentPackage(),
     state.taste,
     memberRequestKey);
-  return renderTypeSource({ item, currentSignature, sourceState: state, escapeHtml, highlightCSharp });
+  return renderTypeSource({
+    item,
+    currentSignature,
+    sourceState: state,
+    escapeHtml,
+    highlightCSharp,
+  });
+}
+
+function currentPendingGraphMember() {
+  const pending = state.pendingGraphMemberDeepLink;
+  return pending
+    && graphMemberPendingMatchesView(
+      pending,
+      packageIdentityKey(state.package),
+      viewSignature())
+    ? pending
+    : null;
 }
 
 function renderLens(item: AppTypeSurface | null | undefined) {
@@ -4184,9 +4474,7 @@ function renderLens(item: AppTypeSurface | null | undefined) {
   if (!item) return "";
   switch (state.lens) {
     case "source":
-      return `
-      ${typeHeadingHtml(item)}
-      ${renderTypeSourceHtml(item)}`;
+      return renderTypeSourceHtml(item);
     case "metadata":
       return `${typeHeadingHtml(item)}${renderTypeMetadataHtml(item)}`;
     case "api":
@@ -4197,12 +4485,8 @@ function renderLens(item: AppTypeSurface | null | undefined) {
 }
 
 function renderApiLens(item: AppTypeSurface) {
-  const pending = state.pendingGraphMemberDeepLink;
-  if (pending
-    && graphMemberPendingMatchesView(
-      pending,
-      packageIdentityKey(state.package),
-      viewSignature())) {
+  const pending = currentPendingGraphMember();
+  if (pending) {
     const title =
       state.graphMemberNavigationTitle
       || `${typeDisplayName(item)}.${pending.target.memberName}`;
@@ -4210,15 +4494,6 @@ function renderApiLens(item: AppTypeSurface) {
   }
   const member = selectedMember(item);
   if (member) return renderMember(item, member);
-  if (state.memberBrowseTypeId === item.id) {
-    return `
-      ${typeHeadingHtml(item)}
-      <section class="document-section empty-document">
-        <span class="large-glyph">⌕</span>
-        <h2>No member selected</h2>
-        <p>Adjust the member filters or choose a member from the list.</p>
-      </section>`;
-  }
   const { publicMembers, graphMembers } =
     partitionGraphMembers(item.api);
   const publicSurface = {
@@ -4226,17 +4501,36 @@ function renderApiLens(item: AppTypeSurface) {
     api: publicMembers
   };
   const publicGroups = memberGroups(publicSurface);
+  const visibleGroups = visibleMemberGroups(publicSurface);
+  if (state.memberBrowseTypeId === item.id) {
+    return `
+      <section class="member-surface member-empty-surface" aria-labelledby="member-surface-title">
+        <header class="api-surface-head member-surface-head">
+          <h1 id="member-surface-title">Members</h1>
+          <p>${visibleGroups.length} of ${publicGroups.length} member groups <span>· no member selected</span></p>
+        </header>
+        <div class="member-surface-scroll">
+          <section class="empty-member-section">
+            <span class="large-glyph">⌕</span>
+            <h2>No member selected</h2>
+            <p>Adjust the member filters or choose a member from the list.</p>
+          </section>
+        </div>
+      </section>`;
+  }
   const graphGroups = memberGroups({
     ...item,
     api: graphMembers
   });
-  const visibleGroups = visibleMemberGroups(publicSurface);
   return `
-    ${typeHeadingHtml(item)}
-    <section class="document-section">
-      <div class="section-title"><h2>Public API</h2><span>${publicGroups.length} member groups · ${item.members} overloads</span></div>
-      <div class="member-browser-controls">${renderMemberFilterControls(publicSurface)}</div>
-      <div class="api-list">${visibleGroups.map(group => {
+    <section class="api-surface" aria-labelledby="api-surface-title">
+      <header class="api-surface-head">
+        <h1 id="api-surface-title">Members</h1>
+        <p>${visibleGroups.length} of ${publicGroups.length} member groups <span>· ${item.members} overloads</span></p>
+      </header>
+      <div class="member-browser-controls api-surface-controls">${renderMemberFilterControls(publicSurface)}</div>
+      <div class="api-surface-scroll">
+        <div class="api-list api-surface-list">${visibleGroups.map(group => {
         const overload = group.overloads[0];
         if (!overload)
           throw new Error(`Member group '${group.key}' did not contain an overload.`);
@@ -4246,24 +4540,28 @@ function renderApiLens(item: AppTypeSurface) {
           <code>${highlight(overload.signature)}</code>
           <small>${group.overloads.length === 1 ? escapeHtml(group.kind) : `${group.overloads.length} overloads`}</small>
         </button>`;
-      }).join("") || '<div class="empty-list">No declared public members match these filters.</div>'}</div>
-    </section>
-    ${graphGroups.length
-      ? `<section class="document-section">
-          <div class="section-title"><h2>Graph-discovered implementation members</h2><span>${graphGroups.reduce((count, group) => count + group.overloads.length, 0)} projected</span></div>
-          <div class="api-list">${graphGroups.map(group => {
-            const overload = group.overloads[0];
-            if (!overload)
-              throw new Error(`Member group '${group.key}' did not contain an overload.`);
-            return `
-            <button class="api-row" data-member="${escapeHtml(group.key)}">
-              <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
-              <code>${highlight(overload.signature)}</code>
-              <small>${group.overloads.length === 1 ? "implementation" : `${group.overloads.length} implementations`}</small>
-            </button>`;
-          }).join("")}</div>
-        </section>`
-      : ""}`;
+        }).join("") || '<div class="empty-list">No declared public members match these filters.</div>'}</div>
+        ${graphGroups.length
+          ? `<section class="api-surface-secondary">
+              <div class="section-title"><h2>Graph-discovered implementation members</h2><span>${graphGroups.reduce((count, group) => count + group.overloads.length, 0)} projected</span></div>
+              <div class="api-list">${graphGroups.map(group => {
+                const overload = group.overloads[0];
+                if (!overload)
+                  throw new Error(`Member group '${group.key}' did not contain an overload.`);
+                return `
+                <button class="api-row" data-member="${escapeHtml(group.key)}">
+                  <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
+                  <code>${highlight(overload.signature)}</code>
+                  <small>${group.overloads.length === 1 ? "implementation" : `${group.overloads.length} implementations`}</small>
+                </button>`;
+              }).join("")}</div>
+            </section>`
+          : ""}
+      </div>
+      <footer class="api-surface-footer">
+        <span>Select a row to inspect its API</span>
+      </footer>
+    </section>`;
 }
 
 function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
@@ -4275,19 +4573,25 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     && selectedOverloadIndex < member.overloads.length;
   if (member.overloads.length > 1 && !hasSelectedOverload) {
     return `
-      <button class="member-back" id="member-back">← ${escapeHtml(typeDisplayName(type))}</button>
-      <section class="overload-picker">
-        <p class="eyebrow">${escapeHtml(member.kind)} group</p>
-        <h1>${escapeHtml(member.name)}</h1>
-        <p>Choose a specific overload to inspect.</p>
-        <div class="api-list">
-          ${member.overloads.map((overload, index) => `
-            <button class="api-row overload-row" data-overload="${index}">
-              <span class="member-icon">${index + 1}</span>
-              <code>${highlight(overload.signature)}</code>
-              <small>open →</small>
-            </button>`).join("")}
+      <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
+        <header class="api-surface-head member-surface-head">
+          <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
+          <p>${member.overloads.length} overloads <span>· ${escapeHtml(member.kind)}</span></p>
+        </header>
+        <div class="member-surface-scroll">
+          <div class="api-list api-surface-list member-surface-list">
+            ${member.overloads.map((overload, index) => `
+              <button class="api-row overload-row" data-overload="${index}">
+                <span class="member-icon">${index + 1}</span>
+                <code>${highlight(overload.signature)}</code>
+                <small>open →</small>
+              </button>`).join("")}
+          </div>
         </div>
+        <footer class="api-surface-footer member-surface-footer">
+          <button class="member-back" id="member-back">← ${escapeHtml(typeDisplayName(type))}</button>
+          <span>Choose an overload to inspect</span>
+        </footer>
       </section>`;
   }
   const overloadIndex = hasSelectedOverload ? selectedOverloadIndex ?? 0 : 0;
@@ -4304,21 +4608,10 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   const documentationError = documentationState.error;
   let content;
   if (state.memberSection === "overview") {
-    const pageKind = member.kind === "constructor" ? "Constructor" : `${member.kind.slice(0, 1).toUpperCase()}${member.kind.slice(1)}`;
     const parameters = overload.parameters ?? [];
     content = `
       <article class="learn-overview">
-        <header class="learn-title">
-          <p>${escapeHtml(type.namespace)}</p>
-          <h1>${escapeHtml(typeDisplayName(type))}.${escapeHtml(member.name)}${parameterTitleHtml(parameters)} ${escapeHtml(pageKind)}</h1>
-          <span>${escapeHtml(pkg.id)} · ${escapeHtml(pkg.activeFramework)}</span>
-        </header>
-        <section class="learn-section definition-section">
-          <dl class="definition-list">
-            <div><dt>Namespace:</dt><dd>${escapeHtml(type.namespace || "global")}</dd></div>
-            <div><dt>Assembly:</dt><dd>${escapeHtml(type.assembly)}</dd></div>
-            <div><dt>Package:</dt><dd>${escapeHtml(pkg.id)} v${escapeHtml(pkg.version)}</dd></div>
-          </dl>
+        <section class="learn-section member-overview-intro">
           ${documentationLoading
             ? '<p class="docs-loading">Loading package documentation…</p>'
             : documentationError
@@ -4445,17 +4738,26 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     content = state.memberSourceLoading
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`
       : state.memberSource
-        ? `<section class="document-section source-result">
-            <div class="source-provenance"><strong>${state.memberSource.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span>${escapeHtml(state.memberSource.provenance)}</span>${state.memberSource.url ? `<a href="${escapeHtml(state.memberSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}${pdbSourceLimitationHtml(state.memberSource)}<button id="copy-source" type="button">copy</button></div>
-            <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.memberSource.text)}</code></pre>
-          </section>`
+        ? renderSourceResult({
+            source: state.memberSource,
+            escapeHtml,
+            highlightCSharp,
+          })
         : `<section class="document-section empty-member-section"><h2>Source query failed</h2><p>${escapeHtml(state.memberSourceError || "No source result was returned.")}</p></section>`;
   } else {
     assertNever(state.memberSection, "member section");
   }
+  if (!memberSectionUsesWorkingSurface(state.memberSection)) return content;
   // The member-mode strip (Overview / Call graph / Facts / Source / Annotated) now lives in
   // the top scope+lens bar, so the detail view renders only the section content itself.
-  return content;
+  return `
+    <section class="member-surface" aria-labelledby="member-surface-title">
+      <header class="api-surface-head member-surface-head">
+        <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
+        <p>${escapeHtml(member.kind)} <span>· ${overloadIndex + 1} of ${member.overloads.length}</span></p>
+      </header>
+      <div class="member-surface-scroll">${content}</div>
+    </section>`;
 }
 
 // The annotated section renders the product's portable AnnotatedSourceDocument directly: canonical
@@ -4994,6 +5296,9 @@ function bindTypePanelEvents() {
       normalizeMemberSelection();
       renderPreservingMemberFocus();
     },
+    onMemberFilterDisclosureToggle: expanded => {
+      state.memberFiltersExpanded = expanded;
+    },
     onMemberFilterClear: () => {
       resetMemberFilters();
       normalizeMemberSelection();
@@ -5079,7 +5384,7 @@ function bindTypePanelEvents() {
 }
 
 function bindScopeBarEvents() {
-  bindScopeBar(document, {
+  scopeBarBinding = bindScopeBar(document, {
     onMemberSectionSelect: section => {
       applyMemberSection(section);
     },
@@ -5124,7 +5429,7 @@ function bindScopeBarEvents() {
       state.memberBrowseTypeId = "";
       render();
     },
-  });
+  }, scopeBarState);
 }
 
 function bindSettingsPanelEvents() {
@@ -5360,6 +5665,7 @@ function bindAnnotatedSourceEvents() {
 }
 
 const workbenchShellActions: WorkbenchShellBindingActions = {
+  onApplicationAction: dispatchApplicationAction,
   onCopySubjectSegment: index => {
     const segment = currentInspectedSubjectPath()[index];
     if (segment?.copyable)
@@ -5372,10 +5678,6 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
     pkg.inspectionError = "";
     render();
   },
-  onHelp: () => showToast(
-    "⌘K command · ⌘P / type to find a type · ⌘F filter · "
-    + "1—5 lenses · ↑↓ types · Alt+←/→ or Shift+←/→ back/forward · "
-    + "graph: wheel zoom, click node to open, +/− zoom, 0 fit, arrows pan"),
   onNavigateBack: navBack,
   onNavigateForward: navForward,
   onRetryNotice: () => {
@@ -5383,7 +5685,6 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
     if (retryAction) observeAction(retryAction, "Retrying the inspection");
   },
   onSearch: () => openSpotlight(),
-  onShare: () => void share(),
 };
 
 const graphBackActions: GraphBackBindingActions = {
@@ -5392,12 +5693,12 @@ const graphBackActions: GraphBackBindingActions = {
 
 function bindWorkspaceSubjectEvents() {
   bindWorkspaceSubject(document, {
-    onActivate: key => {
-      const packageModel = state.packages.find(
-        item => packageIdentityKey(item) === key);
-      if (packageModel) selectWorkspacePackage(packageModel);
-    },
-    onClose: closeWorkspacePackage,
+    onSelect: openDefaultWorkspace,
+    onActivate: action =>
+      observeAction(
+        () => activateWorkspacePackageOccurrence(action),
+        "Opening the Workspace package"),
+    onRetry: retryWorkspaceOccurrenceView,
   });
 }
 
@@ -5415,7 +5716,8 @@ function bindEvents() {
   bindAnnotatedSourceEvents();
   bindPackageViewEvents();
   bindLibraryControlsEvents();
-  bindWorkbenchShell(document, workbenchShellActions);
+  workbenchShellBinding =
+    bindWorkbenchShell(document, workbenchShellActions);
   bindGraphBack(document, graphBackActions);
   observeAsync(ensurePackageVersions(state.package), "Loading package versions");
   if (state.package?.isRuntimePack)
@@ -6508,7 +6810,11 @@ function executeCommand(
   } else if (verb === "find" || verb === "types") {
     state.typeFilter = argument.replace(/^public\s*/, "");
   } else if (verb === "share") {
-    operation = share();
+    dispatchApplicationAction("share");
+  } else if (verb === "settings") {
+    dispatchApplicationAction("settings");
+  } else if (value === "keyboard help") {
+    dispatchApplicationAction("keyboard-help");
   }
   state.history = [value, ...state.history.filter(item => item !== value)].slice(0, 5);
   return operation;
@@ -6521,6 +6827,12 @@ function focusFilter(
     const input = document.querySelector<HTMLInputElement>(
       "#member-filter, #type-filter");
     if (!input) return;
+    const disclosure = input.closest<HTMLDetailsElement>(
+      "[data-member-filter-disclosure]");
+    if (disclosure && !disclosure.open) {
+      state.memberFiltersExpanded = true;
+      disclosure.open = true;
+    }
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
   };
@@ -6545,8 +6857,13 @@ function renderWithMemberFocus(preserved: MemberFocusSnapshot) {
 function renderPreservingMemberFocus(
   fallback: MemberFocusSnapshot | null = null,
 ) {
+  const applicationMenuHadFocus = applicationMenuOwnsFocus(document);
   const current = captureMemberFocus(document);
   const preserved = memberFocusRestorer.resolve(current, fallback);
+  if (applicationMenuHadFocus) {
+    render();
+    return preserved;
+  }
   return renderWithMemberFocus(preserved);
 }
 
@@ -7120,6 +7437,7 @@ function loadSelectionData() {
 }
 
 async function share() {
+  const focusOwner = captureApplicationMenuFocusOwner(document);
   try {
     await navigator.clipboard?.writeText(buildStateUrl().toString());
     showToast("selection link copied");
@@ -7127,6 +7445,9 @@ async function share() {
     state.queryNotice = errorMessage(error);
     state.queryNoticeRetryAction = null;
     render();
+  } finally {
+    requestAnimationFrame(() =>
+      restoreApplicationMenuFocusIfOwned(document, focusOwner));
   }
 }
 
@@ -7134,6 +7455,8 @@ function showToast(message: string, duration = 2200) {
   document.querySelector(".toast")?.remove();
   const toast = document.createElement("div");
   toast.className = "toast";
+  toast.setAttribute("role", "status");
+  toast.setAttribute("aria-live", "polite");
   toast.textContent = message;
   document.body.append(toast);
   setTimeout(() => toast.remove(), duration);
@@ -7249,7 +7572,7 @@ function renderHomeView() {
     : -((performance.now() - homeBotAnimationStartedAt)
       % HOME_BOT_ANIMATION_DURATION_MS);
   app.innerHTML = `
-    <div class="home">
+    <div class="home"${state.settings ? " inert" : ""}>
       <header class="home-bar">
         ${renderBrand()}
         <div class="home-bar-actions">
@@ -7298,8 +7621,13 @@ function renderHomeView() {
         compactDiagnostics: true,
         expanded: state.statusBarExpanded,
       }, escapeHtml)}
-    </div>`;
+    </div>
+    ${state.settings ? renderSettingsViewHtml() : ""}`;
   bindHomeEvents();
+  if (state.settings) {
+    document.querySelector<HTMLElement>("#settings-title")
+      ?.focus({ preventScroll: true });
+  }
 }
 
 // The hero mascot: dotnet-bot inspecting through a magnifying glass (official dotnet/brand
@@ -7346,8 +7674,15 @@ function bindHomeEvents() {
 // deep links built from the resolved projection; member-bound Call Graph demos
 // execute through one generated engine operation over the product-resolved
 // workspace and view.
+function openDefaultWorkspace(): void {
+  state.workspaceSubjectOpen = true;
+  state.atPackageRoot = true;
+  render();
+  afterCurrentNavigationFrame(() =>
+    focusWorkspace(document));
+}
+
 function runHomeDemo(kind: ProductHomeDemoId) {
-  state.home = false;
   const resolveResult = inspectResolveHomeDemo(kind);
   const resolved = resolveResult.found ? resolveResult.demo : null;
   if (!resolved) {
@@ -7357,6 +7692,7 @@ function runHomeDemo(kind: ProductHomeDemoId) {
     render();
     return;
   }
+  state.home = false;
   const link = productHomeDemoLocationHref(
     resolved,
     inspectEncodeWorkspaceShareState);
@@ -7978,6 +8314,7 @@ async function loadSelectedTypeMetadata() {
       const currentType = selectedType();
       return !state.home
       && !state.settings
+      && !state.keyboardHelp
       && !state.explorer?.open
       && !state.loading
       && !state.error
@@ -9579,10 +9916,25 @@ function clearTaste() {
   render();
 }
 
-// Open the Settings page, remembering where to return (the home page vs. the workbench) so
-// closing restores that view without touching the URL.
+function dispatchApplicationAction(action: ApplicationAction) {
+  switch (action) {
+    case "share":
+      void share();
+      return;
+    case "settings":
+      openSettings("workbench");
+      return;
+    case "keyboard-help":
+      if (state.keyboardHelp) closeKeyboardHelp();
+      else openKeyboardHelp();
+      return;
+  }
+}
+
+// Open Settings, remembering the logical control that receives focus after dismissal.
 function openSettings(from: "home" | "workbench") {
   state.settingsReturn = from === "workbench" ? "workbench" : "home";
+  state.keyboardHelp = false;
   state.settings = true;
   render();
 }
@@ -9591,14 +9943,39 @@ function closeSettings() {
   state.settings = false;
   reloadVisibleSource();
   render();
+  requestAnimationFrame(() => {
+    const selector = state.settingsReturn === "workbench"
+      ? "#application-menu-button"
+      : "#home-settings";
+    document.querySelector<HTMLElement>(selector)
+      ?.focus({ preventScroll: true });
+  });
 }
 
-// The Settings page: a persistent preferences panel. Every control here writes straight to
-// localStorage (theme → inspect-theme, taste → inspect-taste) so choices survive a reload and
-// future sessions. Grouped into Appearance and Decompiler style; the latter reuses the same
-// style-option catalog the detail-view taste popover shows.
+function openKeyboardHelp() {
+  state.settings = false;
+  const graphViewport =
+    document.querySelector<HTMLElement>(".graph-viewport");
+  keyboardHelpBindings = [
+    ...keybindings.availableBindingsFor(),
+    ...(graphViewport
+      ? keybindings.availableBindingsFor(graphViewport)
+      : []),
+  ];
+  state.keyboardHelp = true;
+  render();
+}
+
+function closeKeyboardHelp() {
+  state.keyboardHelp = false;
+  render();
+  requestAnimationFrame(() =>
+    document.querySelector<HTMLElement>("#application-menu-button")
+      ?.focus({ preventScroll: true }));
+}
+
 function renderSettingsViewHtml() {
-  app.innerHTML = renderSettingsView({
+  return renderSettingsView({
     theme: state.theme,
     settingsReturn: state.settingsReturn,
     styleCatalog: {
@@ -9609,7 +9986,6 @@ function renderSettingsViewHtml() {
     },
     escapeHtml,
   });
-  bindSettingsPanelEvents();
 }
 
 function renderGraphSource() {
@@ -9731,6 +10107,9 @@ async function loadPackage(
   framework: string,
   options: LoadPackageOptions = {},
 ): Promise<AppPackage | null> {
+  if (state.engineReady)
+    clearWorkspaceOccurrenceView();
+
   // Background restores load a tab's data into state.packages (for the tab bar and
   // cross-package edges) WITHOUT stealing the main view: no focus switch, no selection
   // reset, no loading toggle, no render. The caller (workspace restore) keeps the loading
@@ -10660,14 +11039,14 @@ function navigateInAppUrl(url: URL) {
     goHome();
     return;
   }
-  const focusWorkspace = state.packageQueryOpen;
-  if (focusWorkspace) {
+  const focusWorkspaceAfterQuery = state.packageQueryOpen;
+  if (focusWorkspaceAfterQuery) {
     state.packageQueryOpen = false;
     packageQueryController.cancel();
     state.packageQueryNavigationError = "";
   }
   const navigationSeq = navigationSequence.begin();
-  if (focusWorkspace) {
+  if (focusWorkspaceAfterQuery) {
     packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
   }
   workspaceLocation.push(url.toString());
@@ -10705,6 +11084,7 @@ function registerContainedShortcuts(
 function workspaceKeyboardContextIsActive(): boolean {
   return !state.explorer?.open
     && !state.settings
+    && !state.keyboardHelp
     && !state.home
     && !state.packageQueryOpen
     && !state.loading
@@ -10733,6 +11113,15 @@ const documentViewerContextIsActive = () =>
   workspaceModalContextIsAvailable() && state.docViewerOpen;
 const spotlightContextIsActive = () =>
   workspaceModalContextIsAvailable() && state.spotlightOpen;
+const workspaceDrillOutIsAvailable = () =>
+  workspaceKeyboardContextIsActive()
+  && (navMode() === "member" || !state.atPackageRoot);
+const inspectionNavigationIsAvailable = () =>
+  workspaceKeyboardContextIsActive() && scope() !== "workspace";
+const workspaceHistoryBackIsAvailable = () =>
+  workspaceKeyboardContextIsActive() && navigationHistory.canBack();
+const workspaceHistoryForwardIsAvailable = () =>
+  workspaceKeyboardContextIsActive() && navigationHistory.canForward();
 
 keybindings.register({
   id: "metadata-explorer.dismiss",
@@ -10779,6 +11168,22 @@ registerContainedShortcuts(
   "settings.contain-browser-shortcut",
   WORKBENCH_KEYBINDING_PRIORITY.settings,
   () => state.settings,
+);
+keybindings.register({
+  id: "keyboard-help.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.settings,
+  when: () => state.keyboardHelp,
+  run: () => {
+    closeKeyboardHelp();
+    return true;
+  },
+});
+registerContainedShortcuts(
+  "keyboard-help.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.settings,
+  () => state.keyboardHelp,
 );
 
 const unavailableWorkspaceContext = () =>
@@ -10912,11 +11317,10 @@ keybindings.register({
 keybindings.register({
   id: "workspace.drill-out-escape",
   key: "Escape",
+  available: workspaceDrillOutIsAvailable,
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: () => workspaceKeyboardContextIsActive()
-    && !isTextEntry()
-    && (navMode() === "member" || !state.atPackageRoot),
+  when: () => !isTextEntry(),
   run: () => {
     if (navMode() === "member") exitMemberScope();
     else drillOut();
@@ -10926,10 +11330,10 @@ keybindings.register({
 keybindings.register({
   id: "workspace.open-commands",
   key: "k",
+  available: workspaceKeyboardContextIsActive,
   modifiers: { commandOrControl: true },
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: workspaceKeyboardContextIsActive,
   run: () => {
     openSpotlight("", "commands");
     return true;
@@ -10938,10 +11342,10 @@ keybindings.register({
 keybindings.register({
   id: "workspace.open-all",
   key: "p",
+  available: workspaceKeyboardContextIsActive,
   modifiers: { commandOrControl: true },
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: workspaceKeyboardContextIsActive,
   run: () => {
     openSpotlight();
     return true;
@@ -10950,29 +11354,28 @@ keybindings.register({
 keybindings.register({
   id: "workspace.focus-filter",
   key: "f",
+  available: inspectionNavigationIsAvailable,
   modifiers: { commandOrControl: true },
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: workspaceKeyboardContextIsActive,
   run: () => {
     focusFilter();
     return true;
   },
 });
 
-for (const [key, action] of [
-  ["ArrowLeft", navBack],
-  ["ArrowRight", navForward],
+for (const [key, action, available] of [
+  ["ArrowLeft", navBack, workspaceHistoryBackIsAvailable],
+  ["ArrowRight", navForward, workspaceHistoryForwardIsAvailable],
 ] as const) {
   keybindings.register({
     id: `workspace.history-alt-${key}`,
     key,
+    available,
     modifiers: { alt: true },
     allowExtraModifiers: true,
     priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-    when: event => workspaceKeyboardContextIsActive()
-      && !event.metaKey
-      && !event.ctrlKey,
+    when: event => !event.metaKey && !event.ctrlKey,
     run: () => {
       action();
       return true;
@@ -10981,9 +11384,10 @@ for (const [key, action] of [
   keybindings.register({
     id: `workspace.history-shift-${key}`,
     key,
+    available,
     modifiers: { shift: true },
     priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-    when: () => workspaceKeyboardContextIsActive() && !isTextEntry(),
+    when: () => !isTextEntry(),
     run: () => {
       action();
       return true;
@@ -10994,11 +11398,11 @@ for (const [key, action] of [
 keybindings.register({
   id: "workspace.select-lens",
   key: ["1", "2", "3", "4", "5", "6", "7", "8", "9"],
+  available: inspectionNavigationIsAvailable,
   allowExtraModifiers: true,
   preventDefault: false,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: event => workspaceKeyboardContextIsActive()
-    && !isTextEntry()
+  when: event => !isTextEntry()
     && !event.metaKey
     && !event.ctrlKey,
   run: event => {
@@ -11009,10 +11413,10 @@ keybindings.register({
 keybindings.register({
   id: "workspace.navigate-vertical",
   key: ["ArrowUp", "ArrowDown"],
+  available: inspectionNavigationIsAvailable,
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: event => workspaceKeyboardContextIsActive()
-    && !isTextEntry()
+  when: event => !isTextEntry()
     && !event.metaKey
     && !event.ctrlKey
     && !event.altKey,
@@ -11024,8 +11428,9 @@ keybindings.register({
 keybindings.register({
   id: "workspace.navigate-horizontal",
   key: ["ArrowLeft", "ArrowRight"],
+  available: inspectionNavigationIsAvailable,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: () => workspaceKeyboardContextIsActive() && !isTextEntry(),
+  when: () => !isTextEntry(),
   run: event => {
     stepHorizontal(event.key === "ArrowRight" ? 1 : -1);
     return true;
@@ -11034,10 +11439,10 @@ keybindings.register({
 keybindings.register({
   id: "workspace.drill-in",
   key: "Enter",
+  available: workspaceKeyboardContextIsActive,
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: event => workspaceKeyboardContextIsActive()
-    && !isTextEntry()
+  when: event => !isTextEntry()
     && !event.metaKey
     && !event.ctrlKey
     && !event.altKey
@@ -11051,14 +11456,13 @@ keybindings.register({
 keybindings.register({
   id: "workspace.drill-out-backspace",
   key: "Backspace",
+  available: workspaceDrillOutIsAvailable,
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: event => workspaceKeyboardContextIsActive()
-    && !isTextEntry()
+  when: event => !isTextEntry()
     && !event.metaKey
     && !event.ctrlKey
-    && !event.altKey
-    && (navMode() === "member" || !state.atPackageRoot),
+    && !event.altKey,
   run: () => {
     drillOut();
     return true;
@@ -11067,9 +11471,10 @@ keybindings.register({
 keybindings.register({
   id: "workspace.focus-filter-slash",
   key: "/",
+  available: inspectionNavigationIsAvailable,
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: () => workspaceKeyboardContextIsActive() && !isTextEntry(),
+  when: () => !isTextEntry(),
   run: () => {
     focusFilter();
     return true;
@@ -11107,6 +11512,7 @@ function clearNavigationError() {
 function dismissModalsForRoutedNavigation() {
   const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal(false);
   state.settings = false;
+  state.keyboardHelp = false;
   state.explorer = null;
   spotlight.reset();
   sourceInspection.clearGraphSource();

@@ -292,10 +292,36 @@ code is an attacker.
 ### Assemblies are parsed, never loaded
 
 Assembly, metadata, and method-body paths use
-`System.Reflection.PortableExecutable` and `System.Reflection.Metadata`. Product
-inspection must not introduce `Assembly.Load`, `AssemblyLoadContext`, reflection
-over inspected binaries, module initializers, or dependency resolution that
-executes target code.
+`System.Reflection.PortableExecutable` and `System.Reflection.Metadata`.
+Product inspection contains no `Assembly.Load` call for inspected assemblies.
+
+This is a user-approved partial-gate absence claim. Product projects set
+`IsAotCompatible`, so Release builds run NativeAOT compatibility analysis and
+fail on the dynamic-loading uses that its diagnostics cover. Measured
+2026-09-02 against `IsAotCompatible=true`, those diagnostics are:
+
+- `IL2026` — `Assembly.Load(byte[])`, `Assembly.LoadFrom`, `Assembly.LoadFile`,
+  and `AssemblyLoadContext.LoadFromAssemblyPath`
+- `IL2067` — `Activator.CreateInstance(Type)`
+- `IL2057` — `Type.GetType(string)`
+- `IL3050` — `System.Reflection.Emit`
+
+`src/Directory.Build.props` sets `TreatWarningsAsErrors`, so each is a build
+error rather than a warning. That is a partial gate, not a syntactic scan of
+every `Assembly.Load` overload.
+
+When packaging-affecting changes select it, the CI
+[`pack` job](../../.github/workflows/ci.yml) builds and installs the
+RID-specific NativeAOT tool, then executes canonical package, type, member, and
+platform-library inspections. Those runs are supporting execution evidence,
+not an ordinary product-source-change gate. Unannotated overloads, changes for
+which the smoke is skipped, and inspection paths the smoke does not execute are
+the declared residual.
+
+`Assembly.Load`, `AssemblyLoadContext`, reflection over inspected binaries,
+module initializers, and dependency resolution that executes target code remain
+prohibited design directions. Their absence beyond the partial claim above is
+not asserted as verified here.
 
 Reader-backed values remain inside their owning session. Values that cross a
 session boundary are copied or reduced to immutable tokens and shapes. This

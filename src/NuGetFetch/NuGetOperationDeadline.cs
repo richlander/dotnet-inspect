@@ -7,8 +7,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
 {
     private readonly NuGetOperationContext _context;
     private readonly bool _ownsContext;
-    private readonly PackageSourceIdentity? _producer;
-    private readonly PackageSourceKind _transportKind;
+    private readonly PackageSourceResultIdentity? _source;
     private readonly CancellationToken _operationToken;
     private readonly TimeSpan _requestTimeout;
     private bool _disposed;
@@ -22,8 +21,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
             options,
             clientTimeout,
             callerToken,
-            producer: null,
-            transportKind: default)
+            source: null)
     {
     }
 
@@ -31,16 +29,14 @@ internal sealed class NuGetOperationDeadline : IDisposable
         NuGetFetchOptions options,
         TimeSpan clientTimeout,
         CancellationToken callerToken,
-        PackageSourceIdentity? producer,
-        PackageSourceKind transportKind)
+        PackageSourceResultIdentity? source)
         : this(
             new NuGetOperationContext(
                 options.RequestTimeout,
                 options.OperationTimeout,
                 callerToken),
             clientTimeout,
-            producer,
-            transportKind,
+            source,
             ownsContext: true)
     {
     }
@@ -48,13 +44,11 @@ internal sealed class NuGetOperationDeadline : IDisposable
     internal NuGetOperationDeadline(
         NuGetOperationContext context,
         TimeSpan clientTimeout,
-        PackageSourceIdentity? producer,
-        PackageSourceKind transportKind)
+        PackageSourceResultIdentity? source)
         : this(
             context,
             clientTimeout,
-            producer,
-            transportKind,
+            source,
             ownsContext: false)
     {
     }
@@ -62,14 +56,12 @@ internal sealed class NuGetOperationDeadline : IDisposable
     private NuGetOperationDeadline(
         NuGetOperationContext context,
         TimeSpan clientTimeout,
-        PackageSourceIdentity? producer,
-        PackageSourceKind transportKind,
+        PackageSourceResultIdentity? source,
         bool ownsContext)
     {
         _context = context;
         _ownsContext = ownsContext;
-        _producer = producer;
-        _transportKind = transportKind;
+        _source = source;
         _operationToken = context.OperationToken;
         _requestTimeout = NuGetFetchOptions.RequestTimeoutForClient(
             new NuGetFetchOptions
@@ -317,6 +309,8 @@ internal sealed class NuGetOperationDeadline : IDisposable
     private bool IsOperationExpired() => _context.IsOperationExpired;
 
     internal TimeSpan RequestTimeout => _requestTimeout;
+
+    internal CancellationToken OperationToken => _context.OperationToken;
 
     private void ThrowTranslated(
         OperationCanceledException exception,
@@ -618,7 +612,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
             if (disposing
                 && Interlocked.Exchange(ref _disposeStarted, 1) == 0)
             {
-                if (operation._producer is not null)
+                if (operation._source is not null)
                 {
                     Exception? cleanupFailure = null;
                     try
@@ -681,7 +675,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
         {
             if (Interlocked.Exchange(ref _disposeStarted, 1) == 0)
             {
-                if (operation._producer is not null)
+                if (operation._source is not null)
                 {
                     Exception? cleanupFailure = null;
                     try
@@ -882,7 +876,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
                     requestStarted);
             }
             catch (OperationCanceledException)
-                when (operation._producer is not null
+                when (operation._source is not null
                     && operation._context.CancellationToken
                         .IsCancellationRequested)
             {
@@ -892,11 +886,10 @@ internal sealed class NuGetOperationDeadline : IDisposable
                     operation._context.CancellationToken);
             }
             catch (NuGetRequestTimeoutException timeout)
-                when (operation._producer is not null)
+                when (operation._source is not null)
             {
                 throw new PackageSourceStreamException(
-                    operation._producer,
-                    operation._transportKind,
+                    operation._source,
                     PackageSourceFailureKind.Timeout,
                     new PackageSourceTimeout(
                         PackageSourceTimeoutKind.Request,
@@ -904,11 +897,10 @@ internal sealed class NuGetOperationDeadline : IDisposable
                     cleanupFailed || disposalFailure is not null);
             }
             catch (NuGetOperationTimeoutException timeout)
-                when (operation._producer is not null)
+                when (operation._source is not null)
             {
                 throw new PackageSourceStreamException(
-                    operation._producer,
-                    operation._transportKind,
+                    operation._source,
                     PackageSourceFailureKind.Timeout,
                     new PackageSourceTimeout(
                         PackageSourceTimeoutKind.Operation,
@@ -936,12 +928,11 @@ internal sealed class NuGetOperationDeadline : IDisposable
 
         private void ThrowSourceFailure(Exception exception)
         {
-            if (operation._producer is null)
+            if (operation._source is null)
                 return;
 
             throw new PackageSourceStreamException(
-                operation._producer,
-                operation._transportKind,
+                operation._source,
                 NuGetTransportFailure.IsTimeout(exception)
                     ? PackageSourceFailureKind.Timeout
                     : PackageSourceFailureKind.Transport,
@@ -955,8 +946,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
                 ThrowTranslatedCore(exception, cleanupFailed: true);
 
             throw new PackageSourceStreamException(
-                operation._producer!,
-                operation._transportKind,
+                operation._source!,
                 NuGetTransportFailure.IsTimeout(exception)
                     ? PackageSourceFailureKind.Timeout
                     : PackageSourceFailureKind.Transport,

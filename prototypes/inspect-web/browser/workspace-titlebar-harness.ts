@@ -1,8 +1,11 @@
 import {
   bindScopeBar,
   captureScopeBarFocus,
+  createScopeBarState,
   renderScopeBar,
   restoreScopeBarFocus,
+  scopeBarShortLabel,
+  type ScopeBarBinding,
 } from "../src/scope-bar.ts";
 import { renderAnnotatedSourcePageActions } from "../src/annotated-source.ts";
 import type {
@@ -12,14 +15,41 @@ import type {
   WorkspaceScope,
 } from "../src/data.ts";
 import {
+  applicationMenuOwnsFocus,
+  bindWorkbenchShell,
+  captureApplicationMenuFocusOwner,
+  focusApplicationMenuButton,
   focusWorkbenchSearch,
+  renderApplicationMenu,
+  renderApplicationMenuButton,
+  renderKeyboardHelpDialog,
+  restoreApplicationMenuFocusIfOwned,
+  type ApplicationAction,
+  type WorkbenchShellBinding,
+  type WorkbenchShellBindingActions,
   workbenchShellHtml,
 } from "../src/shell-controls.ts";
-import { renderWorkspaceSubject } from "../src/workspace-subject.ts";
+import { KeybindingRegistry } from "../src/keybinding-registry.ts";
+import {
+  bindSettingsPanel,
+  renderSettingsView,
+} from "../src/settings-panel.ts";
+import {
+  renderSourcePageActions,
+  renderSourceResult,
+} from "../src/type-panel.ts";
+import {
+  bindWorkspaceSubject,
+  focusWorkspace,
+  renderWorkspaceSubject,
+  renderWorkspaceView,
+} from "../src/workspace-subject.ts";
 
 declare global {
   interface Window {
     focusWorkbenchSearchProbe: () => boolean;
+    renderPackageScopeProbe: () => void;
+    rerenderApplicationMenuProbe: () => void;
     rerenderScopeBarProbe: () => void;
   }
 }
@@ -34,11 +64,22 @@ function escapeHtml(value: unknown): string {
 
 const app = document.querySelector<HTMLElement>("#app");
 if (!app) throw new Error("The workspace-titlebar harness root is unavailable.");
+const appRoot: HTMLElement = app;
+const scopeBarState = createScopeBarState();
+let scopeBarBinding: ScopeBarBinding | null = null;
+let workbenchShellBinding: WorkbenchShellBinding | null = null;
+let applicationDialog: "settings" | "keyboard-help" | null = null;
 const params = new URL(location.href).searchParams;
 const workspaceMode = params.has("workspace");
 const packageMode = params.has("package");
 const memberMode = params.has("member");
+const emptyMode = params.has("empty");
 const annotatedMode = params.has("annotated");
+const sourceMode = params.has("source");
+const graphMode = params.has("graph");
+const limitationMode = params.has("limitation");
+const historyBackMode = params.has("history-back");
+const historyForwardMode = params.has("history-forward");
 const longMode = params.has("long");
 const defaultPackageIcon =
   "https://nuget.org/Content/gallery/img/default-package-icon-256x256.png";
@@ -48,7 +89,7 @@ const packageIcon = params.has("fallback")
   ? defaultPackageIcon
   : systemTextJsonIcon;
 const subjectPath = workspaceMode
-  ? [{ kind: "workspace", label: "Workspace", copyable: false }]
+  ? [{ kind: "workspace", label: "System.Text.Json", copyable: false }]
   : packageMode
     ? [{ kind: "package", label: "System.Text.Json", copyable: true }]
     : memberMode
@@ -106,7 +147,31 @@ const coordinates = [
     isRuntimePack: false,
   },
 ];
-const activeCoordinate = coordinates[0] ?? null;
+function workspaceNavigationHtml(): string {
+  return renderWorkspaceSubject({
+    packageCount: coordinates.length,
+    selected: true,
+    escapeHtml,
+  });
+}
+
+function workspaceDetailHtml(): string {
+  return renderWorkspaceView({
+    occurrences: coordinates
+      .filter(item => !item.isRuntimePack)
+      .map((item, index) => ({
+        action: `occurrence-${index}`,
+        package: item.id,
+        version: item.version,
+        framework: item.activeFramework,
+      })),
+    packages: coordinates,
+    loading: false,
+    error: "",
+    escapeHtml,
+  });
+}
+
 let activeScope: WorkspaceScope = workspaceMode
   ? "workspace"
   : packageMode
@@ -115,23 +180,43 @@ let activeScope: WorkspaceScope = workspaceMode
       ? "member"
       : "type";
 let activePackageLens: PackageLens = "overview";
-let activeTypeLens: TypeLens = "api";
-let activeMemberSection: MemberSection = "overview";
-const packageStrip: readonly (readonly [PackageLens, string])[] = [
-  ["overview", "Overview"],
-  ["dependencies", "Dependencies"],
+let activeTypeLens: TypeLens = sourceMode ? "source" : "api";
+let activeMemberSection: MemberSection = sourceMode ? "source" : "overview";
+const source = {
+  provider: limitationMode ? "decompiled" : "pdb",
+  provenance: limitationMode
+    ? "dotnet-inspect from System.Text.Json 10.0.0 lib/net10.0/System.Text.Json.dll"
+    : "SourceLink · github.com/dotnet/runtime",
+  url: "https://github.com/dotnet/runtime",
+  pdbSourceLimitation: limitationMode
+    ? "The selected type's primary source document is not uniquely identified in the portable PDB."
+    : null,
+  text: `public static object? DeserializeSync(string json)
+{
+    return JsonSerializer.Deserialize(json, typeof(object));
+}`,
+};
+const packageStrip: readonly (
+  readonly [PackageLens, string, string, string]
+)[] = [
+  ["overview", "Overview", scopeBarShortLabel("Overview"), "◫"],
+  ["dependencies", "Dependencies", scopeBarShortLabel("Dependencies"), "⇄"],
 ];
-const typeStrip: readonly (readonly [TypeLens, string])[] = [
-  ["api", "API"],
-  ["metadata", "Metadata"],
-  ["source", "Source"],
+const typeStrip: readonly (
+  readonly [TypeLens, string, string, string]
+)[] = [
+  ["api", "API", scopeBarShortLabel("API"), "⌘"],
+  ["metadata", "Metadata", scopeBarShortLabel("Metadata"), "≡"],
+  ["source", "Source", scopeBarShortLabel("Source"), "⌑"],
 ];
-const memberStrip: readonly (readonly [MemberSection, string])[] = [
-  ["overview", "Overview"],
-  ["call-graph", "Call graph"],
-  ["facts", "Facts"],
-  ["source", "Source"],
-  ["annotated", "Annotated source"],
+const memberStrip: readonly (
+  readonly [MemberSection, string, string, string]
+)[] = [
+  ["overview", "Overview", scopeBarShortLabel("Overview"), "◫"],
+  ["call-graph", "Call graph", scopeBarShortLabel("Call graph"), "⑂"],
+  ["facts", "Facts", scopeBarShortLabel("Facts"), "·"],
+  ["source", "Source", scopeBarShortLabel("Source"), "⌑"],
+  ["annotated", "Annotated source", scopeBarShortLabel("Annotated source"), "✎"],
 ];
 
 function scopeBarHtml() {
@@ -140,12 +225,13 @@ function scopeBarHtml() {
     : activeScope === "package"
       ? packageStrip
       : activeScope === "member"
-        ? memberStrip
+        ? (emptyMode ? [] : memberStrip)
         : typeStrip;
   return renderScopeBar({
     scope: activeScope,
     strip,
     activeStripId: activeScope === "workspace"
+      || (activeScope === "member" && emptyMode)
       ? null
       : activeScope === "package"
         ? activePackageLens
@@ -159,18 +245,13 @@ function scopeBarHtml() {
         : "data-lens",
     panelId: "inspector-panel",
     showMemberScope: memberMode,
+    emptyStripLabel: emptyMode ? "Filtered member list" : "",
     escapeHtml,
   });
 }
 
 const navigationHtml = workspaceMode
-  ? renderWorkspaceSubject({
-      packages: coordinates,
-      activePackage: activeCoordinate,
-      escapeHtml,
-      packageIdentityKey: item =>
-        `${item.id}@${item.version}::${item.activeFramework}`,
-    })
+  ? workspaceNavigationHtml()
   : `<section class="type-browser">
       <header class="browser-head">Target inventory</header>
       <label class="type-search">
@@ -191,6 +272,106 @@ const navigationHtml = workspaceMode
         <button class="namespace-row">System.Text.Json</button>
       </div>
     </section>`;
+const harnessKeybindings = new KeybindingRegistry();
+harnessKeybindings.register({
+  id: "workspace.open-all",
+  key: "p",
+  modifiers: { commandOrControl: true },
+  allowExtraModifiers: true,
+  priority: 100,
+  run: () => true,
+});
+harnessKeybindings.register({
+  id: "workspace.drill-out-escape",
+  key: "Escape",
+  available: () => !packageMode && !workspaceMode,
+  allowExtraModifiers: true,
+  priority: 100,
+  run: () => true,
+});
+harnessKeybindings.register({
+  id: "workspace.focus-filter",
+  key: "f",
+  available: () => !workspaceMode,
+  modifiers: { commandOrControl: true },
+  allowExtraModifiers: true,
+  priority: 100,
+  run: () => true,
+});
+harnessKeybindings.register({
+  id: "workspace.select-lens",
+  key: ["1", "2", "3"],
+  available: () => !workspaceMode,
+  allowExtraModifiers: true,
+  priority: 100,
+  run: () => true,
+});
+harnessKeybindings.register({
+  id: "workspace.navigate-horizontal",
+  key: ["ArrowLeft", "ArrowRight"],
+  available: () => !workspaceMode,
+  priority: 100,
+  run: () => true,
+});
+for (const [key, available] of [
+  ["ArrowLeft", () => historyBackMode],
+  ["ArrowRight", () => historyForwardMode],
+] as const) {
+  harnessKeybindings.register({
+    id: `workspace.history-alt-${key}`,
+    key,
+    available,
+    modifiers: { alt: true },
+    allowExtraModifiers: true,
+    priority: 100,
+    run: () => true,
+  });
+  harnessKeybindings.register({
+    id: `workspace.history-shift-${key}`,
+    key,
+    available,
+    modifiers: { shift: true },
+    priority: 100,
+    run: () => true,
+  });
+}
+harnessKeybindings.register({
+  id: "workspace.drill-in",
+  key: "Enter",
+  allowExtraModifiers: true,
+  priority: 100,
+  run: () => true,
+});
+const graphHelpScope = graphMode ? new EventTarget() : null;
+if (graphHelpScope) {
+  harnessKeybindings.register({
+    id: "graph.zoom",
+    key: ["+", "=", "-", "_", "0"],
+    allowExtraModifiers: true,
+    priority: 200,
+    run: () => true,
+  }, graphHelpScope);
+  harnessKeybindings.register({
+    id: "graph.pan-horizontal",
+    key: ["ArrowLeft", "ArrowRight"],
+    allowExtraModifiers: true,
+    priority: 200,
+    run: () => true,
+  }, graphHelpScope);
+  harnessKeybindings.register({
+    id: "graph.pan-vertical",
+    key: ["ArrowUp", "ArrowDown"],
+    allowExtraModifiers: true,
+    priority: 200,
+    run: () => true,
+  }, graphHelpScope);
+}
+const harnessKeyboardHelpBindings = [
+  ...harnessKeybindings.availableBindingsFor(),
+  ...(graphHelpScope
+    ? harnessKeybindings.availableBindingsFor(graphHelpScope)
+    : []),
+];
 app.innerHTML = `
   <div class="workbench">
     ${workbenchShellHtml({
@@ -212,64 +393,197 @@ app.innerHTML = `
       titleNavigationHtml: `
         <nav class="title-navigation" aria-label="Search and history">
           <div class="nav-history">
-            <button id="nav-back" disabled aria-label="Back">←</button>
-            <button id="nav-forward" disabled aria-label="Forward">→</button>
+            <button id="nav-back" ${historyBackMode ? "" : "disabled"} aria-label="Back">←</button>
+            <button id="nav-forward" ${historyForwardMode ? "" : "disabled"} aria-label="Forward">→</button>
           </div>
           <button id="open-search" class="title-search" type="button" aria-haspopup="dialog">
             <span class="title-search-glyph" aria-hidden="true">⌕</span>
             <span class="title-search-label title-search-label-full">Search types, members, packages</span>
             <span class="title-search-label title-search-label-compact">Search</span>
-            <kbd>Ctrl P</kbd>
           </button>
         </nav>`,
     })}
     <header class="subject-zone" aria-label="Subjects and inspectors">
-      ${scopeBarHtml()}
-      <nav class="shell-actions${annotatedMode ? " annotated-page-actions" : ""}" aria-label="Application">
-        <button id="share">Share</button>
-        ${annotatedMode ? renderAnnotatedSourcePageActions(true) : ""}
-        <button id="open-settings">Settings</button>
-        <button id="help" aria-label="Keyboard help">?</button>
-      </nav>
+      <div class="subject-inspector-region">${scopeBarHtml()}</div>
+      <div class="shell-actions${annotatedMode ? " annotated-page-actions" : ""}${sourceMode ? " source-page-actions" : ""}">
+        ${annotatedMode || sourceMode
+          ? `<div class="working-surface-actions" role="group" aria-label="${annotatedMode ? "Annotated Source actions" : "Source actions"}">
+              ${annotatedMode ? renderAnnotatedSourcePageActions(true) : ""}
+              ${sourceMode
+                ? renderSourcePageActions({
+                    source,
+                    copyButtonId: memberMode
+                      ? "copy-source"
+                      : "copy-type-source",
+                    escapeHtml,
+                  })
+                : ""}
+            </div>`
+          : ""}
+        ${renderApplicationMenuButton()}
+      </div>
     </header>
     <div class="notice-stack"></div>
     <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="active-subject-tab">
       ${navigationHtml}
       <section class="detail-pane">
-        <article id="inspector-panel" class="detail-scroll"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
-          <h1>${subjectPath.at(-1)?.label}</h1>
-          ${packageMode ? `
-            <section class="document-section package-coordinate-editor">
-              <div class="section-title"><h2>Package coordinate</h2><span>1 target framework</span></div>
-              <div class="package-coordinate-fields">
-                <label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option></select></label>
-                <label class="framework-select"><span>Framework</span><select id="framework"><option>net10.0</option></select></label>
-              </div>
-            </section>` : ""}
+        <article id="inspector-panel" class="detail-scroll${annotatedMode ? " annotated-working-surface" : ""}${sourceMode ? " source-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
+          ${sourceMode
+            ? renderSourceResult({
+                source,
+                escapeHtml,
+                highlightCSharp: escapeHtml,
+              })
+            : workspaceMode
+              ? workspaceDetailHtml()
+              : `<h1>${subjectPath.at(-1)?.label}</h1>
+              ${packageMode ? `
+                <section class="document-section package-coordinate-editor">
+                  <div class="section-title"><h2>Package coordinate</h2><span>1 target framework</span></div>
+                  <div class="package-coordinate-fields">
+                    <label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option></select></label>
+                    <label class="framework-select"><span>Framework</span><select id="framework"><option>net10.0</option></select></label>
+                  </div>
+                </section>` : ""}`}
         </article>
       </section>
     </main>
-  </div>`;
+  </div>
+  ${renderApplicationMenu(true)}
+  ${renderSettingsView({
+    theme: "dark",
+    settingsReturn: "workbench",
+    styleCatalog: {
+      styleTiers: [],
+      styleOptions: [],
+      styleCatalogError: "",
+      taste: [],
+    },
+    escapeHtml,
+  }).replace(
+    'id="settings-backdrop" class="modal-backdrop"',
+    'id="settings-backdrop" class="modal-backdrop" hidden',
+  )}
+  ${renderKeyboardHelpDialog(harnessKeyboardHelpBindings).replace(
+    'id="keyboard-help-backdrop" class="modal-backdrop"',
+    'id="keyboard-help-backdrop" class="modal-backdrop" hidden',
+  )}`;
 
-document.querySelectorAll<HTMLElement>("[data-subject-copy]").forEach(button =>
-  button.addEventListener("click", () => {
-    const index = Number(button.dataset.subjectCopy);
+function setApplicationDialog(
+  next: "settings" | "keyboard-help" | null,
+): void {
+  applicationDialog = next;
+  const workbench = document.querySelector<HTMLElement>(".workbench");
+  const settings = document.querySelector<HTMLElement>("#settings-backdrop");
+  const help =
+    document.querySelector<HTMLElement>("#keyboard-help-backdrop");
+  if (workbench) workbench.inert = next !== null;
+  if (settings) settings.hidden = next !== "settings";
+  if (help) help.hidden = next !== "keyboard-help";
+  if (next === "settings") {
+    document.querySelector<HTMLElement>("#settings-title")?.focus();
+  } else if (next === "keyboard-help") {
+    document.querySelector<HTMLElement>("#keyboard-help-title")?.focus();
+  } else {
+    document.querySelector<HTMLElement>("#application-menu-button")?.focus();
+  }
+}
+
+function handleApplicationAction(action: ApplicationAction): void {
+  if (action === "share") {
+    const focusOwner = captureApplicationMenuFocusOwner(document);
+    setTimeout(() => {
+      document.body.dataset.shared = "true";
+      restoreApplicationMenuFocusIfOwned(document, focusOwner);
+    }, 50);
+    return;
+  }
+  setApplicationDialog(applicationDialog === action ? null : action);
+}
+
+const harnessDispatchKeybindings = new KeybindingRegistry();
+harnessDispatchKeybindings.register({
+  id: "workspace.drill-in",
+  key: "Enter",
+  available: () => applicationDialog === null,
+  allowExtraModifiers: true,
+  priority: 100,
+  when: event => !event.metaKey
+    && !event.ctrlKey
+    && !event.altKey
+    && !(event.target instanceof Element
+      && event.target.matches(
+        "button, a[href], input, select, textarea, summary, "
+        + "[role=button], [role=link], [role=checkbox]")),
+  run: () => {
+    document.body.dataset.drillIn = "true";
+    return true;
+  },
+});
+harnessDispatchKeybindings.attach(document);
+
+const workbenchShellActions: WorkbenchShellBindingActions = {
+  onApplicationAction: handleApplicationAction,
+  onCopySubjectSegment: index => {
     document.body.dataset.copiedSubject = subjectPath[index]?.label ?? "";
-  }));
+  },
+  onDismissNotice() {},
+  onDismissPackageNotice() {},
+  onNavigateBack() {},
+  onNavigateForward() {},
+  onRetryNotice() {},
+  onSearch() {},
+};
+workbenchShellBinding =
+  bindWorkbenchShell(document, workbenchShellActions);
+bindSettingsPanel(document, {
+  onClose: () => setApplicationDialog(null),
+  onOpen: () => setApplicationDialog("settings"),
+  onTasteClear() {},
+  onTasteToggle() {},
+  onThemeSelect() {},
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape" && applicationDialog !== null) {
+    event.preventDefault();
+    setApplicationDialog(null);
+  }
+});
 
 function renderHarnessScopeBar() {
-  const focusTarget = document.activeElement instanceof HTMLElement
-    ? captureScopeBarFocus(document.activeElement)
+  const focusedElement = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
+  const scopeBarOwnsFocus = focusedElement
+    ?.closest("[data-scope-bar]") != null;
+  const focusTarget = focusedElement
+    ? captureScopeBarFocus(focusedElement)
     : null;
   const scopeBar = document.querySelector<HTMLElement>(".lensbar");
   if (!scopeBar) throw new Error("The scope bar is unavailable.");
+  if (scopeBarOwnsFocus) {
+    appRoot.tabIndex = -1;
+    appRoot.focus({ preventScroll: true });
+  }
+  scopeBarBinding?.disconnect();
   scopeBar.outerHTML = scopeBarHtml();
   bindHarnessScopeBar();
-  if (focusTarget) restoreScopeBarFocus(document, focusTarget);
+  if (scopeBarOwnsFocus) {
+    let restored = false;
+    if (focusTarget) {
+      scopeBarBinding?.revealFocusTarget(focusTarget);
+      restored = restoreScopeBarFocus(document, focusTarget);
+    }
+    if (!restored) {
+      document.querySelector<HTMLElement>(".brand")
+        ?.focus({ preventScroll: true });
+    }
+    appRoot.removeAttribute("tabindex");
+  }
 }
 
 function bindHarnessScopeBar() {
-  bindScopeBar(document, {
+  scopeBarBinding = bindScopeBar(document, {
     onMemberSectionSelect: section => {
       activeMemberSection = section;
       renderHarnessScopeBar();
@@ -286,10 +600,67 @@ function bindHarnessScopeBar() {
       activeTypeLens = lens;
       renderHarnessScopeBar();
     },
+  }, scopeBarState);
+}
+
+function renderHarnessWorkspace() {
+  const navigation =
+    document.querySelector<HTMLElement>(".workspace-nav");
+  const detail =
+    document.querySelector<HTMLElement>("#inspector-panel");
+  const path =
+    document.querySelector<HTMLElement>(".subject-path");
+  const pathSegment =
+    path?.querySelector<HTMLElement>(".subject-path-segment");
+  if (!navigation || !detail || !path || !pathSegment)
+    throw new Error("The workspace packet harness is incomplete.");
+  navigation.outerHTML = workspaceNavigationHtml();
+  detail.innerHTML = workspaceDetailHtml();
+  const title = "Default Workspace";
+  path.setAttribute("aria-label", title);
+  path.title = title;
+  pathSegment.textContent = title;
+  bindHarnessWorkspace();
+  requestAnimationFrame(() =>
+    focusWorkspace(document));
+}
+
+function bindHarnessWorkspace() {
+  if (!workspaceMode) return;
+  bindWorkspaceSubject(document, {
+    onSelect: renderHarnessWorkspace,
+    onActivate: action => {
+      const count = Number(document.body.dataset.workspaceExecutionCount ?? "0");
+      document.body.dataset.workspaceExecutionCount = String(count + 1);
+      document.body.dataset.workspaceExecution = action;
+    },
+    onRetry: () => {},
   });
 }
 
 bindHarnessScopeBar();
+bindHarnessWorkspace();
+if (workspaceMode) document.body.dataset.workspaceExecutionCount = "0";
 
 window.focusWorkbenchSearchProbe = () => focusWorkbenchSearch(document);
+window.renderPackageScopeProbe = () => {
+  activeScope = "package";
+  activePackageLens = "overview";
+  renderHarnessScopeBar();
+};
+window.rerenderApplicationMenuProbe = () => {
+  const applicationMenuHadFocus = applicationMenuOwnsFocus(document);
+  workbenchShellBinding?.disconnect();
+  const slot =
+    document.querySelector<HTMLElement>(".application-menu-slot");
+  const overlay =
+    document.querySelector<HTMLElement>(".application-menu-overlay");
+  if (!slot || !overlay)
+    throw new Error("The Application menu shell is unavailable.");
+  slot.outerHTML = renderApplicationMenuButton();
+  overlay.outerHTML = renderApplicationMenu(true);
+  workbenchShellBinding =
+    bindWorkbenchShell(document, workbenchShellActions);
+  if (applicationMenuHadFocus) focusApplicationMenuButton(document);
+};
 window.rerenderScopeBarProbe = renderHarnessScopeBar;

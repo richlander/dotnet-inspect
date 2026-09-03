@@ -736,13 +736,22 @@ test("Annotated Source composition requires a concrete overload and validated se
 
   assert.match(
     appSource,
-    /const annotatedPageContext =\s*scope\(\) === "member"\s*&& state\.memberSection === "annotated"\s*&& memberSourceHasConcreteOverload\(\);/);
+    /const annotatedPageContext =\s*activeScope === "member"\s*&& state\.memberSection === "annotated"\s*&& memberSourceHasConcreteOverload\(\);/);
   assert.match(
     appSource,
     /const annotatedWorkingSurface =\s*annotatedPageContext && state\.memberAnnotatedEmbedded !== null;/);
   assert.match(
     appSource,
-    /shell-actions\$\{annotatedPageContext \? " annotated-page-actions" : ""\}/);
+    /class="working-surface-actions"[\s\S]*renderAnnotatedSourcePageActions\(annotatedWorkingSurface\)/);
+  assert.doesNotMatch(
+    appSource,
+    /class="contextual-actions annotated-contextual-actions"/);
+  assert.match(
+    appSource,
+    /class="working-surface-actions" role="group" aria-label="\$\{annotatedPageContext \? "Annotated Source actions" : "Source actions"\}"/);
+  assert.match(
+    appSource,
+    /class="working-surface-actions" role="group" aria-label="\$\{annotatedPageContext \? "Annotated Source actions" : "Source actions"\}"/);
   assert.match(
     appSource,
     /detail-scroll\$\{annotatedWorkingSurface \? " annotated-working-surface" : ""\}/);

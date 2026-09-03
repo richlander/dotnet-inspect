@@ -2993,7 +2993,7 @@ public sealed class BrowserEngineBoundaryTests
                         participant.Assembly.Identity),
                     AssemblyBindingOrigin.FromAssembly(
                         participant.Assembly),
-                    AssemblyResolutionScope.Any));
+                    AssemblyResolutionScope.Any)).Selection;
         AssemblyBindingSelection platform =
             participant.Participant.BindingPolicy.Select(
                 new AssemblyBindingRequest(
@@ -3001,7 +3001,7 @@ public sealed class BrowserEngineBoundaryTests
                         participant.Assembly.Identity),
                     AssemblyBindingOrigin.FromAssembly(
                         participant.Assembly),
-                    AssemblyResolutionScope.Platform));
+                    AssemblyResolutionScope.Platform)).Selection;
 
         Assert.Same(
             participant.Assembly,
@@ -5087,6 +5087,7 @@ public sealed class BrowserEngineBoundaryTests
             packageId,
             "1.0.0",
             source,
+            PackageSourceIdentity.NuGetOrg,
             TimeSpan.FromMilliseconds(200));
         await handler.RequestStarted.Task.WaitAsync(
             TimeSpan.FromSeconds(1),
@@ -5118,6 +5119,7 @@ public sealed class BrowserEngineBoundaryTests
             packageId,
             version,
             source,
+            PackageSourceIdentity.NuGetOrg,
             TimeSpan.FromSeconds(5));
 
         Assert.Equal(version, package.Version);
@@ -5159,7 +5161,7 @@ public sealed class BrowserEngineBoundaryTests
             [],
             TotalDownloads: 0,
             Verified: false,
-            PackageSourceIdentity.NuGetOrg,
+            source.Source,
             manifest);
         using var deadline =
             new BrowserPackageWorkspace.BrowserPackageOperationDeadline(
@@ -5170,6 +5172,7 @@ public sealed class BrowserEngineBoundaryTests
             await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
                 package,
                 source,
+                PackageSourceIdentity.NuGetOrg,
                 deadline);
 
         IPackageContent content = Assert.IsType<
@@ -5206,7 +5209,7 @@ public sealed class BrowserEngineBoundaryTests
             [],
             TotalDownloads: 0,
             Verified: false,
-            PackageSourceIdentity.NuGetOrg,
+            source.Source,
             manifest);
         using var deadline =
             new BrowserPackageWorkspace.BrowserPackageOperationDeadline(
@@ -5217,6 +5220,7 @@ public sealed class BrowserEngineBoundaryTests
             await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
                 package,
                 source,
+                PackageSourceIdentity.NuGetOrg,
                 deadline);
 
         string message = Assert.IsType<
@@ -5248,11 +5252,13 @@ public sealed class BrowserEngineBoundaryTests
                 version,
                 "net11.0",
                 source,
+                PackageSourceIdentity.NuGetOrg,
                 TimeSpan.FromSeconds(5));
 
         PackageRootBinding binding = Assert.IsType<PackageRootBinding>(
             coordinate.Binding);
         Assert.Same(binding.Root, coordinate.Root);
+        Assert.Equal(packageId, binding.Root.PackageId);
         Assert.Equal(packageId.ToLowerInvariant(), binding.Coordinate.PackageId);
         Assert.Equal(version, binding.Coordinate.Version);
         Assert.Equal("net11.0", binding.Coordinate.Framework);
@@ -5261,6 +5267,194 @@ public sealed class BrowserEngineBoundaryTests
             NuGetCache.GetSourceKey(PackageSourceIdentity.NuGetOrg.Value),
             binding.Coordinate.Producer);
         Assert.True(binding.Root.ReferencesContent(coordinate.Package.Content));
+    }
+
+    [Fact]
+    public async Task WorkspaceOccurrences_PreserveOrderAndSupersedeOldActions()
+    {
+        string packageId = $"Gallery.Workspace.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        byte[] archive = Package(
+            [0x01],
+            $"lib/net11.0/{packageId}.dll");
+        var handler = new GalleryPackageHandler(
+            packageId,
+            version,
+            archive);
+        using IPackageSourceClient source = Gallery(handler);
+        BrowserPackageCoordinate coordinate =
+            await BrowserPackageWorkspace.ResolveAsync(
+                packageId,
+                version,
+                "net11.0",
+                source,
+                PackageSourceIdentity.NuGetOrg,
+                TimeSpan.FromSeconds(5));
+
+        BrowserWorkspacePackageOccurrenceView view =
+            BrowserWorkspaceOccurrenceOperations.ReplaceCurrent(
+                [coordinate, coordinate]);
+
+        Assert.Equal(2, view.Occurrences.Length);
+        Assert.All(
+            view.Occurrences,
+            occurrence =>
+            {
+                Assert.Equal(packageId, occurrence.Package);
+                Assert.Equal(version, occurrence.Version);
+                Assert.Equal("net11.0", occurrence.Framework);
+                Assert.DoesNotContain(
+                    packageId,
+                    occurrence.Action,
+                    StringComparison.OrdinalIgnoreCase);
+            });
+        Assert.NotEqual(
+            view.Occurrences[0].Action,
+            view.Occurrences[1].Action);
+        BrowserWorkspaceOccurrenceSelection selection = Assert.IsType<
+            BrowserWorkspaceOccurrenceSelection>(
+                BrowserWorkspaceOccurrenceOperations.Activate(
+                    view.Occurrences[1].Action));
+        Assert.Same(coordinate, selection.Coordinate);
+
+        BrowserWorkspaceOccurrenceOperations.ReplaceCurrent([]);
+
+        Assert.Null(
+            BrowserWorkspaceOccurrenceOperations.Activate(
+                view.Occurrences[0].Action));
+
+        BrowserWorkspacePackageOccurrenceView replacement =
+            BrowserWorkspaceOccurrenceOperations.ReplaceCurrent(
+                [coordinate]);
+        BrowserWorkspaceOccurrenceOperations.ClearCurrent();
+
+        Assert.Null(
+            BrowserWorkspaceOccurrenceOperations.Activate(
+                replacement.Occurrences[0].Action));
+    }
+
+    [Fact]
+    public async Task WorkspaceOccurrences_ReplacedInflightQueryCannotRetireReplacement()
+    {
+        string packageId = $"Gallery.Workspace.Race.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        var handler = new GalleryPackageHandler(
+            packageId,
+            version,
+            Package(
+                [0x01],
+                $"lib/net11.0/{packageId}.dll"));
+        using IPackageSourceClient source = Gallery(handler);
+        BrowserPackageCoordinate coordinate =
+            await BrowserPackageWorkspace.ResolveAsync(
+                packageId,
+                version,
+                "net11.0",
+                source,
+                PackageSourceIdentity.NuGetOrg,
+                TimeSpan.FromSeconds(5));
+        var resolutionStarted =
+            new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        var continueResolution =
+            new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
+        Task<BrowserWorkspacePackageOccurrenceView> query =
+            BrowserWorkspaceOccurrenceOperations.QueryAsync(
+                [
+                    new BrowserPackageRequest(
+                        packageId,
+                        version,
+                        "net11.0"),
+                ],
+                async (_, _) =>
+                {
+                    resolutionStarted.SetResult();
+                    await continueResolution.Task;
+                    return coordinate;
+                });
+        await resolutionStarted.Task;
+        BrowserWorkspacePackageOccurrenceView replacement =
+            BrowserWorkspaceOccurrenceOperations.ReplaceCurrent(
+                [coordinate]);
+        continueResolution.SetResult();
+
+        BrowserWorkspacePackageOccurrenceView view = await query;
+
+        Assert.True(view.Superseded);
+        Assert.Empty(view.Occurrences);
+        Assert.NotNull(
+            BrowserWorkspaceOccurrenceOperations.Activate(
+                replacement.Occurrences[0].Action));
+    }
+
+    [Fact]
+    public async Task WorkspaceOccurrences_RevocationReleasesLeasesBeforeAStalledResolutionCompletes()
+    {
+        string packageId = $"Gallery.Workspace.LeaseRace.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        var handler = new GalleryPackageHandler(
+            packageId,
+            version,
+            Package(
+                [0x01],
+                $"lib/net11.0/{packageId}.dll"));
+        using IPackageSourceClient source = Gallery(handler);
+        BrowserPackageCoordinate coordinate =
+            await BrowserPackageWorkspace.ResolveAsync(
+                packageId,
+                version,
+                "net11.0",
+                source,
+                PackageSourceIdentity.NuGetOrg,
+                TimeSpan.FromSeconds(5));
+        var secondResolutionStarted =
+            new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        var continueResolution =
+            new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        int resolution = 0;
+
+        Task<BrowserWorkspacePackageOccurrenceView> query =
+            BrowserWorkspaceOccurrenceOperations.QueryAsync(
+                [
+                    new BrowserPackageRequest(
+                        packageId,
+                        version,
+                        "net11.0"),
+                    new BrowserPackageRequest(
+                        packageId,
+                        version,
+                        "net11.0"),
+                ],
+                async (_, cancellationToken) =>
+                {
+                    if (Interlocked.Increment(ref resolution) == 1)
+                        return coordinate;
+
+                    secondResolutionStarted.SetResult();
+                    await continueResolution.Task;
+                    return coordinate;
+                });
+        await secondResolutionStarted.Task;
+
+        BrowserWorkspaceOccurrenceOperations.ClearCurrent();
+        using (
+            BrowserPackageWorkspace.ReservePackageDownload(
+                $"workspace.lease.pressure.{Guid.NewGuid():N}@1.0.0",
+                128L * MiB))
+        {
+            Assert.Equal(
+                0,
+                BrowserPackageWorkspace.Stats().Resident);
+        }
+        continueResolution.SetResult();
+
+        BrowserWorkspacePackageOccurrenceView view = await query;
+        Assert.True(view.Superseded);
+        Assert.Empty(view.Occurrences);
     }
 
     [Fact]
@@ -5280,6 +5474,7 @@ public sealed class BrowserEngineBoundaryTests
                 "1.0.0",
                 targetFramework: null,
                 selectedSource,
+                PackageSourceIdentity.NuGetOrg,
                 TimeSpan.FromSeconds(5));
 
         Assert.Null(selected.RealizedCoordinate.Framework);
@@ -5298,6 +5493,7 @@ public sealed class BrowserEngineBoundaryTests
                 "1.0.0",
                 targetFramework: null,
                 rootOnlySource,
+                PackageSourceIdentity.NuGetOrg,
                 TimeSpan.FromSeconds(5));
 
         Assert.Null(rootOnly.RealizedCoordinate.Framework);
@@ -5324,6 +5520,7 @@ public sealed class BrowserEngineBoundaryTests
                     packageId,
                     "1.0.0",
                     source,
+                    PackageSourceIdentity.NuGetOrg,
                     TimeSpan.FromSeconds(5)));
 
         Assert.Contains(
@@ -5353,6 +5550,7 @@ public sealed class BrowserEngineBoundaryTests
                     packageId,
                     "1.0.0",
                     source,
+                    PackageSourceIdentity.NuGetOrg,
                     TimeSpan.FromSeconds(5)));
 
         Assert.Contains(
@@ -5378,6 +5576,7 @@ public sealed class BrowserEngineBoundaryTests
             packageId,
             version: null,
             source,
+            PackageSourceIdentity.NuGetOrg,
             TimeSpan.FromSeconds(5));
 
         Assert.Equal(version, package.Version);
@@ -5412,6 +5611,7 @@ public sealed class BrowserEngineBoundaryTests
             packageId,
             version: null,
             source,
+            PackageSourceIdentity.NuGetOrg,
             TimeSpan.FromSeconds(5));
         await handler.RequestStarted.Task.WaitAsync(
             TimeSpan.FromSeconds(10),
@@ -5439,6 +5639,7 @@ public sealed class BrowserEngineBoundaryTests
             packageId,
             "1.0.0",
             source,
+            PackageSourceIdentity.NuGetOrg,
             TimeSpan.FromMilliseconds(500));
         await handler.RequestStarted.Task.WaitAsync(
             TimeSpan.FromSeconds(1),
@@ -5447,6 +5648,7 @@ public sealed class BrowserEngineBoundaryTests
             packageId,
             "1.0.0",
             source,
+            PackageSourceIdentity.NuGetOrg,
             TimeSpan.FromMilliseconds(100));
 
         TimeoutException secondFailure =
@@ -5464,17 +5666,21 @@ public sealed class BrowserEngineBoundaryTests
     public void PendingAcquisitionAssociation_UsesCoordinateAndExactClientReference()
     {
         using IPackageSourceClient gallery =
-            PackageSourceClientFactory.CreateGallery();
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create());
         using IPackageSourceClient v3 =
             PackageSourceClientFactory.Create(
                 PackageSourceDescriptor.NuGetV3(
                     "nuget-v3",
                     "NuGet.org v3",
-                    new Uri("https://api.nuget.org/v3/index.json")));
+                    new Uri("https://api.nuget.org/v3/index.json")),
+                PackageSourceAssociation.Create());
         const string coordinate = "example@1.0.0";
 
-        Assert.Equal(gallery.Identity, v3.Identity);
-        Assert.NotEqual(gallery.Kind, v3.Kind);
+        Assert.Equal(gallery.Source.Producer, v3.Source.Producer);
+        Assert.NotEqual(
+            gallery.Source.TransportKind,
+            v3.Source.TransportKind);
 
         var galleryKey =
             new BrowserPackageWorkspace.PendingAcquisitionKey(
@@ -5523,7 +5729,9 @@ public sealed class BrowserEngineBoundaryTests
         using IPackageSourceClient servingSource =
             Gallery(servingHandler);
 
-        Assert.Equal(stalledSource.Identity, servingSource.Identity);
+        Assert.Equal(
+            stalledSource.Source.Producer,
+            servingSource.Source.Producer);
         Assert.NotSame(stalledSource, servingSource);
 
         Task<BrowserPackage> stalled =
@@ -5531,6 +5739,7 @@ public sealed class BrowserEngineBoundaryTests
                 packageId,
                 version,
                 stalledSource,
+                PackageSourceIdentity.NuGetOrg,
                 TimeSpan.FromMilliseconds(500));
         await stalledHandler.RequestStarted.Task.WaitAsync(
             TimeSpan.FromSeconds(1),
@@ -5541,6 +5750,7 @@ public sealed class BrowserEngineBoundaryTests
                 packageId,
                 version,
                 servingSource,
+                PackageSourceIdentity.NuGetOrg,
                 TimeSpan.FromSeconds(5));
 
         Assert.Equal(packageId, served.PackageId);
@@ -5690,6 +5900,7 @@ public sealed class BrowserEngineBoundaryTests
         var handler = new StallingGalleryRegistrationHandler();
         using IPackageSourceClient source =
             PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create(),
                 handler,
                 new NuGetFetchOptions
                 {
@@ -5736,6 +5947,7 @@ public sealed class BrowserEngineBoundaryTests
         var handler = new StallingGalleryRegistrationHandler();
         using IPackageSourceClient source =
             PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create(),
                 handler,
                 new NuGetFetchOptions
                 {
@@ -6256,6 +6468,7 @@ public sealed class BrowserEngineBoundaryTests
 
     static IPackageSourceClient Gallery(HttpMessageHandler handler) =>
         PackageSourceClientFactory.CreateGallery(
+            PackageSourceAssociation.Create(),
             handler,
             new NuGetFetchOptions
             {
@@ -6613,11 +6826,18 @@ public sealed class BrowserEngineBoundaryTests
     {
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            AssemblyBindingSelection.CannotSelect(
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
-                    AssemblyBindingFailureKind.CandidateUnavailable));
+                AssemblyBindingFailureKind.CandidateUnavailable));
+        }
     }
 
 }

@@ -77,6 +77,16 @@ public sealed class ClassicAsyncArtifactMatrixTests
             handle => artifact.Reader.StringComparer.Equals(
                 artifact.Reader.GetMethodDefinition(handle).Name,
                 "SetStateMachine"));
+
+        using var source = MetadataSource.Open(matrix.Trimmed);
+        IrFunction imported = Assert.IsType<IrFunction>(
+            IrImporter.Import(source, FixtureType, RecoverableMethod));
+        var request = Assert.IsType<
+            ClassicAsyncRequestAdapterResult.RequestAvailable>(
+                imported.ClassicAsyncRequest);
+        Assert.IsType<StateMachineRoleDisposition.AbsentFromArtifact>(
+            request.Request.Relationship.GetRole(
+                StateMachineMethodRole.SetStateMachine));
     }
 
     [Fact]

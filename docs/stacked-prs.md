@@ -38,9 +38,12 @@ with the fixed-head review rule.
 
 ## Landing the stack
 
-**Merge bottom-up, one at a time.** After each merge, confirm the next PR
-retargeted to `main` and that its diff is still only its own slice. When the
-diff shows work already in `main`, that is the signal to restack, not a defect.
+**Merge bottom-up, one at a time.** After each merge, complete the
+[theme handoff](agent-session-state.md#complete-a-merge-with-a-theme-handoff).
+When another slice remains, propose confirming that the next PR retargeted to
+`main` and that its diff is still only its own slice; do not begin that work
+until the user directs it. When the diff later shows work already in `main`,
+that is the signal to restack, not a defect.
 
 **Restacking is normal, it is usually a button, and it force-pushes.** GitHub's
 *Update with rebase* rebases the slice onto its base and force-pushes the head
@@ -112,7 +115,7 @@ tell a restack from a rewrite.
 
 The only moved-stack-head exception is the bottom open slice after it targets
 `main`. If its base integration satisfies the
-[trivial-interaction waiver](../AGENTS.md#standing-adjustments) and the user
+[trivial-interaction waiver](round-orchestration.md#standing-adjustments) and the user
 approves that exact head, it may proceed without another review-clean round.
 That integration is not an upper-slice restack: it neither rewrites a child
 onto a newly landed parent nor changes a surviving reviewed claim. The waiver

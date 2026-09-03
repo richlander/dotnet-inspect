@@ -1,4 +1,7 @@
+using DotnetInspector.Artifacts;
+using DotnetInspector.Artifacts.Workspaces;
 using ILInspector.Metadata;
+using System.Collections.Immutable;
 using System.Reflection;
 
 namespace DotnetInspector.Queries.Tests;
@@ -783,6 +786,365 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
+    public async Task WorkspaceClose_ReleasesArtifactSessionAfterExactDependentGroupQuiesces()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        ArtifactAssembly artifact =
+            await CreateArtifactAssemblyAsync();
+        InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [
+                    new AssemblyContextParticipant(
+                        artifact.Assembly,
+                        MissingBindingPolicy.Instance),
+                ]);
+        workspace.RegisterArtifactSession(
+            artifact.Session,
+            artifact.QueryLease,
+            [group]);
+        var callbackEntered =
+            new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        var callbackResume =
+            new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<AssemblyImageAccessResult<int>> operation =
+            group.UseAndReleaseAssemblySessionAsync(
+                artifact.Assembly,
+                async (_, _) =>
+                {
+                    callbackEntered.SetResult();
+                    await callbackResume.Task.WaitAsync(
+                        cancellationToken);
+                    return 1;
+                });
+        await callbackEntered.Task.WaitAsync(cancellationToken);
+
+        Task<InspectionWorkspaceCloseReport> close =
+            workspace.CloseAsync();
+
+        Assert.False(close.IsCompleted);
+        Assert.Equal(0, artifact.AcquisitionLease.DisposeCount);
+        callbackResume.SetResult();
+        Assert.IsType<AssemblyImageAccessResult<int>.Available>(
+            await operation);
+        InspectionWorkspaceCloseReport report = await close;
+        Assert.Equal(1, artifact.AcquisitionLease.DisposeCount);
+        Assert.Empty(report.ArtifactSessionCleanupFailures);
+    }
+
+    [Fact]
+    public async Task RegisterArtifactSession_RejectsForeignOrIncompleteGroupSet()
+    {
+        ArtifactAssembly first =
+            await CreateArtifactAssemblyAsync();
+        ArtifactAssembly second =
+            await CreateArtifactAssemblyAsync();
+        InspectionWorkspace firstWorkspace =
+            InspectionWorkspace.CreateAsynchronous();
+        InspectionWorkspace secondWorkspace =
+            InspectionWorkspace.CreateAsynchronous();
+        AssemblyContextGroup firstGroup =
+            firstWorkspace.CreateAssemblyContextGroup(
+                [
+                    new AssemblyContextParticipant(
+                        first.Assembly,
+                        MissingBindingPolicy.Instance),
+                ]);
+        AssemblyContextGroup otherFirstGroup =
+            firstWorkspace.CreateAssemblyContextGroup(
+                [
+                    new AssemblyContextParticipant(
+                        first.Assembly,
+                        MissingBindingPolicy.Instance),
+                ]);
+        AssemblyContextGroup secondGroup =
+            secondWorkspace.CreateAssemblyContextGroup(
+                [
+                    new AssemblyContextParticipant(
+                        second.Assembly,
+                        MissingBindingPolicy.Instance),
+                ]);
+        otherFirstGroup.Dispose();
+
+        Assert.Throws<ArgumentException>(
+            () => firstWorkspace.RegisterArtifactSession(
+                first.Session,
+                first.QueryLease,
+                [secondGroup]));
+        Assert.Throws<ArgumentException>(
+            () => firstWorkspace.RegisterArtifactSession(
+                first.Session,
+                first.QueryLease,
+                [firstGroup]));
+
+        firstWorkspace.RegisterArtifactSession(
+            first.Session,
+            first.QueryLease,
+            [firstGroup, otherFirstGroup]);
+        Assert.Throws<InvalidOperationException>(
+            () => firstWorkspace.CreateAssemblyContextGroup(
+                [
+                    new AssemblyContextParticipant(
+                        first.Assembly,
+                        MissingBindingPolicy.Instance),
+                ]));
+        TestAssembly unrelated = TestAssembly.Create();
+        firstWorkspace.CreateAssemblyContextGroup(
+            [unrelated.Participant]);
+        secondWorkspace.RegisterArtifactSession(
+            second.Session,
+            second.QueryLease,
+            [secondGroup]);
+        InspectionWorkspaceCloseReport firstReport =
+            await firstWorkspace.CloseAsync();
+        await secondWorkspace.CloseAsync();
+        Assert.Equal(3, firstReport.Groups.Length);
+    }
+
+    [Fact]
+    public async Task RegisterArtifactSession_RejectsLaterCoordinatedGroup()
+    {
+        ArtifactAssembly artifact =
+            await CreateArtifactAssemblyAsync();
+        InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        AssemblyContextGroup initialGroup =
+            workspace.CreateAssemblyContextGroup(
+                [
+                    new AssemblyContextParticipant(
+                        artifact.Assembly,
+                        MissingBindingPolicy.Instance),
+                ]);
+        workspace.RegisterArtifactSession(
+            artifact.Session,
+            artifact.QueryLease,
+            [initialGroup]);
+        var participation =
+            new ControlledWorkspaceParticipation();
+        ImmutableArray<
+            InspectionWorkspace.WorkspaceCoordinatedGroupAdmission>
+            admissions =
+                workspace.BeginCoordinatedGroupAdmissions(
+                    [participation]);
+        AssemblyContextGroup lateGroup =
+            admissions[0].CreateGroup(
+                [
+                    new AssemblyContextParticipant(
+                        artifact.Assembly,
+                        MissingBindingPolicy.Instance),
+                ],
+                options: null);
+        participation.Group = lateGroup;
+
+        Assert.False(
+            workspace.CompleteCoordinatedGroupAdmissions(
+                admissions,
+                [lateGroup]));
+
+        InspectionWorkspaceCloseReport report =
+            await workspace.CloseAsync();
+        Assert.Equal(2, report.Groups.Length);
+        Assert.Equal(1, artifact.AcquisitionLease.DisposeCount);
+    }
+
+    [Fact]
+    public async Task WorkspaceClose_ReportsArtifactSessionCleanupFailure()
+    {
+        ArtifactAssembly artifact =
+            await CreateArtifactAssemblyAsync(
+                throwOnLeaseDisposal: true);
+        InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [
+                    new AssemblyContextParticipant(
+                        artifact.Assembly,
+                        MissingBindingPolicy.Instance),
+                ]);
+        workspace.RegisterArtifactSession(
+            artifact.Session,
+            artifact.QueryLease,
+            [group]);
+
+        InspectionWorkspaceCloseReport report =
+            await workspace.CloseAsync();
+
+        Assert.IsType<IOException>(
+            Assert.Single(
+                report.ArtifactSessionCleanupFailures));
+    }
+
+    [Fact]
+    public async Task WorkspaceClose_ReleasesArtifactSessionWhenCoordinatedCloseFaults()
+    {
+        ArtifactAssembly artifact =
+            await CreateArtifactAssemblyAsync();
+        InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        var participation =
+            new ControlledWorkspaceParticipation(
+                throwOnCloseResult: true);
+        ImmutableArray<
+            InspectionWorkspace.WorkspaceCoordinatedGroupAdmission>
+            admissions =
+                workspace.BeginCoordinatedGroupAdmissions(
+                    [participation]);
+        AssemblyContextGroup group =
+            admissions[0].CreateGroup(
+                [
+                    new AssemblyContextParticipant(
+                        artifact.Assembly,
+                        MissingBindingPolicy.Instance),
+                ],
+                options: null);
+        participation.Group = group;
+        Assert.True(
+            workspace.CompleteCoordinatedGroupAdmissions(
+                admissions,
+                [group]));
+        workspace.RegisterArtifactSession(
+            artifact.Session,
+            artifact.QueryLease,
+            [group]);
+
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                workspace.CloseAsync);
+
+        Assert.Equal(
+            "Synthetic coordinated close failure.",
+            failure.Message);
+        Assert.Equal(1, artifact.AcquisitionLease.DisposeCount);
+        Assert.NotNull(workspace.CloseReport);
+    }
+
+    [Fact]
+    public async Task WorkspaceClose_WaitsForPhysicalReleaseWhenCoordinatedCloseFaultsEarly()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        ArtifactAssembly artifact =
+            await CreateArtifactAssemblyAsync();
+        InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        var participation =
+            new ControlledWorkspaceParticipation(
+                releaseOnRequest: false,
+                throwOnCloseResultBeforeRelease: true);
+        ImmutableArray<
+            InspectionWorkspace.WorkspaceCoordinatedGroupAdmission>
+            admissions =
+                workspace.BeginCoordinatedGroupAdmissions(
+                    [participation]);
+        AssemblyContextGroup group =
+            admissions[0].CreateGroup(
+                [
+                    new AssemblyContextParticipant(
+                        artifact.Assembly,
+                        MissingBindingPolicy.Instance),
+                ],
+                options: null);
+        participation.Group = group;
+        Assert.True(
+            workspace.CompleteCoordinatedGroupAdmissions(
+                admissions,
+                [group]));
+        workspace.RegisterArtifactSession(
+            artifact.Session,
+            artifact.QueryLease,
+            [group]);
+
+        Task<InspectionWorkspaceCloseReport> close =
+            workspace.CloseAsync();
+        await participation.ReleaseRequestAttempted.WaitAsync(
+            cancellationToken);
+        Assert.False(close.IsCompleted);
+        Assert.Equal(0, artifact.AcquisitionLease.DisposeCount);
+
+        await participation.ReleaseAsOwnerAsync();
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => close);
+
+        Assert.Equal(
+            "Synthetic coordinated close failure.",
+            failure.Message);
+        Assert.Equal(1, artifact.AcquisitionLease.DisposeCount);
+        Assert.NotNull(workspace.CloseReport);
+    }
+
+    [Fact]
+    public async Task WorkspaceClose_WaitsForCoordinatedOwnerAfterReleaseRequestThrows()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        ArtifactAssembly artifact =
+            await CreateArtifactAssemblyAsync();
+        InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        var participation =
+            new ControlledWorkspaceParticipation(
+                throwOnReleaseRequest: true);
+        ImmutableArray<
+            InspectionWorkspace.WorkspaceCoordinatedGroupAdmission>
+            admissions =
+                workspace.BeginCoordinatedGroupAdmissions(
+                    [participation]);
+        AssemblyContextGroup group =
+            admissions[0].CreateGroup(
+                [
+                    new AssemblyContextParticipant(
+                        artifact.Assembly,
+                        MissingBindingPolicy.Instance),
+                ],
+                options: null);
+        participation.Group = group;
+        Assert.True(
+            workspace.CompleteCoordinatedGroupAdmissions(
+                admissions,
+                [group]));
+        workspace.RegisterArtifactSession(
+            artifact.Session,
+            artifact.QueryLease,
+            [group]);
+
+        Task<InspectionWorkspaceCloseReport> close =
+            workspace.CloseAsync();
+        await participation.ReleaseRequestAttempted.WaitAsync(
+            cancellationToken);
+        Assert.False(close.IsCompleted);
+        Assert.Equal(0, artifact.AcquisitionLease.DisposeCount);
+
+        await participation.ReleaseAsOwnerAsync();
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => close);
+        Task<InspectionWorkspaceCloseReport> second =
+            workspace.CloseAsync();
+
+        Assert.Equal(
+            "Synthetic synchronous coordinated release failure.",
+            failure.Message);
+        Assert.Same(close, second);
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => second);
+        Assert.Equal(1, artifact.AcquisitionLease.DisposeCount);
+        InspectionWorkspaceCloseReport report =
+            Assert.IsType<InspectionWorkspaceCloseReport>(
+                workspace.CloseReport);
+        InspectionWorkspaceCoordinatedGroupCloseResult<string> result =
+            Assert.IsType<
+                InspectionWorkspaceCoordinatedGroupCloseResult<string>>(
+                    Assert.Single(report.Groups));
+        Assert.Equal("released", result.Result);
+    }
+
+    [Fact]
     public async Task WorkspaceClose_ConcurrentCallersShareCompletionAndReportInstance()
     {
         TestAssembly firstSource = TestAssembly.Create();
@@ -1382,11 +1744,171 @@ public sealed class InspectionWorkspaceTests
         public AssemblyBindingPolicyVersion Version { get; } =
             new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            AssemblyBindingSelection.CannotSelect(
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
-                    AssemblyBindingFailureKind.CandidateUnavailable));
+                AssemblyBindingFailureKind.CandidateUnavailable));
+        }
+    }
+
+    static async Task<ArtifactAssembly>
+        CreateArtifactAssemblyAsync(
+            bool throwOnLeaseDisposal = false)
+    {
+        byte[] bytes =
+            await File.ReadAllBytesAsync(
+                typeof(InspectionWorkspaceTests).Assembly.Location,
+                TestContext.Current.CancellationToken);
+        var acquisitionLease =
+            new TrackingArtifactAcquisitionLease(
+                throwOnLeaseDisposal);
+        var session = new ArtifactSetSession();
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) =>
+            {
+                ArtifactContribution contribution =
+                    scope.Register(
+                        new TestArtifactProvenance(),
+                        _ => new MemoryStream(
+                            bytes,
+                            writable: false),
+                        kind: "managed-assembly");
+                return ValueTask.FromResult<
+                    ArtifactAcquisitionOutcome>(
+                        new ArtifactAcquisitionOutcome.Acquired(
+                            [contribution],
+                            acquisitionLease));
+            },
+            cancellationToken:
+                TestContext.Current.CancellationToken);
+        Assert.IsType<ArtifactSetPublicationOutcome.Published>(
+            await session.SealAsync(
+                TestContext.Current.CancellationToken));
+        ArtifactQueryAuthorization authorization =
+            session.CreateQueryAuthorization();
+        ArtifactQueryLease queryLease =
+            session.IssueLease(authorization);
+        ArtifactDescriptor descriptor =
+            Assert.Single(session.GetCatalog(queryLease));
+        ArtifactContentReference content =
+            session.GetContentReference(
+                descriptor.Identity,
+                queryLease);
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromArtifactIfManaged(
+                content.Registration,
+                content.OpenRead,
+                AssemblyResolutionProvenance.Local(
+                    "artifact workspace test"))
+            ?? throw new InvalidOperationException(
+                "The test artifact did not project as a managed assembly.");
+        return new ArtifactAssembly(
+            session,
+            queryLease,
+            assembly,
+            acquisitionLease);
+    }
+
+    sealed record TestArtifactProvenance : IArtifactProvenance;
+
+    sealed class TrackingArtifactAcquisitionLease(
+        bool throwOnDisposal)
+        : IArtifactAcquisitionLease
+    {
+        internal int DisposeCount { get; private set; }
+
+        public ValueTask DisposeAsync()
+        {
+            DisposeCount++;
+            return throwOnDisposal
+                ? ValueTask.FromException(
+                    new IOException(
+                        "Synthetic artifact acquisition lease cleanup failure."))
+                : ValueTask.CompletedTask;
+        }
+    }
+
+    sealed record ArtifactAssembly(
+        ArtifactSetSession Session,
+        ArtifactQueryLease QueryLease,
+        ResolvedAssemblyReference Assembly,
+        TrackingArtifactAcquisitionLease AcquisitionLease);
+
+    sealed class ControlledWorkspaceParticipation(
+        bool throwOnReleaseRequest = false,
+        bool throwOnCloseResult = false,
+        bool releaseOnRequest = true,
+        bool throwOnCloseResultBeforeRelease = false)
+        : IWorkspaceCoordinatedGroupParticipation
+    {
+        readonly TaskCompletionSource _releaseRequestAttempted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal AssemblyContextGroup? Group { get; set; }
+
+        internal Task ReleaseRequestAttempted =>
+            _releaseRequestAttempted.Task;
+
+        public WorkspaceCoordinatedAdmissionGate WorkspaceAdmission
+        {
+            get;
+        } = new();
+
+        public void RequestRelease()
+        {
+            _releaseRequestAttempted.TrySetResult();
+            if (throwOnReleaseRequest)
+            {
+                throw new InvalidOperationException(
+                    "Synthetic synchronous coordinated release failure.");
+            }
+            if (!releaseOnRequest)
+                return;
+
+            _ = (Group
+                    ?? throw new InvalidOperationException(
+                        "The coordinated group was not attached."))
+                .RequestReleaseAsync();
+        }
+
+        internal Task<AssemblyContextGroupReleaseResult>
+            ReleaseAsOwnerAsync() =>
+                (Group
+                    ?? throw new InvalidOperationException(
+                        "The coordinated group was not attached."))
+                .RequestReleaseAsync();
+
+        public async Task<InspectionWorkspaceGroupCloseResult>
+            GetCloseResultAsync(int registrationIndex)
+        {
+            if (throwOnCloseResultBeforeRelease)
+            {
+                throw new InvalidOperationException(
+                    "Synthetic coordinated close failure.");
+            }
+
+            await (Group
+                    ?? throw new InvalidOperationException(
+                        "The coordinated group was not attached."))
+                .ReleaseCompletion;
+            if (throwOnCloseResult)
+            {
+                throw new InvalidOperationException(
+                    "Synthetic coordinated close failure.");
+            }
+
+            return new InspectionWorkspaceCoordinatedGroupCloseResult<
+                string>(
+                    registrationIndex,
+                    "released");
+        }
     }
 
     sealed class ThrowingDisposeMemoryStream(byte[] bytes)

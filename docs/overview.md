@@ -33,10 +33,16 @@ substrates, and inspection producers that will extend that space.
   [CLI row-selection grammar](design/cli-row-selection.md) owns item, Window,
   Top, direction, rendered-line spelling, shorthand, capability, and typed
   operation-intent lowering at the L3 boundary. Its
+  [search scope resolution](design/search-scope-resolution.md) owns default
+  activation,
+  explicit-source suppression, and named platform/package scope expansion. Its
   [Find type-search service](design/find-search-service.md) owns the
   CLI-scoped boundary from host-authorized candidate collection through typed
   exact, glob, namespace-prefix, partial, and miss classification; Metadata
   retains candidate facts and the command retains presentation.
+  The [package index cache](design/package-index-cache.md) separately owns
+  whether a persistent filesystem-derived package result may replace cold
+  inspection of one exact authorized retained payload.
 - `src/DotnetInspector.Queries/` contains host-neutral typed query definitions,
   deterministic synchronous/asynchronous execution, prerequisite-aware cost,
   and content-shaped metadata, reference, package dependency-group,
@@ -47,8 +53,11 @@ substrates, and inspection producers that will extend that space.
   SourceLink,
   implementation-relationship, type/member search, extension-reachability,
   API-comparison, progressive call-graph, and group-scoped source queries. The
-  source query owns a Decompiler fallback over retained assembly content. The
-  project has no Markout, console, or filesystem-path dependency.
+  source query owns a Decompiler fallback over retained assembly content; the
+  proposed
+  [member source comparison query](design/member-source-comparison-query.md)
+  owns an explicit two-endpoint attempt over one resolved member. The project
+  has no Markout, console, or filesystem-path dependency.
 - `src/DotnetInspector.ResearchQueries/` contains the optional Research-backed
   L1 query family. It composes switch metadata with AppContext IL evidence,
   compares already-acquired Analysis body indexes, and compares retained
@@ -66,13 +75,18 @@ substrates, and inspection producers that will extend that space.
 - `src/ILInspector.Analysis/` indexes IL method-body evidence such as direct call sites, allocation and unsafety occurrences, method signals, and whole-assembly leverage without decompiling to C#. `AnalysisFindings` exposes reusable typed censuses and comparisons for allocations, call sites, unsafe operations, and unsafe declaration/body evidence.
 - `src/ILInspector.Analysis.App/` is a temporary console harness for exercising Analysis queries until CLI wiring exists.
 - `src/ILInspector.ControlFlow/` contains shared block-edge, dominance, and dataflow kernels used below Analysis and Decompiler without depending on either.
-- `src/ILInspector.Findings/` contains the domain-free observation, inspection, matching, transition, comparison, whole-census correlation, and exact-identity correlation contracts shared by product producers. The `timeline` command composes Metadata and Analysis producers over those same correlation contracts.
+- `src/ILInspector.Findings/` contains the domain-free observation, inspection, matching, transition, comparison, complete analysis-diff, whole-census correlation, and exact-identity correlation contracts shared by product producers. The `timeline` command composes Metadata and Analysis producers over those same correlation contracts.
 - `src/ILInspector.ILDiff/` owns IL body and assembly comparison over decoded
   instruction streams: canonicalization, alignment, Finding projection, typed
   failures, and producer-owned diff presentation.
 - `src/ILInspector.Instructions/` is the shared IL decode + EH-aware basic-block substrate (one decoder the analyzer and decompiler converge onto); see [instruction substrate](design/instruction-substrate.md).
 - `src/ILInspector.Text/` provides the reusable `TextFindings` API for exact, ordered line inspection and generic text comparison on the shared Finding spine.
-- `src/DotnetInspector.Packages/` handles NuGet package extraction, package/source caches, feeds, symbol package acquisition, and version resolution.
+- `src/DotnetInspector.Packages/` handles NuGet package extraction,
+  package/source caches, feeds, symbol package acquisition, and version
+  resolution. The proposed
+  [Package Set Registry](design/package-set-registry.md) places stable named-set
+  identity, discovery, and ordered package-coordinate membership with this
+  package owner; the current inventories remain CLI-owned until adoption.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
   companion. It consumes package realization proofs and package-neutral core
   queries without adding package identity or acquisition policy to those core
@@ -91,17 +105,24 @@ substrates, and inspection producers that will extend that space.
   `AsyncCache`), the single `HttpClientFactory` seam with offline and
   network-policy enforcement, network telemetry, and hardened XML/JSON readers.
 - `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural annotated IL from method bodies.
-- `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis and Decompiler: its registry orders fact producers, joins R1 analysis occurrences with R2 decompiler projections, and projects facts into the Annotated Source, annotated IL, and Facts views used by `member`.
+- `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis
+  and Decompiler: its registry orders fact producers, joins R1 analysis
+  occurrences with R2 decompiler projections, and projects facts into the
+  Annotated Source, annotated IL, and Facts views used by `member`.
+  [Research Finding census projection](design/research-finding-census-projection.md)
+  owns preservation of one producer-sealed body-fact receipt and its instance
+  keys across those projections.
 - `prototypes/annotated-source-viewer/` is the dependency-free browser consumer
   for `AnnotatedSourceDocument`: it derives lines from the canonical text buffer,
   resolves facts through targets to multi-span nodes, filters the stable node-kind
   vocabulary, and keeps unanchored facts visible without inventing coordinates.
 - `prototypes/inspect-web/` is the browser/Wasm product host. Its
   [UI design](design/inspect-web-ui.md) composes the website's shared
-  presentation language, navigation rendering, navigation-result consumer,
-  shell interaction, and page-level composition across five focused owners
-  while individual components retain rendering, binding, and
-  state-transition responsibilities.
+  presentation language, reusable
+  [SlideStrip](design/inspect-web-slide-strip.md), navigation rendering,
+  navigation-result consumer, shell interaction, and page-level composition
+  across six focused owners while individual components retain rendering,
+  binding, and state-transition responsibilities.
 - `tools/DecompilerHarness/` owns ReturnToSender closure discovery,
   type-cluster planning, compile-back reference selection and closure, and
   generated-artifact admission and receipt-gated verdict composition. RTS
@@ -109,11 +130,10 @@ substrates, and inspection producers that will extend that space.
   owner-issued artifact, fragment, and correspondence evidence;
   `ILInspector.CSharp`, `ILInspector.Decompiler`, and `ILInspector.ILDiff`
   retain ownership of producing that evidence.
-- [Repository xUnit test host](design/xunit-test-host.md) owns explicit test
-  selection non-vacuity for the argument vector handed to xUnit after any
-  suite-owned expansion. xUnit retains command-line parsing, discovery,
-  filtering, execution, reporting, and Microsoft Testing Platform protocol
-  behavior.
+- [Repository xUnit test host](design/xunit-test-host.md) owns the repository's
+  use of Microsoft Testing Platform for aggregate non-vacuity of xUnit test
+  execution. MTP and xUnit retain runner semantics; suite owners retain
+  argument expansion and any stronger per-selection evidence receipts.
 - [Repository CI change plan](design/ci-change-plan.md) owns candidate
   provenance, exact changed-path interpretation, path and event routing
   implications, and one immutable validation plan with bounded scoped evidence.
@@ -148,6 +168,11 @@ substrates, and inspection producers that will extend that space.
   owns the user-scenario ordering and typed handoffs across operation
   authority, worker runtime, generated facades, managed bridging, and
   feature-owned work without redefining those owners.
+- [`docs/design/engine-browser-async-event-stream.md`](design/engine-browser-async-event-stream.md)
+  owns host-neutral, request-scoped engine event sequences: advisory progress,
+  durable partial items and item failures, one semantic completion, and
+  adapter-side pull, batching, and cancellation obligations before Browser
+  publication.
 - [`docs/design/custom-attribute-value-decoding.md`](design/custom-attribute-value-decoding.md)
   owns the safety contract for decoding custom-attribute values
   from untrusted metadata: the alignment, bounding, and guard-work invariants
@@ -179,10 +204,12 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   inputs](design/cli-change-classification.md): published surfaces, change
   disclosure, routing-collision analysis, invalid-input guards, and
   reservations.
-- [Repository xUnit test host](design/xunit-test-host.md): semantic
-  non-vacuity for explicit test selections after suite-owned argument
-  expansion, while preserving xUnit-owned discovery, execution, reporting, and
-  server dispatch.
+- [Search scope resolution](design/search-scope-resolution.md): default
+  activation, explicit-source suppression and composition, and named
+  platform/package scope expansion for search commands.
+- [Repository xUnit test host](design/xunit-test-host.md): MTP-owned aggregate
+  non-vacuity for xUnit execution, with stronger per-selection evidence left
+  to the suite that makes that claim.
 - [Find type-search service](design/find-search-service.md): CLI-scoped
   candidate collection, classification precedence, source ordering, limits,
   failure visibility, and typed result boundary for `find`.
@@ -245,7 +272,7 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Item and line selection composition](design/item-and-line-limits.md):
   cross-component sequencing and typed handoffs for focused semantic
   selection, L2, source-execution, CLI, payload, and presentation designs.
-- [Semantic row selection](design/semantic-row-selection.md): dependency-free
+- [Semantic row selection](design/semantic-row-selection.md): typed
   ordered-stage, strict-window, reindexing, and all-or-failure sequence
   component.
 - [Command transitions](design/command-transition-model.md): when source, focus, operation arity, lens, traversal, or rendering changes should switch commands versus stay within one command.
@@ -260,13 +287,22 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [View Facet Registry](design/view-facet-registry.md): stable product-owned
   inspection-facet identities, labels, order, structural applicability,
   discovery, and typed resolution outcomes.
+- [Package Set Registry](design/package-set-registry.md): stable product-owned
+  package-set identities, labels, purposes, order, static discovery, exact
+  lookup, and immutable ordered package-coordinate membership.
+- [Static Ecosystem Packs](design/ecosystem-packs.md): the proposed
+  front-end-only application catalog, private source contribution shape, and
+  static shipped-pack manifest that compose package-set identity, typed
+  package-prefix requests, and opaque Integration-owned semantic-scanner
+  bindings without making reusable infrastructure depend on the catalog.
 - [Inspection subject navigation](design/inspection-subject-navigation.md):
-  host-neutral root, Library, Type, and Member descriptors, availability,
-  initial recommendations, transitions, reconciliation, and model-checked
-  retained-session authority.
+  host-neutral Workspace, Package or non-package Root, Library, Type, and
+  Member descriptors, availability, initial recommendations, transitions,
+  reconciliation, and model-checked retained-session authority.
 - [Inspect Web UI](design/inspect-web-ui.md): composition map for the website
   redesign, linking
   [presentation language](design/inspect-web-presentation-language.md),
+  [SlideStrip](design/inspect-web-slide-strip.md),
   [navigation presentation](design/inspect-web-navigation-presentation.md),
   [navigation consumer](design/inspect-web-navigation-consumer.md),
   [shell interaction](design/inspect-web-shell-interaction.md), and
@@ -286,11 +322,20 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Finding nomenclature](design/finding-nomenclature.md): observation/change semantics, operation outcomes, and Research composition boundaries.
 - [Finding producer design](design/finding-producers.md): how to choose owners, payloads, identities, result shapes, and matching modes.
 - [Finding coordinates](design/finding-coordinates.md): separation of subject identity, correspondence, optional producer order, and typed provenance.
+- [Finding instance census](design/finding-instance-census.md): producer-issued
+  receipt and per-instance keys for one sealed execution census, with
+  bijection and exact-association validation.
+- [Research Finding census projection](design/research-finding-census-projection.md):
+  Research preservation of one body-fact census through Facts and Annotated
+  Source.
 - [Finding value semantics](design/finding-value-equality.md): .NET equality
   and hashing for Finding-owned structural values, ordered collections,
   identity sets, union cases, and reference-identity operation objects.
 - [Finding adoption](design/finding-adoption.md): consumer migration, failure visibility, native-case presentation, and quality-gate rules.
 - [Source Finding producers](design/source-finding-producers.md): portable-PDB source/build-context inputs, outputs, identities, and migration boundaries.
+- [Member source diff presentation](design/member-source-diff-presentation.md):
+  canonical placement-aligned endpoint text, source-line analysis and statistics,
+  Markout mapped-text lowering, and the CLI Source Diff first adoption.
 - [Implementation Diff](design/implementation-diff.md): product C# + IL/body diff projection shared by the opt-in `diff` section, RTS, and harnesses.
 - [C# assembly round-trip testing](design/csharp-member-recompilation.md): proposed tools-only `cluster`/`all` artifact compilation and layered IL/C# comparison.
 - [Fixture governance](fixture-governance.md): fixture catalog, project-boundary, and semantic-axis rules.

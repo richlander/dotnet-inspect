@@ -20,12 +20,10 @@ This owner defines:
   hover, keyboard focus, disabled) and their accessibility contract;
 - the interaction grammar and collapsed-summary rules for progressive filter
   disclosure;
-- the shared heading rules across the API, Source, and Metadata lenses: API
-  and Source render a compact exact-target heading, while Metadata retains its
-  detailed type-level context;
-  and
-- the compact status/action presentation for successful and failed source
-  provenance.
+- the shared heading rules across the API and Metadata lenses: API renders a
+  compact exact-target heading, while Metadata retains its detailed type-level
+  context; and
+- the compact status vocabulary for successful and failed source provenance.
 
 It does not own:
 
@@ -135,12 +133,11 @@ Selector rows are hidden by default in the type and member navigation panes.
 The recovered vertical space belongs to the type or member list, which is the
 primary content of each pane.
 
-Each pane provides one compact `Filters` disclosure button beside its text
-filter. The button expands or collapses the complete selector region for that
-pane:
+Each member-filtering surface provides one compact `Filters` disclosure button.
+The button expands or collapses the text filter and complete selector region
+together:
 
-- type kind and accessibility selectors expand together;
-- member kind, accessibility, and trait selectors expand together; and
+- member text, kind, accessibility, and trait filters expand together; and
 - collapsing the region never clears or changes a selection.
 
 The Type navigation pane does not retain a second library filter. The active
@@ -155,39 +152,29 @@ as a user preference across browser sessions.
 
 #### Collapsed summary
 
-Hidden controls must not create hidden state. The disclosure button summarizes
-any selection that restricts the visible result set:
-
-- the visible label becomes `Filters · N`, where `N` is the number of
-  restrictive selector dimensions;
-- the count uses the accent color without giving the button selector selected
-  styling;
-- the accessible name identifies the active restrictions.
-
-For example, a type pane showing only public types has one restrictive
-dimension even though `public` is the product default. Its collapsed control is
-presented as `Filters · 1` with an accessible name such as
-`Filters · 1, accessibility: public`. A member pane with `all kinds`,
-`all access`, and `all traits` has no restrictive dimensions and presents a
-neutral `Filters` button.
-
-The count is by selector dimension, not by selected value. Selecting `public`
-and `protected` in one multi-select accessibility control still contributes
-one restrictive dimension.
+Hidden controls must not create hidden state. A member-filter disclosure shows
+`All members` when no restriction is active. Otherwise its compact trailing
+summary names each active text, kind, accessibility, or trait restriction in
+control order. The summary elides visually when space is exhausted, while its
+accessible name retains the complete active restriction list. The disclosure
+does not acquire selector selected styling.
 
 #### Disclosure semantics
 
-- The disclosure button is not a selector and does not expose `aria-pressed`.
-- The button exposes `aria-expanded` and references the selector region with
-  `aria-controls`.
+- The disclosure uses native `details` and `summary` semantics. A custom
+  equivalent exposes the same expanded state with `aria-expanded` and
+  references the selector region with `aria-controls`.
+- The summary is not a selector and does not expose `aria-pressed`.
 - Expanding the region does not move keyboard focus automatically. The user
   may continue to the first selector through ordinary tab order.
-- Collapsing the region returns focus to the disclosure button when focus was
+- A keyboard command that focuses the member filter first opens the disclosure
+  and then places focus in the text input.
+- Collapsing the region returns focus to the summary when focus was
   inside the region.
 - A restored or deep-linked filter is summarized while collapsed; it does not
   force the selector region open.
-- The collapsed summary supplements the visible result count. It does not
-  replace result text such as `20 of 84 member groups`.
+- The collapsed summary supplements the live visible/total result count in the
+  owning pane or working-surface header. It does not replace that count.
 
 ## Shared heading rules
 
@@ -203,12 +190,21 @@ ordinary body copy; the current leaf also receives the shared accent. Segment
 copy controls preserve this typography without button chrome and gain an
 underline on hover plus an explicit keyboard focus outline.
 
-### API and Source lenses
+### API, Source, and Metadata lenses
 
-API and Source render a compact local heading followed by their primary
-content. The subject zone remains the visible owner of the complete hierarchy.
-When the snapshot has an effective lens, the lens panel's accessible heading
-relationship includes the subject path and the active inspector label.
+API renders a compact local heading followed by its primary content. Type API
+uses `Members` with the live visible/total member-group count. Member API uses
+the exact local member name with its kind and overload count or ordinal. These
+headings use the same quiet label hierarchy as the navigation pane rather than
+competing with the subject path. Source is the full-area exception governed by
+[Inspect Web Surface Composition](inspect-web-surface-composition.md#source-and-annotated-source):
+it adds no local heading, so the subject zone remains the visible owner of the
+complete hierarchy while the active Source inspector labels the lens panel.
+Metadata retains its detailed type heading.
+
+At narrow widths, API header identity and status may elide visually as complete
+strings. Responsive styling does not selectively remove the overload total or
+ordinal from the rendered or accessible status.
 
 When the snapshot has no effective lens, the UI renders no `tabpanel`. A status
 region references the target heading and its visible `Lens unavailable`
@@ -217,19 +213,24 @@ an active tab, panel, or fallback lens.
 
 Home, Workspace, and Diagnostics render their own visible level-one heading.
 The persistent `dotnet-inspect` root control remains available and opens
-Home. Returning to an inspection surface restores its exact-target heading;
-two visible level-one headings are never rendered for one routed surface.
+Home. Returning to an inspection surface restores its exact-target
+orientation: API and Metadata render their owned headings, while Source keeps
+the persistent subject zone visible. Two visible level-one headings are never
+rendered for one routed surface.
 
-The compact API and Source heading does not repeat:
+The compact API heading and full-area Source working surface do not repeat:
 
 - the kind icon;
 - the namespace eyebrow;
 - the declaration signature;
-- the member count;
 - the accessibility summary;
 - the target framework;
 - the library; or
 - the package and version.
+
+Surface-local status is not repeated subject metadata. Type API may report the
+live visible/total member-group count and overload total; Member API may report
+the selected member kind and overload count or ordinal.
 
 The removed fields do not leave placeholders or reserved vertical space, and
 they are not moved into collapsed duplicate headers on either lens. Page order,
@@ -246,26 +247,33 @@ The Metadata lens retains the detailed type heading. It is the type-level view
 for kind, namespace, declaration shape, target framework, library, package, and
 version context.
 
-The exact-target heading remains the common orientation point between API,
-Metadata, and Source. Switching lenses changes the amount of surrounding
-detail, not the selected subject or its display identity.
+The exact-target identity remains the common orientation point between API,
+Metadata, and Source. API and Metadata repeat that identity in their local
+headings; Source relies on the persistent subject zone rather than duplicating
+it inside the full-area working surface. Switching lenses does not change the
+selected subject or its display identity.
 
 ## Source provenance
 
-Successful source provenance is presented as a compact status and action row,
-not as an explanation of the product's safety mechanisms. This rule applies to
-type, member, and graph source surfaces.
+Successful source provenance is presented as compact status, not as an
+explanation of the product's safety mechanisms. This vocabulary applies to
+type, member, and graph source surfaces; page-level placement and related
+action placement remain with their owning surfaces.
 
-The placement of that row relative to Source or Annotated Source content is
-owned by
+For type and member Source, the placement of provenance relative to content and
+the placement of Copy and optional Open are owned by
 [Inspect Web Surface Composition](inspect-web-surface-composition.md#source-and-annotated-source).
+Graph Source retains its modal-local composition.
 
 For checksum-verified source resolved through PDB information, the visible
 status is compact:
 
 ```text
-PDB Source                                      open source   copy
-PDB Source                                                    copy
+Working-surface actions                              Copy   Open
+PDB Source                                      compact provenance
+
+Working-surface actions                                     Copy
+PDB Source                                      compact provenance
 ```
 
 `PDB Source` implies that the source satisfied the product's PDB checksum
@@ -274,12 +282,12 @@ SourceLink transport, repository URL, or commit hash in explanatory prose.
 Those facts remain part of the product result; they do not need to occupy the
 source viewport.
 
-The `open source` action appears only when the product result supplies an
+The `Open` action appears only when the product result supplies an
 optional producer-authorized browse URL. A raw resolved or fetch URL and
 provenance prose do not establish that authorization, and the UI does not parse
 prose to infer it. The action uses plain text with no trailing arrow or
 external-link glyph. Its accessible name may state that it opens a new browser
-tab. The `copy` action remains available with or without a browse URL.
+tab. The `Copy` action remains available with or without a browse URL.
 
 `Decompiled source` remains the concise status for product-generated source.
 If a PDB source attempt failed and the product returned a meaningful limitation

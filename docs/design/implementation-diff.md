@@ -199,20 +199,23 @@ correspond to decompiler nodes. Checksum agreement proves that the bytes match
 the Portable PDB declaration, not that they were the physical syntax tree that
 produced the MethodDef.
 
-Normal verbosity renders standard unified hunks with three context lines,
-retains at most five emitted hunk examples and 80 lines per logical hunk, and
-reports `Partial` with the omitted counts when either bound is crossed. A
-logical hunk split around omitted middle lines consumes two emitted examples;
-the five-example budget still applies. Detailed
-verbosity (`-v:d`) retains the complete line stream. Both forms identify the
-PDB source location and distinguish exact document-byte checksum agreement
-from agreement after CR/LF normalization.
-`SourceTextDiffRendererTests.
-ReviewerSizedDiff_OmitsDistantUnchangedLinesButRetainsEveryChange` and
-`ReviewerSizedDiff_BoundsHunksAndLargeHunksWithVisibleDisclosure`, plus
-`ReviewerSizedDiff_BoundsTheNumberOfHunkExamples` and
-`ReviewerSizedDiff_BoundsEmittedFragmentsFromOversizedHunks`, gate the bounded
-projection.
+Normal verbosity reports factual added, removed, changed, and moved line
+counts from the producer-owned `AnalysisDiff<string>`. Changed and moved are
+independent facets, so the same Before and After population can contribute to
+both; unequal correspondence cardinalities remain explicit. Detailed
+verbosity (`-v:d`) lowers that analysis to a complete Markout
+`MappedTextDiff` through the host-neutral `DotnetInspector.Presentation`
+adapter. Stable unchanged one-to-one correspondences become presentation
+anchors; every other relation becomes conventional removal and addition text,
+so movement identity is intentionally absent from the rendered patch while
+remaining available to statistics. Both forms identify the PDB source location
+and distinguish exact document-byte checksum agreement from agreement after
+CR/LF normalization.
+`TextFindingsTests` gates the complete source-line relation partition,
+including unequal replacement populations, moved lines, line-ending
+equivalence, and final-line terminators. `SourceTextDiffRendererTests` gates
+factual summaries, overlapping changed/moved facets, and complete Markout
+lowering.
 `CommandExecutionTests.
 Member_SourceDiff_DetailedVerbosityPreservesCompleteLineEvidence` gates the
 normal/detailed boundary, and

@@ -1,15 +1,49 @@
+using CiChangeDetection.Planning;
 using static CiChangeDetection.GateAssertions;
 
 namespace CiChangeDetection;
 
 internal static class DetectionTestSuite
 {
-    internal static void Run(
-        string repository,
-        WorkflowContractResult contract)
+    private static readonly string[] ExpectedOutputs =
+    [
+        "code",
+        "csharpdiff",
+        "decompiler",
+        "docs",
+        "ildiff",
+        "ilroundtrip",
+        "packaging",
+        "shipped",
+        "web",
+        "skills",
+        "tla",
+    ];
+
+    internal static void Run(string repository)
     {
-        string body = contract.DetectionBody;
-        IReadOnlyCollection<string> outputs = contract.Outputs;
+        const string DetectionScript = "eng/ci-detect-changes.sh";
+        string scriptPath = Path.Combine(repository, DetectionScript);
+        string body = File.ReadAllText(scriptPath);
+        if (body.Length == 0
+            || !body.StartsWith(
+                "#!/usr/bin/env bash\nset -e -o pipefail\n",
+                StringComparison.Ordinal)
+            || body.Contains("${{", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "The legacy classifier must remain a standalone fail-closed "
+                + "Bash parity oracle.");
+        }
+        if (!OperatingSystem.IsWindows()
+            && (File.GetUnixFileMode(scriptPath)
+                & UnixFileMode.UserExecute) == 0)
+        {
+            throw new InvalidOperationException(
+                "The legacy classifier parity oracle must be executable.");
+        }
+
+        IReadOnlyCollection<string> outputs = ExpectedOutputs;
 
         AssertAll(
             RunDetection(
@@ -242,7 +276,8 @@ internal static class DetectionTestSuite
             missingWebManifestBody,
             "pull_request",
             "src/dotnet-inspect/Program.cs",
-            outputs);
+            outputs,
+            parity: false);
         if (missingWebManifest["code"] != "true"
             || missingWebManifest["web"] != "true")
         {
@@ -667,6 +702,19 @@ internal static class DetectionTestSuite
                 "ts-jsexport TypeScript gate did not select only web: "
                 + FormatValues(tsJsExportGate));
         }
+        Dictionary<string, string> tsJsExportContextAotGate = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/test-ts-jsexport-context-aot.sh",
+            outputs);
+        if (tsJsExportContextAotGate["code"] != "true"
+            || tsJsExportContextAotGate["web"] != "false")
+        {
+            throw new InvalidOperationException(
+                "ts-jsexport context NativeAOT gate did not select only code: "
+                + FormatValues(tsJsExportContextAotGate));
+        }
         foreach (string tsJsExportInput in new[]
         {
             "tests/ILInspector.JsExportSurface.TypeScriptFixtures/TypeScriptFixtureExports.cs",
@@ -773,7 +821,8 @@ internal static class DetectionTestSuite
                 StringComparison.Ordinal),
             "pull_request",
             "src/dotnet-inspect/Program.cs",
-            outputs);
+            outputs,
+            parity: false);
         if (missingDecompilerSkipList["decompiler"] != "true")
         {
             throw new InvalidOperationException(
@@ -934,6 +983,25 @@ internal static class DetectionTestSuite
             packageManifestCorpusVerifier,
             selected: "code",
             notSelected: "docs");
+
+        foreach (string dependencyPolicyInput in new[]
+        {
+            "eng/dependency-policy.json",
+            "eng/DependencyPolicy/PolicyEvaluator.cs",
+            "eng/DependencyPolicy.Tests/PolicyEvaluatorTests.cs",
+        })
+        {
+            Dictionary<string, string> dependencyPolicy = RunDetection(
+                repository,
+                body,
+                "pull_request",
+                dependencyPolicyInput,
+                outputs);
+            AssertRouting(
+                dependencyPolicy,
+                selected: "code",
+                notSelected: "docs");
+        }
 
         Dictionary<string, string> workflow = RunDetection(
             repository,
@@ -1297,7 +1365,8 @@ internal static class DetectionTestSuite
             brokenGhInvocation,
             "pull_request",
             "README.md",
-            outputs);
+            outputs,
+            parity: false);
         if (brokenGh["code"] == "false" && brokenGh["docs"] == "true")
         {
             throw new InvalidOperationException(
@@ -1332,24 +1401,42 @@ internal static class DetectionTestSuite
         bool truncatePushStream = false,
         bool emptyPushRecord = false,
         string? tlaCandidateFiles = null,
-        bool tlaCandidateResolutionSucceeds = true) =>
-        new DetectionHarness(repository, body, expectedOutputs).Run(
-            new DetectionScenario(
-                eventName,
-                files,
-                previousFiles,
-                reportedChangedFileCount,
-                changedFileCountIsString,
-                resolutionSucceeds,
-                malformedFileRecordJson,
-                objectShapedFilePage,
-                nulFileRecord,
-                nulPreviousFileRecord,
-                fileStatus,
-                failDecodeAt,
-                truncateRecordStream,
-                truncatePushStream,
-                emptyPushRecord,
-                tlaCandidateFiles,
-                tlaCandidateResolutionSucceeds));
+        bool tlaCandidateResolutionSucceeds = true,
+        bool parity = true)
+    {
+        DetectionScenario scenario = new(
+            eventName,
+            files,
+            previousFiles,
+            reportedChangedFileCount,
+            changedFileCountIsString,
+            resolutionSucceeds,
+            malformedFileRecordJson,
+            objectShapedFilePage,
+            nulFileRecord,
+            nulPreviousFileRecord,
+            fileStatus,
+            failDecodeAt,
+            truncateRecordStream,
+            truncatePushStream,
+            emptyPushRecord,
+            tlaCandidateFiles,
+            tlaCandidateResolutionSucceeds);
+        Dictionary<string, string> values =
+            new DetectionHarness(repository, body, expectedOutputs)
+                .Run(scenario);
+
+        // Every ordinary scenario is also an effective-parity case: the
+        // production planner must reach the same selections from the same
+        // event and path corpus. `parity: false` names a scenario that mutates
+        // the oracle itself; ChangePlanParity.IsComparable excludes the
+        // fallback and split-candidate cases the planner deliberately refuses
+        // or resolves differently.
+        if (parity && ChangePlanParity.IsComparable(scenario))
+        {
+            ChangePlanParity.Assert(repository, scenario, values);
+        }
+
+        return values;
+    }
 }

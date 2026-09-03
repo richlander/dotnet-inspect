@@ -359,6 +359,54 @@ validates the supplied selectors against its contract. Missing, ambiguous, or
 incompatible inputs are typed failures; a consumer never invents an undeclared
 selector or silently broadens the query.
 
+### Resolved context addresses and descriptors
+
+Workspace Definitions issues one `WorkspaceContextAddress` for every context
+in a resolved canonical definition composition. Its two components are the
+exact workspace record `id` and exact context `name`. Equality is ordinal over
+both preserved strings. The pair is sufficient because context names are
+unique within one workspace; framework, RID, members, scenario id, schema
+version, and display text do not participate in address equality.
+
+The address is relative to one activated canonical definition composition, not
+a global semantic identity. An equal pair from another registry, bundle,
+session, or activation does not itself establish correspondence. A later
+execution receipt that compares addresses across hosts must retain the exact
+activation scope in which each address is interpreted. This owner issues the
+relative address only; it does not define that receipt or infer a runtime
+binding-context relation.
+
+`ResolvedWorkspaceContext` retains a compact `WorkspaceContextDescriptor`
+containing the address and the context's declared framework and RID. Its
+acquisition member recipe remains separately available on the resolved context
+and is deliberately absent from the descriptor: equal membership is not
+context identity, and a host does not need to hash or format members to
+distinguish contexts. The context name remains the guaranteed visible
+discriminator; hosts may combine it with the target fields for presentation,
+but formatted labels are never address inputs.
+
+Packet transposition preserves the existing projection boundary. Decoding one
+canonical packet assigns the packet-local workspace id `share-workspace` and
+context names `g0`, `g1`, and so on in packet order. CLI and Browser therefore
+receive equal relative addresses after decoding the same packet. Projecting an
+authored definition set and decoding the packet replaces its authored
+addresses; the packet does not carry those bundle-local names. Two independent
+packet activations may each contain `(share-workspace, g0)`, so equality across
+those activations remains a receipt-level question rather than an address
+claim.
+
+These properties are gated by
+`WorkspaceContextAddress_UsesExactOrdinalValueEquality`,
+`ResolveScenario_IssuesContextAddressesAndDescriptors`, and
+`ToDefinitions_ResolvedContextsUsePacketLocalAddresses`.
+
+This focused contract supports the replay and receipt work in #4647 and its
+CLI and Browser Integration Census consumers #5529 and #5530. The separate
+Analysis Universe Realization adoption in #5554 owns preservation of the exact
+provider-local context correspondence. This section makes no Analysis
+Universe, Integration, host rendering, navigation, acquisition, or execution
+claim.
+
 ### Complete committed views
 
 Definition schema version 2 replaces the flat version-1 view with one
@@ -1856,7 +1904,9 @@ Definition records and product demos (this slice):
 - `InspectionDefinitionRegistry` stores peer records by `(kind, id)`, resolves
   scenarios by explicit id, and lowers package/platform/embedded coordinates to
   `WorkspaceMemberCoordinate` for `WorkspaceContextLoader` (group `subscribe`
-  expressions and filesystem coordinates are typed failures in this slice);
+  expressions and filesystem coordinates are typed failures in this slice).
+  Each resolved context retains its activation-relative
+  `WorkspaceContextAddress` and compact target descriptor;
 - `ProductInspectionDemos` is a static id→factory registry (smooth-markdown-table
   `RendererRegistry` style) of the product home scenarios (Methods tour plus
   multiple Call Graph shapes); listing is metadata-only and

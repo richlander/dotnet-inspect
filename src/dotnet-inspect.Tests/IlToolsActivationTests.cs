@@ -784,14 +784,14 @@ public class IlToolsActivationTests
             "group: windows-pr-${{ inputs.target_ref }}-${{ inputs.suite }}",
             workflow);
         Assert.Contains(
-            "      - uses: actions/checkout@v6\n" +
+            "      - uses: actions/checkout@v7\n" +
             "        with:\n" +
             "          ref: ${{ inputs.target_ref }}",
             workflow);
         Assert.Equal(
             1,
             workflow.Split(
-                "uses: actions/checkout@v6",
+                "uses: actions/checkout@v7",
                 StringSplitOptions.None).Length - 1);
         Assert.DoesNotContain("\n  schedule:", workflow);
         Assert.DoesNotContain("platform-test", workflow);
@@ -808,7 +808,7 @@ public class IlToolsActivationTests
             (
                 "cli",
                 "dotnet run --project src/dotnet-inspect.Tests -c Release -- " +
-                "-trait- \"Speed=Slow\""),
+                "--filter-not-trait \"Speed=Slow\""),
             (
                 "services",
                 "dotnet run --project " +
@@ -816,7 +816,7 @@ public class IlToolsActivationTests
             (
                 "analysis",
                 "dotnet run --project src/ILInspector.Analysis.Tests " +
-                "-c Release -- -trait- \"Speed=Slow\""),
+                "-c Release -- --filter-not-trait \"Speed=Slow\""),
             (
                 "decompiler",
                 "dotnet run --project src/ILInspector.Decompiler.Tests " +
@@ -874,7 +874,7 @@ public class IlToolsActivationTests
         }
 
         int checkout = workflow.IndexOf(
-            "- uses: actions/checkout@v6",
+            "- uses: actions/checkout@v7",
             StringComparison.Ordinal);
         int build = workflow.IndexOf("- name: Build", StringComparison.Ordinal);
         int install = workflow.IndexOf(

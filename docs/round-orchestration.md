@@ -3,13 +3,53 @@
 `AGENTS.md` owns the binding rules for adversarial review: what a candidate is,
 when a round may start, what makes a review review-clean, and when to stop. This
 document owns the operational side — how to find out where the round stands, how
-to dispatch and reconcile it, and what to do when the base moves under a clean
-result.
+to dispatch and reconcile it, how approved workflow adjustments apply, and what
+to do when the base moves under a clean result.
 
 Read [Adversarial review](../AGENTS.md#adversarial-review) first. This document
 owns operational transitions and reporting, not the rules that decide
 eligibility, recovery, completion, or carry-forward. Where it applies one of
 those rules, it cites the owner rather than restating it.
+
+## User-directed workflow adjustments
+
+[AGENTS.md](../AGENTS.md#user-directed-workflow-adjustments) states the binding
+boundary: a user adjustment changes only its named sequencing gate and cannot
+make failed evidence successful or transfer fixed-head evidence. The following
+standing adjustments define their exact scope and effect.
+
+### Standing adjustments
+
+- **Review ordinary non-Markdown changes in parallel with CI:** requires user
+  approval; conflict recovery is the explicit exception. A CI failure requiring
+  an author change still supersedes the attempt, and all findings carry forward.
+- **Pre-authorize merge for the final head:** after clean reviews or a waiver,
+  the user may authorize its exact head and base ref. Keep auto-merge unarmed
+  while gates are pending; after green preflight, use the [exact-head
+  precondition](github-api-operations.md#bind-merge-mutations-to-the-head).
+  Head/base-ref change or invalidated evidence expires authorization;
+  no-interaction tip movement within the same base ref preserves it.
+- **"CI is ready":** the user's statement that CI has no failures and the PR is
+  mergeable. Trust it without re-checking and move to the next task, such as
+  dispatching the next round's reviewers.
+- **Authorizing the next round before CI completes:** the agent does not need
+  to check CI status first; proceed with the authorized round.
+- **Skip re-review after a trivial base interaction:** requires the user's
+  approval for one exact integration head and its mechanically resolved
+  interaction at one exact analyzed base tip, offered only for a
+  `main`-targeting PR or bottom open stack slice whose waiver lineage starts at
+  one immutable review-clean head and recorded base (a renewal may only
+  integrate a further moved base from that same lineage).
+  Every overlap must resolve mechanically — analyzed base side verbatim, or
+  drop the PR's change to that file — and the cumulative diff against the
+  newest base must stay a subset of the original reviewed diff with no
+  surviving reviewed claim, contract, or behavior changed. `review-clean` stays
+  absent on the integration head. Later no-interaction base movement extends
+  the waiver and recorded merge authorization to the analyzed tip without
+  moving the head or asking again; head movement or any other interaction
+  expires both. Semantic conflict resolution or new authored change requires
+  ordinary re-review. Evidence to publish:
+  [Trivial-interaction re-review waiver](#trivial-interaction-re-review-waiver).
 
 ## Candidate lifecycle
 
@@ -152,7 +192,7 @@ unrelated members such as `review`. In the table, **status members** means
 
 | Status snapshot says | Round transition |
 | --- | --- |
-| PR is merged | Leave the status wait, relinquish ownership, and end. |
+| PR is merged | Leave the status wait, perform the [theme handoff](agent-session-state.md#complete-a-merge-with-a-theme-handoff), relinquish ownership, and end. |
 | PR is closed or draft | Leave the status wait, publish the human action or stopped state, and end. |
 | Base ref changed | Leave the status wait; expire merge authorization and route the unchanged head through candidate formation without inheriting fixed-head evidence. |
 | Head changed | Leave the status wait; disable auto-merge first, handle an already-merged result as terminal, then route the returned head through candidate formation without inheriting fixed-head evidence. |
@@ -215,6 +255,7 @@ Emit this report as visible session output, never inside an approval prompt:
 
 ```text
 Status not observed for PR <number> at round <n> after <mm> minutes.
+- Theme: <one-sentence session theme>.
 - Head: <40-character SHA>
 - Unresolved: <waiting predicates>
 - Last observation: ci-required=<state|not-observed>,
@@ -271,9 +312,11 @@ required real-run evidence. The appended material may narrow the review but
 must not weaken or broaden the prompt's trust model and finding-admission rules.
 It also records the user purpose, convention or best-practice baseline,
 intentional divergence, analogous implementation evidence, pathological or
-boundary case and gate, current slice and residual work, and the demo with a
-neighboring case. Use `Not applicable — <reason>` for a field that genuinely
-does not apply.
+boundary case and gate, complexity basis, consumer and host plan, rendering
+strategy, current slice and residual work, and the demo with a neighboring
+case. Use `Not applicable — <reason>` only when the reason names the relevant
+change classification and exact-head evidence; cite the owning design's exact
+section when it defines the boundary.
 Agents that prefer a structured composition aid may instead fill the optional
 [`docs/templates/adversarial-review-prompt.md`](templates/adversarial-review-prompt.md),
 which includes the same fixed prompt followed by candidate placeholders.
@@ -284,10 +327,19 @@ or variable input, the boundary through which it reaches the claim, trusted
 parties and excluded scenarios, the user purpose, baseline and any divergence,
 relevant analogous evidence, pathological case and gate, current slice,
 residual work, demo and neighboring case, the observable consequence, and the
-evidence that would falsify the claim. For a correctness review without an
-untrusted actor, name the ordinary supported caller and input instead. If those
-fields cannot be filled or explained as not applicable, return to design or
-scope clarification before spending a review round.
+evidence that would falsify the claim. For an applicable capability, substrate,
+host, or broad rendering change, candidate formation must also supply the
+complexity basis, named consumer, focused issue, overall end-to-end tracker,
+host-enablement plan, any recorded single-consumer or single-host approval and
+its exact scope, and the rendering strategy. Reviewers judge the visible
+design's consistency with those supplied facts; they do not grant approvals or
+invent roadmap decisions. State the facts directly in the self-contained
+prompt; links may support them but do not replace them. For a correctness
+review without an untrusted actor, name the ordinary supported caller and input
+instead. Candidate formation must make every non-applicability explanation
+judgeable from the normative owner, changed surfaces, and exact-head diff. If
+required fields cannot be filled or non-applicability cannot be established,
+return to design or scope clarification before spending a review round.
 
 Give every seat the same completed prompt except for its worktree path. State
 candidate facts rather than rewarding findings; the canonical prompt already
@@ -379,6 +431,7 @@ prompt:
 
 ```text
 Round <n> is complete for PR <number>.
+- Theme: <one-sentence session theme>.
 - Review models <model-a> and <model-b> were used for adversarial review.
 - Design basis: normative owner <path#section> — <owned claim>; supporting
   <path and role for each model, adjacent contract, constraint, or consumer>.
@@ -518,7 +571,7 @@ not start or spend a replacement round.
 ### Trivial-interaction re-review waiver
 
 The binding criteria and evidentiary limits live in
-[Standing adjustments](../AGENTS.md#standing-adjustments). Approval covers one
+[Standing adjustments](#standing-adjustments). Approval covers one
 exact integration head and its mechanically resolved interaction at the named
 base tip; later no-interaction tips extend that lineage without changing the
 head. After the integration head is pushed, publish this evidence before

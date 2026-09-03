@@ -425,6 +425,7 @@ public class SourceForwarderResolutionTests
                 PackageVersion: "1.0.0",
                 ResolvedPackagePath:
                     "Microsoft.Root.Symbols@1.0.0",
+                PackageExtractPath: null,
                 ApiSource: SourceKind.NuGet,
                 ApiVersion: "1.0.0",
                 PlatformFramework: null,
@@ -432,6 +433,8 @@ public class SourceForwarderResolutionTests
                 ProjectAssetsPath: null,
                 TempDir: null,
                 TypeName: fixture.Type.FullName,
+                PackageReplaySourceUrls: null,
+                PackageReplayUsesOriginalSources: false,
                 Context: new CommandContext(
                     verbose: true,
                     client));
@@ -494,6 +497,7 @@ public class SourceForwarderResolutionTests
                 PackageName: packageName,
                 PackageVersion: "2.0.0",
                 ResolvedPackagePath: null,
+                PackageExtractPath: null,
                 ApiSource: SourceKind.Project,
                 ApiVersion: "2.0.0",
                 PlatformFramework: null,
@@ -501,6 +505,8 @@ public class SourceForwarderResolutionTests
                 ProjectAssetsPath: null,
                 TempDir: null,
                 TypeName: fixture.Type.FullName,
+                PackageReplaySourceUrls: null,
+                PackageReplayUsesOriginalSources: false,
                 Context: new CommandContext(
                     verbose: true,
                     client));
@@ -1336,6 +1342,99 @@ public class SourceForwarderResolutionTests
         }
     }
 
+    [Fact]
+    public void PlatformSummary_RejectsFilenameMatchWithIncompatibleManifestIdentity()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string facadePath = Path.Combine(directory, "Facade.dll");
+            string targetPath = Path.Combine(directory, "Target.dll");
+            File.WriteAllBytes(
+                facadePath,
+                BuildAssembly(
+                    "Facade",
+                    new AssemblyReferenceIdentity(
+                        "Target",
+                        new Version(1, 0, 0, 0),
+                        null,
+                        null)));
+            File.WriteAllBytes(
+                targetPath,
+                BuildAssembly(
+                    "DifferentTarget",
+                    definesType: true));
+
+            ApiServices.LoadedApiSurface loaded =
+                Assert.IsType<ApiServices.LoadedApiSurface>(
+                    ApiServices.LoadPlatformApiSummary(
+                        facadePath,
+                        facadePath,
+                        SourceKind.Platform,
+                        "1.0.0",
+                        "net11.0",
+                        new VerboseLogger(enabled: false)));
+
+            Assert.Empty(loaded.Api.Types);
+            Assert.Empty(loaded.SourceAssemblies);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void PlatformSummary_RetainsValidatedForwardedSupplierDescriptor()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string facadePath = Path.Combine(directory, "Facade.dll");
+            string targetPath = Path.Combine(directory, "Target.dll");
+            File.WriteAllBytes(
+                facadePath,
+                BuildAssembly(
+                    "Facade",
+                    new AssemblyReferenceIdentity(
+                        "Target",
+                        new Version(1, 0, 0, 0),
+                        null,
+                        null)));
+            File.WriteAllBytes(
+                targetPath,
+                BuildAssembly(
+                    "Target",
+                    definesType: true));
+
+            ApiServices.LoadedApiSurface loaded =
+                Assert.IsType<ApiServices.LoadedApiSurface>(
+                    ApiServices.LoadPlatformApiSummary(
+                        facadePath,
+                        facadePath,
+                        SourceKind.Platform,
+                        "1.0.0",
+                        "net11.0",
+                        new VerboseLogger(enabled: false)));
+
+            ApiType type = Assert.Single(loaded.Api.Types);
+            Assert.True(type.IsForwarded);
+            ResolvedAssemblyReference supplier =
+                loaded.GetSourceAssembly(type);
+            Assert.Equal(
+                Path.GetFullPath(targetPath),
+                supplier.Path);
+            Assert.Equal("Target", supplier.Identity.Name);
+            Assert.IsType<
+                AssemblyResolutionProvenance.PlatformAsset>(
+                    supplier.Provenance);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     static MetadataTypeDefinitionName TypeName() =>
         Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
             MetadataTypeDefinitionName.Create("N", ["Type"])).Name;
@@ -1803,12 +1902,19 @@ public class SourceForwarderResolutionTests
         public AssemblyBindingPolicyVersion Version { get; } =
             new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            request.Target
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                request.Target
                 is AssemblyBindingTarget.AssemblyReference reference
                 && reference.Identity == dependency.Identity
                 ? AssemblyBindingSelection.Found(dependency)
                 : AssemblyBindingSelection.NotFound();
+        }
     }
 }

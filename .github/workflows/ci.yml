@@ -28,6 +28,11 @@ on:
   merge_group:
     types: [checks_requested]
 
+# Least privilege by default. Jobs needing more declare it themselves; a
+# job-level block replaces this default rather than adding to it.
+permissions:
+  contents: read
+
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
@@ -48,7 +53,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Detect what changed to determine which jobs to run
+  # Plan the validations selected by this exact candidate.
   #
   # This entry job uses the GA image deliberately. Every workflow run waits on
   # it before path-gated jobs can be selected, so preview-image capacity must
@@ -56,21 +61,16 @@ jobs:
   # ubuntu-26.04 coverage without making it the scheduler for every run.
   changes:
     runs-on: ubuntu-24.04
+    # eng/ci-detect-changes.sh reads the pull request and its file list from
+    # the Pull requests API, which contents:read alone does not cover.
+    permissions:
+      contents: read
+      pull-requests: read
     timeout-minutes: 10
     outputs:
-      code: ${{ steps.filter.outputs.code }}
-      csharpdiff: ${{ steps.filter.outputs.csharpdiff }}
-      decompiler: ${{ steps.filter.outputs.decompiler }}
-      docs: ${{ steps.filter.outputs.docs }}
-      ildiff: ${{ steps.filter.outputs.ildiff }}
-      ilroundtrip: ${{ steps.filter.outputs.ilroundtrip }}
-      packaging: ${{ steps.filter.outputs.packaging }}
-      shipped: ${{ steps.filter.outputs.shipped }}
-      web: ${{ steps.filter.outputs.web }}
-      skills: ${{ steps.filter.outputs.skills }}
-      tla: ${{ steps.filter.outputs.tla }}
+      plan: ${{ steps.plan.outputs.plan }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # Full history. Change detection diffs against github.event.before,
           # which is not always the immediate parent: a push advances main by
@@ -80,7 +80,7 @@ jobs:
           # expression", taking the whole run with it.
           fetch-depth: 0
 
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
 
@@ -104,28 +104,61 @@ jobs:
           dotnet run --project tools/DecompilerHarness -c Release --
           --verify-authored-corpus-history
 
-      # GitHub limits one workflow expression scalar to 21,000 characters.
-      # Keep the classifier in a tested script so adding another path cannot
-      # invalidate the workflow before any job is created.
-      - name: Detect changes
-        id: filter
+      - name: Plan changes
+        id: plan
         shell: bash
-        run: eng/ci-detect-changes.sh
+        run: |
+          set -euo pipefail
+          evidence_directory="${RUNNER_TEMP}/ci-plan"
+          mkdir -p "$evidence_directory"
+          case "$GITHUB_EVENT_NAME" in
+            pull_request)
+              event_name="pull-request"
+              base_sha=$(git rev-parse --verify 'HEAD^1')
+              ;;
+            merge_group)
+              event_name="merge-group"
+              base_sha="$CI_EVENT_BASE_SHA"
+              ;;
+            push)
+              event_name="push"
+              base_sha="$CI_EVENT_BASE_SHA"
+              ;;
+            *)
+              echo "Unsupported CI planning event: $GITHUB_EVENT_NAME" >&2
+              exit 1
+              ;;
+          esac
+          plan=$(
+            dotnet run eng/ci-plan.cs -- "$event_name" \
+              --base "$base_sha" \
+              --candidate "$GITHUB_SHA" \
+              --evidence-directory "$evidence_directory" \
+              --repository "$GITHUB_WORKSPACE"
+          )
+          if [[ "$plan" == *$'\n'* ]]; then
+            echo "ci-plan emitted more than one line" >&2
+            exit 1
+          fi
+          jq -e '
+            type == "object"
+            and .schemaVersion == 2
+            and .status == "planned"
+          ' <<< "$plan" > /dev/null
+          printf 'plan=%s\n' "$plan" >> "$GITHUB_OUTPUT"
         env:
           # The runner honors BASH_ENV even with --noprofile and --norc.
           # Clear inherited workflow/job values before executing this gate.
           BASH_ENV: ""
-          CI_BEFORE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
-          CI_PR_NUMBER: ${{ github.event.pull_request.number }}
-          GH_TOKEN: ${{ github.token }}
+          CI_EVENT_BASE_SHA: ${{ github.event.merge_group.base_sha || github.event.before }}
 
   # Lint markdown files
   markdownlint:
     needs: changes
-    if: needs.changes.outputs.docs == 'true'
+    if: fromJSON(needs.changes.outputs.plan).validations.markdownlint
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Run markdownlint
         uses: DavidAnson/markdownlint-cli2-action@v19
@@ -140,11 +173,11 @@ jobs:
   # some are negative controls without machine-readable expectations.
   tla-plus:
     needs: changes
-    if: needs.changes.outputs.tla == 'true'
+    if: fromJSON(needs.changes.outputs.plan).validations.tla
     runs-on: ubuntu-26.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # The gate diffs the effective candidate against its event-provided
           # base so it can select only the model directories changed by the PR,
@@ -218,14 +251,14 @@ jobs:
 
   inspect-web:
     needs: changes
-    if: needs.changes.outputs.web == 'true'
+    if: fromJSON(needs.changes.outputs.plan).validations.inspectWeb
     runs-on: ubuntu-26.04
 
   # Shipped skills are embedded Markdown resources. A SKILL.md-only PR does
   # not need the full product matrix, but it must still prove that every
   # focused skill is registered and embedded and that every resource resolves.
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup Node
         uses: actions/setup-node@v7
@@ -235,7 +268,7 @@ jobs:
           cache-dependency-path: prototypes/inspect-web/package-lock.json
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -415,14 +448,14 @@ jobs:
 
   skill-gate:
     needs: changes
-    if: needs.changes.outputs.skills == 'true' && github.event_name != 'push'
+    if: fromJSON(needs.changes.outputs.plan).validations.skillGate
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -437,16 +470,7 @@ jobs:
 
       - name: Run embedded skill tests
         shell: bash
-        run: |
-          set -euo pipefail
-          results="$RUNNER_TEMP/skill-tests.xml"
-          dotnet run --project src/dotnet-inspect.Tests -c Release -- \
-            -class "DotnetInspector.Tests.SkillCommandTests" \
-            -xml "$results"
-          if ! grep -Eq 'total="[1-9][0-9]*"' "$results"; then
-            echo "::error::Skill test filter selected no tests." >&2
-            exit 1
-          fi
+        run: dotnet run --project src/dotnet-inspect.Tests -c Release -- --filter-class "DotnetInspector.Tests.SkillCommandTests"
 
   # Build and run the PR test matrix on Ubuntu 24.04. Windows, macOS, and Ubuntu
   # 26.04 compatibility suites run daily in Deep Inspect, where
@@ -465,7 +489,7 @@ jobs:
   # Inspect, and release publishing continue to exercise ubuntu-26.04.
   test:
     needs: changes
-    if: needs.changes.outputs.code == 'true' && github.event_name != 'push'
+    if: fromJSON(needs.changes.outputs.plan).validations.test
     permissions:
       contents: read
       packages: read
@@ -479,10 +503,10 @@ jobs:
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -497,6 +521,12 @@ jobs:
 
       - name: Build
         run: dotnet build dotnet-inspect.slnx -c Release
+
+      - name: Test dependency policy
+        run: dotnet run --project eng/DependencyPolicy.Tests -c Release --no-build
+
+      - name: Validate dependency policy
+        run: dotnet run --project eng/DependencyPolicy -c Release --no-build
 
       - name: Run MethodSemantics NativeAOT probe
         run: eng/run-method-semantics-platform-probe.sh nativeaot ${{ matrix.rid }}
@@ -561,7 +591,7 @@ jobs:
         run: eng/restore-iltools.sh --rid ${{ matrix.rid }} --mdv >> "$GITHUB_PATH"
 
       - name: Run CLI tests (fast)
-        run: dotnet run --project src/dotnet-inspect.Tests -c Release -- -trait- "Speed=Slow"
+        run: dotnet run --project src/dotnet-inspect.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       - name: Run GitHub Packages fixture test
         id: package_fixture
@@ -572,14 +602,14 @@ jobs:
           DOTNET_INSPECT_PACKAGE_FIXTURE_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          results="$RUNNER_TEMP/package-fixture-tests.xml"
+          results_dir="$RUNNER_TEMP"
+          results_name="package-fixture-tests.xml"
+          results="$results_dir/$results_name"
           dotnet run --project src/dotnet-inspect.Tests -c Release --no-build -- \
-            -method '*Package_Manifest_RendersToolManifestRows*' \
-            -xml "$results"
-          if ! grep -Eq 'total="[1-9][0-9]*"' "$results"; then
-            echo "::error::Package fixture test filter selected no tests." >&2
-            exit 1
-          fi
+            --filter-method '*Package_Manifest_RendersToolManifestRows*' \
+            --report-xunit \
+            --report-xunit-filename "$results_name" \
+            --results-directory "$results_dir"
           if ! grep -Eq '<assembly[^>]+skipped="0"' "$results"; then
             echo "::error::Package fixture test skipped authenticated execution." >&2
             exit 1
@@ -591,6 +621,12 @@ jobs:
       - name: Run artifact contract tests
         run: dotnet run --project src/DotnetInspector.Artifacts.Tests -c Release
 
+      - name: Run row-selection tests
+        run: dotnet run --project src/DotnetInspector.RowSelection.Tests -c Release
+
+      - name: Run section-row tests
+        run: dotnet run --project src/DotnetInspector.Sections.Tests -c Release
+
       - name: Run instruction-substrate tests
         run: dotnet run --project src/ILInspector.Instructions.Tests -c Release
 
@@ -601,7 +637,7 @@ jobs:
         run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release
 
       - name: Run fixture catalog tests
-        run: dotnet run --project tests/DotnetInspector.Fixtures.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.FixtureInfrastructure.Tests -c Release
 
       - name: Run services tests
         run: dotnet run --project src/DotnetInspector.Services.Tests -c Release
@@ -615,7 +651,7 @@ jobs:
       # token that CI — and any fork PR — does not have. Everything that can be proven with an
       # in-memory transport, including the whole credential-mechanism matrix, runs here.
       - name: Run NuGetFetch tests (offline)
-        run: dotnet run --project src/NuGetFetch.Tests -c Release -- -trait- "Network=Live"
+        run: dotnet run --project src/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
 
       # InertText sits below every other project, so a regression here reaches every assembly
       # that prints artifact-derived text. The gates are pure and fast — a full BMP sweep and a
@@ -632,7 +668,7 @@ jobs:
         run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
 
       - name: Run analysis tests (fast)
-        run: dotnet run --project src/ILInspector.Analysis.Tests -c Release -- -trait- "Speed=Slow"
+        run: dotnet run --project src/ILInspector.Analysis.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       # The runtime-async compiler switch changes IL lowering without changing
       # whether the fixture builds. Run the focused owner gates so CI proves
@@ -670,12 +706,16 @@ jobs:
           dotnet run --project tests/ILInspector.JsExportSurface.Tests \
             -c Release --no-build -- \
             -class 'ILInspector.JsExportSurface.Tests.JsonNamingPoliciesTests' \
+            -class 'ILInspector.JsExportSurface.Tests.JsExportContextLoaderTests' \
             -class 'ILInspector.JsExportSurface.Tests.TypeScriptFacadeEmitterTests' \
+            -class 'ILInspector.JsExportSurface.Tests.TsJsExportContractsTests' \
             -class 'ILInspector.JsExportSurface.Tests.TsJsExportCommandTests' \
             -xml "$results"
           for class in \
             ILInspector.JsExportSurface.Tests.JsonNamingPoliciesTests \
+            ILInspector.JsExportSurface.Tests.JsExportContextLoaderTests \
             ILInspector.JsExportSurface.Tests.TypeScriptFacadeEmitterTests \
+            ILInspector.JsExportSurface.Tests.TsJsExportContractsTests \
             ILInspector.JsExportSurface.Tests.TsJsExportCommandTests
           do
             if ! grep -Fq "type=\"$class\"" "$results"; then
@@ -701,6 +741,9 @@ jobs:
             fi
           done
 
+      - name: Run ts-jsexport context NativeAOT gate
+        run: eng/test-ts-jsexport-context-aot.sh "${{ matrix.rid }}"
+
       - name: Run runfaster tests
         run: dotnet run --project src/runfaster.Tests -c Release
 
@@ -709,11 +752,11 @@ jobs:
       # assembly-wide sweep is tagged [Trait("Speed", "Slow")] and runs in
       # Deep Inspect / full local runs.
       - name: Restore vendored ILAssembler
-        if: matrix.rid == 'linux-x64' && needs.changes.outputs.ilroundtrip == 'true'
+        if: matrix.rid == 'linux-x64' && fromJSON(needs.changes.outputs.plan).validations.ilRoundTrip
         run: bash eng/restore-ilassembler.sh
 
       - name: Run IL round-trip tests (fast)
-        if: matrix.rid == 'linux-x64' && needs.changes.outputs.ilroundtrip == 'true'
+        if: matrix.rid == 'linux-x64' && fromJSON(needs.changes.outputs.plan).validations.ilRoundTrip
         run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- -trait- "Speed=Slow"
 
       # Terminal checks: the suites above still report their results when
@@ -733,6 +776,39 @@ jobs:
           echo "This lane cannot certify hosted fixture consumption. See the fixture test step." >&2
           exit 1
 
+  # Pull-request and merge-group candidates validate dependency policy in the
+  # full test job above. Pushes to main need a focused second look at the
+  # composed tree: two independently green PRs can introduce a forbidden edge
+  # only when both are present, and the full test matrix intentionally skips
+  # post-merge runs.
+  dependency-policy:
+    needs: changes
+    if: fromJSON(needs.changes.outputs.plan).validations.dependencyPolicy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Build
+        run: dotnet build dotnet-inspect.slnx -c Release
+
+      - name: Validate dependency policy
+        run: dotnet run --project eng/DependencyPolicy -c Release --no-build
+
   # net10.0 fallback build coverage. The official non-AOT "any" package targets
   # the net10.0 LTS floor (Directory.Build.props), but the full test lane builds
   # net11 only — so net11-only API usage on the fallback path is invisible until
@@ -742,15 +818,15 @@ jobs:
   # SDK / nuget.org.
   build-net10:
     needs: changes
-    if: needs.changes.outputs.shipped == 'true' && github.event_name != 'push'
+    if: fromJSON(needs.changes.outputs.plan).validations.buildNet10
     runs-on: ubuntu-26.04
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -804,7 +880,7 @@ jobs:
   # a set-only case-ID comparison would still be incomplete.
   decompiler-gates:
     needs: changes
-    if: needs.changes.outputs.decompiler == 'true' && github.event_name != 'push'
+    if: fromJSON(needs.changes.outputs.plan).validations.decompilerGates
     runs-on: ubuntu-26.04
     # Job timeout raised 55 -> 65 with the step timeout below (#3827).
     # The two must move together: the design depends on the *step* timeout
@@ -819,10 +895,10 @@ jobs:
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -935,15 +1011,15 @@ jobs:
   # coverage without forcing most PRs through extra work.
   csharp-diff-smoke:
     needs: changes
-    if: needs.changes.outputs.csharpdiff == 'true' && github.event_name != 'push'
+    if: fromJSON(needs.changes.outputs.plan).validations.csharpDiffSmoke
     runs-on: ubuntu-26.04
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -1036,15 +1112,15 @@ jobs:
   # IL Diff-specific changes get a focused snapshot/baseline JSONL smoke.
   il-diff-smoke:
     needs: changes
-    if: needs.changes.outputs.ildiff == 'true' && github.event_name != 'push'
+    if: fromJSON(needs.changes.outputs.plan).validations.ilDiffSmoke
     runs-on: ubuntu-26.04
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -1140,15 +1216,15 @@ jobs:
   # skip it, which removes packaging work from the hot PR path.
   pack:
     needs: changes
-    if: needs.changes.outputs.packaging == 'true' && github.event_name != 'push'
+    if: fromJSON(needs.changes.outputs.plan).validations.pack
     runs-on: ubuntu-26.04
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
@@ -1314,10 +1390,11 @@ jobs:
       - inspect-web
       - skill-gate
       - test
+      - dependency-policy
       - tla-plus
       # Path-gated jobs report `skipped` when their input class is absent; all
-      # expensive jobs except inspect-web also skip on pushes to main. That
-      # passes the gate by design; the allow list below distinguishes
+      # expensive jobs except inspect-web and dependency-policy skip on pushes
+      # to main. That passes the gate by design; the allow list below distinguishes
       # "correctly not run" from "ran and failed".
       - build-net10
       - decompiler-gates
@@ -1341,7 +1418,7 @@ jobs:
           )
         | "\(.key)=\(.value.result)"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # A hand-maintained `needs` list is an allow list, and an allow list that
       # nothing checks goes stale silently: add a job to this workflow, forget
