@@ -506,6 +506,13 @@ summary but does not establish graph equality. Their lowering counts remain the
 expected all-or-nothing inverse. A receipt for only `InspectWeb.Engine.dll` is
 incomplete after partitioning even if its local counts are correct.
 
+CoreCLR staging follows only the highest-run-number successful `main`/`push`
+run of the compiler-async staging workflow. It checks that exact upstream run
+identity before doing build work and again immediately before deployment.
+Workflow-level newest-wins cancellation handles overlapping eligible
+completions; the identity checks also reject a later rerun of an older
+successful staging run while permitting a retry of the current latest run.
+
 The deployment smoke initializes every module, which acquires its exact
 assembly export root and validates every expected runtime path, then invokes
 `host.asyncLoweringCanary()`. It remains independent of network, package-cache,

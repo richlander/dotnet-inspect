@@ -42,6 +42,21 @@ internal static class PromotionWorkflowContract
           artifacts/inspect-web-compiler-publish/async-lowering.json \
           artifacts/inspect-web-coreclr-publish/async-lowering.json
         """;
+    private const string NewestEligibleStagingRunCheck =
+        """
+        set -euo pipefail
+        latest_run_id=$(
+          gh api --method GET \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-inspect-web.yml/runs" \
+            -f branch=main \
+            -f event=push \
+            -f status=success \
+            -f per_page=100 \
+            --jq '.workflow_runs | max_by(.run_number) | .id // empty'
+        )
+        test -n "$latest_run_id"
+        test "$latest_run_id" = "$TRIGGERING_RUN_ID"
+        """;
     internal static void AssertMutations(string repository)
     {
         string promotionPath = Path.Combine(
@@ -141,6 +156,12 @@ internal static class PromotionWorkflowContract
             coreClrStagingCheckout,
             ValidateCoreClrStaging,
             "CoreCLR staging contract accepted candidate code in the deployment job.");
+        AssertMutationRejected(
+            coreClrStagingWorkflow,
+            "          --jq '.workflow_runs | max_by(.run_number) | .id // empty'\n",
+            "          --jq '.workflow_runs[0].id // empty'\n",
+            ValidateCoreClrStaging,
+            "CoreCLR staging contract accepted arrival-ordered freshness.");
 
         AssertMutationRejected(
             promotionWorkflow,
@@ -1084,17 +1105,25 @@ internal static class PromotionWorkflowContract
 
         YamlSequenceNode buildSteps =
             GetRequiredSequence(build, "steps", "CoreCLR jobs.build");
-        if (buildSteps.Children.Count != 12)
+        if (buildSteps.Children.Count != 13)
         {
             throw new InvalidOperationException(
-                "CoreCLR staging build must contain checkout, exact compiler artifact "
-                + "download, .NET and Node setup, workload install, frontend build, "
-                + "site and API publish, async and artifact verification, paired "
-                + "receipt comparison, and artifact upload steps.");
+                "CoreCLR staging build must contain a newest-run guard, checkout, "
+                + "exact compiler artifact download, .NET and Node setup, workload "
+                + "install, frontend build, site and API publish, async and artifact "
+                + "verification, paired receipt comparison, and artifact upload steps.");
         }
 
+        ValidateNewestEligibleStagingRun(
+            RequireStep(
+                buildSteps,
+                0,
+                "Verify newest eligible staging run",
+                "CoreCLR jobs.build"),
+            "CoreCLR build newest-run step");
+
         YamlMappingNode checkout =
-            RequireStep(buildSteps, 0, null, "CoreCLR jobs.build");
+            RequireStep(buildSteps, 1, null, "CoreCLR jobs.build");
         RequireExactKeys(
             checkout,
             ["uses", "with"],
@@ -1118,7 +1147,7 @@ internal static class PromotionWorkflowContract
         YamlMappingNode compilerArtifact =
             RequireStep(
                 buildSteps,
-                1,
+                2,
                 "Download compiler-async staging artifact",
                 "CoreCLR jobs.build");
         RequireExactKeys(
@@ -1147,7 +1176,7 @@ internal static class PromotionWorkflowContract
             "CoreCLR compiler artifact download step.with");
 
         YamlMappingNode setup =
-            RequireStep(buildSteps, 2, "Setup .NET", "CoreCLR jobs.build");
+            RequireStep(buildSteps, 3, "Setup .NET", "CoreCLR jobs.build");
         RequireExactKeys(
             setup,
             ["name", "uses", "with"],
@@ -1168,7 +1197,7 @@ internal static class PromotionWorkflowContract
         YamlMappingNode setupNode =
             RequireStep(
                 buildSteps,
-                3,
+                4,
                 "Setup Node",
                 "CoreCLR jobs.build");
         RequireExactKeys(
@@ -1196,7 +1225,7 @@ internal static class PromotionWorkflowContract
         YamlMappingNode install =
             RequireStep(
                 buildSteps,
-                4,
+                5,
                 "Install browser Wasm workload",
                 "CoreCLR jobs.build");
         RequireExactScalarValues(
@@ -1211,7 +1240,7 @@ internal static class PromotionWorkflowContract
         YamlMappingNode frontend =
             RequireStep(
                 buildSteps,
-                5,
+                6,
                 "Build browser frontend",
                 "CoreCLR jobs.build");
         RequireExactScalarValues(
@@ -1231,7 +1260,7 @@ internal static class PromotionWorkflowContract
         YamlMappingNode publish =
             RequireStep(
                 buildSteps,
-                6,
+                7,
                 "Publish CoreCLR browser app",
                 "CoreCLR jobs.build");
         RequireExactKeys(
@@ -1276,7 +1305,7 @@ internal static class PromotionWorkflowContract
         ValidateAsyncDeploymentCheck(
             RequireStep(
                 buildSteps,
-                7,
+                8,
                 "Verify runtime-async deployment",
                 "CoreCLR jobs.build"),
             RuntimeAsyncDeploymentCheck,
@@ -1285,7 +1314,7 @@ internal static class PromotionWorkflowContract
         ValidateManagedApiPublish(
             RequireStep(
                 buildSteps,
-                8,
+                9,
                 "Publish MSDL managed API",
                 "CoreCLR jobs.build"),
             "artifacts/inspect-web-coreclr-publish/api",
@@ -1294,7 +1323,7 @@ internal static class PromotionWorkflowContract
         YamlMappingNode buildVerify =
             RequireStep(
                 buildSteps,
-                9,
+                10,
                 "Verify CoreCLR site artifact",
                 "CoreCLR jobs.build");
         ValidateCoreClrArtifactVerification(
@@ -1304,7 +1333,7 @@ internal static class PromotionWorkflowContract
         ValidateAsyncDeploymentCheck(
             RequireStep(
                 buildSteps,
-                10,
+                11,
                 "Compare compiler-async and runtime-async receipts",
                 "CoreCLR jobs.build"),
             PairedAsyncDeploymentCheck,
@@ -1313,7 +1342,7 @@ internal static class PromotionWorkflowContract
         YamlMappingNode upload =
             RequireStep(
                 buildSteps,
-                11,
+                12,
                 "Upload CoreCLR staged site artifact",
                 "CoreCLR jobs.build");
         RequireExactKeys(
@@ -1378,11 +1407,11 @@ internal static class PromotionWorkflowContract
 
         YamlSequenceNode deploySteps =
             GetRequiredSequence(deploy, "steps", "CoreCLR jobs.deploy");
-        if (deploySteps.Children.Count != 3)
+        if (deploySteps.Children.Count != 4)
         {
             throw new InvalidOperationException(
                 "CoreCLR staging deployment must contain only artifact download, " +
-                "artifact verification, and deploy steps.");
+                "artifact verification, a newest-run guard, and deploy steps.");
         }
 
         YamlMappingNode download =
@@ -1421,8 +1450,16 @@ internal static class PromotionWorkflowContract
             deployVerify,
             "CoreCLR staging artifact verification step");
 
+        ValidateNewestEligibleStagingRun(
+            RequireStep(
+                deploySteps,
+                2,
+                "Verify newest eligible staging run",
+                "CoreCLR jobs.deploy"),
+            "CoreCLR deploy newest-run step");
+
         YamlMappingNode deployStep =
-            RequireStep(deploySteps, 2, "Deploy to CoreCLR staging");
+            RequireStep(deploySteps, 3, "Deploy to CoreCLR staging");
         RequireExactKeys(
             deployStep,
             ["name", "uses", "with"],
@@ -1451,6 +1488,27 @@ internal static class PromotionWorkflowContract
                 ["skip_api_build"] = "true",
             },
             "CoreCLR staging deploy step.with");
+    }
+
+    private static void ValidateNewestEligibleStagingRun(
+        YamlMappingNode step,
+        string context)
+    {
+        RequireExactKeys(step, ["name", "env", "run"], context);
+        RequireExactScalarValues(
+            GetRequiredMapping(step, "env", context),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["GH_TOKEN"] = "${{ secrets.GITHUB_TOKEN }}",
+                ["TRIGGERING_RUN_ID"] = "${{ github.event.workflow_run.id }}",
+            },
+            $"{context}.env");
+        if (GetRequiredScalar(step, "run", context).TrimEnd()
+            != NewestEligibleStagingRunCheck)
+        {
+            throw new InvalidOperationException(
+                $"{context} does not select the newest successful main-push staging run.");
+        }
     }
 
     private static void ValidateManagedApiPublish(

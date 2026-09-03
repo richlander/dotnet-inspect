@@ -34,6 +34,24 @@ jobs:
       && github.event.workflow_run.event == 'push'
     runs-on: ubuntu-26.04
     steps:
+      - name: Verify newest eligible staging run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TRIGGERING_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          latest_run_id=$(
+            gh api --method GET \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-inspect-web.yml/runs" \
+              -f branch=main \
+              -f event=push \
+              -f status=success \
+              -f per_page=100 \
+              --jq '.workflow_runs | max_by(.run_number) | .id // empty'
+          )
+          test -n "$latest_run_id"
+          test "$latest_run_id" = "$TRIGGERING_RUN_ID"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
@@ -365,6 +383,24 @@ jobs:
           test "$import_map_line" -lt "$module_line"
           test "$(find "$site/_framework" -maxdepth 1 -type f -name 'dotnet.native.*.js' | wc -l)" -eq 1
           grep -q GetDotNetRuntimeHeap "$site"/_framework/dotnet.native.*.js
+
+      - name: Verify newest eligible staging run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TRIGGERING_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          latest_run_id=$(
+            gh api --method GET \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-inspect-web.yml/runs" \
+              -f branch=main \
+              -f event=push \
+              -f status=success \
+              -f per_page=100 \
+              --jq '.workflow_runs | max_by(.run_number) | .id // empty'
+          )
+          test -n "$latest_run_id"
+          test "$latest_run_id" = "$TRIGGERING_RUN_ID"
 
       - name: Deploy to CoreCLR staging
         uses: Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9 # v1
