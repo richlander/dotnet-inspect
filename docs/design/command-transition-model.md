@@ -536,6 +536,12 @@ override also does not hide a retained target in the default secondary root
 supplied directly outlives the command and is disclosed by its canonical path
 (`ReplayableCandidateAddress_ForADirectlyNamedLibrary_KeepsThePathIntact`,
 `ReplayableCandidateAddress_ForAnImageOutsideTheExtraction_KeepsThePathIntact`).
+When a package-backed candidate came from a relative `NUGET_PACKAGES` override,
+the selected global-packages root depends on the discovery working directory
+and cannot be represented by the package replay arguments. Discovery refuses
+that transition and directs the caller to make the override absolute before
+rerunning; it does not print an address that another directory will reinterpret
+(`Similar_DirectCacheAndLocalPackageForwardersRetainAmbientSourcePolicy`).
 
 The candidate population follows the disclosure rules rather than the focus
 rules. Type-scoped retrieval is the bounded default and is inferred from the

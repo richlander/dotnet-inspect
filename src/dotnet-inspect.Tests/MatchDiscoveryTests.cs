@@ -1948,6 +1948,37 @@ public sealed class MatchDiscoveryTests
             File.WriteAllText(
                 metadataPath,
                 $$"""{"source":"{{authorizedSource}}"}""");
+            string relativeGlobalRoot = Path.GetRelativePath(
+                configDirectory,
+                globalRoot);
+            Assert.False(Path.IsPathRooted(relativeGlobalRoot));
+            Environment.SetEnvironmentVariable(
+                "NUGET_PACKAGES",
+                relativeGlobalRoot);
+            var (
+                relativeRootExit,
+                relativeRootOutput,
+                relativeRootError) = await RunCliAsync(
+                    "match",
+                    targetSelector,
+                    targetType,
+                    "--similar",
+                    "--package",
+                    localPackage,
+                    "--library",
+                    "lib/net10.0/Facade.dll",
+                    "--all",
+                    "--json");
+
+            Assert.Equal(1, relativeRootExit);
+            Assert.Empty(relativeRootOutput);
+            Assert.Contains(
+                "the selected image came from a relative NUGET_PACKAGES root",
+                relativeRootError);
+
+            Environment.SetEnvironmentVariable(
+                "NUGET_PACKAGES",
+                globalRoot);
             var (directExit, directOutput, directError) =
                 await RunCliAsync(directArguments);
             var (localExit, localOutput, localError) =

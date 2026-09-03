@@ -132,6 +132,8 @@ internal static class MatchDiscovery
         LoadedSide? seed = null;
         try
         {
+            string? workingDirectoryDependentPackagesRoot =
+                GetWorkingDirectoryDependentPackagesRoot(replayWorkingDirectory);
             (seed, int? seedError) = await LoadSideAsync(
                 options,
                 options.AssemblyPath,
@@ -143,7 +145,8 @@ internal static class MatchDiscovery
                 options,
                 seed!,
                 seed!,
-                replayWorkingDirectory);
+                replayWorkingDirectory,
+                workingDirectoryDependentPackagesRoot);
         }
         catch (Exception ex)
         {
@@ -160,7 +163,8 @@ internal static class MatchDiscovery
         MatchOptions options,
         LoadedSide seed,
         LoadedSide candidate,
-        string replayWorkingDirectory)
+        string replayWorkingDirectory,
+        string? workingDirectoryDependentPackagesRoot)
     {
         var resolvedSeed = ResolveSeed(seed, options.LeftSelector!);
         if (resolvedSeed.Error is not null)
@@ -251,7 +255,9 @@ internal static class MatchDiscovery
                     seed.ReplayPackage,
                     seed.PackageExtractPath,
                     candidateImage,
-                    resolvedSeed.OriginProvenance);
+                    resolvedSeed.OriginProvenance,
+                    workingDirectoryDependentPackageRoot:
+                        workingDirectoryDependentPackagesRoot);
             bool disclosePackageReplay =
                 !tokensIndexCallerImage || seed.ReplayPackage is not null;
             if (!TryValidateReplayAddress(
@@ -404,13 +410,19 @@ internal static class MatchDiscovery
         string? packageExtractPath,
         string candidateImage,
         AssemblyResolutionProvenance? candidateProvenance = null,
-        IReadOnlyList<string>? packageRoots = null)
+        IReadOnlyList<string>? packageRoots = null,
+        string? workingDirectoryDependentPackageRoot = null)
     {
         if (packagePath is not null
             && packageExtractPath is not null
             && TryGetRelativeAsset(packageExtractPath, candidateImage, out string? packageAsset))
         {
-            return PackageCandidateAddress(packagePath, packageAsset);
+            return PackageCandidateAddress(
+                packagePath,
+                packageAsset,
+                IsWithinRoot(
+                    workingDirectoryDependentPackageRoot,
+                    candidateImage));
         }
 
         if (candidateProvenance
@@ -455,7 +467,13 @@ internal static class MatchDiscovery
                     string dependencyPackage =
                         $"{package.PackageId}@{package.PackageVersion}";
                     string dependencyAsset = string.Join('/', segments[2..]);
-                    return PackageCandidateAddress(dependencyPackage, dependencyAsset);
+                    return PackageCandidateAddress(
+                        dependencyPackage,
+                        dependencyAsset,
+                        workingDirectoryDependentPackageRoot is not null
+                            && SamePath(
+                                packagesRoot,
+                                workingDirectoryDependentPackageRoot));
                 }
             }
         }
@@ -465,11 +483,49 @@ internal static class MatchDiscovery
 
     static ReplayableCandidateAddress PackageCandidateAddress(
         string package,
-        string packageRelativePath)
+        string packageRelativePath,
+        bool workingDirectoryDependentPackageRoot = false)
         => new(
             package,
             packageRelativePath,
-            TfmResolver.ExtractTfmFromPath(packageRelativePath));
+            TfmResolver.ExtractTfmFromPath(packageRelativePath),
+            workingDirectoryDependentPackageRoot
+                ? "match --similar cannot disclose a working-directory-independent "
+                    + "package command because the selected image came from a relative "
+                    + "NUGET_PACKAGES root. Set NUGET_PACKAGES to an absolute directory "
+                    + "and rerun discovery."
+                : null);
+
+    static string? GetWorkingDirectoryDependentPackagesRoot(
+        string workingDirectory)
+    {
+        string? value = Environment.GetEnvironmentVariable("NUGET_PACKAGES");
+        if (string.IsNullOrWhiteSpace(value) || Path.IsPathRooted(value))
+            return null;
+
+        string root = Path.GetFullPath(value, workingDirectory);
+        string home = Environment.GetFolderPath(
+            Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrEmpty(home)
+            && SamePath(root, Path.Combine(home, ".nuget", "packages")))
+        {
+            return null;
+        }
+
+        return root;
+    }
+
+    static bool IsWithinRoot(string? root, string candidateImage) =>
+        root is not null
+        && TryGetRelativeAsset(root, candidateImage, out _);
+
+    static bool SamePath(string left, string right) =>
+        string.Equals(
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(left)),
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(right)),
+            OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal);
 
     static bool TryGetRelativeAsset(
         string root,
@@ -649,6 +705,12 @@ internal static class MatchDiscovery
         ReplayableCandidateAddress address,
         out string? error)
     {
+        if (address.Error is not null)
+        {
+            error = address.Error;
+            return false;
+        }
+
         foreach ((string field, string? value) in new[]
         {
             ("package coordinate", address.Package),
@@ -962,7 +1024,8 @@ internal static class MatchDiscovery
     internal readonly record struct ReplayableCandidateAddress(
         string? Package,
         string Library,
-        string? Tfm);
+        string? Tfm,
+        string? Error = null);
 
     sealed class LoadedSide(
         ApiServices.LoadedApiSurface surface,
