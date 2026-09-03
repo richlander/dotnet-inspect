@@ -153,12 +153,25 @@ whose only consumer meaning is presentational.
 
 ## Identity, evidence, and reader lifetime
 
-**Published identities are durable.** Results carry identities that remain
-meaningful without the reader that produced them, and that can detect misuse
-with a different reader. A raw handle carries only a table row and cannot; the
-established form scopes the handle to its module version id. That scoping is a
-misuse guard, not a cryptographic identity, and every consumer still validates
-a handle's row against the target reader's table before dereferencing it.
+**Published identities should be durable, and today mostly are not.** The
+target is that a result's identities remain meaningful without the reader that
+produced them and can detect misuse against a different reader. Only an
+identity that carries its module — `MetadataMethodAddress`, a
+`readonly record struct` pairing the module version id with the handle — can
+do that, and its `BelongsTo` check is a misuse guard, not a cryptographic
+identity. A consumer still validates a row against the target reader's table
+before dereferencing.
+
+A bare token cannot do it. `MemorySafetyMemberContractEvidence` publishes
+`int MemberToken`
+(`src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:94`) and
+`TypeDefinitionToken` stores only `int Value`
+(`src/ILInspector.Metadata/TypeDeclaration.cs:27`). Both are validated against
+the producing reader at construction, so they are sound *within* that reader,
+but neither survives separation from it. This document states the target and
+records the gap in [Known deviations](#known-deviations) rather than
+pretending the precedents already meet it. A new substrate publishes
+module-scoped identities.
 
 **Results outlive the reader; the index need not.** A substrate's published
 result values must be safe to retain after the reader closes. The substrate
@@ -273,9 +286,23 @@ The established substrates do not all satisfy this document yet. Recording the
 gaps is part of locking the pattern; each is a defect in the component, not a
 licence to weaken the contract.
 
+This section is bounded, and deliberately cannot be used to admit new
+non-conforming work:
+
+- It is **closed to new substrates.** A component admitted after this document
+  lands must conform on admission. Only the three precedents that predate the
+  pattern may appear here.
+- Every row names an **existing** deviation with `path:line` evidence, and the
+  correction is tracked as its owner's adoption work.
+- A deviation never becomes the contract. If a deviation looks correct, the
+  fix is to change this document through review, not to leave the row standing.
+
 | Substrate | Deviation | Evidence |
 | --- | --- | --- |
 | Type declaration and forwarding resolution | Budget exhaustion is reported as `Malformed`, collapsing the **Budget-limited** distinction into malformed metadata. A consumer cannot tell a hostile-artifact bound from a broken artifact. | `src/ILInspector.Metadata/MetadataTypeDeclarationProbe.cs:66` returns `TypeDeclarationResult.Rejected(MetadataTypeNameFailure.Malformed(...))` with the message "exceeded its structural-name work budget". |
+| Type declaration and forwarding resolution | Publishes a bare token, so the identity does not survive separation from its reader. | `TypeDefinitionToken` stores only `int Value` — `src/ILInspector.Metadata/TypeDeclaration.cs:27`. |
+| `MemorySafetyMetadataIndex` | Publishes bare member tokens, with the same limit. | `MemorySafetyMemberContractEvidence(int MemberToken, ..., int? AssociatedMemberToken)` — `src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:94`. |
+| `MemorySafetyMetadataIndex`, `StateMachineRelationshipIndex` | Accept raw handles, so an in-range handle from another module is undetectable at the boundary. This is a limit of the key type; the deviation is that neither documents it. | `GetMemberContract(EntityHandle)` validates kind and row only — `src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:841`; `IsValidMethodHandle` checks row range only — `src/ILInspector.Metadata/StateMachineRelationshipIndex.cs:163`. |
 
 The requirement is not invented for this document: the other two substrates
 already model the distinction as a first-class case —
