@@ -100,6 +100,7 @@
     <ProjectReference Include="..\DotnetInspector.MetadataRendering\DotnetInspector.MetadataRendering.csproj" />
     <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
     <ProjectReference Include="..\DotnetInspector.Vocabulary\DotnetInspector.Vocabulary.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Sections\DotnetInspector.Sections.csproj" />
     <ProjectReference Include="..\InertText\InertText.csproj" />
   </ItemGroup>
 
