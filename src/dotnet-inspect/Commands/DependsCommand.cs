@@ -27,7 +27,20 @@ public class DependsCommand
     /// </summary>
     internal const int UncertifiedScanExitCode = 3;
 
-    public static async Task<int> ExecuteTypeDependsAsync(DependsOptions options)
+    /// <summary>
+    /// The outcome of a type dependency scan. <see cref="ExitCode"/> reports
+    /// what the scan found, so the caller can still fall back to library mode
+    /// or diagnose an absence. <see cref="Uncertified"/> reports separately
+    /// that a candidate was excluded. The two must stay separate: folding
+    /// uncertainty into the exit code hides the outcome the caller dispatches
+    /// on, which silently withholds an answer the caller would otherwise emit.
+    /// </summary>
+    internal readonly record struct TypeDependsOutcome(
+        int ExitCode,
+        bool Uncertified);
+
+    internal static async Task<TypeDependsOutcome> ExecuteTypeDependsAsync(
+        DependsOptions options)
     {
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
@@ -57,11 +70,9 @@ public class DependsCommand
 
             if (!result.Found)
             {
-                // An absence claim cannot be certified when a candidate was
-                // excluded: the type may be defined in the rejected assembly.
-                return uncertified
-                    ? UncertifiedScanExitCode
-                    : TypeNotFoundExitCode;
+                // Report the absence as an absence so the caller can still fall
+                // back or diagnose it, and carry the uncertainty alongside.
+                return new TypeDependsOutcome(TypeNotFoundExitCode, uncertified);
             }
 
             if (result.Tree.Count == 0)
@@ -69,12 +80,12 @@ public class DependsCommand
                 if (options.Count)
                 {
                     WriteCount(0);
-                    return uncertified ? UncertifiedScanExitCode : 0;
+                    return Certified(0, uncertified);
                 }
 
                 CommandError.WriteLine(
                     $"Type '{ContainLabel(result.MatchedType ?? options.TargetType)}' has no type dependencies beyond System.Object.");
-                return uncertified ? UncertifiedScanExitCode : 0;
+                return Certified(0, uncertified);
             }
 
             var visibleNodes = TreeRowWindow.Apply(
@@ -122,12 +133,12 @@ public class DependsCommand
                 }
             }
 
-            return uncertified ? UncertifiedScanExitCode : 0;
+            return Certified(0, uncertified);
         }
         catch (Exception ex)
         {
             CommandError.Write(ex);
-            return 1;
+            return new TypeDependsOutcome(1, false);
         }
     }
 
@@ -290,9 +301,14 @@ public class DependsCommand
             };
             CommandError.WriteWarning(
                 $"Excluded '{ContainLabel(Path.GetFileName(rejection.AssemblyPath))}' from the dependency scan: {mechanism}.",
-                "The dependency graph below may be incomplete.");
+                "Results may be incomplete.");
         }
     }
+
+    private static TypeDependsOutcome Certified(int exitCode, bool uncertified)
+        => new(
+            uncertified && exitCode == 0 ? UncertifiedScanExitCode : exitCode,
+            uncertified);
 
     private static string ContainLabel(string label)
         => CSharpIdentifier.ContainRenderedText(label);

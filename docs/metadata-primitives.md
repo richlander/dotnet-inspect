@@ -231,16 +231,30 @@ distinction — `AssemblySetResolutionSession` in Services,
 `WorkspaceContextLoader` in Queries, and the CLI's `TimelineCommand` and
 `DependsCommand` — preserve them as typed unsupported-format and malformed-root
 outcomes rather than acquisition failures. A dependency scan's rejections scope
-to their own participant, so `DependsCommand` names each excluded assembly and
+to their own participant, so `DependsCommand` names each rejected assembly and
 its mechanism on standard error and returns a distinct uncertified-scan exit
-code (`3`) instead of presenting the result as a certified success. This is a
+code (`3`) instead of presenting the result as a certified success. A rejection
+is a candidate the admission contract *refused*: unsupported Windows Metadata,
+a malformed root, or an otherwise invalid image. A file with no managed
+metadata is not rejected — it is simply not an assembly, so the scanner skips
+it as it always has, and a directory holding ordinary native libraries does not
+become an uncertified scan. This is a
 bounded, explicit relaxation of the partial-rows prohibition above, and it
 applies only to a dependency scan: the emitted edges are sound, but
 completeness is unknown, so the result is reported as uncertified rather than
-as either a complete graph or a certified absence. A "not found" answer is
-likewise returned as uncertified when a candidate was excluded, because the
-requested type may be defined in the rejected assembly. No output stream
-presents an uncertified scan as a complete one.
+as either a complete graph or a certified absence.
+
+The uncertified marking travels beside the outcome rather than replacing it.
+`ExecuteTypeDependsAsync` reports what the scan found and whether a candidate
+was excluded as two separate values, because collapsing them into one exit code
+suppressed the caller's library-mode fallback and its not-found diagnosis,
+withholding an answer entirely instead of qualifying it. A "not found" answer
+is therefore still delivered, and returned as uncertified when a candidate was
+excluded, because the requested type may be defined in the rejected assembly.
+An independent library-mode answer — one resolved by name without consulting
+the excluded candidate — keeps its own exit code. No output stream
+presents an uncertified scan as a complete one, and no stream promises output
+that another stream does not deliver.
 The Analysis, Decompiler, Research, ILDiff, remaining
 Queries, and remaining CLI owners have not adopted it, and no gate yet requires
 universal adoption. Further adoption is deferred rather than scheduled: it is
@@ -303,7 +317,10 @@ further gated by the consumer-facing cases in
 `MetadataImageFormatClassifierTests`, by the
 typed-outcome cases in `AssemblySetResolutionSessionTests`,
 `WorkspaceContextLoaderTests`, and `TimelineCommandTests`, and by
-`CommandExecutionTests.Depends_NamesAnExcludedUnsupportedAssemblyInsteadOfReportingACleanPartialGraph`.
+`CommandExecutionTests.Depends_NamesAnExcludedUnsupportedAssemblyInsteadOfReportingACleanPartialGraph`
+and
+`CommandExecutionTests.Depends_ExcludedCandidateDoesNotWithholdAnIndependentLibraryAnswer`,
+which pins that an exclusion qualifies an answer rather than suppressing one.
 
 ### Lossless `MethodSemantics` row boundary
 
