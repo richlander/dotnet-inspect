@@ -1,6 +1,7 @@
 using System.Text.Json;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Findings;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -1694,14 +1695,6 @@ public class PrintedBodyMapTests
             [fact with { Id = 5 }],
             [new AnnotatedSourceTarget(5, 0)]));
 
-        // Facts are deduplicated, so restating one makes "how many times" unanswerable.
-        Assert.Throws<ArgumentException>(() => new AnnotatedSourceDocument(
-            DocumentText,
-            [node],
-            [],
-            [fact, fact with { Id = 1 }],
-            []));
-
         // ... and so is restating a target.
         Assert.Throws<ArgumentException>(() => new AnnotatedSourceDocument(
             DocumentText,
@@ -1729,6 +1722,54 @@ public class PrintedBodyMapTests
             [],
             [fact],
             [new AnnotatedSourceTarget(0, -1)]));
+    }
+
+    [Fact]
+    public void AnnotatedSourceDocumentPreservesDisplayIdenticalFactMultiplicity()
+    {
+        var fact = AllocationFact();
+        var document = new AnnotatedSourceDocument(
+            DocumentText,
+            [AllocationNode()],
+            [],
+            [fact, fact with { Id = 1 }],
+            []);
+
+        Assert.Equal(2, document.Facts.Count);
+        Assert.Equal(document.Facts[0] with { Id = 1 }, document.Facts[1]);
+    }
+
+    [Fact]
+    public void PrintedBodyMapPreservesCallerIssuedFindingInstanceKey()
+    {
+        using var source = MetadataSource.Open(
+            typeof(AllocSampleClass).Assembly.Location);
+        var function = Assert.IsType<IrFunction>(IrImporter.Import(
+            source,
+            typeof(AllocSampleClass).FullName!,
+            nameof(AllocSampleClass.MakeArray)));
+        var result = CSharpPrinter.PrintRaised(function, out var ranges);
+        Assert.NotNull(result.Output);
+
+        IAnnotation annotation = new Annotation(Alloc, 0, "array");
+        FindingCensus<IAnnotation> census = FindingCensus<IAnnotation>.Seal(
+        [
+            new Finding<IAnnotation>(
+                new FindingSubject("test", "test"),
+                new FindingDescriptor("alloc.new", "allocation"),
+                new FindingKey("one"),
+                annotation),
+        ]);
+        FindingInstanceKey key = Assert.Single(census.Entries).Key;
+
+        PrintedBodyMap map = PrintedBodyMap.Create(
+            ranges,
+            function,
+            [annotation],
+            provenanceOffsetAllowList: null,
+            instanceKey: _ => key);
+
+        Assert.Equal(key, Assert.Single(map.Annotations).InstanceKey);
     }
 
     [Fact]
