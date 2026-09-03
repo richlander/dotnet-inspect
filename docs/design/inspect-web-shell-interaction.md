@@ -321,10 +321,13 @@ Spotlight as the one search experience for:
 - platform inputs; and
 - commands.
 
-The title-line Search control advertises the search scope in its expanded label
-and transfers focus to Spotlight's editable input when activated. Its compact
-`Search` label and hidden responsive states do not change the keyboard shortcut
-or Spotlight behavior.
+The title-line Search control uses the expanded label
+`Search types, members, packages` and transfers focus to Spotlight's editable
+input when activated. The control does not carry a visible shortcut badge;
+Spotlight's footer lists `Ctrl P` alongside its existing navigation guidance
+and wraps that guidance rather than clipping it at narrow supported widths. Its
+compact `Search` label and hidden responsive states do not change the keyboard
+shortcut or Spotlight behavior.
 
 Coordinate activation always opens the coordinate menu. That menu contains an
 explicit `Search packages` action that closes the menu and opens Spotlight in
@@ -532,6 +535,9 @@ outcomes.
    becomes the initial prefix without starting source work.
 10. Repeat with text that is not a valid package-ID prefix and confirm that the
     query surface starts with an empty prefix.
+11. Open general and command-scoped Spotlight at the narrow supported width and
+    confirm that every footer-guidance item, including `Ctrl P search`, remains
+    visible within the modal.
 
 ### Local Open
 
