@@ -431,6 +431,38 @@ public sealed class MetadataAdmissionCleanupTests
         }
     }
 
+    [Fact]
+    public void DependencyScan_EveryRejectionSurvivesAnAllRejectedScan()
+    {
+        string winmd = WriteTempImage(BuildManagedWindowsMetadata());
+        string malformed = WriteTempImage(
+            BuildOverflowingMetadataStreamCount());
+        try
+        {
+            // Throwing one rejection would silently discard the others, which
+            // is the evidence loss this contract exists to prevent. Each
+            // candidate failed for its own reason, so each reason survives.
+            AggregateException aggregate =
+                Assert.Throws<AggregateException>(
+                    () => TypeDependencyScanner.BuildDependencyTree(
+                        "Missing.Type",
+                        [winmd, malformed]));
+
+            Assert.Equal(2, aggregate.InnerExceptions.Count);
+            Assert.Contains(
+                aggregate.InnerExceptions,
+                inner => inner is UnsupportedMetadataFormatException);
+            Assert.Contains(
+                aggregate.InnerExceptions,
+                inner => inner is BadImageFormatException);
+        }
+        finally
+        {
+            File.Delete(winmd);
+            File.Delete(malformed);
+        }
+    }
+
     static string WriteTempImage(byte[] image)
     {
         string path = Path.Combine(

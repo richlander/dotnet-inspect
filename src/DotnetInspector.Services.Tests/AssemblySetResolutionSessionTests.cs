@@ -47,6 +47,74 @@ public class AssemblySetResolutionSessionTests
     }
 
     [Fact]
+    public void BuildApiSurface_UnsupportedMetadataFormatNamesTheMechanism()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"unsupported-surface-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, BuildWindowsMetadataImage());
+        try
+        {
+            ApiSurface surface =
+                Assert.IsType<ApiSurface>(
+                    AssemblySetSurfaceBuilder.Build([path]));
+
+            ApiSurfaceInspectionFailure failure =
+                Assert.Single(surface.InspectionFailures);
+            Assert.Equal("acquire API surface", failure.Operation);
+            Assert.Equal(path, failure.SourceAssemblyPath);
+            Assert.Equal(
+                nameof(UnsupportedMetadataFormatException),
+                failure.Kind);
+            Assert.Equal(
+                "Windows Metadata is not a supported metadata format.",
+                failure.Detail);
+            Assert.Empty(surface.Types);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    static byte[] BuildWindowsMetadataImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Unsupported.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Unsupported"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                "WindowsRuntime 1.4;CLR v4.0.30319",
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    [Fact]
     public void BuildApiSurface_MetadataStreamCountOverflowPreservesHealthyNeighbor()
     {
         string directory = Directory.CreateTempSubdirectory(

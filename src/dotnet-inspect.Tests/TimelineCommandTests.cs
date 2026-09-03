@@ -483,6 +483,36 @@ public sealed class TimelineCommandTests
         }
     }
 
+    [Fact]
+    public void AnalysisTimeline_MalformedMetadataRootNamesTheReason()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"timeline-malformed-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(path, [0x4d, 0x5a]);
+
+            var inspection = TimelineCommand.InspectUnsafetyAssemblies(
+                [path],
+                "Sample.Widget",
+                "Run");
+
+            var failed = Assert.IsType<FindingInspection<UnsafetyOccurrence>.Failed>(
+                inspection.Value);
+            Assert.Contains(path, failed.Error.Reason);
+            Assert.Contains("could not be inspected", failed.Error.Reason);
+            Assert.Contains(
+                "metadata root is malformed (UnmappableMetadataDirectory)",
+                failed.Error.Reason,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     internal static byte[] BuildWindowsMetadataImage()
     {
         var metadata = new MetadataBuilder();
