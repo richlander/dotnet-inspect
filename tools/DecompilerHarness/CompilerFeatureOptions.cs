@@ -37,15 +37,19 @@ static class CompilerFeatureOptions
     }
 
     /// <summary>
-    /// Recompilation opts into the updated rules only for the recognized v2
-    /// module marker. An unsupported, malformed, conflicting, or unreadable
-    /// marker is not the updated model and must not enable the feature.
+    /// Recompilation must replay the mode the printer used, and the printer
+    /// keys on module marker <em>presence</em> rather than the version (see
+    /// <c>IrImporter.ModuleUsesUpdatedMemorySafetyRules</c>). Any observed
+    /// module marker therefore selects the updated-rules feature, so an
+    /// unsupported or conflicting version still compiles back under the same
+    /// rules it was printed with. Only a module with no marker at all
+    /// (<see cref="MemorySafetyRulesState.Legacy"/>) compiles as legacy.
     /// </summary>
     static bool ModuleUsesUpdatedMemorySafetyRules(PEReader pe)
         => MemorySafetyMetadataIndex.Create(pe.GetMetadataReader()).Rules
             is MemorySafetyRulesResult.Available
             {
-                State: MemorySafetyRulesState.Updated
+                State: not MemorySafetyRulesState.Legacy
             };
 
     static bool ModuleUsesRuntimeAsync(PEReader pe)
