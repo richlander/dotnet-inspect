@@ -89,10 +89,10 @@ independent cosmetic changes.
 | Workspace selection | Keep ordinary single-workspace use free of tabs; manage retained coordinates inside the Workspace subject |
 | Package coordinate | Render version and TFM selectors in Package content; platform is workspace content, not a workspace |
 | Library inspection | Select all libraries or one library within Library |
-| Type headings | Use a compact exact-target heading in API and Source; retain detail in Metadata |
+| Type headings | Use a compact exact-target heading in API, no duplicate local heading in full-area Source, and detailed context in Metadata |
 | Filters | Collapse selector rows by default and summarize hidden restrictions |
 | Selected controls | Use one accent selected-state treatment across selector families |
-| Source provenance | Use a compact status/action row without validation prose or link glyphs |
+| Source provenance | Keep compact provenance in the bottom footer and page-owned Copy/Open actions in the separate working-surface action group |
 | Search and opening | Open Spotlight from a responsive flush-right title-line control immediately after Back/Forward; use a separate local-artifact Open flow |
 | Settings | Use one Settings experience with contextual entry points |
 | Data bar | Show build identity, acquired source, CLI, and skill links on one line |

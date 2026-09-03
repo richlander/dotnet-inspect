@@ -883,8 +883,7 @@ kbd {
 .signature-language { height: 34px; display: flex; align-items: center; gap: 10px; padding: 0 15px; border-bottom: 1px solid var(--code-line); background: var(--code-surface); }
 .signature-language span { color: var(--code-text); font: 12px var(--mono); font-weight: 600; }
 .signature-language small { color: var(--dim); font: 10px var(--mono); }
-.signature-language button,
-.source-provenance button {
+.signature-language button {
   height: 24px;
   margin-left: auto;
   padding: 0 9px;
@@ -894,10 +893,8 @@ kbd {
   color: #b8bab2;
   font: 10px var(--mono);
 }
-.signature-language button:hover,
-.source-provenance button:hover { border-color: #666a60; color: #f0f1ec; }
-.signature-language button:focus-visible,
-.source-provenance button:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.signature-language button:hover { border-color: #666a60; color: #f0f1ec; }
+.signature-language button:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
 .signature-code { margin: 0; padding: 20px 21px 22px; overflow: auto; border: 0; background: transparent; }
 .signature-code code { color: var(--code-text); font: 14px/1.7 var(--mono); }
 .signature-code .token.keyword { color: #e88f76; font-weight: 600; }
@@ -984,10 +981,12 @@ kbd {
 .source-result { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: minmax(0, 1fr) auto; overflow: hidden; background: var(--code-bg); }
 .source-provenance { display: flex; align-items: center; gap: 12px; min-width: 0; min-height: 35px; padding: 7px 12px; border-top: 1px solid var(--line); background: var(--panel); }
 .source-provenance strong { color: var(--green); font: 13px var(--mono); }
-.source-provenance span { min-width: 0; color: var(--dim); font: 12px var(--mono); }
-.source-provenance > span { flex: 1 1 0%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-provenance span { flex: 1 1 0%; min-width: 0; color: var(--dim); font: 12px var(--mono); }
 .source-provenance .graph-source-status { padding: 0; }
 .source-provenance a { color: var(--blue); font: 12px var(--mono); text-decoration: none; }
+.source-result > .source-provenance { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 12px; row-gap: 4px; }
+.source-result > .source-provenance > span:not(.graph-source-status) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-result > .source-provenance > .graph-source-status { grid-column: 1 / -1; overflow-wrap: anywhere; white-space: normal; }
 .source-result pre { min-width: 0; min-height: 0; max-width: 100%; margin: 0; padding: 18px; overflow: auto; border: 0; background: var(--code-bg); }
 .source-result pre code { color: var(--code-text); font: 14px/1.65 var(--mono); }
 .source-result .token.comment { color: #6f7669; font-style: italic; }
