@@ -20,12 +20,12 @@ namespace DotnetInspector.Queries.Tests;
 /// `docs/models/artifact-session-admission/ArtifactSessionAdmission.tla`:
 /// that model checks the doc's stated design intent (single-flight admission
 /// across concurrent demands), not shipped behavior.
-/// `ArtifactSetSession`'s own doc comment already states it "does not yet
-/// implement workspace-wide reservation, single-flight admission, or
-/// dependent-group quiescence," and this realization path does not consult
-/// `ArtifactSetSession` at all. These tests exist so that implementing that
-/// admission-coordination layer has a concrete, reproducible starting point
-/// to change, rather than only a design-doc claim.
+/// `ArtifactSetSession`'s own doc comment states that it does not yet
+/// implement workspace-wide reservation or single-flight admission, and this
+/// realization path does not consult `ArtifactSetSession` at all. These tests
+/// exist so that implementing that admission-coordination layer has a
+/// concrete, reproducible starting point to change, rather than only a
+/// design-doc claim.
 /// </remarks>
 public sealed class PackageAssemblyContextRealizationConcurrentDemandTests
 {
