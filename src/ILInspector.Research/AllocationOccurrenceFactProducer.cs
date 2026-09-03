@@ -21,7 +21,7 @@ sealed class AllocationOccurrenceFactProducer : IResearchFactProducer
         ResearchFactRequirements.ForMember(
             LibraryBodyAnalysisFeatures.Allocations);
 
-    public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context)
+    public IReadOnlyList<Finding<IAnnotation>> Produce(ResearchFactContext context)
     {
         var function = context.Imported;
         if (context.Assembly is not { } assembly || function.MetadataToken == 0)
@@ -35,7 +35,9 @@ sealed class AllocationOccurrenceFactProducer : IResearchFactProducer
         return
         [
             .. AnalysisFindings.InspectAllocations(occurrences, subject)
-                .Select(finding => ToAnnotation(finding.Payload)),
+                .Select(finding => ResearchFactFinding.Project(
+                    finding,
+                    ToAnnotation(finding.Payload))),
         ];
     }
 
