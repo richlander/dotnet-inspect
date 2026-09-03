@@ -54,6 +54,7 @@ substrates, and inspection producers that will extend that space.
   implementation-relationship, type/member search, extension-reachability,
   API-comparison, progressive call-graph, and group-scoped source queries. The
   source query owns a Decompiler fallback over retained assembly content; the
+  proposed
   [member source comparison query](design/member-source-comparison-query.md)
   owns an explicit two-endpoint attempt over one resolved member. The project
   has no Markout, console, or filesystem-path dependency.

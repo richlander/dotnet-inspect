@@ -4,7 +4,9 @@
 
 This document defines the `DotnetInspector.Queries`-owned member source
 comparison operation for
-[#5528](https://github.com/richlander/dotnet-inspect/issues/5528), within the
+[#5682](https://github.com/richlander/dotnet-inspect/issues/5682), within the
+Inspect Web composition tracker
+[#5528](https://github.com/richlander/dotnet-inspect/issues/5528) and the
 structured-comparison tracker
 [#5526](https://github.com/richlander/dotnet-inspect/issues/5526).
 
@@ -62,16 +64,22 @@ request and physical-token rules remain authoritative.
 
 ## Result
 
-The result is presentation-neutral and has three top-level outcomes:
+The result is presentation-neutral and has five top-level outcomes:
 
 - `Available`: the target resolved and at least one endpoint attempt produced
   usable evidence;
 - `Unavailable`: the target resolved, but neither endpoint produced usable
-  evidence; or
+  evidence;
+- `NotFound`: the request's type, anchor, and MethodDef token did not resolve
+  one exact target;
+- `Failed`: inspection or binding-policy validation failed before a current
+  complete result could be published; or
 - `Rejected`: retained assembly access was rejected before the comparison
   could execute.
 
-An `Available` result contains two independent endpoint attempts.
+`NotFound`, `Failed`, and `Rejected` carry their typed cause and no endpoint
+attempts. `Available` and `Unavailable` contain two independent endpoint
+attempts.
 
 ### PDB endpoint
 
@@ -90,7 +98,8 @@ Open action.
 The decompiled endpoint is either:
 
 - `Available`, carrying the complete `MemberRenderResult`; or
-- `Unavailable`, carrying the typed decompilation attempt and failure.
+- `Unavailable`, carrying the typed decompilation status and failure detail but
+  no candidate comparison text.
 
 The query does not turn `MemberRenderResult` into a host's final comparison
 text. In particular, the existing CLI Source Diff compares a CLI-owned member
@@ -98,6 +107,11 @@ projection whose indentation and signature wrapping differ from
 `MemberBodyProducer`'s whole-type segment. The next presentation design must
 choose and own one canonical endpoint projection before either host computes
 line correspondence.
+
+`MemberRenderResult.Failed` may internally retain a source-shaped diagnostic
+comment in its `Text` property. That diagnostic is failure detail, not
+decompiled source. An unavailable endpoint does not expose it through a
+candidate-text member.
 
 ### Partial availability
 
@@ -147,21 +161,27 @@ Cancellation is observed:
 - through binding-policy resolution used by decompilation; and
 - before publishing the result.
 
-Cancellation and binding-policy invalidation remain failures of the operation,
-not endpoint-unavailable results. A result cannot combine endpoints produced
-under different binding-policy versions.
+Cancellation aborts the operation. Binding-policy invalidation produces the
+typed top-level `Failed` outcome rather than an endpoint-unavailable result. A
+result cannot combine endpoints produced under different binding-policy
+versions.
 
 ## Consumers and staged adoption
 
 The query is shared substrate with two planned consumers:
 
-1. a host-neutral member source-diff presentation adapter will consume the
-   endpoint evidence, choose the canonical comparison text, produce
-   `AnalysisDiff<string>`, and lower through Markout; the CLI Source Diff path
+1. [#5683](https://github.com/richlander/dotnet-inspect/issues/5683) will define
+   a host-neutral member source-diff presentation adapter that consumes the
+   endpoint evidence, chooses the canonical comparison text, produces
+   `AnalysisDiff<string>`, and lowers through Markout; the CLI Source Diff path
    will migrate to that adapter while preserving or explicitly changing its
    user-visible endpoint contract; and
-2. Inspect Web will consume the same adapter through a separately designed
-   bounded worker transport and browser presentation.
+2. Inspect Web will consume the same adapter through the bounded worker
+   transport in
+   [#5684](https://github.com/richlander/dotnet-inspect/issues/5684), surface
+   placement in [#5685](https://github.com/richlander/dotnet-inspect/issues/5685),
+   and viewer interaction in
+   [#5686](https://github.com/richlander/dotnet-inspect/issues/5686).
 
 Neither consumer is implemented in this design slice. The next stacked design
 must resolve the current CLI projection versus `MemberBodyProducer` text
@@ -175,12 +195,16 @@ Release query tests prove:
 - PDB success does not suppress decompilation;
 - PDB failure preserves its typed attempt while decompilation succeeds;
 - decompilation failure preserves its typed attempt while PDB source succeeds;
+- an unavailable decompilation endpoint exposes no candidate text even when
+  its underlying failure detail uses a source-shaped diagnostic;
 - both unavailable attempts produce explicit `Unavailable`;
+- an unresolved type, anchor, or MethodDef token produces explicit `NotFound`;
+- a resolution-time inspection failure produces explicit `Failed`;
 - retained-image rejection produces explicit `Rejected`;
 - both attempts refer to the same resolved MethodDef and retained participant;
 - cancellation during either attempt does not publish a partial success;
-- binding-policy invalidation during either attempt does not combine stale and
-  current evidence; and
+- binding-policy invalidation during either attempt produces `Failed` and does
+  not combine stale and current evidence; and
 - ordinary `AssemblyContextSourceQuery` behavior remains PDB-first with
   decompilation only as fallback.
 
